@@ -189,6 +189,20 @@ def wait_for_clickable(driver, xpath: str, timeout: int = 30):
     )
 
 
+def in_frame(driver) -> bool:
+    """Whether the session is currently switched into an iframe.
+
+    There is no WebDriver command for "which frame am I in", so this asks the
+    page: a document whose window is not the top window is a frame. Worth
+    reporting, because a forgotten frame switch makes every later locator fail
+    for a reason that looks nothing like the cause.
+    """
+    try:
+        return bool(driver.execute_script("return window.self !== window.top"))
+    except Exception:  # noqa: BLE001 - a dialog or a dead session must not raise here
+        return False
+
+
 def page_state(driver) -> dict:
     """Where the browser ended up, tolerating an open dialog.
 

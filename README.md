@@ -46,7 +46,7 @@ They differ in exactly one place, and only where it earns its keep: `screenshot`
 
 Nine actions. Each one is a tool and an endpoint; the parameters are identical, with a single exception noted below. All endpoints are `POST` with a JSON body.
 
-> **The one difference:** over HTTP, `session_id` is always **required**. Over MCP it is optional, because the server can work out which browser you mean — see [Sessions](#-sessions).
+> **The one difference:** over HTTP, `session_id` is always **required**. Over MCP it depends on the mode — required when the server cannot identify you, and refused when it can. The advertised schema says which; see [Sessions](#-sessions).
 
 <details>
 <summary><b><code>open_session</code></b> &nbsp;·&nbsp; <code>POST /browser/open</code> &nbsp;—&nbsp; start a browser 🚀</summary>
@@ -192,6 +192,36 @@ action that opens a dialog still succeeds and reports it, and `read` inspects
 the message without answering.
 
 **Returns** `action`, `message` (read before answering), plus page state.
+
+</details>
+
+<details>
+<summary><b><code>frame</code></b> &nbsp;·&nbsp; <code>POST /browser/frame</code> &nbsp;—&nbsp; enter an iframe 🖼️</summary>
+
+<br>
+
+Selenium does not look inside frames: an element in one is invisible to every
+locator until the session switches in. This is the real cause of most "but that
+XPath is right" timeouts.
+
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `session_id` | string | **yes** *(stateless)* | — | |
+| `action` | string | no | `switch` | `switch`, `parent`, `default` |
+| `xpath` | string | for `switch` | — | The `<iframe>` to enter |
+| `index` | integer | alternative to `xpath` | — | Zero-based frame index |
+| `wait_timeout` | integer | no | `30` | |
+
+```json
+{ "action": "switch", "xpath": "//iframe[@id='checkout']" }
+{ "action": "default" }
+```
+
+**The switch sticks.** It is session state on the Grid, not per-call, so
+everything afterwards stays inside that frame until something switches back —
+which is why `session://current` reports `in_frame`.
+
+**Returns** `action`, `in_frame`, plus page state.
 
 </details>
 
@@ -376,7 +406,18 @@ URLs compare with the fragment and any trailing slash ignored, so `/settings`, `
 
 `open_session` returns a `session_id` and every other call takes it. Over HTTP that is the whole story — session in, session out, always — so an n8n workflow owns its session outright and can pass it between nodes, store it, or hand it to another workflow.
 
-**Over MCP, `session_id` is optional.** An agent works one conversation at a time and gains nothing from threading an id through every call, so the server remembers a browser per caller. It works out who is calling from the first of these it finds, and **never invents one** — a caller it cannot identify is told to pass `session_id` rather than being quietly handed a fresh browser:
+**`open_session` always comes first.** Nothing opens a browser implicitly, because that is the only place its window size and timeouts can be chosen — hiding it hid the settings too.
+
+After that there are two modes, and they are **exclusive**. `session://current` reports which one applies and links the reference that explains it:
+
+| Mode | When | The rule |
+|---|---|---|
+| **saved** | the server can identify you | **never** pass `session_id` — it is not even advertised |
+| **stateless** | it cannot, or you are on `/browser/*` | `session_id` is **required** on every call |
+
+The tool schemas follow the mode, so a model reads the rule rather than discovering it by failing a call. Using the wrong one errors and names the right reference.
+
+The server works out who is calling from the first of these it finds, and **never invents one** — a caller it cannot identify is stateless, not quietly handed a browser:
 
 | Key | How it's set | How stable it is |
 |---|---|---|
@@ -469,10 +510,28 @@ Every flag has an environment fallback, because containers are configured with e
 | `REDIS_USERNAME` / `REDIS_PASSWORD` / `REDIS_SSL` | — | unset | Credentials for the above |
 | `REDIS_PREFIX` | — | `selenium-flow:session:` | Key namespace, so sharing a database is safe |
 | `SKILL_ENABLED` | `--no-skill` | `true` | Serve the embedded skill as a resource, and as a tool for clients without resources |
+| `WINDOW_WIDTH` / `WINDOW_HEIGHT` | — | node default | Default window size for new sessions |
+| `PAGE_LOAD_TIMEOUT` | — | unbounded | Seconds a navigation may take. **Worth setting** — a hanging page otherwise holds a Grid slot |
+| `SCRIPT_TIMEOUT` | — | driver default | Seconds `execute_script` may take |
 | `STATELESS_HTTP` | `--stateless` | `false` | Drop MCP transport sessions. Required for more than one replica |
 | `TRANSPORT` | `--transport` | `http` | `http` or `stdio` |
 | `HOST` / `PORT` | `--host` / `--port` | `0.0.0.0` / `8000` | |
 | `LOG_LEVEL` | `--log-level` | `INFO` | `DEBUG` logs which key each call resolved to, and how |
+
+### Session defaults cascade
+
+Window size and the two timeouts resolve in order of increasing specificity:
+
+```
+server default (env)  <  client default (?width= / X-Window-Width)  <  open_session argument
+```
+
+The header beats the parameter, as everywhere else here. `open_session` reports the settings
+it actually resolved to, so a typo shows up as a missing setting rather than a mystery — an
+unusable value is ignored, never fatal.
+
+A refresh after the Grid reaps a session reopens with the **same** settings, so a browser
+never silently changes shape midway through a task.
 
 ### 🔐 Auth
 

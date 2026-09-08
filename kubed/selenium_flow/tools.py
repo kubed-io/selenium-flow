@@ -20,7 +20,14 @@ from collections.abc import Callable
 from fastmcp import FastMCP
 from fastmcp.utilities.types import Image
 
-from .actions import DIALOG_ACTIONS, KEYS, MOUSE_ACTIONS, Actions
+from . import settings as settings_module
+from .actions import (
+    DIALOG_ACTIONS,
+    FRAME_ACTIONS,
+    KEYS,
+    MOUSE_ACTIONS,
+    Actions,
+)
 from .sessions import NAME_PARAM, SessionManager
 
 INSTRUCTIONS = f"""\
@@ -70,18 +77,36 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         url: str | None = None,
         width: int | None = None,
         height: int | None = None,
+        page_load_timeout: int | None = None,
+        script_timeout: int | None = None,
     ) -> dict:
-        """Start a browser session and return its session_id.
+        """Start a browser session. Do this first.
 
-        Optionally navigates to a starting URL. Set width and height when layout
-        matters: the headless default is small and varies between Grid nodes.
+        This is the only place a browser is created, and the only place its
+        settings can be chosen, so it is never done implicitly for you.
 
-        The returned session_id is remembered for this client where possible, so
-        later calls may omit it — but it is always returned, and passing it
-        explicitly always works and always wins.
+        Set width and height when layout matters — the headless default is
+        narrow and varies between Grid nodes. page_load_timeout bounds how long
+        a navigation may hang; without one a stuck page holds a scarce Grid slot
+        until the Grid reaps it.
+
+        The returned session_id is what a stateless caller passes to every later
+        call. If this server is holding the browser for you, it is returned for
+        information and you should NOT pass it back — read the session://current
+        resource if you are unsure which of the two you are.
         """
-        opened = actions.open_session(url=url, width=width, height=height)
-        sessions.remember(sessions.key(), opened["session_id"], opened.get("url", ""))
+        resolved = settings_module.resolve(
+            {
+                "width": width,
+                "height": height,
+                "page_load_timeout": page_load_timeout,
+                "script_timeout": script_timeout,
+            }
+        )
+        opened = actions.open_session(url=url, **resolved)
+        sessions.remember(
+            sessions.key(), opened["session_id"], opened.get("url", ""), resolved
+        )
         return opened
 
     @mcp.tool
@@ -132,6 +157,33 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
             session_id,
             lambda s: actions.interact(
                 s, action, xpath, url=url, wait_timeout=wait_timeout
+            ),
+        )
+
+    @mcp.tool(
+        description=(
+            "Move into an iframe, or back out of it.\n\n"
+            f"action is one of: {', '.join(FRAME_ACTIONS)}. Use switch with an "
+            "xpath (or index) to go into a frame, parent to go up one level, and "
+            "default to return to the main page.\n\n"
+            "Selenium does not look inside frames: an element in one is "
+            "invisible to every locator until you switch in. **The switch "
+            "sticks** — every later call stays in that frame until you switch "
+            "back, so if a locator that should work is failing, check "
+            "session://current for in_frame."
+        )
+    )
+    def frame(
+        action: str = "switch",
+        xpath: str | None = None,
+        index: int | None = None,
+        session_id: str | None = None,
+        wait_timeout: int = 30,
+    ) -> dict:
+        return run(
+            session_id,
+            lambda s: actions.frame(
+                s, action=action, xpath=xpath, index=index, wait_timeout=wait_timeout
             ),
         )
 

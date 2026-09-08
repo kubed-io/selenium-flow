@@ -90,6 +90,30 @@ will notice.
 | `SKILL_ENABLED` | `true` | `false` serves only the bare tools, no guidance |
 | `LOG_LEVEL` | `INFO` | `DEBUG` logs which key each call resolved to, and how |
 
+## Session defaults, and the three places they come from
+
+Window size and the two timeouts resolve in order of increasing specificity:
+
+```
+server default (env)   <   client default (URL param / header)   <   open_session argument
+```
+
+| Setting | Env | Parameter | Header |
+|---|---|---|---|
+| Window width | `WINDOW_WIDTH` | `?width=` | `X-Window-Width` |
+| Window height | `WINDOW_HEIGHT` | `?height=` | `X-Window-Height` |
+| Page load timeout (s) | `PAGE_LOAD_TIMEOUT` | `?page_load_timeout=` | `X-Page-Load-Timeout` |
+| Script timeout (s) | `SCRIPT_TIMEOUT` | `?script_timeout=` | `X-Script-Timeout` |
+
+The header beats the parameter, as everywhere else here, because the header is
+in the credential an admin controls.
+
+**`PAGE_LOAD_TIMEOUT` is the one worth setting.** Without it a navigation can
+hang indefinitely, holding one of the Grid's few slots until the Grid reaps it.
+An unusable value is ignored rather than fatal, and `open_session` reports the
+settings it actually resolved to — so a typo shows up as a missing setting
+rather than a mystery.
+
 ## Two lifetimes that are easy to confuse
 
 - **The browser** is expired by the Grid, on its own idle timeout

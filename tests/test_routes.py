@@ -172,6 +172,37 @@ def test_a_multipart_filename_can_be_overridden(open_client):
     assert response.status_code == 500, response.json()
 
 
+def test_frame_rejects_an_unknown_action(open_client):
+    response = open_client.post(
+        "/browser/frame", json={"session_id": "x", "action": "sideways"}
+    )
+    assert response.status_code == 400
+    error = response.json()["error"]
+    assert "sideways" in error
+    for known in ("switch", "parent", "default"):
+        assert known in error
+
+
+def test_frame_switch_needs_a_target(open_client):
+    """Switching without saying which frame is a caller mistake, not a default."""
+    response = open_client.post(
+        "/browser/frame", json={"session_id": "x", "action": "switch"}
+    )
+    assert response.status_code == 400
+    assert "xpath" in response.json()["error"]
+
+
+def test_frame_default_needs_no_target(open_client):
+    """Going back to the main page is unambiguous, so it takes no arguments.
+
+    A 500 means it got past validation to the unroutable Grid.
+    """
+    response = open_client.post(
+        "/browser/frame", json={"session_id": "x", "action": "default"}
+    )
+    assert response.status_code == 500, response.json()
+
+
 def test_a_non_object_body_is_rejected(open_client):
     response = open_client.post("/browser/open", json=[1, 2, 3])
     assert response.status_code == 400

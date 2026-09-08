@@ -78,6 +78,9 @@ class SeleniumMCP:
         if self.skill is not None:
             mirrors |= skill.register(self.mcp, self.skill)
         self.mcp.add_middleware(resources.HideMirrorTools(mirrors))
+        # Shapes session_id per request, so the advertised schema matches the
+        # mode the caller is actually in rather than the union of both.
+        self.mcp.add_middleware(resources.ShapeSessionId(self.sessions))
         # No saved sessions here, deliberately: the HTTP surface takes a session
         # id in and gives one back, so the caller owns it.
         routes.register(

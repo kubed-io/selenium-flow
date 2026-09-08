@@ -23,7 +23,10 @@ import logging
 from fastmcp import FastMCP
 from fastmcp.server.middleware import Middleware
 
-from .sessions import SessionManager, _http
+# Imported under the old name: this module (and its tests) patch _http to
+# simulate a request, and the alias keeps one seam rather than two.
+from .sessions import SessionManager
+from .sessions import http_request as _http
 
 log = logging.getLogger(__name__)
 
@@ -58,6 +61,71 @@ def client_reads_resources() -> bool:
     if declared is None:
         return True
     return str(declared).strip().lower() not in _OFF
+
+
+class ShapeSessionId(Middleware):
+    """Advertise ``session_id`` the way this request may actually use it.
+
+    The two session modes have opposite rules, and a model cannot follow a rule
+    it cannot see. So the listing is rewritten per request:
+
+    - **Saved**: ``session_id`` is removed from every schema. The server knows
+      which browser is yours, so there is nothing to pass and no way to pass the
+      wrong thing.
+    - **Stateless**: ``session_id`` becomes **required**, and loses its null
+      branch. A caller discovers it is mandatory by reading the schema rather
+      than by failing a call.
+
+    ``open_session`` is untouched: it has no ``session_id`` to shape, and it is
+    the one tool both modes call the same way.
+
+    Schemas are copied, never mutated — the registered tools are shared by every
+    client, and rewriting one in place would leak this request's mode into all
+    of them.
+    """
+
+    def __init__(self, sessions):
+        self.sessions = sessions
+
+    async def on_list_tools(self, context, call_next):
+        tools = await call_next(context)
+        saved = self.sessions.mode() == self.sessions.SAVED
+        return [_shaped(tool, saved) for tool in tools]
+
+
+def _shaped(tool, saved: bool):
+    """One tool with its ``session_id`` shaped for the mode, or unchanged."""
+    schema = tool.parameters or {}
+    properties = schema.get("properties") or {}
+    if "session_id" not in properties:
+        return tool
+
+    properties = dict(properties)
+    required = list(schema.get("required") or [])
+
+    if saved:
+        properties.pop("session_id", None)
+        required = [name for name in required if name != "session_id"]
+    else:
+        prop = dict(properties["session_id"])
+        branches = [b for b in prop.get("anyOf", []) if b.get("type") != "null"]
+        if len(branches) == 1:
+            prop = dict(branches[0])
+        prop.pop("default", None)
+        prop.setdefault(
+            "description",
+            "Required: this server cannot identify you, so you own the session.",
+        )
+        properties["session_id"] = prop
+        if "session_id" not in required:
+            required.insert(0, "session_id")
+
+    updated = {**schema, "properties": properties}
+    if required:
+        updated["required"] = required
+    else:
+        updated.pop("required", None)
+    return tool.model_copy(update={"parameters": updated})
 
 
 class HideMirrorTools(Middleware):

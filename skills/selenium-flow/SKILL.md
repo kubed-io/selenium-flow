@@ -25,11 +25,16 @@ it decides how every later call is shaped.
 
 | It reports | You are | Read |
 |---|---|---|
-| `"key": null` | stateless — you own the session id | `references/STATELESS.md` |
-| a non-null `key` | the server holds your browser | `references/SAVED_SESSIONS.md` |
+| `"mode": "stateless"` | you own the session id — pass it on every call | `references/STATELESS.md` |
+| `"mode": "saved"` | the server holds your browser — never pass an id | `references/SAVED_SESSIONS.md` |
 
-Get this wrong and every call fails the same way, so it is worth the one read.
-If you cannot read resources, the `current_session` tool returns the same object.
+It also links the right reference in its `guidance` field, so you do not have to
+remember which. The two modes are **exclusive**: using the wrong one fails every
+call the same way. If you cannot read resources, the `current_session` tool
+returns the same object.
+
+**Either way, call `open_session` first.** Nothing opens a browser implicitly,
+because `open_session` is the only place its window size and timeouts can be set.
 
 ## The three rules
 
@@ -62,9 +67,10 @@ Load only what the task needs.
 
 ## A whole task, minimally
 
-With saved sessions on, no `session_id` anywhere and no explicit open:
+In saved mode — `open_session` once, then no `session_id` anywhere:
 
 ```
+open_session(width=1400, height=900)
 write(url="https://example.com/login", xpath="//input[@name='email']", text="a@example.com")
 write(xpath="//input[@name='password']", text="...")
 interact(action="click", xpath="//button[@type='submit']")
@@ -72,13 +78,14 @@ extract(xpath="//h1")            # confirm you landed
 close_session()
 ```
 
-Stateless is the same shape with `open_session` first and `session_id` on every
-call. That is the only difference between the two modes.
+Stateless is the same shape with `session_id` on every call. That is the only
+difference between the two modes.
 
 ## The rest of the surface
 
 `interact` is every mouse gesture — click, double_click, right_click, hover,
-scroll_to. `upload_file` attaches a file to a file input. `dialog` answers a
+scroll_to. `frame` moves in and out of iframes, whose contents are otherwise
+invisible to every locator. `upload_file` attaches a file to a file input. `dialog` answers a
 native alert, confirm or prompt, which otherwise blocks everything. `resize`
 changes the window at any time, not just at open.
 

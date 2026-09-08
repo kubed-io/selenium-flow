@@ -20,20 +20,35 @@ or read `session://current`, which reports the URL without touching the browser.
 
 If the URL is right and the element still is not found, in order of likelihood:
 
-1. **It is inside an iframe.** Selenium does not cross frame boundaries, and
-   there is no frame tool yet — use `execute_script` against the frame's own
-   document, or address the frame's `src` URL directly with `navigate`.
+1. **It is inside an iframe** — or you are *already* inside one and the element
+   is not. Check `in_frame` on `session://current`: a frame switch sticks until
+   something switches back, so a locator on the main page fails while you are
+   still in a frame. Use `frame(action="switch", ...)` to go in and
+   `frame(action="default")` to come back.
 2. **It has not rendered yet** and the wait was too short — raise `wait_timeout`.
 3. **It is off-screen in a virtualised list** — scroll it into view first
    (`references/INTERACTION.md`).
 4. **The XPath is brittle** — positional paths break on any layout change; match
    on an attribute or on visible text instead.
 
-## "session_id is required"
+## "session_id is required" or "do not pass session_id"
 
-The message says which situation you are in. Either the server cannot identify
-you (`references/STATELESS.md`) or saved sessions are switched off. It is not a
-transient error and retrying unchanged will not help.
+These are the two halves of the same thing: the modes are exclusive and you are
+using the wrong one. Read `session://current` — it reports `mode` and links the
+reference that applies.
+
+- **"session_id is required"** — you are stateless and own the session. Call
+  `open_session` and pass its id on every call. See `references/STATELESS.md`.
+- **"do not pass session_id"** — the server is holding a browser for you. Omit
+  the argument entirely. See `references/SAVED_SESSIONS.md`.
+
+Neither is transient; retrying unchanged will not help.
+
+## "no browser is open for you yet"
+
+Nothing opens a browser implicitly — `open_session` is the only place that
+happens, because it is the only place window size and timeouts can be chosen.
+Call it once, then carry on.
 
 ## An invalid or unknown session
 

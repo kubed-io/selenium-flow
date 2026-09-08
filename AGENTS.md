@@ -162,6 +162,37 @@ would bake one client's capabilities into a shared process.
 This is the general pattern for anything that has to vary by client: filter the listing,
 keep the capability. `?resources=off` / `X-MCP-Resources: off` is how a client declares it.
 
+## The two session modes are exclusive, and the schema says so
+
+`open_session` is the only place a browser is created. It was briefly implicit —
+`resolve` opened one on first use — and that was removed because it hid the one
+place a session's settings can be chosen. Do not reintroduce it. A refresh after
+the Grid reaps a session is the *only* other open, and it replays the stored
+settings so the browser cannot change shape underneath a task.
+
+`resolve` enforces one rule per mode:
+
+- **stateless** (no caller key): `session_id` required.
+- **saved** (a key): `session_id` **refused**. An id from elsewhere is either a
+  mistake or a browser someone else owns. Sharing is by session *name*, which is
+  then the single way to do it.
+
+`resources.ShapeSessionId` rewrites the advertised schema per request to match —
+absent in saved mode, required in stateless. It **copies** each tool with
+`model_copy`; the registered tools are shared by every client, so mutating one
+in place would let the first client to list tools decide what every other client
+sees. `test_shaping_does_not_leak_between_clients` guards that.
+
+## Frame switches are Grid-side and sticky
+
+`switch_to.frame` changes the session's browsing context on the **Grid**, not in
+this process, so it survives every reconnect and keeps applying until something
+switches back — verified, since our architecture reconnects per call. That makes
+a forgotten switch a nasty failure: locators on the main page fail for a reason
+that looks nothing like the cause. `session://current` reports `in_frame` for
+exactly that, detected with `window.self !== window.top` because WebDriver has
+no "which frame am I in" command.
+
 ## Dialogs, and why the browser must never answer one
 
 `unhandledPromptBehavior` is set to `ignore` in `Grid._options()`. Chrome's

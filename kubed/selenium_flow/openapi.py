@@ -46,6 +46,13 @@ RESPONSES = {
             **PAGE_STATE,
             "width": {"type": "integer", "description": "Window width in use."},
             "height": {"type": "integer", "description": "Window height in use."},
+            "settings": {
+                "type": "object",
+                "description": (
+                    "The settings this session actually opened with, after the "
+                    "server default / client default / explicit cascade."
+                ),
+            },
         },
     },
     "close_session": {
@@ -58,6 +65,13 @@ RESPONSES = {
     "navigate": _page(),
     "interact": _page(
         action={"type": "string", "description": "The gesture that was performed."}
+    ),
+    "frame": _page(
+        action={"type": "string", "description": "The switch that was performed."},
+        in_frame={
+            "type": "boolean",
+            "description": "Whether the session is now inside a frame.",
+        },
     ),
     "resize": _page(
         width={"type": "integer", "description": "Window width now in effect."},

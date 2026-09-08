@@ -23,7 +23,7 @@ import json
 import logging
 import os
 import time
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from typing import Protocol
 
 log = logging.getLogger(__name__)
@@ -52,6 +52,9 @@ class SessionRecord:
     session_id: str
     url: str = ""
     opened_at: float = 0.0
+    # What the session was opened with, so a refresh reopens the same browser
+    # rather than a default one.
+    settings: dict = field(default_factory=dict)
 
     def to_json(self) -> str:
         return json.dumps(asdict(self))
@@ -60,10 +63,12 @@ class SessionRecord:
     def from_json(cls, raw: str | bytes) -> SessionRecord | None:
         try:
             data = json.loads(raw)
+            settings = data.get("settings")
             return cls(
                 session_id=str(data["session_id"]),
                 url=str(data.get("url", "")),
                 opened_at=float(data.get("opened_at", 0.0)),
+                settings=settings if isinstance(settings, dict) else {},
             )
         except (ValueError, KeyError, TypeError):
             # A malformed entry is a cache miss, not an outage.

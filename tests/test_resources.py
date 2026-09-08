@@ -96,6 +96,68 @@ async def test_the_hidden_tool_is_still_registered_and_callable(server):
     assert await server.mcp.get_tool(STATUS_TOOL) is not None
 
 
+# ---- session_id is advertised per mode --------------------------------------
+
+
+def saved(monkeypatch):
+    monkeypatch.setattr(
+        "kubed.selenium_flow.sessions.http_request", lambda: http({"session": "d"})
+    )
+
+
+def stateless(monkeypatch):
+    monkeypatch.setattr("kubed.selenium_flow.sessions.http_request", lambda: http())
+
+
+async def test_saved_mode_does_not_advertise_session_id(server, monkeypatch):
+    """A model cannot pass what it cannot see, which is the point."""
+    saved(monkeypatch)
+    tools = {t.name: t for t in await server.mcp.list_tools()}
+    for name in ("navigate", "extract", "interact", "close_session"):
+        assert "session_id" not in tools[name].parameters["properties"], name
+
+
+async def test_stateless_mode_makes_session_id_required(server, monkeypatch):
+    """So a caller reads that it is mandatory instead of discovering it by
+    failing a call."""
+    stateless(monkeypatch)
+    tools = {t.name: t for t in await server.mcp.list_tools()}
+    schema = tools["navigate"].parameters
+    assert "session_id" in schema["required"]
+    # and the null branch is gone, since null is never valid here
+    assert schema["properties"]["session_id"] == {
+        "type": "string",
+        "description": "Required: this server cannot identify you, so you own the session.",
+    }
+
+
+async def test_open_session_is_the_same_in_both_modes(server, monkeypatch):
+    """It has no session_id to shape, and both modes call it identically."""
+    saved(monkeypatch)
+    a = {t.name: t for t in await server.mcp.list_tools()}["open_session"].parameters
+    stateless(monkeypatch)
+    b = {t.name: t for t in await server.mcp.list_tools()}["open_session"].parameters
+    assert a == b
+    assert "session_id" not in a["properties"]
+
+
+async def test_shaping_does_not_leak_between_clients(server, monkeypatch):
+    """The registered tools are shared, so shaping must copy rather than mutate.
+
+    Otherwise the first client to list tools decides what every later client
+    sees, which is the worst kind of bug: correct in testing, wrong in use.
+    """
+    saved(monkeypatch)
+    await server.mcp.list_tools()
+    registered = await server.mcp.get_tool("navigate")
+    assert "session_id" in registered.parameters["properties"], (
+        "the registered tool was mutated in place"
+    )
+    stateless(monkeypatch)
+    tools = {t.name: t for t in await server.mcp.list_tools()}
+    assert "session_id" in tools["navigate"].parameters["properties"]
+
+
 # ---- what the status says --------------------------------------------------
 
 
@@ -106,7 +168,7 @@ def manager(actions=None, store=None):
 def test_describe_reports_nothing_held_without_opening_one(monkeypatch):
     """Reading a status resource must never create a browser."""
     monkeypatch.setattr(
-        "kubed.selenium_flow.sessions._http", lambda: http({"session": "desktop"})
+        "kubed.selenium_flow.sessions.http_request", lambda: http({"session": "desktop"})
     )
     actions = RecordingActions()
     status = manager(actions).describe()
@@ -117,7 +179,7 @@ def test_describe_reports_nothing_held_without_opening_one(monkeypatch):
 
 def test_describe_reports_a_held_session_and_its_liveness(monkeypatch):
     monkeypatch.setattr(
-        "kubed.selenium_flow.sessions._http", lambda: http({"session": "desktop"})
+        "kubed.selenium_flow.sessions.http_request", lambda: http({"session": "desktop"})
     )
     actions = RecordingActions()
     actions.grid.alive.add("abc")
@@ -135,7 +197,7 @@ def test_describe_reports_a_held_session_and_its_liveness(monkeypatch):
 def test_describe_flags_a_session_the_grid_has_reaped(monkeypatch):
     """The question a caller actually has: is my browser still there?"""
     monkeypatch.setattr(
-        "kubed.selenium_flow.sessions._http", lambda: http({"session": "desktop"})
+        "kubed.selenium_flow.sessions.http_request", lambda: http({"session": "desktop"})
     )
     sessions = manager()
     sessions.store.set(NAMED.value, SessionRecord(session_id="dead"))
@@ -143,6 +205,6 @@ def test_describe_flags_a_session_the_grid_has_reaped(monkeypatch):
 
 
 def test_describe_says_when_there_is_no_key_at_all(monkeypatch):
-    monkeypatch.setattr("kubed.selenium_flow.sessions._http", lambda: http())
+    monkeypatch.setattr("kubed.selenium_flow.sessions.http_request", lambda: http())
     status = manager().describe()
     assert status["key"] is None and status["session_id"] is None

@@ -41,5 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `resize` changes the window on an already-open session, which `open_session` alone could not do for a caller whose browser was opened for it.
 - An action that opens a dialog now succeeds and reports it rather than failing: reading the resulting url and title is refused while a dialog is open, and the click had in fact landed.
 - Every wait now says what it was waiting for, for how long, and what URL the browser was on — Selenium raises timeouts with an empty message, which reached callers as the useless string "Message:".
+- `open_session` is always required and never implicit: it is the only place a browser is created and the only place its window size and timeouts can be chosen, so opening one on first use hid the settings.
+- The two session modes are exclusive and the advertised schemas say which you are in — `session_id` is absent from every tool in saved mode and required in stateless mode, so a model reads the rule instead of discovering it by failing a call. Using the wrong one errors and names the reference that explains it.
+- `frame` moves a session into an iframe and back; frame contents are invisible to every locator otherwise. The switch is Grid-side session state and sticks until something switches back, so `session://current` reports `in_frame`.
+- Window size and both timeouts cascade: env var, then URL parameter or header, then the `open_session` argument. A session's settings are stored and replayed when the Grid reaps it, so a refresh cannot silently change the browser's shape.
+- `session://current` reports the `mode`, whether to pass `session_id`, the settings in force, whether the session is inside a frame, and a link to the reference that applies.
 - `--stateless` / `STATELESS_HTTP` to drop MCP transport sessions, which is what more than one replica requires.
 - `GET /openapi.yaml` and `/openapi.json` describing the HTTP surface, generated from the MCP tool schemas so the two contracts cannot drift; the spec is committed and CI fails if it goes stale.

@@ -40,6 +40,9 @@ MOUSE_ACTIONS = ("click", "double_click", "right_click", "hover", "scroll_to")
 # What can be done with a native dialog. "read" deliberately leaves it open.
 DIALOG_ACTIONS = ("accept", "dismiss", "read", "send_text")
 
+# Where a frame switch can go. "parent" matters for nested frames.
+FRAME_ACTIONS = ("switch", "parent", "default")
+
 
 def _decode(content) -> bytes:
     """Base64 file content as bytes, with a legible error if it is not base64."""
@@ -104,8 +107,20 @@ class Actions:
 
     # ---- session lifecycle -------------------------------------------------
 
-    def open_session(self, url=None, width=None, height=None) -> dict:
-        """Start a browser session, optionally at a URL and window size."""
+    def open_session(
+        self,
+        url=None,
+        width=None,
+        height=None,
+        page_load_timeout=None,
+        script_timeout=None,
+    ) -> dict:
+        """Start a browser session with the settings it should run under.
+
+        This is the only place a browser is created, and the only place these
+        settings can be chosen — window size can be changed later with
+        ``resize``, but the timeouts are set here and then simply hold.
+        """
         driver = self.grid.open()
         session_id = driver.session_id
 
@@ -115,18 +130,34 @@ class Actions:
                 as_int(width, current["width"]), as_int(height, current["height"])
             )
 
+        # Unbounded by default, which lets one hanging page hold a Grid slot for
+        # the whole idle timeout. Set here so it survives every later reconnect.
+        if page_load_timeout:
+            driver.set_page_load_timeout(as_int(page_load_timeout, 300))
+        if script_timeout:
+            driver.set_script_timeout(as_int(script_timeout, 30))
+
         current_url, title = "about:blank", ""
         if url:
             driver.get(url)
             current_url, title = driver.current_url, driver.title
 
         size = driver.get_window_size()
+        # Reported back so a caller can see what the cascade actually resolved
+        # to, rather than assuming its argument won. Both surfaces get this from
+        # here, so they cannot describe the same session differently.
+        applied = {"width": size["width"], "height": size["height"]}
+        if page_load_timeout:
+            applied["page_load_timeout"] = as_int(page_load_timeout, 0)
+        if script_timeout:
+            applied["script_timeout"] = as_int(script_timeout, 0)
         return {
             "session_id": session_id,
             "url": current_url,
             "title": title,
             "width": size["width"],
             "height": size["height"],
+            "settings": applied,
         }
 
     def close_session(self, session_id: str) -> dict:
@@ -185,6 +216,45 @@ class Actions:
 
         return {
             "action": resolved,
+            **browser.page_state(driver),
+        }
+
+    def frame(
+        self, session_id: str, action="switch", xpath=None, index=None, wait_timeout=30
+    ) -> dict:
+        """Move the session into an iframe, or back out of it.
+
+        Selenium does not look inside frames: an element in one is invisible to
+        every locator until the session is switched into it. That switch is
+        **session state on the Grid**, not something this process holds, so it
+        persists across calls — and keeps applying until something switches
+        back. That is why ``default`` exists and why the session resource
+        reports whether you are in a frame.
+        """
+        resolved = str(action).strip().lower()
+        if resolved not in FRAME_ACTIONS:
+            raise ValueError(
+                f"unknown action {action!r}; known actions: "
+                f"{', '.join(sorted(FRAME_ACTIONS))}"
+            )
+        if resolved == "switch" and not xpath and index is None:
+            raise ValueError("switch needs either xpath or index to say which frame")
+
+        driver = self.grid.reconnect(session_id)
+        if resolved == "default":
+            driver.switch_to.default_content()
+        elif resolved == "parent":
+            driver.switch_to.parent_frame()
+        elif xpath:
+            driver.switch_to.frame(
+                browser.wait_for_element(driver, xpath, as_int(wait_timeout, 30))
+            )
+        else:
+            driver.switch_to.frame(as_int(index, 0))
+
+        return {
+            "action": resolved,
+            "in_frame": browser.in_frame(driver),
             **browser.page_state(driver),
         }
 

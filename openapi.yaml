@@ -25,12 +25,15 @@ paths:
   /browser/open:
     post:
       operationId: open_session
-      summary: Start a browser session and return its session_id.
-      description: "Start a browser session and return its session_id.\n\nOptionally navigates to a starting\
-        \ URL. Set width and height when layout\nmatters: the headless default is small and varies between\
-        \ Grid nodes.\n\nThe returned session_id is remembered for this client where possible, so\nlater\
-        \ calls may omit it \u2014 but it is always returned, and passing it\nexplicitly always works\
-        \ and always wins."
+      summary: Start a browser session. Do this first.
+      description: "Start a browser session. Do this first.\n\nThis is the only place a browser is created,\
+        \ and the only place its\nsettings can be chosen, so it is never done implicitly for you.\n\n\
+        Set width and height when layout matters \u2014 the headless default is\nnarrow and varies between\
+        \ Grid nodes. page_load_timeout bounds how long\na navigation may hang; without one a stuck page\
+        \ holds a scarce Grid slot\nuntil the Grid reaps it.\n\nThe returned session_id is what a stateless\
+        \ caller passes to every later\ncall. If this server is holding the browser for you, it is returned\
+        \ for\ninformation and you should NOT pass it back \u2014 read the session://current\nresource\
+        \ if you are unsure which of the two you are."
       tags:
       - browser
       requestBody:
@@ -423,6 +426,49 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /browser/frame:
+    post:
+      operationId: frame
+      summary: Move into an iframe, or back out of it.
+      description: "Move into an iframe, or back out of it.\n\naction is one of: switch, parent, default.\
+        \ Use switch with an xpath (or index) to go into a frame, parent to go up one level, and default\
+        \ to return to the main page.\n\nSelenium does not look inside frames: an element in one is invisible\
+        \ to every locator until you switch in. **The switch sticks** \u2014 every later call stays in\
+        \ that frame until you switch back, so if a locator that should work is failing, check session://current\
+        \ for in_frame."
+      tags:
+      - browser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FrameRequest'
+      responses:
+        '200':
+          description: The action succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FrameResponse'
+        '400':
+          description: A required field is missing or a value is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or wrong bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: The Grid rejected the action or the session is gone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /browser/resize:
     post:
       operationId: resize
@@ -616,13 +662,8 @@ components:
   schemas:
     CloseSessionRequest:
       additionalProperties: false
-      properties:
-        session_id:
-          type: string
-          description: The session_id returned by /browser/open. Required here.
+      properties: {}
       type: object
-      required:
-      - session_id
     CloseSessionResponse:
       type: object
       properties:
@@ -641,15 +682,10 @@ components:
           - type: string
           - type: 'null'
           default: null
-        session_id:
-          type: string
-          description: The session_id returned by /browser/open. Required here.
         wait_timeout:
           default: 10
           type: integer
       type: object
-      required:
-      - session_id
     DialogResponse:
       type: object
       properties:
@@ -677,16 +713,12 @@ components:
       properties:
         script:
           type: string
-        session_id:
-          type: string
-          description: The session_id returned by /browser/open. Required here.
         url:
           anyOf:
           - type: string
           - type: 'null'
           default: null
       required:
-      - session_id
       - script
       type: object
     ExecuteScriptResponse:
@@ -701,9 +733,6 @@ components:
       properties:
         xpath:
           type: string
-        session_id:
-          type: string
-          description: The session_id returned by /browser/open. Required here.
         url:
           anyOf:
           - type: string
@@ -713,7 +742,6 @@ components:
           default: 30
           type: integer
       required:
-      - session_id
       - xpath
       type: object
     ExtractResponse:
@@ -725,6 +753,37 @@ components:
         text:
           type: string
           description: Visible text of the element.
+        url: *id001
+        title: *id002
+    FrameRequest:
+      additionalProperties: false
+      properties:
+        action:
+          default: switch
+          type: string
+        xpath:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+        index:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+        wait_timeout:
+          default: 30
+          type: integer
+      type: object
+    FrameResponse:
+      type: object
+      properties:
+        action:
+          type: string
+          description: The switch that was performed.
+        in_frame:
+          type: boolean
+          description: Whether the session is now inside a frame.
         url: *id001
         title: *id002
     Health:
@@ -761,9 +820,6 @@ components:
           type: string
         xpath:
           type: string
-        session_id:
-          type: string
-          description: The session_id returned by /browser/open. Required here.
         url:
           anyOf:
           - type: string
@@ -773,7 +829,6 @@ components:
           default: 30
           type: integer
       required:
-      - session_id
       - action
       - xpath
       type: object
@@ -790,11 +845,7 @@ components:
       properties:
         url:
           type: string
-        session_id:
-          type: string
-          description: The session_id returned by /browser/open. Required here.
       required:
-      - session_id
       - url
       type: object
     NavigateResponse:
@@ -820,6 +871,16 @@ components:
           - type: integer
           - type: 'null'
           default: null
+        page_load_timeout:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+        script_timeout:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
       type: object
     OpenSessionResponse:
       type: object
@@ -835,14 +896,15 @@ components:
         height:
           type: integer
           description: Window height in use.
+        settings:
+          type: object
+          description: The settings this session actually opened with, after the server default / client
+            default / explicit cascade.
     PressKeyRequest:
       additionalProperties: false
       properties:
         key:
           type: string
-        session_id:
-          type: string
-          description: The session_id returned by /browser/open. Required here.
         xpath:
           anyOf:
           - type: string
@@ -857,7 +919,6 @@ components:
           default: 30
           type: integer
       required:
-      - session_id
       - key
       type: object
     PressKeyResponse:
@@ -881,12 +942,7 @@ components:
           - type: integer
           - type: 'null'
           default: null
-        session_id:
-          type: string
-          description: The session_id returned by /browser/open. Required here.
       type: object
-      required:
-      - session_id
     ResizeResponse:
       type: object
       properties:
@@ -901,9 +957,6 @@ components:
     ScreenshotRequest:
       additionalProperties: false
       properties:
-        session_id:
-          type: string
-          description: The session_id returned by /browser/open. Required here.
         url:
           anyOf:
           - type: string
@@ -931,8 +984,6 @@ components:
           default: 30
           type: integer
       type: object
-      required:
-      - session_id
     ScreenshotResponse:
       type: object
       properties:
@@ -976,9 +1027,6 @@ components:
           - type: string
           - type: 'null'
           default: null
-        session_id:
-          type: string
-          description: The session_id returned by /browser/open. Required here.
         path:
           anyOf:
           - type: string
@@ -993,7 +1041,6 @@ components:
           default: 30
           type: integer
       required:
-      - session_id
       - xpath
       type: object
     UploadFileResponse:
@@ -1014,9 +1061,6 @@ components:
           type: string
         text:
           type: string
-        session_id:
-          type: string
-          description: The session_id returned by /browser/open. Required here.
         url:
           anyOf:
           - type: string
@@ -1032,7 +1076,6 @@ components:
           default: 30
           type: integer
       required:
-      - session_id
       - xpath
       - text
       type: object

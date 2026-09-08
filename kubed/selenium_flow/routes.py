@@ -18,6 +18,7 @@ from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from . import settings
 from .actions import Actions
 from .openapi import build_spec
 
@@ -35,6 +36,7 @@ ENDPOINTS = {
     "extract": "extract",
     "script": "execute_script",
     "screenshot": "screenshot",
+    "frame": "frame",
     "resize": "resize",
     "dialog": "dialog",
     "upload": "upload_file",
@@ -129,6 +131,11 @@ def _add(mcp, actions, token, prefix, path, method_name) -> None:
         # Drop unknown keys rather than 400 on them: a caller sending a field a
         # newer version accepts should not be a hard failure.
         kwargs = {k: v for k, v in body.items() if k in accepted}
+        if method_name == "open_session":
+            # Same cascade as the tool: server default < client default < body.
+            kwargs = settings.resolve(kwargs) | {
+                k: v for k, v in kwargs.items() if k not in settings.SETTINGS
+            }
         try:
             return JSONResponse(method(**kwargs))
         except TypeError as exc:

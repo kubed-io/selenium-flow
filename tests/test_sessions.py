@@ -45,13 +45,15 @@ class RecordingActions:
     def __init__(self):
         self.opened = 0
         self.opened_urls = []
+        self.opened_settings = []
         self.closed = []
         self.grid = FakeGrid()
 
-    def open_session(self, url=None, **_kwargs):
+    def open_session(self, url=None, **kwargs):
         self.opened += 1
         session_id = f"generated-{self.opened}"
         self.opened_urls.append(url)
+        self.opened_settings.append(dict(kwargs))
         self.grid.alive.add(session_id)
         return {"session_id": session_id, "url": url or "about:blank"}
 
@@ -76,14 +78,14 @@ def http(params=None, headers=None):
 
 
 def test_a_named_session_in_the_query_string_is_the_key(monkeypatch):
-    monkeypatch.setattr(sessions_module, "_http", lambda: http({"session": "desktop"}))
+    monkeypatch.setattr(sessions_module, "http_request", lambda: http({"session": "desktop"}))
     key = caller_key()
     assert key == CallerKey("named:desktop", "named")
 
 
 def test_a_named_session_header_works_too(monkeypatch):
     monkeypatch.setattr(
-        sessions_module, "_http", lambda: http(headers={"x-session-key": "desktop"})
+        sessions_module, "http_request", lambda: http(headers={"x-session-key": "desktop"})
     )
     assert caller_key().value == "named:desktop"
 
@@ -98,7 +100,7 @@ def test_the_header_wins_over_the_query_parameter(monkeypatch):
     """
     monkeypatch.setattr(
         sessions_module,
-        "_http",
+        "http_request",
         lambda: http({"session": "from-param"}, {"x-session-key": "from-header"}),
     )
     assert caller_key().value == "named:from-header"
@@ -108,7 +110,7 @@ def test_a_name_beats_the_transport_session(monkeypatch):
     """An explicit choice by the client is more trustworthy than the transport."""
     monkeypatch.setattr(
         sessions_module,
-        "_http",
+        "http_request",
         lambda: http({"session": "desktop"}, {"mcp-session-id": "abc123"}),
     )
     assert caller_key() == CallerKey("named:desktop", "named")
@@ -116,7 +118,7 @@ def test_a_name_beats_the_transport_session(monkeypatch):
 
 def test_the_transport_session_header_is_used_when_there_is_no_name(monkeypatch):
     monkeypatch.setattr(
-        sessions_module, "_http", lambda: http(headers={"mcp-session-id": "abc123"})
+        sessions_module, "http_request", lambda: http(headers={"mcp-session-id": "abc123"})
     )
     assert caller_key() == CallerKey("mcp:abc123", "transport")
 
@@ -128,12 +130,12 @@ def test_a_request_with_nothing_stable_has_no_key(monkeypatch):
     so every call looked like a new client and opened a new browser. Refusing to
     invent a key is the entire fix.
     """
-    monkeypatch.setattr(sessions_module, "_http", lambda: http())
+    monkeypatch.setattr(sessions_module, "http_request", lambda: http())
     assert caller_key() is None
 
 
 def test_stdio_is_one_client_so_a_constant_is_correct(monkeypatch):
-    monkeypatch.setattr(sessions_module, "_http", lambda: None)
+    monkeypatch.setattr(sessions_module, "http_request", lambda: None)
     assert caller_key() == CallerKey("stdio", "stdio")
 
 
@@ -144,26 +146,64 @@ def test_no_key_means_the_caller_must_be_explicit():
     assert actions.opened == 0, "an unidentifiable caller must never open a browser"
 
 
-def test_the_error_tells_the_caller_how_to_fix_it():
-    with pytest.raises(ValueError, match=r"\?session=<name>"):
+def test_the_error_names_the_reference_that_explains_it():
+    """An agent that hits this should not have to guess what to read."""
+    with pytest.raises(ValueError, match="STATELESS.md"):
         manager().resolve(None, None)
 
 
-# ---- resolving to a browser ------------------------------------------------
+# ---- the two modes are exclusive -------------------------------------------
 
 
-def test_an_explicit_session_id_always_wins():
-    """Even with a different one remembered, and without a liveness check.
+def test_a_key_means_saved_mode(monkeypatch):
+    monkeypatch.setattr(sessions_module, "http_request", lambda: http({"session": "d"}))
+    sessions = manager()
+    assert sessions.mode() == sessions.SAVED
 
-    The caller owns that session — it may have been opened through the HTTP
-    surface — so it is not ours to validate or replace.
+
+def test_no_key_means_stateless_mode(monkeypatch):
+    monkeypatch.setattr(sessions_module, "http_request", lambda: http())
+    sessions = manager()
+    assert sessions.mode() == sessions.STATELESS
+
+
+def test_stateless_honours_the_id_it_is_given():
+    assert manager().resolve(None, "abc") == "abc"
+
+
+def test_saved_mode_refuses_a_session_id():
+    """The modes are exclusive on purpose.
+
+    A caller passing an id while the server holds one for it is either confused
+    or reaching for a browser it does not own, and both produce the expensive
+    kind of mistake: acting on the wrong browser.
     """
     actions = RecordingActions()
     sessions = manager(actions)
-    sessions.remember(NAMED, "remembered")
-    assert sessions.resolve(NAMED, "explicit") == "explicit"
+    sessions.remember(NAMED, "mine")
+    with pytest.raises(ValueError, match="do not pass session_id"):
+        sessions.resolve(NAMED, "somebody-elses")
     assert actions.opened == 0
-    assert actions.grid.checked == []
+
+
+def test_the_refusal_names_the_reference():
+    with pytest.raises(ValueError, match="SAVED_SESSIONS.md"):
+        manager().resolve(NAMED, "abc")
+
+
+# ---- resolving, without any magic ------------------------------------------
+
+
+def test_resolve_never_opens_a_browser():
+    """open_session is the only place a browser is created.
+
+    Opening on first use hid the one place a session's settings could be
+    chosen, which is why it was removed.
+    """
+    actions = RecordingActions()
+    with pytest.raises(ValueError, match="call open_session first"):
+        manager(actions).resolve(NAMED, None)
+    assert actions.opened == 0
 
 
 def test_a_live_remembered_session_is_recalled():
@@ -176,28 +216,13 @@ def test_a_live_remembered_session_is_recalled():
     assert actions.opened == 0
 
 
-def test_a_stable_key_may_open_its_first_browser():
-    """Safe precisely because the key cannot change between calls."""
-    actions = RecordingActions()
-    sessions = manager(actions)
-    assert sessions.resolve(NAMED, None) == "generated-1"
-    assert actions.opened == 1
-
-
-def test_repeated_calls_on_one_key_open_exactly_one_browser():
-    """The property the leak violated, stated directly."""
-    actions = RecordingActions()
-    sessions = manager(actions)
-    for _ in range(5):
-        sessions.resolve(NAMED, None)
-    assert actions.opened == 1
-
-
 def test_clients_do_not_see_each_others_browsers():
     actions = RecordingActions()
     sessions = manager(actions)
-    assert sessions.resolve(NAMED, None) == "generated-1"
-    assert sessions.resolve(OTHER, None) == "generated-2"
+    actions.grid.alive.add("mine")
+    sessions.remember(NAMED, "mine")
+    with pytest.raises(ValueError, match="call open_session first"):
+        sessions.resolve(OTHER, None)
 
 
 # ---- refreshing a session the Grid has reaped ------------------------------
@@ -217,6 +242,19 @@ def test_a_reaped_session_is_reopened_where_it_left_off():
     assert actions.opened_urls == ["https://example.com/page"]
 
 
+def test_a_refresh_reopens_with_the_same_settings():
+    """Otherwise a refresh silently swaps the browser's shape mid-task."""
+    actions = RecordingActions()
+    sessions = manager(actions)
+    sessions.store.set(
+        NAMED.value,
+        SessionRecord(session_id="dead", url="", settings={"width": 1400, "height": 900}),
+    )
+    sessions.resolve(NAMED, None)
+    assert actions.opened_settings == [{"width": 1400, "height": 900}]
+    assert sessions.store.get(NAMED.value).settings == {"width": 1400, "height": 900}
+
+
 def test_the_refreshed_session_replaces_the_stored_one():
     actions = RecordingActions()
     sessions = manager(actions)
@@ -230,7 +268,8 @@ def test_the_refreshed_session_replaces_the_stored_one():
 def test_touch_records_the_page_for_a_later_refresh():
     actions = RecordingActions()
     sessions = manager(actions)
-    sessions.resolve(NAMED, None)
+    actions.grid.alive.add("abc")
+    sessions.remember(NAMED, "abc")
     sessions.touch(NAMED, "https://example.com/deep")
     assert sessions.store.get(NAMED.value).url == "https://example.com/deep"
 
@@ -244,18 +283,19 @@ def test_touch_on_an_unknown_key_is_harmless():
 # ---- forgetting ------------------------------------------------------------
 
 
-def test_forgetting_starts_a_new_browser_next_time():
+def test_forgetting_means_open_session_again():
     actions = RecordingActions()
     sessions = manager(actions)
-    sessions.resolve(NAMED, None)
+    actions.grid.alive.add("abc")
+    sessions.remember(NAMED, "abc")
     sessions.forget(NAMED)
-    assert sessions.resolve(NAMED, None) == "generated-2"
+    with pytest.raises(ValueError, match="call open_session first"):
+        sessions.resolve(NAMED, None)
 
 
 def test_closing_a_session_you_named_does_not_evict_someone_elses():
     """Closing an explicitly passed id must not drop an unrelated binding."""
-    actions = RecordingActions()
-    sessions = manager(actions)
+    sessions = manager()
     sessions.remember(NAMED, "mine")
     sessions.forget(NAMED, "a-different-session")
     assert sessions.store.get(NAMED.value).session_id == "mine"
@@ -271,27 +311,63 @@ def test_closing_the_remembered_session_does_evict_it():
 # ---- the feature, off ------------------------------------------------------
 
 
+def test_disabled_is_simply_stateless(monkeypatch):
+    """Off is a real mode, not a degraded one: every tool still works."""
+    monkeypatch.setattr(sessions_module, "http_request", lambda: http({"session": "d"}))
+    sessions = manager(enabled=False)
+    assert sessions.key() is None
+    assert sessions.mode() == sessions.STATELESS
+    assert sessions.resolve(None, "abc") == "abc"
+
+
 def test_disabled_requires_an_explicit_session_id():
     actions = RecordingActions()
-    sessions = manager(actions, enabled=False)
-    with pytest.raises(ValueError, match="disabled"):
-        sessions.resolve(NAMED, None)
-    assert actions.opened == 0, "disabled must never open a browser by itself"
-
-
-def test_disabled_still_honours_an_explicit_id():
-    assert manager(enabled=False).resolve(NAMED, "abc") == "abc"
-
-
-def test_disabled_has_no_key_at_all(monkeypatch):
-    monkeypatch.setattr(sessions_module, "_http", lambda: http({"session": "desktop"}))
-    assert manager(enabled=False).key() is None
+    with pytest.raises(ValueError, match="session_id is required"):
+        manager(actions, enabled=False).resolve(None, None)
+    assert actions.opened == 0
 
 
 def test_the_backend_in_use_is_reported():
     assert manager(enabled=False).kind == "disabled"
     assert manager().kind == "memory"
     assert manager(store=RedisStore(FakeRedis())).kind == "redis"
+
+
+# ---- what the status resource says -----------------------------------------
+
+
+def test_describe_reports_the_mode_and_where_to_read_about_it(monkeypatch):
+    monkeypatch.setattr(sessions_module, "http_request", lambda: http({"session": "d"}))
+    status = manager().describe()
+    assert status["mode"] == "saved"
+    assert status["pass_session_id"] is False
+    assert "SAVED_SESSIONS.md" in status["guidance"]
+
+
+def test_describe_reports_stateless_and_its_reference(monkeypatch):
+    monkeypatch.setattr(sessions_module, "http_request", lambda: http())
+    status = manager().describe()
+    assert status["mode"] == "stateless"
+    assert status["pass_session_id"] is True
+    assert "STATELESS.md" in status["guidance"]
+
+
+def test_describe_never_opens_a_browser(monkeypatch):
+    monkeypatch.setattr(sessions_module, "http_request", lambda: http({"session": "d"}))
+    actions = RecordingActions()
+    assert manager(actions).describe()["session_id"] is None
+    assert actions.opened == 0
+
+
+def test_describe_reports_the_settings_a_session_was_opened_with(monkeypatch):
+    monkeypatch.setattr(
+        sessions_module, "http_request", lambda: http({"session": "desktop"})
+    )
+    actions = RecordingActions()
+    actions.grid.alive.add("abc")
+    sessions = manager(actions)
+    sessions.remember(NAMED, "abc", "", {"width": 1400})
+    assert sessions.describe()["settings"] == {"width": 1400}
 
 
 # ---- the stores ------------------------------------------------------------

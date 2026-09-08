@@ -114,6 +114,32 @@ page received what you meant.
 Over the HTTP endpoint the same action takes a normal `multipart/form-data` file
 part, which is easier from a script or an n8n node and needs no encoding at all.
 
+## Iframes: switch in, and remember to switch back
+
+Selenium does not look inside frames. An element in one is invisible to every
+locator until the session is switched into it — which is the real cause of most
+"this XPath is definitely right" timeouts.
+
+```
+frame(action="switch", xpath="//iframe[@id='checkout']")
+write(xpath="//input[@name='card']", text="4242...")     # inside the frame
+frame(action="default")                                   # back to the page
+```
+
+| `action` | Goes |
+|---|---|
+| `switch` | into the frame named by `xpath` (or `index`) |
+| `parent` | up one level, for nested frames |
+| `default` | all the way back to the main page |
+
+**The switch sticks.** It is session state on the Grid, not something held for
+one call, so every later action stays inside that frame until something switches
+back. A locator on the main page will then fail for a reason that looks nothing
+like the cause — so if something obvious is failing, check `in_frame` on
+`session://current` before rewriting the selector.
+
+Switch back as soon as you are done in there.
+
 ## Native dialogs block everything
 
 An `alert`, `confirm` or `prompt` freezes the page: until it is answered, other

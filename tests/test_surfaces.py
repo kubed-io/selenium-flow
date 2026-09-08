@@ -24,6 +24,7 @@ EXPECTED = {
     "close_session",
     "navigate",
     "interact",
+    "frame",
     "resize",
     "dialog",
     "upload_file",

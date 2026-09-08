@@ -72,7 +72,7 @@ class CallerKey:
     source: str
 
 
-def _http() -> tuple[dict, dict] | None:
+def http_request() -> tuple[dict, dict] | None:
     """(query params, headers) for the current request, or None off HTTP.
 
     Both are looked up through FastMCP's dependency helpers, which read the
@@ -111,7 +111,7 @@ def caller_key() -> CallerKey | None:
     Returning None is a real answer, not a failure: it means this request
     carries nothing stable to key on, and the caller must pass ``session_id``.
     """
-    http = _http()
+    http = http_request()
     if http is None:
         # stdio: one process serves one client, so there is nothing to tell
         # apart and a constant is exactly right.
@@ -161,6 +161,19 @@ class SessionManager:
             return "disabled"
         return getattr(self.store, "kind", "memory")
 
+    SAVED = "saved"
+    STATELESS = "stateless"
+
+    def mode(self, key: CallerKey | None = None) -> str:
+        """Which contract this request is under.
+
+        Per request, not per server: the same process serves a client that names
+        a session and one that cannot, and they follow different rules.
+        """
+        if key is None:
+            key = self.key()
+        return self.SAVED if key is not None else self.STATELESS
+
     def key(self) -> CallerKey | None:
         """The current caller's key, or None when sessions are off."""
         if not self.enabled:
@@ -168,79 +181,122 @@ class SessionManager:
         return caller_key()
 
     def describe(self) -> dict:
-        """What this caller's session currently is, without changing anything.
+        """What this caller's session is, and which contract it is under.
 
         Deliberately side-effect free: reading a status resource must never open
         a browser, so this peeks at the store rather than going through
-        ``resolve``. ``live`` is the useful part — it says whether the Grid still
-        has the browser, which is the question a caller actually has.
+        ``resolve``. It reports the *mode* first because that decides the shape
+        of every later call, and names the reference that explains it — an agent
+        that reads this should not have to guess what to read next.
         """
         key = self.key()
+        mode = self.mode(key)
         status = {
+            "mode": mode,
             "session_id": None,
             "url": None,
             "live": None,
+            "in_frame": None,
             "key": key.value if key else None,
             "key_source": key.source if key else None,
             "store": self.kind,
+            "settings": {},
+            "guidance": (
+                "skill://selenium-flow/references/SAVED_SESSIONS.md"
+                if mode == self.SAVED
+                else "skill://selenium-flow/references/STATELESS.md"
+            ),
+            "pass_session_id": mode == self.STATELESS,
         }
         if key is None:
             return status
+
         record = self.store.get(key.value)
         if record is None:
             return status
+
         status["session_id"] = record.session_id
         status["url"] = record.url or None
+        status["settings"] = dict(record.settings or {})
         status["live"] = self.actions.grid.is_alive(record.session_id)
+        if status["live"]:
+            # Only worth a round trip when there is a live browser to ask.
+            try:
+                from . import browser as browser_module
+
+                status["in_frame"] = browser_module.in_frame(
+                    self.actions.grid.reconnect(record.session_id)
+                )
+            except Exception:  # noqa: BLE001 - status must never fail
+                status["in_frame"] = None
         return status
 
     def resolve(self, key: CallerKey | None, session_id: str | None) -> str:
-        """The session id to act on.
+        """The session id to act on, or an error explaining which mode you are in.
 
-        An explicit id always wins — a caller naming a session means it, and
-        substituting a remembered one would act on the wrong browser. It is also
-        taken on trust: the caller owns that session and may well have opened it
-        through the HTTP surface, so it is not ours to validate or replace.
+        The two modes are deliberately exclusive, because a caller that is
+        confused about which one it is in produces the most expensive class of
+        mistake: acting on the wrong browser, or opening one per call.
+
+        - **Stateless** (no key): ``session_id`` is required on every call.
+        - **Saved** (a key): ``session_id`` must NOT be passed. The server knows
+          which browser is yours, and an id from somewhere else is either a
+          mistake or a browser someone else owns.
+
+        Nothing here opens a browser. ``open_session`` is the one place that
+        happens, and hiding it behind a first use hid the only place a session's
+        settings could be chosen.
         """
-        if session_id:
-            return session_id
-        if not self.enabled:
-            raise ValueError(
-                "session_id is required: saved sessions are disabled on this server"
-            )
         if key is None:
+            if session_id:
+                return session_id
             raise ValueError(
                 "session_id is required: this request carries no stable session "
-                "to key on. Either pass session_id on every call, or name a "
-                f"session by adding ?{NAME_PARAM}=<name> to the MCP URL (or an "
-                f"{NAME_HEADER} header) so this server can remember one for you."
+                "to key on, so you own the session. Call open_session, keep the "
+                "session_id it returns, and pass it on every call. See the "
+                "skill's references/STATELESS.md."
+            )
+
+        if session_id:
+            raise ValueError(
+                "do not pass session_id: this server is holding a browser for "
+                f"you (key {key.source}). Omit session_id and it is resolved for "
+                "you. Passing one is only correct when the server cannot "
+                "identify you. See the skill's references/SAVED_SESSIONS.md."
             )
 
         record = self.store.get(key.value)
-        if record is not None:
-            if self.actions.grid.is_alive(record.session_id):
-                log.debug(
-                    "session %s recalled for key %s (%s)",
-                    record.session_id,
-                    key.value,
-                    key.source,
-                )
-                return record.session_id
-            # The Grid reaped it. Reopen where the caller left off so the
-            # refresh is invisible; this is why the record carries a url.
-            log.info(
-                "session %s is gone from the grid, reopening for key %s",
+        if record is None:
+            raise ValueError(
+                "no browser is open for you yet: call open_session first. It "
+                "takes the window size and timeouts this session should use, "
+                "which is why it is not done implicitly."
+            )
+
+        if self.actions.grid.is_alive(record.session_id):
+            log.debug(
+                "session %s recalled for key %s (%s)",
                 record.session_id,
                 key.value,
+                key.source,
             )
-            return self._open(key, url=record.url or None)
+            return record.session_id
 
-        # First use of a key we know is stable, so opening cannot leak.
-        return self._open(key)
+        # The Grid reaped it. Reopen where the caller left off, with the same
+        # settings, so a refresh does not silently change the browser's shape.
+        log.info(
+            "session %s is gone from the grid, reopening for key %s",
+            record.session_id,
+            key.value,
+        )
+        return self._open(key, url=record.url or None, settings=record.settings)
 
-    def _open(self, key: CallerKey, url: str | None = None) -> str:
-        opened = self.actions.open_session(url=url)
-        self.remember(key, opened["session_id"], opened.get("url", url or ""))
+    def _open(
+        self, key: CallerKey, url: str | None = None, settings: dict | None = None
+    ) -> str:
+        """Open a browser for this key. Only ``open_session`` and a refresh."""
+        opened = self.actions.open_session(url=url, **(settings or {}))
+        self.remember(key, opened["session_id"], opened.get("url", url or ""), settings)
         log.info(
             "opened session %s for key %s (%s)",
             opened["session_id"],
@@ -249,12 +305,28 @@ class SessionManager:
         )
         return opened["session_id"]
 
-    def remember(self, key: CallerKey | None, session_id: str, url: str = "") -> None:
-        """Bind a session to this caller."""
+    def remember(
+        self,
+        key: CallerKey | None,
+        session_id: str,
+        url: str = "",
+        settings: dict | None = None,
+    ) -> None:
+        """Bind a session to this caller, with the settings it was opened with.
+
+        The settings are stored because a refresh has to reopen the *same*
+        browser, not a default one — swapping a 1400x900 window for the node
+        default midway through a task would be a silent behaviour change.
+        """
         if self.enabled and key is not None:
             self.store.set(
                 key.value,
-                SessionRecord(session_id=session_id, url=url, opened_at=time.time()),
+                SessionRecord(
+                    session_id=session_id,
+                    url=url,
+                    opened_at=time.time(),
+                    settings=dict(settings or {}),
+                ),
             )
 
     def touch(self, key: CallerKey | None, url: str | None) -> None:
