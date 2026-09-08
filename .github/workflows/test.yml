@@ -1,0 +1,49 @@
+name: 🧪 Test
+
+# Unit tests only. They wire a server against an unroutable Grid address and
+# exercise coercion, auth and both surfaces through the real ASGI app — no
+# browser, no network, so this stays fast and needs no Grid in CI.
+
+on:
+  # No `paths` filter on pull_request, deliberately. This job is a REQUIRED
+  # status check, and a path-filtered required check never reports on a PR that
+  # misses the filter — GitHub then waits for it forever and the PR can never
+  # merge. The push filter below is fine: nothing gates on it.
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+    - kubed/**
+    - tests/**
+    - pyproject.toml
+    - .github/workflows/test.yml
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        # setuptools_scm needs history to resolve a version at install time.
+        fetch-depth: 0
+
+    - name: Setup Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.13'
+
+    - name: Install
+      run: pip install .[test]
+
+    - name: Lint
+      run: ruff check kubed
+
+    - name: Test
+      run: pytest

@@ -1,0 +1,14 @@
+# .git is deliberately NOT ignored: setuptools_scm derives the version from it,
+# and the build fails without it.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.github/
+*.log

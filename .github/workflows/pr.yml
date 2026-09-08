@@ -1,0 +1,36 @@
+name: 🔀 PR
+
+# Every PR must contribute a CHANGELOG entry, because that [Unreleased] section
+# becomes the release notes at publish time. A PR with no new entry fails here.
+# (The image and the tests are separate gates — see image.yml and test.yml.)
+
+on:
+  pull_request:
+    branches: [main]
+    # labeled/unlabeled so applying the `no changelog` label (e.g. Dependabot,
+    # or a late add) re-runs the gate with a fresh payload.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  # Auto-assign needs to write the assignee on the PR.
+  pull-requests: write
+
+jobs:
+  pr-tasks:
+    name: PR Tasks
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+
+    # Assign the PR author to their own PR per .github/assign.yml.
+    - name: Auto Assign
+      uses: kentaro-m/auto-assign-action@v2.0.2
+      with:
+        configuration-path: .github/assign.yml
+
+    - name: Make sure Changelog is updated
+      uses: tarides/changelog-check-action@v4
+      with:
+        changelog: CHANGELOG.md

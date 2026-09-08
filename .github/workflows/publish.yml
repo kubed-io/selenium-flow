@@ -1,0 +1,161 @@
+name: 🧬 Publish Version
+
+# Manual, intentional release — three jobs so the image is on Docker Hub BEFORE
+# the GitHub Release is cut:
+#
+#   version → roll CHANGELOG [Unreleased], commit + tag on main
+#   image   → check out that tag and build+push kubed/selenium-flow:<tag>
+#   release → create the GitHub Release for the tag
+#
+# Unlike the sibling repos, nothing here pins a deployed tag: this repo ships an
+# image and nothing else. The tag that actually runs lives in the cluster repo at
+# apps/selenium/components/mcp/kustomization.yaml, and is bumped there.
+#
+# Run once with push=false (dry run — computes the next version and builds the
+# image without pushing, changes nothing) then push=true to release.
+#
+# Auth for the version job: tokenless WIF → GCP Secret Manager → the kubed.io
+# GitHub App creds. The App token is what lets version-bump commit to protected
+# main and create the tag.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Version to bump to
+        default: patch
+        type: choice
+        options:
+        - patch
+        - minor
+        - major
+        - premajor
+        - preminor
+        - prepatch
+      push:
+        description: Push changes and create release
+        default: false
+        type: boolean
+
+permissions:
+  # contents: write so version-bump can commit the rolled CHANGELOG and create
+  # the tag on main.
+  contents: write
+  id-token: write   # GCP workload-identity federation
+
+jobs:
+
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.bump.outputs.tag }}
+      version: ${{ steps.bump.outputs.version }}
+      release-notes: ${{ steps.bump.outputs.release-notes }}
+    steps:
+
+    - name: Validate Branch
+      if: inputs.push
+      env:
+        REF: ${{ github.ref_name }}
+      run: |
+        if [[ "$REF" != "main" ]]; then
+          echo "::error::Releases can only be pushed from main. Current ref: $REF"
+          exit 1
+        fi
+
+    - name: Authenticate to GCP
+      uses: google-github-actions/auth@v3
+      with:
+        workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+        service_account: github@${{ vars.GCP_PROJECT }}.iam.gserviceaccount.com
+
+    # github-app = kubed.io app creds (JSON: github_app_client_id /
+    # github_app_private_key) pushed by apps/github/providers/gcp.
+    - name: Get secrets
+      id: secrets
+      uses: google-github-actions/get-secretmanager-secrets@v3
+      with:
+        secrets: |-
+          github_app:${{ vars.GCP_PROJECT }}/github-app
+
+    - name: Mint kubed.io app token
+      id: app-token
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ fromJson(steps.secrets.outputs.github_app).github_app_client_id }}
+        private-key: ${{ fromJson(steps.secrets.outputs.github_app).github_app_private_key }}
+
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+        token: ${{ steps.app-token.outputs.token }}
+
+    # Compute the next version WITHOUT changing anything, so we have it in hand
+    # before pinning the manifest to it.
+    - name: Compute next version
+      id: next
+      uses: duplocloud/version-bump@main
+      with:
+        version: ${{ inputs.action }}
+        push: false
+        token: ${{ steps.app-token.outputs.token }}
+
+    - name: Bump Version
+      id: bump
+      uses: duplocloud/version-bump@main
+      with:
+        version: ${{ steps.next.outputs.tag }}
+        push: ${{ inputs.push }}
+        token: ${{ steps.app-token.outputs.token }}
+
+  # Build + push the image at the freshly tagged commit. On a dry run there is no
+  # tag, so it builds the current ref without pushing (proves it still builds).
+  image:
+    name: Publish Image
+    needs: version
+    uses: ./.github/workflows/image.yml
+    with:
+      tag: ${{ inputs.push && needs.version.outputs.tag || '' }}
+      push: ${{ inputs.push }}
+
+  release:
+    name: Release
+    needs:
+    - version
+    - image
+    if: inputs.push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create the GitHub Release on the existing tag
+    steps:
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v3.0.3
+      with:
+        name: ${{ needs.version.outputs.tag }}
+        tag_name: ${{ needs.version.outputs.tag }}
+        prerelease: ${{ contains(needs.version.outputs.tag, '-') }}
+        body: |
+          [![Image Builder](${{ github.server_url }}/${{ github.repository }}/actions/workflows/image.yml/badge.svg)](${{ github.server_url }}/${{ github.repository }}/actions/workflows/image.yml)
+
+          Image: `kubed/selenium-flow:${{ needs.version.outputs.tag }}`
+
+          ${{ needs.version.outputs.release-notes }}
+
+    - name: Summary
+      env:
+        TAG: ${{ needs.version.outputs.tag }}
+        RELEASE_NOTES: ${{ needs.version.outputs.release-notes }}
+      run: |
+        {
+          echo "## Publish"
+          echo ""
+          echo "- **Tag**: $TAG"
+          echo "- **Image**: kubed/selenium-flow:$TAG"
+          echo ""
+          echo "### Release Notes"
+          echo ""
+          echo "$RELEASE_NOTES"
+        } >> "$GITHUB_STEP_SUMMARY"

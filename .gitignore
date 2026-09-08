@@ -1,0 +1,34 @@
+# Build & distribution artifacts
+build/
+dist/
+out/
+*.egg-info
+
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Tool caches
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+.venv/
+
+# Environment & direnv
+.env
+.envrc
+.direnv/
+
+# OS / Editor noise
+.DS_Store
+.idea/
+
+# Logs
+*.log
+

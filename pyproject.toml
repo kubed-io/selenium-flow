@@ -1,0 +1,64 @@
+[project]
+name = "kubed-selenium-flow"
+description = "MCP server that drives a Selenium Grid browser, and serves the same actions as plain HTTP endpoints"
+readme = "README.md"
+dynamic = ["version"]
+requires-python = ">=3.10.0"
+keywords = ["mcp", "selenium", "browser-automation", "fastmcp", "ai"]
+license-files = ["LICENSE"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+authors = [{ name = "Kelly", email = "admin@kellyferrone.com" }]
+maintainers = [{ name = "Kelly", email = "admin@kellyferrone.com" }]
+dependencies = [
+  "fastmcp>=4.0.0,<5",
+  "selenium>=4.48.0,<5",
+  "requests>=2.32.0",
+]
+
+[project.optional-dependencies]
+build = [
+  "setuptools_scm",
+  "build",
+  "wheel",
+]
+test = [
+  "pytest",
+  "pytest-asyncio",
+  "ruff",
+  "uvicorn",
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project.urls]
+Homepage = "https://github.com/kubed-io"
+Repository = "https://github.com/kubed-io/selenium-flow"
+Issues = "https://github.com/kubed-io/selenium-flow/issues"
+Changelog = "https://github.com/kubed-io/selenium-flow/blob/main/CHANGELOG.md"
+
+[project.scripts]
+selenium-flow = "kubed.selenium_flow.main:main"
+
+[tool.setuptools_scm]
+
+[tool.setuptools]
+packages = ["kubed.selenium_flow"]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+asyncio_mode = "auto"
+addopts = "--verbose"
+testpaths = ["tests"]
+markers = [
+  "unit: mark a test as a unit test",
+  "integration: mark a test as an integration test",
+]
+
+[tool.ruff]
+exclude = ["tests/*"]

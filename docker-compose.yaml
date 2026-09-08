@@ -1,0 +1,56 @@
+# Local build + smoke test for the kubed/selenium-flow image. `docker buildx bake`
+# reads the build block below -- that is what CI runs, so the tag list and
+# x-bake settings here are the release configuration, not just local convenience.
+services:
+  selenium-flow:
+    image: &image kubed/selenium-flow:latest
+    build:
+      context: .
+      target: runner
+      args:
+        PY_VERSION: ${PY_VERSION:-3.13}
+      tags:
+      - *image
+      - kubed/selenium-flow:${GIT_SHA:-latest}
+      - kubed/selenium-flow:${GIT_REF:-latest}
+      - kubed/selenium-flow:${GIT_TAG:-latest}
+      x-bake:
+        platforms:
+        - linux/amd64
+        - linux/arm64
+        cache-to: type=gha,mode=max,scope=selenium-flow
+        cache-from: type=gha,scope=selenium-flow
+    container_name: selenium-flow
+    restart: no
+    ports:
+    - 8000:8000
+    environment:
+      TRANSPORT: ${TRANSPORT:-http}
+      HOST: ${HOST:-0.0.0.0}
+      PORT: ${PORT:-8000}
+      # Points at the companion Grid below. In the cluster this is the Grid
+      # Service; there is no default that is right in both places.
+      GRID_URL: ${GRID_URL:-http://selenium:4444}
+      # Empty disables auth, which is what you want locally.
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
+    depends_on:
+      selenium:
+        condition: service_healthy
+
+  # A standalone Grid so `docker compose up` is a working system, not just a
+  # process that fails its first call.
+  selenium:
+    image: selenium/standalone-chromium:latest
+    container_name: selenium-flow-grid
+    restart: no
+    shm_size: 2gb
+    ports:
+    - 4444:4444
+    - 7900:7900
+    environment:
+      SE_NODE_SESSION_TIMEOUT: ${SE_NODE_SESSION_TIMEOUT:-300}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4444/status"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
