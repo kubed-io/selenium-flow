@@ -80,7 +80,56 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   mean generating Python and then deriving schemas from the generated Python. Nothing
   here is a contract another team designs against, which is when spec-first pays.
 
+## Sessions: what is stateful and what is not
+
+Three different "sessions" are in play, and conflating them is the trap.
+
+| | Lives in | Survives a restart |
+|---|---|---|
+| Browser session | Selenium Grid | yes |
+| MCP transport session | this process's memory | no |
+| `session_key` -> browser mapping | the session store (memory, or Redis) | only with Redis |
+
+**The browser session is the one that matters, and this server does not hold it.**
+`/browser/open` returns an id and the caller carries it. That is why a pod can restart,
+scale to zero, or be replaced mid-workflow without losing a browser.
+
+**Why the browser is not simply bound to the MCP session.** It could be: `ctx.session_id`
+is available on every transport, and FastMCP's own docs name Redis as the store for keying
+data to it. It is not done because:
+
+1. **It would break the one-to-one rule.** HTTP has no MCP session. Tools resolving a
+   session implicitly while endpoints demand an explicit one means an n8n workflow can no
+   longer reproduce what an agent did - the whole point of having both surfaces.
+2. **The lifetimes do not match.** A browser outlives this process; an MCP session does
+   not. Binding them means a restart orphans real browsers on the Grid, and an agent that
+   reconnects loses a browser that is still perfectly alive.
+3. **An explicit id is visible** - in a log, an n8n execution, a curl command. A wrong one
+   fails loudly instead of silently driving someone else's browser.
+
+`session_key` is the sanctioned middle ground: an explicit, caller-chosen name that works
+identically on both surfaces, so none of the above applies.
+
+## Scaling: replicas > 1 requires --stateless
+
+The `/browser` surface is replica-safe as it stands. The `/mcp` surface is **not** by
+default: FastMCP keeps MCP sessions in process memory, so a client whose next request is
+balanced to another pod is told its session does not exist.
+
+`--stateless` / `STATELESS_HTTP=true` drops MCP sessions entirely - no `Mcp-Session-Id` is
+issued and every request stands alone. Both surfaces are then replica-safe. The browser is
+unaffected either way, because its session was never here.
+
+So: `replicas: 1` needs nothing; more than one requires the flag, and Redis if `session_key`
+is in use.
+
 ## Gotchas
+
+- **`REDIS_DB` is not cosmetic.** One Redis serves the whole homelab and its logical
+  databases are allocated by index in `apps/redis/README.md`. This app is registered as
+  **db 6**. `REDIS_URL` without a `/<index>` path means db 0, which is n8n's, so the index
+  is passed to the client explicitly rather than left to the URL. Claim a new index in
+  that registry before ever changing it.
 
 - **`ReattachDriver` skips `start_session`.** That is the trick that lets this process bind
   to a browser it did not open. The cost is that `driver.caps` is empty, so anything

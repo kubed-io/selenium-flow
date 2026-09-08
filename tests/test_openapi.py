@@ -12,7 +12,12 @@ import pytest
 import yaml
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow.openapi import PLACEHOLDER_VERSION, RESPONSES, build_spec
+from kubed.selenium_flow.openapi import (
+    PLACEHOLDER_VERSION,
+    RESPONSES,
+    build_spec,
+    http_schema,
+)
 from kubed.selenium_flow.routes import ENDPOINTS
 
 pytestmark = pytest.mark.unit
@@ -41,13 +46,35 @@ async def test_every_endpoint_is_documented(spec):
 
 
 async def test_request_schemas_are_the_tool_schemas(server, spec):
-    """The anti-drift guarantee, asserted rather than assumed."""
+    """The anti-drift guarantee, asserted rather than assumed.
+
+    Equality holds through `http_schema`, which applies the one sanctioned
+    difference: session_id is required on an endpoint and optional on a tool.
+    """
     tools = {t.name: t for t in await server.mcp.list_tools()}
     for action in ENDPOINTS.values():
         documented = spec["components"]["schemas"][
             "".join(p.capitalize() for p in action.split("_")) + "Request"
         ]
-        assert documented == dict(tools[action].parameters), action
+        assert documented == http_schema(tools[action].parameters), action
+
+
+async def test_session_id_is_required_on_every_endpoint_that_takes_one(server, spec):
+    """The HTTP surface is explicit, always. That is its whole contract."""
+    for action in ENDPOINTS.values():
+        schema = spec["components"]["schemas"][
+            "".join(p.capitalize() for p in action.split("_")) + "Request"
+        ]
+        if "session_id" in schema.get("properties", {}):
+            assert "session_id" in schema["required"], action
+            # no null branch either: an endpoint cannot resolve one for you
+            assert schema["properties"]["session_id"]["type"] == "string"
+
+
+async def test_tools_leave_session_id_optional(server):
+    """The mirror of the above: saved sessions can fill it in for an agent."""
+    click = await server.mcp.get_tool("click")
+    assert "session_id" not in click.parameters["required"]
 
 
 async def test_every_action_declares_a_response_shape(spec):

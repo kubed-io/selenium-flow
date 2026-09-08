@@ -27,4 +27,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Screenshots return a real MCP image content block, so a vision model can see the page; viewport, single-element and full-page modes are all supported.
 - Bearer token auth covering both surfaces, enabled by setting `MCP_AUTH_TOKEN`; `/health` stays open so a kubelet can probe it.
 - `/health` reports Grid readiness and live session count, not just process liveness.
+- Saved sessions: an MCP caller may omit `session_id` and the browser from earlier in the conversation is found again, backed by pod memory or optionally Redis (`REDIS_*`, db 6). The HTTP endpoints stay explicit — session in, session out — so a workflow owns its session.
+- `--stateless` / `STATELESS_HTTP` to drop MCP transport sessions, which is what more than one replica requires.
 - `GET /openapi.yaml` and `/openapi.json` describing the HTTP surface, generated from the MCP tool schemas so the two contracts cannot drift; the spec is committed and CI fails if it goes stale.

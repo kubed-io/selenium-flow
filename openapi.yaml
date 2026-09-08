@@ -26,9 +26,11 @@ paths:
     post:
       operationId: open_session
       summary: Start a browser session and return its session_id.
-      description: "Start a browser session and return its session_id.\n\nCall this first \u2014 every\
-        \ other tool needs the id it returns. Optionally\nnavigates to a starting URL. Set width and height\
-        \ when layout matters:\nthe headless default is small and varies between Grid nodes."
+      description: "Start a browser session and return its session_id.\n\nOptionally navigates to a starting\
+        \ URL. Set width and height when layout\nmatters: the headless default is small and varies between\
+        \ Grid nodes.\n\nThe returned session_id is remembered for this conversation, so later\ncalls\
+        \ may omit it \u2014 but it is still returned, and passing it explicitly\nalways works and always\
+        \ wins."
       tags:
       - browser
       requestBody:
@@ -69,9 +71,11 @@ paths:
       description: 'Quit the browser session and free its Grid slot.
 
 
-        Call this when finished, including after a failure. Sessions are
+        Call this when finished, including after a failure. Sessions are limited
 
-        limited and an abandoned one stays open until it times out.'
+        and an abandoned one stays open until it times out. Omit session_id to
+
+        close the one this conversation has been using.'
       tags:
       - browser
       requestBody:
@@ -440,10 +444,11 @@ components:
     ClickRequest:
       additionalProperties: false
       properties:
-        session_id:
-          type: string
         xpath:
           type: string
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
         url:
           anyOf:
           - type: string
@@ -470,9 +475,10 @@ components:
       properties:
         session_id:
           type: string
+          description: The session_id returned by /browser/open. Required here.
+      type: object
       required:
       - session_id
-      type: object
     CloseSessionResponse:
       type: object
       properties:
@@ -490,10 +496,11 @@ components:
     ExecuteScriptRequest:
       additionalProperties: false
       properties:
-        session_id:
-          type: string
         script:
           type: string
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
         url:
           anyOf:
           - type: string
@@ -513,10 +520,11 @@ components:
     ExtractRequest:
       additionalProperties: false
       properties:
-        session_id:
-          type: string
         xpath:
           type: string
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
         url:
           anyOf:
           - type: string
@@ -556,16 +564,25 @@ components:
         sessions:
           type: integer
           description: Sessions held Grid-wide.
+        saved_sessions:
+          type: string
+          enum:
+          - disabled
+          - memory
+          - redis
+          description: "Backend remembering a browser per MCP session. Affects MCP callers only \u2014\
+            \ these endpoints are always explicit."
         error:
           type: string
           description: Only present when degraded.
     NavigateRequest:
       additionalProperties: false
       properties:
-        session_id:
-          type: string
         url:
           type: string
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
       required:
       - session_id
       - url
@@ -611,10 +628,11 @@ components:
     PressKeyRequest:
       additionalProperties: false
       properties:
-        session_id:
-          type: string
         key:
           type: string
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
         xpath:
           anyOf:
           - type: string
@@ -645,6 +663,7 @@ components:
       properties:
         session_id:
           type: string
+          description: The session_id returned by /browser/open. Required here.
         url:
           anyOf:
           - type: string
@@ -671,9 +690,9 @@ components:
         wait_timeout:
           default: 30
           type: integer
+      type: object
       required:
       - session_id
-      type: object
     ScreenshotResponse:
       type: object
       properties:
@@ -695,12 +714,13 @@ components:
     WriteRequest:
       additionalProperties: false
       properties:
-        session_id:
-          type: string
         xpath:
           type: string
         text:
           type: string
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
         url:
           anyOf:
           - type: string

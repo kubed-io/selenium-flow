@@ -8,10 +8,17 @@ changes this document with no further work.
 Response shapes are the one hand-maintained half: the actions return plain
 dicts, so there is nothing to introspect. ``RESPONSES`` below is that
 declaration, and a test asserts every endpoint has one.
+
+One transform is applied on the way through. Saved sessions let an MCP caller
+omit ``session_id``, so the tool schema marks it optional. The HTTP endpoints
+never do that — they take a session in and give one back so the caller owns it —
+so ``_http_schema`` puts it back as required. That is the single sanctioned
+difference between the two schemas, and a test pins it.
 """
 
 from __future__ import annotations
 
+import copy
 from importlib.metadata import PackageNotFoundError, version
 
 from fastmcp import FastMCP
@@ -89,6 +96,14 @@ HEALTH = {
         "grid": {"type": "string", "description": "Grid hub URL this server dials."},
         "grid_ready": {"type": "boolean"},
         "sessions": {"type": "integer", "description": "Sessions held Grid-wide."},
+        "saved_sessions": {
+            "type": "string",
+            "enum": ["disabled", "memory", "redis"],
+            "description": (
+                "Backend remembering a browser per MCP session. Affects MCP "
+                "callers only — these endpoints are always explicit."
+            ),
+        },
         "error": {"type": "string", "description": "Only present when degraded."},
     },
 }
@@ -142,7 +157,7 @@ async def build_spec(
 
         request_name = f"{_camel(action)}Request"
         response_name = f"{_camel(action)}Response"
-        schemas[request_name] = dict(tool.parameters)
+        schemas[request_name] = http_schema(tool.parameters)
         schemas[response_name] = RESPONSES.get(action, {"type": "object"})
 
         paths[f"{prefix}/{path}"] = {
@@ -254,6 +269,33 @@ async def build_spec(
         spec["security"] = [{"bearerAuth": []}]
 
     return spec
+
+
+def http_schema(tool_schema: dict) -> dict:
+    """A tool's schema as the HTTP surface actually accepts it.
+
+    Only one thing changes: ``session_id`` becomes required and loses its null
+    branch. MCP callers may omit it because saved sessions can supply it; an
+    endpoint has no session to draw on and must be told.
+    """
+    schema = copy.deepcopy(tool_schema)
+    prop = schema.get("properties", {}).get("session_id")
+    if prop is None:
+        return schema
+
+    required = schema.setdefault("required", [])
+    if "session_id" not in required:
+        required.insert(0, "session_id")
+
+    branches = [b for b in prop.get("anyOf", []) if b.get("type") != "null"]
+    if len(branches) == 1:
+        prop.clear()
+        prop.update(branches[0])
+    prop.pop("default", None)
+    prop.setdefault(
+        "description", "The session_id returned by /browser/open. Required here."
+    )
+    return schema
 
 
 def _error(description: str) -> dict:

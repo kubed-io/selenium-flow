@@ -61,8 +61,10 @@ async def test_tools_declare_real_parameter_schemas(server):
     click = await server.mcp.get_tool("click")
     props = click.parameters["properties"]
     assert {"session_id", "xpath", "url", "wait_timeout"} <= set(props)
-    assert props["session_id"]["type"] == "string"
+    assert click.parameters["required"] == ["xpath"]
     assert "input" not in props
+    # ctx is injected by FastMCP and must never reach the model as a parameter
+    assert "ctx" not in props
 
 
 async def test_press_key_lists_its_keys_in_the_description(server):
@@ -76,3 +78,20 @@ async def test_press_key_lists_its_keys_in_the_description(server):
 def test_actions_reject_a_missing_session_id(actions):
     with pytest.raises(ValueError, match="session_id is required"):
         actions._at("", None)
+
+
+async def test_stateless_mode_keeps_both_surfaces_intact(server):
+    """Statelessness is a transport setting, not a capability change.
+
+    It exists so more than one replica can serve the /mcp surface — MCP sessions
+    otherwise live in one process's memory. The browser is unaffected either way,
+    because its session lives on the Grid and the caller carries the id.
+    """
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    stateless = SeleniumMCP(
+        grid_url="http://grid.invalid:4444", auth_token="t", stateless=True
+    )
+    assert stateless.stateless is True
+    assert server.stateless is False
+    assert {t.name for t in await stateless.mcp.list_tools()} == EXPECTED

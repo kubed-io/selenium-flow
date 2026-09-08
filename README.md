@@ -90,6 +90,13 @@ Every flag has an environment fallback.
 | `GRID_URL` | `--grid-url` | the in-cluster Grid Service | Selenium Grid hub |
 | `MCP_AUTH_TOKEN` | `--auth-token` | unset | Bearer token required on `/mcp` and `/browser/*`. Unset disables auth |
 | `ROUTE_PREFIX` | `--route-prefix` | `/browser` | Path prefix for the HTTP endpoints |
+| `SAVED_SESSIONS` | `--no-saved-sessions` | `true` | Let MCP callers omit `session_id`. Never affects the HTTP endpoints |
+| `REDIS_URL` | — | unset | Share saved sessions. Any `REDIS_*` setting turns Redis on |
+| `REDIS_DB` | — | `6` | **Database index.** The cluster's Redis is shared and every index has an owner; 6 is this app's. Applied even when `REDIS_URL` carries no `/<index>` |
+| `REDIS_HOST` / `REDIS_PORT` | — | `localhost` / `6379` | Alternative to `REDIS_URL` |
+| `REDIS_USERNAME` / `REDIS_PASSWORD` / `REDIS_SSL` | — | unset | Credentials for the above |
+| `REDIS_PREFIX` / `REDIS_TTL` | — | `selenium-flow:session:` / `86400` | Key namespace and expiry |
+| `STATELESS_HTTP` | `--stateless` | `false` | Drop MCP transport sessions. Required to run more than one replica |
 | `TRANSPORT` | `--transport` | `http` | `http` or `stdio` |
 | `HOST` / `PORT` | `--host` / `--port` | `0.0.0.0` / `8000` | |
 | `LOG_LEVEL` | `--log-level` | `INFO` | |

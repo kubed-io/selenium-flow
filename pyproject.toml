@@ -21,6 +21,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Only needed to share saved sessions across replicas or across a restart. The
+# image installs it so the feature is a config change, not a rebuild.
+redis = [
+  "redis>=5.0,<7",
+]
 build = [
   "setuptools_scm",
   "build",
@@ -32,6 +37,7 @@ test = [
   "ruff",
   "uvicorn",
   "openapi-spec-validator",
+  "redis>=5.0,<7",
 ]
 
 [build-system]

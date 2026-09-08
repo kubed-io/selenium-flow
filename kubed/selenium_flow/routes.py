@@ -38,7 +38,13 @@ ENDPOINTS = {
 }
 
 
-def register(mcp: FastMCP, actions: Actions, token: str | None, prefix: str) -> None:
+def register(
+    mcp: FastMCP,
+    actions: Actions,
+    token: str | None,
+    prefix: str,
+    sessions_kind: str = "memory",
+) -> None:
     """Register ``/health`` and the ``<prefix>/*`` action endpoints on ``mcp``."""
 
     @mcp.custom_route("/health", methods=["GET"])
@@ -62,6 +68,7 @@ def register(mcp: FastMCP, actions: Actions, token: str | None, prefix: str) -> 
                 "grid": actions.grid.url,
                 "grid_ready": ready,
                 "sessions": sessions,
+                "saved_sessions": sessions_kind,
             },
             status_code=200 if ready else 503,
         )

@@ -25,7 +25,9 @@ FROM python:${PY_VERSION}-slim AS runner
 WORKDIR /app
 
 COPY --from=builder /app/dist ./dist/
-RUN pip install --no-cache-dir ./dist/*.whl && rm -rf ./dist
+# [redis] is baked in so turning on shared saved sessions is a matter of
+# setting REDIS_URL, not building a different image.
+RUN pip install --no-cache-dir "$(echo ./dist/*.whl)[redis]" && rm -rf ./dist
 
 ENV TRANSPORT=http \
     HOST=0.0.0.0 \

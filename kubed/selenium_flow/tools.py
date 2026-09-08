@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import base64
 
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
 from fastmcp.utilities.types import Image
 
 from .actions import KEYS, Actions
+from .sessions import SavedSessions
 
 INSTRUCTIONS = """\
 Drives a real Chrome browser on Selenium Grid. The browser is persistent: it \
@@ -38,45 +39,65 @@ execute_script for anything the other tools do not cover, scrolling included.
 """
 
 
-def register(mcp: FastMCP, actions: Actions) -> None:
-    """Register every action as an MCP tool on ``mcp``."""
+def register(mcp: FastMCP, actions: Actions, saved: SavedSessions) -> None:
+    """Register every action as an MCP tool on ``mcp``.
+
+    ``session_id`` is optional on every tool because saved sessions may fill it
+    in from the MCP session. When the feature is off, omitting it is an error
+    with a message that says so — the tool still works, it just has to be told
+    which browser. The HTTP surface never does this; see ``sessions.py``.
+    """
+
+    def sid(ctx: Context, session_id: str | None) -> str:
+        return saved.resolve(getattr(ctx, "session_id", None), session_id)
 
     @mcp.tool
     def open_session(
+        ctx: Context,
         url: str | None = None,
         width: int | None = None,
         height: int | None = None,
     ) -> dict:
         """Start a browser session and return its session_id.
 
-        Call this first — every other tool needs the id it returns. Optionally
-        navigates to a starting URL. Set width and height when layout matters:
-        the headless default is small and varies between Grid nodes.
+        Optionally navigates to a starting URL. Set width and height when layout
+        matters: the headless default is small and varies between Grid nodes.
+
+        The returned session_id is remembered for this conversation, so later
+        calls may omit it — but it is still returned, and passing it explicitly
+        always works and always wins.
         """
-        return actions.open_session(url=url, width=width, height=height)
+        opened = actions.open_session(url=url, width=width, height=height)
+        saved.remember(getattr(ctx, "session_id", None), opened["session_id"])
+        return opened
 
     @mcp.tool
-    def close_session(session_id: str) -> dict:
+    def close_session(ctx: Context, session_id: str | None = None) -> dict:
         """Quit the browser session and free its Grid slot.
 
-        Call this when finished, including after a failure. Sessions are
-        limited and an abandoned one stays open until it times out.
+        Call this when finished, including after a failure. Sessions are limited
+        and an abandoned one stays open until it times out. Omit session_id to
+        close the one this conversation has been using.
         """
-        return actions.close_session(session_id)
+        resolved = sid(ctx, session_id)
+        result = actions.close_session(resolved)
+        saved.forget(getattr(ctx, "session_id", None))
+        return result
 
     @mcp.tool
-    def navigate(session_id: str, url: str) -> dict:
+    def navigate(ctx: Context, url: str, session_id: str | None = None) -> dict:
         """Go to a URL. Returns the resulting URL and page title.
 
         Use this to move somewhere unconditionally. To act on a page in one
         step, prefer passing url to click, write, extract or screenshot.
         """
-        return actions.navigate(session_id, url)
+        return actions.navigate(sid(ctx, session_id), url)
 
     @mcp.tool
     def click(
-        session_id: str,
+        ctx: Context,
         xpath: str,
+        session_id: str | None = None,
         url: str | None = None,
         wait_timeout: int = 30,
     ) -> dict:
@@ -85,13 +106,14 @@ def register(mcp: FastMCP, actions: Actions) -> None:
         Returns the URL and title *after* the click, so any navigation the
         click caused is visible in the result.
         """
-        return actions.click(session_id, xpath, url=url, wait_timeout=wait_timeout)
+        return actions.click(sid(ctx, session_id), xpath, url=url, wait_timeout=wait_timeout)
 
     @mcp.tool
     def write(
-        session_id: str,
+        ctx: Context,
         xpath: str,
         text: str,
+        session_id: str | None = None,
         url: str | None = None,
         clear: bool = True,
         submit: bool = False,
@@ -104,7 +126,7 @@ def register(mcp: FastMCP, actions: Actions) -> None:
         you can confirm the text actually landed.
         """
         return actions.write(
-            session_id,
+            sid(ctx, session_id),
             xpath,
             text,
             url=url,
@@ -127,20 +149,22 @@ def register(mcp: FastMCP, actions: Actions) -> None:
         )
     )
     def press_key(
-        session_id: str,
+        ctx: Context,
         key: str,
+        session_id: str | None = None,
         xpath: str | None = None,
         url: str | None = None,
         wait_timeout: int = 30,
     ) -> dict:
         return actions.press_key(
-            session_id, key, xpath=xpath, url=url, wait_timeout=wait_timeout
+            sid(ctx, session_id), key, xpath=xpath, url=url, wait_timeout=wait_timeout
         )
 
     @mcp.tool
     def extract(
-        session_id: str,
+        ctx: Context,
         xpath: str,
+        session_id: str | None = None,
         url: str | None = None,
         wait_timeout: int = 30,
     ) -> dict:
@@ -150,21 +174,24 @@ def register(mcp: FastMCP, actions: Actions) -> None:
         costs far more. //body reads everything, but a narrower XPath keeps the
         result small.
         """
-        return actions.extract(session_id, xpath, url=url, wait_timeout=wait_timeout)
+        return actions.extract(sid(ctx, session_id), xpath, url=url, wait_timeout=wait_timeout)
 
     @mcp.tool
-    def execute_script(session_id: str, script: str, url: str | None = None) -> dict:
+    def execute_script(
+        ctx: Context, script: str, session_id: str | None = None, url: str | None = None
+    ) -> dict:
         """Run JavaScript in the page and return its result.
 
         The escape hatch for anything the other tools do not cover: scrolling
         (window.scrollTo(0, 2000)), drag and drop, computed styles, direct DOM
         access. Use `return` to send a value back.
         """
-        return actions.execute_script(session_id, script, url=url)
+        return actions.execute_script(sid(ctx, session_id), script, url=url)
 
     @mcp.tool
     def screenshot(
-        session_id: str,
+        ctx: Context,
+        session_id: str | None = None,
         url: str | None = None,
         xpath: str | None = None,
         full_page: bool = False,
@@ -181,7 +208,7 @@ def register(mcp: FastMCP, actions: Actions) -> None:
         a rendered chart. To read content, extract is far cheaper.
         """
         result = actions.screenshot(
-            session_id,
+            sid(ctx, session_id),
             url=url,
             xpath=xpath,
             full_page=full_page,

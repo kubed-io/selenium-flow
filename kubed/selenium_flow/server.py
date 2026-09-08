@@ -14,6 +14,8 @@ from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 from . import routes, tools
 from .actions import Actions
 from .browser import DEFAULT_GRID_URL, Grid
+from .sessions import SavedSessions
+from .store import SessionStore, from_env
 
 DEFAULT_ROUTE_PREFIX = "/browser"
 
@@ -24,6 +26,14 @@ class SeleniumMCP:
     Every capability is exposed twice: as an MCP tool for agents, and as a JSON
     HTTP endpoint under ``/browser`` for everything else. Both call the same
     functions, so the surfaces cannot drift.
+
+    The server holds no browser state — a session lives on the Grid and the
+    caller carries its id. What it *does* hold, in the default HTTP mode, is the
+    MCP transport session, and that lives in this process's memory. So the
+    ``/browser`` surface scales to any number of replicas as-is, while the
+    ``/mcp`` surface does not: a client whose next request lands on another pod
+    is told its session does not exist. Set ``stateless`` to drop MCP sessions
+    entirely and make both surfaces replica-safe.
     """
 
     def __init__(
@@ -31,10 +41,21 @@ class SeleniumMCP:
         grid_url: str = DEFAULT_GRID_URL,
         auth_token: str | None = None,
         route_prefix: str = DEFAULT_ROUTE_PREFIX,
+        stateless: bool = False,
+        saved_sessions: bool = True,
+        store: SessionStore | None = None,
     ):
         self.grid = Grid(grid_url)
         self.actions = Actions(self.grid)
         self.auth_token = auth_token
+        self.stateless = stateless
+        # Redis when REDIS_* says so, in-pod memory otherwise. The store is only
+        # ever a key -> session-id map; the browser is on the Grid either way.
+        self.saved = SavedSessions(
+            self.actions,
+            store=store if store is not None else from_env(),
+            enabled=saved_sessions,
+        )
 
         # A token turns on auth for both surfaces. Absent, the server is open —
         # correct for a local `docker compose up`, and the reason the deployment
@@ -46,8 +67,12 @@ class SeleniumMCP:
             )
 
         self.mcp = FastMCP("Selenium", instructions=tools.INSTRUCTIONS, auth=auth)
-        tools.register(self.mcp, self.actions)
-        routes.register(self.mcp, self.actions, auth_token, route_prefix)
+        tools.register(self.mcp, self.actions, self.saved)
+        # No saved sessions here, deliberately: the HTTP surface takes a session
+        # id in and gives one back, so the caller owns it.
+        routes.register(
+            self.mcp, self.actions, auth_token, route_prefix, self.saved.kind
+        )
 
     def run(
         self, transport: str = "http", host: str = "0.0.0.0", port: int = 8000
@@ -56,4 +81,9 @@ class SeleniumMCP:
         if transport == "stdio":
             self.mcp.run(transport="stdio")
         else:
-            self.mcp.run(transport="http", host=host, port=port)
+            self.mcp.run(
+                transport="http",
+                host=host,
+                port=port,
+                stateless_http=self.stateless,
+            )

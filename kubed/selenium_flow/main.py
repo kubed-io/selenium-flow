@@ -37,6 +37,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="path prefix for the plain HTTP endpoints (env: ROUTE_PREFIX)",
     )
     parser.add_argument(
+        "--no-saved-sessions",
+        dest="saved_sessions",
+        action="store_false",
+        default=os.environ.get("SAVED_SESSIONS", "true").strip().lower()
+        not in ("0", "false", "no", "off"),
+        help="require session_id on every MCP tool call instead of remembering "
+        "the browser per MCP session. The HTTP endpoints are unaffected: they "
+        "are always explicit (env: SAVED_SESSIONS)",
+    )
+    parser.add_argument(
+        "--stateless",
+        action="store_true",
+        default=os.environ.get("STATELESS_HTTP", "").strip().lower()
+        in ("1", "true", "yes", "on"),
+        help="drop MCP transport sessions so any replica can serve any request; "
+        "required to run more than one replica (env: STATELESS_HTTP)",
+    )
+    parser.add_argument(
         "--transport",
         default=os.environ.get("TRANSPORT", "http"),
         choices=["stdio", "http"],
@@ -69,6 +87,15 @@ def main(argv: list[str] | None = None) -> None:
         grid_url=args.grid_url,
         auth_token=args.auth_token or None,
         route_prefix=args.route_prefix,
+        stateless=args.stateless,
+        saved_sessions=args.saved_sessions,
+    )
+    logging.getLogger(__name__).info(
+        "grid=%s auth=%s saved-sessions=%s stateless=%s",
+        args.grid_url,
+        "on" if args.auth_token else "off",
+        server.saved.kind,
+        args.stateless,
     )
     server.run(transport=args.transport, host=args.host, port=args.port)
 
