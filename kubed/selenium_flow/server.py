@@ -11,7 +11,7 @@ from __future__ import annotations
 from fastmcp import FastMCP
 from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 
-from . import routes, tools
+from . import resources, routes, tools
 from .actions import Actions
 from .browser import DEFAULT_GRID_URL, Grid
 from .sessions import SessionManager
@@ -68,6 +68,9 @@ class SeleniumMCP:
 
         self.mcp = FastMCP("Selenium", instructions=tools.INSTRUCTIONS, auth=auth)
         tools.register(self.mcp, self.actions, self.sessions)
+        # Session status as a resource, plus the same thing as a tool for
+        # clients that cannot read resources at all.
+        resources.register(self.mcp, self.sessions)
         # No saved sessions here, deliberately: the HTTP surface takes a session
         # id in and gives one back, so the caller owns it.
         routes.register(

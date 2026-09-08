@@ -146,6 +146,22 @@ and the store expires mappings via its own TTL. Do not add a scheduler.
 An explicitly passed `session_id` is taken on trust and never validated or replaced — the
 caller owns it, and may well have opened it through the HTTP surface.
 
+### The status resource, and why it is also a tool
+
+`session://current` is the natural shape for "what browser am I holding" — state to read,
+not an action, so a client can pull it into context without spending a tool call. It must
+stay side-effect free: `describe()` peeks at the store rather than going through `resolve`,
+because a status read that opens a browser would be the original leak wearing a hat.
+
+Resources are the least implemented part of MCP, so the same status is a `current_session`
+tool as well. That tool is **hidden from `tools/list` by default and still callable** — the
+decision is made per request in `on_list_tools` middleware, because it depends on who is
+asking, and one server object serves every client. Registering it conditionally at startup
+would bake one client's capabilities into a shared process.
+
+This is the general pattern for anything that has to vary by client: filter the listing,
+keep the capability. `?resources=off` / `X-MCP-Resources: off` is how a client declares it.
+
 ## Scaling: replicas > 1 requires --stateless
 
 The `/browser` surface is replica-safe as it stands. The `/mcp` surface is **not** by

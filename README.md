@@ -88,6 +88,18 @@ Always `close_session`, including on failure paths. Sessions are limited and an 
 one holds a slot until the Grid times it out — which the Grid does on its own, so nothing
 here runs a cleanup loop.
 
+### Session status
+
+`session://current` is an MCP resource reporting the browser this client is holding —
+`session_id`, the page it is on, and whether the Grid still has it. Reading it never opens
+a browser, so a null `session_id` genuinely means nothing is held.
+
+Resources are the least widely implemented part of MCP, so the same status is also a
+`current_session` **tool**. It is hidden from `tools/list` by default, on the assumption
+the client reads resources; a client that cannot says so with `?resources=off` on the MCP
+URL or an `X-MCP-Resources: off` header, and the tool appears. It stays callable either
+way.
+
 ### Navigation
 
 `click`, `write`, `press_key`, `extract`, `screenshot` and `execute_script` all take an

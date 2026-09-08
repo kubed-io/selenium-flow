@@ -167,6 +167,33 @@ class SessionManager:
             return None
         return caller_key()
 
+    def describe(self) -> dict:
+        """What this caller's session currently is, without changing anything.
+
+        Deliberately side-effect free: reading a status resource must never open
+        a browser, so this peeks at the store rather than going through
+        ``resolve``. ``live`` is the useful part — it says whether the Grid still
+        has the browser, which is the question a caller actually has.
+        """
+        key = self.key()
+        status = {
+            "session_id": None,
+            "url": None,
+            "live": None,
+            "key": key.value if key else None,
+            "key_source": key.source if key else None,
+            "store": self.kind,
+        }
+        if key is None:
+            return status
+        record = self.store.get(key.value)
+        if record is None:
+            return status
+        status["session_id"] = record.session_id
+        status["url"] = record.url or None
+        status["live"] = self.actions.grid.is_alive(record.session_id)
+        return status
+
     def resolve(self, key: CallerKey | None, session_id: str | None) -> str:
         """The session id to act on.
 
