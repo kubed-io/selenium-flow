@@ -119,7 +119,9 @@ def _add(mcp, actions, token, prefix, path, method_name) -> None:
         except Exception:  # noqa: BLE001 - an empty body is legitimate for /open
             body = {}
         if not isinstance(body, dict):
-            return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+            return JSONResponse(
+                {"error": "body must be a JSON object"}, status_code=400
+            )
 
         # Drop unknown keys rather than 400 on them: a caller sending a field a
         # newer version accepts should not be a hard failure.

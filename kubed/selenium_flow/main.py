@@ -1,8 +1,10 @@
 """Entry point: turn CLI flags and environment into a running server.
 
 Every flag has an environment fallback because the container is configured with
-env vars while a developer reaches for flags. Nothing else in the package reads
-the environment, so this file is the whole configuration surface.
+env vars while a developer reaches for flags. The one thing not configured here
+is the session store, which reads ``SESSION_STORE`` / ``SESSION_TTL`` /
+``REDIS_*`` in ``store.py`` so that choosing a backend stays next to the code
+that builds one.
 """
 
 from __future__ import annotations
@@ -94,7 +96,7 @@ def main(argv: list[str] | None = None) -> None:
         "grid=%s auth=%s saved-sessions=%s stateless=%s",
         args.grid_url,
         "on" if args.auth_token else "off",
-        server.saved.kind,
+        server.sessions.kind,
         args.stateless,
     )
     server.run(transport=args.transport, host=args.host, port=args.port)

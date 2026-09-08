@@ -94,25 +94,57 @@ Three different "sessions" are in play, and conflating them is the trap.
 `/browser/open` returns an id and the caller carries it. That is why a pod can restart,
 scale to zero, or be replaced mid-workflow without losing a browser.
 
-**Why the browser is not simply bound to the MCP session.** It could be: `ctx.session_id`
-is available on every transport, and FastMCP's own docs name Redis as the store for keying
-data to it. It is not done because:
+### Never key on `Context.session_id`
 
-1. **It would break the one-to-one rule.** HTTP has no MCP session. Tools resolving a
-   session implicitly while endpoints demand an explicit one means an n8n workflow can no
-   longer reproduce what an agent did - the whole point of having both surfaces.
-2. **The lifetimes do not match.** A browser outlives this process; an MCP session does
-   not. Binding them means a restart orphans real browsers on the Grid, and an agent that
-   reconnects loses a browser that is still perfectly alive.
-3. **An explicit id is visible** - in a log, an n8n execution, a curl command. A wrong one
-   fails loudly instead of silently driving someone else's browser.
+**`ctx.session_id` is a trap and this package must not use it.** It looks like the obvious
+way to identify a caller, and FastMCP's own docs suggest it for exactly that. The problem
+is its failure mode: when it cannot find a real session it returns `str(uuid4())` rather
+than raising, so it *never* fails — it silently hands back a brand new identity on every
+single request.
 
-Saved sessions are the sanctioned middle ground, and they are **recall only**: `resolve`
-returns a remembered id or raises, and never opens a browser. That is not a detail — a
-client without a stable `Mcp-Session-Id` (Claude Code, for one) gets a freshly generated
-key on every request, so an opening resolver leaked a Grid slot per call and then timed
-out looking for elements on `about:blank`. It was caught driving the real server from
-Claude Code, and `test_resolve_never_opens_a_browser` is the guard.
+That shipped once. Every tool call looked like a first-time caller, opened a browser, and
+leaked a Grid slot; the next call then timed out hunting for elements on `about:blank`.
+The tell was the shape of the key: the server's real ids are undashed hex
+(`131c43cc…`) while the ones in the log were dashed UUIDs (`bf532044-b55e-…`) — a value
+FastMCP had invented, not one the transport negotiated.
+
+`sessions.py` therefore reads the `Mcp-Session-Id` header itself, via
+`get_http_request()`. That is a different code path from the one `ctx.session_id` uses and
+it keeps working where that one gives up — verified against the deployed server. A missing
+session then shows up as a missing session, which is the whole point.
+
+### How a caller is identified
+
+In order, first match wins, and nothing is ever invented:
+
+1. **A name the client chose** — the `X-Session-Key` header, else `?session=<name>` on the
+   MCP URL. **The header winning is a permission boundary, not a preference.** The header
+   lives in the credential, which an admin controls; the query parameter is written by
+   whoever wires up the call. An admin who pins a name in the credential is deliberately
+   tying one session to one credential, so a caller must not be able to override it from
+   the URL. Leaving the header out is equally a decision: it delegates the choice to
+   whoever implements the call, who names each caller in its own URL against one shared
+   bearer credential — rather than needing a multi-header credential per agent.
+2. **The MCP transport session** — the `Mcp-Session-Id` header, read directly.
+3. **stdio**, where one process serves one client, so a constant is correct.
+4. **Otherwise no key**, and the caller is told to pass `session_id`.
+
+Opening a browser on first use is safe *because* every accepted key is stable by
+construction. That is the invariant to preserve: if a new key source is ever added, it must
+be one the client controls, or the leak comes straight back.
+`test_a_request_with_nothing_stable_has_no_key` and
+`test_repeated_calls_on_one_key_open_exactly_one_browser` are the guards.
+
+### Refresh, not cleanup
+
+A stored mapping can name a browser the Grid has already reaped. `resolve` checks
+`Grid.is_alive` and, if it is gone, reopens and navigates back to the record's last known
+`url` — which is why the store holds a record rather than a bare id. Nothing in this
+package runs a cleanup loop: the Grid expires idle browsers via `SE_NODE_SESSION_TIMEOUT`,
+and the store expires mappings via its own TTL. Do not add a scheduler.
+
+An explicitly passed `session_id` is taken on trust and never validated or replaced — the
+caller owns it, and may well have opened it through the HTTP surface.
 
 ## Scaling: replicas > 1 requires --stateless
 

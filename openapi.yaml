@@ -28,9 +28,9 @@ paths:
       summary: Start a browser session and return its session_id.
       description: "Start a browser session and return its session_id.\n\nOptionally navigates to a starting\
         \ URL. Set width and height when layout\nmatters: the headless default is small and varies between\
-        \ Grid nodes.\n\nThe returned session_id is remembered for this conversation, so later\ncalls\
-        \ may omit it \u2014 but it is still returned, and passing it explicitly\nalways works and always\
-        \ wins."
+        \ Grid nodes.\n\nThe returned session_id is remembered for this client where possible, so\nlater\
+        \ calls may omit it \u2014 but it is always returned, and passing it\nexplicitly always works\
+        \ and always wins."
       tags:
       - browser
       requestBody:
@@ -73,9 +73,9 @@ paths:
 
         Call this when finished, including after a failure. Sessions are limited
 
-        and an abandoned one stays open until it times out. Omit session_id to
+        and an abandoned one stays open until the Grid reaps it. Omit session_id
 
-        close the one this conversation has been using.'
+        to close the one this client has been using.'
       tags:
       - browser
       requestBody:

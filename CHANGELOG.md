@@ -27,7 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Screenshots return a real MCP image content block, so a vision model can see the page; viewport, single-element and full-page modes are all supported.
 - Bearer token auth covering both surfaces, enabled by setting `MCP_AUTH_TOKEN`; `/health` stays open so a kubelet can probe it.
 - `/health` reports Grid readiness and live session count, not just process liveness.
-- Saved sessions are recall-only: they never open a browser, because a client without a stable MCP session id would otherwise leak a Grid slot on every call.
-- Saved sessions: an MCP caller may omit `session_id` and the browser from earlier in the conversation is found again, backed by pod memory or optionally Redis (`REDIS_*`, db 6). The HTTP endpoints stay explicit — session in, session out — so a workflow owns its session.
+- Saved sessions: an MCP caller may omit `session_id` and the browser it used earlier is found again, keyed on a name the client chooses (`X-Session-Key` header, else `?session=<name>` on the MCP URL) or on the negotiated `Mcp-Session-Id`. The HTTP endpoints stay explicit — session in, session out — so a workflow owns its session.
+- A remembered browser the Grid has already reaped is reopened on next use and returned to the page it was last on, so the refresh is invisible to the caller.
+- `SESSION_STORE` (`memory` or `redis`) and `SESSION_TTL` configure where mappings are kept and for how long; both stores honour the TTL identically, and browser lifetime stays the Grid's job via `SE_NODE_SESSION_TIMEOUT`.
+- Sessions are never keyed on FastMCP's `Context.session_id`, which returns a fresh `uuid4()` instead of failing when no session exists — that made every tool call look like a new client and leaked a Grid slot each time. The `Mcp-Session-Id` header is read directly instead.
 - `--stateless` / `STATELESS_HTTP` to drop MCP transport sessions, which is what more than one replica requires.
 - `GET /openapi.yaml` and `/openapi.json` describing the HTTP surface, generated from the MCP tool schemas so the two contracts cannot drift; the spec is committed and CI fails if it goes stale.

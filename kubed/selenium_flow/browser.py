@@ -99,6 +99,22 @@ class Grid:
         driver.session_id = session_id
         return driver
 
+    def is_alive(self, session_id: str) -> bool:
+        """Whether a session still exists on the Grid.
+
+        The Grid reaps a session after its idle timeout, so a stored id can name
+        a browser that is already gone. Asking for the session's current URL is
+        the cheapest W3C call that distinguishes the two: a live session answers
+        200, a reaped one answers 404.
+        """
+        try:
+            response = requests.get(
+                f"{self.url}/session/{session_id}/url", timeout=self.timeout
+            )
+        except requests.RequestException:
+            return False
+        return response.status_code == 200
+
     def quit(self, session_id: str) -> None:
         """End a session, freeing its Grid slot.
 

@@ -187,7 +187,9 @@ async def build_spec(
                     },
                     "400": _error("A required field is missing or a value is invalid."),
                     "401": _error("Missing or wrong bearer token."),
-                    "500": _error("The Grid rejected the action or the session is gone."),
+                    "500": _error(
+                        "The Grid rejected the action or the session is gone."
+                    ),
                 },
             }
         }

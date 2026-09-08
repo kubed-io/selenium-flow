@@ -58,12 +58,35 @@ plain dicts, so there is nothing to introspect. A test asserts every endpoint ha
 
 ### Sessions
 
-`open_session` returns a `session_id`; every other call takes it. Nothing is stored in this
-process — the browser lives on the Grid — which is why the server can restart, scale to
-zero, or run behind several replicas without losing a browser.
+`open_session` returns a `session_id`; every other call takes it. The browser lives on the
+Grid, not in this process, which is why the server can restart, scale to zero, or run
+behind several replicas without losing one.
+
+Over MCP, `session_id` is optional: the server remembers a browser per caller. It works out
+who is calling from the first of these it finds, and never invents one — a caller it cannot
+identify is told to pass `session_id` rather than being handed a fresh browser.
+
+| Key | How | Good for |
+|---|---|---|
+| A name you choose | `?session=<name>` on the MCP URL, or an `X-Session-Key` header (which wins if both are set) | Any client at all — the only option that does not depend on the client holding an MCP session |
+| The MCP transport session | the `Mcp-Session-Id` the server negotiates | Clients that hold a session, which is most of them |
+| stdio | one process serves one client | Local use |
+
+The query parameter is usually the one you want: a single bearer credential is reused
+across callers and each names itself in its URL, so n8n needs one credential rather than a
+multi-header one per agent. Setting the header instead pins a session to a credential, so
+an admin can enforce one browser per credential and a caller cannot override it from the
+URL; leaving it out delegates the choice to whoever implements the call.
+
+If the Grid has reaped a remembered browser, the next call reopens one and navigates back
+to the page it was last on, so the refresh is invisible.
+
+**The HTTP endpoints never do any of this.** They take a `session_id` in and give one back,
+always, so an n8n workflow owns its session outright and can pass it between nodes.
 
 Always `close_session`, including on failure paths. Sessions are limited and an abandoned
-one holds a slot until the Grid times it out.
+one holds a slot until the Grid times it out — which the Grid does on its own, so nothing
+here runs a cleanup loop.
 
 ### Navigation
 
@@ -91,11 +114,13 @@ Every flag has an environment fallback.
 | `MCP_AUTH_TOKEN` | `--auth-token` | unset | Bearer token required on `/mcp` and `/browser/*`. Unset disables auth |
 | `ROUTE_PREFIX` | `--route-prefix` | `/browser` | Path prefix for the HTTP endpoints |
 | `SAVED_SESSIONS` | `--no-saved-sessions` | `true` | Let MCP callers omit `session_id`. Never affects the HTTP endpoints |
-| `REDIS_URL` | — | unset | Share saved sessions. Any `REDIS_*` setting turns Redis on |
+| `SESSION_STORE` | — | `memory` | `memory` or `redis`. Unset, any `REDIS_*` setting implies `redis` |
+| `SESSION_TTL` | — | `3600` | How long a caller's mapping is kept, in seconds. Honoured by both stores |
+| `REDIS_URL` | — | unset | Connection for `SESSION_STORE=redis` |
 | `REDIS_DB` | — | `0` | Database index. Applied even when `REDIS_URL` carries no `/<index>` |
 | `REDIS_HOST` / `REDIS_PORT` | — | `localhost` / `6379` | Alternative to `REDIS_URL` |
 | `REDIS_USERNAME` / `REDIS_PASSWORD` / `REDIS_SSL` | — | unset | Credentials for the above |
-| `REDIS_PREFIX` / `REDIS_TTL` | — | `selenium-flow:session:` / `86400` | Key namespace and expiry |
+| `REDIS_PREFIX` | — | `selenium-flow:session:` | Key namespace, so sharing a database is safe |
 | `STATELESS_HTTP` | `--stateless` | `false` | Drop MCP transport sessions. Required to run more than one replica |
 | `TRANSPORT` | `--transport` | `http` | `http` or `stdio` |
 | `HOST` / `PORT` | `--host` / `--port` | `0.0.0.0` / `8000` | |

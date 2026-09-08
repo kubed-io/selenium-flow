@@ -6,27 +6,37 @@ and defaults written below are exactly what a model sees and fills in.
 
 Docstrings are prompt. They are written for a model deciding whether to call the
 tool, not for a developer reading the source.
+
+``session_id`` is optional on every tool because ``sessions.py`` can supply it
+from the caller's key. When it cannot, the error says how to fix it. The HTTP
+surface never does this — see ``routes.py``.
 """
 
 from __future__ import annotations
 
 import base64
+from collections.abc import Callable
 
-from fastmcp import Context, FastMCP
+from fastmcp import FastMCP
 from fastmcp.utilities.types import Image
 
 from .actions import KEYS, Actions
-from .sessions import SavedSessions
+from .sessions import NAME_PARAM, SessionManager
 
-INSTRUCTIONS = """\
+INSTRUCTIONS = f"""\
 Drives a real Chrome browser on Selenium Grid. The browser is persistent: it \
 stays alive between tool calls and keeps its page, cookies and scroll position.
 
-Lifecycle, which you must follow:
-1. Call open_session first. It returns a session_id.
-2. Pass that session_id to every other call. Nothing is remembered for you.
+Lifecycle:
+1. Call open_session to start a browser. It returns a session_id.
+2. Pass that session_id to the other calls.
 3. Call close_session when finished, including after a failure. Sessions are a \
-scarce resource and an abandoned one holds a slot until it times out.
+scarce resource and an abandoned one holds a slot until the Grid reaps it.
+
+If this server can identify your client it will remember the browser for you \
+and session_id becomes optional. When it cannot, the error tells you so; either \
+pass session_id every time, or add ?{NAME_PARAM}=<name> to the MCP URL to name \
+a session the server can hold on your behalf.
 
 Elements are addressed by XPath, e.g. //input[@name='q'].
 
@@ -39,21 +49,24 @@ execute_script for anything the other tools do not cover, scrolling included.
 """
 
 
-def register(mcp: FastMCP, actions: Actions, saved: SavedSessions) -> None:
-    """Register every action as an MCP tool on ``mcp``.
+def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
+    """Register every action as an MCP tool on ``mcp``."""
 
-    ``session_id`` is optional on every tool because saved sessions may fill it
-    in from the MCP session. When the feature is off, omitting it is an error
-    with a message that says so — the tool still works, it just has to be told
-    which browser. The HTTP surface never does this; see ``sessions.py``.
-    """
+    def run(session_id: str | None, call: Callable[[str], dict]) -> dict:
+        """Resolve the caller's browser, act, and remember where it ended up.
 
-    def sid(ctx: Context, session_id: str | None) -> str:
-        return saved.resolve(getattr(ctx, "session_id", None), session_id)
+        The three steps every tool shares. ``touch`` is what lets a later
+        refresh reopen on the right page, and keeps an in-use session from
+        expiring out of the store.
+        """
+        key = sessions.key()
+        result = call(sessions.resolve(key, session_id))
+        if isinstance(result, dict):
+            sessions.touch(key, result.get("url"))
+        return result
 
     @mcp.tool
     def open_session(
-        ctx: Context,
         url: str | None = None,
         width: int | None = None,
         height: int | None = None,
@@ -63,39 +76,39 @@ def register(mcp: FastMCP, actions: Actions, saved: SavedSessions) -> None:
         Optionally navigates to a starting URL. Set width and height when layout
         matters: the headless default is small and varies between Grid nodes.
 
-        The returned session_id is remembered for this conversation, so later
-        calls may omit it — but it is still returned, and passing it explicitly
-        always works and always wins.
+        The returned session_id is remembered for this client where possible, so
+        later calls may omit it — but it is always returned, and passing it
+        explicitly always works and always wins.
         """
         opened = actions.open_session(url=url, width=width, height=height)
-        saved.remember(getattr(ctx, "session_id", None), opened["session_id"])
+        sessions.remember(sessions.key(), opened["session_id"], opened.get("url", ""))
         return opened
 
     @mcp.tool
-    def close_session(ctx: Context, session_id: str | None = None) -> dict:
+    def close_session(session_id: str | None = None) -> dict:
         """Quit the browser session and free its Grid slot.
 
         Call this when finished, including after a failure. Sessions are limited
-        and an abandoned one stays open until it times out. Omit session_id to
-        close the one this conversation has been using.
+        and an abandoned one stays open until the Grid reaps it. Omit session_id
+        to close the one this client has been using.
         """
-        resolved = sid(ctx, session_id)
+        key = sessions.key()
+        resolved = sessions.resolve(key, session_id)
         result = actions.close_session(resolved)
-        saved.forget(getattr(ctx, "session_id", None))
+        sessions.forget(key, resolved)
         return result
 
     @mcp.tool
-    def navigate(ctx: Context, url: str, session_id: str | None = None) -> dict:
+    def navigate(url: str, session_id: str | None = None) -> dict:
         """Go to a URL. Returns the resulting URL and page title.
 
         Use this to move somewhere unconditionally. To act on a page in one
         step, prefer passing url to click, write, extract or screenshot.
         """
-        return actions.navigate(sid(ctx, session_id), url)
+        return run(session_id, lambda s: actions.navigate(s, url))
 
     @mcp.tool
     def click(
-        ctx: Context,
         xpath: str,
         session_id: str | None = None,
         url: str | None = None,
@@ -106,11 +119,13 @@ def register(mcp: FastMCP, actions: Actions, saved: SavedSessions) -> None:
         Returns the URL and title *after* the click, so any navigation the
         click caused is visible in the result.
         """
-        return actions.click(sid(ctx, session_id), xpath, url=url, wait_timeout=wait_timeout)
+        return run(
+            session_id,
+            lambda s: actions.click(s, xpath, url=url, wait_timeout=wait_timeout),
+        )
 
     @mcp.tool
     def write(
-        ctx: Context,
         xpath: str,
         text: str,
         session_id: str | None = None,
@@ -125,14 +140,17 @@ def register(mcp: FastMCP, actions: Actions, saved: SavedSessions) -> None:
         box in one call. Returns the field's value read back off the element, so
         you can confirm the text actually landed.
         """
-        return actions.write(
-            sid(ctx, session_id),
-            xpath,
-            text,
-            url=url,
-            clear=clear,
-            submit=submit,
-            wait_timeout=wait_timeout,
+        return run(
+            session_id,
+            lambda s: actions.write(
+                s,
+                xpath,
+                text,
+                url=url,
+                clear=clear,
+                submit=submit,
+                wait_timeout=wait_timeout,
+            ),
         )
 
     # The description is passed rather than left as a docstring so the real key
@@ -149,20 +167,21 @@ def register(mcp: FastMCP, actions: Actions, saved: SavedSessions) -> None:
         )
     )
     def press_key(
-        ctx: Context,
         key: str,
         session_id: str | None = None,
         xpath: str | None = None,
         url: str | None = None,
         wait_timeout: int = 30,
     ) -> dict:
-        return actions.press_key(
-            sid(ctx, session_id), key, xpath=xpath, url=url, wait_timeout=wait_timeout
+        return run(
+            session_id,
+            lambda s: actions.press_key(
+                s, key, xpath=xpath, url=url, wait_timeout=wait_timeout
+            ),
         )
 
     @mcp.tool
     def extract(
-        ctx: Context,
         xpath: str,
         session_id: str | None = None,
         url: str | None = None,
@@ -174,11 +193,14 @@ def register(mcp: FastMCP, actions: Actions, saved: SavedSessions) -> None:
         costs far more. //body reads everything, but a narrower XPath keeps the
         result small.
         """
-        return actions.extract(sid(ctx, session_id), xpath, url=url, wait_timeout=wait_timeout)
+        return run(
+            session_id,
+            lambda s: actions.extract(s, xpath, url=url, wait_timeout=wait_timeout),
+        )
 
     @mcp.tool
     def execute_script(
-        ctx: Context, script: str, session_id: str | None = None, url: str | None = None
+        script: str, session_id: str | None = None, url: str | None = None
     ) -> dict:
         """Run JavaScript in the page and return its result.
 
@@ -186,11 +208,10 @@ def register(mcp: FastMCP, actions: Actions, saved: SavedSessions) -> None:
         (window.scrollTo(0, 2000)), drag and drop, computed styles, direct DOM
         access. Use `return` to send a value back.
         """
-        return actions.execute_script(sid(ctx, session_id), script, url=url)
+        return run(session_id, lambda s: actions.execute_script(s, script, url=url))
 
     @mcp.tool
     def screenshot(
-        ctx: Context,
         session_id: str | None = None,
         url: str | None = None,
         xpath: str | None = None,
@@ -207,13 +228,16 @@ def register(mcp: FastMCP, actions: Actions, saved: SavedSessions) -> None:
         Only reach for this when the *visual* result matters — layout, styling,
         a rendered chart. To read content, extract is far cheaper.
         """
-        result = actions.screenshot(
-            sid(ctx, session_id),
-            url=url,
-            xpath=xpath,
-            full_page=full_page,
-            width=width,
-            height=height,
-            wait_timeout=wait_timeout,
+        result = run(
+            session_id,
+            lambda s: actions.screenshot(
+                s,
+                url=url,
+                xpath=xpath,
+                full_page=full_page,
+                width=width,
+                height=height,
+                wait_timeout=wait_timeout,
+            ),
         )
         return Image(data=base64.b64decode(result["image"]), format="png")
