@@ -572,3 +572,57 @@ def test_an_explicit_index_is_honoured(capturing_redis):
 def test_the_default_index_makes_no_assumption_about_the_deployment():
     """0 is Redis's own default; the prefix is what makes sharing safe."""
     assert DEFAULT_DB == 0
+
+
+# ---- liveness must not confuse "blocked" with "gone" ------------------------
+
+
+class FakeResponse:
+    def __init__(self, status, error=None):
+        self.status_code = status
+        self._error = error
+
+    def json(self):
+        if self._error is None:
+            raise ValueError("no body")
+        return {"value": {"error": self._error}}
+
+
+@pytest.mark.parametrize(
+    "response,alive,why",
+    [
+        (FakeResponse(200), True, "a healthy session"),
+        (
+            FakeResponse(500, "unexpected alert open"),
+            True,
+            "blocked by a dialog, but very much alive",
+        ),
+        (FakeResponse(404, "invalid session id"), False, "genuinely reaped"),
+        (FakeResponse(500, "unknown error"), True, "some other failure"),
+    ],
+)
+def test_only_an_invalid_session_id_counts_as_gone(monkeypatch, response, alive, why):
+    """A wrong "dead" strands a browser; a wrong "alive" just errors next call.
+
+    This shipped broken: an open dialog made the URL probe fail, resolve()
+    decided the session was reaped, reopened, and abandoned the real browser
+    with its dialog still up — leaking a Grid slot on every confirm().
+    """
+    from kubed.selenium_flow import browser as browser_module
+
+    monkeypatch.setattr(
+        browser_module.requests, "get", lambda *a, **k: response
+    )
+    grid = browser_module.Grid("http://grid.invalid:4444")
+    assert grid.is_alive("abc") is alive, why
+
+
+def test_an_unreachable_grid_does_not_strand_the_session(monkeypatch):
+    from kubed.selenium_flow import browser as browser_module
+
+    def boom(*a, **k):
+        raise browser_module.requests.RequestException("down")
+
+    monkeypatch.setattr(browser_module.requests, "get", boom)
+    grid = browser_module.Grid("http://grid.invalid:4444")
+    assert grid.is_alive("abc") is True

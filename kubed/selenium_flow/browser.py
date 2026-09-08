@@ -113,18 +113,34 @@ class Grid:
     def is_alive(self, session_id: str) -> bool:
         """Whether a session still exists on the Grid.
 
-        The Grid reaps a session after its idle timeout, so a stored id can name
-        a browser that is already gone. Asking for the session's current URL is
-        the cheapest W3C call that distinguishes the two: a live session answers
-        200, a reaped one answers 404.
+        The Grid reaps idle sessions, so a stored id can name a browser that is
+        already gone, and the caller's next call should transparently reopen.
+
+        The subtlety is what counts as gone. Asking for the session's URL is the
+        cheapest probe, but it fails for *two* different reasons: the session
+        does not exist (404, ``invalid session id``), or it exists and is
+        blocked by an open dialog (500, ``unexpected alert open``). Treating
+        both as dead abandons a perfectly good browser — with its dialog still
+        open — and leaks the Grid slot it holds.
+
+        So only an explicit "this id is not a session" means gone. Anything
+        else, including a Grid we cannot reach right now, is assumed alive: a
+        wrong "alive" surfaces as a real error on the next call, while a wrong
+        "dead" silently strands a browser.
         """
         try:
             response = requests.get(
                 f"{self.url}/session/{session_id}/url", timeout=self.timeout
             )
         except requests.RequestException:
-            return False
-        return response.status_code == 200
+            return True
+        if response.status_code == 200:
+            return True
+        try:
+            error = response.json().get("value", {}).get("error", "")
+        except ValueError:
+            error = ""
+        return error != "invalid session id"
 
     def quit(self, session_id: str) -> None:
         """End a session, freeing its Grid slot.

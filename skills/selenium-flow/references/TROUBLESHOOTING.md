@@ -74,6 +74,12 @@ it will have told you so:
 Answer it with `dialog` — `accept`, `dismiss`, or `send_text` for a prompt — and
 carry on. See `references/INTERACTION.md`. Nothing else will work until you do.
 
+## A dialog does not mean the session died
+
+An open dialog blocks most commands, including the one that checks whether a
+session is still alive. That is a *blocked* session, not a gone one — answer the
+dialog and carry on with the same browser. Nothing needs reopening.
+
 ## A blank or single-colour screenshot
 
 The page had not finished rendering. Force a wait by extracting something from
