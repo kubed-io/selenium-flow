@@ -520,19 +520,13 @@ paths:
     post:
       operationId: upload_file
       summary: Attach a file to a file input.
-      description: 'Attach a file to a file input.
-
-
-        Pass the file itself as base64 in content, with the filename you want
-
-        the page to see. The browser runs on another machine, so the bytes are
-
-        shipped to it for you.
-
-
-        path is the alternative when the file is already on the server''s own
-
-        filesystem; pass one or the other, not both.'
+      description: "Attach a file to a file input.\n\nFor anything you wrote yourself \u2014 JSON, CSV,\
+        \ YAML, markdown, plain text\n\u2014 put it straight in `text` and give it a `filename`. There\
+        \ is no need\nto encode it; the server writes the real file and sends it to the\nbrowser, which\
+        \ runs on another machine.\n\nUse `content` (base64) only for binary, and `path` only for a file\n\
+        already on the server's filesystem. Pass exactly one of the three.\n\nThe page reads the file's\
+        \ type from the **filename extension**, so name\nit `report.csv` rather than `report`. If you\
+        \ give a name without an\nextension, `mime_type` is used to pick one."
       tags:
       - browser
       requestBody:
@@ -553,9 +547,17 @@ paths:
                   type: string
                   format: binary
                   description: The file itself, as a normal file part.
+                text:
+                  type: string
+                  description: The file's content as plain text, instead of a file part. For JSON, CSV,
+                    YAML and similar.
                 filename:
                   type: string
-                  description: Overrides the part's own filename.
+                  description: Overrides the part's own filename. Its extension is what sets the MIME
+                    type the page reports.
+                mime_type:
+                  type: string
+                  description: Picks an extension when filename has none.
                 url:
                   type: string
                 wait_timeout:
@@ -563,7 +565,6 @@ paths:
               required:
               - session_id
               - xpath
-              - content
       responses:
         '200':
           description: The action succeeded.
@@ -955,12 +956,22 @@ components:
       properties:
         xpath:
           type: string
-        content:
+        text:
           anyOf:
           - type: string
           - type: 'null'
           default: null
         filename:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+        mime_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+        content:
           anyOf:
           - type: string
           - type: 'null'

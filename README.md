@@ -130,27 +130,41 @@ a navigation it caused shows up. If it opened a dialog, `url` and `title` are
 <br>
 
 The browser runs on a Grid node in another container, so a path means nothing to
-it. Send the file and it is shipped there for you.
+it. Send the file and it is written and shipped there for you.
 
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `session_id` | string | **yes** *(HTTP)* | — | |
 | `xpath` | string | **yes** | — | The `<input type="file">` |
-| `content` | string | **yes** *(or `path`)* | — | The file. Base64 over JSON and MCP; a raw file part over multipart |
-| `filename` | string | no | the part's name | What the page sees |
-| `path` | string | no | — | A file already on the **server's** filesystem. Use instead of `content` |
-| `url` | string | no | — | |
-| `wait_timeout` | integer | no | `30` | |
+| `text` | string | one of three | — | The file's content as plain text — JSON, CSV, YAML, markdown |
+| `content` | string / file | one of three | — | Base64 over JSON and MCP; a **real file part** over multipart |
+| `path` | string | one of three | — | A file already on the **server's** filesystem |
+| `filename` | string | no | `upload` | What the page sees. **Its extension sets the MIME type** |
+| `mime_type` | string | no | — | Picks an extension when `filename` has none |
+| `url` / `wait_timeout` | | no | / `30` | |
 
-**Over HTTP, post a normal file** — no base64 needed:
+**Uploading something you generated** — no encoding step:
+
+```json
+{ "session_id": "…", "xpath": "//input[@type='file']",
+  "text": "{\"generated\": true}", "filename": "data.json" }
+```
+
+**Uploading a real file over HTTP** — a normal multipart part, binary included:
 
 ```bash
 curl -X POST localhost:8000/browser/upload \
-  -F session_id=… -F 'xpath=//input[@type="file"]' -F content=@report.csv
+  -F session_id=… -F 'xpath=//input[@type="file"]' -F content=@screenshot.png
 ```
 
-Base64 exists because MCP tool arguments must be JSON; there is no binary input
-channel in the protocol.
+Base64 exists only because MCP tool arguments must be JSON — there is no binary
+input channel in the protocol, and FastMCP's `File` type is for *returning*
+files. The endpoint has no such limit.
+
+The page reads a file's type from the **filename extension**, not from anything
+we send: `data.json` arrives as `application/json`, an extensionless file as
+`""`. So `mime_type` supplies an extension rather than overriding the type —
+`filename: "config"` with `mime_type: "text/yaml"` becomes `config.yaml`.
 
 **Returns** `filename` and `bytes` actually attached, plus page state.
 

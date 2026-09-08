@@ -83,21 +83,36 @@ press_key(xpath="//input[@name='q']", key="tab")
 
 ## Uploading a file
 
+**If you wrote the content yourself, just send it as text.** Do not encode it.
+
 ```
-upload_file(xpath="//input[@type='file']", content="<base64>", filename="report.csv")
+upload_file(xpath="//input[@type='file']",
+            text='{"rows": 3}', filename="data.json")
 ```
 
-The browser runs on another machine, so the bytes are shipped to it for you —
-pass the file itself as base64 in `content` with the `filename` you want the
-page to see. Over the HTTP endpoint you can instead post a normal
-`multipart/form-data` file part, which is usually easier from a script or an n8n
-node.
+That is the normal case: JSON, CSV, YAML, markdown, a log excerpt — anything you
+produced. The server writes the real file and ships it to the browser, which
+runs on another machine.
 
-`path` is the alternative when the file already sits on the *server's* own
-filesystem. Pass `content` or `path`, never both.
+The other two sources, one of which is required:
+
+| Pass | For |
+|---|---|
+| `text` | content you have as text |
+| `content` | base64, for binary — the only shape a tool argument can carry |
+| `path` | a file already on the *server's* filesystem |
+
+**Name it with an extension.** The page reads a file's type from the filename,
+not from anything sent with it: `data.json` arrives as `application/json`, while
+a file called `data` arrives with an empty type and may be rejected by an upload
+form that checks. If you cannot give an extension, pass `mime_type` and one is
+chosen for you.
 
 Returns the `filename` and `bytes` actually attached, so you can confirm the
 page received what you meant.
+
+Over the HTTP endpoint the same action takes a normal `multipart/form-data` file
+part, which is easier from a script or an n8n node and needs no encoding at all.
 
 ## Native dialogs block everything
 

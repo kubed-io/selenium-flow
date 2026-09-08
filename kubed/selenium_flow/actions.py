@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import mimetypes
 import os
 import shutil
 import tempfile
@@ -51,10 +52,48 @@ def _decode(content) -> bytes:
         ) from exc
 
 
-def _safe_name(filename) -> str:
-    """A basename safe to write, since the caller chooses what the page sees."""
-    name = os.path.basename(str(filename or "upload")).strip() or "upload"
-    return name.lstrip(".") or "upload"
+# The browser reads File.type from the file's EXTENSION — verified: data.json
+# arrives as application/json, an extensionless file as "". So mime_type cannot
+# override the type; all it can do is choose the extension. These are the
+# formats an agent is likely to hand over, where the stdlib is wrong (it guesses
+# .xsl for application/xml) or silent (yaml, ndjson).
+EXTENSIONS = {
+    "application/json": ".json",
+    "application/xml": ".xml",
+    "text/xml": ".xml",
+    "text/yaml": ".yaml",
+    "application/yaml": ".yaml",
+    "application/x-yaml": ".yaml",
+    "application/x-ndjson": ".ndjson",
+    "text/markdown": ".md",
+    "text/csv": ".csv",
+    "text/tab-separated-values": ".tsv",
+    "text/plain": ".txt",
+    "text/html": ".html",
+}
+
+
+def _extension_for(mime_type) -> str:
+    """The extension that makes a browser report ``mime_type``, or ""."""
+    if not mime_type:
+        return ""
+    key = str(mime_type).split(";")[0].strip().lower()
+    return EXTENSIONS.get(key) or mimetypes.guess_extension(key) or ""
+
+
+def _safe_name(filename, mime_type=None, default_extension="") -> str:
+    """The name the page will see for an uploaded file.
+
+    Reduced to a basename because the caller chooses it and it is written to
+    disk here. An extension is appended when there is none, since without one
+    the page reports an empty File.type and content sniffing does not happen.
+    """
+    name = os.path.basename(str(filename or "")).strip().lstrip(".")
+    if not name:
+        name = "upload"
+    if not os.path.splitext(name)[1]:
+        name += _extension_for(mime_type) or default_extension
+    return name
 
 
 class Actions:
@@ -212,32 +251,56 @@ class Actions:
         self,
         session_id: str,
         xpath: str,
+        text=None,
         content=None,
         filename=None,
+        mime_type=None,
         path=None,
         url=None,
         wait_timeout=30,
     ) -> dict:
         """Attach a file to the file input at ``xpath``.
 
-        ``content`` is the file itself — base64 over JSON and MCP, raw bytes
-        when a multipart upload lands on the HTTP endpoint. It is written to a
-        temporary file here and shipped to the Grid node by Selenium, because
-        the browser is in another container and cannot see this filesystem.
+        The file arrives one of three ways, and exactly one is required:
 
-        ``path`` is the alternative for a file already mounted into this
-        server. Exactly one of the two is required.
+        - ``text`` — the file's content as plain text. This is the one to use
+          for anything an agent produced itself: JSON, CSV, YAML, markdown.
+          Base64-encoding text it just wrote is a wasted step it can get wrong.
+        - ``content`` — base64, which binary needs and which is the only shape
+          MCP tool arguments can carry.
+        - ``path`` — a file already on this server's filesystem.
+
+        Whichever it is, the bytes are written to a temporary file here and
+        shipped to the Grid node by Selenium, because the browser runs in
+        another container and cannot see this filesystem.
+
+        ``filename`` is what the page sees, and its extension is what decides
+        the MIME type the page reports — the browser derives that from the name,
+        not from anything we can send. ``mime_type`` is therefore used to supply
+        an extension when the filename lacks one, rather than to override it.
         """
-        if content is None and not path:
-            raise ValueError("either content (the file) or path is required")
-        if content is not None and path:
-            raise ValueError("pass content or path, not both")
+        sources = [
+            n for n, v in (("text", text), ("content", content), ("path", path)) if v
+        ]
+        if not sources:
+            raise ValueError(
+                "the file is required: pass text for a text file, content for "
+                "base64 bytes, or path for a file on the server"
+            )
+        if len(sources) > 1:
+            raise ValueError(
+                f"pass only one of text, content or path; got {', '.join(sources)}"
+            )
 
-        # Decoded up front for the same reason: unusable content is a 400 about
-        # the content, and there is no point opening anything to discover it.
+        # Resolved before connecting: unusable input is a 400 about the input,
+        # and there is no point opening anything to discover it.
         raw = None
-        if content is not None:
+        if text is not None:
+            raw = str(text).encode("utf-8")
+            name = _safe_name(filename, mime_type, default_extension=".txt")
+        elif content is not None:
             raw = content if isinstance(content, bytes) else _decode(content)
+            name = _safe_name(filename, mime_type)
 
         driver = self._at(session_id, url)
         browser.accept_local_files(driver)
@@ -246,10 +309,8 @@ class Actions:
         temp_dir = None
         try:
             if raw is not None:
-                # The name the page sees comes from the file name, so it has to
-                # be written under the name the caller asked for.
                 temp_dir = tempfile.mkdtemp(prefix="selenium-flow-")
-                local = os.path.join(temp_dir, _safe_name(filename))
+                local = os.path.join(temp_dir, name)
                 with open(local, "wb") as handle:
                     handle.write(raw)
             else:

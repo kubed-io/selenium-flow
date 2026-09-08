@@ -99,22 +99,43 @@ def test_dialog_send_text_requires_text(open_client):
     assert "text is required" in response.json()["error"]
 
 
-def test_upload_requires_a_file(open_client):
-    response = open_client.post(
-        "/browser/upload", json={"session_id": "x", "xpath": "//input"}
-    )
-    assert response.status_code == 400
-    assert "content" in response.json()["error"]
-
-
-def test_upload_refuses_both_content_and_path(open_client):
-    """Two sources for one file is a caller mistake worth naming."""
+def test_upload_refuses_more_than_one_source(open_client):
+    """Two sources for one file is a caller mistake worth naming precisely."""
     response = open_client.post(
         "/browser/upload",
         json={"session_id": "x", "xpath": "//input", "content": "eA==", "path": "/tmp/x"},
     )
     assert response.status_code == 400
-    assert "not both" in response.json()["error"]
+    error = response.json()["error"]
+    assert "only one" in error
+    assert "content" in error and "path" in error
+
+
+def test_upload_takes_plain_text_as_the_file(open_client):
+    """The ergonomic path: an agent uploading something it just wrote.
+
+    A 500 means the text was accepted and only the unroutable Grid stopped it;
+    a 400 would mean the input was rejected.
+    """
+    response = open_client.post(
+        "/browser/upload",
+        json={
+            "session_id": "x",
+            "xpath": "//input",
+            "text": '{"generated": true}',
+            "filename": "data.json",
+        },
+    )
+    assert response.status_code == 500, response.json()
+
+
+def test_upload_needs_some_kind_of_file(open_client):
+    response = open_client.post(
+        "/browser/upload", json={"session_id": "x", "xpath": "//input"}
+    )
+    assert response.status_code == 400
+    error = response.json()["error"]
+    assert "text" in error and "content" in error and "path" in error
 
 
 def test_upload_rejects_content_that_is_not_base64(open_client):

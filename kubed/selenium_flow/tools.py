@@ -176,8 +176,10 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
     @mcp.tool
     def upload_file(
         xpath: str,
-        content: str | None = None,
+        text: str | None = None,
         filename: str | None = None,
+        mime_type: str | None = None,
+        content: str | None = None,
         session_id: str | None = None,
         path: str | None = None,
         url: str | None = None,
@@ -185,20 +187,27 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
     ) -> dict:
         """Attach a file to a file input.
 
-        Pass the file itself as base64 in content, with the filename you want
-        the page to see. The browser runs on another machine, so the bytes are
-        shipped to it for you.
+        For anything you wrote yourself — JSON, CSV, YAML, markdown, plain text
+        — put it straight in `text` and give it a `filename`. There is no need
+        to encode it; the server writes the real file and sends it to the
+        browser, which runs on another machine.
 
-        path is the alternative when the file is already on the server's own
-        filesystem; pass one or the other, not both.
+        Use `content` (base64) only for binary, and `path` only for a file
+        already on the server's filesystem. Pass exactly one of the three.
+
+        The page reads the file's type from the **filename extension**, so name
+        it `report.csv` rather than `report`. If you give a name without an
+        extension, `mime_type` is used to pick one.
         """
         return run(
             session_id,
             lambda s: actions.upload_file(
                 s,
                 xpath,
+                text=text,
                 content=content,
                 filename=filename,
+                mime_type=mime_type,
                 path=path,
                 url=url,
                 wait_timeout=wait_timeout,

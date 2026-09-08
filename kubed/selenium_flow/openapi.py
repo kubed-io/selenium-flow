@@ -311,14 +311,28 @@ def _request_content(action: str, request_name: str) -> dict:
                         "format": "binary",
                         "description": "The file itself, as a normal file part.",
                     },
+                    "text": {
+                        "type": "string",
+                        "description": (
+                            "The file's content as plain text, instead of a "
+                            "file part. For JSON, CSV, YAML and similar."
+                        ),
+                    },
                     "filename": {
                         "type": "string",
-                        "description": "Overrides the part's own filename.",
+                        "description": (
+                            "Overrides the part's own filename. Its extension "
+                            "is what sets the MIME type the page reports."
+                        ),
+                    },
+                    "mime_type": {
+                        "type": "string",
+                        "description": "Picks an extension when filename has none.",
                     },
                     "url": {"type": "string"},
                     "wait_timeout": {"type": "integer"},
                 },
-                "required": ["session_id", "xpath", "content"],
+                "required": ["session_id", "xpath"],
             }
         }
     return content
