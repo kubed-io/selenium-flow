@@ -125,11 +125,11 @@ is in use.
 
 ## Gotchas
 
-- **`REDIS_DB` is not cosmetic.** One Redis serves the whole homelab and its logical
-  databases are allocated by index in `apps/redis/README.md`. This app is registered as
-  **db 6**. `REDIS_URL` without a `/<index>` path means db 0, which is n8n's, so the index
-  is passed to the client explicitly rather than left to the URL. Claim a new index in
-  that registry before ever changing it.
+- **Do not bake a deployment's conventions into this package.** `REDIS_DB` defaults to
+  Redis's own `0`, not to whatever index some particular cluster happens to hand out.
+  Safety comes from `REDIS_PREFIX`, which namespaces every key so a shared database is
+  fine. The index is still passed to the client explicitly, so a `REDIS_URL` with no
+  `/<index>` path does not override an operator's `REDIS_DB`.
 
 - **`ReattachDriver` skips `start_session`.** That is the trick that lets this process bind
   to a browser it did not open. The cost is that `driver.caps` is empty, so anything

@@ -92,7 +92,7 @@ Every flag has an environment fallback.
 | `ROUTE_PREFIX` | `--route-prefix` | `/browser` | Path prefix for the HTTP endpoints |
 | `SAVED_SESSIONS` | `--no-saved-sessions` | `true` | Let MCP callers omit `session_id`. Never affects the HTTP endpoints |
 | `REDIS_URL` | — | unset | Share saved sessions. Any `REDIS_*` setting turns Redis on |
-| `REDIS_DB` | — | `6` | **Database index.** The cluster's Redis is shared and every index has an owner; 6 is this app's. Applied even when `REDIS_URL` carries no `/<index>` |
+| `REDIS_DB` | — | `0` | Database index. Applied even when `REDIS_URL` carries no `/<index>` |
 | `REDIS_HOST` / `REDIS_PORT` | — | `localhost` / `6379` | Alternative to `REDIS_URL` |
 | `REDIS_USERNAME` / `REDIS_PASSWORD` / `REDIS_SSL` | — | unset | Credentials for the above |
 | `REDIS_PREFIX` / `REDIS_TTL` | — | `selenium-flow:session:` / `86400` | Key namespace and expiry |

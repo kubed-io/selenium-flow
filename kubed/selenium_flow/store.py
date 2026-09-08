@@ -10,12 +10,12 @@ resolve the same key, or when the mapping should outlive a restart.
 Redis is configured entirely from ``REDIS_*`` environment variables and is off
 unless one of them is set, so nothing here runs for a caller who never asked.
 
-``REDIS_DB`` matters more than it looks. The cluster runs one shared Redis whose
-logical databases are handed out by index in a registry, and landing on someone
-else's index pollutes their keyspace and eats their memory budget. This app's
-index is 6. It is applied whether the connection came from ``REDIS_URL`` or from
-the host/port settings, and a warning is logged if Redis is on and no index was
-named.
+``REDIS_DB`` defaults to 0, the Redis default, because this package makes no
+assumption about whose Redis it is pointed at. Keys are namespaced by
+``REDIS_PREFIX`` so sharing a database with other applications is safe. A
+deployment that has its own index convention sets the variable; the index is
+applied whether the connection came from ``REDIS_URL`` or from the host/port
+settings, since a URL with no ``/<index>`` path silently means 0.
 """
 
 from __future__ import annotations
@@ -26,10 +26,12 @@ from typing import Protocol
 
 log = logging.getLogger(__name__)
 
+# Every key is written under this prefix, which is what makes sharing a database
+# with other applications safe.
 DEFAULT_PREFIX = "selenium-flow:session:"
-# The index claimed by this app in the cluster's Redis registry. Not merely a
-# default: db 0 belongs to n8n, and every index has an owner.
-DEFAULT_DB = 6
+# Redis's own default. Deliberately not a guess about the deployment: an install
+# with an index convention passes REDIS_DB, and the prefix keeps it safe if not.
+DEFAULT_DB = 0
 # A mapping outliving the browser it names is worse than no mapping, because the
 # caller acts on a session that has already been reaped. The Grid's own idle
 # timeout is 300s by default, so a day is generous but bounded.
@@ -117,12 +119,6 @@ def from_env(env: dict | None = None) -> SessionStore:
 
     prefix = env.get("REDIS_PREFIX", DEFAULT_PREFIX)
     ttl = int(env.get("REDIS_TTL", DEFAULT_TTL_SECONDS))
-    if env.get("REDIS_DB") is None:
-        log.warning(
-            "REDIS_DB is not set; using this app's registered index %s. The "
-            "cluster's Redis is shared and every index has an owner.",
-            DEFAULT_DB,
-        )
     db = int(env.get("REDIS_DB", DEFAULT_DB))
 
     try:
@@ -136,8 +132,8 @@ def from_env(env: dict | None = None) -> SessionStore:
 
     try:
         if env.get("REDIS_URL"):
-            # db is passed explicitly rather than left to the URL: a URL without
-            # a /<index> path silently means db 0, which belongs to n8n.
+            # Passed explicitly rather than left to the URL, so REDIS_DB is
+            # honoured even when the URL carries no /<index> path.
             client = redis.Redis.from_url(env["REDIS_URL"], db=db)
         else:
             client = redis.Redis(

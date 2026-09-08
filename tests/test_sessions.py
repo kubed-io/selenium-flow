@@ -245,13 +245,13 @@ def capturing_redis(monkeypatch):
 
 
 def test_the_url_form_still_pins_the_database_index(capturing_redis):
-    """A URL with no /<index> means db 0 — which belongs to n8n.
+    """REDIS_DB must win over a URL that names no index.
 
-    The index must be passed explicitly rather than left to the URL, or a
-    perfectly ordinary REDIS_URL quietly writes into another app's database.
+    Otherwise a deployment that sets REDIS_DB alongside a plain REDIS_URL
+    silently lands on db 0 anyway.
     """
-    from_env({"REDIS_URL": "redis://redis.data:6379"})
-    assert capturing_redis.kwargs["db"] == DEFAULT_DB
+    from_env({"REDIS_URL": "redis://redis.data:6379", "REDIS_DB": "2"})
+    assert capturing_redis.kwargs["db"] == 2
 
 
 def test_the_host_form_pins_it_too(capturing_redis):
@@ -264,6 +264,11 @@ def test_an_explicit_index_is_honoured(capturing_redis):
     assert capturing_redis.kwargs["db"] == 11
 
 
-def test_the_default_index_is_this_apps_registered_one():
-    """Registered in the cluster's Redis README. 0 is n8n; do not land there."""
-    assert DEFAULT_DB == 6
+def test_the_default_index_makes_no_assumption_about_the_deployment():
+    """0 is Redis's own default.
+
+    Guessing an index would be wrong in anyone else's cluster; the prefix is
+    what makes sharing a database safe, and a deployment with a convention
+    passes REDIS_DB.
+    """
+    assert DEFAULT_DB == 0
