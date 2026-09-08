@@ -33,6 +33,22 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
 
 ## Rules
 
+- **Every browser action is both a tool and an endpoint. One to one, no exceptions.**
+  This is what lets a caller choose its style: an n8n workflow can hand the whole job to
+  an agent over MCP, or drive the same actions itself with HTTP Request nodes when it wants
+  exact control. A tool with no endpoint would take that choice away, because the workflow
+  could not reproduce what the agent did. `tests/test_surfaces.py` asserts the two sets are
+  equal — if it fails, add the missing half rather than editing the assertion.
+
+  Two clarifications on the rule. Operational routes — `/health`, `/openapi.yaml` — are
+  HTTP-only on purpose; they describe or monitor the server rather than doing anything to a
+  browser, so they are not capabilities and get no tool. And a future high-level action
+  (say a `login` that opens, types, types and clicks) is still an action: it gets both.
+
+- **The surfaces may differ in return shape, never in capability.** `screenshot` returns an
+  MCP image block to a tool caller and base64 JSON to an HTTP caller, because that is what
+  each can actually use. That is the only sanctioned kind of divergence.
+
 - **`actions.py` is the only place behaviour lives.** `tools.py` and `routes.py` are thin
   wrappers over it. Adding a capability to one surface and not the other is the failure
   this design exists to prevent, and `tests/test_surfaces.py` asserts they match — if that
@@ -54,6 +70,16 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   retina render — both tested working against this Grid. If that capability is wanted, add
   it as a **separate** tool so the portable path keeps working when CDP goes away.
 
+- **`openapi.yaml` is generated — never edit it by hand.** Run
+  `python scripts/generate_openapi.py`. Request schemas are taken verbatim from the MCP
+  tool schemas, which is what makes the REST contract and the tool contract provably the
+  same thing rather than two things that agree today. The committed copy exists so the
+  diff shows up in review and `redocly lint` can read it in CI.
+- **Code generates the spec, not the other way round.** Spec-first was considered and
+  rejected: FastMCP derives tool schemas from Python signatures, so a YAML source would
+  mean generating Python and then deriving schemas from the generated Python. Nothing
+  here is a contract another team designs against, which is when spec-first pays.
+
 ## Gotchas
 
 - **`ReattachDriver` skips `start_session`.** That is the trick that lets this process bind
@@ -64,6 +90,9 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
 - **The Grid's session timeout is not this repo's setting.** It comes from
   `SE_NODE_SESSION_TIMEOUT` on the Grid node, set in the cluster repo. A long-thinking
   agent will lose its browser mid-task if that is left at the 300s default.
+- **`info.version` cannot be dropped from the committed spec.** It is required by
+  OpenAPI, so the artifact carries a placeholder while the served document stamps the real
+  package version. The validator test catches this if it is ever removed.
 - **`@mcp.tool` returns the plain function**, not a Tool object, so a description cannot be
   patched after decoration. Pass `description=` to the decorator when it needs to be
   computed — `press_key` does this to interpolate the real key list.

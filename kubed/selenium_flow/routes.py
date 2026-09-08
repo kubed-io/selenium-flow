@@ -13,11 +13,13 @@ from __future__ import annotations
 import inspect
 import logging
 
+import yaml
 from fastmcp import FastMCP
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
 from .actions import Actions
+from .openapi import build_spec
 
 log = logging.getLogger(__name__)
 
@@ -63,6 +65,33 @@ def register(mcp: FastMCP, actions: Actions, token: str | None, prefix: str) -> 
             },
             status_code=200 if ready else 503,
         )
+
+    # Built once on first request rather than at import: list_tools is async,
+    # and by request time every tool is certainly registered.
+    cache: dict[str, dict] = {}
+
+    async def spec() -> dict:
+        if "spec" not in cache:
+            cache["spec"] = await build_spec(mcp, ENDPOINTS, prefix, bool(token))
+        return cache["spec"]
+
+    @mcp.custom_route("/openapi.yaml", methods=["GET"])
+    async def openapi_yaml(_request: Request) -> Response:
+        """The HTTP surface as OpenAPI 3.1.
+
+        Unauthenticated, like /health: it is a description of the API, not a way
+        into it, and a client that cannot read the contract before presenting a
+        token is needlessly awkward to work with.
+        """
+        return Response(
+            yaml.safe_dump(await spec(), sort_keys=False, width=100),
+            media_type="application/yaml",
+        )
+
+    @mcp.custom_route("/openapi.json", methods=["GET"])
+    async def openapi_json(_request: Request) -> JSONResponse:
+        """The same document as JSON, for tools that will not read YAML."""
+        return JSONResponse(await spec())
 
     for path, method_name in ENDPOINTS.items():
         _add(mcp, actions, token, prefix, path, method_name)

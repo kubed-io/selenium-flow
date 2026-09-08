@@ -1,0 +1,738 @@
+openapi: 3.1.0
+info:
+  title: Selenium Flow
+  version: 0.0.0
+  description: "Drive a persistent browser on Selenium Grid over plain HTTP.\n\nEvery operation here is\
+    \ also an MCP tool at `/mcp`, backed by the same code \u2014\nthe request schemas in this document\
+    \ are generated from those tools, so the two\nsurfaces cannot describe different things.\n\nCall `/browser/open`\
+    \ first and pass the `session_id` it returns to every other\ncall; nothing is stored server-side.\
+    \ Call `/browser/close` when finished,\nincluding after a failure, or the session holds a Grid slot\
+    \ until it times out.\n"
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+- url: http://selenium-flow.flow.svc.cluster.local:8000
+  description: In-cluster Service.
+- url: http://localhost:8000
+  description: docker compose, where auth is off by default.
+tags:
+- name: browser
+  description: Browser actions.
+- name: ops
+  description: Operational endpoints.
+paths:
+  /browser/open:
+    post:
+      operationId: open_session
+      summary: Start a browser session and return its session_id.
+      description: "Start a browser session and return its session_id.\n\nCall this first \u2014 every\
+        \ other tool needs the id it returns. Optionally\nnavigates to a starting URL. Set width and height\
+        \ when layout matters:\nthe headless default is small and varies between Grid nodes."
+      tags:
+      - browser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OpenSessionRequest'
+      responses:
+        '200':
+          description: The action succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpenSessionResponse'
+        '400':
+          description: A required field is missing or a value is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or wrong bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: The Grid rejected the action or the session is gone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /browser/close:
+    post:
+      operationId: close_session
+      summary: Quit the browser session and free its Grid slot.
+      description: 'Quit the browser session and free its Grid slot.
+
+
+        Call this when finished, including after a failure. Sessions are
+
+        limited and an abandoned one stays open until it times out.'
+      tags:
+      - browser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloseSessionRequest'
+      responses:
+        '200':
+          description: The action succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloseSessionResponse'
+        '400':
+          description: A required field is missing or a value is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or wrong bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: The Grid rejected the action or the session is gone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /browser/navigate:
+    post:
+      operationId: navigate
+      summary: Go to a URL. Returns the resulting URL and page title.
+      description: 'Go to a URL. Returns the resulting URL and page title.
+
+
+        Use this to move somewhere unconditionally. To act on a page in one
+
+        step, prefer passing url to click, write, extract or screenshot.'
+      tags:
+      - browser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NavigateRequest'
+      responses:
+        '200':
+          description: The action succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NavigateResponse'
+        '400':
+          description: A required field is missing or a value is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or wrong bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: The Grid rejected the action or the session is gone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /browser/click:
+    post:
+      operationId: click
+      summary: Click an element, waiting for it to become clickable.
+      description: 'Click an element, waiting for it to become clickable.
+
+
+        Returns the URL and title *after* the click, so any navigation the
+
+        click caused is visible in the result.'
+      tags:
+      - browser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClickRequest'
+      responses:
+        '200':
+          description: The action succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClickResponse'
+        '400':
+          description: A required field is missing or a value is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or wrong bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: The Grid rejected the action or the session is gone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /browser/write:
+    post:
+      operationId: write
+      summary: Type text into an input, textarea or contenteditable.
+      description: 'Type text into an input, textarea or contenteditable.
+
+
+        Set submit to press Enter afterwards, which fills and submits a search
+
+        box in one call. Returns the field''s value read back off the element, so
+
+        you can confirm the text actually landed.'
+      tags:
+      - browser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WriteRequest'
+      responses:
+        '200':
+          description: The action succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WriteResponse'
+        '400':
+          description: A required field is missing or a value is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or wrong bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: The Grid rejected the action or the session is gone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /browser/press-key:
+    post:
+      operationId: press_key
+      summary: Press a named key, at an element or wherever focus currently is.
+      description: 'Press a named key, at an element or wherever focus currently is.
+
+
+        For Tab, Escape, Enter, arrows and similar. Known keys: add, alt, arrow_down, arrow_left, arrow_right,
+        arrow_up, back_space, backspace, cancel, clear, command, control, decimal, delete, divide, down,
+        end, enter, equals, escape, f1, f10, f11, f12, f2, f3, f4, f5, f6, f7, f8, f9, help, home, insert,
+        left, left_alt, left_command, left_control, left_meta, left_option, left_shift, meta, multiply,
+        null, numpad0, numpad1, numpad2, numpad3, numpad4, numpad5, numpad6, numpad7, numpad8, numpad9,
+        page_down, page_up, pause, return, right, right_alt, right_control, right_meta, right_option,
+        right_shift, semicolon, separator, shift, space, subtract, tab, up, zenkaku_hankaku.
+
+
+        Not a reliable way to scroll - page_down only moves the page when focus happens to be on the scrollable
+        container. Use execute_script to scroll.'
+      tags:
+      - browser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PressKeyRequest'
+      responses:
+        '200':
+          description: The action succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PressKeyResponse'
+        '400':
+          description: A required field is missing or a value is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or wrong bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: The Grid rejected the action or the session is gone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /browser/extract:
+    post:
+      operationId: extract
+      summary: Read an element's visible text and innerHTML.
+      description: "Read an element's visible text and innerHTML.\n\nThe primary way to read a page \u2014\
+        \ prefer it over a screenshot, which\ncosts far more. //body reads everything, but a narrower\
+        \ XPath keeps the\nresult small."
+      tags:
+      - browser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExtractRequest'
+      responses:
+        '200':
+          description: The action succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractResponse'
+        '400':
+          description: A required field is missing or a value is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or wrong bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: The Grid rejected the action or the session is gone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /browser/script:
+    post:
+      operationId: execute_script
+      summary: Run JavaScript in the page and return its result.
+      description: 'Run JavaScript in the page and return its result.
+
+
+        The escape hatch for anything the other tools do not cover: scrolling
+
+        (window.scrollTo(0, 2000)), drag and drop, computed styles, direct DOM
+
+        access. Use `return` to send a value back.'
+      tags:
+      - browser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecuteScriptRequest'
+      responses:
+        '200':
+          description: The action succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecuteScriptResponse'
+        '400':
+          description: A required field is missing or a value is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or wrong bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: The Grid rejected the action or the session is gone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /browser/screenshot:
+    post:
+      operationId: screenshot
+      summary: Capture a PNG of the page and return it as an image you can see.
+      description: "Capture a PNG of the page and return it as an image you can see.\n\nThree modes: pass\
+        \ xpath for one element, full_page for the whole\nscrollable page, or neither for the visible\
+        \ viewport.\n\nOnly reach for this when the *visual* result matters \u2014 layout, styling,\n\
+        a rendered chart. To read content, extract is far cheaper."
+      tags:
+      - browser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScreenshotRequest'
+      responses:
+        '200':
+          description: The action succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScreenshotResponse'
+        '400':
+          description: A required field is missing or a value is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or wrong bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: The Grid rejected the action or the session is gone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /health:
+    get:
+      operationId: health
+      summary: Readiness probe.
+      description: Reports Grid reachability, not just process liveness, so a server that cannot see a
+        Grid is correctly not ready. Unauthenticated so a kubelet can call it.
+      tags:
+      - ops
+      security: []
+      responses:
+        '200':
+          description: Server and Grid are both up.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '503':
+          description: The Grid is unreachable or not ready.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+components:
+  schemas:
+    ClickRequest:
+      additionalProperties: false
+      properties:
+        session_id:
+          type: string
+        xpath:
+          type: string
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+        wait_timeout:
+          default: 30
+          type: integer
+      required:
+      - session_id
+      - xpath
+      type: object
+    ClickResponse:
+      type: object
+      properties:
+        url: &id001
+          type: string
+          description: Current URL after the action.
+        title: &id002
+          type: string
+          description: Page title after the action.
+    CloseSessionRequest:
+      additionalProperties: false
+      properties:
+        session_id:
+          type: string
+      required:
+      - session_id
+      type: object
+    CloseSessionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        session_id:
+          type: string
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+      - error
+    ExecuteScriptRequest:
+      additionalProperties: false
+      properties:
+        session_id:
+          type: string
+        script:
+          type: string
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+      required:
+      - session_id
+      - script
+      type: object
+    ExecuteScriptResponse:
+      type: object
+      properties:
+        result:
+          description: Whatever the script returned. Any JSON type.
+        url: *id001
+        title: *id002
+    ExtractRequest:
+      additionalProperties: false
+      properties:
+        session_id:
+          type: string
+        xpath:
+          type: string
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+        wait_timeout:
+          default: 30
+          type: integer
+      required:
+      - session_id
+      - xpath
+      type: object
+    ExtractResponse:
+      type: object
+      properties:
+        html:
+          type: string
+          description: innerHTML of the matched element.
+        text:
+          type: string
+          description: Visible text of the element.
+        url: *id001
+        title: *id002
+    Health:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+          - ok
+          - degraded
+        grid:
+          type: string
+          description: Grid hub URL this server dials.
+        grid_ready:
+          type: boolean
+        sessions:
+          type: integer
+          description: Sessions held Grid-wide.
+        error:
+          type: string
+          description: Only present when degraded.
+    NavigateRequest:
+      additionalProperties: false
+      properties:
+        session_id:
+          type: string
+        url:
+          type: string
+      required:
+      - session_id
+      - url
+      type: object
+    NavigateResponse:
+      type: object
+      properties:
+        url: *id001
+        title: *id002
+    OpenSessionRequest:
+      additionalProperties: false
+      properties:
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+        width:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+        height:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+      type: object
+    OpenSessionResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+          description: Pass this to every other call.
+        url: *id001
+        title: *id002
+        width:
+          type: integer
+          description: Window width in use.
+        height:
+          type: integer
+          description: Window height in use.
+    PressKeyRequest:
+      additionalProperties: false
+      properties:
+        session_id:
+          type: string
+        key:
+          type: string
+        xpath:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+        wait_timeout:
+          default: 30
+          type: integer
+      required:
+      - session_id
+      - key
+      type: object
+    PressKeyResponse:
+      type: object
+      properties:
+        key:
+          type: string
+          description: The key that was sent.
+        url: *id001
+        title: *id002
+    ScreenshotRequest:
+      additionalProperties: false
+      properties:
+        session_id:
+          type: string
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+        xpath:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+        full_page:
+          default: false
+          type: boolean
+        width:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+        height:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+        wait_timeout:
+          default: 30
+          type: integer
+      required:
+      - session_id
+      type: object
+    ScreenshotResponse:
+      type: object
+      properties:
+        image:
+          type: string
+          format: byte
+          description: Base64 PNG.
+        width:
+          type: integer
+          description: Image width in pixels.
+        height:
+          type: integer
+          description: Image height in pixels.
+        bytes:
+          type: integer
+          description: Decoded size. A value near zero means a blank capture.
+        url: *id001
+        title: *id002
+    WriteRequest:
+      additionalProperties: false
+      properties:
+        session_id:
+          type: string
+        xpath:
+          type: string
+        text:
+          type: string
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+        clear:
+          default: true
+          type: boolean
+        submit:
+          default: false
+          type: boolean
+        wait_timeout:
+          default: 30
+          type: integer
+      required:
+      - session_id
+      - xpath
+      - text
+      type: object
+    WriteResponse:
+      type: object
+      properties:
+        value:
+          type: string
+          description: The field's value read back off the element, so a caller can confirm the text landed.
+        url: *id001
+        title: *id002
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: The token from MCP_AUTH_TOKEN. The bare token is also accepted as the Authorization
+        value, for clients that cannot express a scheme.
+security:
+- bearerAuth: []

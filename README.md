@@ -14,8 +14,14 @@ starting a fresh browser for every action.
 | MCP over Streamable HTTP | agents and MCP clients | `/mcp` |
 | JSON over HTTP | anything else — n8n HTTP nodes, curl, scripts | `/browser/*` |
 
-Both call the same functions in `actions.py`, so they cannot drift. A capability added
-once appears on both.
+Both call the same functions in `actions.py`, so they cannot drift — every action is a
+tool *and* an endpoint, one to one, and a test enforces it. That is deliberate: a caller
+picks the style that suits the job. Hand a whole task to an agent over MCP, or drive the
+same actions directly over HTTP when you want exact control, and switch between them
+without losing any capability.
+
+The surfaces differ only in return shape where it matters: `screenshot` gives MCP an image
+block a vision model can see, and HTTP a base64 payload a script can save.
 
 ## Actions
 
@@ -31,8 +37,24 @@ once appears on both.
 | `screenshot` | `POST /browser/screenshot` | Capture the viewport, one element, or the full page |
 | `close_session` | `POST /browser/close` | Quit the session and free its Grid slot |
 
-`GET /health` reports Grid readiness and the live session count. It needs no credentials,
-so a kubelet can probe it.
+`GET /health` reports Grid readiness and the live session count, and `GET /openapi.yaml`
+(or `.json`) describes the HTTP surface. Neither needs credentials — a kubelet has none,
+and a contract you must authenticate to read is needlessly awkward.
+
+### OpenAPI
+
+The spec is **generated, not written**. Request schemas come from the MCP tools themselves
+— the same objects FastMCP publishes to agents — so the two contracts are the same schema
+rather than two descriptions that happen to agree. It is also committed at
+[`openapi.yaml`](openapi.yaml) so it can be reviewed in a pull request and linted; a test
+fails if that file drifts from what the code produces.
+
+```bash
+python scripts/generate_openapi.py   # the fix when that test fails
+```
+
+Response shapes are the one hand-maintained half, in `openapi.py` — the actions return
+plain dicts, so there is nothing to introspect. A test asserts every endpoint has one.
 
 ### Sessions
 

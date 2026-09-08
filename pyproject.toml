@@ -17,6 +17,7 @@ dependencies = [
   "fastmcp>=4.0.0,<5",
   "selenium>=4.48.0,<5",
   "requests>=2.32.0",
+  "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -30,6 +31,7 @@ test = [
   "pytest-asyncio",
   "ruff",
   "uvicorn",
+  "openapi-spec-validator",
 ]
 
 [build-system]

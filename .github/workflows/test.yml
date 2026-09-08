@@ -16,6 +16,7 @@ on:
     paths:
     - kubed/**
     - tests/**
+    - openapi.yaml
     - pyproject.toml
     - .github/workflows/test.yml
   workflow_dispatch:
@@ -47,3 +48,9 @@ jobs:
 
     - name: Test
       run: pytest
+
+    # openapi.yaml is generated but committed so it is reviewable in a PR. The
+    # staleness check itself lives in pytest above; this lints the artifact the
+    # way any consumer's tooling would read it.
+    - name: Lint OpenAPI
+      run: npx --yes @redocly/cli@latest lint openapi.yaml
