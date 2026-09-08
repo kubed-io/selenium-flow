@@ -5,6 +5,14 @@ session id through every call, so when this feature is on it may simply omit
 ``session_id`` and the browser it opened earlier is found again — keyed on the
 MCP session it is already talking over.
 
+**Recall only. This never opens a browser.** Not every client holds a stable
+``Mcp-Session-Id`` across tool calls — Claude Code does not, and FastMCP then
+generates a fresh id per request. A resolver that opened a browser when it found
+no mapping would hand that client a brand new browser on *every* call, silently
+leaking a Grid slot each time and acting on a blank page. Recall-only degrades
+honestly instead: the caller gets a clear error telling it to pass ``session_id``,
+which is what the HTTP surface has always required.
+
 **The HTTP endpoints never use this.** They take a session id in and give one
 back, always, so an n8n workflow owns the session outright and can pass it
 between nodes, store it, or hand it to a different workflow. Making them
@@ -55,6 +63,9 @@ class SavedSessions:
 
         An explicit id always wins — a caller naming a session means it, and
         silently substituting a remembered one would act on the wrong browser.
+
+        Never opens a browser. See the module docstring: a client without stable
+        MCP sessions would leak one per call.
         """
         if session_id:
             return session_id
@@ -69,12 +80,12 @@ class SavedSessions:
         saved = self.store.get(key)
         if saved:
             return saved
-        # First call of a conversation that never opened anything explicitly.
-        # Opening here is what lets an agent start with `navigate` and just work.
-        opened = self.actions.open_session()
-        log.info("opened session %s for key %s", opened["session_id"], key)
-        self.store.set(key, opened["session_id"])
-        return opened["session_id"]
+        raise ValueError(
+            "session_id is required: no browser is saved for this conversation. "
+            "Call open_session first and pass the session_id it returns, or pass "
+            "session_id on every call if your client does not hold a stable MCP "
+            "session."
+        )
 
     def remember(self, key: str | None, session_id: str) -> None:
         """Bind a freshly opened session to this caller."""

@@ -75,29 +75,43 @@ def test_an_explicit_session_id_always_wins():
     assert actions.opened == 0
 
 
-def test_the_first_call_opens_a_browser_and_the_second_reuses_it():
+def test_a_remembered_session_is_recalled():
     actions = RecordingActions()
     saved = SavedSessions(actions, MemoryStore(), enabled=True)
-    first = saved.resolve("conversation-1", None)
-    second = saved.resolve("conversation-1", None)
-    assert first == second == "generated-1"
-    assert actions.opened == 1
+    saved.remember("conversation-1", "abc")
+    assert saved.resolve("conversation-1", None) == "abc"
+    assert saved.resolve("conversation-1", None) == "abc"
+    assert actions.opened == 0
 
 
-def test_separate_conversations_get_separate_browsers():
+def test_conversations_do_not_see_each_others_browsers():
+    saved = SavedSessions(RecordingActions(), MemoryStore(), enabled=True)
+    saved.remember("conversation-1", "abc")
+    with pytest.raises(ValueError, match="no browser is saved"):
+        saved.resolve("conversation-2", None)
+
+
+def test_resolve_never_opens_a_browser():
+    """The bug this guards against leaked a Grid slot on every single call.
+
+    Claude Code does not hold a stable Mcp-Session-Id, so FastMCP generates a
+    fresh one per request. A resolver that opened on a miss handed that client a
+    new blank browser every time, and the action then timed out looking for an
+    element on about:blank.
+    """
     actions = RecordingActions()
     saved = SavedSessions(actions, MemoryStore(), enabled=True)
-    assert saved.resolve("conversation-1", None) != saved.resolve("conversation-2", None)
-    assert actions.opened == 2
+    with pytest.raises(ValueError, match="Call open_session first"):
+        saved.resolve("a-key-never-seen-before", None)
+    assert actions.opened == 0, "resolve must never create a browser"
 
 
-def test_forgetting_makes_the_next_call_open_a_new_one():
-    actions = RecordingActions()
-    saved = SavedSessions(actions, MemoryStore(), enabled=True)
-    saved.resolve("c", None)
+def test_forgetting_stops_the_recall():
+    saved = SavedSessions(RecordingActions(), MemoryStore(), enabled=True)
+    saved.remember("c", "abc")
     saved.forget("c")
-    saved.resolve("c", None)
-    assert actions.opened == 2
+    with pytest.raises(ValueError, match="no browser is saved"):
+        saved.resolve("c", None)
 
 
 def test_a_transport_with_no_session_key_must_be_explicit():
@@ -145,8 +159,9 @@ def test_redis_backed_saved_sessions_behave_the_same():
     """The backend is an implementation detail; the behaviour is not."""
     actions = RecordingActions()
     saved = SavedSessions(actions, RedisStore(FakeRedis()), enabled=True)
-    assert saved.resolve("c", None) == saved.resolve("c", None)
-    assert actions.opened == 1
+    saved.remember("c", "abc")
+    assert saved.resolve("c", None) == "abc"
+    assert actions.opened == 0
     assert saved.kind == "redis"
 
 

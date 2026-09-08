@@ -107,8 +107,12 @@ data to it. It is not done because:
 3. **An explicit id is visible** - in a log, an n8n execution, a curl command. A wrong one
    fails loudly instead of silently driving someone else's browser.
 
-`session_key` is the sanctioned middle ground: an explicit, caller-chosen name that works
-identically on both surfaces, so none of the above applies.
+Saved sessions are the sanctioned middle ground, and they are **recall only**: `resolve`
+returns a remembered id or raises, and never opens a browser. That is not a detail — a
+client without a stable `Mcp-Session-Id` (Claude Code, for one) gets a freshly generated
+key on every request, so an opening resolver leaked a Grid slot per call and then timed
+out looking for elements on `about:blank`. It was caught driving the real server from
+Claude Code, and `test_resolve_never_opens_a_browser` is the guard.
 
 ## Scaling: replicas > 1 requires --stateless
 
