@@ -114,6 +114,17 @@ An unusable value is ignored rather than fatal, and `open_session` reports the
 settings it actually resolved to — so a typo shows up as a missing setting
 rather than a mystery.
 
+## Uploads need one writable directory
+
+`/browser/upload` stages the file on this server before Selenium ships it to the
+Grid node, so the process needs somewhere to write. The container image runs
+read-only as an unprivileged user, which means there is nowhere by default —
+mount an `emptyDir` at `/tmp`, or point `TMPDIR` at a writable path.
+
+Without it, an upload fails with *"cannot stage the upload: no writable
+temporary directory"*. Nothing else in the server writes to disk, so this is the
+only reason it needs a volume at all.
+
 ## Two lifetimes that are easy to confuse
 
 - **The browser** is expired by the Grid, on its own idle timeout

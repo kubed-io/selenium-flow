@@ -379,7 +379,18 @@ class Actions:
         temp_dir = None
         try:
             if raw is not None:
-                temp_dir = tempfile.mkdtemp(prefix="selenium-flow-")
+                try:
+                    temp_dir = tempfile.mkdtemp(prefix="selenium-flow-")
+                except OSError as exc:
+                    # The image runs read-only as an unprivileged user, so this
+                    # is a deployment problem rather than a caller's: there has
+                    # to be one writable directory to stage a file in before
+                    # Selenium can ship it to the Grid node.
+                    raise RuntimeError(
+                        "cannot stage the upload: no writable temporary "
+                        f"directory ({exc}). Mount one at /tmp (an emptyDir "
+                        "volume) or set TMPDIR to a writable path."
+                    ) from exc
                 local = os.path.join(temp_dir, name)
                 with open(local, "wb") as handle:
                     handle.write(raw)
