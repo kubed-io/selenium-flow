@@ -23,7 +23,7 @@ workflow  ──── HTTP /browser ──▶ └──────────
                                                             lives here
 ```
 
-**This server holds no browser.** That is the whole trick: the session lives on the Grid and the caller carries its id, so the server can restart, scale to zero, or sit behind several replicas without anyone losing a tab. 🪄
+**This server holds no browser.** The session lives on the Grid, so the server can restart, scale to zero, or sit behind several replicas without anyone losing a tab. 🪄
 
 ---
 
@@ -34,11 +34,9 @@ workflow  ──── HTTP /browser ──▶ └──────────
 | **MCP** over Streamable HTTP | agents and MCP clients | `/mcp` |
 | **JSON** over HTTP | n8n HTTP nodes, curl, scripts, anything | `/browser/*` |
 
-Every action is a tool **and** an endpoint, one to one — and a test fails the build if that ever stops being true. Hand a whole task to an agent, or drive the same actions yourself when you want exact control, and move between the two without giving up a single capability.
+Every action is a tool **and** an endpoint, one to one, and a test fails the build if that stops being true. They differ in one place: `screenshot` hands MCP an image block a vision model can *see*, and HTTP a base64 payload a script can save.
 
-They differ in exactly one place, and only where it earns its keep: `screenshot` hands MCP an image block a vision model can *see*, and HTTP a base64 payload a script can save.
-
-`GET /health` reports Grid readiness and the live session count. `GET /openapi.yaml` (or `.json`) describes the HTTP surface. Neither asks for credentials — a kubelet hasn't got any, and a contract you must authenticate to read is needlessly awkward.
+`GET /health` reports Grid readiness and the live session count; `GET /openapi.yaml` describes the HTTP surface. Neither needs credentials.
 
 ---
 
@@ -107,13 +105,6 @@ only in what is sent.
 | `url` | string | no | — | Page the action happens on |
 | `wait_timeout` | integer | no | `30` | |
 
-`click` and the double/right variants wait for the element to be *clickable*;
-`hover` and `scroll_to` only wait for it to *exist*, since requiring clickability
-would refuse exactly the off-screen element `scroll_to` is for.
-
-`hover` is the one with no alternative — menus that appear only on mouse-over
-cannot be reached any other way.
-
 **Returns** `action`, `url`, `title` — the last two read *after* the gesture, so
 a navigation it caused shows up. If it opened a dialog, `url` and `title` are
 `null` and `dialog` carries the message.
@@ -157,15 +148,6 @@ curl -X POST localhost:8000/browser/upload \
   -F session_id=… -F 'xpath=//input[@type="file"]' -F content=@screenshot.png
 ```
 
-Base64 exists only because MCP tool arguments must be JSON — there is no binary
-input channel in the protocol, and FastMCP's `File` type is for *returning*
-files. The endpoint has no such limit.
-
-The page reads a file's type from the **filename extension**, not from anything
-we send: `data.json` arrives as `application/json`, an extensionless file as
-`""`. So `mime_type` supplies an extension rather than overriding the type —
-`filename: "config"` with `mime_type: "text/yaml"` becomes `config.yaml`.
-
 **Returns** `filename` and `bytes` actually attached, plus page state.
 
 </details>
@@ -185,12 +167,6 @@ read the URL until it is answered.
 | `text` | string | only for `send_text` | — | Fills a prompt, then accepts |
 | `wait_timeout` | integer | no | `10` | |
 
-**This server never answers a dialog for you.** Chrome's default is to silently
-dismiss one — quietly clicking *Cancel* on a confirmation and destroying the
-evidence — so `unhandledPromptBehavior` is set to `ignore` deliberately. An
-action that opens a dialog still succeeds and reports it, and `read` inspects
-the message without answering.
-
 **Returns** `action`, `message` (read before answering), plus page state.
 
 </details>
@@ -199,10 +175,6 @@ the message without answering.
 <summary><b><code>frame</code></b> &nbsp;·&nbsp; <code>POST /browser/frame</code> &nbsp;—&nbsp; enter an iframe 🖼️</summary>
 
 <br>
-
-Selenium does not look inside frames: an element in one is invisible to every
-locator until the session switches in. This is the real cause of most "but that
-XPath is right" timeouts.
 
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
@@ -229,10 +201,6 @@ which is why `session://current` reports `in_frame`.
 <summary><b><code>resize</code></b> &nbsp;·&nbsp; <code>POST /browser/resize</code> &nbsp;—&nbsp; change the window 📐</summary>
 
 <br>
-
-Window size is one of the few things WebDriver lets you change after the browser
-is open, which is why it is its own action and not only an `open_session`
-argument — a caller whose browser was opened for it can still set the size.
 
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
@@ -404,7 +372,7 @@ URLs compare with the fragment and any trailing slash ignored, so `/settings`, `
 
 ## 🍪 Sessions
 
-`open_session` returns a `session_id` and every other call takes it. Over HTTP that is the whole story — session in, session out, always — so an n8n workflow owns its session outright and can pass it between nodes, store it, or hand it to another workflow.
+Over HTTP it is session in, session out, always — so an n8n workflow owns its session outright and can pass it between nodes.
 
 **`open_session` always comes first.** Nothing opens a browser implicitly, because that is the only place its window size and timeouts can be chosen — hiding it hid the settings too.
 
@@ -415,8 +383,6 @@ After that there are two modes, and they are **exclusive**. `session://current` 
 | **saved** | the server can identify you | **never** pass `session_id` — it is not even advertised |
 | **stateless** | it cannot, or you are on `/browser/*` | `session_id` is **required** on every call |
 
-The tool schemas follow the mode, so a model reads the rule rather than discovering it by failing a call. Using the wrong one errors and names the right reference.
-
 The server works out who is calling from the first of these it finds, and **never invents one** — a caller it cannot identify is stateless, not quietly handed a browser:
 
 | Key | How it's set | How stable it is |
@@ -425,11 +391,9 @@ The server works out who is calling from the first of these it finds, and **neve
 | **The MCP transport session** | the `Mcp-Session-Id` the server negotiates, automatically | Lasts as long as the client's connection; a reconnect is a new key |
 | **stdio** | one process serves one client | Lasts as long as the process |
 
-That column is about the *key*, not the browser: how long the mapping behind it survives is `SESSION_TTL` below.
+That column is about the *key*; how long the mapping behind it survives is `SESSION_TTL`.
 
-The **query parameter** is usually the one you want: one bearer credential shared across callers, each naming itself in its own URL — so n8n needs a single credential rather than a multi-header one per agent. Setting the **header** instead pins a session to a credential, so an admin can enforce one browser per credential and a caller cannot override it from the URL. Leaving the header out is equally a decision: it delegates the choice to whoever implements the call.
-
-An explicit `session_id` always wins over all of it, and is taken on trust — you may well have opened it through the HTTP surface.
+Prefer the **query parameter**: one bearer credential shared across callers, each naming itself in its URL. The **header** wins over it, so an admin can pin one browser per credential and a caller cannot override it.
 
 ### What we actually set
 
@@ -439,26 +403,22 @@ An explicit `session_id` always wins over all of it, and is taken on trust — y
 | **How long we remember a caller** | `SESSION_TTL` | `3600s`, slid forward on every call |
 | **Where we remember it** | `SESSION_STORE` | `memory` (or `redis` to share it) |
 
-**Nothing here runs a cleanup loop, and nothing should.** The Grid expires idle browsers on its own and Redis expires its own keys, so both halves are already somebody's job. If the Grid has reaped a browser we remembered, the next call notices, reopens one, and navigates back to the page it was last on — the refresh is invisible. 🪄
+**Nothing here runs a cleanup loop, and nothing should** — the Grid expires idle browsers and the store expires its own keys. If the Grid reaped a browser we remembered, the next call notices and reopens it at the page it was last on, with the same settings. 🪄
 
 ### 📍 Where am I?
 
-`session://current` is an MCP **resource** reporting the browser this client is holding: `session_id`, the page it's on, and whether the Grid still has it. Reading it never opens a browser, so a null `session_id` genuinely means nothing is held.
+`session://current` reports the mode, the browser this client holds, whether the Grid still has it, whether you are inside a frame, and a link to the reference that applies. Reading it never opens a browser.
 
-Resources are the least widely implemented corner of MCP — n8n has no notion of them — so the same status is also a `current_session` **tool**, hidden from `tools/list` by default. A client that can't read resources says so with `?resources=off` or an `X-MCP-Resources: off` header, and the tool appears. It stays callable either way.
+Resources are the least widely implemented corner of MCP — n8n has none — so the same status is also a `current_session` **tool**, hidden unless a client declares `?resources=off` or `X-MCP-Resources: off`. It stays callable either way.
 
 ### 📖 It teaches you how to use it
 
-The server ships an **Agent Skill** describing how to drive it well — the
-strategic half tool descriptions cannot hold: whether you need to pass
-`session_id` at all, why `extract` beats `screenshot` by orders of magnitude, how
-to reach a page in one call instead of clicking a path to it, that scrolling is
-`execute_script` and not `press_key`, and what a timeout on a good XPath usually
-means.
+The server ships an **Agent Skill**: the strategic half tool descriptions cannot
+hold — which session mode you are in, why `extract` beats `screenshot` by orders
+of magnitude, how to reach a page in one call, and what a timeout usually means.
 
-`SKILL.md` is a thin index — the two facts that matter, the one branch every
-caller has to take, and pointers to the rest. Each reference is its own resource,
-so an agent loads only what its task needs:
+`SKILL.md` is a thin index; each reference is its own resource, so an agent loads
+only what its task needs:
 
 | Resource | Holds |
 |---|---|
@@ -479,12 +439,6 @@ Those URIs are FastMCP's convention, not ours, and served by its own
 from `fastmcp.utilities.skills` work against this server with no special casing,
 and an agent can pull the skill down into `~/.claude/skills` if it wants it
 locally.
-
-The skill lives at [`skills/`](skills/) in the repo, where it reads as
-documentation, and is mapped into the package at build time so it ships **inside
-the wheel**. The guidance and the tools it describes therefore cannot be
-versioned apart — upgrade the server and the advice upgrades with it. Nothing to
-mount, nothing to sync.
 
 Same fallback as the session status: clients that cannot read resources get a
 `selenium_flow_skill` tool instead, hidden otherwise. `SKILL_ENABLED=false` turns
@@ -526,13 +480,6 @@ Window size and the two timeouts resolve in order of increasing specificity:
 server default (env)  <  client default (?width= / X-Window-Width)  <  open_session argument
 ```
 
-The header beats the parameter, as everywhere else here. `open_session` reports the settings
-it actually resolved to, so a typo shows up as a missing setting rather than a mystery — an
-unusable value is ignored, never fatal.
-
-A refresh after the Grid reaps a session reopens with the **same** settings, so a browser
-never silently changes shape midway through a task.
-
 ### 🔐 Auth
 
 Setting `MCP_AUTH_TOKEN` turns on auth for both surfaces at once. Clients send it the usual way:
@@ -567,29 +514,11 @@ Point an MCP client at `http://localhost:8000/mcp` — and watch the browser wor
 
 ---
 
-## 📐 The OpenAPI spec writes itself
+## 🛠 Contributing
 
-Request schemas come from the MCP tools themselves — the very objects FastMCP publishes to agents — so the two contracts aren't two descriptions that happen to agree, they're the same schema. Add a parameter to a tool and the spec follows with no further work.
-
-It's committed at [`openapi.yaml`](openapi.yaml) so it can be reviewed in a pull request and linted, and a test fails the build if it drifts from what the code produces:
-
-```bash
-python scripts/generate_openapi.py   # the fix when that test fails
-```
-
-Response shapes are the one hand-maintained half, in `openapi.py` — the actions return plain dicts, so there's nothing to introspect. A test asserts every endpoint has one.
-
----
-
-## 🧪 Development
-
-```bash
-pip install -e ".[test]"
-ruff check kubed
-pytest
-```
-
-The tests wire a server against an unroutable Grid address and drive both surfaces through the real ASGI app, so they need no browser and no network. Agent-facing notes on the internals live in [AGENTS.md](AGENTS.md).
+Setup, tests, how the OpenAPI spec is generated and how the embedded skill is
+packaged: [CONTRIBUTING.md](CONTRIBUTING.md). Design rules worth reading before
+changing behaviour: [AGENTS.md](AGENTS.md).
 
 ---
 
