@@ -15,10 +15,10 @@ pytestmark = pytest.mark.unit
 # Named separately from ENDPOINTS so a typo in the route table cannot make this
 # test agree with itself.
 #
-# The `current_session` status tool is deliberately absent: it is not an action,
-# has no HTTP counterpart (an endpoint's session is always explicit, so there is
-# no "current" one to report), and is hidden from tools/list unless a client
-# declares it cannot read resources. See test_resources.py.
+# The resource-mirror tools (`current_session`, `selenium_flow_skill`) are
+# deliberately absent: neither is a browser action, neither has an HTTP
+# counterpart, and both are hidden from tools/list unless a client declares it
+# cannot read resources. See test_resources.py and test_skill.py.
 EXPECTED = {
     "open_session",
     "close_session",

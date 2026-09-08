@@ -60,23 +60,36 @@ def client_reads_resources() -> bool:
     return str(declared).strip().lower() not in _OFF
 
 
-class HideStatusToolFromResourceClients(Middleware):
-    """Drop the status tool from ``tools/list`` for clients that read resources.
+class HideMirrorTools(Middleware):
+    """Drop resource-mirroring tools from ``tools/list`` for clients that read
+    resources.
 
-    Filtering the listing rather than conditionally registering the tool keeps
-    one server object serving every client correctly: the decision is per
-    request, because it depends on who is asking.
+    A "mirror" is a tool that exists only because some clients cannot read
+    resources — the session status, the embedded skill. Advertising both shapes
+    to a client that has resources is noise: two ways to ask one question.
+
+    Filtering the listing rather than registering conditionally is what keeps
+    one server object correct for every client at once. The decision depends on
+    who is asking, so it can only be made per request; registration happens once
+    at boot, when there is no asker.
     """
+
+    def __init__(self, names: set[str]):
+        self.names = set(names)
 
     async def on_list_tools(self, context, call_next):
         tools = await call_next(context)
-        if client_reads_resources():
-            return [tool for tool in tools if tool.name != STATUS_TOOL]
+        if self.names and client_reads_resources():
+            return [tool for tool in tools if tool.name not in self.names]
         return tools
 
 
-def register(mcp: FastMCP, sessions: SessionManager) -> None:
-    """Register the session status as a resource and as a hidden-by-default tool."""
+def register(mcp: FastMCP, sessions: SessionManager) -> set[str]:
+    """Register the session status as a resource and as a tool that mirrors it.
+
+    Returns the mirror tool names, for the caller to hide from clients that read
+    resources.
+    """
 
     @mcp.resource(RESOURCE_URI, description=DESCRIPTION, mime_type="application/json")
     def current_session_resource() -> dict:
@@ -86,4 +99,4 @@ def register(mcp: FastMCP, sessions: SessionManager) -> None:
     def current_session_tool() -> dict:
         return sessions.describe()
 
-    mcp.add_middleware(HideStatusToolFromResourceClients())
+    return {STATUS_TOOL}

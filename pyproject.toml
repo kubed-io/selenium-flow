@@ -58,6 +58,18 @@ selenium-flow = "kubed.selenium_flow.main:main"
 [tool.setuptools]
 packages = ["kubed.selenium_flow"]
 
+# The embedded skill ships inside the wheel, so the guidance and the tools it
+# describes cannot be versioned apart. Without this the directory is simply
+# absent from an installed package and the skill silently does not exist.
+# Everything under skills/, not just *.md: a supporting file of any other type
+# would otherwise be absent from the wheel with no error at build or import
+# time, and the skill would reference a file that is simply not there.
+#
+# The directory name IS the skill name — FastMCP's SkillProvider takes it from
+# the folder, not the frontmatter, and publishes skill://<folder>/SKILL.md.
+[tool.setuptools.package-data]
+"kubed.selenium_flow" = ["skills/*", "skills/**/*"]
+
 [tool.pytest.ini_options]
 minversion = "6.0"
 asyncio_mode = "auto"

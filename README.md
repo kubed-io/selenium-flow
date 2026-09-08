@@ -302,6 +302,34 @@ An explicit `session_id` always wins over all of it, and is taken on trust — y
 
 Resources are the least widely implemented corner of MCP — n8n has no notion of them — so the same status is also a `current_session` **tool**, hidden from `tools/list` by default. A client that can't read resources says so with `?resources=off` or an `X-MCP-Resources: off` header, and the tool appears. It stays callable either way.
 
+### 📖 It teaches you how to use it
+
+The server ships an **Agent Skill** describing how to drive it well — the
+strategic half tool descriptions cannot hold: whether you need to pass
+`session_id` at all, why `extract` beats `screenshot` by orders of magnitude, how
+to reach a page in one call instead of clicking a path to it, that scrolling is
+`execute_script` and not `press_key`, and what a timeout on a good XPath usually
+means.
+
+| Resource | Holds |
+|---|---|
+| `skill://selenium-flow/SKILL.md` | the instructions |
+| `skill://selenium-flow/_manifest` | the file listing, with sizes and hashes |
+
+Those URIs are FastMCP's convention, not ours, and served by its own
+`SkillProvider` — so `list_skills`, `get_skill_manifest` and `download_skill`
+from `fastmcp.utilities.skills` work against this server with no special casing,
+and an agent can pull the skill down into `~/.claude/skills` if it wants it
+locally.
+
+It ships **inside the wheel** as package data, so the guidance and the tools it
+describes cannot be versioned apart — upgrade the server and the advice upgrades
+with it. Nothing to mount, nothing to sync.
+
+Same fallback as the session status: clients that cannot read resources get a
+`selenium_flow_skill` tool instead, hidden otherwise. `SKILL_ENABLED=false` turns
+both shapes off.
+
 ---
 
 ## ⚙️ Configuration
@@ -321,6 +349,7 @@ Every flag has an environment fallback, because containers are configured with e
 | `REDIS_DB` | — | `0` | Database index. Applied even when `REDIS_URL` carries no `/<index>` |
 | `REDIS_USERNAME` / `REDIS_PASSWORD` / `REDIS_SSL` | — | unset | Credentials for the above |
 | `REDIS_PREFIX` | — | `selenium-flow:session:` | Key namespace, so sharing a database is safe |
+| `SKILL_ENABLED` | `--no-skill` | `true` | Serve the embedded skill as a resource, and as a tool for clients without resources |
 | `STATELESS_HTTP` | `--stateless` | `false` | Drop MCP transport sessions. Required for more than one replica |
 | `TRANSPORT` | `--transport` | `http` | `http` or `stdio` |
 | `HOST` / `PORT` | `--host` / `--port` | `0.0.0.0` / `8000` | |

@@ -49,6 +49,16 @@ def build_parser() -> argparse.ArgumentParser:
         "are always explicit (env: SAVED_SESSIONS)",
     )
     parser.add_argument(
+        "--no-skill",
+        dest="skill_enabled",
+        action="store_false",
+        default=os.environ.get("SKILL_ENABLED", "true").strip().lower()
+        not in ("0", "false", "no", "off"),
+        help="do not serve the embedded skill, which is otherwise offered as "
+        "the skill://selenium-flow resource and a mirroring tool "
+        "(env: SKILL_ENABLED)",
+    )
+    parser.add_argument(
         "--stateless",
         action="store_true",
         default=os.environ.get("STATELESS_HTTP", "").strip().lower()
@@ -91,13 +101,15 @@ def main(argv: list[str] | None = None) -> None:
         route_prefix=args.route_prefix,
         stateless=args.stateless,
         saved_sessions=args.saved_sessions,
+        skill_enabled=args.skill_enabled,
     )
     logging.getLogger(__name__).info(
-        "grid=%s auth=%s saved-sessions=%s stateless=%s",
+        "grid=%s auth=%s saved-sessions=%s stateless=%s skill=%s",
         args.grid_url,
         "on" if args.auth_token else "off",
         server.sessions.kind,
         args.stateless,
+        server.skill.skill_info.name if server.skill else "off",
     )
     server.run(transport=args.transport, host=args.host, port=args.port)
 

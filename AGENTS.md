@@ -162,6 +162,33 @@ would bake one client's capabilities into a shared process.
 This is the general pattern for anything that has to vary by client: filter the listing,
 keep the capability. `?resources=off` / `X-MCP-Resources: off` is how a client declares it.
 
+## The embedded skill
+
+`skills/selenium-flow/SKILL.md` is package data, shipped in the wheel, served by
+FastMCP's `SkillProvider`. Two rules keep it working:
+
+- **The directory name is the skill name.** SkillProvider takes it from the
+  folder, not the frontmatter, and publishes `skill://<folder>/SKILL.md`.
+  Renaming the directory renames the skill and moves its URI;
+  `test_the_directory_name_is_the_skill_name` pins the two together.
+- **The URI shape is not ours to choose.** `fastmcp.utilities.skills.list_skills`
+  discovers skills by scanning for resources ending in `/SKILL.md` under the
+  `skill://` scheme, reads `<name>/_manifest` for the file list, then fetches
+  each file. A prettier URI makes the skill invisible to every one of those
+  helpers. Two tests do that discovery for real rather than asserting on the
+  string.
+
+Package data is easy to lose: `[tool.setuptools.package-data]` covers
+`skills/**/*`, not just `*.md`, because a supporting file of another type would
+otherwise be absent from the wheel with no error at build or import time.
+`test_every_skill_file_is_covered_by_package_data` fails if a file is ever added
+that no pattern matches.
+
+Write it for a model deciding what to do next, not for a developer reading
+reference docs — the tool descriptions already say what each tool takes. Keep it
+under 500 lines; past that, split it into supporting files, which the manifest
+and the resource template already handle.
+
 ## Scaling: replicas > 1 requires --stateless
 
 The `/browser` surface is replica-safe as it stands. The `/mcp` surface is **not** by
