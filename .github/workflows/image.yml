@@ -1,27 +1,28 @@
 name: 📸 Image Builder
 
 # Context-driven image build:
+#   pull_request        build only, never pushes — the "does it still build?" gate
 #   push: main          push :main + :latest          → test :latest in-cluster
 #   workflow_dispatch   manual build (push toggle)
 #   workflow_call       called by publish.yml with a version tag — checks out
 #                       that tag and pushes :vX.Y.Z (stable, pin this to deploy)
 #
-# Deliberately NOT run on pull_request. A PR is gated on the test workflow, which
-# installs the package and runs lint + unit tests; a ~7-minute two-arch image
-# build on every push to a branch buys little on top of that. The trade-off is
-# real and accepted: a change that breaks only the Dockerfile is caught on merge
-# to main, not in review. Build it by hand first (`docker compose build`, or
-# dispatch this workflow) when touching it.
-#
 # There is deliberately NO `push: tags` trigger. Releases don't rely on a tag
 # push triggering a build; publish.yml calls this workflow (workflow_call) so the
 # image is on Docker Hub BEFORE the GitHub Release is cut.
 #
-# This workflow only ever builds and pushes the image — it does NOT touch the
-# deployed tag. Pinning kustomization.yaml is publish.yml's job, and it only ever
-# writes a semver, so main always carries a stable, deployable version.
+# This is a public repo, so there is no GCP/WIF hop for credentials — Docker Hub
+# creds come straight from the org secrets.
 
 on:
+  pull_request:
+    branches: [main]
+    paths:
+    - Dockerfile
+    - docker-compose.yaml
+    - pyproject.toml
+    - .github/workflows/image.yml
+    - kubed/**
   push:
     branches: [main]
     paths:
@@ -62,14 +63,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
     env:
       # true only for a real registry push: merge to main, or a dispatch/publish
-      # with push=true. Gates the GCP auth/creds steps and the environment below,
-      # so PR/dry builds never touch GCP or a protected env.
+      # with push=true. A pull_request build never pushes.
       PUSH: ${{ (github.event_name == 'push' || ((github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.push)) && 'true' || 'false' }}
     environment:
-      name: ${{ (github.event_name == 'push' || ((github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.push)) && 'dockerhub' || '' }}
+      name: dockerhub
       url: https://hub.docker.com/r/kubed/selenium-flow
     steps:
 
@@ -81,21 +80,6 @@ jobs:
         ref: ${{ inputs.tag }}
         # setuptools_scm derives the version from git history, not just HEAD.
         fetch-depth: 0
-
-    - name: Authenticate to GCP
-      if: env.PUSH == 'true'
-      uses: google-github-actions/auth@v3
-      with:
-        workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
-        service_account: github@${{ vars.GCP_PROJECT }}.iam.gserviceaccount.com
-
-    - name: Get Docker Hub Credentials
-      id: secrets
-      if: env.PUSH == 'true'
-      uses: google-github-actions/get-secretmanager-secrets@v3
-      with:
-        secrets: |-
-          dockerhub:${{ vars.GCP_PROJECT }}/dockerhub
 
     # GIT_TAG is the semantic bake tag: the version on a release (workflow_call),
     # else :latest on a main build.
@@ -114,8 +98,6 @@ jobs:
       uses: kubed-io/actions/build-image@main
       with:
         push: ${{ env.PUSH }}
-        # Short-circuit before fromJson when not pushing (secrets step skipped →
-        # empty output), so the expression never parses an empty string.
-        username: ${{ env.PUSH == 'true' && fromJson(steps.secrets.outputs.dockerhub).username || '' }}
-        password: ${{ env.PUSH == 'true' && fromJson(steps.secrets.outputs.dockerhub).password || '' }}
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
         repository: kubed/selenium-flow
