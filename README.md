@@ -311,10 +311,22 @@ to reach a page in one call instead of clicking a path to it, that scrolling is
 `execute_script` and not `press_key`, and what a timeout on a good XPath usually
 means.
 
+`SKILL.md` is a thin index — the two facts that matter, the one branch every
+caller has to take, and pointers to the rest. Each reference is its own resource,
+so an agent loads only what its task needs:
+
 | Resource | Holds |
 |---|---|
-| `skill://selenium-flow/SKILL.md` | the instructions |
+| `skill://selenium-flow/SKILL.md` | the index: session mode, the three rules, where to go next |
+| `.../references/STATELESS.md` | you own the session id — the HTTP surface, and any client the server cannot identify |
+| `.../references/SAVED_SESSIONS.md` | the server holds your browser — naming, sharing, transparent refresh |
+| `.../references/READING_PAGES.md` | extract vs script vs screenshot, and XPath that keeps working |
+| `.../references/INTERACTION.md` | forms, clicks, keys, scrolling, waiting |
+| `.../references/TROUBLESHOOTING.md` | timeouts, dead sessions, blank captures, clicks that do nothing |
 | `skill://selenium-flow/_manifest` | the file listing, with sizes and hashes |
+
+The two session references are mutually exclusive: `session://current` tells you
+which one applies, and you read that one.
 
 Those URIs are FastMCP's convention, not ours, and served by its own
 `SkillProvider` — so `list_skills`, `get_skill_manifest` and `download_skill`
@@ -322,9 +334,11 @@ from `fastmcp.utilities.skills` work against this server with no special casing,
 and an agent can pull the skill down into `~/.claude/skills` if it wants it
 locally.
 
-It ships **inside the wheel** as package data, so the guidance and the tools it
-describes cannot be versioned apart — upgrade the server and the advice upgrades
-with it. Nothing to mount, nothing to sync.
+The skill lives at [`skills/`](skills/) in the repo, where it reads as
+documentation, and is mapped into the package at build time so it ships **inside
+the wheel**. The guidance and the tools it describes therefore cannot be
+versioned apart — upgrade the server and the advice upgrades with it. Nothing to
+mount, nothing to sync.
 
 Same fallback as the session status: clients that cannot read resources get a
 `selenium_flow_skill` tool instead, hidden otherwise. `SKILL_ENABLED=false` turns

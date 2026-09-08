@@ -164,8 +164,18 @@ keep the capability. `?resources=off` / `X-MCP-Resources: off` is how a client d
 
 ## The embedded skill
 
-`skills/selenium-flow/SKILL.md` is package data, shipped in the wheel, served by
-FastMCP's `SkillProvider`. Two rules keep it working:
+`skills/selenium-flow/` sits at the **repo root** and is mapped into the package
+by `[tool.setuptools.package-dir]`, so it reads as documentation but installs
+inside the wheel. `skill_path()` checks the packaged location first and falls
+back to the root, which is what makes a source checkout and an installed wheel
+both work; a test asserts the mapping is still declared.
+
+It is served by FastMCP's `SkillProvider` with `supporting_files="resources"`
+rather than the default `"template"` — at half a dozen files the enumeration is
+cheap, and it makes each reference an individually listed, linkable resource
+instead of something a client can only reach by reading the manifest first.
+
+Two rules keep it working:
 
 - **The directory name is the skill name.** SkillProvider takes it from the
   folder, not the frontmatter, and publishes `skill://<folder>/SKILL.md`.
@@ -184,10 +194,16 @@ otherwise be absent from the wheel with no error at build or import time.
 `test_every_skill_file_is_covered_by_package_data` fails if a file is ever added
 that no pattern matches.
 
-Write it for a model deciding what to do next, not for a developer reading
-reference docs — the tool descriptions already say what each tool takes. Keep it
-under 500 lines; past that, split it into supporting files, which the manifest
-and the resource template already handle.
+**SKILL.md is an index, not the manual.** It carries the two facts that shape
+everything, the session-mode branch every caller has to take, and a routing table
+into `references/`. Detail belongs in a reference so an agent loads only what its
+task needs. Three tests hold that line: every `references/...` path the index
+names must exist, every file on disk must be linked from the index, and both
+session modes must have a reference — an unlinked file is never lazily loaded, so
+it may as well not ship.
+
+Write for a model deciding what to do next, not for a developer reading reference
+docs; the tool descriptions already say what each tool takes.
 
 ## Scaling: replicas > 1 requires --stateless
 

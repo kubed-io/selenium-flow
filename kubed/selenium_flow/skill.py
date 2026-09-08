@@ -47,8 +47,17 @@ MANIFEST_URI = f"skill://{SKILL_NAME}/{MANIFEST}"
 
 
 def skill_path() -> Path:
-    """The installed skill directory, wherever the package ended up."""
-    return Path(__file__).parent / SKILLS_DIR / SKILL_NAME
+    """The skill directory, installed or in a source checkout.
+
+    ``skills/`` lives at the repo root, where it reads as documentation rather
+    than as buried package data. pyproject maps it into the package at build
+    time, so an installed wheel finds it beside this module; a source checkout
+    has no such copy, hence the fallback to the root.
+    """
+    packaged = Path(__file__).parent / SKILLS_DIR / SKILL_NAME
+    if packaged.is_dir():
+        return packaged
+    return Path(__file__).parents[2] / SKILLS_DIR / SKILL_NAME
 
 
 def enabled(env: dict | None = None) -> bool:
@@ -73,7 +82,11 @@ def load() -> SkillProvider | None:
         log.warning("no packaged skill at %s", path)
         return None
     try:
-        return SkillProvider(path)
+        # "resources", not the default "template": with a handful of files
+        # the full enumeration is cheap, and it makes each reference an
+        # individually listed, linkable resource rather than something a client
+        # can only find by reading the manifest first.
+        return SkillProvider(path, supporting_files="resources")
     except Exception as exc:  # noqa: BLE001 - bad package data must not stop the boot
         log.warning("packaged skill at %s could not be loaded: %s", path, exc)
         return None

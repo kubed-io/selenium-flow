@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sessions are never keyed on FastMCP's `Context.session_id`, which returns a fresh `uuid4()` instead of failing when no session exists — that made every tool call look like a new client and leaked a Grid slot each time. The `Mcp-Session-Id` header is read directly instead.
 - `session://current` resource reporting the browser this client holds, the page it is on, and whether the Grid still has it; reading it never opens one.
 - The same status as a `current_session` tool for clients that cannot read MCP resources (n8n, for one), hidden from tools/list unless the client declares `?resources=off` or an `X-MCP-Resources: off` header.
-- An Agent Skill shipped inside the wheel, served at `skill://selenium-flow/SKILL.md` with a `_manifest`, teaching an agent when to extract rather than screenshot, whether it must pass session_id, how to reach a page in one call, and what a timeout usually means.
+- An Agent Skill shipped inside the wheel: `SKILL.md` is a thin index over five lazily-loaded references — the two session modes, reading pages, interaction, and troubleshooting — each served as its own resource so an agent reads only what its task needs.
 - The skill uses FastMCP's own `SkillProvider` and URI convention, so `list_skills`, `get_skill_manifest` and `download_skill` work against this server unmodified; `SKILL_ENABLED=false` turns it off.
 - `--stateless` / `STATELESS_HTTP` to drop MCP transport sessions, which is what more than one replica requires.
 - `GET /openapi.yaml` and `/openapi.json` describing the HTTP surface, generated from the MCP tool schemas so the two contracts cannot drift; the spec is committed and CI fails if it goes stale.

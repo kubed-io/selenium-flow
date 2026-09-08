@@ -103,20 +103,73 @@ def test_every_skill_file_is_covered_by_package_data():
     quietly.
     """
     config = tomllib.loads(PYPROJECT.read_text())
-    patterns = config["tool"]["setuptools"]["package-data"]["kubed.selenium_flow"]
+    setuptools = config["tool"]["setuptools"]
+    assert setuptools["package-dir"]["kubed.selenium_flow.skills"] == "skills", (
+        "the root skills/ directory must map into the package, or it does not ship"
+    )
+    patterns = setuptools["package-data"]["kubed.selenium_flow.skills"]
     assert patterns, "no package-data patterns for the skill directory"
 
-    package_root = pathlib.Path(skill_module.__file__).parent
+    # Patterns are relative to the mapped root, which is skills/ itself.
     for path in SKILL_DIR.rglob("*"):
         if not path.is_file():
             continue
-        rel = path.relative_to(package_root).as_posix()
+        rel = path.relative_to(SKILL_DIR.parent).as_posix()
         # fnmatch rather than Path.full_match, which is 3.13+ only. Its `*`
         # crosses directory separators, which is loose but right for the
         # question being asked: is this file covered by any pattern at all.
         assert any(fnmatch.fnmatch(rel, p) for p in patterns), (
             f"{rel} matches no package-data pattern {patterns}"
         )
+
+
+# ---- the index and its references ------------------------------------------
+
+
+def references() -> list[str]:
+    """Every references/... path the index points at."""
+    return re.findall(r"references/[A-Z_]+\.md", (SKILL_DIR / ENTRY).read_text())
+
+
+def test_the_index_points_at_references():
+    """The top level is a guide to the rest, not the whole manual."""
+    assert references(), "SKILL.md links to no references at all"
+
+
+def test_every_referenced_file_exists():
+    """A dead link costs a wasted round trip and teaches nothing."""
+    for path in sorted(set(references())):
+        assert (SKILL_DIR / path).is_file(), f"SKILL.md links to missing {path}"
+
+
+def test_every_reference_is_reachable_from_the_index():
+    """A file nobody links to will never be lazily loaded, so it may as well
+    not ship."""
+    linked = set(references())
+    on_disk = {
+        p.relative_to(SKILL_DIR).as_posix()
+        for p in (SKILL_DIR / "references").glob("*.md")
+    }
+    assert on_disk <= linked, f"unreferenced files: {sorted(on_disk - linked)}"
+
+
+def test_both_session_modes_have_a_reference():
+    """The one branch every caller has to take before anything else works."""
+    assert (SKILL_DIR / "references/STATELESS.md").is_file()
+    assert (SKILL_DIR / "references/SAVED_SESSIONS.md").is_file()
+
+
+async def test_each_reference_is_its_own_resource(server):
+    """Listed individually rather than hidden behind the manifest, so a client
+    can link straight to the one it needs."""
+    uris = {str(r.uri) for r in await server.mcp.list_resources()}
+    for path in sorted(set(references())):
+        assert f"skill://{SKILL_NAME}/{path}" in uris
+
+
+async def test_a_reference_can_be_read_through_the_tool(server):
+    body = skill_module.read(server.skill, "references/STATELESS.md")
+    assert body and body.startswith("#")
 
 
 # ---- the FastMCP skill convention ------------------------------------------
