@@ -11,7 +11,12 @@ cached between calls — the browser state lives on the Grid, not in this proces
 from __future__ import annotations
 
 import base64
+import binascii
+import os
+import shutil
+import tempfile
 
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 
@@ -25,6 +30,31 @@ KEYS = {
     for name in dir(Keys)
     if name.isupper() and not name.startswith("_")
 }
+
+
+# Mouse gestures ``interact`` understands. hover and scroll_to are here rather
+# than in their own tools because they take the same arguments as a click.
+MOUSE_ACTIONS = ("click", "double_click", "right_click", "hover", "scroll_to")
+
+# What can be done with a native dialog. "read" deliberately leaves it open.
+DIALOG_ACTIONS = ("accept", "dismiss", "read", "send_text")
+
+
+def _decode(content) -> bytes:
+    """Base64 file content as bytes, with a legible error if it is not base64."""
+    try:
+        return base64.b64decode(str(content), validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError(
+            "content must be base64-encoded file bytes; "
+            "use the multipart form of the HTTP endpoint to send a raw file"
+        ) from exc
+
+
+def _safe_name(filename) -> str:
+    """A basename safe to write, since the caller chooses what the page sees."""
+    name = os.path.basename(str(filename or "upload")).strip() or "upload"
+    return name.lstrip(".") or "upload"
 
 
 class Actions:
@@ -71,15 +101,175 @@ class Actions:
         """Go to a URL, unconditionally."""
         driver = self.grid.reconnect(session_id)
         driver.get(url)
-        return {"url": driver.current_url, "title": driver.title}
+        return {**browser.page_state(driver)}
 
     # ---- interaction -------------------------------------------------------
 
-    def click(self, session_id: str, xpath: str, url=None, wait_timeout=30) -> dict:
-        """Click the element at ``xpath``."""
+    def interact(
+        self, session_id: str, action: str, xpath: str, url=None, wait_timeout=30
+    ) -> dict:
+        """Perform a mouse action on the element at ``xpath``.
+
+        One action rather than five tools: they take identical arguments and
+        differ only in which gesture is sent, so splitting them would be five
+        near-identical schemas for a model to choose between.
+        """
+        resolved = str(action).strip().lower()
+        if resolved not in MOUSE_ACTIONS:
+            raise ValueError(
+                f"unknown action {action!r}; known actions: "
+                f"{', '.join(sorted(MOUSE_ACTIONS))}"
+            )
         driver = self._at(session_id, url)
-        browser.wait_for_clickable(driver, xpath, as_int(wait_timeout, 30)).click()
-        return {"url": driver.current_url, "title": driver.title}
+        timeout = as_int(wait_timeout, 30)
+
+        # hover and scroll_to only need the element to exist. Requiring it to be
+        # clickable would refuse exactly the off-screen element scroll_to is for.
+        if resolved in ("hover", "scroll_to"):
+            element = browser.wait_for_element(driver, xpath, timeout)
+        else:
+            element = browser.wait_for_clickable(driver, xpath, timeout)
+
+        if resolved == "click":
+            element.click()
+        else:
+            chain = ActionChains(driver)
+            if resolved == "double_click":
+                chain.double_click(element)
+            elif resolved == "right_click":
+                chain.context_click(element)
+            elif resolved == "hover":
+                chain.move_to_element(element)
+            elif resolved == "scroll_to":
+                chain.scroll_to_element(element)
+            chain.perform()
+
+        return {
+            "action": resolved,
+            **browser.page_state(driver),
+        }
+
+    def resize(self, session_id: str, width=None, height=None) -> dict:
+        """Resize the window of a session that is already open.
+
+        Window size is one of the few things WebDriver lets you change after
+        creation, which is why this is a separate action rather than an argument
+        to ``open_session`` alone — a caller whose browser was opened for them
+        can still set it.
+        """
+        driver = self.grid.reconnect(session_id)
+        current = driver.get_window_size()
+        driver.set_window_size(
+            as_int(width, current["width"]), as_int(height, current["height"])
+        )
+        size = driver.get_window_size()
+        return {
+            "width": size["width"],
+            "height": size["height"],
+            **browser.page_state(driver),
+        }
+
+    def dialog(
+        self, session_id: str, action="accept", text=None, wait_timeout=10
+    ) -> dict:
+        """Answer a native alert, confirm or prompt.
+
+        An open dialog blocks every other command, so without this one
+        ``confirm()`` makes a session unusable until it is reaped.
+        """
+        resolved = str(action).strip().lower()
+        if resolved not in DIALOG_ACTIONS:
+            raise ValueError(
+                f"unknown action {action!r}; known actions: "
+                f"{', '.join(sorted(DIALOG_ACTIONS))}"
+            )
+        # Checked before connecting: a caller's mistake should be a 400 about the
+        # argument, not a 500 about the Grid it never needed to reach.
+        if resolved == "send_text" and text is None:
+            raise ValueError("text is required for the send_text action")
+
+        driver = self.grid.reconnect(session_id)
+        alert = browser.wait_for_alert(driver, as_int(wait_timeout, 10))
+        # Read before answering: the dialog is gone once accepted or dismissed.
+        message = alert.text
+
+        if resolved == "send_text":
+            alert.send_keys(str(text))
+            alert.accept()
+        elif resolved == "accept":
+            alert.accept()
+        elif resolved == "dismiss":
+            alert.dismiss()
+        # "read" leaves it open, so a caller can decide what to do about it.
+
+        return {
+            "action": resolved,
+            "message": message,
+            **browser.page_state(driver),
+        }
+
+    def upload_file(
+        self,
+        session_id: str,
+        xpath: str,
+        content=None,
+        filename=None,
+        path=None,
+        url=None,
+        wait_timeout=30,
+    ) -> dict:
+        """Attach a file to the file input at ``xpath``.
+
+        ``content`` is the file itself — base64 over JSON and MCP, raw bytes
+        when a multipart upload lands on the HTTP endpoint. It is written to a
+        temporary file here and shipped to the Grid node by Selenium, because
+        the browser is in another container and cannot see this filesystem.
+
+        ``path`` is the alternative for a file already mounted into this
+        server. Exactly one of the two is required.
+        """
+        if content is None and not path:
+            raise ValueError("either content (the file) or path is required")
+        if content is not None and path:
+            raise ValueError("pass content or path, not both")
+
+        # Decoded up front for the same reason: unusable content is a 400 about
+        # the content, and there is no point opening anything to discover it.
+        raw = None
+        if content is not None:
+            raw = content if isinstance(content, bytes) else _decode(content)
+
+        driver = self._at(session_id, url)
+        browser.accept_local_files(driver)
+        element = browser.wait_for_element(driver, xpath, as_int(wait_timeout, 30))
+
+        temp_dir = None
+        try:
+            if raw is not None:
+                # The name the page sees comes from the file name, so it has to
+                # be written under the name the caller asked for.
+                temp_dir = tempfile.mkdtemp(prefix="selenium-flow-")
+                local = os.path.join(temp_dir, _safe_name(filename))
+                with open(local, "wb") as handle:
+                    handle.write(raw)
+            else:
+                local = str(path)
+                if not os.path.isfile(local):
+                    raise ValueError(f"no file at {local}")
+
+            element.send_keys(local)
+            size = os.path.getsize(local)
+            name = os.path.basename(local)
+        finally:
+            # The bytes live on the Grid node now; this copy has done its job.
+            if temp_dir:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+
+        return {
+            "filename": name,
+            "bytes": size,
+            **browser.page_state(driver),
+        }
 
     def write(
         self,
@@ -102,7 +292,7 @@ class Actions:
         value = element.get_attribute("value")
         if as_bool(submit, False):
             element.send_keys(Keys.RETURN)
-        return {"value": value, "url": driver.current_url, "title": driver.title}
+        return {"value": value, **browser.page_state(driver)}
 
     def press_key(
         self, session_id: str, key: str, xpath=None, url=None, wait_timeout=30
@@ -124,7 +314,7 @@ class Actions:
         else:
             target = driver.find_element(By.TAG_NAME, "body")
         target.send_keys(resolved)
-        return {"key": key, "url": driver.current_url, "title": driver.title}
+        return {"key": key, **browser.page_state(driver)}
 
     def execute_script(self, session_id: str, script: str, url=None) -> dict:
         """Run JavaScript in the page and return its result.
@@ -135,7 +325,7 @@ class Actions:
         """
         driver = self._at(session_id, url)
         result = driver.execute_script(script)
-        return {"result": result, "url": driver.current_url, "title": driver.title}
+        return {"result": result, **browser.page_state(driver)}
 
     # ---- reading -----------------------------------------------------------
 
@@ -146,8 +336,7 @@ class Actions:
         return {
             "html": element.get_attribute("innerHTML"),
             "text": element.text,
-            "url": driver.current_url,
-            "title": driver.title,
+            **browser.page_state(driver),
         }
 
     def screenshot(
@@ -193,8 +382,7 @@ class Actions:
             "width": img_w,
             "height": img_h,
             "bytes": len(base64.b64decode(image)),
-            "url": driver.current_url,
-            "title": driver.title,
+            **browser.page_state(driver),
         }
 
     # ---- internals ---------------------------------------------------------

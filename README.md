@@ -92,24 +92,114 @@ Moves the browser somewhere, unconditionally.
 </details>
 
 <details>
-<summary><b><code>click</code></b> &nbsp;·&nbsp; <code>POST /browser/click</code> &nbsp;—&nbsp; click an element 🖱️</summary>
+<summary><b><code>interact</code></b> &nbsp;·&nbsp; <code>POST /browser/interact</code> &nbsp;—&nbsp; click, hover, right-click 🖱️</summary>
 
 <br>
 
-Waits for the element to become *clickable*, then clicks it.
+Every mouse gesture, as one action — they take identical arguments and differ
+only in what is sent.
 
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `session_id` | string | **yes** *(HTTP)* | — | |
-| `xpath` | string | **yes** | — | Element to click |
-| `url` | string | no | — | Page the click happens on — navigated to if not already there |
-| `wait_timeout` | integer | no | `30` | Seconds to wait for the element |
+| `action` | string | **yes** | — | `click`, `double_click`, `right_click`, `hover`, `scroll_to` |
+| `xpath` | string | **yes** | — | Element to act on |
+| `url` | string | no | — | Page the action happens on |
+| `wait_timeout` | integer | no | `30` | |
 
-**Returns** `url`, `title` — both read *after* the click, so any navigation it caused shows up.
+`click` and the double/right variants wait for the element to be *clickable*;
+`hover` and `scroll_to` only wait for it to *exist*, since requiring clickability
+would refuse exactly the off-screen element `scroll_to` is for.
+
+`hover` is the one with no alternative — menus that appear only on mouse-over
+cannot be reached any other way.
+
+**Returns** `action`, `url`, `title` — the last two read *after* the gesture, so
+a navigation it caused shows up. If it opened a dialog, `url` and `title` are
+`null` and `dialog` carries the message.
 
 ```json
-{ "session_id": "…", "xpath": "//button[@type='submit']" }
+{ "session_id": "…", "action": "hover", "xpath": "//nav//li[contains(., 'Account')]" }
 ```
+
+</details>
+
+<details>
+<summary><b><code>upload_file</code></b> &nbsp;·&nbsp; <code>POST /browser/upload</code> &nbsp;—&nbsp; attach a file 📎</summary>
+
+<br>
+
+The browser runs on a Grid node in another container, so a path means nothing to
+it. Send the file and it is shipped there for you.
+
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `session_id` | string | **yes** *(HTTP)* | — | |
+| `xpath` | string | **yes** | — | The `<input type="file">` |
+| `content` | string | **yes** *(or `path`)* | — | The file. Base64 over JSON and MCP; a raw file part over multipart |
+| `filename` | string | no | the part's name | What the page sees |
+| `path` | string | no | — | A file already on the **server's** filesystem. Use instead of `content` |
+| `url` | string | no | — | |
+| `wait_timeout` | integer | no | `30` | |
+
+**Over HTTP, post a normal file** — no base64 needed:
+
+```bash
+curl -X POST localhost:8000/browser/upload \
+  -F session_id=… -F 'xpath=//input[@type="file"]' -F content=@report.csv
+```
+
+Base64 exists because MCP tool arguments must be JSON; there is no binary input
+channel in the protocol.
+
+**Returns** `filename` and `bytes` actually attached, plus page state.
+
+</details>
+
+<details>
+<summary><b><code>dialog</code></b> &nbsp;·&nbsp; <code>POST /browser/dialog</code> &nbsp;—&nbsp; answer an alert 💬</summary>
+
+<br>
+
+A native `alert`, `confirm` or `prompt` freezes the page — nothing else can even
+read the URL until it is answered.
+
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `session_id` | string | **yes** *(HTTP)* | — | |
+| `action` | string | no | `accept` | `accept`, `dismiss`, `read`, `send_text` |
+| `text` | string | only for `send_text` | — | Fills a prompt, then accepts |
+| `wait_timeout` | integer | no | `10` | |
+
+**This server never answers a dialog for you.** Chrome's default is to silently
+dismiss one — quietly clicking *Cancel* on a confirmation and destroying the
+evidence — so `unhandledPromptBehavior` is set to `ignore` deliberately. An
+action that opens a dialog still succeeds and reports it, and `read` inspects
+the message without answering.
+
+**Returns** `action`, `message` (read before answering), plus page state.
+
+</details>
+
+<details>
+<summary><b><code>resize</code></b> &nbsp;·&nbsp; <code>POST /browser/resize</code> &nbsp;—&nbsp; change the window 📐</summary>
+
+<br>
+
+Window size is one of the few things WebDriver lets you change after the browser
+is open, which is why it is its own action and not only an `open_session`
+argument — a caller whose browser was opened for it can still set the size.
+
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `session_id` | string | **yes** *(HTTP)* | — | |
+| `width` | integer | no | unchanged | |
+| `height` | integer | no | unchanged | |
+
+The headless default is narrow and varies between Grid nodes, so set it before
+judging anything visual.
+
+**Returns** the `width` and `height` now in effect, plus page state.
 
 </details>
 
@@ -323,6 +413,7 @@ so an agent loads only what its task needs:
 | `.../references/READING_PAGES.md` | extract vs script vs screenshot, and XPath that keeps working |
 | `.../references/INTERACTION.md` | forms, clicks, keys, scrolling, waiting |
 | `.../references/TROUBLESHOOTING.md` | timeouts, dead sessions, blank captures, clicks that do nothing |
+| `.../references/CONFIGURATION.md` | setting the server up, connecting a client, which env var to change |
 | `skill://selenium-flow/_manifest` | the file listing, with sizes and hashes |
 
 The two session references are mutually exclusive: `session://current` tells you

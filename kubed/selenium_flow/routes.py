@@ -29,12 +29,15 @@ ENDPOINTS = {
     "open": "open_session",
     "close": "close_session",
     "navigate": "navigate",
-    "click": "click",
+    "interact": "interact",
     "write": "write",
     "press-key": "press_key",
     "extract": "extract",
     "script": "execute_script",
     "screenshot": "screenshot",
+    "resize": "resize",
+    "dialog": "dialog",
+    "upload": "upload_file",
 }
 
 
@@ -115,9 +118,9 @@ def _add(mcp, actions, token, prefix, path, method_name) -> None:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
 
         try:
-            body = await request.json()
-        except Exception:  # noqa: BLE001 - an empty body is legitimate for /open
-            body = {}
+            body = await _body(request)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
         if not isinstance(body, dict):
             return JSONResponse(
                 {"error": "body must be a JSON object"}, status_code=400
@@ -138,6 +141,34 @@ def _add(mcp, actions, token, prefix, path, method_name) -> None:
             return JSONResponse({"error": str(exc)}, status_code=500)
 
     return handler
+
+
+async def _body(request: Request) -> dict:
+    """The request body as kwargs, from JSON or a multipart form.
+
+    Multipart exists for one reason: uploading a file over HTTP should be a
+    normal file upload, not base64 wrapped in JSON. A file part arrives as raw
+    bytes in ``content`` with its ``filename`` alongside, which is exactly what
+    the upload action already accepts — so the action needs no special case.
+    """
+    content_type = request.headers.get("content-type", "")
+    if content_type.startswith("multipart/form-data"):
+        form = await request.form()
+        body: dict = {}
+        for key, value in form.multi_items():
+            filename = getattr(value, "filename", None)
+            if filename is not None:
+                body["content"] = await value.read()
+                # An explicit filename field wins, so a caller can rename it.
+                body.setdefault("filename", filename)
+            else:
+                body[key] = value
+        return body
+
+    try:
+        return await request.json()
+    except Exception:  # noqa: BLE001 - an empty body is legitimate for /open
+        return {}
 
 
 def _authorized(request: Request, token: str) -> bool:

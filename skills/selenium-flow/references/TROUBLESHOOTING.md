@@ -6,7 +6,11 @@
 failed earlier step can leave it somewhere you did not expect, and every later
 XPath then fails for a reason that has nothing to do with the XPath.
 
-Check where you actually are, cheaply:
+The error says which XPath was waited for, for how long, and what URL the
+browser was on when it gave up — read it before changing anything. If that URL
+is not the page you expected, the selector was never the problem.
+
+Check where you are, cheaply:
 
 ```
 extract(xpath="//title")
@@ -16,7 +20,9 @@ or read `session://current`, which reports the URL without touching the browser.
 
 If the URL is right and the element still is not found, in order of likelihood:
 
-1. **It is inside an iframe.** Selenium does not cross frame boundaries for you.
+1. **It is inside an iframe.** Selenium does not cross frame boundaries, and
+   there is no frame tool yet — use `execute_script` against the frame's own
+   document, or address the frame's `src` URL directly with `navigate`.
 2. **It has not rendered yet** and the wait was too short — raise `wait_timeout`.
 3. **It is off-screen in a virtualised list** — scroll it into view first
    (`references/INTERACTION.md`).
@@ -40,6 +46,18 @@ The Grid reaped the browser.
 
 Read `session://current` to tell the two apart: `live: false` with a non-null
 `key` means a refresh is available on the next call.
+
+## "unexpected alert open", or a null url and title
+
+A native dialog is open, and it blocks reading the page. The action that opened
+it will have told you so:
+
+```
+{"action": "click", "url": null, "title": null, "dialog": "Delete everything?"}
+```
+
+Answer it with `dialog` — `accept`, `dismiss`, or `send_text` for a prompt — and
+carry on. See `references/INTERACTION.md`. Nothing else will work until you do.
 
 ## A blank or single-colour screenshot
 

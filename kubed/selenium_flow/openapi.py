@@ -56,7 +56,27 @@ RESPONSES = {
         },
     },
     "navigate": _page(),
-    "click": _page(),
+    "interact": _page(
+        action={"type": "string", "description": "The gesture that was performed."}
+    ),
+    "resize": _page(
+        width={"type": "integer", "description": "Window width now in effect."},
+        height={"type": "integer", "description": "Window height now in effect."},
+    ),
+    "dialog": _page(
+        action={"type": "string", "description": "What was done with the dialog."},
+        message={
+            "type": "string",
+            "description": "The dialog's text, read before it was answered.",
+        },
+    ),
+    "upload_file": _page(
+        filename={
+            "type": "string",
+            "description": "The name the page sees for the attached file.",
+        },
+        bytes={"type": "integer", "description": "Size of the file that was sent."},
+    ),
     "write": _page(
         value={
             "type": "string",
@@ -168,11 +188,7 @@ async def build_spec(
                 "tags": ["browser"],
                 "requestBody": {
                     "required": True,
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": f"#/components/schemas/{request_name}"}
-                        }
-                    },
+                    "content": _request_content(action, request_name),
                 },
                 "responses": {
                     "200": {
@@ -271,6 +287,41 @@ async def build_spec(
         spec["security"] = [{"bearerAuth": []}]
 
     return spec
+
+
+def _request_content(action: str, request_name: str) -> dict:
+    """The accepted request bodies for one endpoint.
+
+    Everything takes JSON. Uploading additionally takes a multipart form,
+    because sending a file over HTTP should be a file, not base64 wrapped in
+    JSON — that shape only exists because MCP tool arguments must be JSON.
+    """
+    content = {
+        "application/json": {"schema": {"$ref": f"#/components/schemas/{request_name}"}}
+    }
+    if action == "upload_file":
+        content["multipart/form-data"] = {
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string"},
+                    "xpath": {"type": "string"},
+                    "content": {
+                        "type": "string",
+                        "format": "binary",
+                        "description": "The file itself, as a normal file part.",
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": "Overrides the part's own filename.",
+                    },
+                    "url": {"type": "string"},
+                    "wait_timeout": {"type": "integer"},
+                },
+                "required": ["session_id", "xpath", "content"],
+            }
+        }
+    return content
 
 
 def http_schema(tool_schema: dict) -> dict:

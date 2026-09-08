@@ -52,7 +52,7 @@ def test_a_good_token_gets_past_auth(client):
 
 
 def test_missing_required_argument_is_a_400_not_a_500(open_client):
-    response = open_client.post("/browser/click", json={"session_id": "x"})
+    response = open_client.post("/browser/interact", json={"session_id": "x"})
     assert response.status_code == 400
     assert "xpath" in response.json()["error"]
 
@@ -60,10 +60,95 @@ def test_missing_required_argument_is_a_400_not_a_500(open_client):
 def test_unknown_keys_are_dropped_rather_than_rejected(open_client):
     """A caller on a newer client should not hard-fail on an extra field."""
     response = open_client.post(
-        "/browser/click",
-        json={"session_id": "x", "xpath": "//a", "not_a_real_field": 1},
+        "/browser/interact",
+        json={
+            "session_id": "x",
+            "action": "click",
+            "xpath": "//a",
+            "not_a_real_field": 1,
+        },
     )
     assert response.status_code == 500  # reached the Grid, not a 400
+
+
+def test_interact_rejects_an_unknown_action(open_client):
+    """The error names the real list, so a model can correct itself."""
+    response = open_client.post(
+        "/browser/interact", json={"session_id": "x", "action": "karate", "xpath": "//a"}
+    )
+    assert response.status_code == 400
+    error = response.json()["error"]
+    assert "karate" in error
+    for known in ("click", "hover", "scroll_to"):
+        assert known in error
+
+
+def test_dialog_rejects_an_unknown_action(open_client):
+    response = open_client.post(
+        "/browser/dialog", json={"session_id": "x", "action": "shout"}
+    )
+    assert response.status_code == 400
+    assert "shout" in response.json()["error"]
+
+
+def test_dialog_send_text_requires_text(open_client):
+    response = open_client.post(
+        "/browser/dialog", json={"session_id": "x", "action": "send_text"}
+    )
+    assert response.status_code == 400
+    assert "text is required" in response.json()["error"]
+
+
+def test_upload_requires_a_file(open_client):
+    response = open_client.post(
+        "/browser/upload", json={"session_id": "x", "xpath": "//input"}
+    )
+    assert response.status_code == 400
+    assert "content" in response.json()["error"]
+
+
+def test_upload_refuses_both_content_and_path(open_client):
+    """Two sources for one file is a caller mistake worth naming."""
+    response = open_client.post(
+        "/browser/upload",
+        json={"session_id": "x", "xpath": "//input", "content": "eA==", "path": "/tmp/x"},
+    )
+    assert response.status_code == 400
+    assert "not both" in response.json()["error"]
+
+
+def test_upload_rejects_content_that_is_not_base64(open_client):
+    """And points at the multipart form, which is the easier way over HTTP."""
+    response = open_client.post(
+        "/browser/upload",
+        json={"session_id": "x", "xpath": "//input", "content": "definitely not base64!"},
+    )
+    assert response.status_code == 400
+    assert "base64" in response.json()["error"]
+    assert "multipart" in response.json()["error"]
+
+
+def test_upload_accepts_a_multipart_file(open_client):
+    """Sending a file over HTTP should be a file, not base64 inside JSON.
+
+    A 500 here is the *right* answer: the body parsed, the action ran, and only
+    the unroutable Grid stopped it. A 400 would mean the file never arrived.
+    """
+    response = open_client.post(
+        "/browser/upload",
+        data={"session_id": "x", "xpath": "//input"},
+        files={"content": ("report.csv", b"a,b\n1,2\n", "text/csv")},
+    )
+    assert response.status_code == 500, response.json()
+
+
+def test_a_multipart_filename_can_be_overridden(open_client):
+    response = open_client.post(
+        "/browser/upload",
+        data={"session_id": "x", "xpath": "//input", "filename": "renamed.csv"},
+        files={"content": ("original.csv", b"x", "text/csv")},
+    )
+    assert response.status_code == 500, response.json()
 
 
 def test_a_non_object_body_is_rejected(open_client):

@@ -56,8 +56,9 @@ Load only what the task needs.
 |---|---|
 | Deciding how to pass sessions, or recovering a dead one | `references/STATELESS.md` / `references/SAVED_SESSIONS.md` |
 | Getting content out of a page, choosing an XPath | `references/READING_PAGES.md` |
-| Typing, clicking, submitting a form, scrolling, waiting | `references/INTERACTION.md` |
+| Clicking, hovering, typing, uploading, dialogs, scrolling, waiting | `references/INTERACTION.md` |
 | A timeout, an empty screenshot, a click that did nothing | `references/TROUBLESHOOTING.md` |
+| Setting the server up, connecting a client, which env var to change | `references/CONFIGURATION.md` |
 
 ## A whole task, minimally
 
@@ -66,7 +67,7 @@ With saved sessions on, no `session_id` anywhere and no explicit open:
 ```
 write(url="https://example.com/login", xpath="//input[@name='email']", text="a@example.com")
 write(xpath="//input[@name='password']", text="...")
-click(xpath="//button[@type='submit']")
+interact(action="click", xpath="//button[@type='submit']")
 extract(xpath="//h1")            # confirm you landed
 close_session()
 ```
@@ -76,7 +77,12 @@ call. That is the only difference between the two modes.
 
 ## The rest of the surface
 
-`execute_script` is the escape hatch for anything the other tools do not cover —
+`interact` is every mouse gesture — click, double_click, right_click, hover,
+scroll_to. `upload_file` attaches a file to a file input. `dialog` answers a
+native alert, confirm or prompt, which otherwise blocks everything. `resize`
+changes the window at any time, not just at open.
+
+`execute_script` is the escape hatch for anything left over — page-level
 scrolling above all, plus batch reads, computed styles and direct DOM access.
 `press_key` sends named keys (`tab`, `escape`, `enter`, arrows) but is **not** a
-reliable way to scroll. Both are covered in `references/INTERACTION.md`.
+reliable way to scroll. All of it is in `references/INTERACTION.md`.

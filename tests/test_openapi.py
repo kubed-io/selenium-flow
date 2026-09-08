@@ -73,7 +73,7 @@ async def test_session_id_is_required_on_every_endpoint_that_takes_one(server, s
 
 async def test_tools_leave_session_id_optional(server):
     """The mirror of the above: saved sessions can fill it in for an agent."""
-    click = await server.mcp.get_tool("click")
+    click = await server.mcp.get_tool("interact")
     assert "session_id" not in click.parameters["required"]
 
 

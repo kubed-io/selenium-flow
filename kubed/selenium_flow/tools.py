@@ -20,7 +20,7 @@ from collections.abc import Callable
 from fastmcp import FastMCP
 from fastmcp.utilities.types import Image
 
-from .actions import KEYS, Actions
+from .actions import DIALOG_ACTIONS, KEYS, MOUSE_ACTIONS, Actions
 from .sessions import NAME_PARAM, SessionManager
 
 INSTRUCTIONS = f"""\
@@ -107,21 +107,102 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         """
         return run(session_id, lambda s: actions.navigate(s, url))
 
-    @mcp.tool
-    def click(
+    # The action list is interpolated so it cannot drift from the tuple the
+    # action layer validates against.
+    @mcp.tool(
+        description=(
+            "Perform a mouse action on an element.\n\n"
+            f"action is one of: {', '.join(MOUSE_ACTIONS)}.\n\n"
+            "click is the common case. hover opens menus that only appear on "
+            "mouse-over. right_click opens context menus. scroll_to brings an "
+            "off-screen element into view, which is often what a click on a "
+            "long page needs first.\n\n"
+            "Returns the URL and title *after* the action, so any navigation it "
+            "caused is visible in the result."
+        )
+    )
+    def interact(
+        action: str,
         xpath: str,
         session_id: str | None = None,
         url: str | None = None,
         wait_timeout: int = 30,
     ) -> dict:
-        """Click an element, waiting for it to become clickable.
+        return run(
+            session_id,
+            lambda s: actions.interact(
+                s, action, xpath, url=url, wait_timeout=wait_timeout
+            ),
+        )
 
-        Returns the URL and title *after* the click, so any navigation the
-        click caused is visible in the result.
+    @mcp.tool
+    def resize(
+        width: int | None = None,
+        height: int | None = None,
+        session_id: str | None = None,
+    ) -> dict:
+        """Resize the browser window.
+
+        Use this when layout matters and the browser was opened for you, or
+        when you need a different size partway through. The headless default is
+        small and varies between Grid nodes, so set it explicitly before
+        judging anything visual.
+        """
+        return run(session_id, lambda s: actions.resize(s, width=width, height=height))
+
+    @mcp.tool(
+        description=(
+            "Answer a native alert, confirm or prompt dialog.\n\n"
+            f"action is one of: {', '.join(DIALOG_ACTIONS)}. Use read to see the "
+            "message without answering, accept to confirm, dismiss to cancel, "
+            "and send_text with text to fill a prompt and accept it.\n\n"
+            "An open dialog blocks every other command, so if a call fails "
+            "complaining about an unexpected alert, this is how you clear it."
+        )
+    )
+    def dialog(
+        action: str = "accept",
+        text: str | None = None,
+        session_id: str | None = None,
+        wait_timeout: int = 10,
+    ) -> dict:
+        return run(
+            session_id,
+            lambda s: actions.dialog(
+                s, action=action, text=text, wait_timeout=wait_timeout
+            ),
+        )
+
+    @mcp.tool
+    def upload_file(
+        xpath: str,
+        content: str | None = None,
+        filename: str | None = None,
+        session_id: str | None = None,
+        path: str | None = None,
+        url: str | None = None,
+        wait_timeout: int = 30,
+    ) -> dict:
+        """Attach a file to a file input.
+
+        Pass the file itself as base64 in content, with the filename you want
+        the page to see. The browser runs on another machine, so the bytes are
+        shipped to it for you.
+
+        path is the alternative when the file is already on the server's own
+        filesystem; pass one or the other, not both.
         """
         return run(
             session_id,
-            lambda s: actions.click(s, xpath, url=url, wait_timeout=wait_timeout),
+            lambda s: actions.upload_file(
+                s,
+                xpath,
+                content=content,
+                filename=filename,
+                path=path,
+                url=url,
+                wait_timeout=wait_timeout,
+            ),
         )
 
     @mcp.tool

@@ -152,16 +152,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-  /browser/click:
+  /browser/interact:
     post:
-      operationId: click
-      summary: Click an element, waiting for it to become clickable.
-      description: 'Click an element, waiting for it to become clickable.
+      operationId: interact
+      summary: Perform a mouse action on an element.
+      description: 'Perform a mouse action on an element.
 
 
-        Returns the URL and title *after* the click, so any navigation the
+        action is one of: click, double_click, right_click, hover, scroll_to.
 
-        click caused is visible in the result.'
+
+        click is the common case. hover opens menus that only appear on mouse-over. right_click opens
+        context menus. scroll_to brings an off-screen element into view, which is often what a click on
+        a long page needs first.
+
+
+        Returns the URL and title *after* the action, so any navigation it caused is visible in the result.'
       tags:
       - browser
       requestBody:
@@ -169,14 +175,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ClickRequest'
+              $ref: '#/components/schemas/InteractRequest'
       responses:
         '200':
           description: The action succeeded.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClickResponse'
+                $ref: '#/components/schemas/InteractResponse'
         '400':
           description: A required field is missing or a value is invalid.
           content:
@@ -417,6 +423,172 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /browser/resize:
+    post:
+      operationId: resize
+      summary: Resize the browser window.
+      description: 'Resize the browser window.
+
+
+        Use this when layout matters and the browser was opened for you, or
+
+        when you need a different size partway through. The headless default is
+
+        small and varies between Grid nodes, so set it explicitly before
+
+        judging anything visual.'
+      tags:
+      - browser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResizeRequest'
+      responses:
+        '200':
+          description: The action succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResizeResponse'
+        '400':
+          description: A required field is missing or a value is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or wrong bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: The Grid rejected the action or the session is gone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /browser/dialog:
+    post:
+      operationId: dialog
+      summary: Answer a native alert, confirm or prompt dialog.
+      description: 'Answer a native alert, confirm or prompt dialog.
+
+
+        action is one of: accept, dismiss, read, send_text. Use read to see the message without answering,
+        accept to confirm, dismiss to cancel, and send_text with text to fill a prompt and accept it.
+
+
+        An open dialog blocks every other command, so if a call fails complaining about an unexpected
+        alert, this is how you clear it.'
+      tags:
+      - browser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DialogRequest'
+      responses:
+        '200':
+          description: The action succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DialogResponse'
+        '400':
+          description: A required field is missing or a value is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or wrong bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: The Grid rejected the action or the session is gone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /browser/upload:
+    post:
+      operationId: upload_file
+      summary: Attach a file to a file input.
+      description: 'Attach a file to a file input.
+
+
+        Pass the file itself as base64 in content, with the filename you want
+
+        the page to see. The browser runs on another machine, so the bytes are
+
+        shipped to it for you.
+
+
+        path is the alternative when the file is already on the server''s own
+
+        filesystem; pass one or the other, not both.'
+      tags:
+      - browser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadFileRequest'
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                session_id:
+                  type: string
+                xpath:
+                  type: string
+                content:
+                  type: string
+                  format: binary
+                  description: The file itself, as a normal file part.
+                filename:
+                  type: string
+                  description: Overrides the part's own filename.
+                url:
+                  type: string
+                wait_timeout:
+                  type: integer
+              required:
+              - session_id
+              - xpath
+              - content
+      responses:
+        '200':
+          description: The action succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadFileResponse'
+        '400':
+          description: A required field is missing or a value is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or wrong bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: The Grid rejected the action or the session is gone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /health:
     get:
       operationId: health
@@ -441,35 +613,6 @@ paths:
                 $ref: '#/components/schemas/Health'
 components:
   schemas:
-    ClickRequest:
-      additionalProperties: false
-      properties:
-        xpath:
-          type: string
-        session_id:
-          type: string
-          description: The session_id returned by /browser/open. Required here.
-        url:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-        wait_timeout:
-          default: 30
-          type: integer
-      required:
-      - session_id
-      - xpath
-      type: object
-    ClickResponse:
-      type: object
-      properties:
-        url: &id001
-          type: string
-          description: Current URL after the action.
-        title: &id002
-          type: string
-          description: Page title after the action.
     CloseSessionRequest:
       additionalProperties: false
       properties:
@@ -486,6 +629,41 @@ components:
           type: boolean
         session_id:
           type: string
+    DialogRequest:
+      additionalProperties: false
+      properties:
+        action:
+          default: accept
+          type: string
+        text:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
+        wait_timeout:
+          default: 10
+          type: integer
+      type: object
+      required:
+      - session_id
+    DialogResponse:
+      type: object
+      properties:
+        action:
+          type: string
+          description: What was done with the dialog.
+        message:
+          type: string
+          description: The dialog's text, read before it was answered.
+        url: &id001
+          type: string
+          description: Current URL after the action.
+        title: &id002
+          type: string
+          description: Page title after the action.
     Error:
       type: object
       properties:
@@ -575,6 +753,37 @@ components:
         error:
           type: string
           description: Only present when degraded.
+    InteractRequest:
+      additionalProperties: false
+      properties:
+        action:
+          type: string
+        xpath:
+          type: string
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+        wait_timeout:
+          default: 30
+          type: integer
+      required:
+      - session_id
+      - action
+      - xpath
+      type: object
+    InteractResponse:
+      type: object
+      properties:
+        action:
+          type: string
+          description: The gesture that was performed.
+        url: *id001
+        title: *id002
     NavigateRequest:
       additionalProperties: false
       properties:
@@ -658,6 +867,36 @@ components:
           description: The key that was sent.
         url: *id001
         title: *id002
+    ResizeRequest:
+      additionalProperties: false
+      properties:
+        width:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+        height:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
+      type: object
+      required:
+      - session_id
+    ResizeResponse:
+      type: object
+      properties:
+        width:
+          type: integer
+          description: Window width now in effect.
+        height:
+          type: integer
+          description: Window height now in effect.
+        url: *id001
+        title: *id002
     ScreenshotRequest:
       additionalProperties: false
       properties:
@@ -709,6 +948,52 @@ components:
         bytes:
           type: integer
           description: Decoded size. A value near zero means a blank capture.
+        url: *id001
+        title: *id002
+    UploadFileRequest:
+      additionalProperties: false
+      properties:
+        xpath:
+          type: string
+        content:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+        filename:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
+        path:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+        wait_timeout:
+          default: 30
+          type: integer
+      required:
+      - session_id
+      - xpath
+      type: object
+    UploadFileResponse:
+      type: object
+      properties:
+        filename:
+          type: string
+          description: The name the page sees for the attached file.
+        bytes:
+          type: integer
+          description: Size of the file that was sent.
         url: *id001
         title: *id002
     WriteRequest:

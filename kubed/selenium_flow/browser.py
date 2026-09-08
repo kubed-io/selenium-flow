@@ -16,7 +16,12 @@ from urllib.parse import urlsplit, urlunsplit
 
 import requests
 from selenium import webdriver
+from selenium.common.exceptions import (
+    TimeoutException,
+    UnexpectedAlertPresentException,
+)
 from selenium.webdriver.common.by import By
+from selenium.webdriver.remote.file_detector import LocalFileDetector
 from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
@@ -87,6 +92,12 @@ class Grid:
         options.add_argument("--no-sandbox")
         # Chrome's default /dev/shm is 64MB and it crashes under it.
         options.add_argument("--disable-dev-shm-usage")
+        # Never let the browser answer a dialog on the caller's behalf. Chrome's
+        # default, "dismiss and notify", silently clicks Cancel on a confirm and
+        # only reports it as an error on whatever command happened to notice —
+        # so a destructive prompt gets answered by accident and the dialog is
+        # gone before anyone can decide. "ignore" leaves it open for `dialog`.
+        options.set_capability("unhandledPromptBehavior", "ignore")
         return options
 
     def open(self) -> RemoteWebDriver:
@@ -143,18 +154,88 @@ class Grid:
         return response.json()["data"]["grid"]["sessionCount"]
 
 
+# Selenium raises TimeoutException with an EMPTY message, which surfaces to a
+# caller as the useless string "Message:". Every wait here re-raises with what
+# was actually being waited for, because "no element matched //x" is the whole
+# diagnosis and the bare timeout is none of it.
+def _waited(driver, condition, timeout: int, description: str):
+    try:
+        return WebDriverWait(driver, timeout).until(condition)
+    except TimeoutException as exc:
+        raise TimeoutException(
+            f"{description} within {timeout}s. The browser is at "
+            f"{driver.current_url!r}; if that is not the page you expected, the "
+            f"wait is not the problem."
+        ) from exc
+
+
 def wait_for_element(driver, xpath: str, timeout: int = 30):
     """Wait for an element to exist in the DOM."""
-    return WebDriverWait(driver, timeout).until(
-        EC.presence_of_element_located((By.XPATH, xpath))
+    return _waited(
+        driver,
+        EC.presence_of_element_located((By.XPATH, xpath)),
+        timeout,
+        f"no element matched {xpath!r}",
     )
 
 
 def wait_for_clickable(driver, xpath: str, timeout: int = 30):
     """Wait for an element to exist *and* be interactable."""
-    return WebDriverWait(driver, timeout).until(
-        EC.element_to_be_clickable((By.XPATH, xpath))
+    return _waited(
+        driver,
+        EC.element_to_be_clickable((By.XPATH, xpath)),
+        timeout,
+        f"no clickable element matched {xpath!r}",
     )
+
+
+def page_state(driver) -> dict:
+    """Where the browser ended up, tolerating an open dialog.
+
+    Every action reports the resulting url and title, and reading either is
+    refused while a dialog is open. Letting that raise would make an action fail
+    when it had in fact succeeded — the click landed, it just opened a prompt.
+    So an open dialog is reported as page state, which is what it is, and tells
+    the caller exactly what to do next.
+    """
+    try:
+        return {"url": driver.current_url, "title": driver.title}
+    except UnexpectedAlertPresentException:
+        try:
+            message = driver.switch_to.alert.text
+        except Exception:  # noqa: BLE001 - it may close between the two calls
+            message = ""
+        return {
+            "url": None,
+            "title": None,
+            "dialog": message,
+            "hint": "a dialog is open and blocks other actions; answer it with dialog",
+        }
+
+
+def wait_for_alert(driver, timeout: int = 30):
+    """Wait for a JS dialog and return it.
+
+    An open alert blocks every other WebDriver command with
+    ``UnexpectedAlertPresentException``, so this is the only way out of a page
+    that has raised one.
+    """
+    return _waited(
+        driver,
+        EC.alert_is_present(),
+        timeout,
+        "no dialog (alert, confirm or prompt) was open",
+    )
+
+
+def accept_local_files(driver) -> None:
+    """Let ``send_keys`` on a file input upload a file from *this* process.
+
+    The browser runs on a Grid node in another container, so a path from here
+    means nothing there. The local file detector makes Selenium ship the bytes
+    to the node first and hand the input the remote path it landed at.
+    """
+    driver.file_detector = LocalFileDetector()
 
 
 def ensure_url(driver, url: str) -> bool:

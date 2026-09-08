@@ -23,7 +23,10 @@ EXPECTED = {
     "open_session",
     "close_session",
     "navigate",
-    "click",
+    "interact",
+    "resize",
+    "dialog",
+    "upload_file",
     "write",
     "press_key",
     "extract",
@@ -63,10 +66,10 @@ async def test_tools_declare_real_parameter_schemas(server):
     which silently dropped every argument. Typed schemas are the reason this
     server exists, so assert the parameters are actually published.
     """
-    click = await server.mcp.get_tool("click")
+    click = await server.mcp.get_tool("interact")
     props = click.parameters["properties"]
     assert {"session_id", "xpath", "url", "wait_timeout"} <= set(props)
-    assert click.parameters["required"] == ["xpath"]
+    assert click.parameters["required"] == ["action", "xpath"]
     assert "input" not in props
     # ctx is injected by FastMCP and must never reach the model as a parameter
     assert "ctx" not in props

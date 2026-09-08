@@ -162,6 +162,29 @@ would bake one client's capabilities into a shared process.
 This is the general pattern for anything that has to vary by client: filter the listing,
 keep the capability. `?resources=off` / `X-MCP-Resources: off` is how a client declares it.
 
+## Dialogs, and why the browser must never answer one
+
+`unhandledPromptBehavior` is set to `ignore` in `Grid._options()`. Chrome's
+default is "dismiss and notify", which **silently clicks Cancel** on a `confirm`
+and then reports it as an error on whatever command happened to notice — so a
+destructive prompt gets answered by accident and the dialog is gone before
+anyone can decide. That is the worst available outcome and it is off deliberately.
+
+The consequence is that a dialog stays open and blocks reading the URL or title.
+So `browser.page_state()` catches that and reports the dialog *as* page state
+rather than raising: the click landed, it just opened a prompt, and failing the
+action would be a lie. Every action returns through that helper — if you add one,
+use it rather than reading `current_url` directly.
+
+## Waits explain themselves
+
+Selenium raises `TimeoutException` with an **empty message**, which reaches a
+caller as the string `"Message:"` and says nothing. Every wait goes through
+`browser._waited`, which re-raises with what was being waited for, the timeout,
+and the URL the browser was actually on — because "the browser is somewhere
+unexpected" is the real diagnosis most of the time. This bit twice during
+development before it was fixed; do not add a bare `WebDriverWait`.
+
 ## The embedded skill
 
 `skills/selenium-flow/` sits at the **repo root** and is mapped into the package
