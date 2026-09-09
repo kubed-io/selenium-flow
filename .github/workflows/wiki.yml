@@ -51,14 +51,15 @@ on:
         required: false
         default: false
     secrets:
-      # Both optional. Without them the built-in GITHUB_TOKEN pushes, which is
-      # enough: a wiki lives under its repository's permissions, so
-      # `contents: write` covers it. Pass the App credentials to publish as the
-      # App instead, or if a ruleset ever starts refusing the Actions identity.
+      # Both optional, and only consulted by a run that pushes. Without them the
+      # built-in GITHUB_TOKEN does the push, which is enough: a wiki lives under
+      # its repository's permissions, so `contents: write` covers it. Supply the
+      # App to publish under its identity instead, or if a ruleset ever starts
+      # refusing the Actions one.
       #
-      # The id travels as a secret rather than being read from `vars` so this
-      # workflow is self-contained — a caller in another repository, where
-      # GH_APP_ID does not exist, can still hand it one.
+      # The id travels as a secret rather than being read from `vars` so a
+      # caller can hand one in — though see the step below for why the *switch*
+      # still reads the variable.
       app-id:
         required: false
       app-key:
@@ -84,22 +85,20 @@ jobs:
       PUSH: ${{ (github.event_name == 'push' || ((github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.push)) && 'true' || 'false' }}
     steps:
 
-    # Only when both App credentials are available. The `secrets` context is
-    # not available in a step `if`, so they are read through `env`, which is.
+    # Only a run that pushes needs a writable identity; a pull_request run just
+    # generates and throws the result away.
     #
-    # Passed-in secrets win, then this repository's own — so a caller supplies
-    # them explicitly, while a direct push to main still gets the App from the
-    # repo settings rather than silently falling back to GITHUB_TOKEN.
+    # Gated on the *variable* because the `secrets` context cannot be used in an
+    # `if`. That is fine here: the App is the optional path, so when there is no
+    # GH_APP_ID this step is skipped and the built-in token pushes instead.
+    # Passed-in secrets still win over the repo's own when both exist.
     - name: Create GitHub App Token
       id: app-token
-      if: env.APP_ID != '' && env.APP_KEY != ''
-      env:
-        APP_ID: ${{ secrets.app-id || vars.GH_APP_ID }}
-        APP_KEY: ${{ secrets.app-key || secrets.GH_APP_KEY }}
+      if: env.PUSH == 'true' && vars.GH_APP_ID != ''
       uses: actions/create-github-app-token@v3
       with:
-        app-id: ${{ env.APP_ID }}
-        private-key: ${{ env.APP_KEY }}
+        app-id: ${{ secrets.app-id || vars.GH_APP_ID }}
+        private-key: ${{ secrets.app-key || secrets.GH_APP_KEY }}
 
     - name: Checkout
       uses: actions/checkout@v7
