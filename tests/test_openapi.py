@@ -50,13 +50,17 @@ async def test_request_schemas_are_the_tool_schemas(server, spec):
 
     Equality holds through `http_schema`, which applies the one sanctioned
     difference: session_id is required on an endpoint and optional on a tool.
+
+    Compared against the *registered* tool, not a listing of them. A listing is
+    shaped for the client asking for it, and comparing the document to one
+    client's view is what let session_id disappear from the spec unnoticed.
     """
-    tools = {t.name: t for t in await server.mcp.list_tools()}
     for action in ENDPOINTS.values():
+        tool = await server.mcp.get_tool(action)
         documented = spec["components"]["schemas"][
             "".join(p.capitalize() for p in action.split("_")) + "Request"
         ]
-        assert documented == http_schema(tools[action].parameters), action
+        assert documented == http_schema(tool.parameters), action
 
 
 async def test_session_id_is_required_on_every_endpoint_that_takes_one(server, spec):
@@ -65,10 +69,15 @@ async def test_session_id_is_required_on_every_endpoint_that_takes_one(server, s
         schema = spec["components"]["schemas"][
             "".join(p.capitalize() for p in action.split("_")) + "Request"
         ]
-        if "session_id" in schema.get("properties", {}):
-            assert "session_id" in schema["required"], action
-            # no null branch either: an endpoint cannot resolve one for you
-            assert schema["properties"]["session_id"]["type"] == "string"
+        if action == "open_session":
+            continue  # it hands one out rather than taking one
+        # Unconditional. This was `if "session_id" in properties`, which passed
+        # silently for a year while the document omitted the field entirely:
+        # the builder read a tool listing that had it stripped for the caller.
+        assert "session_id" in schema.get("properties", {}), action
+        assert "session_id" in schema["required"], action
+        # no null branch either: an endpoint cannot resolve one for you
+        assert schema["properties"]["session_id"]["type"] == "string"
 
 
 async def test_tools_leave_session_id_optional(server):

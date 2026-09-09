@@ -710,8 +710,13 @@ components:
   schemas:
     CloseSessionRequest:
       additionalProperties: false
-      properties: {}
+      properties:
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
       type: object
+      required:
+      - session_id
     CloseSessionResponse:
       type: object
       properties:
@@ -730,10 +735,15 @@ components:
           - type: string
           - type: 'null'
           default: null
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
         wait_timeout:
           default: 10
           type: integer
       type: object
+      required:
+      - session_id
     DialogResponse:
       type: object
       properties:
@@ -761,12 +771,16 @@ components:
       properties:
         script:
           type: string
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
         url:
           anyOf:
           - type: string
           - type: 'null'
           default: null
       required:
+      - session_id
       - script
       type: object
     ExecuteScriptResponse:
@@ -781,6 +795,9 @@ components:
       properties:
         xpath:
           type: string
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
         url:
           anyOf:
           - type: string
@@ -790,6 +807,7 @@ components:
           default: 30
           type: integer
       required:
+      - session_id
       - xpath
       type: object
     ExtractResponse:
@@ -819,10 +837,15 @@ components:
           - type: integer
           - type: 'null'
           default: null
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
         wait_timeout:
           default: 30
           type: integer
       type: object
+      required:
+      - session_id
     FrameResponse:
       type: object
       properties:
@@ -868,6 +891,9 @@ components:
           type: string
         xpath:
           type: string
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
         url:
           anyOf:
           - type: string
@@ -877,6 +903,7 @@ components:
           default: 30
           type: integer
       required:
+      - session_id
       - action
       - xpath
       type: object
@@ -893,7 +920,11 @@ components:
       properties:
         url:
           type: string
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
       required:
+      - session_id
       - url
       type: object
     NavigateResponse:
@@ -953,6 +984,9 @@ components:
       properties:
         key:
           type: string
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
         xpath:
           anyOf:
           - type: string
@@ -967,6 +1001,7 @@ components:
           default: 30
           type: integer
       required:
+      - session_id
       - key
       type: object
     PressKeyResponse:
@@ -990,7 +1025,12 @@ components:
           - type: integer
           - type: 'null'
           default: null
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
       type: object
+      required:
+      - session_id
     ResizeResponse:
       type: object
       properties:
@@ -1005,6 +1045,9 @@ components:
     SavePdfRequest:
       additionalProperties: false
       properties:
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
         url:
           anyOf:
           - type: string
@@ -1016,6 +1059,8 @@ components:
           - type: 'null'
           default: null
       type: object
+      required:
+      - session_id
     SavePdfResponse:
       type: object
       properties:
@@ -1037,6 +1082,9 @@ components:
     ScreenshotRequest:
       additionalProperties: false
       properties:
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
         url:
           anyOf:
           - type: string
@@ -1072,6 +1120,8 @@ components:
           - type: 'null'
           default: null
       type: object
+      required:
+      - session_id
     ScreenshotResponse:
       type: object
       properties:
@@ -1125,6 +1175,9 @@ components:
           - type: string
           - type: 'null'
           default: null
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
         path:
           anyOf:
           - type: string
@@ -1139,6 +1192,7 @@ components:
           default: 30
           type: integer
       required:
+      - session_id
       - xpath
       type: object
     UploadFileResponse:
@@ -1159,6 +1213,9 @@ components:
           type: string
         text:
           type: string
+        session_id:
+          type: string
+          description: The session_id returned by /browser/open. Required here.
         url:
           anyOf:
           - type: string
@@ -1174,6 +1231,7 @@ components:
           default: 30
           type: integer
       required:
+      - session_id
       - xpath
       - text
       type: object

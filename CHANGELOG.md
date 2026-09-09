@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sessions are shown with the name their caller claimed (`?session=<name>` or `X-Session-Key`), joined from the session store, and a session the Grid is running that this server has no record of is labelled as not its own rather than listed as though it were.
 - Clicking a stored file opens it in place — images and PDFs in a lightbox rather than a new tab — and a session's detail view leads with a header of its context: name, owner, browser, node, start time.
 - `PUBLIC_BASE_URL`, `GRID_CONSOLE_URL` and `APPS_ENABLED` configure the above.
+- The GitHub wiki is a submodule at `wiki/`, holding the manual the README has no room for: installing per MCP client, deployment across stdio/HTTP/Docker/Kubernetes, sessions, administration, and one page per action generated from `openapi.yaml` by `scripts/generate_wiki.py` so they cannot drift.
 
 - MCP server driving a Selenium Grid browser, with nine tools: open_session, navigate, click, write, press_key, extract, execute_script, screenshot, close_session.
 - The same nine actions served as plain JSON endpoints under `/browser`, so non-MCP callers can drive the browser without speaking JSON-RPC.
@@ -61,5 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `GET /openapi.yaml` and `/openapi.json` describing the HTTP surface, generated from the MCP tool schemas so the two contracts cannot drift; the spec is committed and CI fails if it goes stale.
 
 ### Fixed
+
+- The published OpenAPI document omitted `session_id` from every request schema — the one field the HTTP surface always requires. It was built from a *tool listing*, which is shaped for whoever is asking, and outside a request the server identifies the caller as stdio and strips the field. It now builds from the registered tools, and the test that should have caught it no longer passes vacuously when the field is absent.
 
 - Chrome silently refused every download after the first, because a page's second automatic download needs a permission nobody was there to grant. One file per session arrived and the rest vanished with no error.

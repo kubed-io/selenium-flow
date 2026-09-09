@@ -200,7 +200,15 @@ async def build_spec(
     3.1 rather than 3.0 on purpose: it is a strict superset of JSON Schema, so
     the tool schemas can be embedded verbatim instead of being down-converted.
     """
-    tools = {tool.name: tool for tool in await mcp.list_tools()}
+    # get_tool, not list_tools. A listing is shaped for whoever is asking —
+    # ShapeSessionId removes session_id when the server can identify the caller,
+    # and outside a request that is always true, so building from the listing
+    # produced a document that omitted the one field every endpoint requires.
+    # This spec describes the HTTP surface, which has no caller to adapt to.
+    # Not guarded: an action in the route table with no tool behind it is a
+    # broken build, and this document quietly missing an endpoint is how the
+    # session_id omission survived for as long as it did.
+    tools = {action: await mcp.get_tool(action) for action in set(endpoints.values())}
 
     schemas: dict[str, dict] = {"Error": ERROR, "Health": HEALTH}
     paths: dict[str, dict] = {}
