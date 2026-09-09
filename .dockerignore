@@ -12,3 +12,6 @@ dist/
 .mypy_cache/
 .github/
 *.log
+# The wiki is a submodule of prose. It has no part in the build, and it only
+# grows, so keeping it out of the context keeps that growth free.
+wiki/

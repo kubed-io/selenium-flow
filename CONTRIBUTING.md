@@ -3,10 +3,15 @@
 ## Getting set up
 
 ```bash
+git clone --recurse-submodules git@github.com:kubed-io/selenium-flow.git
 pip install -e ".[test]"
 ruff check kubed
 pytest
 ```
+
+The submodule is the GitHub wiki, checked out at `wiki/`. An existing clone
+picks it up with `git submodule update --init`. Nothing in the build or the
+tests needs it, so a clone without it works fine — you just have no wiki.
 
 The tests wire a server against an unroutable Grid address and drive both
 surfaces through the real ASGI app, so they need no browser and no network. A
@@ -22,6 +27,8 @@ test that reaches the Grid is an integration test and is marked as one.
 | `kubed/selenium_flow/sessions.py` | who is calling, and which browser that resolves to |
 | `kubed/selenium_flow/settings.py` | the env / client / explicit settings cascade |
 | `skills/selenium-flow/` | the embedded Agent Skill, mapped into the package at build time |
+| `static/` | the admin UI and the MCP app components, mapped in the same way |
+| `wiki/` | the GitHub wiki, as a submodule — depth the README has no room for |
 
 Adding a capability means adding one function to `actions.py` and registering it
 on both surfaces. A test asserts the two sets match, so a tool without an
