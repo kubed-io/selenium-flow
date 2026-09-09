@@ -44,7 +44,7 @@
     <div id="sessionsView">
       <div class="row" style="margin-bottom:12px">
         <strong class="grow">Live sessions</strong>
-        <button id="refresh">Refresh</button>
+        <span id="live" class="pill" title="Updates arrive as they happen">connecting…</span>
       </div>
       <div id="sessions"></div>
     </div>
@@ -52,9 +52,10 @@
     <div id="detailView" hidden>
       <div class="row" style="margin-bottom:12px">
         <button id="back">&larr; Sessions</button>
-        <span id="detailId" class="mono small muted grow"></span>
+        <span class="grow"></span>
         <button id="clearFiles">Clear files</button>
       </div>
+      <div id="detailHeader"></div>
       <div id="files"></div>
     </div>
   </section>
@@ -89,30 +90,84 @@ async function api(path, method = 'GET') {
 }
 
 function signOut() {
+  unwatch();
   token = '';
   sessionStorage.removeItem('sf-token');
   show($('app'), false); show($('login'), true);
   $('signout').hidden = true;
 }
 
+function paint(data) {
+  SF.sessionList($('sessions'), data, {onpick: openSession});
+}
+
 async function loadSessions() {
   const box = $('sessions');
-  box.innerHTML = '<div class="empty">Loading…</div>';
+  if (!box.childElementCount) box.innerHTML = '<div class="empty">Loading…</div>';
   try {
-    SF.sessionList(box, await api('/admin/sessions'), {onpick: openSession});
+    const data = await api('/admin/sessions');
+    paint(data);
+    if (data.events_url) watch(data.events_url);
+    return data;
   } catch (e) {
     box.innerHTML = '<div class="empty error">' + SF.esc(e.message) + '</div>';
   }
 }
 
+// The session list is pushed rather than polled. EventSource cannot send an
+// Authorization header, which is why the URL it opens is signed and comes back
+// from an authenticated call rather than being built here.
+let events = null, lastBeat = 0, fallback = null;
+
+function watch(url) {
+  if (events) return;
+  events = new EventSource(BASE + url);
+  events.onopen = () => { lastBeat = Date.now(); badge('live', 'live'); };
+  events.onmessage = (e) => {
+    lastBeat = Date.now();
+    badge('live', 'live');
+    // Only repaint the list when it is the thing on screen; clobbering a file
+    // grid someone is looking at because a browser opened elsewhere is rude.
+    if (!$('detailView').hidden) return;
+    try { paint(JSON.parse(e.data)); } catch {}
+  };
+  // EventSource reconnects by itself; the badge just stops claiming to be live.
+  events.onerror = () => badge('reconnecting…', '');
+
+  // Safety net. If the stream is silently swallowed by something in the middle,
+  // nothing would ever update and the page would look simply wrong. A slow poll
+  // costs nothing and makes that failure invisible instead of permanent.
+  clearInterval(fallback);
+  fallback = setInterval(async () => {
+    if (Date.now() - lastBeat < 45000) return;
+    badge('polling', '');
+    try {
+      const data = await api('/admin/sessions');
+      if ($('detailView').hidden) paint(data);
+    } catch {}
+  }, 30000);
+}
+
+function badge(text, cls) {
+  const el = $('live');
+  el.textContent = text;
+  el.className = 'pill' + (cls ? ' ' + cls : '');
+}
+
+function unwatch() {
+  if (events) { events.close(); events = null; }
+  clearInterval(fallback);
+}
+
 async function openSession(id) {
   current = id;
-  $('detailId').textContent = id;
   show($('sessionsView'), false); show($('detailView'), true);
   const box = $('files');
   box.innerHTML = '<div class="empty">Loading…</div>';
+  $('detailHeader').innerHTML = '';
   try {
     const data = await api('/admin/sessions/' + encodeURIComponent(id) + '/files');
+    SF.sessionSummary($('detailHeader'), data.session || {session_id: id});
     SF.fileGrid(box, data, {base: BASE});
   } catch (e) {
     box.innerHTML = '<div class="empty error">' + SF.esc(e.message) + '</div>';
@@ -122,7 +177,6 @@ async function openSession(id) {
 $('back').onclick = () => {
   show($('detailView'), false); show($('sessionsView'), true); loadSessions();
 };
-$('refresh').onclick = loadSessions;
 $('signout').onclick = signOut;
 
 $('clearFiles').onclick = async () => {

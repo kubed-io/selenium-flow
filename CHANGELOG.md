@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Signed file URLs (`/files/{session}/{name}?exp=&sig=`), so a screenshot can be shown in an `<img>` tag or a chat transcript, neither of which can send an `Authorization` header. The MCP token is the signing key, so rotating it revokes every link.
 - An admin UI at `/admin`: the sessions the Grid is running, what each downloaded, clickable thumbnails, and the Grid's own console framed same-origin as a tab. The server's token is the whole credential.
 - MCP Apps: `session_files` and `browser_sessions` declare UI components, so hosts implementing the extension (Claude, ChatGPT, VS Code, Goose) render a file grid instead of JSON. The components are shared with the admin UI rather than copied, and the tools stay visible to an app-capable client that would otherwise have them hidden as resource mirrors.
+- The admin UI updates itself: the session list is pushed over Server-Sent Events when it changes, so there is no refresh button and no per-tab polling — one loop on the server serves every open page, with a slow poll kept only as a fallback if the stream is swallowed in transit.
+- Sessions are shown with the name their caller claimed (`?session=<name>` or `X-Session-Key`), joined from the session store, and a session the Grid is running that this server has no record of is labelled as not its own rather than listed as though it were.
+- Clicking a stored file opens it in place — images and PDFs in a lightbox rather than a new tab — and a session's detail view leads with a header of its context: name, owner, browser, node, start time.
 - `PUBLIC_BASE_URL`, `GRID_CONSOLE_URL` and `APPS_ENABLED` configure the above.
 
 - MCP server driving a Selenium Grid browser, with nine tools: open_session, navigate, click, write, press_key, extract, execute_script, screenshot, close_session.

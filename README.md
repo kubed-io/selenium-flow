@@ -6,7 +6,6 @@
 [![📸 Image Builder](https://github.com/kubed-io/selenium-flow/actions/workflows/image.yml/badge.svg)](https://github.com/kubed-io/selenium-flow/actions/workflows/image.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-kubed%2Fselenium--flow-2496ed?logo=docker&logoColor=white)](https://hub.docker.com/r/kubed/selenium-flow)
-[![Python](https://img.shields.io/badge/Python-%E2%89%A53.10-3776ab?logo=python&logoColor=white)](pyproject.toml)
 [![FastMCP](https://img.shields.io/badge/FastMCP-4-8a2be2)](https://gofastmcp.com/)
 
 ---
@@ -86,8 +85,7 @@ Moves the browser somewhere, unconditionally.
 
 <br>
 
-Every mouse gesture, as one action — they take identical arguments and differ
-only in what is sent.
+Every mouse gesture, as one action — identical arguments, differing only in what is sent.
 
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
@@ -97,9 +95,7 @@ only in what is sent.
 | `url` | string | no | — | Page the action happens on |
 | `wait_timeout` | integer | no | `30` | |
 
-**Returns** `action`, `url`, `title` — the last two read *after* the gesture, so
-a navigation it caused shows up. If it opened a dialog, `url` and `title` are
-`null` and `dialog` carries the message.
+**Returns** `action`, `url`, `title` — read *after* the gesture, so a navigation it caused shows up. If it opened a dialog, those are `null` and `dialog` carries the message.
 
 </details>
 
@@ -121,14 +117,7 @@ The browser runs on a Grid node in another container, so a path means nothing to
 | `mime_type` | string | no | — | Picks an extension when `filename` has none |
 | `url` / `wait_timeout` | | no | / `30` | |
 
-**Uploading something you generated** — no encoding step:
-
-```json
-{ "session_id": "…", "xpath": "//input[@type='file']",
-  "text": "{\"generated\": true}", "filename": "data.json" }
-```
-
-Over HTTP a real file goes as a normal multipart part, binary included: `-F content=@shot.png`.
+Something you generated needs no encoding step — pass it as `text` with a `filename`. Over HTTP a real file goes as a normal multipart part, binary included: `-F content=@shot.png`.
 
 **Returns** `filename` and `bytes` actually attached, plus page state.
 
@@ -139,8 +128,7 @@ Over HTTP a real file goes as a normal multipart part, binary included: `-F cont
 
 <br>
 
-A native `alert`, `confirm` or `prompt` freezes the page — nothing else can even
-read the URL until it is answered.
+A native `alert`, `confirm` or `prompt` freezes the page — nothing else can even read the URL until it is answered.
 
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
@@ -166,9 +154,7 @@ read the URL until it is answered.
 | `index` | integer | alternative to `xpath` | — | Zero-based frame index |
 | `wait_timeout` | integer | no | `30` | |
 
-**The switch sticks.** It is session state on the Grid, not per-call, so
-everything afterwards stays inside that frame until something switches back —
-which is why `session://current` reports `in_frame`.
+**The switch sticks.** It is session state on the Grid, not per-call, so everything afterwards stays inside that frame until something switches back — which is why `session://current` reports `in_frame`.
 
 **Returns** `action`, `in_frame`, plus page state.
 
@@ -420,13 +406,15 @@ Everything a session downloads is kept **by the Grid**, in a per-session store b
 | a tool | `session_files` — same listing, for clients without resources |
 | a link | `GET /files/{session}/{name}?exp=…&sig=…` |
 
-That last one travels. It is signed over the path and an expiry rather than carrying a token, because an `<img>` tag and a markdown image in a chat transcript cannot send an `Authorization` header. The MCP token is the signing key, so rotating it revokes every link at once.
+That last one travels: signed over the path and an expiry, because an `<img>` tag cannot send an `Authorization` header.
 
 ---
 
 ## 🖥 Admin UI
 
-`GET /admin` — the sessions the Grid is running, what each downloaded, thumbnails you can click.
+`GET /admin` — the sessions the Grid is running and what each downloaded. Click a file to view it in place; click a session for a header of its context.
+
+The list **pushes its own updates** over Server-Sent Events — no refresh button, and no polling per tab: one loop on the server serves every page. Rows carry the name their caller claimed, joined from the session store; a browser the Grid is running that this server has no record of is labelled as somebody else's rather than passed off as ours.
 
 There are no accounts: the sign-in box asks for the server's token, since anyone holding it can already drive every browser through the API. It is kept in `sessionStorage`, so it does not outlive the tab.
 
@@ -436,19 +424,19 @@ The Grid's own console is a second tab, framed same-origin. Put both behind one 
 
 ## 🧩 MCP Apps
 
-Hosts implementing the [MCP Apps extension](https://modelcontextprotocol.io/extensions/apps/overview) — Claude, ChatGPT, VS Code, Goose — render a tool's result as UI rather than JSON. `session_files` and `browser_sessions` each declare one, so a listing arrives as a grid of thumbnails.
+Hosts implementing the [MCP Apps extension](https://modelcontextprotocol.io/extensions/apps/overview) — Claude, ChatGPT, VS Code, Goose — render a tool result as UI rather than JSON. `session_files` and `browser_sessions` each declare one, so a listing arrives as thumbnails.
 
 The components are shared with the admin UI, not copied — one stylesheet, one component library, so the two cannot drift.
 
-Degradation is the point, and it is the resource-mirroring shape again: one server, and the client's declared capabilities pick the rendering.
+Degradation is the point, and it is the resource-mirroring shape again: one server, the client's capabilities pick the rendering.
 
 | The client can | It gets |
 |---|---|
-| render apps | the component, drawn inline |
-| read resources | `session://files`, and the file itself as bytes |
+| render apps | the component, inline |
+| read resources | `session://files`, and the file as bytes |
 | neither | the tool's JSON, with links anything can open |
 
-Apps run under a deny-by-default CSP with no network access, so `PUBLIC_BASE_URL` is also what admits this server's images to the frame. `APPS_ENABLED=false` turns it off.
+Apps get a deny-by-default CSP with no network, so `PUBLIC_BASE_URL` is also what admits this server's images to the frame. `APPS_ENABLED=false` turns it off.
 
 ---
 
@@ -496,7 +484,7 @@ Authorization: Bearer <token>
 
 The HTTP endpoints also accept the bare token as the `Authorization` value, for clients that can't express a scheme. `/health` is always open.
 
-In the cluster the token is generated by External Secrets, so no value is authored anywhere — see `apps/selenium/components/mcp` in the cluster repo.
+It is also the signing key for file links and the event stream, so rotating it revokes those too. In the cluster it is generated by External Secrets — no value is authored anywhere.
 
 ---
 
@@ -509,14 +497,12 @@ docker compose up --build
 That starts the server **and** a standalone Grid for it to drive, with auth off:
 
 ```bash
-curl localhost:8000/health
-
 curl -X POST localhost:8000/browser/open \
   -H 'Content-Type: application/json' \
   -d '{"url":"https://example.com","width":1280,"height":800}'
 ```
 
-Point an MCP client at `http://localhost:8000/mcp` — and watch the browser work live at **`localhost:7900`**, the Grid's noVNC view. 👀
+Point an MCP client at `http://localhost:8000/mcp`, open `localhost:8000/admin` — and watch the browser work live at **`localhost:7900`**, the Grid's noVNC view. 👀
 
 ---
 

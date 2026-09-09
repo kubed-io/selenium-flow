@@ -50,11 +50,16 @@ const SF = (() => {
       card.className = 'card' + (opts.onpick ? ' click' : '');
       const count = s.files_count;
       card.innerHTML =
-        '<div class="row"><span class="mono grow">' + esc(s.session_id) + '</span>' +
+        '<div class="row">' +
+        (s.name ? '<span class="pill name">' + esc(s.name) + '</span>' : '') +
+        '<span class="mono grow' + (s.name ? ' small muted' : '') + '">' +
+        esc(s.session_id) + '</span>' +
         '<span class="pill live">live</span></div>' +
         '<div class="small muted" style="margin-top:6px">' +
         esc([s.browser, s.version].filter(Boolean).join(' ')) +
         (count === undefined ? '' : ' · ' + count + ' file' + (count === 1 ? '' : 's')) +
+        (s.owner && !s.name ? ' · ' + esc(s.owner) : '') +
+        (s.flow === false ? ' · not opened through this server' : '') +
         (s.node ? ' · ' + esc(s.node) : '') + '</div>';
       if (opts.onpick) card.onclick = () => opts.onpick(s.session_id);
       el.appendChild(card);
@@ -85,22 +90,83 @@ const SF = (() => {
         '<div class="meta"><div class="name">' + esc(f.name) + '</div>' +
         '<div class="small muted">' + bytes(f.size) +
         (f.created ? ' · ' + ago(f.created) : '') + '</div></div>';
+      // The anchor keeps its href so middle-click and "open in new tab" still
+      // work; a plain click is intercepted for the viewer.
+      item.querySelector('.thumb').addEventListener('click', (e) => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+        e.preventDefault();
+        lightbox(f, href);
+      });
       grid.appendChild(item);
     }
     el.appendChild(grid);
   }
 
-  /* One session's headline: what it is and where it is. */
+  /* One session's headline: what it is, who holds it, where it runs. */
   function sessionSummary(el, data) {
     const s = data || {};
+    const facts = [
+      ['session', s.session_id],
+      ['name', s.name],
+      ['held by', s.name ? null : s.owner || (s.flow === false ? 'another client' : null)],
+      ['browser', [s.browser, s.version].filter(Boolean).join(' ')],
+      ['started', s.started ? new Date(s.started).toLocaleString() : null],
+      ['files', s.files_count === undefined ? null : String(s.files_count)],
+      ['node', s.node],
+    ].filter(([, v]) => v);
+
     el.innerHTML =
-      '<div class="card"><div class="row">' +
-      '<span class="mono grow">' + esc(s.session_id || 'no session') + '</span>' +
-      (s.live === false ? '<span class="pill">ended</span>' : '<span class="pill live">live</span>') +
-      '</div>' +
-      (s.url ? '<div class="small muted" style="margin-top:6px">' + esc(s.url) + '</div>' : '') +
-      '</div>';
+      '<div class="card">' +
+      '<div class="row" style="margin-bottom:10px">' +
+      '<strong class="grow">' + esc(s.name || 'Session') + '</strong>' +
+      (s.live === false
+        ? '<span class="pill">ended</span>'
+        : '<span class="pill live">live</span>') +
+      '</div><div class="facts">' +
+      facts.map(([k, v]) =>
+        '<div class="fact"><div class="k">' + esc(k) + '</div>' +
+        '<div class="v' + (k === 'session' ? ' mono small' : '') + '">' +
+        esc(v) + '</div></div>').join('') +
+      '</div></div>';
   }
 
-  return {sessionList, fileGrid, sessionSummary, bytes, ago, esc};
+  /* Look at a file without leaving the page.
+
+     A stored file is opened to be looked at far more often than to be kept, and
+     a new tab loses the list you were reading. Images and PDFs render here;
+     anything else has nothing to show, so it downloads as before. */
+  function lightbox(file, href) {
+    const kind = file.content_type || '';
+    const viewable = file.image || kind === 'application/pdf';
+    if (!viewable) { window.open(href, '_blank', 'noopener'); return; }
+
+    const box = document.createElement('div');
+    box.className = 'lightbox';
+    box.innerHTML =
+      '<div class="head"><span class="grow">' + esc(file.name) + '</span>' +
+      '<a href="' + esc(href) + '" download="' + esc(file.name) + '">Download</a>' +
+      '<button type="button" data-close>Close</button></div>' +
+      '<div class="body">' +
+      (file.image
+        ? '<img alt="' + esc(file.name) + '" src="' + esc(href) + '">'
+        : '<iframe title="' + esc(file.name) + '" src="' + esc(href) +
+          '" style="width:100%;height:100%;border:0;background:#fff;border-radius:6px"></iframe>') +
+      '</div>';
+
+    function close() {
+      box.remove();
+      document.removeEventListener('keydown', onKey);
+    }
+    function onKey(e) { if (e.key === 'Escape') close(); }
+
+    // Click the backdrop or the button, or press Escape — three ways out,
+    // because a viewer you cannot dismiss is worse than a new tab.
+    box.addEventListener('click', (e) => {
+      if (e.target === box || e.target.hasAttribute('data-close')) close();
+    });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(box);
+  }
+
+  return {sessionList, fileGrid, sessionSummary, lightbox, bytes, ago, esc};
 })();

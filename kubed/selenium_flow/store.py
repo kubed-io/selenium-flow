@@ -90,6 +90,11 @@ class SessionStore(Protocol):
 
     def delete(self, key: str) -> None: ...
 
+    # Optional. Only the admin view needs it — to answer "whose browser is
+    # this?" — so a store that cannot enumerate cheaply may leave it out, and
+    # callers fall back to showing no owner rather than failing.
+    def owners(self) -> dict[str, str]: ...
+
 
 class MemoryStore:
     """Process-local mapping. Correct for a single replica, lost on restart.
@@ -120,6 +125,15 @@ class MemoryStore:
 
     def delete(self, key: str) -> None:
         self._data.pop(key, None)
+
+    def owners(self) -> dict[str, str]:
+        """session id -> the caller key holding it, skipping expired entries."""
+        now = self._clock()
+        return {
+            record.session_id: key
+            for key, (expires_at, record) in list(self._data.items())
+            if now < expires_at
+        }
 
 
 class RedisStore:
@@ -152,6 +166,20 @@ class RedisStore:
 
     def delete(self, key: str) -> None:
         self._redis.delete(self._k(key))
+
+    def owners(self) -> dict[str, str]:
+        """session id -> the caller key holding it.
+
+        SCAN rather than KEYS: this runs on a database shared with other
+        services, and KEYS would block the server while it walked all of it.
+        """
+        found: dict[str, str] = {}
+        for raw in self._redis.scan_iter(match=f"{self._prefix}*", count=100):
+            key = raw.decode() if isinstance(raw, bytes) else raw
+            record = SessionRecord.from_json(self._redis.get(key) or b"")
+            if record:
+                found[record.session_id] = key[len(self._prefix) :]
+        return found
 
 
 def redis_configured(env: dict | None = None) -> bool:

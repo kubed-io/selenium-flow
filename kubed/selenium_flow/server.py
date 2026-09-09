@@ -107,7 +107,7 @@ class SeleniumMCP:
         # The admin pages and the signed file route. Always on: they are how a
         # person sees what the agents have been doing, and the file route is the
         # only way an image reaches somewhere that cannot send a token.
-        admin.register(self.mcp, self.actions, auth_token)
+        admin.register(self.mcp, self.actions, auth_token, sessions=self.sessions)
 
     def run(
         self, transport: str = "http", host: str = "0.0.0.0", port: int = 8000

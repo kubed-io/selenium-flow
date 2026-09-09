@@ -18,13 +18,21 @@ The files themselves are the Grid's, not ours — see ``Grid.files``.
 
 from __future__ import annotations
 
+import json
 import logging
 import mimetypes
 import os
 from pathlib import Path
 
+import anyio
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse, Response
+from starlette.responses import (
+    HTMLResponse,
+    JSONResponse,
+    Response,
+    StreamingResponse,
+)
 
 from . import links
 from .browser import is_partial
@@ -38,6 +46,13 @@ STATIC_DIR = "static"
 DEFAULT_CONSOLE_URL = "/"
 
 IMAGE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml")
+
+EVENTS_PATH = "/admin/events"
+# Fast enough that a session appears to show up instantly, slow enough that the
+# Grid is asked twice a second at worst no matter how many pages are open.
+POLL_SECONDS = 2.0
+# Seconds of no change before a keepalive comment goes out.
+HEARTBEAT = 20.0
 
 
 def static_path() -> Path:
@@ -90,7 +105,25 @@ def describe(session_id: str, entry: dict, token: str | None) -> dict:
     }
 
 
-def register(mcp, actions, token: str | None, console_url: str | None = None) -> None:
+def owner_label(key: str) -> dict:
+    """A caller key turned into something worth showing next to a session.
+
+    The three key shapes carry different amounts of meaning. A name someone
+    chose is worth showing as-is; a negotiated transport id is noise, so it is
+    reported as a kind rather than printed.
+    """
+    if key.startswith("named:"):
+        return {"name": key[len("named:") :], "owner": "named"}
+    if key.startswith("mcp:"):
+        return {"name": None, "owner": "mcp client"}
+    if key == "stdio":
+        return {"name": None, "owner": "stdio"}
+    return {"name": key, "owner": "saved"}
+
+
+def register(
+    mcp, actions, token: str | None, console_url: str | None = None, sessions=None
+) -> None:
     """Mount the admin pages, their JSON API, and the signed file route."""
     console = console_url or os.environ.get("GRID_CONSOLE_URL", DEFAULT_CONSOLE_URL)
 
@@ -109,20 +142,111 @@ def register(mcp, actions, token: str | None, console_url: str | None = None) ->
         and every byte of data it shows is fetched separately with the token."""
         return HTMLResponse(page("admin.html", CONSOLE=console))
 
+    def sessions_payload() -> dict:
+        """Every running browser, with the count that makes a row worth a click.
+
+        Blocking — it talks to the Grid — so callers on the event loop must run
+        it in a worker thread.
+        """
+        # Who owns which browser, if the store can say. Best-effort: a store
+        # without owners(), or a Redis blip, costs the name and nothing else.
+        owners: dict[str, str] = {}
+        store = getattr(sessions, "store", None)
+        if store is not None and hasattr(store, "owners"):
+            try:
+                owners = store.owners()
+            except Exception as exc:  # noqa: BLE001
+                log.info("could not read session owners: %s", exc)
+
+        rows = []
+        for session in actions.grid.sessions():
+            sid = session["session_id"]
+            # A file count per row is worth one call each: it is the reason to
+            # click into a session, so a list without it is a list of guesses.
+            try:
+                count = len(actions.grid.files(sid))
+            except Exception:  # noqa: BLE001 - a session can end mid-listing
+                count = 0
+            # The Grid is the superset: it runs every browser on it, whoever
+            # asked for one. A session this server holds a record for is ours;
+            # anything else was opened by something we know nothing about, and
+            # saying so is more useful than listing it as though it were ours.
+            mine = sid in owners
+            named = owner_label(owners[sid]) if mine else {"name": None, "owner": None}
+            rows.append({**session, **named, "flow": mine, "files_count": count})
+        return {"sessions": rows}
+
     @mcp.custom_route("/admin/sessions", methods=["GET"], name="admin_sessions")
     async def admin_sessions(request: Request) -> JSONResponse:
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        sessions = []
-        for session in actions.grid.sessions():
-            # A file count per row is worth one call each: it is the reason to
-            # click into a session, so a list without it is a list of guesses.
-            try:
-                count = len(actions.grid.files(session["session_id"]))
-            except Exception:  # noqa: BLE001 - a session can end mid-listing
-                count = 0
-            sessions.append({**session, "files_count": count})
-        return JSONResponse({"sessions": sessions})
+        payload = await run_in_threadpool(sessions_payload)
+        # A signed URL for the event stream, because EventSource cannot send an
+        # Authorization header — the same reason the file route is signed. It is
+        # minted here so it is only ever handed to a caller that had the token.
+        return JSONResponse(
+            {
+                **payload,
+                "events_url": links.sign(EVENTS_PATH, token) if token else EVENTS_PATH,
+            }
+        )
+
+    @mcp.custom_route("/admin/events", methods=["GET"], name="admin_events")
+    async def admin_events(request: Request) -> Response:
+        """The session list, pushed when it changes.
+
+        There is nothing to subscribe to — a browser appears on the Grid, put
+        there by anything at all — so the change has to be discovered by asking.
+        Asking once here, for every connected page, is the point: the polling
+        that would otherwise happen in each open tab collapses into one loop.
+        """
+        if not (
+            authorized(request)
+            or (
+                token
+                and links.valid(
+                    EVENTS_PATH,
+                    request.query_params.get("exp"),
+                    request.query_params.get("sig"),
+                    token,
+                )
+            )
+        ):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+        async def stream():
+            last = None
+            quiet = 0.0
+            while True:
+                try:
+                    payload = json.dumps(
+                        await run_in_threadpool(sessions_payload), sort_keys=True
+                    )
+                except Exception as exc:  # noqa: BLE001 - the Grid can blip
+                    log.info("event poll failed: %s", exc)
+                    payload = last
+                if payload is not None and payload != last:
+                    last = payload
+                    quiet = 0.0
+                    yield f"data: {payload}\n\n"
+                elif quiet >= HEARTBEAT:
+                    # A comment keeps proxies from closing an idle stream, and
+                    # tells the page the connection is alive rather than stuck.
+                    quiet = 0.0
+                    yield ": ping\n\n"
+                await anyio.sleep(POLL_SECONDS)
+                quiet += POLL_SECONDS
+
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                # Tells nginx-style proxies not to buffer, which would hold every
+                # event until the response ended — i.e. never.
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @mcp.custom_route(
         "/admin/sessions/{session_id}/files",
@@ -141,7 +265,22 @@ def register(mcp, actions, token: str | None, console_url: str | None = None) ->
                 describe(session_id, entry, token)
                 for entry in actions.grid.files(session_id)
             ]
-            return JSONResponse({"session_id": session_id, "files": files})
+            # The detail view leads with a header about the session itself, so
+            # it is sent alongside rather than fetched separately. Best-effort:
+            # the files are what was asked for, and losing the header is a worse
+            # answer than no answer only if it takes the files down with it.
+            detail = {"session_id": session_id}
+            try:
+                listing = await run_in_threadpool(sessions_payload)
+                detail = next(
+                    (s for s in listing["sessions"] if s["session_id"] == session_id),
+                    {"session_id": session_id, "live": False},
+                )
+            except Exception as exc:  # noqa: BLE001 - a Grid blip, not a failure
+                log.info("session header for %s unavailable: %s", session_id, exc)
+            return JSONResponse(
+                {"session_id": session_id, "session": detail, "files": files}
+            )
         except Exception as exc:  # noqa: BLE001 - usually a session that ended
             log.info("files for %s failed: %s", session_id, exc)
             return JSONResponse({"error": str(exc)}, status_code=502)

@@ -5,6 +5,7 @@ is the part this server actually decides: who may fetch a file, which shape a
 given client is offered, and that the two surfaces show the same components.
 """
 
+import json
 import time
 from unittest.mock import patch
 
@@ -206,3 +207,38 @@ def test_the_app_csp_admits_our_own_origin_and_the_sdk():
 def test_the_app_csp_omits_an_origin_it_does_not_have():
     csp = apps.config_for("").csp
     assert csp.resource_domains == [apps.SDK_ORIGIN]
+
+
+# --- the live event stream ------------------------------------------------
+
+
+def test_the_sessions_call_hands_back_a_signed_stream_url(client):
+    """EventSource cannot send a header, so it is given a URL it can just open."""
+    with patch.object(browser.Grid, "sessions", return_value=[]):
+        body = client.get(
+            "/admin/sessions", headers={"Authorization": f"Bearer {TOKEN}"}
+        ).json()
+    assert body["events_url"].startswith("/admin/events?exp=")
+    assert "sig=" in body["events_url"]
+
+
+def test_the_event_stream_refuses_an_unsigned_open(client):
+    assert client.get("/admin/events").status_code == 401
+    assert client.get("/admin/events?exp=1&sig=x").status_code == 401
+
+
+def test_the_event_stream_signature_is_bound_to_its_own_path(client):
+    """A file link must not open the stream, or the reverse.
+
+    The stream is deliberately NOT read here. It is an endless generator, and
+    TestClient runs the app on a portal thread, so reading one event and leaving
+    blocks forever waiting for a body that never ends — which is a property of
+    the test harness, not of the route. The framing is exercised against a real
+    server instead.
+    """
+    with patch.object(browser.Grid, "sessions", return_value=[]):
+        url = client.get(
+            "/admin/sessions", headers={"Authorization": f"Bearer {TOKEN}"}
+        ).json()["events_url"]
+    query = url.split("?", 1)[1]
+    assert client.get(f"/files/abc/shot.png?{query}").status_code == 403
