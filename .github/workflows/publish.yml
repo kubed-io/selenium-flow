@@ -104,11 +104,9 @@ jobs:
     needs: version
     if: inputs.push
     uses: ./.github/workflows/wiki.yml
+    secrets: inherit
     with:
       push: ${{ inputs.push }}
-    secrets:
-      client-id: ${{ vars.GH_CLIENT_ID }}
-      app-key: ${{ secrets.GH_APP_KEY }}
 
   release:
     name: Release

@@ -51,18 +51,16 @@ on:
         required: false
         default: false
     secrets:
-      # Both optional, and only consulted by a run that pushes. Without them the
+      # Optional, and only consulted by a run that pushes. Without it the
       # built-in GITHUB_TOKEN does the push, which is enough: a wiki lives under
       # its repository's permissions, so `contents: write` covers it. Supply the
-      # App to publish under its identity instead, or if a ruleset ever starts
-      # refusing the Actions one.
+      # App key to publish under the App's identity instead, or if a ruleset
+      # ever starts refusing the Actions one.
       #
-      # The client id travels as a secret rather than being read from `vars` so
-      # a caller can hand one in — though see the step below for why the
-      # *switch* still reads the variable.
-      client-id:
-        required: false
-      app-key:
+      # There is no client id here to match: it is the GH_CLIENT_ID *variable*,
+      # and variables reach a called workflow in the same repository without
+      # being passed at all.
+      GH_APP_KEY:
         required: false
 
 permissions:
@@ -88,17 +86,17 @@ jobs:
     # Only a run that pushes needs a writable identity; a pull_request run just
     # generates and throws the result away.
     #
-    # Gated on the *variable* because the `secrets` context cannot be used in an
-    # `if`. That is fine here: the App is the optional path, so when there is no
-    # GH_CLIENT_ID this step is skipped and the built-in token pushes instead.
-    # Passed-in secrets still win over the repo's own when both exist.
+    # Gated on the variable rather than the key, because the `secrets` context
+    # cannot be used in an `if` at all. That works out here: the App is the
+    # optional path, so no GH_CLIENT_ID means skip this and let the built-in
+    # token push.
     - name: Create GitHub App Token
       id: app-token
       if: env.PUSH == 'true' && vars.GH_CLIENT_ID != ''
       uses: actions/create-github-app-token@v3
       with:
-        client-id: ${{ secrets.client-id || vars.GH_CLIENT_ID }}
-        private-key: ${{ secrets.app-key || secrets.GH_APP_KEY }}
+        client-id: ${{ vars.GH_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
 
     - name: Checkout
       uses: actions/checkout@v7
@@ -173,5 +171,5 @@ jobs:
         git push origin "HEAD:${GITHUB_REF_NAME}" || {
           echo "::warning::Wiki published, but the submodule pointer could not be \
           recorded — main is probably protected against the Actions identity. \
-          Pass client-id and app-key, or bump wiki/ by hand."
+          Pass GH_APP_KEY, or bump wiki/ by hand."
         }
