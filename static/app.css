@@ -1,0 +1,155 @@
+/* Shared by the admin UI and the MCP app.
+
+   The app runs in a host's sandboxed iframe and the admin page runs on its own
+   origin, so neither can rely on fetching the other's assets. Both inline this
+   file instead, which is what keeps them one design rather than two that drift.
+
+   Themed from prefers-color-scheme only: the MCP app is painted inside someone
+   else's chat window and has no toggle of its own to read. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #fbfbfd;
+  --panel: #ffffff;
+  --line: #e4e4ec;
+  --ink: #16161d;
+  --muted: #6b6b7b;
+  --accent: #2f6fed;
+  --accent-ink: #ffffff;
+  --warn: #b1002e;
+  --ok: #1a7f4b;
+  --radius: 10px;
+  --gap: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16161a;
+    --panel: #1e1e24;
+    --line: #32323c;
+    --ink: #ececf2;
+    --muted: #9b9baa;
+    --accent: #6f9bff;
+    --accent-ink: #0d0d12;
+    --warn: #ff7a92;
+    --ok: #55d093;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+a { color: var(--accent); }
+
+.wrap { max-width: 1100px; margin: 0 auto; padding: 20px; }
+.row { display: flex; align-items: center; gap: var(--gap); }
+.grow { flex: 1; }
+.muted { color: var(--muted); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.small { font-size: 12px; }
+
+header.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.brand { font-weight: 650; letter-spacing: -0.01em; }
+
+button, .btn {
+  font: inherit;
+  padding: 7px 13px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button:disabled { opacity: 0.5; cursor: default; }
+
+input[type=password], input[type=text] {
+  font: inherit;
+  padding: 8px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  min-width: 260px;
+}
+
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+
+.tabs button {
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  padding: 9px 14px;
+  color: var(--muted);
+}
+
+.tabs button[aria-selected=true] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.card.click { cursor: pointer; }
+.card.click:hover { border-color: var(--accent); }
+
+.pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pill.live { color: var(--ok); border-color: currentColor; }
+
+.files { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--gap); }
+
+.file {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+}
+
+.file .thumb {
+  height: 120px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  overflow: hidden;
+}
+
+.file .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.file .thumb .glyph { font-size: 30px; opacity: 0.55; }
+.file .meta { padding: 9px 11px; border-top: 1px solid var(--line); }
+.file .name { font-size: 13px; word-break: break-all; }
+
+.empty { padding: 30px; text-align: center; color: var(--muted); }
+.error { color: var(--warn); }
+
+iframe.console { width: 100%; height: 72vh; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+
+.login { max-width: 420px; margin: 12vh auto; }

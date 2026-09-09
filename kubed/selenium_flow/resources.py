@@ -25,6 +25,7 @@ from fastmcp.server.middleware import Middleware
 
 # Imported under the old name: this module (and its tests) patch _http to
 # simulate a request, and the alias keeps one seam rather than two.
+from . import apps
 from .sessions import SessionManager
 from .sessions import http_request as _http
 
@@ -142,14 +143,23 @@ class HideMirrorTools(Middleware):
     at boot, when there is no asker.
     """
 
-    def __init__(self, names: set[str]):
+    def __init__(self, names: set[str], app_tools: set[str] | None = None):
         self.names = set(names)
+        # Mirrors that are also apps. A tool carrying an app config is not a
+        # duplicate of its resource — it is the only way a host that renders UI
+        # gets to draw one, since a resource has no app to attach. So for those
+        # clients the tool stays, and "two ways to ask one question" becomes
+        # "the readable way and the pretty way", which is worth the noise.
+        self.app_tools = set(app_tools or ())
 
     async def on_list_tools(self, context, call_next):
         tools = await call_next(context)
-        if self.names and client_reads_resources():
-            return [tool for tool in tools if tool.name not in self.names]
-        return tools
+        if not self.names or not client_reads_resources():
+            return tools
+        hidden = self.names
+        if self.app_tools and apps.supported():
+            hidden = hidden - self.app_tools
+        return [tool for tool in tools if tool.name not in hidden]
 
 
 def register(mcp: FastMCP, sessions: SessionManager) -> set[str]:

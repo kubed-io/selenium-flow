@@ -60,15 +60,23 @@ selenium-flow = "kubed.selenium_flow.main:main"
 [tool.setuptools_scm]
 
 [tool.setuptools]
-packages = ["kubed.selenium_flow", "kubed.selenium_flow.skills"]
+packages = [
+  "kubed.selenium_flow",
+  "kubed.selenium_flow.skills",
+  "kubed.selenium_flow.static",
+]
 
 # The skill lives at the repo root, where it reads as documentation rather than
 # as buried package data, but it has to INSTALL inside the package so it travels
 # with the wheel. This maps the one to the other: built from ./skills, installed
 # as kubed/selenium_flow/skills/. Without it the skill is simply absent from an
 # installed package and silently does not exist.
+# The web UI is mapped the same way and for the same reason: ./static is where
+# a stylesheet and two HTML pages belong in a checkout, but they have to ship
+# inside the package or the admin UI 500s on an installed copy.
 [tool.setuptools.package-dir]
 "kubed.selenium_flow.skills" = "skills"
+"kubed.selenium_flow.static" = "static"
 
 # Everything under it, not just *.md: a supporting file of any other type would
 # otherwise be missing from the wheel with no error at build or import time, and
@@ -78,6 +86,7 @@ packages = ["kubed.selenium_flow", "kubed.selenium_flow.skills"]
 # the folder, not the frontmatter, and publishes skill://<folder>/SKILL.md.
 [tool.setuptools.package-data]
 "kubed.selenium_flow.skills" = ["*", "**/*"]
+"kubed.selenium_flow.static" = ["*"]
 
 [tool.pytest.ini_options]
 minversion = "6.0"

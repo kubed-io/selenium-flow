@@ -308,3 +308,13 @@ docker compose up --build
 # drive it against a real Grid without containers
 GRID_URL=http://<hub>:4444 MCP_AUTH_TOKEN=dev python -m kubed.selenium_flow
 ```
+
+## Session lifetime: who owns what
+
+| | Who owns it | Default here |
+|---|---|---|
+| **How long a browser lives** | the Grid — `SE_NODE_SESSION_TIMEOUT` on the node | `300s` idle, in the cluster repo |
+| **How long we remember a caller** | `SESSION_TTL` | `3600s`, slid forward on every call |
+| **Where we remember it** | `SESSION_STORE` | `memory` (or `redis` to share it) |
+
+**Nothing runs a cleanup loop, and nothing should** — the Grid expires idle browsers, the store expires its own keys. If the Grid reaped one we remembered, the next call notices and reopens it at the page it was last on. 🪄

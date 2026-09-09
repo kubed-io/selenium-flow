@@ -490,6 +490,8 @@ class Actions:
         width=None,
         height=None,
         wait_timeout=30,
+        save=False,
+        filename=None,
     ) -> dict:
         """Capture a PNG and return it base64-encoded.
 
@@ -519,15 +521,59 @@ class Actions:
             image = driver.get_screenshot_as_base64()
 
         img_w, img_h = browser.png_size(image)
-        return {
+        raw = base64.b64decode(image)
+        result = {
             "image": image,
             "width": img_w,
             "height": img_h,
-            "bytes": len(base64.b64decode(image)),
+            "bytes": len(raw),
             **browser.page_state(driver),
         }
+        # Saving is opt-in because most screenshots are looked at once and
+        # thrown away. The ones worth keeping are the ones a human will open
+        # later, and those need a URL rather than base64 in a tool result.
+        if as_bool(save, False):
+            name = _safe_name(filename or "screenshot", "image/png", ".png")
+            result["file"] = browser.save_to_downloads(
+                self.grid, driver, name, raw, "image/png"
+            )
+        return result
 
     # ---- internals ---------------------------------------------------------
+
+    def files(self, session_id: str) -> dict:
+        """List what this session has downloaded.
+
+        Covers both kinds of file in one place: anything the *site* served to a
+        download, and anything this server saved there itself. They are not
+        distinguished because to the caller they are the same thing — files this
+        browsing session produced.
+        """
+        if not session_id:
+            raise ValueError("session_id is required")
+        return {"session_id": session_id, "files": self.grid.files(session_id)}
+
+    def clear_files(self, session_id: str) -> dict:
+        """Delete the session's downloads without closing the browser."""
+        if not session_id:
+            raise ValueError("session_id is required")
+        self.grid.clear_files(session_id)
+        return {"success": True, "session_id": session_id}
+
+    def save_pdf(self, session_id: str, url=None, filename=None) -> dict:
+        """Print the current page to PDF and keep it with the session's files.
+
+        W3C ``print``, not a Chrome-only DevTools call, so this is the same
+        rendering a user gets from Ctrl+P rather than a screenshot of the
+        viewport — text stays selectable and the whole document is included.
+        """
+        name = _safe_name(filename or "page", "application/pdf", ".pdf")
+        driver = self._at(session_id, url)
+        data = base64.b64decode(driver.print_page())
+        entry = browser.save_to_downloads(
+            self.grid, driver, name, data, "application/pdf"
+        )
+        return {"file": entry, "bytes": len(data), **browser.page_state(driver)}
 
     def _at(self, session_id: str, url=None):
         """Reconnect, and put the browser on ``url`` if it is not already there."""

@@ -361,6 +361,8 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         width: int | None = None,
         height: int | None = None,
         wait_timeout: int = 30,
+        save: bool = False,
+        filename: str | None = None,
     ) -> Image:
         """Capture a PNG of the page and return it as an image you can see.
 
@@ -369,6 +371,11 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
 
         Only reach for this when the *visual* result matters — layout, styling,
         a rendered chart. To read content, extract is far cheaper.
+
+        Set save to also keep it with the session's files, where it gets a URL
+        that opens in a browser. Worth doing whenever a person will look at it:
+        many clients cannot display an image returned by a tool, and every one
+        of them can follow a link. session_files lists what has been kept.
         """
         result = run(
             session_id,
@@ -380,6 +387,25 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
                 width=width,
                 height=height,
                 wait_timeout=wait_timeout,
+                save=save,
+                filename=filename,
             ),
         )
         return Image(data=base64.b64decode(result["image"]), format="png")
+
+    @mcp.tool
+    def save_pdf(
+        session_id: str | None = None,
+        url: str | None = None,
+        filename: str | None = None,
+    ) -> dict:
+        """Print the current page to PDF and keep it with the session's files.
+
+        This is the browser's own print output, so text stays selectable and the
+        whole document is included rather than just the viewport. Returns the
+        stored file; session_files gives it a link.
+        """
+        return run(
+            session_id,
+            lambda s: actions.save_pdf(s, url=url, filename=filename),
+        )

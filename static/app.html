@@ -1,0 +1,50 @@
+<!-- The MCP app shell.
+
+     Renders exactly one component from the library, named by the tool result.
+     This is not the dashboard: the dashboard composes several of these into a
+     page for a human, whereas an app is one piece of UI dropped into someone's
+     conversation, showing the result of the tool they just called.
+
+     Rendered by apps.py with __CSS__ and __COMPONENTS__ substituted, so the
+     markup and styling are literally the same source the dashboard uses. -->
+<title>selenium-flow</title>
+<style>__CSS__</style>
+<style>
+  /* An app is a panel in someone else's window, not a page: no page chrome,
+     no outer margin, and it must not force its own background over the host's. */
+  body { background: transparent; }
+  .wrap { padding: 0; max-width: none; }
+</style>
+
+<div class="wrap"><div id="root"><div class="empty">Loading…</div></div></div>
+
+<script type="module">
+__COMPONENTS__
+
+const root = document.getElementById('root');
+
+function render(result) {
+  const data = (result && (result.structuredContent || result)) || {};
+  const component = SF[data.component];
+  if (!component) {
+    root.innerHTML = '<div class="empty error">Nothing to show'
+      + (data.component ? ' for "' + SF.esc(data.component) + '"' : '') + '.</div>';
+    return;
+  }
+  // No onpick: an app is a view, and a click that navigated inside someone
+  // else's transcript would have nowhere to go.
+  component(root, data, {});
+}
+
+try {
+  const {App} = await import('https://unpkg.com/@modelcontextprotocol/ext-apps/dist/index.js');
+  const app = new App();
+  app.ontoolresult = (result) => render(result);
+  await app.connect();
+  const initial = typeof app.getHostContext === 'function' ? app.getHostContext() : null;
+  if (initial && initial.toolResult) render(initial.toolResult);
+} catch (err) {
+  root.innerHTML = '<div class="empty error">This host could not start the app: '
+    + SF.esc(err && err.message ? err.message : String(err)) + '</div>';
+}
+</script>

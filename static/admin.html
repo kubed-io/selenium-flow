@@ -1,0 +1,163 @@
+<!-- The admin dashboard.
+
+     Composes the shared components into a page for a human, and adds the two
+     things an app cannot have: a way to sign in, and the Grid's own console.
+     All the rendering lives in components.js — this file is auth, fetching and
+     layout, nothing more.
+
+     Rendered by admin.py with __CSS__, __COMPONENTS__ and __CONSOLE__ filled in.
+     Everything is addressed relative to BASE, computed from the page's own URL,
+     so the same document works whether this server is reached directly or is
+     mounted under a path by an ingress. -->
+<title>selenium-flow</title>
+<style>__CSS__</style>
+
+<header class="bar">
+  <span class="brand">selenium-flow</span>
+  <span class="grow"></span>
+  <button id="signout" hidden>Sign out</button>
+</header>
+
+<div id="login" class="wrap login" hidden>
+  <div class="card">
+    <h2 style="margin-top:0">Sign in</h2>
+    <p class="muted small">
+      There are no accounts here. The server's token is the whole credential —
+      anyone holding it can already drive every browser through the API, so this
+      box asks for that rather than inventing a second identity to get wrong.
+    </p>
+    <form id="loginForm" class="row">
+      <input id="token" type="password" placeholder="MCP token" autocomplete="off" required>
+      <button class="primary" type="submit">Enter</button>
+    </form>
+    <p id="loginError" class="small error" hidden>That token was refused.</p>
+  </div>
+</div>
+
+<main id="app" class="wrap" hidden>
+  <div class="tabs">
+    <button id="tabSessions" aria-selected="true">Sessions</button>
+    <button id="tabConsole" aria-selected="false">Grid console</button>
+  </div>
+
+  <section id="paneSessions">
+    <div id="sessionsView">
+      <div class="row" style="margin-bottom:12px">
+        <strong class="grow">Live sessions</strong>
+        <button id="refresh">Refresh</button>
+      </div>
+      <div id="sessions"></div>
+    </div>
+
+    <div id="detailView" hidden>
+      <div class="row" style="margin-bottom:12px">
+        <button id="back">&larr; Sessions</button>
+        <span id="detailId" class="mono small muted grow"></span>
+        <button id="clearFiles">Clear files</button>
+      </div>
+      <div id="files"></div>
+    </div>
+  </section>
+
+  <section id="paneConsole" hidden>
+    <p class="small muted">
+      The Grid's own console, same-origin in a frame. Its live view works from
+      here because both halves are served from one host.
+    </p>
+    <iframe class="console" src="__CONSOLE__" title="Selenium Grid console"></iframe>
+  </section>
+</main>
+
+<script>
+__COMPONENTS__
+
+const BASE = location.pathname.replace(/\/admin\/ui\/?$/, '');
+const $ = (id) => document.getElementById(id);
+const show = (el, on) => { el.hidden = !on; };
+let token = sessionStorage.getItem('sf-token') || '';
+let current = null;
+
+// sessionStorage, not localStorage: this is the server's full-privilege token,
+// so it should not outlive the tab someone typed it into.
+async function api(path, method = 'GET') {
+  const res = await fetch(BASE + path, {
+    method, headers: {Authorization: 'Bearer ' + token},
+  });
+  if (res.status === 401) { signOut(); throw new Error('unauthorized'); }
+  if (!res.ok) throw new Error('request failed (' + res.status + ')');
+  return res.json();
+}
+
+function signOut() {
+  token = '';
+  sessionStorage.removeItem('sf-token');
+  show($('app'), false); show($('login'), true);
+  $('signout').hidden = true;
+}
+
+async function loadSessions() {
+  const box = $('sessions');
+  box.innerHTML = '<div class="empty">Loading…</div>';
+  try {
+    SF.sessionList(box, await api('/admin/api/sessions'), {onpick: openSession});
+  } catch (e) {
+    box.innerHTML = '<div class="empty error">' + SF.esc(e.message) + '</div>';
+  }
+}
+
+async function openSession(id) {
+  current = id;
+  $('detailId').textContent = id;
+  show($('sessionsView'), false); show($('detailView'), true);
+  const box = $('files');
+  box.innerHTML = '<div class="empty">Loading…</div>';
+  try {
+    const data = await api('/admin/api/sessions/' + encodeURIComponent(id) + '/files');
+    SF.fileGrid(box, data, {base: BASE});
+  } catch (e) {
+    box.innerHTML = '<div class="empty error">' + SF.esc(e.message) + '</div>';
+  }
+}
+
+$('back').onclick = () => {
+  show($('detailView'), false); show($('sessionsView'), true); loadSessions();
+};
+$('refresh').onclick = loadSessions;
+$('signout').onclick = signOut;
+
+$('clearFiles').onclick = async () => {
+  if (!current || !confirm('Delete every file this session downloaded?')) return;
+  await api('/admin/api/sessions/' + encodeURIComponent(current) + '/files', 'DELETE');
+  openSession(current);
+};
+
+const selectTab = (sessions) => {
+  $('tabSessions').setAttribute('aria-selected', sessions);
+  $('tabConsole').setAttribute('aria-selected', !sessions);
+  show($('paneSessions'), sessions); show($('paneConsole'), !sessions);
+};
+$('tabSessions').onclick = () => selectTab(true);
+$('tabConsole').onclick = () => selectTab(false);
+
+$('loginForm').onsubmit = async (e) => {
+  e.preventDefault();
+  token = $('token').value.trim();
+  try {
+    await api('/admin/api/sessions');
+    sessionStorage.setItem('sf-token', token);
+    $('loginError').hidden = true;
+    start();
+  } catch {
+    $('loginError').hidden = false;
+  }
+};
+
+function start() {
+  show($('login'), false); show($('app'), true);
+  $('signout').hidden = false;
+  loadSessions();
+}
+
+if (token) api('/admin/api/sessions').then(start).catch(() => show($('login'), true));
+else show($('login'), true);
+</script>

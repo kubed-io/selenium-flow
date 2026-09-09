@@ -12,6 +12,9 @@ mid-workflow, or run behind more than one replica without losing a browser.
 from __future__ import annotations
 
 import base64
+import io
+import time
+import zipfile
 from urllib.parse import urlsplit, urlunsplit
 
 import requests
@@ -74,6 +77,15 @@ def normalize_url(url: str) -> str:
     )
 
 
+def is_partial(name: str) -> bool:
+    """Whether a download-directory entry is Chrome's scratch copy, not a file.
+
+    Two shapes, both renamed away once the download completes: ``<name>.crdownload``
+    and a hidden ``.com.google.Chrome.XXXXXX``.
+    """
+    return name.endswith(".crdownload") or name.startswith(".")
+
+
 def png_size(b64: str) -> tuple[int, int]:
     """Width and height straight from the PNG IHDR header — no image library."""
     raw = base64.b64decode(b64[:64])
@@ -98,6 +110,19 @@ class Grid:
         # so a destructive prompt gets answered by accident and the dialog is
         # gone before anyone can decide. "ignore" leaves it open for `dialog`.
         options.set_capability("unhandledPromptBehavior", "ignore")
+        # Ask the Grid to manage this session's downloads. The node then keeps a
+        # per-session directory and exposes it at /session/<id>/se/files, which
+        # is the whole file store — listed, read and reaped by the Grid itself.
+        # Without this the browser downloads into a directory nothing can reach.
+        options.set_capability("se:downloadsEnabled", True)
+        # Chrome asks permission before a page's *second* automatic download and
+        # denies it silently when nobody can answer. The first file of a session
+        # would arrive and every one after it would vanish with no error, which
+        # is a miserable thing to debug. 1 = allow.
+        options.add_experimental_option(
+            "prefs",
+            {"profile.default_content_setting_values.automatic_downloads": 1},
+        )
         return options
 
     def open(self) -> RemoteWebDriver:
@@ -152,6 +177,79 @@ class Grid:
             f"{self.url}/session/{session_id}", timeout=self.timeout
         )
         response.raise_for_status()
+
+    def sessions(self) -> list[dict]:
+        """Every browser the Grid is currently running.
+
+        Read from the Grid rather than from this server's own records, because
+        the Grid is the one that actually has them: sessions opened over the
+        HTTP surface, by another replica, or by something that is not this
+        server at all still belong on the list.
+        """
+        found = []
+        for node in self.status()["value"].get("nodes", []):
+            for slot in node.get("slots", []):
+                session = slot.get("session")
+                if not session:
+                    continue
+                caps = session.get("capabilities", {})
+                found.append(
+                    {
+                        "session_id": session.get("sessionId"),
+                        "started": session.get("start"),
+                        "browser": caps.get("browserName"),
+                        "version": caps.get("browserVersion"),
+                        "node": caps.get("se:containerName") or node.get("id"),
+                        "vnc": caps.get("se:vnc"),
+                    }
+                )
+        return sorted(found, key=lambda s: s.get("started") or "", reverse=True)
+
+    def files(self, session_id: str) -> list[dict]:
+        """What this session has finished downloading, newest first.
+
+        The Grid owns this store, which is the point: it is created with the
+        session, lives on the node beside the browser, and is deleted when the
+        session ends. A store of our own would duplicate all three and get the
+        lifecycle subtly wrong.
+
+        Downloads in flight are omitted. Chrome writes them under a scratch name
+        and renames on completion, so listing them would offer the caller a file
+        that is half-written and about to be called something else.
+        """
+        response = requests.get(
+            f"{self.url}/session/{session_id}/se/files", timeout=self.timeout
+        )
+        response.raise_for_status()
+        files = [
+            f
+            for f in response.json().get("value", {}).get("files", [])
+            if not is_partial(f.get("name", ""))
+        ]
+        return sorted(files, key=lambda f: f.get("creationTime", 0), reverse=True)
+
+    def read_file(self, session_id: str, name: str) -> bytes:
+        """One downloaded file's bytes.
+
+        The Grid always answers with a zip, even for a single file, so the
+        archive is unwrapped here — callers want the file, not the envelope.
+        """
+        response = requests.post(
+            f"{self.url}/session/{session_id}/se/files",
+            json={"name": name},
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        archive = base64.b64decode(response.json()["value"]["contents"])
+        with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
+            member = name if name in bundle.namelist() else bundle.namelist()[0]
+            return bundle.read(member)
+
+    def clear_files(self, session_id: str) -> None:
+        """Drop everything the session has downloaded, keeping the browser."""
+        requests.delete(
+            f"{self.url}/session/{session_id}/se/files", timeout=self.timeout
+        )
 
     def status(self) -> dict:
         """The Grid's own readiness payload."""
@@ -266,6 +364,49 @@ def accept_local_files(driver) -> None:
     to the node first and hand the input the remote path it landed at.
     """
     driver.file_detector = LocalFileDetector()
+
+
+_SAVE_JS = """
+const [name, b64, mime] = arguments;
+const bin = atob(b64);
+const bytes = new Uint8Array(bin.length);
+for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+const url = URL.createObjectURL(new Blob([bytes], {type: mime}));
+const a = document.createElement('a');
+a.href = url;
+a.download = name;
+(document.body || document.documentElement).appendChild(a);
+a.click();
+setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 0);
+return name;
+"""
+
+
+def save_to_downloads(
+    grid, driver, name: str, data: bytes, mime: str, timeout: int = 15
+) -> dict:
+    """Put bytes into the session's download store, by having the page save them.
+
+    There is no API for writing into the Grid's store — it only lists, reads and
+    deletes. But it is fed by whatever the *browser* downloads, so a page that
+    downloads a blob puts a file there through the ordinary path. That keeps one
+    store for everything: a PDF the site served and a screenshot this server
+    rendered land side by side, with the same lifecycle.
+
+    Chrome deduplicates names by appending " (1)", so the filename is discovered
+    by diffing the listing rather than assumed. The download is asynchronous,
+    hence the poll.
+    """
+    before = {f["name"] for f in grid.files(driver.session_id)}
+    driver.execute_script(_SAVE_JS, name, base64.b64encode(data).decode(), mime)
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        for entry in grid.files(driver.session_id):
+            if entry["name"] not in before:
+                return entry
+        time.sleep(0.25)
+    raise TimeoutError(f"{name} did not appear in the session's downloads")
 
 
 def ensure_url(driver, url: str) -> bool:

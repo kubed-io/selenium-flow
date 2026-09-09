@@ -59,6 +59,15 @@ def build_parser() -> argparse.ArgumentParser:
         "(env: SKILL_ENABLED)",
     )
     parser.add_argument(
+        "--no-apps",
+        dest="apps_enabled",
+        action="store_false",
+        default=os.environ.get("APPS_ENABLED", "true").strip().lower()
+        not in ("0", "false", "no", "off"),
+        help="do not offer the MCP Apps components, which hosts that support "
+        "the UI extension render inline (env: APPS_ENABLED)",
+    )
+    parser.add_argument(
         "--stateless",
         action="store_true",
         default=os.environ.get("STATELESS_HTTP", "").strip().lower()
@@ -102,6 +111,7 @@ def main(argv: list[str] | None = None) -> None:
         stateless=args.stateless,
         saved_sessions=args.saved_sessions,
         skill_enabled=args.skill_enabled,
+        apps_enabled=args.apps_enabled,
     )
     logging.getLogger(__name__).info(
         "grid=%s auth=%s saved-sessions=%s stateless=%s skill=%s",

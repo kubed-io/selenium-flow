@@ -40,6 +40,7 @@ ENDPOINTS = {
     "resize": "resize",
     "dialog": "dialog",
     "upload": "upload_file",
+    "pdf": "save_pdf",
 }
 
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 from fastmcp import FastMCP
 from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 
-from . import resources, routes, skill, tools
+from . import admin, apps, files, resources, routes, skill, tools
 from .actions import Actions
 from .browser import DEFAULT_GRID_URL, Grid
 from .sessions import SessionManager
@@ -45,6 +45,7 @@ class SeleniumMCP:
         saved_sessions: bool = True,
         store: SessionStore | None = None,
         skill_enabled: bool = True,
+        apps_enabled: bool = True,
     ):
         self.grid = Grid(grid_url)
         self.actions = Actions(self.grid)
@@ -77,7 +78,24 @@ class SeleniumMCP:
         self.skill = skill.load() if skill_enabled else None
         if self.skill is not None:
             mirrors |= skill.register(self.mcp, self.skill)
-        self.mcp.add_middleware(resources.HideMirrorTools(mirrors))
+
+        # A session's files, and the Grid's running sessions: each a resource
+        # with a tool that mirrors it. Those tools also carry the app config,
+        # which is why they are exempt from hiding for a client that can render
+        # one — for that client the tool is the only route to a picture.
+        base = apps.public_base()
+        app_config = apps.config_for(base) if apps_enabled else None
+        app_tools = files.register(
+            self.mcp, self.actions, self.sessions, auth_token, app_config, base
+        )
+        self.apps = (
+            apps.register(self.mcp, self.actions, auth_token) if apps_enabled else set()
+        )
+        app_tools |= self.apps
+        mirrors |= app_tools
+        self.mcp.add_middleware(
+            resources.HideMirrorTools(mirrors, app_tools if apps_enabled else set())
+        )
         # Shapes session_id per request, so the advertised schema matches the
         # mode the caller is actually in rather than the union of both.
         self.mcp.add_middleware(resources.ShapeSessionId(self.sessions))
@@ -86,6 +104,10 @@ class SeleniumMCP:
         routes.register(
             self.mcp, self.actions, auth_token, route_prefix, self.sessions.kind
         )
+        # The admin pages and the signed file route. Always on: they are how a
+        # person sees what the agents have been doing, and the file route is the
+        # only way an image reaches somewhere that cannot send a token.
+        admin.register(self.mcp, self.actions, auth_token)
 
     def run(
         self, transport: str = "http", host: str = "0.0.0.0", port: int = 8000

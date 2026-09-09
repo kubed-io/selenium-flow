@@ -114,6 +114,27 @@ RESPONSES = {
             "type": "integer",
             "description": "Decoded size. A value near zero means a blank capture.",
         },
+        file={
+            "type": "object",
+            "description": "The stored file, as the Grid's download store lists it.",
+            "properties": {
+                "name": {"type": "string"},
+                "size": {"type": "integer"},
+                "creationTime": {"type": "integer"},
+            },
+        },
+    ),
+    "save_pdf": _page(
+        file={
+            "type": "object",
+            "description": "The stored file, as the Grid's download store lists it.",
+            "properties": {
+                "name": {"type": "string"},
+                "size": {"type": "integer"},
+                "creationTime": {"type": "integer"},
+            },
+        },
+        bytes={"type": "integer", "description": "Size of the PDF in bytes."},
     ),
 }
 

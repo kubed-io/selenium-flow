@@ -13,7 +13,7 @@
 
 ## The whole idea, in one breath
 
-Open a browser once. It stays alive — same page, same cookies, same scroll position — while an agent works through a task one tool call at a time, or while an n8n workflow steps from node to node. Nothing relaunches, nothing logs in twice.
+Open a browser once. It stays alive — same page, same cookies, same scroll position — while an agent works through a task one call at a time, or an n8n workflow steps from node to node. Nothing relaunches, nothing logs in twice.
 
 ```
    agent  ──── MCP  /mcp ─────▶  ┌───────────────┐        ┌───────────────┐
@@ -36,15 +36,15 @@ workflow  ──── HTTP /browser ──▶ └──────────
 
 Every action is a tool **and** an endpoint, one to one, and a test fails the build if that stops being true. They differ in one place: `screenshot` hands MCP an image block a vision model can *see*, and HTTP a base64 payload a script can save.
 
-`GET /health` reports Grid readiness and the live session count; `GET /openapi.yaml` describes the HTTP surface. Neither needs credentials.
+`GET /health` and `GET /openapi.yaml` need no credentials.
 
 ---
 
 ## 🧰 Every action, both ways
 
-Nine actions. Each one is a tool and an endpoint; the parameters are identical, with a single exception noted below. All endpoints are `POST` with a JSON body.
+Fourteen actions, each a tool and an endpoint with identical parameters. All endpoints are `POST` with a JSON body.
 
-> **The one difference:** over HTTP, `session_id` is always **required**. Over MCP it depends on the mode — required when the server cannot identify you, and refused when it can. The advertised schema says which; see [Sessions](#-sessions).
+> **The one difference:** over HTTP `session_id` is always **required**; over MCP it depends on the mode, and the advertised schema says which. See [Sessions](#-sessions).
 
 <details>
 <summary><b><code>open_session</code></b> &nbsp;·&nbsp; <code>POST /browser/open</code> &nbsp;—&nbsp; start a browser 🚀</summary>
@@ -63,10 +63,6 @@ Headless window defaults are small and differ between Grid nodes, so set `width`
 
 **Returns** `session_id`, `url`, `title`, `width`, `height`.
 
-```json
-{ "url": "https://example.com", "width": 1280, "height": 800 }
-```
-
 </details>
 
 <details>
@@ -82,10 +78,6 @@ Moves the browser somewhere, unconditionally.
 | `url` | string | **yes** | — | Where to go |
 
 **Returns** `url`, `title`.
-
-```json
-{ "session_id": "…", "url": "https://example.com/login" }
-```
 
 </details>
 
@@ -109,10 +101,6 @@ only in what is sent.
 a navigation it caused shows up. If it opened a dialog, `url` and `title` are
 `null` and `dialog` carries the message.
 
-```json
-{ "session_id": "…", "action": "hover", "xpath": "//nav//li[contains(., 'Account')]" }
-```
-
 </details>
 
 <details>
@@ -120,8 +108,7 @@ a navigation it caused shows up. If it opened a dialog, `url` and `title` are
 
 <br>
 
-The browser runs on a Grid node in another container, so a path means nothing to
-it. Send the file and it is written and shipped there for you.
+The browser runs on a Grid node in another container, so a path means nothing to it. Send the file and it is shipped there for you.
 
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
@@ -141,12 +128,7 @@ it. Send the file and it is written and shipped there for you.
   "text": "{\"generated\": true}", "filename": "data.json" }
 ```
 
-**Uploading a real file over HTTP** — a normal multipart part, binary included:
-
-```bash
-curl -X POST localhost:8000/browser/upload \
-  -F session_id=… -F 'xpath=//input[@type="file"]' -F content=@screenshot.png
-```
+Over HTTP a real file goes as a normal multipart part, binary included: `-F content=@shot.png`.
 
 **Returns** `filename` and `bytes` actually attached, plus page state.
 
@@ -183,11 +165,6 @@ read the URL until it is answered.
 | `xpath` | string | for `switch` | — | The `<iframe>` to enter |
 | `index` | integer | alternative to `xpath` | — | Zero-based frame index |
 | `wait_timeout` | integer | no | `30` | |
-
-```json
-{ "action": "switch", "xpath": "//iframe[@id='checkout']" }
-{ "action": "default" }
-```
 
 **The switch sticks.** It is session state on the Grid, not per-call, so
 everything afterwards stays inside that frame until something switches back —
@@ -234,10 +211,6 @@ Types into an input, textarea or contenteditable.
 
 **Returns** `value`, `url`, `title`. The value is read back off the element so you can confirm the text landed — and read *before* any submit, because submitting navigates and the element reference goes stale.
 
-```json
-{ "session_id": "…", "xpath": "//input[@name='q']", "text": "selenium grid", "submit": true }
-```
-
 </details>
 
 <details>
@@ -257,13 +230,9 @@ Sends a key to an element, or to wherever focus happens to be.
 
 **Returns** `key`, `url`, `title`.
 
-Names are lowercase: `tab`, `enter`, `escape`, `backspace`, `delete`, `space`, `home`, `end`, `page_up`, `page_down`, `arrow_up`, `arrow_down`, `arrow_left`, `arrow_right`, `f1`–`f12`, `shift`, `control`, `alt`, `meta`, `numpad0`–`numpad9`, and the rest of Selenium's set. The live list is interpolated into the tool description, so it cannot drift.
+Names are lowercase — `tab`, `enter`, `escape`, `arrow_*`, `page_*`, `f1`–`f12`, `numpad0`–`numpad9`, and the rest of Selenium's set. The live list is interpolated into the tool description, so it cannot drift.
 
 ⚠️ **Not a scrolling tool.** `page_down` only moves the page when focus happens to be on the scrollable container. Use `execute_script` to scroll.
-
-```json
-{ "session_id": "…", "key": "tab" }
-```
 
 </details>
 
@@ -285,10 +254,6 @@ Waits for an element to exist, then reads it. **The cheap way to read a page** �
 
 `//body` reads everything; a narrower XPath keeps the result small.
 
-```json
-{ "session_id": "…", "xpath": "//h1" }
-```
-
 </details>
 
 <details>
@@ -305,10 +270,6 @@ The escape hatch for anything the other eight don't cover: scrolling, drag and d
 | `url` | string | no | — | Page to run it on |
 
 **Returns** `result` (any JSON type), `url`, `title`.
-
-```json
-{ "session_id": "…", "script": "window.scrollTo(0, 2000); return document.title" }
-```
 
 </details>
 
@@ -327,17 +288,36 @@ Three modes, in precedence order: `xpath` wins, then `full_page`, otherwise the 
 | `full_page` | boolean | no | `false` | The whole scrollable page |
 | `width` | integer | no | — | Resize before capturing, and **leave** it resized |
 | `height` | integer | no | — | |
+| `save` | boolean | no | `false` | Also keep it with the session's files, and get a link |
+| `filename` | string | no | `screenshot` | Name for the saved copy |
 | `wait_timeout` | integer | no | `30` | |
 
 **Over MCP** you get an image content block a vision model can actually see. **Over HTTP** you get `image` (base64 PNG), `width`, `height` (real pixels, read from the PNG header), `bytes` (decoded size — the quickest way to spot a blank capture), plus `url` and `title`.
 
 `width`/`height` resize the window and leave it that way; `full_page` resizes only for the capture and restores the previous size afterwards.
 
-It's all plain W3C WebDriver, so it works on any browser the Grid runs. Chrome has no W3C full-page command, so `full_page` grows the window to the document height and captures that.
+Pass `save` when a **person** will look at it. Many clients cannot display an image returned by a tool — [see below](#-mcp-apps) — and every one of them can follow a link.
 
 ```json
 { "session_id": "…", "full_page": true, "width": 1280 }
 ```
+
+</details>
+
+<details>
+<summary><b><code>save_pdf</code></b> &nbsp;·&nbsp; <code>POST /browser/pdf</code> &nbsp;—&nbsp; print the page 📄</summary>
+
+<br>
+
+The browser's own print output, so text stays selectable and the whole document is included rather than just the viewport. Kept with the session's files.
+
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `session_id` | string | **yes** *(HTTP)* | — | |
+| `url` | string | no | — | Page to print |
+| `filename` | string | no | `page` | Name for the stored file |
+
+**Returns** the stored `file`, its `bytes`, plus page state.
 
 </details>
 
@@ -356,23 +336,17 @@ Quits the session and frees its Grid slot.
 
 **Always call this, including on failure paths.** Slots are finite, and an abandoned session holds one until the Grid times it out.
 
-```json
-{ "session_id": "…" }
-```
-
 </details>
 
 ### 🧭 About that `url` parameter
 
 `click`, `write`, `press_key`, `extract`, `screenshot` and `execute_script` all take an optional `url`, and it is **not an assertion**. If the browser is somewhere else, it goes there first — so you can jump straight to a page instead of clicking a path to it.
 
-URLs compare with the fragment and any trailing slash ignored, so `/settings`, `/settings/` and `/settings#top` are one page. Query strings count as different.
-
 ---
 
 ## 🍪 Sessions
 
-Over HTTP it is session in, session out, always — so an n8n workflow owns its session outright and can pass it between nodes.
+Over HTTP it is session in, session out, always — so an n8n workflow owns its session and can pass it between nodes.
 
 **`open_session` always comes first.** Nothing opens a browser implicitly, because that is the only place its window size and timeouts can be chosen — hiding it hid the settings too.
 
@@ -385,31 +359,23 @@ After that there are two modes, and they are **exclusive**. `session://current` 
 
 The server works out who is calling from the first of these it finds, and **never invents one** — a caller it cannot identify is stateless, not quietly handed a browser:
 
-| Key | How it's set | How stable it is |
+| Key | How it's set | How stable |
 |---|---|---|
-| **A name you choose** | `X-Session-Key` header, else `?session=<name>` on the MCP URL | Stable by construction — the same name comes back after a client restart or reconnect |
-| **The MCP transport session** | the `Mcp-Session-Id` the server negotiates, automatically | Lasts as long as the client's connection; a reconnect is a new key |
-| **stdio** | one process serves one client | Lasts as long as the process |
+| **A name you choose** | `X-Session-Key` header, else `?session=<name>` on the MCP URL | Survives a client restart or reconnect |
+| **The MCP transport session** | the negotiated `Mcp-Session-Id` | Lasts the connection; a reconnect is a new key |
+| **stdio** | one process, one client | Lasts the process |
 
-That column is about the *key*; how long the mapping behind it survives is `SESSION_TTL`.
+Prefer the **query parameter**: one credential shared across callers, each naming itself in its URL. The **header** wins over it, so an admin can pin one browser per credential and a caller cannot override it.
 
-Prefer the **query parameter**: one bearer credential shared across callers, each naming itself in its URL. The **header** wins over it, so an admin can pin one browser per credential and a caller cannot override it.
+> ⚠️ n8n opens a **new MCP transport per tool call**, so the negotiated id is never the same twice. Name the session in the URL or saved mode cannot work there.
 
-### What we actually set
-
-| | Who owns it | Default here |
-|---|---|---|
-| **How long a browser lives** | the Grid — `SE_NODE_SESSION_TIMEOUT` on the node | `300s` idle, in the cluster repo |
-| **How long we remember a caller** | `SESSION_TTL` | `3600s`, slid forward on every call |
-| **Where we remember it** | `SESSION_STORE` | `memory` (or `redis` to share it) |
-
-**Nothing here runs a cleanup loop, and nothing should** — the Grid expires idle browsers and the store expires its own keys. If the Grid reaped a browser we remembered, the next call notices and reopens it at the page it was last on, with the same settings. 🪄
+Browser lifetime is the Grid's (`SE_NODE_SESSION_TIMEOUT`, 300s here); how long we remember a caller is `SESSION_TTL`, slid forward on every call. Nothing runs a cleanup loop — see AGENTS.md.
 
 ### 📍 Where am I?
 
 `session://current` reports the mode, the browser this client holds, whether the Grid still has it, whether you are inside a frame, and a link to the reference that applies. Reading it never opens a browser.
 
-Resources are the least widely implemented corner of MCP — n8n has none — so the same status is also a `current_session` **tool**, hidden unless a client declares `?resources=off` or `X-MCP-Resources: off`. It stays callable either way.
+Resources are the least widely implemented corner of MCP — n8n has none — so the same status is also a `current_session` **tool**, hidden unless a client declares `?resources=off` or `X-MCP-Resources: off`.
 
 ### 📖 It teaches you how to use it
 
@@ -422,27 +388,67 @@ only what its task needs:
 
 | Resource | Holds |
 |---|---|
-| `skill://selenium-flow/SKILL.md` | the index: session mode, the three rules, where to go next |
-| `.../references/STATELESS.md` | you own the session id — the HTTP surface, and any client the server cannot identify |
-| `.../references/SAVED_SESSIONS.md` | the server holds your browser — naming, sharing, transparent refresh |
-| `.../references/READING_PAGES.md` | extract vs script vs screenshot, and XPath that keeps working |
+| `skill://selenium-flow/SKILL.md` | the index: session mode, the three rules, where next |
+| `.../references/STATELESS.md` | you own the session id |
+| `.../references/SAVED_SESSIONS.md` | the server holds your browser |
+| `.../references/READING_PAGES.md` | extract vs script vs screenshot, and durable XPath |
 | `.../references/INTERACTION.md` | forms, clicks, keys, scrolling, waiting |
-| `.../references/TROUBLESHOOTING.md` | timeouts, dead sessions, blank captures, clicks that do nothing |
-| `.../references/CONFIGURATION.md` | setting the server up, connecting a client, which env var to change |
+| `.../references/TROUBLESHOOTING.md` | timeouts, dead sessions, blank captures |
+| `.../references/CONFIGURATION.md` | setting the server up, which env var to change |
 | `skill://selenium-flow/_manifest` | the file listing, with sizes and hashes |
 
 The two session references are mutually exclusive: `session://current` tells you
-which one applies, and you read that one.
+which one applies.
 
-Those URIs are FastMCP's convention, not ours, and served by its own
-`SkillProvider` — so `list_skills`, `get_skill_manifest` and `download_skill`
-from `fastmcp.utilities.skills` work against this server with no special casing,
-and an agent can pull the skill down into `~/.claude/skills` if it wants it
-locally.
+Those URIs are FastMCP's convention, served by its own `SkillProvider`, so
+`list_skills` and `download_skill` work here with no special casing.
 
 Same fallback as the session status: clients that cannot read resources get a
 `selenium_flow_skill` tool instead, hidden otherwise. `SKILL_ENABLED=false` turns
 both shapes off.
+
+---
+
+## 🗂 What a session leaves behind
+
+Everything a session downloads is kept **by the Grid**, in a per-session store beside the browser — created with the session, deleted with it. Two kinds of file land there and they are not distinguished: whatever the **site** served to a download, and whatever **you** kept with `screenshot(save=true)` or `save_pdf`.
+
+| Read it as | URI / path |
+|---|---|
+| a resource | `session://files` — the listing |
+| a resource | `session://files/{name}` — one file, as bytes |
+| a tool | `session_files` — same listing, for clients without resources |
+| a link | `GET /files/{session}/{name}?exp=…&sig=…` |
+
+That last one travels. It is signed over the path and an expiry rather than carrying a token, because an `<img>` tag and a markdown image in a chat transcript cannot send an `Authorization` header. The MCP token is the signing key, so rotating it revokes every link at once.
+
+---
+
+## 🖥 Admin UI
+
+`GET /admin/ui` — the sessions the Grid is running, what each downloaded, thumbnails you can click.
+
+There are no accounts: the sign-in box asks for the server's token, since anyone holding it can already drive every browser through the API. It is kept in `sessionStorage`, so it does not outlive the tab.
+
+The Grid's own console is a second tab, framed same-origin. Put both behind one host — the Grid at `/`, this server under a path — and the console's live view works with no cross-origin exception.
+
+---
+
+## 🧩 MCP Apps
+
+Hosts implementing the [MCP Apps extension](https://modelcontextprotocol.io/extensions/apps/overview) — Claude, ChatGPT, VS Code, Goose — render a tool's result as UI rather than JSON. `session_files` and `browser_sessions` each declare one, so a listing arrives as a grid of thumbnails.
+
+The components are shared with the admin UI, not copied — one stylesheet, one component library, so the two cannot drift.
+
+Degradation is the point, and it is the resource-mirroring shape again: one server, and the client's declared capabilities pick the rendering.
+
+| The client can | It gets |
+|---|---|
+| render apps | the component, drawn inline |
+| read resources | `session://files`, and the file itself as bytes |
+| neither | the tool's JSON, with links anything can open |
+
+Apps run under a deny-by-default CSP with no network access, so `PUBLIC_BASE_URL` is also what admits this server's images to the frame. `APPS_ENABLED=false` turns it off.
 
 ---
 
@@ -455,17 +461,17 @@ Every flag has an environment fallback, because containers are configured with e
 | `GRID_URL` | `--grid-url` | the in-cluster Grid Service | Selenium Grid hub |
 | `MCP_AUTH_TOKEN` | `--auth-token` | unset | Bearer token for both surfaces. Unset disables auth |
 | `ROUTE_PREFIX` | `--route-prefix` | `/browser` | Path prefix for the HTTP endpoints |
-| `SAVED_SESSIONS` | `--no-saved-sessions` | `true` | Let MCP callers omit `session_id`. Never affects the HTTP endpoints |
-| `SESSION_STORE` | — | `memory` | `memory` or `redis`. Unset, any `REDIS_*` setting implies `redis` |
-| `SESSION_TTL` | — | `3600` | Seconds a caller's mapping is kept. Honoured by both stores |
-| `REDIS_URL` | — | unset | Connection for `SESSION_STORE=redis` |
-| `REDIS_HOST` / `REDIS_PORT` | — | `localhost` / `6379` | Alternative to `REDIS_URL` |
-| `REDIS_DB` | — | `0` | Database index. Applied even when `REDIS_URL` carries no `/<index>` |
-| `REDIS_USERNAME` / `REDIS_PASSWORD` / `REDIS_SSL` | — | unset | Credentials for the above |
+| `SAVED_SESSIONS` | `--no-saved-sessions` | `true` | Let MCP callers omit `session_id`. Never affects HTTP |
+| `SESSION_STORE` | — | `memory` | `memory` or `redis`. Any `REDIS_*` setting implies `redis` |
+| `SESSION_TTL` | — | `3600` | Seconds a caller's mapping is kept |
+| `REDIS_URL`, or `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_USERNAME` / `REDIS_PASSWORD` / `REDIS_SSL` | — | unset | Connection for `SESSION_STORE=redis`. `REDIS_DB` applies even when the URL carries no `/<index>` |
 | `REDIS_PREFIX` | — | `selenium-flow:session:` | Key namespace, so sharing a database is safe |
 | `SKILL_ENABLED` | `--no-skill` | `true` | Serve the embedded skill as a resource, and as a tool for clients without resources |
+| `APPS_ENABLED` | `--no-apps` | `true` | Offer the MCP Apps components to hosts that render them |
+| `PUBLIC_BASE_URL` | — | unset | Externally reachable root, e.g. `https://selenium.example.com/flow`. Needed for absolute file links and the app CSP |
+| `GRID_CONSOLE_URL` | — | `/` | Where the admin UI frames the Grid console from |
 | `WINDOW_WIDTH` / `WINDOW_HEIGHT` | — | node default | Default window size for new sessions |
-| `PAGE_LOAD_TIMEOUT` | — | unbounded | Seconds a navigation may take. **Worth setting** — a hanging page otherwise holds a Grid slot |
+| `PAGE_LOAD_TIMEOUT` | — | unbounded | Seconds a navigation may take. **Worth setting** — a hung page holds a Grid slot |
 | `SCRIPT_TIMEOUT` | — | driver default | Seconds `execute_script` may take |
 | `STATELESS_HTTP` | `--stateless` | `false` | Drop MCP transport sessions. Required for more than one replica |
 | `TRANSPORT` | `--transport` | `http` | `http` or `stdio` |
@@ -524,9 +530,9 @@ changing behaviour: [AGENTS.md](AGENTS.md).
 
 ## 🔗 References
 
-- [Model Context Protocol](https://modelcontextprotocol.io/) · [FastMCP](https://gofastmcp.com/)
-- [Selenium Grid](https://www.selenium.dev/documentation/grid/) · [Selenium Python API](https://selenium-python.readthedocs.io/) · [RemoteWebDriver](https://www.selenium.dev/documentation/webdriver/drivers/remote_webdriver/)
-- [Docker Hub — kubed/selenium-flow](https://hub.docker.com/r/kubed/selenium-flow)
+- [Model Context Protocol](https://modelcontextprotocol.io/) · [MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview) · [FastMCP](https://gofastmcp.com/)
+- [Selenium Grid](https://www.selenium.dev/documentation/grid/) · [Selenium Python API](https://selenium-python.readthedocs.io/)
+- [Docker Hub](https://hub.docker.com/r/kubed/selenium-flow)
 
 ---
 

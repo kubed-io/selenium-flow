@@ -22,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Session files: everything a browser downloads is kept in Selenium Grid's own per-session store, created with the session and deleted with it, so there is no second store to clean up. Read it as the `session://files` resource, one file at a time as `session://files/{name}`, or the `session_files` tool.
+- `save_pdf` prints the current page with the browser's own print engine — selectable text, whole document — and keeps it with the session's files; `screenshot(save=true)` keeps a capture the same way.
+- Signed file URLs (`/files/{session}/{name}?exp=&sig=`), so a screenshot can be shown in an `<img>` tag or a chat transcript, neither of which can send an `Authorization` header. The MCP token is the signing key, so rotating it revokes every link.
+- An admin UI at `/admin/ui`: the sessions the Grid is running, what each downloaded, clickable thumbnails, and the Grid's own console framed same-origin as a tab. The server's token is the whole credential.
+- MCP Apps: `session_files` and `browser_sessions` declare UI components, so hosts implementing the extension (Claude, ChatGPT, VS Code, Goose) render a file grid instead of JSON. The components are shared with the admin UI rather than copied, and the tools stay visible to an app-capable client that would otherwise have them hidden as resource mirrors.
+- `PUBLIC_BASE_URL`, `GRID_CONSOLE_URL` and `APPS_ENABLED` configure the above.
+
 - MCP server driving a Selenium Grid browser, with nine tools: open_session, navigate, click, write, press_key, extract, execute_script, screenshot, close_session.
 - The same nine actions served as plain JSON endpoints under `/browser`, so non-MCP callers can drive the browser without speaking JSON-RPC.
 - Screenshots return a real MCP image content block, so a vision model can see the page; viewport, single-element and full-page modes are all supported.
@@ -49,3 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `session://current` reports the `mode`, whether to pass `session_id`, the settings in force, whether the session is inside a frame, and a link to the reference that applies.
 - `--stateless` / `STATELESS_HTTP` to drop MCP transport sessions, which is what more than one replica requires.
 - `GET /openapi.yaml` and `/openapi.json` describing the HTTP surface, generated from the MCP tool schemas so the two contracts cannot drift; the spec is committed and CI fails if it goes stale.
+
+### Fixed
+
+- Chrome silently refused every download after the first, because a page's second automatic download needs a permission nobody was there to grant. One file per session arrived and the rest vanished with no error.
