@@ -107,7 +107,7 @@ jobs:
     with:
       push: ${{ inputs.push }}
     secrets:
-      app-id: ${{ vars.GH_APP_ID }}
+      client-id: ${{ vars.GH_CLIENT_ID }}
       app-key: ${{ secrets.GH_APP_KEY }}
 
   release:

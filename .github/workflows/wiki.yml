@@ -57,10 +57,10 @@ on:
       # App to publish under its identity instead, or if a ruleset ever starts
       # refusing the Actions one.
       #
-      # The id travels as a secret rather than being read from `vars` so a
-      # caller can hand one in — though see the step below for why the *switch*
-      # still reads the variable.
-      app-id:
+      # The client id travels as a secret rather than being read from `vars` so
+      # a caller can hand one in — though see the step below for why the
+      # *switch* still reads the variable.
+      client-id:
         required: false
       app-key:
         required: false
@@ -90,14 +90,14 @@ jobs:
     #
     # Gated on the *variable* because the `secrets` context cannot be used in an
     # `if`. That is fine here: the App is the optional path, so when there is no
-    # GH_APP_ID this step is skipped and the built-in token pushes instead.
+    # GH_CLIENT_ID this step is skipped and the built-in token pushes instead.
     # Passed-in secrets still win over the repo's own when both exist.
     - name: Create GitHub App Token
       id: app-token
-      if: env.PUSH == 'true' && vars.GH_APP_ID != ''
+      if: env.PUSH == 'true' && vars.GH_CLIENT_ID != ''
       uses: actions/create-github-app-token@v3
       with:
-        app-id: ${{ secrets.app-id || vars.GH_APP_ID }}
+        client-id: ${{ secrets.client-id || vars.GH_CLIENT_ID }}
         private-key: ${{ secrets.app-key || secrets.GH_APP_KEY }}
 
     - name: Checkout
@@ -173,5 +173,5 @@ jobs:
         git push origin "HEAD:${GITHUB_REF_NAME}" || {
           echo "::warning::Wiki published, but the submodule pointer could not be \
           recorded — main is probably protected against the Actions identity. \
-          Pass app-id and app-key, or bump wiki/ by hand."
+          Pass client-id and app-key, or bump wiki/ by hand."
         }
