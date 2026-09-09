@@ -426,7 +426,7 @@ That last one travels. It is signed over the path and an expiry rather than carr
 
 ## 🖥 Admin UI
 
-`GET /admin/ui` — the sessions the Grid is running, what each downloaded, thumbnails you can click.
+`GET /admin` — the sessions the Grid is running, what each downloaded, thumbnails you can click.
 
 There are no accounts: the sign-in box asks for the server's token, since anyone holding it can already drive every browser through the API. It is kept in `sessionStorage`, so it does not outlive the tab.
 

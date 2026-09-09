@@ -106,23 +106,23 @@ def test_describe_marks_images_and_types():
 
 def test_the_admin_page_needs_no_token(client):
     """It is the sign-in form; everything it displays is fetched separately."""
-    page = client.get("/admin/ui")
+    page = client.get("/admin")
     assert page.status_code == 200
     assert "MCP token" in page.text
 
 
 def test_the_admin_page_carries_the_shared_components(client):
     """The dashboard and the app must render from one library, not two."""
-    page = client.get("/admin/ui").text
+    page = client.get("/admin").text
     assert "const SF" in page and "SF.fileGrid" in page
     assert "--accent" in page, "the shared stylesheet is missing"
 
 
 def test_the_admin_api_requires_the_token(client):
-    assert client.get("/admin/api/sessions").status_code == 401
-    assert client.get("/admin/api/sessions/x/files").status_code == 401
+    assert client.get("/admin/sessions").status_code == 401
+    assert client.get("/admin/sessions/x/files").status_code == 401
     bad = {"Authorization": "Bearer nope"}
-    assert client.get("/admin/api/sessions", headers=bad).status_code == 401
+    assert client.get("/admin/sessions", headers=bad).status_code == 401
 
 
 def test_a_file_needs_a_valid_signature_not_a_token(client):
@@ -148,7 +148,7 @@ def test_a_partial_download_is_never_served(client):
 def test_the_admin_api_lists_files_with_signed_urls(client):
     with patch.object(browser.Grid, "files", return_value=ENTRIES):
         body = client.get(
-            "/admin/api/sessions/abc/files",
+            "/admin/sessions/abc/files",
             headers={"Authorization": f"Bearer {TOKEN}"},
         ).json()
     assert [f["name"] for f in body["files"]] == ["shot.png", "report.pdf"]

@@ -1,10 +1,12 @@
 """A small web UI for the sessions the Grid is running, and their files.
 
-Two audiences, one set of routes. ``/admin/*`` is for a person holding the
-token: it lists live browsers and what each has downloaded. ``/files/*`` is for
-anything that renders a URL — an ``<img>`` on that page, a markdown image in a
-chat transcript, a link sent to someone else — and is authorised by signature
-rather than by header, because none of those can set one.
+Two audiences, one set of routes. ``/admin`` is the page itself and
+``/admin/<thing>`` is its data, for a person holding the token: live browsers,
+and what each has downloaded.
+
+``/files/*`` is for anything that renders a URL — an ``<img>`` on that page, a
+markdown image in a chat transcript, a link sent to someone else — and is
+authorised by signature rather than by header, because none of those can set one.
 
 There is no user database and no session cookie. The server's token is the only
 credential it has, so the sign-in box asks for that: you have it or you do not.
@@ -101,13 +103,13 @@ def register(mcp, actions, token: str | None, console_url: str | None = None) ->
             header.strip() == token
         )
 
-    @mcp.custom_route("/admin/ui", methods=["GET"], name="admin_ui")
+    @mcp.custom_route("/admin", methods=["GET"], name="admin_ui")
     async def admin_ui(_request: Request) -> HTMLResponse:
         """The page itself. Unauthenticated on purpose — it is the sign-in form,
         and every byte of data it shows is fetched separately with the token."""
         return HTMLResponse(page("admin.html", CONSOLE=console))
 
-    @mcp.custom_route("/admin/api/sessions", methods=["GET"], name="admin_sessions")
+    @mcp.custom_route("/admin/sessions", methods=["GET"], name="admin_sessions")
     async def admin_sessions(request: Request) -> JSONResponse:
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -123,7 +125,7 @@ def register(mcp, actions, token: str | None, console_url: str | None = None) ->
         return JSONResponse({"sessions": sessions})
 
     @mcp.custom_route(
-        "/admin/api/sessions/{session_id}/files",
+        "/admin/sessions/{session_id}/files",
         methods=["GET", "DELETE"],
         name="admin_files",
     )

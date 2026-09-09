@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Session files: everything a browser downloads is kept in Selenium Grid's own per-session store, created with the session and deleted with it, so there is no second store to clean up. Read it as the `session://files` resource, one file at a time as `session://files/{name}`, or the `session_files` tool.
 - `save_pdf` prints the current page with the browser's own print engine — selectable text, whole document — and keeps it with the session's files; `screenshot(save=true)` keeps a capture the same way.
 - Signed file URLs (`/files/{session}/{name}?exp=&sig=`), so a screenshot can be shown in an `<img>` tag or a chat transcript, neither of which can send an `Authorization` header. The MCP token is the signing key, so rotating it revokes every link.
-- An admin UI at `/admin/ui`: the sessions the Grid is running, what each downloaded, clickable thumbnails, and the Grid's own console framed same-origin as a tab. The server's token is the whole credential.
+- An admin UI at `/admin`: the sessions the Grid is running, what each downloaded, clickable thumbnails, and the Grid's own console framed same-origin as a tab. The server's token is the whole credential.
 - MCP Apps: `session_files` and `browser_sessions` declare UI components, so hosts implementing the extension (Claude, ChatGPT, VS Code, Goose) render a file grid instead of JSON. The components are shared with the admin UI rather than copied, and the tools stay visible to an app-capable client that would otherwise have them hidden as resource mirrors.
 - `PUBLIC_BASE_URL`, `GRID_CONSOLE_URL` and `APPS_ENABLED` configure the above.
 
