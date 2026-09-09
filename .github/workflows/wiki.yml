@@ -1,0 +1,178 @@
+name: 📖 Wiki
+
+# Publishes the wiki. The action pages are generated from openapi.yaml, which is
+# itself generated from the live MCP tool schemas, so the wiki is downstream of
+# the code and has to be republished when the code changes — otherwise it
+# describes a server that no longer exists.
+#
+#   pull_request        generate only, never pushes — the "does it still build?" gate
+#   push: main          generate and push to the wiki
+#   workflow_dispatch   manual republish, e.g. after editing wiki-notes
+#   workflow_call       called by publish.yml; the caller decides whether to push
+#
+# Staleness is NOT this workflow's job. tests/test_wiki.py fails when the
+# committed pages do not match the generator, and test.yml runs it with the
+# submodule checked out — so a pull request that forgot to regenerate fails the
+# test suite, where a contributor is already looking.
+#
+# The wiki is its own git repository at <repo>.wiki.git, and a submodule here at
+# wiki/ — hence the submodule checkout and the push from inside that directory
+# rather than a commit to this repo.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+    - openapi.yaml
+    - wiki-notes/**
+    - wiki
+    - scripts/generate_wiki.py
+    - .github/workflows/wiki.yml
+  push:
+    branches: [main]
+    paths:
+    - openapi.yaml
+    - wiki-notes/**
+    - wiki
+    - scripts/generate_wiki.py
+    - .github/workflows/wiki.yml
+  workflow_dispatch:
+    inputs:
+      push:
+        description: Push to the wiki
+        type: boolean
+        required: false
+        default: true
+  workflow_call:
+    inputs:
+      push:
+        description: Push to the wiki
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      # Both optional. Without them the built-in GITHUB_TOKEN pushes, which is
+      # enough: a wiki lives under its repository's permissions, so
+      # `contents: write` covers it. Pass the App credentials to publish as the
+      # App instead, or if a ruleset ever starts refusing the Actions identity.
+      #
+      # The id travels as a secret rather than being read from `vars` so this
+      # workflow is self-contained — a caller in another repository, where
+      # GH_APP_ID does not exist, can still hand it one.
+      app-id:
+        required: false
+      app-key:
+        required: false
+
+permissions:
+  contents: write   # the wiki repo lives under this repository's permissions
+
+# One publisher at a time. Two runs racing to push the same generated pages is a
+# guaranteed non-fast-forward, and the loser fails for no useful reason.
+# cancel-in-progress stays false so a queued run is not killed.
+concurrency:
+  group: wiki-${{ github.ref }}
+
+jobs:
+
+  wiki:
+    name: Publish Wiki
+    runs-on: ubuntu-latest
+    env:
+      # true only for a real publish: merge to main, or a dispatch/call with
+      # push=true. A pull_request run never pushes.
+      PUSH: ${{ (github.event_name == 'push' || ((github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.push)) && 'true' || 'false' }}
+    steps:
+
+    # Only when both App credentials are available. The `secrets` context is
+    # not available in a step `if`, so they are read through `env`, which is.
+    #
+    # Passed-in secrets win, then this repository's own — so a caller supplies
+    # them explicitly, while a direct push to main still gets the App from the
+    # repo settings rather than silently falling back to GITHUB_TOKEN.
+    - name: Create GitHub App Token
+      id: app-token
+      if: env.APP_ID != '' && env.APP_KEY != ''
+      env:
+        APP_ID: ${{ secrets.app-id || vars.GH_APP_ID }}
+        APP_KEY: ${{ secrets.app-key || secrets.GH_APP_KEY }}
+      uses: actions/create-github-app-token@v3
+      with:
+        app-id: ${{ env.APP_ID }}
+        private-key: ${{ env.APP_KEY }}
+
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        # The wiki submodule is the thing being published, so it has to be here.
+        submodules: true
+        # Also rewrites the submodule's https:// origin to carry this token, so
+        # the checkout and the later push both authenticate with no extra work.
+        token: ${{ steps.app-token.outputs.token || github.token }}
+        persist-credentials: true
+
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.13'
+
+    - name: Install
+      run: pip install pyyaml
+
+    - name: Generate
+      run: scripts/generate_wiki.py
+
+    - name: Diff
+      id: diff
+      working-directory: wiki
+      run: |
+        git add -A
+        if git diff --cached --quiet; then
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+          echo "The wiki is already current." >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
+        echo "changed=true" >> "$GITHUB_OUTPUT"
+        {
+          echo "## Wiki changes"
+          echo ""
+          echo '```'
+          git diff --cached --stat
+          echo '```'
+          if [[ "$PUSH" != "true" ]]; then
+            echo ""
+            echo "_Not published — this run does not push._"
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Push
+      if: env.PUSH == 'true' && steps.diff.outputs.changed == 'true'
+      working-directory: wiki
+      env:
+        SHA: ${{ github.sha }}
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git commit -m "Regenerate from ${SHA:0:8}"
+        # The wiki's default branch is master, not main — GitHub creates it that
+        # way and does not follow the repository's own default.
+        git push origin HEAD:master
+
+    # The submodule now points at a commit that exists only on the wiki remote.
+    # Left unrecorded, a fresh clone of this repo checks out the previous wiki
+    # revision, which is a confusing thing to debug months later.
+    - name: Record the Submodule Pointer
+      if: env.PUSH == 'true' && steps.diff.outputs.changed == 'true'
+      run: |
+        if git diff --quiet -- wiki; then
+          exit 0
+        fi
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add wiki
+        git commit -m "chore: bump wiki submodule [skip ci]"
+        git push origin "HEAD:${GITHUB_REF_NAME}" || {
+          echo "::warning::Wiki published, but the submodule pointer could not be \
+          recorded — main is probably protected against the Actions identity. \
+          Pass app-id and app-key, or bump wiki/ by hand."
+        }

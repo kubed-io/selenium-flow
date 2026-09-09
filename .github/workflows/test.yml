@@ -34,6 +34,12 @@ jobs:
       with:
         # setuptools_scm needs history to resolve a version at install time.
         fetch-depth: 0
+        # The wiki submodule, so tests/test_wiki.py actually runs instead of
+        # skipping. It is where wiki staleness is caught: wiki.yml publishes but
+        # does not judge, so without this a pull request that forgot to
+        # regenerate would pass everything and ship a wiki describing the old
+        # surface.
+        submodules: true
 
     - name: Setup Python
       uses: actions/setup-python@v7

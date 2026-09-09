@@ -95,6 +95,21 @@ jobs:
       tag: ${{ inputs.push && needs.version.outputs.tag || '' }}
       push: ${{ inputs.push }}
 
+  # Runs alongside `image`, not after it: the wiki is generated from openapi.yaml
+  # and has nothing to do with the container, so serialising them would only make
+  # the release slower. Deliberately NOT in `release`'s needs — a wiki that fails
+  # to publish should not hold back an image that is already on Docker Hub.
+  wiki:
+    name: Publish Wiki
+    needs: version
+    if: inputs.push
+    uses: ./.github/workflows/wiki.yml
+    with:
+      push: ${{ inputs.push }}
+    secrets:
+      app-id: ${{ vars.GH_APP_ID }}
+      app-key: ${{ secrets.GH_APP_KEY }}
+
   release:
     name: Release
     needs:

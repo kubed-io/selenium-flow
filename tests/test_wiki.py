@@ -52,6 +52,25 @@ def test_every_internal_link_resolves():
 
 
 @needs_wiki
+def test_no_page_is_shadowed_by_a_file_in_a_subdirectory():
+    """A wiki page is addressed by basename, whatever directory it sits in.
+
+    `wiki/notes/screenshot.md` and `wiki/screenshot.md` therefore both answered
+    to /wiki/screenshot, and GitHub served the fragment — so the page appeared
+    to have lost everything but its prose while the raw file was perfect. The
+    notes moved to wiki-notes/ in this repo; this keeps them from coming back.
+    """
+    top = {p.stem for p in WIKI.glob("*.md")}
+    nested = {
+        p: p.stem for p in WIKI.rglob("*.md") if p.parent != WIKI and ".git" not in p.parts
+    }
+    clashes = [str(p.relative_to(WIKI)) for p, stem in nested.items() if stem in top]
+    assert not clashes, (
+        "these files shadow a top-level wiki page by basename: " + ", ".join(clashes)
+    )
+
+
+@needs_wiki
 def test_the_sidebar_lists_every_action():
     """The sidebar is the only navigation a GitHub wiki has."""
     sidebar = (WIKI / "_Sidebar.md").read_text()

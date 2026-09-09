@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sessions are shown with the name their caller claimed (`?session=<name>` or `X-Session-Key`), joined from the session store, and a session the Grid is running that this server has no record of is labelled as not its own rather than listed as though it were.
 - Clicking a stored file opens it in place — images and PDFs in a lightbox rather than a new tab — and a session's detail view leads with a header of its context: name, owner, browser, node, start time.
 - `PUBLIC_BASE_URL`, `GRID_CONSOLE_URL` and `APPS_ENABLED` configure the above.
+- `wiki.yml` publishes the wiki: a pull request generates without pushing, a merge to main pushes, and `workflow_call` leaves the decision to the caller — the same shape as `image.yml`. `publish.yml` runs it alongside the image build rather than after, since the two share nothing.
 - The GitHub wiki is a submodule at `wiki/`, holding the manual the README has no room for: installing per MCP client, deployment across stdio/HTTP/Docker/Kubernetes, sessions, administration, and one page per action generated from `openapi.yaml` by `scripts/generate_wiki.py` so they cannot drift.
 
 - MCP server driving a Selenium Grid browser, with nine tools: open_session, navigate, click, write, press_key, extract, execute_script, screenshot, close_session.
