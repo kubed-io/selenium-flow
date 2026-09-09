@@ -3,7 +3,7 @@
 Hand-written prose for the generated action pages.
 
 Every page under [Actions](Actions) is rendered from `openapi.yaml` by
-`scripts/generate_wiki.py`, so editing one directly is pointless — the next run
+`python scripts/generate_wiki.py`, so editing one directly is pointless — the next run
 overwrites it. Anything a schema cannot express goes here instead:
 
     wiki-notes/screenshot.md   ->  appended to the screenshot wiki page

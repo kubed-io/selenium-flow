@@ -11,8 +11,8 @@ What is NOT generated is the prose: every page ends by including a hand-written
 fragment from ``wiki-notes/<tool>.md`` when one exists, so guidance a schema
 cannot express has somewhere to live that regeneration will not flatten.
 
-    scripts/generate_wiki.py            # write the pages
-    scripts/generate_wiki.py --check    # fail if they are out of date
+    python scripts/generate_wiki.py            # write the pages
+    python scripts/generate_wiki.py --check    # fail if they are out of date
 """
 
 from __future__ import annotations
@@ -292,7 +292,7 @@ def main() -> int:
     if args.check:
         if stale:
             print("stale wiki pages: " + ", ".join(stale), file=sys.stderr)
-            print("run scripts/generate_wiki.py", file=sys.stderr)
+            print("run python scripts/generate_wiki.py", file=sys.stderr)
             return 1
         print(f"{len(rendered)} wiki pages up to date")
         return 0
