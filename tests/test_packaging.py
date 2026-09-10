@@ -8,7 +8,16 @@ deployed image silently kept the old one.
 """
 
 import pathlib
-import tomllib
+
+# tomllib is 3.11+. The package supports 3.10, so on that leg the reader is
+# tomli — the same parser tomllib was adopted from, pulled in by the `test`
+# extra under the same marker. Without this the whole module fails to import and
+# every test in it is skipped as a collection error, which is how it went
+# unnoticed until the matrix started sweeping 3.10.
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - 3.10 only
+    import tomli as tomllib
 
 import pytest
 import yaml

@@ -35,10 +35,14 @@ from kubed.selenium_flow.skill import (
     SKILL_TOOL,
 )
 
+# tomllib is 3.11+; on 3.10 the reader is tomli, which the `test` extra pulls in
+# under that marker. This used to fall back to None and skip the test below —
+# which meant the one check that proves every skill file reaches the wheel was
+# silently absent on the oldest interpreter, the leg most likely to break.
 try:
     import tomllib
-except ModuleNotFoundError:  # Python 3.10, which this package still supports
-    tomllib = None
+except ModuleNotFoundError:  # pragma: no cover - 3.10 only
+    import tomli as tomllib
 
 pytestmark = pytest.mark.unit
 
@@ -94,7 +98,6 @@ def test_the_directory_name_is_the_skill_name():
     assert SKILL_DIR.name == SKILL_NAME == frontmatter()["name"]
 
 
-@pytest.mark.skipif(tomllib is None, reason="tomllib needs Python 3.11+")
 def test_every_skill_file_is_covered_by_package_data():
     """Otherwise the file is missing from the wheel, with no error anywhere.
 

@@ -46,6 +46,9 @@ test = [
   "uvicorn",
   "openapi-spec-validator",
   "redis>=5.0,<7",
+  # tests/test_packaging.py reads pyproject.toml. tomllib is 3.11+, so the
+  # oldest supported interpreter needs the backport it was adopted from.
+  "tomli; python_version < '3.11'",
 ]
 
 [build-system]
