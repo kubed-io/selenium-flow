@@ -233,17 +233,18 @@ There is deliberately no delete button: nothing should be permanently lost by a
 misclick, and the store is a cache of intent, not a system of record.
 
 A keyless **MCP** caller gets a record too, under `session:<browser id>`. That is
-**not** giving it a caller key — nothing ever resolves a caller from it, so the leak
-`caller_key` exists to prevent stays prevented. It exists so that session appears in the
-admin history and expires like everything else.
+**not** giving it a caller key: nothing ever resolves a caller *from* that entry, so it
+cannot reintroduce the leak `caller_key` exists to prevent. It is written only so that
+session appears in the admin history and expires like everything else.
 
 Read "keyless MCP caller" strictly. **A browser opened through the HTTP surface gets no
-record and does not appear in the admin list**, because `routes.py` never touches
-`SessionManager` at all — see *The HTTP endpoints never use any of this*, above. That is
-the current design and not an oversight, but it is worth knowing before you go looking
-for an n8n workflow's browser in the admin view: it is on the Grid console tab, not the
-sessions tab. If that is ever to change, the change is in `routes.py`, and it has to keep
-the HTTP contract — session id in, session id out — intact.
+record and never appears in the admin list**, because `routes.py` does not touch
+`SessionManager` at all — the module docstring in `sessions.py` is where that rule is
+written down. It is the current design rather than an oversight, but it is worth knowing
+before you go hunting for an n8n workflow's browser in the admin view: it is on the Grid
+console tab, not the sessions tab. If that should ever change, the change is in
+`routes.py`, and it has to keep the HTTP contract — session id in, session id out —
+intact.
 
 ## Sessions: what is stateful and what is not
 
