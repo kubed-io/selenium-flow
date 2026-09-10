@@ -135,3 +135,39 @@ def test_json_is_served_too(open_server):
     response = client.get("/openapi.json")
     assert response.status_code == 200
     assert response.json()["info"]["title"] == "Selenium Flow"
+
+
+async def test_the_multipart_upload_schema_accepts_every_selector(spec):
+    """The one request schema that is hand-written, and so the one that drifts.
+
+    Every other request body IS the tool schema, so adding a parameter updates
+    the contract for free. The multipart form for /browser/upload is written out
+    by hand — it has to be, because a file part is not something a JSON tool
+    schema can describe — and it silently kept describing an xpath-only,
+    xpath-required upload after the route had started accepting css.
+    """
+    form = spec["paths"]["/browser/upload"]["post"]["requestBody"]["content"]
+    properties = form["multipart/form-data"]["schema"]["properties"]
+    assert {"xpath", "css"} <= set(properties)
+
+
+async def test_the_multipart_schema_does_not_require_a_named_selector(spec):
+    """It cannot say "exactly one of these two" without a oneOf, so it must not
+    claim either is mandatory — a contract that forbids a call the route accepts
+    is worse than one that is merely permissive. `browser.locator` is what
+    actually refuses, with a 400 naming both."""
+    schema = spec["paths"]["/browser/upload"]["post"]["requestBody"]["content"][
+        "multipart/form-data"
+    ]["schema"]
+    assert schema["required"] == ["session_id"]
+
+
+async def test_every_multipart_field_is_one_the_action_accepts(actions, spec):
+    """The other direction of the same drift: a hand-written field that no
+    longer exists would be advertised to every generated client."""
+    import inspect
+
+    accepted = set(inspect.signature(actions.upload_file).parameters)
+    form = spec["paths"]["/browser/upload"]["post"]["requestBody"]["content"]
+    advertised = set(form["multipart/form-data"]["schema"]["properties"])
+    assert advertised - {"session_id"} <= accepted

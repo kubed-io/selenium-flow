@@ -368,10 +368,14 @@ def _waited(driver, condition, timeout: int, description: str):
 # How a caller may address an element. XPath is the original and stays the
 # default in every example; CSS is here because it is shorter for the common
 # cases and because `#id` and `.class` make separate strategies for those
-# redundant. Selenium offers six more (ID, NAME, TAG_NAME, CLASS_NAME,
-# LINK_TEXT, PARTIAL_LINK_TEXT) and every one of them is a CSS selector spelled
-# longhand, so they are deliberately not offered: two strategies a model has to
-# choose between is a schema, eight is a quiz.
+# redundant.
+#
+# Selenium offers six more, and they are left out for two different reasons.
+# ID, NAME, TAG_NAME and CLASS_NAME are each a CSS selector spelled longhand.
+# LINK_TEXT and PARTIAL_LINK_TEXT are NOT — CSS cannot match text content at
+# all — but XPath can, with `//a[contains(., 'Next')]`, so between these two
+# every one of the six is already reachable. Two strategies a model has to
+# choose between is a schema; eight is a quiz.
 SELECTORS = {"xpath": By.XPATH, "css": By.CSS_SELECTOR}
 
 

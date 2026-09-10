@@ -370,6 +370,7 @@ def _request_content(action: str, request_name: str) -> dict:
                 "properties": {
                     "session_id": {"type": "string"},
                     "xpath": {"type": "string"},
+                    "css": {"type": "string"},
                     "content": {
                         "type": "string",
                         "format": "binary",
@@ -396,7 +397,13 @@ def _request_content(action: str, request_name: str) -> dict:
                     "url": {"type": "string"},
                     "wait_timeout": {"type": "integer"},
                 },
-                "required": ["session_id", "xpath"],
+                # Not the selector: the input is addressed by EITHER xpath OR
+                # css, which this hand-written schema cannot say without a
+                # oneOf. `browser.locator` enforces it at the boundary and
+                # returns a 400 naming both, exactly as it does for the JSON
+                # body. Requiring `xpath` here would publish a contract that
+                # forbids a call the route accepts.
+                "required": ["session_id"],
             }
         }
     return content

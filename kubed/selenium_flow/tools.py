@@ -238,7 +238,9 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
             "invisible to every locator until you switch in. **The switch "
             "sticks** — every later call stays in that frame until you switch "
             "back, so if a locator that should work is failing, check "
-            "session://current for in_frame.\n\n" + SELECTOR
+            "session://current for in_frame.\n\nName the frame with xpath, "
+            "css or index — one of the three, not two. parent and default take "
+            "none of them."
         ),
         annotations=hints("Switch into or out of an iframe", idempotent=True),
     )
