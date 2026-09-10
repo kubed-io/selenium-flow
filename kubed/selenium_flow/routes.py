@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 # the accepted body, so this table is the only thing a new endpoint needs.
 ENDPOINTS = {
     "open": "open_session",
-    "close": "close_session",
+    "end": "end_browser",
     "navigate": "navigate",
     "interact": "interact",
     "write": "write",
@@ -42,6 +42,12 @@ ENDPOINTS = {
     "upload": "upload_file",
     "pdf": "save_pdf",
 }
+
+# Paths that named an action before it was renamed, kept working because their
+# callers cannot be found: an n8n workflow lives in a database, not in this
+# repo. Not in ENDPOINTS, so the spec and the wiki describe one name per action
+# rather than advertising both.
+LEGACY_PATHS = {"close": "end_browser"}
 
 
 def register(
@@ -106,7 +112,7 @@ def register(
         """The same document as JSON, for tools that will not read YAML."""
         return JSONResponse(await spec())
 
-    for path, method_name in ENDPOINTS.items():
+    for path, method_name in {**ENDPOINTS, **LEGACY_PATHS}.items():
         _add(mcp, actions, token, prefix, path, method_name)
 
 

@@ -406,62 +406,39 @@ class SessionManager:
             return {}
         return {"settings": dict(record.settings or {}), "url": record.url or ""}
 
-    def release(self, key: CallerKey | None) -> str | None:
-        """Hand back the browser this caller is holding, if it has one.
+    def end_browser(self, store_key: str | None, session_id: str = "") -> str | None:
+        """End the browser a flow session holds, keeping the session itself.
 
-        Called before opening a replacement. A flow session holds at most one
-        browser, so opening a second without ending the first abandons it: it
-        stays on the Grid, referenced by nothing, holding one of a handful of
-        slots until the idle timeout reaps it. Switching browser twice could
-        exhaust the Grid.
+        **The one place a browser is ended.** The caller ending its own, the
+        admin End button, and ``open_session`` replacing one all come through
+        here, so what happens to the session cannot differ between them: the
+        browser is quit on the Grid and the record is detached, keeping the
+        browser choice and the last page for whatever opens next.
 
-        Only keyed callers can be helped here. A stateless caller passes its own
-        ids and owns them, which is the whole contract of that mode.
+        A flow session is never removed here, or anywhere. It expires on
+        ``SESSION_TTL``, slid forward on every use — and a named one simply
+        reappears on the next call, because the name comes from the caller's
+        own URL or header rather than from anything stored.
 
-        A browser that will not quit is still detached: it is already gone, or
-        the Grid is unreachable, and either way the record must stop naming it.
+        ``session_id`` is the browser to end when no record names one: a
+        stateless caller passing an id it opened over the HTTP surface. It is
+        ignored when the record has a browser of its own, so naming somebody
+        else's cannot end it.
+
+        Returns the browser that was ended, or None if there was none.
         """
-        where = self.store_key(key)
-        if where is None:
+        record = self.store.get(store_key) if store_key else None
+        target = record.session_id if record and record.attached else session_id
+        if not target:
             return None
-        record = self.store.get(where)
-        if record is None or not record.attached:
-            return None
-        session_id = record.session_id
         try:
-            self.actions.close_session(session_id)
-        except Exception as exc:  # noqa: BLE001 - replacing it regardless
-            log.info("could not end %s while replacing it: %s", session_id, exc)
-        self.store.set(where, record.detached())
-        log.info("released browser %s before opening a replacement", session_id)
-        return session_id
-
-    def detach(self, store_key: str) -> SessionRecord | None:
-        """Drop the browser from a flow session, keeping the session itself.
-
-        The admin surface's half of ending a browser. Deliberately not a delete:
-        the browser choice and the last page are the context the next open
-        inherits, and taking those as well would make ending a stale browser
-        cost the caller its place.
-        """
-        record = self.store.get(store_key)
-        if record is None:
-            return None
-        detached = record.detached()
-        self.store.set(store_key, detached)
-        return record
-
-    def forget(self, key: CallerKey | None, session_id: str | None = None) -> None:
-        """Drop the binding, so the next call opens a new browser.
-
-        ``session_id`` guards the common mistake: a caller closing a session it
-        named explicitly must not evict a *different* browser this key happens
-        to be holding.
-        """
-        if not (self.enabled and key is not None):
-            return
-        if session_id is not None:
-            record = self.store.get(key.value)
-            if record is not None and record.session_id != session_id:
-                return
-        self.store.delete(key.value)
+            self.actions.end_browser(target)
+        except Exception as exc:  # noqa: BLE001 - it is going either way
+            # Already gone, or the Grid is unreachable. Detach regardless: a
+            # record naming a browser that cannot be ended is worse than one
+            # naming nothing, because the next call would try to use it.
+            log.info("could not end browser %s: %s", target, exc)
+        if record is not None and store_key:
+            self.store.set(store_key, record.detached())
+        log.info("ended browser %s for %s", target, store_key or "an untracked caller")
+        return target

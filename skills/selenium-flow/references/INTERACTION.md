@@ -29,7 +29,7 @@ navigation it caused is visible in the result.
 
 ## Reach the page in one call
 
-Every action except `open_session` and `close_session` takes an optional `url`,
+Every action except `open_session` and `end_browser` takes an optional `url`,
 and it is **not an assertion**. If the browser is elsewhere it navigates there
 first, then acts. If it is already there, nothing happens.
 

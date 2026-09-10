@@ -12,7 +12,7 @@ MCP side is doing. Those endpoints take a session in and give one back, always.
 2. Pass that `session_id` to **every** later call. The tools advertise it as
    required here, so this is visible in the schema rather than something you
    discover by failing.
-3. `close_session(session_id=...)` when done, including after a failure.
+3. `end_browser(session_id=...)` when done, including after a failure.
 
 ```
 open_session(url="https://example.com", width=1280, height=800)
@@ -20,11 +20,16 @@ open_session(url="https://example.com", width=1280, height=800)
 
 extract(session_id="a1b2c3...", xpath="//h1")
 interact(session_id="a1b2c3...", action="click", xpath="//button")
-close_session(session_id="a1b2c3...")
+end_browser(session_id="a1b2c3...")
 ```
 
 Losing the id strands a browser until the Grid reaps it. Treat it as the one
 piece of state you must not drop.
+
+`end_browser` ends the browser, not the flow session — the same as in saved
+mode. Here the distinction rarely shows, because without a key there is nothing
+to look the session up by afterwards: the id you were holding is what made it
+yours.
 
 ## Why you might be here
 

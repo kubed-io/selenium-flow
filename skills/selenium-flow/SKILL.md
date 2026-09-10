@@ -9,14 +9,18 @@ The browser is **real and persistent**. It lives on Selenium Grid, not in the
 server, and it keeps its page, cookies, storage and scroll position between your
 calls. You are steering one tab, not making stateless requests.
 
-Two consequences drive everything else:
+Three consequences drive everything else:
 
 - **State carries over.** Log in once and every later call is logged in. But a
   browser left on the wrong page makes your next XPath fail for a reason that
   has nothing to do with the XPath.
 - **Slots are scarce.** The Grid runs a handful of browsers in total. An
-  abandoned one holds its slot until it is reaped, so closing is capacity, not
-  politeness.
+  abandoned one holds its slot until it is reaped, so ending one is capacity,
+  not politeness.
+- **Your session is not your browser.** The session outlives it, keeping your
+  browser choice and the page you were on. So a browser going away — reaped for
+  being idle, ended by you, ended by an operator — is never something to recover
+  from: `open_session()` with no arguments puts you back where you were.
 
 ## Step 0: which session mode are you in?
 
@@ -78,8 +82,10 @@ not two:
 extract(url="https://example.com/settings", xpath="//h1")
 ```
 
-**3. Always close.** Including on failure paths. `close_session()` frees the
-slot; skipping it makes the next person wait.
+**3. Always end the browser.** Including on failure paths. `end_browser()`
+frees the slot; skipping it makes the next person wait. It ends the *browser*,
+not your session — the session keeps your browser choice and last page, so this
+costs you nothing.
 
 ## Where to go next
 
@@ -103,7 +109,7 @@ write(url="https://example.com/login", xpath="//input[@name='email']", text="a@e
 write(xpath="//input[@name='password']", text="...")
 interact(action="click", xpath="//button[@type='submit']")
 extract(xpath="//h1")            # confirm you landed
-close_session()
+end_browser()
 ```
 
 Stateless is the same shape with `session_id` on every call. That is the only

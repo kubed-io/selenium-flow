@@ -21,7 +21,7 @@ pytestmark = pytest.mark.unit
 # cannot read resources. See test_resources.py and test_skill.py.
 EXPECTED = {
     "open_session",
-    "close_session",
+    "end_browser",
     "navigate",
     "interact",
     "frame",

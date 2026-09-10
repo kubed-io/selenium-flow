@@ -155,6 +155,6 @@ the last known URL.
 ## Capacity
 
 The Grid runs a small, fixed number of browsers — five is typical. That is the
-real constraint, and the reason every task should end in `close_session`. If
+real constraint, and the reason every task should end in `end_browser`. If
 sessions will not open, it is almost always abandoned browsers from earlier runs
 rather than load. `GET /health` reports the live count.

@@ -40,8 +40,9 @@ Lifecycle:
 browser="firefox" for Firefox; the default is Chrome. Every other tool behaves \
 identically on both.
 2. Pass that session_id to the other calls.
-3. Call close_session when finished, including after a failure. Sessions are a \
-scarce resource and an abandoned one holds a slot until the Grid reaps it.
+3. Call end_browser when finished, including after a failure. Browsers are a \
+scarce resource and an abandoned one holds a slot until the Grid reaps it. Your \
+session survives it, so open_session picks up where you left off.
 
 If this server can identify your client it will remember the browser for you \
 and session_id becomes optional. When it cannot, the error tells you so; either \
@@ -125,7 +126,7 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         # A flow session holds one browser. Opening a second without ending the
         # first leaves it on the Grid referenced by nothing, holding a slot
         # until the idle timeout — which switching browser did.
-        sessions.release(key)
+        sessions.end_browser(sessions.store_key(key))
         resolved = settings_module.resolve(
             {
                 "browser": browser,
@@ -143,18 +144,22 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         return opened
 
     @mcp.tool
-    def close_session(session_id: str | None = None) -> dict:
-        """Quit the browser session and free its Grid slot.
+    def end_browser(session_id: str | None = None) -> dict:
+        """Quit the browser and free its Grid slot. Do this when finished.
 
-        Call this when finished, including after a failure. Sessions are limited
-        and an abandoned one stays open until the Grid reaps it. Omit session_id
-        to close the one this client has been using.
+        Ends the *browser*, not your session. The session keeps the browser
+        choice and the page you were on, so a later open_session() with no
+        arguments picks up exactly where this left off — and any files the
+        browser had are gone with it, because the Grid keeps them per browser.
+
+        Call it on failure paths too. Browsers are scarce and an abandoned one
+        holds a Grid slot until it is reaped. Omit session_id to end the one
+        this client has been using.
         """
         key = sessions.key()
         resolved = sessions.resolve(key, session_id)
-        result = actions.close_session(resolved)
-        sessions.forget(key, resolved)
-        return result
+        sessions.end_browser(sessions.store_key(key, resolved), resolved)
+        return {"success": True, "session_id": resolved}
 
     @mcp.tool
     def navigate(url: str, session_id: str | None = None) -> dict:

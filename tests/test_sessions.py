@@ -57,7 +57,7 @@ class RecordingActions:
         self.grid.alive.add(session_id)
         return {"session_id": session_id, "url": url or "about:blank"}
 
-    def close_session(self, session_id):
+    def end_browser(self, session_id):
         self.closed.append(session_id)
         self.grid.alive.discard(session_id)
         return {"success": True, "session_id": session_id}
@@ -297,32 +297,50 @@ def test_touch_on_an_unknown_key_is_harmless():
     assert sessions.store.get(NAMED.value) is None
 
 
-# ---- forgetting ------------------------------------------------------------
+# ---- ending a browser ------------------------------------------------------
 
 
-def test_forgetting_means_open_session_again():
+def test_ending_a_browser_means_open_session_again():
     actions = RecordingActions()
     sessions = manager(actions)
     actions.grid.alive.add("abc")
     sessions.remember(NAMED, "abc")
-    sessions.forget(NAMED)
+    sessions.end_browser(NAMED.value)
     with pytest.raises(ValueError, match="call open_session first"):
         sessions.resolve(NAMED, None)
 
 
-def test_closing_a_session_you_named_does_not_evict_someone_elses():
-    """Closing an explicitly passed id must not drop an unrelated binding."""
+def test_ending_a_browser_never_removes_the_flow_session():
+    """Nothing removes one. A session expires on its TTL, and a named one comes
+    straight back on the next call because the name is in the caller's URL."""
     sessions = manager()
-    sessions.remember(NAMED, "mine")
-    sessions.forget(NAMED, "a-different-session")
-    assert sessions.store.get(NAMED.value).session_id == "mine"
+    sessions.remember(NAMED, "mine", "https://x/", {"browser": "firefox"})
+    sessions.end_browser(NAMED.value)
+    record = sessions.store.get(NAMED.value)
+    assert record is not None
+    assert not record.attached
+    assert record.url == "https://x/"
+    assert record.settings == {"browser": "firefox"}
 
 
-def test_closing_the_remembered_session_does_evict_it():
-    sessions = manager()
+def test_naming_someone_elses_browser_cannot_end_it():
+    """`session_id` is only a fallback for a record that names no browser. A
+    record with one of its own wins, so a passed id cannot reach past it."""
+    actions = RecordingActions()
+    sessions = manager(actions)
     sessions.remember(NAMED, "mine")
-    sessions.forget(NAMED, "mine")
-    assert sessions.store.get(NAMED.value) is None
+    ended = sessions.end_browser(NAMED.value, "a-different-session")
+    assert ended == "mine"
+    assert actions.closed == ["mine"]
+
+
+def test_an_untracked_browser_is_still_ended():
+    """A stateless caller passing an id it opened over the HTTP surface. There
+    is no record to detach, but the browser is still holding a Grid slot."""
+    actions = RecordingActions()
+    sessions = manager(actions)
+    assert sessions.end_browser(None, "loose-browser") == "loose-browser"
+    assert actions.closed == ["loose-browser"]
 
 
 # ---- the feature, off ------------------------------------------------------
@@ -698,7 +716,7 @@ def test_a_detached_session_reads_as_having_no_browser(monkeypatch):
     assert actions.opened == 0, "resolve must never open one"
 
 
-def test_detach_keeps_the_context_the_next_open_inherits():
+def test_ending_keeps_the_context_the_next_open_inherits():
     sessions = manager()
     sessions.store.set(
         NAMED.value,
@@ -706,15 +724,15 @@ def test_detach_keeps_the_context_the_next_open_inherits():
             session_id="abc", url="https://x/", settings={"browser": "firefox"}
         ),
     )
-    sessions.detach(NAMED.value)
+    sessions.end_browser(NAMED.value)
     record = sessions.store.get(NAMED.value)
     assert record.session_id == ""
     assert record.url == "https://x/"
     assert record.settings == {"browser": "firefox"}
 
 
-def test_detaching_something_that_is_not_there_is_not_an_error():
-    assert manager().detach("named:nobody") is None
+def test_ending_something_that_is_not_there_is_not_an_error():
+    assert manager().end_browser("named:nobody") is None
 
 
 def test_context_is_what_a_reopen_should_inherit(monkeypatch):
@@ -792,50 +810,51 @@ def test_opening_a_replacement_ends_the_browser_it_replaces():
     actions = RecordingActions()
     sessions = manager(actions)
     sessions.remember(NAMED, "old-browser", "https://x/", {"browser": "chrome"})
-    released = sessions.release(NAMED)
-    assert released == "old-browser"
+    ended = sessions.end_browser(sessions.store_key(NAMED))
+    assert ended == "old-browser"
     assert actions.closed == ["old-browser"]
 
 
-def test_releasing_keeps_the_session_and_its_context():
-    """It is the same detach the admin End does — the context is what the
-    replacement inherits, so releasing must not take it."""
+def test_replacing_keeps_the_session_and_its_context():
+    """The same command the admin End uses — the context is what the
+    replacement inherits, so ending must not take it."""
     sessions = manager()
     sessions.remember(NAMED, "old-browser", "https://x/", {"browser": "firefox"})
-    sessions.release(NAMED)
+    sessions.end_browser(sessions.store_key(NAMED))
     record = sessions.store.get(NAMED.value)
     assert not record.attached
     assert record.url == "https://x/"
     assert record.settings == {"browser": "firefox"}
 
 
-def test_releasing_a_session_with_no_browser_ends_nothing():
+def test_ending_a_session_with_no_browser_ends_nothing():
     actions = RecordingActions()
     sessions = manager(actions)
     sessions.store.set(NAMED.value, SessionRecord(session_id="", url="https://x/"))
-    assert sessions.release(NAMED) is None
+    assert sessions.end_browser(sessions.store_key(NAMED)) is None
     assert actions.closed == []
 
 
-def test_releasing_detaches_even_when_the_browser_will_not_quit():
+def test_ending_detaches_even_when_the_browser_will_not_quit():
     """It is already gone or the Grid is unreachable; either way the record
     must stop naming it, or the next call tries to use it."""
 
     class Refuses(RecordingActions):
-        def close_session(self, session_id):
+        def end_browser(self, session_id):
             raise RuntimeError("gone")
 
     sessions = manager(Refuses())
     sessions.remember(NAMED, "old-browser", "https://x/")
-    sessions.release(NAMED)
+    sessions.end_browser(sessions.store_key(NAMED))
     assert not sessions.store.get(NAMED.value).attached
 
 
-def test_a_stateless_caller_releases_nothing():
-    """It passes its own ids and owns them — that is the mode's whole contract,
-    and guessing which browser to end for it would end somebody else's."""
+def test_replacing_ends_nothing_for_a_caller_with_no_key():
+    """store_key(None) with no browser id is None, so there is nothing to look
+    up — a stateless caller passes its own ids and owns them, and guessing which
+    browser to end for it would end somebody else's."""
     actions = RecordingActions()
     sessions = manager(actions)
     sessions.remember(None, "sess-1", "https://x/")
-    assert sessions.release(None) is None
+    assert sessions.end_browser(sessions.store_key(None)) is None
     assert actions.closed == []

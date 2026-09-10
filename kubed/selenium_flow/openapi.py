@@ -59,7 +59,7 @@ RESPONSES = {
             },
         },
     },
-    "close_session": {
+    "end_browser": {
         "type": "object",
         "properties": {
             "success": {"type": "boolean"},

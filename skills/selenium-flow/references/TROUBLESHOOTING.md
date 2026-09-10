@@ -110,7 +110,7 @@ they are the most common cause of a click that lands on nothing.
 The Grid runs a small, fixed number of browsers. If they are all held, a new
 session waits for a slot. That is almost always abandoned sessions from earlier
 runs, not load. Close what you own, and remember that failure paths need to
-reach `close_session` too.
+reach `end_browser` too.
 
 ## Running out of slots
 

@@ -173,8 +173,12 @@ class Actions:
             "settings": applied,
         }
 
-    def close_session(self, session_id: str) -> dict:
-        """Quit the session and free its Grid slot."""
+    def end_browser(self, session_id: str) -> dict:
+        """Quit the browser and free its Grid slot.
+
+        The browser, not the session. A flow session survives its browser and
+        keeps the context the next open inherits — see ``SessionManager``.
+        """
         self.grid.quit(session_id)
         return {"success": True, "session_id": session_id}
 

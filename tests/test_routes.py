@@ -223,3 +223,26 @@ def test_every_endpoint_is_mounted(open_client):
     for path in ENDPOINTS:
         response = open_client.post(f"/browser/{path}", json={})
         assert response.status_code != 404, f"/browser/{path} is not mounted"
+
+
+def test_the_old_close_path_still_works(open_server):
+    """`/browser/close` became `/browser/end` when the action was renamed.
+
+    Its callers cannot be found and updated — an n8n workflow lives in a
+    database, not in this repo — so the old path stays mapped to the same
+    action. It is deliberately not in ENDPOINTS, so the spec and the wiki
+    describe one name per action rather than advertising both.
+    """
+    from unittest.mock import patch
+
+    from kubed.selenium_flow import browser as browser_module
+    from kubed.selenium_flow.routes import ENDPOINTS, LEGACY_PATHS
+
+    assert "close" not in ENDPOINTS, "the legacy path must not be advertised"
+    assert LEGACY_PATHS["close"] == "end_browser"
+
+    client = TestClient(open_server.mcp.http_app())
+    with patch.object(browser_module.Grid, "quit") as quit_:
+        response = client.post("/browser/close", json={"session_id": "abc"})
+    assert response.status_code == 200
+    quit_.assert_called_once_with("abc")

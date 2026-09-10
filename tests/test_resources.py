@@ -113,7 +113,7 @@ async def test_saved_mode_does_not_advertise_session_id(server, monkeypatch):
     """A model cannot pass what it cannot see, which is the point."""
     saved(monkeypatch)
     tools = {t.name: t for t in await server.mcp.list_tools()}
-    for name in ("navigate", "extract", "interact", "close_session"):
+    for name in ("navigate", "extract", "interact", "end_browser"):
         assert "session_id" not in tools[name].parameters["properties"], name
 
 

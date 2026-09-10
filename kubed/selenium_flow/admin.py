@@ -327,17 +327,10 @@ def register(
             # Nothing attached is success, not a failure: the button's whole
             # job is "make sure this session is not holding a browser".
             return JSONResponse({"success": True, "key": key, "session_id": None})
-        try:
-            # Blocking HTTP to the Grid, so off the event loop — a slow Grid
-            # would otherwise stall every other connected dashboard with it.
-            await run_in_threadpool(actions.close_session, session_id)
-        except Exception as exc:  # noqa: BLE001 - usually a browser already gone
-            # Detach anyway. The record pointing at a browser the Grid will not
-            # end is strictly worse than a record pointing at nothing: the next
-            # call would try to use it.
-            log.info("ending %s failed, detaching anyway: %s", session_id, exc)
-        sessions.detach(key)
-        log.info("browser %s detached from %s by the admin UI", session_id, key)
+        # Through the same command the tool uses, so the button and the tool
+        # cannot mean different things. Blocking HTTP to the Grid, so off the
+        # event loop — a slow Grid would stall every connected dashboard.
+        await run_in_threadpool(sessions.end_browser, key)
         return JSONResponse({"success": True, "key": key, "session_id": session_id})
 
     @mcp.custom_route(

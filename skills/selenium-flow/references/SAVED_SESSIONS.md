@@ -23,7 +23,7 @@ own.
 open_session(width=1400, height=900)     # once
 navigate(url="https://example.com")      # no session_id, ever
 extract(xpath="//h1")
-close_session()                          # no arguments
+end_browser()                            # no arguments
 ```
 
 If you need a browser someone *else* opened, do not pass its id — have both
@@ -53,9 +53,17 @@ What a refresh cannot restore is in-page state the URL does not capture —
 scroll position, an open dropdown, an unsubmitted form. If a long pause is
 coming before a step that depends on unsaved state, do that step first.
 
-## Closing
+## Ending a browser
 
-`close_session()` with no arguments quits the browser and clears the mapping, so
-the next task starts with `open_session` again. Call it when you are done,
+`end_browser()` with no arguments quits the browser. Call it when you are done,
 including after a failure — an abandoned browser holds one of the Grid's few
 slots until it times out.
+
+**It does not end your session.** The session keeps the browser choice and the
+page you were on, so `open_session()` with no arguments later comes back on the
+same browser at the same page. Nothing you do removes a session: it expires
+after a day unused, and a named one reappears the moment you call again, because
+the name comes from your own URL or header rather than from anything stored.
+
+What *is* gone is the browser's files. The Grid keeps a file store per browser
+and deletes it with the browser, so fetch anything you still need first.

@@ -61,7 +61,7 @@ Fourteen actions, each a tool **and** an endpoint with identical parameters. All
 | [`dialog`](https://github.com/kubed-io/selenium-flow/wiki/dialog) | `POST /browser/dialog` | Answer a native alert, confirm or prompt 💬 |
 | [`resize`](https://github.com/kubed-io/selenium-flow/wiki/resize) | `POST /browser/resize` | Change the window at any time 📐 |
 | [`upload_file`](https://github.com/kubed-io/selenium-flow/wiki/upload_file) | `POST /browser/upload` | Attach a file to a file input 📎 |
-| [`close_session`](https://github.com/kubed-io/selenium-flow/wiki/close_session) | `POST /browser/close` | Give the slot back 🧹 |
+| [`end_browser`](https://github.com/kubed-io/selenium-flow/wiki/end_browser) | `POST /browser/end` | Give the slot back, keep the session 🧹 |
 
 Every parameter, every return field and the traps worth knowing are one page per action in the **[wiki](https://github.com/kubed-io/selenium-flow/wiki/Actions)** — generated from `openapi.yaml`, which is itself generated from the live tool schemas, so it cannot drift from the server. The same schemas are served at `GET /openapi.yaml`.
 

@@ -66,7 +66,7 @@ ORDER = [
     "dialog",
     "resize",
     "upload_file",
-    "close_session",
+    "end_browser",
 ]
 
 
