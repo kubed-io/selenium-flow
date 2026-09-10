@@ -776,3 +776,66 @@ def test_touch_without_a_session_id_or_key_records_nothing():
     sessions = manager()
     sessions.touch(None, "https://x/")
     assert sessions.store.records() == {}
+
+
+# ---- one session holds one browser -----------------------------------------
+
+
+def test_opening_a_replacement_ends_the_browser_it_replaces():
+    """Switching browser used to abandon the old one on the Grid.
+
+    A flow session holds at most one browser, so opening a second without
+    ending the first leaves it running, referenced by nothing, holding one of a
+    handful of Grid slots until the idle timeout. Found by switching Chrome to
+    Firefox and watching sessionCount go to 2.
+    """
+    actions = RecordingActions()
+    sessions = manager(actions)
+    sessions.remember(NAMED, "old-browser", "https://x/", {"browser": "chrome"})
+    released = sessions.release(NAMED)
+    assert released == "old-browser"
+    assert actions.closed == ["old-browser"]
+
+
+def test_releasing_keeps_the_session_and_its_context():
+    """It is the same detach the admin End does — the context is what the
+    replacement inherits, so releasing must not take it."""
+    sessions = manager()
+    sessions.remember(NAMED, "old-browser", "https://x/", {"browser": "firefox"})
+    sessions.release(NAMED)
+    record = sessions.store.get(NAMED.value)
+    assert not record.attached
+    assert record.url == "https://x/"
+    assert record.settings == {"browser": "firefox"}
+
+
+def test_releasing_a_session_with_no_browser_ends_nothing():
+    actions = RecordingActions()
+    sessions = manager(actions)
+    sessions.store.set(NAMED.value, SessionRecord(session_id="", url="https://x/"))
+    assert sessions.release(NAMED) is None
+    assert actions.closed == []
+
+
+def test_releasing_detaches_even_when_the_browser_will_not_quit():
+    """It is already gone or the Grid is unreachable; either way the record
+    must stop naming it, or the next call tries to use it."""
+
+    class Refuses(RecordingActions):
+        def close_session(self, session_id):
+            raise RuntimeError("gone")
+
+    sessions = manager(Refuses())
+    sessions.remember(NAMED, "old-browser", "https://x/")
+    sessions.release(NAMED)
+    assert not sessions.store.get(NAMED.value).attached
+
+
+def test_a_stateless_caller_releases_nothing():
+    """It passes its own ids and owns them — that is the mode's whole contract,
+    and guessing which browser to end for it would end somebody else's."""
+    actions = RecordingActions()
+    sessions = manager(actions)
+    sessions.remember(None, "sess-1", "https://x/")
+    assert sessions.release(None) is None
+    assert actions.closed == []

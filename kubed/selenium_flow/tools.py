@@ -95,6 +95,12 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         browser, the same window, back to the page it was last on. So after a
         browser is reaped or ended, a bare open_session() is usually right.
 
+        Safe to call while you already have a browser: the one you are holding
+        is ended for you first, so you never need to close before opening. That
+        is how you switch browser — open_session(browser="firefox") — and the
+        files the old browser had go with it, because the Grid keeps them per
+        browser and deletes them with it.
+
         browser is "chrome" (the default) or "firefox". Every other tool works
         the same on either, so pick Firefox only when the task is about
         Firefox — checking a rendering difference, or a site that treats the two
@@ -116,6 +122,10 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         # "carry on where I was", which is a stronger signal than a server-wide
         # default and a weaker one than an argument it just typed.
         previous = sessions.context(key)
+        # A flow session holds one browser. Opening a second without ending the
+        # first leaves it on the Grid referenced by nothing, holding a slot
+        # until the idle timeout — which switching browser did.
+        sessions.release(key)
         resolved = settings_module.resolve(
             {
                 "browser": browser,

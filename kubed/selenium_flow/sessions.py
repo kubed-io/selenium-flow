@@ -406,6 +406,36 @@ class SessionManager:
             return {}
         return {"settings": dict(record.settings or {}), "url": record.url or ""}
 
+    def release(self, key: CallerKey | None) -> str | None:
+        """Hand back the browser this caller is holding, if it has one.
+
+        Called before opening a replacement. A flow session holds at most one
+        browser, so opening a second without ending the first abandons it: it
+        stays on the Grid, referenced by nothing, holding one of a handful of
+        slots until the idle timeout reaps it. Switching browser twice could
+        exhaust the Grid.
+
+        Only keyed callers can be helped here. A stateless caller passes its own
+        ids and owns them, which is the whole contract of that mode.
+
+        A browser that will not quit is still detached: it is already gone, or
+        the Grid is unreachable, and either way the record must stop naming it.
+        """
+        where = self.store_key(key)
+        if where is None:
+            return None
+        record = self.store.get(where)
+        if record is None or not record.attached:
+            return None
+        session_id = record.session_id
+        try:
+            self.actions.close_session(session_id)
+        except Exception as exc:  # noqa: BLE001 - replacing it regardless
+            log.info("could not end %s while replacing it: %s", session_id, exc)
+        self.store.set(where, record.detached())
+        log.info("released browser %s before opening a replacement", session_id)
+        return session_id
+
     def detach(self, store_key: str) -> SessionRecord | None:
         """Drop the browser from a flow session, keeping the session itself.
 

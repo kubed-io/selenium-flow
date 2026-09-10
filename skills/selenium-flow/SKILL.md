@@ -45,7 +45,12 @@ reach for Firefox when the task is *about* Firefox, such as confirming a
 rendering difference or a site that treats the two differently, and otherwise
 leave it alone.
 
-A session cannot switch browser. To compare the two, open one session per
+To switch, just call `open_session(browser="firefox")` again — the browser you
+are holding is ended for you first, so do not close and reopen. **The files it
+had go with it**: the Grid keeps a file store per browser and deletes it with
+the browser, so keep anything you still need before switching.
+
+One session holds one browser. To use both at once, open one session per
 browser and keep both ids; `session://current` reports which browser the one
 you are holding is.
 
