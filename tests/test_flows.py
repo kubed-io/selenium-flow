@@ -253,9 +253,9 @@ def test_a_symlink_cannot_redirect_a_session_out_of_the_data_directory(store, tm
     session.mkdir()
     (session / "flows").symlink_to(outside, target_is_directory=True)
 
-    with pytest.raises(InvalidName, match="inside the data directory"):
+    with pytest.raises(InvalidName, match="does not resolve to itself"):
         store.save("bot", "escape", {"steps": []})
-    with pytest.raises(InvalidName, match="inside the data directory"):
+    with pytest.raises(InvalidName, match="does not resolve to itself"):
         store.get("bot", "escape")
     assert list(outside.iterdir()) == []
 
@@ -264,7 +264,7 @@ def test_a_symlinked_session_directory_is_refused_too(store, tmp_path):
     outside = tmp_path.parent / "elsewhere"
     outside.mkdir()
     (tmp_path / "linked").symlink_to(outside, target_is_directory=True)
-    with pytest.raises(InvalidName, match="inside the data directory"):
+    with pytest.raises(InvalidName, match="does not resolve to itself"):
         store.save("linked", "flow", {"steps": []})
 
 
@@ -308,3 +308,90 @@ def test_an_explicit_directory_is_used_and_trimmed(monkeypatch, tmp_path):
     assert server.flows is not None
     server.flows.save("bot", "login", {"steps": []})
     assert (tmp_path / "bot" / "flows" / "login.yaml").is_file()
+
+
+# ---- what the second review caught ------------------------------------------
+
+
+def test_a_symlink_to_another_session_is_refused_even_though_it_stays_inside(
+    store, tmp_path
+):
+    """"Inside the data directory" was too weak: bot/flows -> research-bot/flows
+    satisfies it and still hands one session another's library."""
+    victim = tmp_path / "research-bot" / "flows"
+    victim.mkdir(parents=True)
+    store.save("research-bot", "secret", {"steps": [], "description": "theirs"})
+
+    attacker = tmp_path / "bot"
+    attacker.mkdir()
+    (attacker / "flows").symlink_to(victim, target_is_directory=True)
+
+    with pytest.raises(InvalidName, match="does not resolve to itself"):
+        store.get("bot", "secret")
+    with pytest.raises(InvalidName, match="does not resolve to itself"):
+        store.save("bot", "secret", {"steps": [], "description": "mine"})
+    # Untouched.
+    assert store.get("research-bot", "secret")["description"] == "theirs"
+
+
+def test_the_root_itself_may_be_a_link_because_that_is_the_installer_s_business(
+    tmp_path,
+):
+    """FLOW_DATA_DIR pointing at a mount is exactly the case §F1.12 leaves open,
+    so only the parts we join on have to be honest."""
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+
+    store = LocalFlowStore(link)
+    store.save("bot", "login", {"steps": []})
+    assert store.get("bot", "login")["name"] == "login"
+    assert (real / "bot" / "flows" / "login.yaml").is_file()
+
+
+@pytest.mark.parametrize("filename", [".hidden.yaml", "._login.yaml", "with space.yaml"])
+def test_a_filename_this_store_would_refuse_is_skipped_not_raised(
+    store, tmp_path, filename
+):
+    """A directory is not only written by us. A macOS ._ file on a network
+    mount, or anything hand-made, must not take the listing down."""
+    store.save("bot", "good", {"steps": []})
+    (tmp_path / "bot" / "flows" / filename).write_text("steps: []\n")
+    assert store.names("bot") == ["good"]
+    assert [s["name"] for s in store.summaries("bot")] == ["good"]
+
+
+def test_a_symlinked_flow_file_is_skipped_from_the_listing(store, tmp_path):
+    store.save("bot", "good", {"steps": []})
+    outside = tmp_path.parent / "target.yaml"
+    outside.write_text("steps: []\n")
+    (tmp_path / "bot" / "flows" / "linked.yaml").symlink_to(outside)
+    assert store.names("bot") == ["good"]
+
+
+@pytest.mark.parametrize("steps", [1, {}, {"a": 1}, "three", None])
+def test_a_hand_typed_steps_field_cannot_abort_a_listing(store, tmp_path, steps):
+    """`steps: 1` reached len() and raised; `steps: {a: 1}` reported a mapping's
+    size as a step count. Either hid every other flow in the session."""
+    store.save("bot", "good", {"steps": [{"tool": "navigate"}]})
+    (tmp_path / "bot" / "flows" / "odd.yaml").write_text(
+        __import__("yaml").safe_dump({"steps": steps})
+    )
+    summaries = {s["name"]: s["step_count"] for s in store.summaries("bot")}
+    assert summaries == {"good": 1, "odd": 0}
+
+
+def test_every_operation_reports_the_same_identifier(store):
+    """`get("bot", " login ")` read login.yaml but reported the flow as
+    " login ", which no listing would ever return."""
+    store.save("bot", " login ", {"steps": []})
+    assert store.names("bot") == ["login"]
+    assert store.get("bot", " login ")["name"] == "login"
+    assert store.get("bot", "login")["name"] == "login"
+
+
+def test_the_name_written_into_the_file_is_the_one_lookups_use(store, tmp_path):
+    store.save("bot", " login ", {"steps": []})
+    on_disk = yaml.safe_load((tmp_path / "bot" / "flows" / "login.yaml").read_text())
+    assert on_disk["name"] == "login"

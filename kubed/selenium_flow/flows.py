@@ -135,6 +135,19 @@ def session_for(key) -> str:
         return GLOBAL_SESSION
 
 
+def _step_count(document: dict) -> int:
+    """How many steps a document has, for a listing.
+
+    Defensive about the type because a person edits these: ``steps: 1`` would
+    reach ``len()`` and raise, and ``steps: {}`` would quietly report a mapping's
+    size as a number of steps. Either one aborts a listing and hides every other
+    flow in the session, which is the failure the corruption handling in `get`
+    exists to prevent — so it must not come back in through the summary.
+    """
+    steps = document.get("steps")
+    return len(steps) if isinstance(steps, list) else 0
+
+
 class FlowStore(Protocol):
     """Reads and writes flow documents for a session.
 
@@ -184,14 +197,24 @@ class LocalFlowStore:
         would have let a pre-existing link redirect every read and write under
         it while the boundary still looked guarded.
 
-        Whole path, every time, because this is the one place a caller's string
-        becomes a filesystem path.
+        "Inside the data directory" turned out to be too weak a guarantee:
+        ``bot/flows -> ../research-bot/flows`` resolves to somewhere perfectly
+        legal by that rule and still hands one session another's flows, which
+        breaks the ownership rule this module's whole layout exists to enforce.
+
+        So the check is equality, not containment: the resolved path must be
+        the path we asked for. Nothing below the root may traverse a link.
+        The root itself is resolved first and so may be one — pointing
+        ``FLOW_DATA_DIR`` at a mount is the installer's business (§F1.12), and
+        it is only the parts *we* join on that have to be honest.
         """
         root = self.root.resolve()
-        path = root.joinpath(*parts).resolve()
-        if path != root and root not in path.parents:
+        expected = root.joinpath(*parts)
+        path = expected.resolve()
+        if path != expected:
             raise InvalidName(
-                f"{'/'.join(parts)!r} does not resolve inside the data directory"
+                f"{'/'.join(parts)!r} does not resolve to itself inside the data "
+                "directory — something on that path is a link"
             )
         return path
 
@@ -221,7 +244,23 @@ class LocalFlowStore:
         directory = self._flows_dir(session)
         if not directory.is_dir():
             return []
-        return sorted(p.stem for p in directory.glob(f"*{SUFFIX}") if p.is_file())
+        found = []
+        for path in directory.glob(f"*{SUFFIX}"):
+            if not path.is_file():
+                continue
+            # Anything this store would refuse to address is skipped rather
+            # than returned, because every caller of `names` turns a name back
+            # into a path. A directory is not only written by us: a hand-made
+            # `.hidden.yaml`, a macOS `._login.yaml` on a network mount, or a
+            # symlinked entry would otherwise be handed to `get`, raise, and
+            # take the whole listing down with it.
+            try:
+                self._path(session, path.stem)
+            except InvalidName:
+                log.warning("ignoring %s: not a usable flow name", path.name)
+                continue
+            found.append(path.stem)
+        return sorted(found)
 
     def summaries(self, session: str) -> list[dict]:
         """Name, description and parameters for each flow — never the steps.
@@ -243,7 +282,7 @@ class LocalFlowStore:
                     # where the document itself carries a list, and E2 reads
                     # both — one consumer doing summary["steps"][0] is the whole
                     # cost of the shorter name.
-                    "step_count": len(document.get("steps") or []),
+                    "step_count": _step_count(document),
                 }
             )
         return found
@@ -255,7 +294,8 @@ class LocalFlowStore:
         than raising. Someone hand-edits these, and a broken one should make
         that flow missing, not every listing that walks past it fail.
         """
-        path = self._path(session, name)
+        flow = valid_name(name, "flow name")
+        path = self._path(session, flow)
         try:
             loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
@@ -272,8 +312,10 @@ class LocalFlowStore:
             return None
         # The name on disk wins over any name inside the document: the file is
         # what `get` was asked for, and a document claiming to be something else
-        # would make save-then-get return a different flow.
-        return {**loaded, "name": name}
+        # would make save-then-get return a different flow. It is the *validated*
+        # name, so `get(" login ")` reports `login` — the same identifier a
+        # listing gives, rather than the caller's spelling of it.
+        return {**loaded, "name": flow}
 
     # -- writes --------------------------------------------------------------
 
@@ -283,9 +325,12 @@ class LocalFlowStore:
         One verb for both, as §F1.5 has it: an agent does not know whether a
         name is taken until it lists, and if it listed then it already knows.
         """
-        path = self._path(session, name)
+        flow = valid_name(name, "flow name")
+        path = self._path(session, flow)
         path.parent.mkdir(parents=True, exist_ok=True)
-        stored = {**document, "name": name}
+        # The validated name, not the caller's: writing `name: " login "` into
+        # login.yaml would put an identifier in the file that no lookup returns.
+        stored = {**document, "name": flow}
         path.write_text(
             yaml.safe_dump(stored, sort_keys=False, width=100, allow_unicode=True),
             encoding="utf-8",
