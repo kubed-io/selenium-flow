@@ -65,14 +65,16 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
     def run(session_id: str | None, call: Callable[[str], dict]) -> dict:
         """Resolve the caller's browser, act, and remember where it ended up.
 
-        The three steps every tool shares. ``touch`` is what lets a later
-        refresh reopen on the right page, and keeps an in-use session from
-        expiring out of the store.
+        The three steps every tool shares. ``touch`` is what lets a later reopen
+        land on the right page, and keeps an in-use session from expiring out of
+        the store. The resolved id is passed along so a stateless caller, which
+        has no key, is still touched under the browser it is holding.
         """
         key = sessions.key()
-        result = call(sessions.resolve(key, session_id))
+        resolved = sessions.resolve(key, session_id)
+        result = call(resolved)
         if isinstance(result, dict):
-            sessions.touch(key, result.get("url"))
+            sessions.touch(key, result.get("url"), resolved)
         return result
 
     @mcp.tool
@@ -89,6 +91,10 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         This is the only place a browser is created, and the only place its
         settings can be chosen, so it is never done implicitly for you.
 
+        Called with nothing, it carries on where this session left off: the same
+        browser, the same window, back to the page it was last on. So after a
+        browser is reaped or ended, a bare open_session() is usually right.
+
         browser is "chrome" (the default) or "firefox". Every other tool works
         the same on either, so pick Firefox only when the task is about
         Firefox — checking a rendering difference, or a site that treats the two
@@ -104,6 +110,12 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         information and you should NOT pass it back — read the session://current
         resource if you are unsure which of the two you are.
         """
+        key = sessions.key()
+        # What this flow session was last using. It sits between the client's
+        # defaults and the explicit arguments: a caller that names nothing means
+        # "carry on where I was", which is a stronger signal than a server-wide
+        # default and a weaker one than an argument it just typed.
+        previous = sessions.context(key)
         resolved = settings_module.resolve(
             {
                 "browser": browser,
@@ -111,12 +123,13 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
                 "height": height,
                 "page_load_timeout": page_load_timeout,
                 "script_timeout": script_timeout,
-            }
+            },
+            previous=previous.get("settings"),
         )
-        opened = actions.open_session(url=url, **resolved)
-        sessions.remember(
-            sessions.key(), opened["session_id"], opened.get("url", ""), resolved
+        opened = actions.open_session(
+            url=url or previous.get("url") or None, **resolved
         )
+        sessions.remember(key, opened["session_id"], opened.get("url", ""), resolved)
         return opened
 
     @mcp.tool

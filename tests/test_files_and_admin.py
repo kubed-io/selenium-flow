@@ -14,6 +14,7 @@ from starlette.testclient import TestClient
 
 from kubed.selenium_flow import admin, apps, browser, links
 from kubed.selenium_flow.server import SeleniumMCP
+from kubed.selenium_flow.store import SessionRecord
 
 from .conftest import TOKEN
 
@@ -28,6 +29,20 @@ ENTRIES = [
 @pytest.fixture
 def client(server):
     return TestClient(server.mcp.http_app())
+
+
+KEY = "named:desktop"
+
+
+@pytest.fixture
+def flow_session(server):
+    """A flow session holding a browser, which is what the admin API addresses.
+
+    The admin surface lists *our* sessions, not the Grid's, so a test that does
+    not put one in the store is asking about an empty server.
+    """
+    server.sessions.store.set(KEY, SessionRecord(session_id="abc", url="https://x/"))
+    return server
 
 
 # --- signed links ---------------------------------------------------------
@@ -124,14 +139,17 @@ def test_the_admin_page_wires_up_ending_a_session(client):
     `onend` is what makes it render at all, so its absence is silent."""
     page = client.get("/admin").text
     assert "onend: endSession" in page
-    assert "/admin/sessions/' + encodeURIComponent(id), 'DELETE'" in page
+    assert "/admin/sessions/' + encodeURIComponent(key), 'DELETE'" in page
 
 
 def test_the_components_only_offer_ending_when_asked(client):
     """The same library renders inside an MCP app, which holds no credential.
     A button that is always drawn would be a dead control there at best."""
     page = client.get("/admin").text
-    assert "if (opts.onend)" in page, "the End button must be opt-in"
+    assert "if (opts.onend && s.attached)" in page, (
+        "the End button must be opt-in, and offered only when there is a "
+        "browser to end"
+    )
 
 
 def test_the_admin_api_requires_the_token(client):
@@ -151,34 +169,66 @@ def test_ending_a_session_requires_the_token(client):
     assert client.delete("/admin/sessions/abc", headers=bad).status_code == 401
 
 
-def test_ending_a_session_quits_it_on_the_grid(client):
+def test_ending_a_session_quits_the_browser(client, flow_session):
     with patch.object(browser.Grid, "quit") as quit_:
         response = client.delete(
-            "/admin/sessions/abc", headers={"Authorization": f"Bearer {TOKEN}"}
+            f"/admin/sessions/{KEY}", headers={"Authorization": f"Bearer {TOKEN}"}
         )
     assert response.status_code == 200
-    assert response.json() == {"success": True, "session_id": "abc"}
+    assert response.json() == {"success": True, "key": KEY, "session_id": "abc"}
     quit_.assert_called_once_with("abc")
 
 
-def test_a_session_that_is_already_gone_reports_the_failure(client):
-    """A stale row is the common case for this button, so the Grid refusing is
-    an ordinary outcome and must not surface as a 500."""
-    with patch.object(browser.Grid, "quit", side_effect=RuntimeError("no such session")):
-        response = client.delete(
-            "/admin/sessions/gone", headers={"Authorization": f"Bearer {TOKEN}"}
+def test_ending_keeps_the_session_and_its_context(client, flow_session):
+    """The whole point of the split. A session is only ever removed by expiring,
+    so ending a browser must leave the record — and the browser choice and last
+    page its next open_session is meant to inherit."""
+    flow_session.sessions.store.set(
+        KEY,
+        SessionRecord(session_id="abc", url="https://x/", settings={"browser": "firefox"}),
+    )
+    with patch.object(browser.Grid, "quit"):
+        client.delete(
+            f"/admin/sessions/{KEY}", headers={"Authorization": f"Bearer {TOKEN}"}
         )
-    assert response.status_code == 502
-    assert "no such session" in response.json()["error"]
+    record = flow_session.sessions.store.get(KEY)
+    assert record is not None, "the flow session must survive its browser"
+    assert not record.attached
+    assert record.url == "https://x/"
+    assert record.settings == {"browser": "firefox"}
 
 
-def test_ending_a_session_does_not_disturb_the_files_route(client):
-    """`/admin/sessions/<id>` and `/admin/sessions/<id>/files` are different
+def test_ending_detaches_even_when_the_grid_refuses(client, flow_session):
+    """A record naming a browser the Grid will not end is worse than one naming
+    nothing: the next call would try to use it."""
+    with patch.object(browser.Grid, "quit", side_effect=RuntimeError("gone")):
+        response = client.delete(
+            f"/admin/sessions/{KEY}", headers={"Authorization": f"Bearer {TOKEN}"}
+        )
+    assert response.status_code == 200
+    assert not flow_session.sessions.store.get(KEY).attached
+
+
+def test_ending_a_session_with_no_browser_is_a_no_op(client, server):
+    """The button's job is "make sure this holds no browser", which is already
+    true — so it succeeds rather than erroring."""
+    server.sessions.store.set("named:idle", SessionRecord(session_id=""))
+    with patch.object(browser.Grid, "quit") as quit_:
+        response = client.delete(
+            "/admin/sessions/named:idle", headers={"Authorization": f"Bearer {TOKEN}"}
+        )
+    assert response.status_code == 200
+    assert response.json()["session_id"] is None
+    quit_.assert_not_called()
+
+
+def test_ending_a_session_does_not_disturb_the_files_route(client, flow_session):
+    """`/admin/sessions/<key>` and `/admin/sessions/<key>/files` are different
     routes, and a DELETE to one must not be routed to the other."""
     with patch.object(browser.Grid, "clear_files") as clear:
         with patch.object(browser.Grid, "quit") as quit_:
             client.delete(
-                "/admin/sessions/abc", headers={"Authorization": f"Bearer {TOKEN}"}
+                f"/admin/sessions/{KEY}", headers={"Authorization": f"Bearer {TOKEN}"}
             )
     quit_.assert_called_once()
     clear.assert_not_called()
@@ -204,14 +254,74 @@ def test_a_partial_download_is_never_served(client):
     assert client.get(url).status_code == 404
 
 
-def test_the_admin_api_lists_files_with_signed_urls(client):
+def test_the_admin_api_lists_files_with_signed_urls(client, flow_session):
     with patch.object(browser.Grid, "files", return_value=ENTRIES):
         body = client.get(
-            "/admin/sessions/abc/files",
+            f"/admin/sessions/{KEY}/files",
             headers={"Authorization": f"Bearer {TOKEN}"},
         ).json()
     assert [f["name"] for f in body["files"]] == ["shot.png", "report.pdf"]
     assert all("sig=" in f["url"] for f in body["files"])
+
+
+def test_the_listing_shows_flow_sessions_not_grid_sessions(client, server):
+    """The Grid is the superset — it runs browsers put there by anything at all.
+    Listing those would be showing somebody else's work as though it were ours,
+    and handing whoever holds the admin token a browser id they never opened."""
+    server.sessions.store.set(
+        "named:mine",
+        SessionRecord(session_id="mine", url="https://x/", settings={"browser": "firefox"}),
+    )
+    grid_rows = [
+        {"session_id": "mine", "browser": "firefox", "version": "155", "node": "n1"},
+        {"session_id": "somebody-else", "browser": "chrome", "version": "1", "node": "n1"},
+    ]
+    with patch.object(browser.Grid, "sessions", return_value=grid_rows):
+        with patch.object(browser.Grid, "files", return_value=[]):
+            body = client.get(
+                "/admin/sessions", headers={"Authorization": f"Bearer {TOKEN}"}
+            ).json()
+    keys = [row["key"] for row in body["sessions"]]
+    assert keys == ["named:mine"]
+    assert "somebody-else" not in str(body)
+
+
+def test_a_detached_session_is_listed_as_idle_with_its_context(client, server):
+    """The point of the split: no browser, but still a session worth seeing."""
+    server.sessions.store.set(
+        "named:idle",
+        SessionRecord(session_id="", url="https://x/", settings={"browser": "firefox"}),
+    )
+    with patch.object(browser.Grid, "sessions", return_value=[]):
+        body = client.get(
+            "/admin/sessions", headers={"Authorization": f"Bearer {TOKEN}"}
+        ).json()
+    row = body["sessions"][0]
+    assert row["attached"] is False
+    assert row["live"] is False
+    assert row["session_id"] is None
+    assert row["url"] == "https://x/"
+    assert row["browser"] == "firefox", "the context outlives the browser"
+
+
+def test_a_stateless_session_is_listed_and_labelled(client, server):
+    server.sessions.store.set("session:abc", SessionRecord(session_id="abc"))
+    with patch.object(browser.Grid, "sessions", return_value=[]):
+        body = client.get(
+            "/admin/sessions", headers={"Authorization": f"Bearer {TOKEN}"}
+        ).json()
+    assert body["sessions"][0]["owner"] == "stateless"
+
+
+def test_a_detached_session_has_no_files_rather_than_an_error(client, server):
+    """It had them; the Grid deleted them with the browser. That is not a fault."""
+    server.sessions.store.set("named:idle", SessionRecord(session_id=""))
+    body = client.get(
+        "/admin/sessions/named:idle/files",
+        headers={"Authorization": f"Bearer {TOKEN}"},
+    )
+    assert body.status_code == 200
+    assert body.json()["files"] == []
 
 
 # --- the three renderings -------------------------------------------------
@@ -220,9 +330,24 @@ def test_the_admin_api_lists_files_with_signed_urls(client):
 async def test_files_are_a_resource_and_a_template(server):
     uris = {str(r.uri) for r in await server.mcp.list_resources()}
     assert "session://files" in uris
-    assert "grid://sessions" in uris
     templates = {t.uri_template for t in await server.mcp.list_resource_templates()}
     assert "session://files/{name}" in templates
+
+
+async def test_the_mcp_surface_never_lists_other_sessions(server):
+    """A client owns one session and may only ever see that one.
+
+    The session list is an admin view over HTTP, deliberately not a tool and not
+    a resource: a tool that enumerated every session would hand any MCP client
+    somebody else's browser id, which is the whole credential for driving it.
+    """
+    uris = {str(r.uri) for r in await server.mcp.list_resources()}
+    assert "grid://sessions" not in uris
+    with patch.object(apps, "supported", return_value=True):
+        names = {t.name for t in await server.mcp.list_tools()}
+    assert "browser_sessions" not in names
+    # What a client does get is its own, and only its own.
+    assert "session://current" in uris
 
 
 async def test_the_app_shell_is_a_ui_resource(server):
@@ -234,7 +359,6 @@ async def test_the_file_tools_are_hidden_from_a_resource_client(server):
     """A mirror is noise for a client that can read the resource itself."""
     names = {t.name for t in await server.mcp.list_tools()}
     assert "session_files" not in names
-    assert "browser_sessions" not in names
 
 
 async def test_the_file_tools_return_for_a_client_that_renders_apps(server):
@@ -242,7 +366,6 @@ async def test_the_file_tools_return_for_a_client_that_renders_apps(server):
     with patch.object(apps, "supported", return_value=True):
         names = {t.name for t in await server.mcp.list_tools()}
     assert "session_files" in names
-    assert "browser_sessions" in names
 
 
 async def test_apps_can_be_turned_off():

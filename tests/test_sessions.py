@@ -678,3 +678,101 @@ def test_an_unreachable_grid_does_not_strand_the_session(monkeypatch):
     monkeypatch.setattr(browser_module.requests, "get", boom)
     grid = browser_module.Grid("http://grid.invalid:4444")
     assert grid.is_alive("abc") is True
+
+
+# ---- a flow session outlives its browser -----------------------------------
+
+
+def test_a_detached_session_reads_as_having_no_browser(monkeypatch):
+    """An agent is never told "your browser was taken". It is told it has none,
+    which is the same branch as never having had one — and it calls open_session,
+    the one path that opens one."""
+    monkeypatch.setattr(
+        sessions_module, "http_request", lambda: http({"session": "desktop"})
+    )
+    actions = RecordingActions()
+    sessions = manager(actions)
+    sessions.store.set(NAMED.value, SessionRecord(session_id="", url="https://x/"))
+    with pytest.raises(ValueError, match="no browser is open for you yet"):
+        sessions.resolve(NAMED, None)
+    assert actions.opened == 0, "resolve must never open one"
+
+
+def test_detach_keeps_the_context_the_next_open_inherits():
+    sessions = manager()
+    sessions.store.set(
+        NAMED.value,
+        SessionRecord(
+            session_id="abc", url="https://x/", settings={"browser": "firefox"}
+        ),
+    )
+    sessions.detach(NAMED.value)
+    record = sessions.store.get(NAMED.value)
+    assert record.session_id == ""
+    assert record.url == "https://x/"
+    assert record.settings == {"browser": "firefox"}
+
+
+def test_detaching_something_that_is_not_there_is_not_an_error():
+    assert manager().detach("named:nobody") is None
+
+
+def test_context_is_what_a_reopen_should_inherit(monkeypatch):
+    sessions = manager()
+    sessions.store.set(
+        NAMED.value,
+        SessionRecord(session_id="", url="https://x/", settings={"browser": "firefox"}),
+    )
+    monkeypatch.setattr(
+        sessions_module, "http_request", lambda: http({"session": "desktop"})
+    )
+    assert sessions.context(NAMED) == {
+        "settings": {"browser": "firefox"},
+        "url": "https://x/",
+    }
+
+
+def test_context_is_empty_when_there_is_nothing_to_inherit(monkeypatch):
+    monkeypatch.setattr(
+        sessions_module, "http_request", lambda: http({"session": "desktop"})
+    )
+    assert manager().context(NAMED) == {}
+
+
+# ---- stateless sessions are recorded, never resolved -----------------------
+
+
+def test_a_stateless_session_is_recorded_under_its_own_browser():
+    """So it appears in the admin history and expires like any other. This is
+    NOT a caller key: nothing ever resolves a caller from it, which is what
+    keeps the leak that `caller_key` exists to prevent prevented."""
+    sessions = manager()
+    sessions.remember(None, "sess-1", "https://x/", {"browser": "chrome"})
+    record = sessions.store.get(sessions_module.stateless_key("sess-1"))
+    assert record is not None
+    assert record.session_id == "sess-1"
+    assert record.url == "https://x/"
+
+
+def test_a_stateless_caller_still_has_no_key(monkeypatch):
+    """Recording one must not have quietly given stateless callers an identity."""
+    monkeypatch.setattr(sessions_module, "http_request", lambda: http())
+    sessions = manager()
+    sessions.remember(None, "sess-1", "https://x/")
+    assert sessions.key() is None
+    assert sessions.mode() == SessionManager.STATELESS
+
+
+def test_a_stateless_session_records_where_it_got_to():
+    sessions = manager()
+    sessions.remember(None, "sess-1", "https://x/")
+    sessions.touch(None, "https://x/deep", "sess-1")
+    record = sessions.store.get(sessions_module.stateless_key("sess-1"))
+    assert record.url == "https://x/deep"
+
+
+def test_touch_without_a_session_id_or_key_records_nothing():
+    """Belt and braces: the one path that could invent a store key must not."""
+    sessions = manager()
+    sessions.touch(None, "https://x/")
+    assert sessions.store.records() == {}

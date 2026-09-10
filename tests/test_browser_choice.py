@@ -158,3 +158,41 @@ class TestTheSettingsCascade:
         """Unset, not "chrome" — the cascade only reports what was actually set,
         and `open_session` is where the default is applied."""
         assert "browser" not in settings_module.resolve({}, env={})
+
+
+class TestASessionInheritsItsOwnLastValues:
+    """A caller that names nothing after its browser went means "carry on".
+
+    That is a stronger signal than any default and a weaker one than an argument
+    it just typed, which is where `previous` sits in the cascade.
+    """
+
+    def test_the_previous_browser_beats_the_server_default(self):
+        resolved = settings_module.resolve(
+            {}, env={"DEFAULT_BROWSER": "chrome"}, previous={"browser": "firefox"}
+        )
+        assert resolved["browser"] == "firefox"
+
+    def test_an_explicit_argument_still_beats_the_previous_one(self):
+        resolved = settings_module.resolve(
+            {"browser": "chrome"}, env={}, previous={"browser": "firefox"}
+        )
+        assert resolved["browser"] == "chrome"
+
+    def test_the_window_size_is_inherited_too(self):
+        resolved = settings_module.resolve(
+            {}, env={}, previous={"width": 1400, "height": 900}
+        )
+        assert resolved["width"] == 1400
+        assert resolved["height"] == 900
+
+    def test_nothing_previous_changes_nothing(self):
+        assert settings_module.resolve({}, env={}, previous=None) == {}
+        assert settings_module.resolve({}, env={}, previous={}) == {}
+
+    def test_junk_in_a_stored_record_cannot_smuggle_in_a_setting(self):
+        """The record is written by this server, but it round-trips through the
+        store as JSON — so an unknown key is dropped rather than passed to
+        open_session, where it would be a TypeError."""
+        resolved = settings_module.resolve({}, env={}, previous={"nonsense": 1})
+        assert resolved == {}

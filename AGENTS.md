@@ -128,6 +128,60 @@ everything but its prose while the file on disk was perfect. That is why `notes/
 deleted from the wiki once already. `test_no_page_is_shadowed_by_a_file_in_a_subdirectory`
 fails if a bare `<tool>.md` comes back.
 
+## A client owns one session, and only its own
+
+This is a rule, not a preference.
+
+- **An MCP client gets `open_session` and `close_session`. That is its session.**
+- **It can only ever control its own.** Nothing on the MCP surface enumerates
+  sessions, because a listing hands any client somebody else's browser id — and
+  a browser id is the entire credential for driving that browser.
+- **An orphan is invisible to it.** A client whose browser went simply has none,
+  and calls `open_session`. There is no "reclaim", no "take over".
+- **The admin surface is HTTP endpoints and the UI, never tools or resources.**
+  It is the only thing that sees across sessions, and it is gated on the server
+  token rather than on being an MCP client at all.
+- **Everything is ephemeral.** Stale entries are ignored and silently cleaned;
+  nothing needs an operator to tidy up.
+
+`grid://sessions` and the `browser_sessions` tool existed and were removed for
+exactly this reason. `test_the_mcp_surface_never_lists_other_sessions` is the
+guard — if you find yourself adding a tool that returns more than one session,
+that test is the design telling you no.
+
+`session://current` is the sanctioned shape: this caller's session, and nothing
+else in the process.
+
+## A flow session is the thing; a browser is something it holds
+
+The two used to be one, and the split is what most of the session code is about.
+
+A **flow session** is a record in the store: a caller key, the browser choice
+and window it was opened with, the page it was last on, and — when it has one —
+the id of a browser on the Grid. `session_id` is empty when it does not.
+
+Detached is an **ordinary state**, not a broken one. It happens when the Grid
+reaps an idle browser, or an admin ends one. What survives is the context, and
+that is the point:
+
+- `resolve` reports a detached session exactly like an absent one, so the agent
+  takes the branch it already knows: call `open_session`.
+- `open_session` with no arguments inherits that context — same browser, same
+  window, back to the page it was on. The settings cascade is where this lives:
+  env < client default < **this session's last values** < explicit argument.
+- Ending a browser from the admin UI therefore costs the caller nothing but the
+  browser's live state. It never removes the session.
+
+**A flow session is only ever removed by expiring.** `SESSION_TTL` slides on
+every use, so one in daily use never goes and one abandoned yesterday does.
+There is deliberately no delete button: nothing should be permanently lost by a
+misclick, and the store is a cache of intent, not a system of record.
+
+Stateless callers get a record too, keyed under `session:<browser id>`. That is
+**not** giving them a caller key — nothing ever resolves a caller from it, so
+the leak `caller_key` exists to prevent stays prevented. It exists so their
+session appears in the admin history and expires like everything else.
+
 ## Sessions: what is stateful and what is not
 
 Three different "sessions" are in play, and conflating them is the trap.

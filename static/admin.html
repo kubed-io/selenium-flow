@@ -101,23 +101,22 @@ function paint(data) {
   SF.sessionList($('sessions'), data, {onpick: openSession, onend: endSession});
 }
 
-/* Ending is destructive and irreversible — the browser is gone with whatever
-   state it held — so it asks first, everywhere it is offered. */
-async function endSession(id) {
-  if (!confirm('End this browser session? Anything it was holding is lost.')) return;
+/* Ending drops the browser, not the session: the record keeps its browser
+   choice and last page, so the caller's next open_session carries on. Still
+   destructive — whatever the browser held is gone — so it asks first. */
+async function endSession(key) {
+  if (!confirm('End this browser? The session and its context are kept — '
+             + 'whatever the browser was holding is lost.')) return;
   try {
-    await api('/admin/sessions/' + encodeURIComponent(id), 'DELETE');
+    await api('/admin/sessions/' + encodeURIComponent(key), 'DELETE');
   } catch (e) {
-    alert('Could not end the session: ' + e.message);
+    alert('Could not end the browser: ' + e.message);
     return;
   }
   // The event stream repaints the list on its own, but only once the Grid stops
   // reporting the session — so refresh rather than wait on a race.
-  if (current === id) {
-    show($('detailView'), false); show($('sessionsView'), true);
-    current = null;
-  }
-  loadSessions();
+  // Stay on the detail view: the session is still there, just idle now.
+  if (current === key) openSession(key); else loadSessions();
 }
 
 async function loadSessions() {
@@ -178,15 +177,15 @@ function unwatch() {
   clearInterval(fallback);
 }
 
-async function openSession(id) {
-  current = id;
+async function openSession(key) {
+  current = key;
   show($('sessionsView'), false); show($('detailView'), true);
   const box = $('files');
   box.innerHTML = '<div class="empty">Loading…</div>';
   $('detailHeader').innerHTML = '';
   try {
-    const data = await api('/admin/sessions/' + encodeURIComponent(id) + '/files');
-    SF.sessionSummary($('detailHeader'), data.session || {session_id: id}, {onend: endSession});
+    const data = await api('/admin/sessions/' + encodeURIComponent(key) + '/files');
+    SF.sessionSummary($('detailHeader'), data.session || {key: key}, {onend: endSession});
     SF.fileGrid(box, data, {base: BASE});
   } catch (e) {
     box.innerHTML = '<div class="empty error">' + SF.esc(e.message) + '</div>';

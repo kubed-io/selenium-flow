@@ -59,6 +59,16 @@ NAME_HEADER = "x-session-key"
 # The header the transport negotiates. Read directly rather than through
 # Context.session_id, which invents a value when there is none.
 MCP_SESSION_HEADER = "mcp-session-id"
+# A stateless caller has no key, and inventing one to *resolve* it is the bug
+# this module exists to prevent. Recording one under its own browser id is a
+# different thing: it is never looked up to answer "whose browser is this?",
+# only written so the session shows up in the admin history like any other.
+STATELESS_PREFIX = "session:"
+
+
+def stateless_key(session_id: str) -> str:
+    """The store key a caller-less session is recorded under."""
+    return f"{STATELESS_PREFIX}{session_id}"
 
 
 @dataclass(frozen=True)
@@ -217,7 +227,7 @@ class SessionManager:
         if record is None:
             return status
 
-        status["session_id"] = record.session_id
+        status["session_id"] = record.session_id or None
         status["url"] = record.url or None
         status["settings"] = dict(record.settings or {})
         # Reported at the top level as well as inside settings, because "which
@@ -226,7 +236,12 @@ class SessionManager:
         # record written before browsers were selectable has none, and that
         # session really is the default one.
         status["browser"] = status["settings"].get("browser") or DEFAULT_BROWSER
-        status["live"] = self.actions.grid.is_alive(record.session_id)
+        # A record with no browser is an ordinary state, not a broken one: the
+        # Grid reaped it or an admin ended it, and the context it left behind is
+        # what the next open_session inherits.
+        status["live"] = (
+            self.actions.grid.is_alive(record.session_id) if record.attached else False
+        )
         if status["live"]:
             # Only worth a round trip when there is a live browser to ask.
             try:
@@ -274,7 +289,10 @@ class SessionManager:
             )
 
         record = self.store.get(key.value)
-        if record is None:
+        if record is None or not record.attached:
+            # Detached reads the same as absent on purpose. An agent is told it
+            # has no browser and calls open_session, which is the one path that
+            # opens one — and which now inherits this record's browser and page.
             raise ValueError(
                 "no browser is open for you yet: call open_session first. It "
                 "takes the window size and timeouts this session should use, "
@@ -313,6 +331,21 @@ class SessionManager:
         )
         return opened["session_id"]
 
+    def store_key(self, key: CallerKey | None, session_id: str = "") -> str | None:
+        """Where this caller's record lives, or None if it cannot have one.
+
+        A keyed caller is stored under its key. A caller with no key is stored
+        under the browser it holds, which is not the same thing as giving it a
+        key: nothing ever resolves a caller *from* that entry, so the leak this
+        module is built to prevent stays prevented. It exists so a stateless
+        session is visible in the admin history and expires like any other.
+        """
+        if not self.enabled:
+            return None
+        if key is not None:
+            return key.value
+        return stateless_key(session_id) if session_id else None
+
     def remember(
         self,
         key: CallerKey | None,
@@ -320,35 +353,73 @@ class SessionManager:
         url: str = "",
         settings: dict | None = None,
     ) -> None:
-        """Bind a session to this caller, with the settings it was opened with.
+        """Bind a browser to this caller's flow session.
 
-        The settings are stored because a refresh has to reopen the *same*
-        browser, not a default one — swapping a 1400x900 window for the node
-        default midway through a task would be a silent behaviour change.
+        The settings are stored because a reopen has to use the *same* browser,
+        not a default one — swapping Firefox for Chrome, or a 1400x900 window
+        for the node default, midway through a task would be a silent change of
+        shape. They are also what ``open_session`` with no arguments inherits.
         """
-        if self.enabled and key is not None:
-            self.store.set(
-                key.value,
-                SessionRecord(
-                    session_id=session_id,
-                    url=url,
-                    opened_at=time.time(),
-                    settings=dict(settings or {}),
-                ),
-            )
-
-    def touch(self, key: CallerKey | None, url: str | None) -> None:
-        """Record where the browser ended up, and slide the mapping's TTL.
-
-        Called after an action so a later refresh can restore the right page,
-        and so a session in active use does not expire out of the store
-        underneath the caller.
-        """
-        if not (self.enabled and key is not None and url):
+        where = self.store_key(key, session_id)
+        if where is None:
             return
-        record = self.store.get(key.value)
+        self.store.set(
+            where,
+            SessionRecord(
+                session_id=session_id,
+                url=url,
+                opened_at=time.time(),
+                settings=dict(settings or {}),
+            ),
+        )
+
+    def touch(
+        self, key: CallerKey | None, url: str | None, session_id: str = ""
+    ) -> None:
+        """Record where the browser ended up, and slide the record's TTL.
+
+        Called after an action so a later reopen restores the right page, and so
+        a session in active use does not expire out of the store underneath the
+        caller. Stateless callers are touched too, which is what keeps their
+        entry in the history alive for as long as they are working.
+        """
+        if not url:
+            return
+        where = self.store_key(key, session_id)
+        if where is None:
+            return
+        record = self.store.get(where)
         if record is not None:
-            self.store.set(key.value, record.at(url))
+            self.store.set(where, record.at(url))
+
+    def context(self, key: CallerKey | None) -> dict:
+        """The browser and page this caller's session last had, for a reopen.
+
+        Empty when there is no record, which is the same answer as "nothing to
+        inherit" and lets ``open_session`` treat both alike.
+        """
+        where = self.store_key(key)
+        if where is None:
+            return {}
+        record = self.store.get(where)
+        if record is None:
+            return {}
+        return {"settings": dict(record.settings or {}), "url": record.url or ""}
+
+    def detach(self, store_key: str) -> SessionRecord | None:
+        """Drop the browser from a flow session, keeping the session itself.
+
+        The admin surface's half of ending a browser. Deliberately not a delete:
+        the browser choice and the last page are the context the next open
+        inherits, and taking those as well would make ending a stale browser
+        cost the caller its place.
+        """
+        record = self.store.get(store_key)
+        if record is None:
+            return None
+        detached = record.detached()
+        self.store.set(store_key, detached)
+        return record
 
     def forget(self, key: CallerKey | None, session_id: str | None = None) -> None:
         """Drop the binding, so the next call opens a new browser.

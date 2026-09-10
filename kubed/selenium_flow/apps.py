@@ -1,10 +1,14 @@
 """MCP Apps: the shared components, rendered inside a client that can show UI.
 
 An app here is one component, not a dashboard. A tool returns the data for a
-single view — the files a session downloaded, the browsers currently running —
-and the host paints it in a sandboxed iframe next to the tool call. The admin
-page composes those same components into something a person browses; this is
-the other end of the same library.
+single view — the files this session downloaded — and the host paints it in a
+sandboxed iframe next to the tool call. The admin page composes those same
+components into something a person browses; this is the other end of the same
+library.
+
+**Nothing here lists other people's sessions.** An MCP client sees its own
+session and nothing else, so the session list is an admin view over HTTP and
+never a tool or a resource. See AGENTS.md, "A client owns one session".
 
 Support is uneven and the degradation is the interesting part. Everything
 returns ordinary structured data with absolute, signed URLs in it, and the
@@ -38,17 +42,9 @@ from . import admin
 log = logging.getLogger(__name__)
 
 RESOURCE_URI = "ui://selenium-flow/component"
-SESSIONS_URI = "grid://sessions"
-SESSIONS_TOOL = "browser_sessions"
 # The SDK that talks to the host. Apps get a deny-by-default CSP — no network at
 # all — so both this and our own origin have to be declared below.
 SDK_ORIGIN = "https://unpkg.com"
-
-SESSIONS_DESCRIPTION = (
-    "Every browser the Grid is running right now, and how many files each has "
-    "produced. Useful for finding a session that was left open, including one "
-    "this client did not start."
-)
 
 
 def enabled(env: dict | None = None) -> bool:
@@ -100,7 +96,12 @@ def _csp(base: str) -> ResourceCSP:
 
 
 def register(mcp, actions, token: str | None) -> set[str]:
-    """Serve the app shell and the one tool that is only an app. Returns names."""
+    """Serve the app shell. Returns the names of any tools it added.
+
+    Empty today: the only tool that lived here listed every browser on the Grid,
+    which is precisely what an MCP client must not be able to see. The shell
+    stays, because the files component is rendered through it.
+    """
     base = public_base()
     csp = _csp(base)
 
@@ -116,32 +117,4 @@ def register(mcp, actions, token: str | None) -> set[str]:
     def component_app() -> str:
         return admin.page("app.html")
 
-    config = config_for(base)
-
-    def running() -> dict:
-        """Every browser the Grid is running, and how many files each has."""
-        rows = []
-        for session in actions.grid.sessions():
-            try:
-                count = len(actions.grid.files(session["session_id"]))
-            except Exception:  # noqa: BLE001 - a session can end mid-listing
-                count = 0
-            rows.append({**session, "files_count": count})
-        return {
-            "component": "sessionList",
-            "count": len(rows),
-            "sessions": rows,
-            "rendered": "app" if supported() else "data",
-        }
-
-    @mcp.resource(
-        SESSIONS_URI, description=SESSIONS_DESCRIPTION, mime_type="application/json"
-    )
-    def sessions_resource() -> dict:
-        return running()
-
-    @mcp.tool(name=SESSIONS_TOOL, description=SESSIONS_DESCRIPTION, app=config)
-    def sessions_tool() -> dict:
-        return running()
-
-    return {SESSIONS_TOOL}
+    return set()

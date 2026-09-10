@@ -169,6 +169,15 @@ iframe.console { width: 100%; height: 72vh; border: 1px solid var(--line); borde
    and non-selectable so dragging across a session id does not pick it up. */
 .bmark { font-size: 15px; line-height: 1; user-select: none; }
 
+/* The page a session was last on. One line, clipped — it is context for
+   recognising the session, not something to read in full here. */
+.card .url {
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Detail header: what this session is, above what it produced. */
 .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--gap); }
 .fact .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }

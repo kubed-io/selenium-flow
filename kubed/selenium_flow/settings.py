@@ -4,11 +4,15 @@ Five things can be set when a browser opens: which browser it is, its window
 size, and the two timeouts WebDriver lets you change after creation. Each can
 come from three places, and the useful part is the order:
 
-    server default (env var)  <  client default (URL param / header)  <  explicit
+    server default (env)  <  client default (param/header)  <  this session's
+    last values  <  explicit
 
 The server default is the operator's floor. The client default is set once in a
-client's connection config, so an agent never has to think about it. The
-explicit argument is the caller overriding both for one session.
+client's connection config, so an agent never has to think about it. A flow
+session's own last values come next: a caller that names nothing after its
+browser was reaped or ended means "carry on where I was", which is a stronger
+signal than any default and a weaker one than an argument it just typed. The
+explicit argument overrides all of them.
 
 Only settings that are actually *set* are returned, so "unset" stays
 distinguishable from "set to the same value as the default" — the browser's own
@@ -116,11 +120,21 @@ def from_client(params: dict | None, headers: dict | None) -> dict:
     return resolved
 
 
-def resolve(explicit: dict | None = None, env: dict | None = None) -> dict:
+def resolve(
+    explicit: dict | None = None,
+    env: dict | None = None,
+    previous: dict | None = None,
+) -> dict:
     """The settings a new session should open with.
 
     Reads the current request for client defaults, so it must be called while
     one is in flight. Off HTTP there simply are none.
+
+    ``previous`` is what this flow session was last opened with, and it is
+    applied over the two default sources — see the cascade at the top of this
+    module. It is taken as already-resolved rather than re-coerced: it came out
+    of this function, and a value that was good enough to open a browser with is
+    not something to second-guess on the way back in.
     """
     from .sessions import http_request  # local: avoids a circular import
 
@@ -129,6 +143,7 @@ def resolve(explicit: dict | None = None, env: dict | None = None) -> dict:
 
     merged = from_env(env)
     merged.update(from_client(params, headers))
+    merged.update({k: v for k, v in (previous or {}).items() if k in SETTINGS})
     for name, value in (explicit or {}).items():
         if name not in SETTINGS or value is None:
             continue

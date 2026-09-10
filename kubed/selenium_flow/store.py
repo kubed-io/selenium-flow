@@ -1,7 +1,13 @@
-"""Where a saved session is kept: a caller key to browser-session record map.
+"""Where a flow session is kept: a caller key to session-record map.
 
 Backs the session manager in ``sessions.py``, and nothing else. It stores a
 small record per caller — never a browser, which lives on the Grid.
+
+**A flow session is the thing, and a browser is something it may or may not
+have.** The record outlives the browser deliberately: a session whose browser
+was reaped, or ended from the admin UI, keeps the browser choice and the page it
+was on, so the next ``open_session`` can pick up where it left off instead of
+starting from the server's defaults. ``session_id`` is empty when detached.
 
 Nothing here expires a *browser*. Selenium Grid already does that: a session
 idle past ``SE_NODE_SESSION_TIMEOUT`` is reaped by the node that owns it, so an
@@ -34,27 +40,38 @@ DEFAULT_PREFIX = "selenium-flow:session:"
 # Redis's own default. Deliberately not a guess about the deployment: an install
 # with an index convention passes REDIS_DB, and the prefix keeps it safe if not.
 DEFAULT_DB = 0
-# How long a mapping is kept. Only a cache lifetime — the browser it names is
-# reaped on the Grid's schedule, not this one, and a record that outlives its
-# browser is detected and refreshed rather than trusted.
-DEFAULT_TTL_SECONDS = 3600
+# How long a flow session is kept after it was last used. A day, because these
+# are now the history the admin view shows rather than a short-lived cache: a
+# named session in daily use never expires, one abandoned yesterday is gone.
+# The browser it names is still reaped on the Grid's schedule, not this one.
+DEFAULT_TTL_SECONDS = 86400
 
 
 @dataclass(frozen=True)
 class SessionRecord:
-    """What is remembered for one caller.
+    """One flow session: its context, and the browser it currently holds.
 
-    ``url`` is the point of storing a record rather than a bare id: when the
-    Grid has reaped the browser, reopening and navigating back to the last known
-    page makes the refresh invisible to the caller.
+    ``url`` and ``settings`` are the point of storing a record rather than a
+    bare id. They are what makes a browser replaceable: reopening and navigating
+    back to the last known page, in the browser it was using, makes a refresh
+    invisible — and makes ``open_session`` with no arguments do the obvious
+    thing after the browser has gone.
+
+    ``session_id`` is empty when no browser is attached, which is an ordinary
+    state rather than a broken one: the Grid reaped it, or an admin ended it.
     """
 
-    session_id: str
+    session_id: str = ""
     url: str = ""
     opened_at: float = 0.0
-    # What the session was opened with, so a refresh reopens the same browser
+    # What the session was opened with, so a reopen uses the same browser
     # rather than a default one.
     settings: dict = field(default_factory=dict)
+
+    @property
+    def attached(self) -> bool:
+        """Whether a browser is currently held."""
+        return bool(self.session_id)
 
     def to_json(self) -> str:
         return json.dumps(asdict(self))
@@ -65,18 +82,26 @@ class SessionRecord:
             data = json.loads(raw)
             settings = data.get("settings")
             return cls(
-                session_id=str(data["session_id"]),
+                session_id=str(data.get("session_id") or ""),
                 url=str(data.get("url", "")),
                 opened_at=float(data.get("opened_at", 0.0)),
                 settings=settings if isinstance(settings, dict) else {},
             )
-        except (ValueError, KeyError, TypeError):
+        except (ValueError, TypeError):
             # A malformed entry is a cache miss, not an outage.
             return None
 
     def at(self, url: str) -> SessionRecord:
         """The same record, remembering a newer page."""
         return replace(self, url=url or self.url)
+
+    def detached(self) -> SessionRecord:
+        """The same record with no browser, keeping the context it had.
+
+        Not a delete: the browser choice and the last page are what the next
+        open is meant to inherit, so ending a browser must not take them.
+        """
+        return replace(self, session_id="")
 
 
 class SessionStore(Protocol):
@@ -90,9 +115,12 @@ class SessionStore(Protocol):
 
     def delete(self, key: str) -> None: ...
 
-    # Optional. Only the admin view needs it — to answer "whose browser is
-    # this?" — so a store that cannot enumerate cheaply may leave it out, and
-    # callers fall back to showing no owner rather than failing.
+    # Optional, and only the admin view needs it: the MCP surface never lists
+    # sessions, because a client may only ever see its own. A store that cannot
+    # enumerate cheaply may leave these out, and the admin view shows an empty
+    # list rather than failing.
+    def records(self) -> dict[str, SessionRecord]: ...
+
     def owners(self) -> dict[str, str]: ...
 
 
@@ -126,14 +154,18 @@ class MemoryStore:
     def delete(self, key: str) -> None:
         self._data.pop(key, None)
 
-    def owners(self) -> dict[str, str]:
-        """session id -> the caller key holding it, skipping expired entries."""
+    def records(self) -> dict[str, SessionRecord]:
+        """Every live flow session, keyed the way it is stored."""
         now = self._clock()
         return {
-            record.session_id: key
+            key: record
             for key, (expires_at, record) in list(self._data.items())
             if now < expires_at
         }
+
+    def owners(self) -> dict[str, str]:
+        """session id -> the caller key holding it, for the sessions attached."""
+        return {r.session_id: k for k, r in self.records().items() if r.attached}
 
 
 class RedisStore:
@@ -167,19 +199,23 @@ class RedisStore:
     def delete(self, key: str) -> None:
         self._redis.delete(self._k(key))
 
-    def owners(self) -> dict[str, str]:
-        """session id -> the caller key holding it.
+    def records(self) -> dict[str, SessionRecord]:
+        """Every live flow session, keyed the way it is stored.
 
         SCAN rather than KEYS: this runs on a database shared with other
         services, and KEYS would block the server while it walked all of it.
         """
-        found: dict[str, str] = {}
+        found: dict[str, SessionRecord] = {}
         for raw in self._redis.scan_iter(match=f"{self._prefix}*", count=100):
             key = raw.decode() if isinstance(raw, bytes) else raw
             record = SessionRecord.from_json(self._redis.get(key) or b"")
             if record:
-                found[record.session_id] = key[len(self._prefix) :]
+                found[key[len(self._prefix) :]] = record
         return found
+
+    def owners(self) -> dict[str, str]:
+        """session id -> the caller key holding it, for the sessions attached."""
+        return {r.session_id: k for k, r in self.records().items() if r.attached}
 
 
 def redis_configured(env: dict | None = None) -> bool:

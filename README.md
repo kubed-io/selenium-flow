@@ -69,7 +69,15 @@ Every parameter, every return field and the traps worth knowing are one page per
 
 `open_session(browser="firefox")` and you are on Firefox; leave it out and you are on Chrome. Every other action behaves identically on both — both are plain W3C WebDriver, so only session creation differs.
 
-The browser is stored with the session, so one the Grid reaped reopens as the same browser rather than the default. [More in the wiki](https://github.com/kubed-io/selenium-flow/wiki/open_session).
+### 🧠 A session is not a browser
+
+The session outlives the browsers it holds. When the Grid reaps an idle one, or an operator ends one, the session keeps the browser choice, the window and the page it was on — so recovery is one call with no arguments:
+
+```
+open_session()      # same browser, same window, back where you were
+```
+
+Sessions expire on `SESSION_TTL`, slid forward on every use. Nothing else removes one. [More in the wiki](https://github.com/kubed-io/selenium-flow/wiki/Sessions).
 
 ### 🧭 About that `url` parameter
 
@@ -159,7 +167,9 @@ That last one travels: signed over path and expiry, because an `<img>` tag canno
 
 ## 🖥 Admin UI
 
-`GET /admin` — the sessions the Grid is running and what each downloaded, each marked with the browser it is running. Click a file to view it in place; click a session for a header of its context. **End** quits a stale browser and gives its Grid slot back, rather than waiting out the Grid's idle timeout.
+`GET /admin` — **your** sessions and what each downloaded, marked with the browser each is running. Click a file to view it in place; click a session for a header of its context. **End** quits a stale browser and gives its Grid slot back, rather than waiting out the Grid's idle timeout — the session itself is kept.
+
+Flow sessions, not Grid sessions: browsers somebody else put on the Grid are not listed. Nothing on the MCP surface lists sessions at all — a client sees its own and nothing else. [More in the wiki](https://github.com/kubed-io/selenium-flow/wiki/Administration).
 
 The list **pushes its own updates** over Server-Sent Events — no refresh button, and no polling per tab: one loop serves every page. Rows carry the name their caller claimed; a browser this server has no record of is labelled as somebody else's rather than passed off as ours.
 

@@ -35,7 +35,7 @@ from starlette.responses import (
 )
 
 from . import links
-from .browser import is_partial
+from .browser import DEFAULT_BROWSER, is_partial
 
 log = logging.getLogger(__name__)
 
@@ -118,7 +118,24 @@ def owner_label(key: str) -> dict:
         return {"name": None, "owner": "mcp client"}
     if key == "stdio":
         return {"name": None, "owner": "stdio"}
+    if key.startswith("session:"):
+        # A caller with nothing stable to key on. It owns its browser by holding
+        # the id, so this record exists to give it a place in the history rather
+        # than to resolve anyone.
+        return {"name": None, "owner": "stateless"}
     return {"name": key, "owner": "saved"}
+
+
+def _recency(item) -> float:
+    """Newest first, so the session someone just used is at the top."""
+    return getattr(item[1], "opened_at", 0.0) or 0.0
+
+
+def _grid_facts(session: dict) -> dict:
+    """The few things only the Grid knows about an attached browser."""
+    if not session:
+        return {"version": None, "node": None}
+    return {"version": session.get("version"), "node": session.get("node")}
 
 
 def register(
@@ -143,37 +160,65 @@ def register(
         return HTMLResponse(page("admin.html", CONSOLE=console))
 
     def sessions_payload() -> dict:
-        """Every running browser, with the count that makes a row worth a click.
+        """Every flow session, and the browser each one currently holds.
 
-        Blocking — it talks to the Grid — so callers on the event loop must run
-        it in a worker thread.
+        Flow sessions, not Grid sessions. The Grid is the superset — it runs
+        browsers put there by anything at all — and listing those would be
+        showing somebody else's work as though it were ours. What matters here
+        is the session: who holds it, what it was doing, and whether it still
+        has a browser attached.
+
+        Blocking — it talks to the Grid for liveness and file counts — so
+        callers on the event loop must run it in a worker thread.
         """
-        # Who owns which browser, if the store can say. Best-effort: a store
-        # without owners(), or a Redis blip, costs the name and nothing else.
-        owners: dict[str, str] = {}
         store = getattr(sessions, "store", None)
-        if store is not None and hasattr(store, "owners"):
-            try:
-                owners = store.owners()
-            except Exception as exc:  # noqa: BLE001
-                log.info("could not read session owners: %s", exc)
+        if store is None or not hasattr(store, "records"):
+            # A store that cannot enumerate is not an error: sessions still
+            # work, there is simply no history to show.
+            return {"sessions": []}
+        try:
+            records = store.records()
+        except Exception as exc:  # noqa: BLE001 - a Redis blip is not an outage
+            log.info("could not read the session store: %s", exc)
+            return {"sessions": []}
+
+        # One Grid listing for the whole payload rather than a liveness call per
+        # row: the answer for every session is in it, and it is one round trip.
+        running: dict = {}
+        try:
+            running = {s["session_id"]: s for s in actions.grid.sessions()}
+        except Exception as exc:  # noqa: BLE001 - the rows are still worth showing
+            log.info("could not read the grid: %s", exc)
 
         rows = []
-        for session in actions.grid.sessions():
-            sid = session["session_id"]
-            # A file count per row is worth one call each: it is the reason to
-            # click into a session, so a list without it is a list of guesses.
-            try:
-                count = len(actions.grid.files(sid))
-            except Exception:  # noqa: BLE001 - a session can end mid-listing
-                count = 0
-            # The Grid is the superset: it runs every browser on it, whoever
-            # asked for one. A session this server holds a record for is ours;
-            # anything else was opened by something we know nothing about, and
-            # saying so is more useful than listing it as though it were ours.
-            mine = sid in owners
-            named = owner_label(owners[sid]) if mine else {"name": None, "owner": None}
-            rows.append({**session, **named, "flow": mine, "files_count": count})
+        for key, record in sorted(records.items(), key=_recency, reverse=True):
+            sid = record.session_id
+            live = bool(sid) and sid in running
+            count = None
+            if live:
+                # A file count per row is worth one call each: it is the reason
+                # to click into a session, so a list without it is guesswork.
+                try:
+                    count = len(actions.grid.files(sid))
+                except Exception:  # noqa: BLE001 - a session can end mid-call
+                    count = 0
+            rows.append(
+                {
+                    # The store key addresses the session on this API. It is not
+                    # the browser id, which comes and goes underneath it.
+                    "key": key,
+                    **owner_label(key),
+                    "session_id": sid or None,
+                    "attached": bool(sid),
+                    "live": live,
+                    "url": record.url or None,
+                    "browser": (record.settings or {}).get("browser")
+                    or DEFAULT_BROWSER,
+                    "started": record.opened_at or None,
+                    "files_count": count,
+                    **_grid_facts(running.get(sid, {})),
+                }
+            )
         return {"sessions": rows}
 
     @mcp.custom_route("/admin/sessions", methods=["GET"], name="admin_sessions")
@@ -248,48 +293,76 @@ def register(
             },
         )
 
+    def attached_id(key: str) -> str:
+        """The browser a flow session currently holds, or "" if none."""
+        store = getattr(sessions, "store", None)
+        if store is None:
+            return ""
+        record = store.get(key)
+        return record.session_id if record and record.attached else ""
+
     @mcp.custom_route(
-        "/admin/sessions/{session_id}",
+        "/admin/sessions/{key}",
         methods=["DELETE"],
         name="admin_end_session",
     )
     async def admin_end_session(request: Request) -> JSONResponse:
-        """End a browser from the dashboard, giving its Grid slot back now.
+        """End the browser a flow session holds, keeping the session itself.
 
-        The Grid reaps an idle session on its own timeout, so this is not the
-        only way one ends — it is the way that does not cost five minutes of a
-        scarce slot while somebody waits. The listing already shows which
-        sessions this server has no record of, which are the ones most likely
-        to be worth ending by hand.
+        **This does not delete the session.** It detaches the browser and leaves
+        the record — its browser choice and the page it was on — so the caller's
+        next ``open_session`` carries on where it left off rather than starting
+        from the server's defaults. A flow session is only ever removed by
+        expiring, which is what makes all of this safe to click.
 
-        Goes through ``actions.close_session`` rather than the Grid directly, so
-        there is one path a session ends by. The saved-session mapping is left
-        alone deliberately: its owner's next call finds the browser gone and
-        transparently reopens where it left off, which is better than being told
-        an admin deleted something.
+        The Grid reaps an idle browser on its own timeout, so this is not the
+        only way one ends. It is the way that does not cost minutes of a scarce
+        Grid slot while somebody waits.
         """
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        session_id = request.path_params["session_id"]
+        key = request.path_params["key"]
+        session_id = attached_id(key)
+        if not session_id:
+            # Nothing attached is success, not a failure: the button's whole
+            # job is "make sure this session is not holding a browser".
+            return JSONResponse({"success": True, "key": key, "session_id": None})
         try:
             # Blocking HTTP to the Grid, so off the event loop — a slow Grid
             # would otherwise stall every other connected dashboard with it.
-            result = await run_in_threadpool(actions.close_session, session_id)
-        except Exception as exc:  # noqa: BLE001 - usually a session that ended
-            log.info("ending %s failed: %s", session_id, exc)
-            return JSONResponse({"error": str(exc)}, status_code=502)
-        log.info("session %s ended from the admin UI", session_id)
-        return JSONResponse(result)
+            await run_in_threadpool(actions.close_session, session_id)
+        except Exception as exc:  # noqa: BLE001 - usually a browser already gone
+            # Detach anyway. The record pointing at a browser the Grid will not
+            # end is strictly worse than a record pointing at nothing: the next
+            # call would try to use it.
+            log.info("ending %s failed, detaching anyway: %s", session_id, exc)
+        sessions.detach(key)
+        log.info("browser %s detached from %s by the admin UI", session_id, key)
+        return JSONResponse({"success": True, "key": key, "session_id": session_id})
 
     @mcp.custom_route(
-        "/admin/sessions/{session_id}/files",
+        "/admin/sessions/{key}/files",
         methods=["GET", "DELETE"],
         name="admin_files",
     )
     async def admin_files(request: Request) -> JSONResponse:
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        session_id = request.path_params["session_id"]
+        key = request.path_params["key"]
+        # Files belong to the browser, which the flow session may not have. A
+        # detached session has none rather than an error — it had them, and the
+        # Grid deleted them with the browser.
+        session_id = attached_id(key)
+        if not session_id:
+            detail = {"key": key, "session_id": None, "attached": False}
+            try:
+                listing = await run_in_threadpool(sessions_payload)
+                detail = next(
+                    (s for s in listing["sessions"] if s["key"] == key), detail
+                )
+            except Exception as exc:  # noqa: BLE001 - a Grid blip, not a failure
+                log.info("session header for %s unavailable: %s", key, exc)
+            return JSONResponse({"key": key, "session": detail, "files": []})
         try:
             if request.method == "DELETE":
                 actions.grid.clear_files(session_id)
@@ -302,20 +375,18 @@ def register(
             # it is sent alongside rather than fetched separately. Best-effort:
             # the files are what was asked for, and losing the header is a worse
             # answer than no answer only if it takes the files down with it.
-            detail = {"session_id": session_id}
+            detail = {"key": key, "session_id": session_id}
             try:
                 listing = await run_in_threadpool(sessions_payload)
                 detail = next(
-                    (s for s in listing["sessions"] if s["session_id"] == session_id),
-                    {"session_id": session_id, "live": False},
+                    (s for s in listing["sessions"] if s["key"] == key),
+                    {"key": key, "session_id": session_id, "live": False},
                 )
             except Exception as exc:  # noqa: BLE001 - a Grid blip, not a failure
-                log.info("session header for %s unavailable: %s", session_id, exc)
-            return JSONResponse(
-                {"session_id": session_id, "session": detail, "files": files}
-            )
+                log.info("session header for %s unavailable: %s", key, exc)
+            return JSONResponse({"key": key, "session": detail, "files": files})
         except Exception as exc:  # noqa: BLE001 - usually a session that ended
-            log.info("files for %s failed: %s", session_id, exc)
+            log.info("files for %s failed: %s", key, exc)
             return JSONResponse({"error": str(exc)}, status_code=502)
 
     @mcp.custom_route("/files/{session_id}/{name}", methods=["GET"], name="file")

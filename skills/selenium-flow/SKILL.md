@@ -49,6 +49,16 @@ A session cannot switch browser. To compare the two, open one session per
 browser and keep both ids; `session://current` reports which browser the one
 you are holding is.
 
+## If you are told you have no browser
+
+That is an ordinary state, not an error to work around. The Grid expires idle
+browsers, and an operator can end one — either way your session survives with
+its context.
+
+**Call `open_session()` with no arguments.** It comes back on the same browser,
+the same window size, and the page you were last on. Pass arguments only to
+change something.
+
 ## The three rules
 
 **1. Read with `extract`, not `screenshot`.** An image of text costs orders of

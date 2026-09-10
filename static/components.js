@@ -53,36 +53,47 @@ const SF = (() => {
      that holds no credential. */
   function sessionList(el, data, opts = {}) {
     const sessions = (data && data.sessions) || [];
-    if (!sessions.length) return empty(el, 'No browsers are running.');
+    if (!sessions.length) return empty(el, 'No sessions yet.');
     el.innerHTML = '';
     for (const s of sessions) {
       const card = document.createElement('div');
       card.className = 'card' + (opts.onpick ? ' click' : '');
       const count = s.files_count;
+      // The headline is the session, not the browser: a session outlives the
+      // browsers it holds, so a name or its kind identifies it and the browser
+      // id is detail. A detached one is idle, not broken — it kept its context
+      // and its next open picks that up.
+      const label = s.name || (s.owner ? s.owner : 'session');
       card.innerHTML =
         '<div class="row">' +
         '<span class="bmark" title="' + esc(s.browser || 'browser') + '">' +
         browserMark(s.browser) + '</span>' +
-        (s.name ? '<span class="pill name">' + esc(s.name) + '</span>' : '') +
-        '<span class="mono grow' + (s.name ? ' small muted' : '') + '">' +
-        esc(s.session_id) + '</span>' +
-        '<span class="pill live">live</span></div>' +
+        '<span class="pill name">' + esc(label) + '</span>' +
+        '<span class="mono grow small muted">' +
+        esc(s.session_id || 'no browser') + '</span>' +
+        (s.live
+          ? '<span class="pill live">live</span>'
+          : '<span class="pill">idle</span>') +
+        '</div>' +
         '<div class="small muted" style="margin-top:6px">' +
         esc([s.browser, s.version].filter(Boolean).join(' ')) +
-        (count === undefined ? '' : ' · ' + count + ' file' + (count === 1 ? '' : 's')) +
-        (s.owner && !s.name ? ' · ' + esc(s.owner) : '') +
-        (s.flow === false ? ' · not opened through this server' : '') +
-        (s.node ? ' · ' + esc(s.node) : '') + '</div>';
-      if (opts.onpick) card.onclick = () => opts.onpick(s.session_id);
-      if (opts.onend) {
+        (count === undefined || count === null
+          ? '' : ' · ' + count + ' file' + (count === 1 ? '' : 's')) +
+        (s.started ? ' · ' + ago(s.started * 1000) : '') +
+        (s.node ? ' · ' + esc(s.node) : '') + '</div>' +
+        (s.url ? '<div class="small muted url">' + esc(s.url) + '</div>' : '');
+      if (opts.onpick) card.onclick = () => opts.onpick(s.key);
+      // Only offered when there is something to end. A detached session has no
+      // browser, so the button would be a no-op dressed as an action.
+      if (opts.onend && s.attached) {
         const end = document.createElement('button');
         end.className = 'btn danger end';
         end.type = 'button';
         end.textContent = 'End';
-        end.title = 'Quit this browser and free its Grid slot';
+        end.title = 'Quit this browser. The session and its context are kept.';
         // The card itself opens the session, so a click here must not also be
         // a click on the card — ending one and navigating into its corpse.
-        end.onclick = (e) => { e.stopPropagation(); opts.onend(s.session_id); };
+        end.onclick = (e) => { e.stopPropagation(); opts.onend(s.key); };
         card.querySelector('.row').appendChild(end);
       }
       el.appendChild(card);
@@ -130,14 +141,19 @@ const SF = (() => {
   function sessionSummary(el, data, opts = {}) {
     const s = data || {};
     const facts = [
-      ['session', s.session_id],
+      ['session', s.key],
       ['name', s.name],
-      ['held by', s.name ? null : s.owner || (s.flow === false ? 'another client' : null)],
+      ['held by', s.name ? null : s.owner],
       ['browser', s.browser
         ? browserMark(s.browser) + ' ' + [s.browser, s.version].filter(Boolean).join(' ')
         : null],
-      ['started', s.started ? new Date(s.started).toLocaleString() : null],
-      ['files', s.files_count === undefined ? null : String(s.files_count)],
+      // Absent rather than "none" when detached: the session is the row, and a
+      // browser is a thing it currently happens to have.
+      ['browser id', s.session_id],
+      ['last page', s.url],
+      ['started', s.started ? new Date(s.started * 1000).toLocaleString() : null],
+      ['files', s.files_count === undefined || s.files_count === null
+        ? null : String(s.files_count)],
       ['node', s.node],
     ].filter(([, v]) => v);
 
@@ -146,13 +162,14 @@ const SF = (() => {
       '<div class="row" style="margin-bottom:10px">' +
       '<span class="bmark" title="' + esc(s.browser || 'browser') + '">' +
       browserMark(s.browser) + '</span>' +
-      '<strong class="grow">' + esc(s.name || 'Session') + '</strong>' +
-      (s.live === false
-        ? '<span class="pill">ended</span>'
-        : '<span class="pill live">live</span>') +
-      (opts.onend && s.live !== false
+      '<strong class="grow">' + esc(s.name || s.owner || 'Session') + '</strong>' +
+      (s.live
+        ? '<span class="pill live">live</span>'
+        : '<span class="pill">idle</span>') +
+      (opts.onend && s.attached
         ? '<button type="button" class="btn danger end" id="endSession" ' +
-          'title="Quit this browser and free its Grid slot">End session</button>'
+          'title="Quit this browser. The session and its context are kept.">' +
+          'End browser</button>'
         : '') +
       '</div><div class="facts">' +
       facts.map(([k, v]) =>
@@ -164,7 +181,7 @@ const SF = (() => {
     // Bound after the markup exists, rather than inlined as an attribute, so
     // this file never writes a handler into a string it also escapes into.
     const end = el.querySelector('#endSession');
-    if (end) end.onclick = () => opts.onend(s.session_id);
+    if (end) end.onclick = () => opts.onend(s.key);
   }
 
   /* Look at a file without leaving the page.
