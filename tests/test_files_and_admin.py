@@ -134,21 +134,31 @@ def test_the_admin_page_carries_the_shared_components(client):
     assert "--accent" in page, "the shared stylesheet is missing"
 
 
-def test_the_admin_page_wires_up_ending_a_session(client):
-    """The button is useless if the page never hands the component a handler —
-    `onend` is what makes it render at all, so its absence is silent."""
+def test_the_admin_page_wires_up_ending_a_browser(client):
+    """A button wired to nothing fails silently, which is the worst kind."""
     page = client.get("/admin").text
-    assert "onend: endSession" in page
+    assert 'id="endBrowser"' in page
     assert "/admin/sessions/' + encodeURIComponent(key), 'DELETE'" in page
 
 
-def test_the_components_only_offer_ending_when_asked(client):
-    """The same library renders inside an MCP app, which holds no credential.
-    A button that is always drawn would be a dead control there at best."""
+def test_ending_is_unavailable_when_there_is_no_browser(client):
+    """A control that does nothing is worse than one that is visibly off."""
     page = client.get("/admin").text
-    assert "if (opts.onend && s.attached)" in page, (
-        "the End button must be opt-in, and offered only when there is a "
-        "browser to end"
+    assert "$('endBrowser').disabled = !(data.session && data.session.attached)" in page
+
+
+def test_the_components_render_no_action_buttons(client):
+    """Acting on a session belongs in the detail toolbar, where the page already
+    has one. A button inside a card sits next to the status pill and makes that
+    pill look clickable — and these same components render inside an MCP app
+    that holds no credential, where any action would be dead."""
+    page = client.get("/admin").text
+    # Just the component library: the page's own toolbar lives outside it and
+    # is exactly where the destructive button is supposed to be.
+    components = page.split("const SF")[1].split("})();")[0]
+    assert "opts.onend" not in components
+    assert "createElement('button')" not in components, (
+        "an action button leaked into the shared component library"
     )
 
 

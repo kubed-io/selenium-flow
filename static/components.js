@@ -45,12 +45,15 @@ const SF = (() => {
     (el.innerHTML = '<div class="empty ' + cls + '">' + esc(text) + '</div>');
 
   /* A list of live browser sessions.
-     opts.onpick — called with a session id when a row is chosen. Omit it and
+     opts.onpick — called with a session key when a row is chosen. Omit it and
      the rows render as plain, non-interactive summaries, which is what an app
      embedded in a transcript wants.
-     opts.onend — called with a session id to end it. Omit it and no End button
-     is rendered, which is how the same component stays safe to embed somewhere
-     that holds no credential. */
+
+     Nothing here renders an action button. Acting on a session happens in the
+     detail view, where the page already has a toolbar for it — a button inside
+     a card sits next to the status pill and makes that pill look clickable
+     too. These components also render inside an MCP app that holds no
+     credential, where any action button would be dead. */
   function sessionList(el, data, opts = {}) {
     const sessions = (data && data.sessions) || [];
     if (!sessions.length) return empty(el, 'No sessions yet.');
@@ -83,19 +86,6 @@ const SF = (() => {
         (s.node ? ' · ' + esc(s.node) : '') + '</div>' +
         (s.url ? '<div class="small muted url">' + esc(s.url) + '</div>' : '');
       if (opts.onpick) card.onclick = () => opts.onpick(s.key);
-      // Only offered when there is something to end. A detached session has no
-      // browser, so the button would be a no-op dressed as an action.
-      if (opts.onend && s.attached) {
-        const end = document.createElement('button');
-        end.className = 'btn danger end';
-        end.type = 'button';
-        end.textContent = 'End';
-        end.title = 'Quit this browser. The session and its context are kept.';
-        // The card itself opens the session, so a click here must not also be
-        // a click on the card — ending one and navigating into its corpse.
-        end.onclick = (e) => { e.stopPropagation(); opts.onend(s.key); };
-        card.querySelector('.row').appendChild(end);
-      }
       el.appendChild(card);
     }
   }
@@ -136,13 +126,15 @@ const SF = (() => {
     el.appendChild(grid);
   }
 
-  /* One session's headline: what it is, who holds it, where it runs.
-     opts.onend — as for sessionList; omitted means no End button. */
-  function sessionSummary(el, data, opts = {}) {
+  /* One session's headline: what it is, who holds it, where it runs. */
+  function sessionSummary(el, data) {
     const s = data || {};
     const facts = [
-      ['session', s.key],
-      ['name', s.name],
+      // Neither the name nor the key when there is a name: the heading above is
+      // the name, and the key is only ever `named:<that same name>`. Shown for
+      // the others, where the heading is a kind — "mcp client", "stateless" —
+      // and the key is the only thing saying *which* one.
+      ['session', s.name ? null : s.key],
       ['held by', s.name ? null : s.owner],
       ['browser', s.browser
         ? browserMark(s.browser) + ' ' + [s.browser, s.version].filter(Boolean).join(' ')
@@ -166,22 +158,12 @@ const SF = (() => {
       (s.live
         ? '<span class="pill live">live</span>'
         : '<span class="pill">idle</span>') +
-      (opts.onend && s.attached
-        ? '<button type="button" class="btn danger end" id="endSession" ' +
-          'title="Quit this browser. The session and its context are kept.">' +
-          'End browser</button>'
-        : '') +
       '</div><div class="facts">' +
       facts.map(([k, v]) =>
         '<div class="fact"><div class="k">' + esc(k) + '</div>' +
         '<div class="v' + (k === 'session' ? ' mono small' : '') + '">' +
         esc(v) + '</div></div>').join('') +
       '</div></div>';
-
-    // Bound after the markup exists, rather than inlined as an attribute, so
-    // this file never writes a handler into a string it also escapes into.
-    const end = el.querySelector('#endSession');
-    if (end) end.onclick = () => opts.onend(s.key);
   }
 
   /* Look at a file without leaving the page.

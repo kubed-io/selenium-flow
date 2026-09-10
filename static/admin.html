@@ -53,6 +53,9 @@
       <div class="row" style="margin-bottom:12px">
         <button id="back">&larr; Sessions</button>
         <span class="grow"></span>
+        <button id="endBrowser" class="danger"
+                title="Quit this browser. The session and its context are kept.">
+          End browser</button>
         <button id="clearFiles">Clear files</button>
       </div>
       <div id="detailHeader"></div>
@@ -98,13 +101,13 @@ function signOut() {
 }
 
 function paint(data) {
-  SF.sessionList($('sessions'), data, {onpick: openSession, onend: endSession});
+  SF.sessionList($('sessions'), data, {onpick: openSession});
 }
 
 /* Ending drops the browser, not the session: the record keeps its browser
    choice and last page, so the caller's next open_session carries on. Still
    destructive — whatever the browser held is gone — so it asks first. */
-async function endSession(key) {
+async function endBrowser(key) {
   if (!confirm('End this browser? The session and its context are kept — '
              + 'whatever the browser was holding is lost.')) return;
   try {
@@ -185,7 +188,10 @@ async function openSession(key) {
   $('detailHeader').innerHTML = '';
   try {
     const data = await api('/admin/sessions/' + encodeURIComponent(key) + '/files');
-    SF.sessionSummary($('detailHeader'), data.session || {key: key}, {onend: endSession});
+    SF.sessionSummary($('detailHeader'), data.session || {key: key});
+    // Nothing to end when the session holds no browser, and a button that does
+    // nothing is worse than one that is visibly unavailable.
+    $('endBrowser').disabled = !(data.session && data.session.attached);
     SF.fileGrid(box, data, {base: BASE});
   } catch (e) {
     box.innerHTML = '<div class="empty error">' + SF.esc(e.message) + '</div>';
@@ -196,6 +202,8 @@ $('back').onclick = () => {
   show($('detailView'), false); show($('sessionsView'), true); loadSessions();
 };
 $('signout').onclick = signOut;
+
+$('endBrowser').onclick = () => { if (current) endBrowser(current); };
 
 $('clearFiles').onclick = async () => {
   if (!current || !confirm('Delete every file this session downloaded?')) return;
