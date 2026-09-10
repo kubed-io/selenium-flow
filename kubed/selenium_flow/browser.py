@@ -365,23 +365,66 @@ def _waited(driver, condition, timeout: int, description: str):
         ) from exc
 
 
-def wait_for_element(driver, xpath: str, timeout: int = 30):
-    """Wait for an element to exist in the DOM."""
+# How a caller may address an element. XPath is the original and stays the
+# default in every example; CSS is here because it is shorter for the common
+# cases and because `#id` and `.class` make separate strategies for those
+# redundant.
+#
+# Selenium offers six more, and they are left out for two different reasons.
+# ID, NAME, TAG_NAME and CLASS_NAME are each a CSS selector spelled longhand.
+# LINK_TEXT and PARTIAL_LINK_TEXT are NOT — CSS cannot match text content at
+# all — but XPath can, with `//a[contains(., 'Next')]`, so between these two
+# every one of the six is already reachable. Two strategies a model has to
+# choose between is a schema; eight is a quiz.
+SELECTORS = {"xpath": By.XPATH, "css": By.CSS_SELECTOR}
+
+
+def locator(xpath=None, css=None) -> tuple[str, str]:
+    """Exactly one selector, as the (strategy, value) pair Selenium wants.
+
+    Mutually exclusive keys rather than a ``by=`` enum beside a ``value=``: the
+    key names itself, so a caller writes ``css="button.go"`` without having to
+    be told what the strategies are, and ``xpath`` keeps meaning exactly what it
+    has always meant.
+
+    Both, or neither, is refused rather than resolved. Guessing which one was
+    meant is how a typo in one of them becomes a click on the element the other
+    one found, which is the most expensive kind of wrong this server can be.
+    """
+    given = [(name, value) for name, value in (("xpath", xpath), ("css", css)) if value]
+    if not given:
+        raise ValueError(
+            "no element given: pass xpath or css, e.g. "
+            "xpath=\"//button[@type='submit']\" or css=\"button[type=submit]\""
+        )
+    if len(given) > 1:
+        raise ValueError(
+            "pass xpath or css, not both: "
+            + ", ".join(f"{name}={value!r}" for name, value in given)
+        )
+    name, value = given[0]
+    return SELECTORS[name], str(value)
+
+
+def wait_for_element(driver, target, timeout: int = 30):
+    """Wait for an element to exist in the DOM. ``target`` comes from `locator`."""
+    _, value = target
     return _waited(
         driver,
-        EC.presence_of_element_located((By.XPATH, xpath)),
+        EC.presence_of_element_located(target),
         timeout,
-        f"no element matched {xpath!r}",
+        f"no element matched {value!r}",
     )
 
 
-def wait_for_clickable(driver, xpath: str, timeout: int = 30):
+def wait_for_clickable(driver, target, timeout: int = 30):
     """Wait for an element to exist *and* be interactable."""
+    _, value = target
     return _waited(
         driver,
-        EC.element_to_be_clickable((By.XPATH, xpath)),
+        EC.element_to_be_clickable(target),
         timeout,
-        f"no clickable element matched {xpath!r}",
+        f"no clickable element matched {value!r}",
     )
 
 

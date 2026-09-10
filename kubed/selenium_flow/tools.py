@@ -33,6 +33,15 @@ from .actions import (
 from .hints import hints
 from .sessions import NAME_PARAM, SessionManager
 
+# Said the same way everywhere, because the one new way to get a call wrong is
+# to pass both selectors or neither, and the fix has to be in front of the model
+# at the point it is choosing.
+SELECTOR = (
+    "Address the element with EITHER xpath OR css, never both and never "
+    "neither - e.g. xpath=\"//button[@type='submit']\" or "
+    "css=\"button[type=submit]\"."
+)
+
 INSTRUCTIONS = f"""\
 Drives a real Chrome or Firefox browser on Selenium Grid. The browser is \
 persistent: it stays alive between tool calls and keeps its page, cookies and \
@@ -52,7 +61,8 @@ and session_id becomes optional. When it cannot, the error tells you so; either 
 pass session_id every time, or add ?{NAME_PARAM}=<name> to the MCP URL to name \
 a session the server can hold on your behalf.
 
-Elements are addressed by XPath, e.g. //input[@name='q'].
+Elements are addressed by XPath or by CSS - pass one or the other, never \
+both. xpath="//input[@name='q']" or css="input[name=q]".
 
 Most actions take an optional url. It is not an assertion: if the browser is \
 somewhere else it navigates there first, so you can jump straight to a page \
@@ -199,13 +209,14 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
             "off-screen element into view, which is often what a click on a "
             "long page needs first.\n\n"
             "Returns the URL and title *after* the action, so any navigation it "
-            "caused is visible in the result."
+            "caused is visible in the result.\n\n" + SELECTOR
         ),
         annotations=hints("Mouse action on an element", destructive=True),
     )
     def interact(
         action: str,
-        xpath: str,
+        xpath: str | None = None,
+        css: str | None = None,
         session_id: str | None = None,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
@@ -213,7 +224,7 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         return run(
             session_id,
             lambda s: actions.interact(
-                s, action, xpath, url=url, wait_timeout=wait_timeout
+                s, action, xpath=xpath, css=css, url=url, wait_timeout=wait_timeout
             ),
         )
 
@@ -227,13 +238,16 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
             "invisible to every locator until you switch in. **The switch "
             "sticks** — every later call stays in that frame until you switch "
             "back, so if a locator that should work is failing, check "
-            "session://current for in_frame."
+            "session://current for in_frame.\n\nName the frame with xpath, "
+            "css or index — one of the three, not two. parent and default take "
+            "none of them."
         ),
         annotations=hints("Switch into or out of an iframe", idempotent=True),
     )
     def frame(
         action: str = "switch",
         xpath: str | None = None,
+        css: str | None = None,
         index: int | None = None,
         session_id: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
@@ -241,7 +255,12 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         return run(
             session_id,
             lambda s: actions.frame(
-                s, action=action, xpath=xpath, index=index, wait_timeout=wait_timeout
+                s,
+                action=action,
+                xpath=xpath,
+                css=css,
+                index=index,
+                wait_timeout=wait_timeout,
             ),
         )
 
@@ -294,7 +313,8 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
 
     @mcp.tool(annotations=hints("Attach a file to a file input"))
     def upload_file(
-        xpath: str,
+        xpath: str | None = None,
+        css: str | None = None,
         text: str | None = None,
         filename: str | None = None,
         mime_type: str | None = None,
@@ -317,12 +337,16 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         The page reads the file's type from the **filename extension**, so name
         it `report.csv` rather than `report`. If you give a name without an
         extension, `mime_type` is used to pick one.
+
+        Address the input with EITHER xpath OR css, never both and never
+        neither.
         """
         return run(
             session_id,
             lambda s: actions.upload_file(
                 s,
-                xpath,
+                xpath=xpath,
+                css=css,
                 text=text,
                 content=content,
                 filename=filename,
@@ -335,8 +359,9 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
 
     @mcp.tool(annotations=hints("Type text into a field"))
     def write(
-        xpath: str,
         text: str,
+        xpath: str | None = None,
+        css: str | None = None,
         session_id: str | None = None,
         url: str | None = None,
         clear: bool = True,
@@ -348,13 +373,17 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         Set submit to press Enter afterwards, which fills and submits a search
         box in one call. Returns the field's value read back off the element, so
         you can confirm the text actually landed.
+
+        Address the field with EITHER xpath OR css, never both and never
+        neither.
         """
         return run(
             session_id,
             lambda s: actions.write(
                 s,
-                xpath,
                 text,
+                xpath=xpath,
+                css=css,
                 url=url,
                 clear=clear,
                 submit=submit,
@@ -372,7 +401,8 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
             f"{', '.join(sorted(KEYS))}.\n\n"
             "Not a reliable way to scroll - page_down only moves the page when "
             "focus happens to be on the scrollable container. Use execute_script "
-            "to scroll."
+            "to scroll.\n\nTo aim the key at an element, pass xpath or css; "
+            "with neither, it goes wherever focus already is."
         ),
         annotations=hints("Press a named key", destructive=True),
     )
@@ -380,19 +410,21 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         key: str,
         session_id: str | None = None,
         xpath: str | None = None,
+        css: str | None = None,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
     ) -> dict:
         return run(
             session_id,
             lambda s: actions.press_key(
-                s, key, xpath=xpath, url=url, wait_timeout=wait_timeout
+                s, key, xpath=xpath, css=css, url=url, wait_timeout=wait_timeout
             ),
         )
 
     @mcp.tool(annotations=hints("Read an element", read_only=True, idempotent=True))
     def extract(
-        xpath: str,
+        xpath: str | None = None,
+        css: str | None = None,
         session_id: str | None = None,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
@@ -400,12 +432,17 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         """Read an element's visible text and innerHTML.
 
         The primary way to read a page — prefer it over a screenshot, which
-        costs far more. //body reads everything, but a narrower XPath keeps the
-        result small.
+        costs far more. //body reads everything, but a narrower selector keeps
+        the result small.
+
+        Address the element with EITHER xpath OR css, never both and never
+        neither.
         """
         return run(
             session_id,
-            lambda s: actions.extract(s, xpath, url=url, wait_timeout=wait_timeout),
+            lambda s: actions.extract(
+                s, xpath=xpath, css=css, url=url, wait_timeout=wait_timeout
+            ),
         )
 
     @mcp.tool(annotations=hints("Run JavaScript in the page", destructive=True))
@@ -425,6 +462,7 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         session_id: str | None = None,
         url: str | None = None,
         xpath: str | None = None,
+        css: str | None = None,
         full_page: bool = False,
         width: int | None = None,
         height: int | None = None,
@@ -434,8 +472,8 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
     ) -> Image:
         """Capture a PNG of the page and return it as an image you can see.
 
-        Three modes: pass xpath for one element, full_page for the whole
-        scrollable page, or neither for the visible viewport.
+        Three modes: pass xpath (or css) for one element, full_page for the
+        whole scrollable page, or none of them for the visible viewport.
 
         Only reach for this when the *visual* result matters — layout, styling,
         a rendered chart. To read content, extract is far cheaper.
@@ -451,6 +489,7 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
                 s,
                 url=url,
                 xpath=xpath,
+                css=css,
                 full_page=full_page,
                 width=width,
                 height=height,

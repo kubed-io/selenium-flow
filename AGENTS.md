@@ -4,6 +4,17 @@ Agent context for `selenium-flow`. Read this before working in this repo.
 
 ## Read first
 
+**The design record lives in [`saga/`](saga/).** This file is the operating
+manual — the rules and invariants you must not break. The saga is *why* they are
+what they are, plus the plan for what is being built next. Decisions there are
+cited as `§F1.n` and are the reference for anything in this file that says "see
+the saga".
+
+Start with [Chapter 1 — The Flight Plan](saga/Chapter_1_The_Flight_Plan.md) if
+you are picking up the **flows** feature: saved sequences of tool calls, run
+server-side on one clearance.
+
+
 This repo ships **an image and nothing else**. It does not deploy itself — unlike the
 sibling `skills-mcp`, there is no `kustomization.yaml` and no `deploy/` here. The manifests
 that run this live in the cluster repo at `apps/selenium/components/mcp`, and the image tag
