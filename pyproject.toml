@@ -34,6 +34,10 @@ build = [
   "setuptools_scm",
   "build",
   "wheel",
+  # Validates the built distribution's metadata before it can become a rejected
+  # upload to a package index — the failure that otherwise only appears at
+  # publish time. Used by .github/workflows/package.yml.
+  "twine",
 ]
 test = [
   "pytest",

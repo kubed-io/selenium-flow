@@ -23,6 +23,10 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v7
+      with:
+        # Nothing here pushes; the two actions below talk to the API with the
+        # job's token, not with a git remote.
+        persist-credentials: false
 
     # Assign the PR author to their own PR per .github/assign.yml.
     - name: Auto Assign

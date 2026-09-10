@@ -1,4 +1,4 @@
-ARG PY_VERSION=3.13
+ARG PY_VERSION=3.14
 
 # Stage 1: source + build tooling. setuptools_scm reads .git for the version,
 # so git must be installed and .git must survive .dockerignore.

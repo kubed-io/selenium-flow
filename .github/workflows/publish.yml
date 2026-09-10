@@ -1,18 +1,31 @@
 name: 🧬 Publish Version
 
-# Manual, intentional release — three jobs so the image is on Docker Hub BEFORE
-# the GitHub Release is cut:
+# Manual, intentional release. Each job owns exactly one thing and hands the next
+# a clean input, ordered so nothing outward-facing happens until every artifact
+# it refers to already exists:
 #
-#   version → roll CHANGELOG [Unreleased], commit + tag on main
-#   image   → check out that tag and build+push kubed/selenium-flow:<tag>
-#   release → create the GitHub Release for the tag
+#   test    → the full 3.10 → 3.14 matrix. A release is the one moment the
+#             compatibility sweep has to be green, so it gates everything below.
+#   version → roll CHANGELOG [Unreleased], commit + tag on main. The ONLY job
+#             that writes a file or a tag; it emits the tag consumed downstream.
+#   image   → check out that tag and push kubed/selenium-flow:<tag>
+#   package → check out that tag and build the sdist + wheel → GHA artifact
+#   wiki    → regenerate and publish the wiki from that tag
+#   release → download the package artifact and cut the GitHub Release
 #
-# Unlike the private sibling repos, nothing here pins a deployed tag: this repo
-# ships an image and nothing else. The tag that actually runs lives in the
-# cluster repo at apps/selenium/components/mcp/kustomization.yaml.
+# `release` runs last and needs no source checkout: it is pure artifact plus
+# secrets. That ordering is the point — the image is on Docker Hub and the
+# distribution is built BEFORE the Release exists, so the Release never links to
+# a tarball or an image tag that was never produced.
 #
-# Run once with push=false (dry run — computes the next version and builds the
-# image without pushing, changes nothing) then push=true to release.
+# Run once with push=false (dry run: runs the tests, computes the next version,
+# and builds both the image and the package without pushing anything) then
+# push=true to actually cut the release. A failed build after a successful tag
+# strands a tag on a nonexistent image, which is exactly what the dry run buys.
+#
+# Nothing here pins a deployed tag: this repo ships an image and a package. The
+# tag that actually runs lives in the cluster repo at
+# apps/selenium/components/mcp/kustomization.yaml.
 #
 # This is a public repo: credentials are org secrets, with no GCP hop. The
 # kubed.io App token is what lets version-bump commit to protected main and
@@ -37,16 +50,31 @@ on:
         default: false
         type: boolean
 
+# Least-privilege default for every job. `version` and `release` opt up to
+# contents: write in their own blocks; nothing else needs to write anything.
 permissions:
-  # contents: write so version-bump can commit the rolled CHANGELOG and create
-  # the tag on main.
-  contents: write
+  contents: read
 
 jobs:
 
+  # ---------------------------------------------------------------------------
+  # The gate. Called rather than assumed: main being green yesterday is not the
+  # same claim as this ref being green now, and the matrix here is the full
+  # supported range because a release is what makes the >=3.10 promise real.
+  # ---------------------------------------------------------------------------
+  test:
+    name: Test
+    uses: ./.github/workflows/test.yml
+
+  # ---------------------------------------------------------------------------
+  # Bump the changelog + tag. Owns every write; emits the tag/version.
+  # ---------------------------------------------------------------------------
   version:
     name: Version
+    needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # commit the rolled CHANGELOG + push the tag to main
     outputs:
       tag: ${{ steps.bump.outputs.tag }}
       version: ${{ steps.bump.outputs.version }}
@@ -63,12 +91,17 @@ jobs:
           exit 1
         fi
 
+    # Scoped to contents. Without a permission-* input the App token carries the
+    # App's full installation permissions into every later step in this job,
+    # which for a release-signing identity is far more than a changelog commit
+    # and a tag need.
     - name: Create GitHub App Token
       id: app-token
       uses: actions/create-github-app-token@v3
       with:
         app-id: ${{ vars.GH_APP_ID }}
         private-key: ${{ secrets.GH_APP_KEY }}
+        permission-contents: write
 
     - name: Checkout
       uses: actions/checkout@v7
@@ -84,16 +117,32 @@ jobs:
         push: ${{ inputs.push }}
         token: ${{ steps.app-token.outputs.token }}
 
+  # ---------------------------------------------------------------------------
   # Build + push the image at the freshly tagged commit. On a dry run there is no
   # tag, so it builds the current ref without pushing (proves it still builds).
+  # ---------------------------------------------------------------------------
   image:
     name: Publish Image
     needs: version
     uses: ./.github/workflows/image.yml
-    secrets: inherit
     with:
       tag: ${{ inputs.push && needs.version.outputs.tag || '' }}
       push: ${{ inputs.push }}
+    secrets:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+
+  # ---------------------------------------------------------------------------
+  # Build the distribution at the same tag → GHA artifact. Runs on a dry run too,
+  # unconditionally: "does it still package?" is exactly what a dry run is for,
+  # and it costs seconds next to the image build it runs alongside.
+  # ---------------------------------------------------------------------------
+  package:
+    name: Package
+    needs: version
+    uses: ./.github/workflows/package.yml
+    with:
+      tag: ${{ inputs.push && needs.version.outputs.tag || '' }}
 
   # Runs alongside `image`, not after it: the wiki is generated from the spec
   # and has nothing to do with the container, so serialising them would only make
@@ -103,47 +152,104 @@ jobs:
     name: Publish Wiki
     needs: version
     if: inputs.push
+    permissions:
+      contents: write   # the wiki repo lives under this repository's permissions
     uses: ./.github/workflows/wiki.yml
-    secrets: inherit
     with:
       push: ${{ inputs.push }}
+    secrets:
+      GH_APP_KEY: ${{ secrets.GH_APP_KEY }}
 
+  # ---------------------------------------------------------------------------
+  # The outward-facing step, and the last one. No source checkout: it operates on
+  # the package artifact plus secrets, so the assets it attaches are the exact
+  # files package.yml built and verified rather than a second, unverified build.
+  # ---------------------------------------------------------------------------
   release:
     name: Release
     needs:
     - version
     - image
+    - package
     if: inputs.push
     runs-on: ubuntu-latest
     permissions:
       contents: write   # create the GitHub Release on the existing tag
     steps:
 
+    - name: Create GitHub App Token
+      id: app-token
+      uses: actions/create-github-app-token@v3
+      with:
+        app-id: ${{ vars.GH_APP_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
+        permission-contents: write
+
+    - name: Download Package
+      uses: actions/download-artifact@v8
+      with:
+        name: ${{ needs.package.outputs.package }}
+        path: dist
+
+    - name: Show Release Assets
+      run: ls -l dist
+
     - name: Create Release
       uses: softprops/action-gh-release@v3.0.3
       with:
+        token: ${{ steps.app-token.outputs.token }}
         name: ${{ needs.version.outputs.tag }}
         tag_name: ${{ needs.version.outputs.tag }}
         prerelease: ${{ contains(needs.version.outputs.tag, '-') }}
+        files: |
+          dist/${{ needs.package.outputs.sdist }}
+          dist/${{ needs.package.outputs.wheel }}
         body: |
+          [![Publish](${{ github.server_url }}/${{ github.repository }}/actions/workflows/publish.yml/badge.svg)](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           [![Image Builder](${{ github.server_url }}/${{ github.repository }}/actions/workflows/image.yml/badge.svg)](${{ github.server_url }}/${{ github.repository }}/actions/workflows/image.yml)
-
-          Image: `kubed/selenium-flow:${{ needs.version.outputs.tag }}`
+          [![Tests](${{ github.server_url }}/${{ github.repository }}/actions/workflows/test.yml/badge.svg)](${{ github.server_url }}/${{ github.repository }}/actions/workflows/test.yml)
+          [![Quality](${{ github.server_url }}/${{ github.repository }}/actions/workflows/quality.yml/badge.svg)](${{ github.server_url }}/${{ github.repository }}/actions/workflows/quality.yml)
 
           ${{ needs.version.outputs.release-notes }}
+
+          ## Container image
+
+          The image is what this repo ships, and what the cluster runs:
+
+          ```sh
+          docker pull kubed/selenium-flow:${{ needs.version.outputs.tag }}
+          ```
+
+          ## Python package
+
+          Not on PyPI. The wheel and sdist are attached to this release:
+
+          ```sh
+          pip install ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/${{ needs.package.outputs.wheel }}
+          ```
+
+          Or straight from the tag:
+
+          ```sh
+          pip install git+${{ github.server_url }}/${{ github.repository }}.git@${{ needs.version.outputs.tag }}
+          ```
 
     - name: Summary
       env:
         TAG: ${{ needs.version.outputs.tag }}
+        VERSION: ${{ needs.package.outputs.version }}
+        WHEEL: ${{ needs.package.outputs.wheel }}
         RELEASE_NOTES: ${{ needs.version.outputs.release-notes }}
       run: |
-        {
-          echo "## Publish"
-          echo ""
-          echo "- **Tag**: $TAG"
-          echo "- **Image**: kubed/selenium-flow:$TAG"
-          echo ""
-          echo "### Release Notes"
-          echo ""
-          echo "$RELEASE_NOTES"
-        } >> "$GITHUB_STEP_SUMMARY"
+        cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+        ## Publish
+
+        - **Tag**: \`${TAG}\`
+        - **Version**: \`${VERSION}\`
+        - **Image**: \`kubed/selenium-flow:${TAG}\`
+        - **Wheel**: \`${WHEEL}\`
+
+        ### Release Notes
+
+        ${RELEASE_NOTES}
+        EOF

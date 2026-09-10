@@ -37,10 +37,16 @@ def image_trigger_paths() -> list[set[str]]:
 
 
 def test_the_workflow_has_the_path_filters_this_is_about():
-    """If the filters ever go away the rest of this file passes vacuously."""
+    """If the filters ever go away the rest of this file passes vacuously.
+
+    There is exactly one filter, on `push: main`. The `pull_request` trigger was
+    removed deliberately — a ~9 minute multi-arch build is most of a pull
+    request's wait for a signal that almost never differs from the merge build,
+    which is the one whose output anyone actually pulls.
+    """
     filters = image_trigger_paths()
     assert filters, "image.yml has no paths filter — this test proves nothing"
-    assert len(filters) == 2, "expected a pull_request and a push filter"
+    assert len(filters) == 1, "expected exactly the push filter"
 
 
 @pytest.mark.parametrize("directory", sorted(packaged_directories()))

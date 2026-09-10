@@ -4,7 +4,8 @@
 # House rules:
 # - Weekly cadence: enough to stay current without spamming the queue.
 # - Grouped minor + patch per ecosystem; majors stay separate for review.
-# - Short cooldown so yanked releases get pulled before they reach us.
+# - A one-week cooldown so a release that gets yanked, or has its first
+#   post-publish advisory filed against it, is pulled before it reaches us.
 # - Commit prefix is distinct per ecosystem so the merge queue reads cleanly.
 #
 # Docs: https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference
@@ -28,7 +29,7 @@ updates:
     prefix: ci(deps)
   cooldown:
     # github-actions is not semver-versioned, so only default-days is valid here.
-    default-days: 3
+    default-days: 7
   groups:
     actions-minor-patch:
       update-types:
@@ -50,7 +51,7 @@ updates:
   commit-message:
     prefix: deps(pip)
   cooldown:
-    default-days: 3
+    default-days: 7
   groups:
     pip-minor-patch:
       update-types:
@@ -71,7 +72,7 @@ updates:
   commit-message:
     prefix: deps(docker)
   cooldown:
-    default-days: 3
+    default-days: 7
   groups:
     docker-minor-patch:
       update-types:
