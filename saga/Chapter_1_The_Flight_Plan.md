@@ -42,8 +42,19 @@ Design and planning only. No code has been written for this feature.
 overruled the first draft. §F1.6 and §F1.7 were also researched against prior art
 at his instruction rather than invented — see *Prior art* at the head of Part II.
 
-Everything in Part II is now **locked or recommended**; what remains open is
-listed under *Open questions* and none of it blocks E1.
+**Third pass, 2026-09-11.** Part III — the secrets system — added from Dr K's
+design, and §F1.7 **revised**: no templating anywhere, structural `valueFrom`
+references instead.
+
+Part III's two load-bearing claims were checked against a live cluster from
+inside a pod rather than reasoned about: token-only Kubernetes access works with
+no SDK, and there is **no way to list a Secret's key names without pulling its
+values** (§F1.20). A third finding came out of re-reading our own shipped code:
+`write` returns the value it just typed, which would have handed every bound
+secret straight back to the model (§F1.25).
+
+Everything in Parts II and III is **locked or recommended**; what remains open is
+listed under *Open questions*, and none of it blocks E2.
 
 ---
 
@@ -460,101 +471,95 @@ fallback the single most valuable Chapter 2 feature, and `params.xpath` should
 therefore be specified now as *either a string or a list of strings*, so adding
 it later is not a breaking change.
 
-### §F1.7 — Decision (recommended, was OPEN): parameters are JSON Schema, substitution is `{{name}}`, and it costs zero dependencies
+### §F1.7 — Decision (locked, REVISED 2026-09-11): parameters are JSON Schema, and every reference is structural — there is no templating
 
-Dr K's brief: go and look for prior art before inventing; fewer dependencies is
-better; and whatever we do, parameters must be **structured enough to hand a
-model a schema so it knows what to fill in**. All three are answerable.
+**This section originally specified `{{name}}` substitution. Dr K withdrew it:**
 
-**What the search found.** No browser-flow format has parameters worth copying.
-Chrome DevTools Recorder has **none at all** — verified in both the reference and
-`Schema.ts`. Selenium IDE has variables (`store` + `${name}`) but they are a
-command, not a declaration, so there is no schema to hand anyone. The format that
-solves our actual problem is ToolHive's, and its answer is the one to take:
+> *"Let's make the entire workflow structural — no handlebar replacements or
+> templating. We get a param like a secret and use `valueFrom.param` or
+> `valueFrom.secret` or `valueFrom.config`. Structural means we don't use
+> templating in our object and make structural references instead."*
 
-> **`parameters` is literally a JSON Schema object.**
+That is the better design, and it retires an argument rather than winning it.
 
-That is the whole decision. It is not a bespoke params dialect that we then have
-to describe to a model — it *is* the description. `list_flows` and
-`flow://flows/{name}` return it verbatim, an agent reads it the same way it reads
-any tool schema, and `run_flow`'s own schema can advertise it.
+**The declaration is unchanged and still right.** A flow's `parameters` is
+literally a JSON Schema object, taken from ToolHive's shape (see *Prior art*) —
+so it is not a bespoke dialect that has to be described to a model, it *is* the
+description, and `list_flows` can hand it over verbatim.
 
-```json
-{
-  "name": "login",
-  "description": "Log in to the admin panel",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "email":    {"type": "string", "description": "the account to log in as"},
-      "password": {"type": "string", "writeOnly": true}
-    },
-    "required": ["email", "password"]
-  },
-  "steps": [
-    {"tool": "write",    "params": {"xpath": "//input[@name='email']",    "text": "{{email}}"}},
-    {"tool": "write",    "params": {"xpath": "//input[@name='password']", "text": "{{password}}"}},
-    {"tool": "interact", "params": {"action": "click", "xpath": "//button[@type='submit']"}, "id": "submit"}
-  ]
-}
+**What changes is how a step reaches a value.** Not by interpolating text, but
+by naming a source in its own field:
+
+```yaml
+name: login
+description: Log in to the admin panel
+parameters:
+  type: object
+  properties:
+    email: {type: string, description: the account to log in as}
+  required: [email]
+steps:
+- tool: navigate
+  params: {url: https://example.com/login}
+
+- id: fill-email
+  tool: write
+  params: {css: "#email"}
+  valueFrom:
+    text: {param: email}
+
+- id: fill-password
+  tool: write
+  params: {css: "#password"}
+  valueFrom:
+    text: {secret: {name: nextcloud-admin, key: password}}
+
+- tool: interact
+  params: {action: click, css: "button[type=submit]"}
 ```
 
-`writeOnly: true` is standard JSON Schema and already means "supplied but not
-returned" — so it is the marker for a secret, and we do not invent a keyword. It
-keeps the value out of the run report and the logs. It is **not** encryption:
-the value still travels in the call, and the documentation must say so plainly
-rather than implying a guarantee we do not offer.
+The rules:
 
-**Substitution: `{{name}}`, with a regex, and no dependency.**
+- **`valueFrom` is a step-level key**, a map of *parameter name* → *source*. It
+  sits beside `id`, `onError` and `note` (§F1.6) rather than inside `params`.
+  That is what keeps `params` exactly the tool's own schema, so §F1.6's
+  derivation is untouched: `params` is validated against the derived model
+  as-is, and `valueFrom` is checked separately against the same model's field
+  names.
+- **A source is exactly one of three**: `param` (a name from this flow's
+  `parameters`), `secret` (`{name, key}`), or `config` (`{name, key}`, when
+  ConfigMaps land — §F1.31). Two is refused, zero is refused.
+- **A parameter may not be given twice.** A name appearing in both `params` and
+  `valueFrom` is refused at save time, not silently resolved in one direction.
+- **References resolve to whole values, never fragments.** There is no way to
+  express "the URL is `https://` plus this param plus `/login`". If a flow needs
+  a composed value, the composition is the caller's job and it passes the
+  finished string as a parameter.
 
-The candidates were `${name}` (Selenium IDE, and Python's stdlib
-`string.Template` implements it natively with `safe_substitute`) and `{{name}}`
-(ToolHive, n8n, and what a model has seen most). Stdlib support made `${name}`
-look like the free option.
+That last rule is the one that costs something, and it is worth being explicit
+that it is a deliberate trade rather than an oversight. Templating buys string
+composition; structure buys everything else:
 
-**It is not, and the reason is specific to us: we have an `execute_script`
-action.** JavaScript template literals are `` `${...}` ``, so a perfectly ordinary
-step —
+| | Templating (`{{name}}`) | Structural (`valueFrom`) |
+|---|---|---|
+| Compose a string from parts | yes | **no** |
+| Validate a reference at **save** time | no — it is text until it runs | **yes**, against the parameter list |
+| Say *what kind* of thing is being referenced | no | **yes** — param, secret or config |
+| Bind a secret without it ever being a string in the document | no | **yes** |
+| Collide with the payload | **yes** — see below | no |
 
-```json
-{"tool": "execute_script", "params": {"script": "return `${window.scrollY}px`"}}
-```
+The last row was very nearly a shipped bug. The prior draft chose `{{name}}`
+over `${name}` specifically because `execute_script` steps carry JavaScript, and
+JavaScript template literals are `` `${...}` `` — so `$`-substitution would have
+silently mangled a script we handed the browser. Structural references have no
+such failure mode **because nothing scans the payload at all.** A whole class of
+bug stops existing rather than being avoided, which is the strongest kind of
+simplification.
 
-— would be mangled by `$`-substitution, at run time, inside a string we handed
-the browser. `{{ }}` does not occur in JavaScript, XPath, CSS or JSON. That is
-decisive, and it is worth noting that the stdlib "win" would have bought us a bug
-that only appears in the one action designed to run arbitrary code.
-
-So: `{{name}}`, matched by one regex, substituted into string values only.
-**Zero dependencies either way** — `{{ }}` is three lines rather than an import,
-which is the right trade for not shipping a bug.
-
-Rules, all of which fall out of wanting a run to be debuggable:
-
-- **Required parameters are checked before step one runs.** Failing at step two
-  with half a form filled in is worse than not starting.
-- **An unknown `{{name}}` is an error, not an empty string.** A silently blank
-  password produces a failed login and a mystery; a named error produces a fix.
-- **Substitution happens on string values only**, never on keys and never on the
-  `tool` field. A flow cannot compute which tool it calls — that would make it a
-  program, which §*What this chapter is not doing* rules out.
-
-**On Dr K's aside — "use the outputs somehow as inputs elsewhere":** yes, and it
-is nearly free, which is why the design should leave room for it now even though
-Chapter 1 will not build it. Parameters and step outputs are **the same variable
-bag**: the parameters seed it, and a step with `saveAs` adds to it as the run
-proceeds.
-
-```json
-{"tool": "extract", "params": {"xpath": "//h1"}, "saveAs": "heading"}
-```
-
-…and `{{heading}}` works in every later step. One substitution mechanism, two
-sources. ToolHive spells this `{{.steps.<id>.output.<field>}}`, which is more
-precise and much uglier; `saveAs` gets the same result by making the flow author
-name the thing they want. **That is Chapter 2** — it is the first feature that
-makes a flow more than a recording, and it deserves its own thinking about what
-happens when a step that was supposed to save something did not run.
+`writeOnly: true` on a parameter (this section's original proposal) survives and
+still means "supplied but not echoed back". But see §F1.29: for anything
+genuinely secret, `valueFrom.secret` is strictly better, because a `writeOnly`
+parameter still has to be *supplied* — which means a model held it.
 
 ### §F1.8 — **OPEN**: what a run returns
 
@@ -909,12 +914,402 @@ cheaper as three tool calls than as a saved document.
 
 ---
 
-## Part III — The plan
+## Part III — Sealed orders: the secrets system
+
+Every pilot flies with a locked pouch. They carry it, they hand it to the right
+desk at the right airfield, and they never open it. That is the whole design.
+
+Chapter 1 so far builds a flight plan that a machine flies. **This part is what
+makes flying it worth doing.** A saved flow that logs in is only useful if the
+password can get into the form — and today the only way is for the model to hold
+it, which means it is in the transcript, in the tool call, and in whatever the
+host logs.
+
+Numbered `§F1.17` onward, continuing Part II's series.
+
+### §F1.17 — Doctrine (locked): the credential never enters the conversation
+
+The point is not encryption. Nothing here encrypts anything, and saying
+otherwise would be the dishonest version of this feature.
+
+The point is **removing the value from the places a value should never be**: the
+model's context, the tool-call arguments, the transcript, the flow document on
+disk, and the server's own logs. The agent learns that a secret named
+`nextcloud-admin` has a key named `password`. It never learns the password. It
+binds one to a field by *name*, and the substitution happens inside the server,
+one layer below anything that can talk.
+
+**The threat this actually defends against is prompt injection**, and it is
+worth naming because it is not hypothetical for a browser agent. A page can
+contain text addressed to the model. An agent that holds a credential can be
+talked into typing it somewhere; an agent that holds only the *name* of one can
+be talked into asking for it, and §F1.27 is what refuses.
+
+The corollary is the strongest argument for Parts II and III together:
+
+> **A reviewed flow with a binding is safer than an agent improvising**, because
+> a human decided which secret goes into which field on which URL, once, and
+> every later run replays that decision instead of re-making it.
+
+### §F1.18 — Decision (locked): a secret is a directory of files
+
+Dr K's shape, and it is exactly right:
+
+```
+<secrets dir>/
+  nextcloud-admin/          # the secret's name
+    username                # a key
+    password                # another key
+  github/
+    token
+```
+
+This is precisely how Kubernetes projects a Secret into a pod, which is the
+point: **the same code reads a k8s mount and a folder somebody made on a
+laptop.** No adapter, no k8s in the picture at all unless there is one.
+
+`SECRETS_DIRS` is a **PATH-like list**, colon-separated:
+
+```
+SECRETS_DIRS=/var/run/secrets/kubernetes.io/serviceaccount/..data:/etc/selenium-flow/secrets
+```
+
+so a deployment can point at the service account's automounted directory *and*
+its own mounted secrets, and a laptop can point at whatever it likes.
+
+Rules that fall out and should be written down before they are discovered:
+
+- **First match wins**, like `PATH`. Two directories offering `nextcloud-admin`
+  resolve to the earlier one; the listing says which directory each came from,
+  because "why am I getting the wrong password" is otherwise unanswerable.
+- **One level deep, always.** A directory inside a secret directory is not a
+  nested secret and is ignored. Kubernetes mounts are exactly one level, and
+  recursing would invent a shape nothing else produces.
+- **Dotfiles are skipped.** A k8s projected volume is full of them —
+  `..data`, `..2026_09_10_23_02_50`, all symlinks — and a real one is
+  `.dockerconfigjson`. Skipping every name starting with `.` loses that one
+  key and avoids listing the machinery, which is the right trade: a docker
+  config is not something to type into a form.
+- **Unreadable is absent**, the same rule the flow store already follows. A
+  permissions error on one secret must not take out the catalogue.
+
+### §F1.19 — Decision (locked): filesystem metadata rides in reserved keys
+
+A secret needs more than keys — a description, and the URLs it may be used on
+(§F1.27). On the k8s side those are labels and annotations. A directory has no
+such place, so two reserved filenames carry them:
+
+```
+nextcloud-admin/
+  username
+  password
+  _description        # "Admin login for the homelab Nextcloud"
+  _allowed_urls       # https://nextcloud.example.com  (one per line)
+```
+
+Reserved names begin with `_`, are **excluded from the key list**, and are never
+bindable. The prefix is chosen because a k8s Secret key cannot begin with `_`
+under its own validation rules, so nothing that arrives from a real k8s mount
+can collide with one.
+
+### §F1.20 — Decision (locked): Kubernetes is a *source*, not a dependency — verified
+
+Dr K asked whether this could work without the k8s SDK. It can, and it was
+tested from a pod rather than reasoned about.
+
+Everything needed is already mounted or in the environment:
+
+| What | Where |
+|---|---|
+| token | `/var/run/secrets/kubernetes.io/serviceaccount/token` |
+| CA | `.../ca.crt` |
+| namespace | `.../namespace` |
+| API address | `KUBERNETES_SERVICE_HOST` / `KUBERNETES_SERVICE_PORT` |
+
+A bearer token, a CA file and `requests` — **already a dependency** — is the
+whole client. Confirmed live against this cluster's API.
+
+Two findings from that test that change the design:
+
+**1. The token rotates, so it must be re-read on every call.** The mount here
+showed `..data -> ..2026_09_10_23_02_50`, a directory stamped hours after the
+pod started: the projected token had been swapped underneath. Reading it once at
+boot is the classic version of this bug, and it fails hours later with a 401 that
+looks like an RBAC problem.
+
+**2. There is no way to list key names without pulling values.** The metadata
+projection works —
+
+```
+Accept: application/json;as=PartialObjectMetadataList;v=v1;g=meta.k8s.io
+```
+
+— and returns `apiVersion`, `kind`, `metadata` and **nothing else**, so it
+carries no `data` and therefore no key names. Key names live only in `data`,
+alongside the values.
+
+So the honest design is: **one label-selected list call, projected to names and
+key names immediately, values dropped without ever being stored, logged or
+returned.** The metadata projection is not used, because the opt-in label
+(§F1.21) already bounds the set and the projection cannot answer the question we
+are asking. That is a real property of the API, not a shortcut — worth recording
+so nobody re-litigates it.
+
+**RBAC is a Role and a RoleBinding in the cluster repo**, granting `get` and
+`list` on `secrets` and `configmaps` in one namespace. Note plainly what that
+means: **the pod can read every secret in its namespace.** Kubernetes RBAC
+cannot restrict `list` by label, so the label selector is hygiene, not a
+boundary. If that is too much authority, the answer is a dedicated namespace,
+and it is the operator's call.
+
+### §F1.21 — Decision (locked): only Secrets and ConfigMaps, and only labelled ones
+
+**Two kinds, ever.** No Pods, no Deployments, no CRDs, no `list` on anything
+else. This is not a Kubernetes client that happens to read secrets; it is a
+secret source that happens to speak to Kubernetes. If a future need argues for a
+third kind, that is a different feature with a different threat model.
+
+**And only those carrying the opt-in label:**
+
+```yaml
+metadata:
+  labels:
+    selenium-flow.kubed.io/expose: "true"
+```
+
+Without it, every secret in the namespace — database passwords, TLS keys,
+registry credentials — would appear in a catalogue a browser agent can read the
+names of. An operator opting a secret in one line at a time is the correct
+default, and the noise argument alone would justify it: this cluster's `build`
+namespace has 24 secrets and roughly two are things anyone would type into a
+form.
+
+### §F1.22 — Decision (locked): scoping by label, and the filesystem is global
+
+```yaml
+labels:
+  selenium-flow.kubed.io/expose: "true"
+  selenium-flow.kubed.io/session: research-bot     # optional
+```
+
+- **With a session label**, the secret appears only in that session's catalogue.
+- **Without one**, it is visible to every session — the same "global" idea flows
+  already use (§F1.2), and the same word.
+- **Filesystem secrets are always global.** A directory carries no labels and
+  inventing a scoping convention for it would mean two mechanisms doing one job.
+  Dr K called this correctly.
+
+### §F1.23 — Decision (locked): cache the catalogue, never the values
+
+The catalogue — names, keys, descriptions, allowed URLs — is cached with a short
+TTL, because it is read on every listing and changes rarely.
+
+**A value is never cached.** It is read at the moment it is bound and dropped
+when the keystroke is sent. That is what keeps a rotated credential from being
+served from memory after it stopped being valid, and it means the process holds
+a secret for the duration of one action rather than for its lifetime.
+
+A stale catalogue is harmless by construction: the worst case is a bind that
+fails with "no such secret", which is a clear error and a refresh away.
+
+### §F1.24 — Decision (locked): no tool ever returns a value — and the honest limit
+
+**The hard rule.** `list_secrets` returns name, keys, description, allowed URLs
+and source. There is no tool that returns a value, there is no debug flag that
+returns a value, and there is no admin endpoint that returns a value.
+
+Now the part that must be said out loud, because a security feature that
+overstates itself is worse than none:
+
+> **Once a secret has been typed into a page, `execute_script` can read it
+> back.** `document.querySelector('#password').value` is one call, and this
+> server cannot tell that from any other script.
+
+So the guarantee is precise and limited: **the value never passes through the
+model on its way in.** It is not sealed off from a determined agent afterwards.
+The mitigations that do exist are §F1.27 (a secret can only be used on URLs its
+owner allowed) and the flow itself (a reviewed sequence with no model in the
+loop between steps). This is the same honesty §F1.7 applies to `writeOnly`:
+a marker, not encryption.
+
+### §F1.25 — Decision (locked): `write` currently returns what it typed, and that leak must close first
+
+The single most important implementation note in this Part, and it is in code
+that already shipped:
+
+```python
+# actions.py, write()
+value = element.get_attribute("value")
+...
+return {"value": value, **browser.page_state(driver)}
+```
+
+`write` reads the field back and returns it, deliberately — "so you can confirm
+the text actually landed" — and that is a genuinely good feature for ordinary
+text. **Bind a secret into it and the tool response hands the model the
+password**, defeating the entire system on the very call that was meant to
+protect it.
+
+So, before any binding ships:
+
+- When a value came from a secret, `write` returns **`"value": null`** and a
+  `"value_from"` field naming the secret and key that were used.
+- The read-back is not merely omitted from the response — it is not performed,
+  so the value never exists in a local variable that a traceback could carry
+  into a log.
+
+This is not a caveat to document. It is the first thing E9 builds, and there is
+a test for it before there is a feature.
+
+### §F1.26 — Decision (locked): the binding is structural, and `<secret>.<key>` cannot work
+
+The shorthand is tempting and is genuinely impossible. Kubernetes key names
+routinely contain dots — **checked against this cluster**, whose own secrets
+carry `tls.crt`, `tls.key`, `config.yaml` and `.dockerconfigjson`. So
+`codeserver-tls.tls.crt` has no unambiguous split point, and no parsing rule
+recovers one. Name and key are two fields, always.
+
+Following §F1.7, a binding is the same structural reference everything else
+uses. In a **flow step**:
+
+```yaml
+- tool: write
+  params: {css: "#password"}
+  valueFrom:
+    text: {secret: {name: nextcloud-admin, key: password}}
+```
+
+and on a **direct tool call**, where there is no flow and so no `param` source
+to choose between:
+
+```python
+write(css="#password", value_from={"secret": {"name": "nextcloud-admin",
+                                              "key": "password"}})
+```
+
+- `value_from` on the tool targets the text, because `text` is the only
+  bindable parameter `write` has (§F1.28). A tool that ever gains a second one
+  gets the map form; today the map would have exactly one key and be pure
+  ceremony.
+- **Exactly one of `text` or `value_from`**, enforced at the boundary with the
+  idiom `browser.locator` already uses for `xpath`/`css` — both is refused
+  rather than resolved.
+- The nested object is a real schema, not a blob: FastMCP derives it from a
+  typed model, so a model filling it in is told the shape, and §F1.6's step
+  derivation gets it for free.
+
+### §F1.27 — Decision (locked): allowed URLs are enforced, and matched by origin
+
+Dr K listed this as optional metadata. **It is the control that makes the rest
+worth having**, and it should be enforced rather than displayed.
+
+A secret may declare where it may be used. At bind time the browser's *current*
+URL is checked against that list, and a mismatch refuses the write.
+
+- **Matched by origin** — scheme, host and port — never by substring.
+  `https://nextcloud.example.com.evil.com` must not match
+  `nextcloud.example.com`, and a substring check is exactly how that gets
+  through.
+- **The check is on the page the browser is on**, after any `url` navigation the
+  call performs, because that is where the keystroke actually lands.
+- **No declaration means no restriction**, which is the pragmatic default for a
+  homelab. The listing shows which secrets are unrestricted, so the gap is
+  visible rather than assumed.
+
+This is what stops an injected page talking an agent into typing the Nextcloud
+admin password into a form on a site that just asked it to.
+
+### §F1.28 — Decision (locked): only `write` binds
+
+Not `execute_script` — a script is arbitrary code and a bindable parameter there
+is a value-exfiltration API with extra steps. Not `navigate`, because a secret
+in a URL lands in browser history, the referrer header, and this server's own
+session record, which is stored in Redis. Not `press_key`, which has no value to
+carry. Not `upload_file` yet, though a credentials file is a plausible later
+case and the refusal should say "not yet" rather than "never".
+
+Dr K's instinct that `write` is the only consumer holds up under exactly this
+kind of enumeration, which is why it is written down as a list of refusals
+rather than as a single yes.
+
+### §F1.29 — Decision (locked): binding supersedes `writeOnly` parameters for real secrets
+
+§F1.7 gave a flow `parameters` with `writeOnly: true` for values a caller
+supplies but should not see echoed. That is still right for values the caller
+genuinely owns.
+
+For anything actually secret, **the binding is strictly stronger**: a
+`writeOnly` parameter still has to be *supplied*, which means the model held it
+and put it in a tool call. A binding is never supplied at all.
+
+So the guidance, and it belongs in the skill: **a parameter is for what varies
+between runs; a binding is for what must not be seen.** An email address is a
+parameter. Its password is a binding.
+
+### §F1.30 — Decision (locked): the use is audited, the value is not
+
+Every bind records: the flow, the step, the secret name, the key, the URL it was
+used on, and whether it was allowed. Never the value.
+
+That is cheap, it is the record an operator wants after something goes wrong,
+and the admin event stream already exists to carry it. A refused bind is the
+more interesting event of the two and must be recorded loudest — it is the
+signal that something tried to use a credential somewhere it should not.
+
+### §F1.31 — Decision (locked): the surfaces, and ConfigMaps later
+
+- **`secret://secrets`** — the catalogue, as a resource.
+- **`list_secrets`** — the mirror tool, hidden from clients that read resources,
+  exactly like `session_files` and `current_session` (§F1.5).
+- **`GET /secrets`** — the HTTP half, because the catalogue is a capability and
+  the repo's rule admits no exceptions for capabilities.
+
+That is the entire tool surface: **one read, and a parameter on `write`.** Dr K
+called it, and it holds: nothing else ever needs to name a secret.
+
+**ConfigMaps are the same machinery with the value visible** — same catalogue,
+same label, same binding, plus a `config_map`/`config_key` pair and a listing
+that may show values because there is nothing to protect. Deliberately **not in
+this chapter**: the catalogue and the binding have to be right first, and
+"values are visible for this kind and not that one" is the sort of branch that
+should be added deliberately rather than at the same time as the thing it
+branches from.
+
+### §F1.32 — Decision (locked): the skill teaches one loop, end to end
+
+`references/SECRETS.md`, and one row in `SKILL.md`. It has to teach the whole
+arc, because no single tool description can:
+
+1. **Discover the secret** — `list_secrets`, read the names and keys. You will
+   never see a value, and you do not need one.
+2. **Discover the selectors** — drive the login page by hand once, `extract` to
+   find the field selectors (§F1.13 now offers `css` as well as `xpath`).
+3. **Build the flow** — steps with the selectors, and `secret`/`secret_key` on
+   the password field instead of a value.
+4. **Save it** — `save_flow`, once.
+5. **Run it** — `run_flow`, forever after, with no credential in any transcript.
+
+Plus the rule from §F1.29 in one line — parameters for what varies, bindings for
+what must not be seen — and the honest limit from §F1.24, because an agent that
+believes a secret is unreadable after it has been typed will reason badly about
+what it can safely do next.
+
+---
+
+## Part IV — The plan
 
 **E0 first.** It is the only piece that is useful on its own, it is small, and
 §F1.13 explains why the flow work needs it underneath rather than beside it.
 After that, E1→E2→E3 is the spine; E4 needs E1; E5 is independent and can land
-any time; E6 rides along and finishes last.
+any time.
+
+**E7→E9 is the secrets arm** (Part III), independent of the flow arm until they
+meet: E7 and E8 are a catalogue nothing consumes yet, and E9 is the binding that
+makes a saved login flow possible. E9 depends on E3 only because a bound secret
+*in a flow* needs flows to run — the `write` parameter itself works the day it
+ships.
+
+E6 and E10 are documentation and finish last.
 
 **One PR per epic, in this order.** Not one PR for the feature — E2 and E3 alone
 touch the tool surface, the HTTP surface, the OpenAPI responses, the wiki and the
@@ -966,7 +1361,12 @@ single source of truth (§F1.13).
       `pydantic.create_model()`, assembled into a discriminated union on `tool` —
       the move `openapi.py` already makes for request bodies (§F1.6)
 - [ ] Flow document: `name`, `description`, `parameters` (JSON Schema), `steps`
-- [ ] Step keys: `tool`, `params`, `id`, `onError`, `return`, `note`, `timeout`
+- [ ] Step keys: `tool`, `params`, `id`, `onError`, `return`, `note`, `timeout`,
+      `valueFrom` (§F1.7)
+- [ ] `valueFrom` validated at **save** time against the derived model's field
+      names: an unknown parameter, a name also present in `params`, or a source
+      that is not exactly one of param/secret/config is refused then, not at
+      step nine of a run (§F1.7)
 - [ ] `flow://flows` and `flow://flows/{name}` resources; the listing returns
       names, descriptions and `parameters` only — **never full documents**, so
       the WebDAV backend stays viable (§F1.5, §F1.12)
@@ -993,8 +1393,9 @@ single source of truth (§F1.13).
       browser (§F1.1); its `/flows/run` endpoint
 - [ ] Required-parameter check **before step one**, against the flow's JSON
       Schema (§F1.7)
-- [ ] `{{name}}` substitution into string values only — never keys, never `tool`.
-      One regex, no dependency. An unknown name is an error, not a blank (§F1.7)
+- [ ] Structural resolution of each step's `valueFrom` into the call's kwargs —
+      **no string scanning anywhere**, so a payload can never collide with a
+      reference (§F1.7)
 - [ ] `writeOnly: true` params kept out of the run report and the logs, and
       documented as a marker rather than encryption (§F1.7)
 - [ ] Result shape per §F1.8: compact by default, `return`-marked steps in full,
@@ -1055,6 +1456,81 @@ Independent of everything above.
       PR, or `pr.yml` fails the gate
 - [ ] **Separate, last PR:** the `AGENTS.md` thinning (§F1.15)
 
+### E7 — The pouch: secrets from the filesystem
+
+The whole feature for someone with no Kubernetes, and the foundation for E8.
+
+- [ ] `secrets.py`: a `SecretSource` protocol and a `FilesystemSource`, shaped
+      like `FlowStore` so a second source slots in (§F1.18)
+- [ ] `SECRETS_DIRS`, PATH-like and colon-separated; unset means no filesystem
+      secrets, which is not an error
+- [ ] Directory per secret, file per key, **one level deep**; dotfiles skipped;
+      an unreadable secret is absent rather than fatal (§F1.18)
+- [ ] First match wins across directories, and the listing names the source each
+      secret came from (§F1.18)
+- [ ] Reserved `_description` and `_allowed_urls` keys, excluded from the key
+      list and never bindable (§F1.19)
+- [ ] A `Catalogue` merging sources, answering "what may this session see" —
+      filesystem entries are global (§F1.22)
+- [ ] Short-TTL cache of the catalogue; **no value is ever cached** (§F1.23)
+- [ ] Tests: a k8s-shaped mount read from a temp dir including the `..data`
+      symlink layout, precedence across two dirs, a reserved key absent from the
+      key list, one unreadable secret not taking out the catalogue
+
+### E8 — The other airfield: secrets from Kubernetes
+
+Optional, additive, dependency-free — §F1.20 was verified against this cluster's
+API from inside a pod rather than reasoned about.
+
+- [ ] `KubernetesSource`: bearer token + CA + `requests`, no SDK
+- [ ] **Re-read the token on every call** — it rotates in the projected volume,
+      and reading it once at boot fails hours later as a 401 that looks like RBAC
+- [ ] Enabled by the service account being present, so it is the "hidden feature
+      that works in Kubernetes" Dr K described; one env var forces it off
+- [ ] `Secret` and `ConfigMap` only. Nothing else, ever (§F1.21)
+- [ ] Label-selected: `selenium-flow.kubed.io/expose: "true"` required,
+      `.../session` scopes to one session (§F1.21, §F1.22)
+- [ ] One list call, projected to names and key names immediately, values
+      dropped — the metadata projection carries no `data` and so cannot answer
+      this, which is why it is not used (§F1.20)
+- [ ] `_description` / `_allowed_urls` come from annotations on this side
+- [ ] Tests against recorded API responses, plus one that fails if any verb or
+      kind beyond get/list on secrets and configmaps is ever requested
+- [ ] **Cluster repo:** Role + RoleBinding, with a comment saying plainly that
+      this grants read of every secret in the namespace (§F1.20)
+
+### E9 — Handing over the pouch: the binding
+
+- [ ] **First, and with a test before the feature: close the `write` read-back.**
+      A bound write returns `"value": null` plus a `"value_from"` naming what was
+      used, and does not perform the read at all (§F1.25)
+- [ ] A typed `ValueFrom` model — exactly one of `param`, `secret`, `config` —
+      shared by the tool parameter and the flow step key (§F1.7, §F1.26)
+- [ ] `value_from` on `write`, mutually exclusive with `text`, refused at the
+      boundary with the `browser.locator` idiom (§F1.26)
+- [ ] Allowed-URL enforcement, **matched by origin**, against the page the
+      browser is actually on at the moment of the write (§F1.27)
+- [ ] Refusals with reasons for `execute_script`, `navigate` and `press_key`;
+      `upload_file` says "not yet" rather than "never" (§F1.28)
+- [ ] Audit events: flow, step, secret, key, URL, allowed — never a value, and a
+      refused bind logged loudest (§F1.30)
+- [ ] `secret://secrets` resource, `list_secrets` mirror tool, `GET /secrets`
+      (§F1.31)
+- [ ] Tests: a bound value never appears in a tool result, a run report, a saved
+      flow or a log record; an origin-suffix attack is refused; a bind on a
+      disallowed URL is refused before any keystroke is sent
+
+### E10 — Ground school II: the secrets skill
+
+- [ ] `skills/selenium-flow/references/SECRETS.md` + its row in `SKILL.md`,
+      teaching discover → selectors → build → save → run (§F1.32)
+- [ ] The rule from §F1.29 in one line: parameters for what varies, bindings for
+      what must not be seen
+- [ ] The honest limit from §F1.24 stated plainly — a secret typed into a page
+      can be read back off it, so a bound flow is not a sandbox
+- [ ] `README.md` and the env var table gain `SECRETS_DIRS`
+- [ ] `CHANGELOG.md` — one line, and this one users very much notice
+
 ---
 
 ## Open questions
@@ -1064,8 +1540,11 @@ answer is the useful part.
 
 1. ~~**§F1.6 — flat or nested steps?**~~ **Closed:** nested `{tool, params}`, on
    the evidence in *Prior art* — every authored, parameterised format is nested.
-2. ~~**§F1.7 — parameters in Chapter 1?**~~ **Closed:** yes. `parameters` is
-   JSON Schema, substitution is `{{name}}`, zero dependencies.
+2. ~~**§F1.7 — parameters in Chapter 1?**~~ **Closed, then revised.** Yes, and
+   `parameters` is JSON Schema — but Dr K withdrew the `{{name}}` substitution
+   on 2026-09-11 in favour of **structural `valueFrom` references**. See the
+   revised §F1.7: it retires the templating question rather than answering it,
+   and takes the `$`-in-JavaScript collision with it.
 3. ~~**Does a named session see `global`?**~~ **Closed: yes, every session reads
    it.** Writes stay in your own session, and **promotion to `global` is an admin
    action in the UI** — which makes the shared library curated rather than a
@@ -1098,10 +1577,34 @@ answer is the useful part.
    **tagged with the flow's name** so a nightly run's thirty screenshots are
    attributable.
 
+10. **Should a session be able to *create* a secret?** Deliberately not
+    proposed. Everything in Part III is read-only, and an agent that can write a
+    secret can write one whose `_allowed_urls` it chose. If the need appears it
+    is an admin-UI action, like promoting a flow to `global` (§F1.2), never a
+    tool. Recommend **no**, and say so in the skill so it does not read as an
+    oversight.
+11. **Does `list_secrets` reveal too much by itself?** Names and keys are a map
+    of what exists. It is already behind the server's bearer token, and the
+    alternative is an agent that cannot discover what it may bind. Recommend
+    accepting it, with §F1.21's opt-in label as the real control — a secret
+    nobody exposed is not in the catalogue at all.
+12. **What about an `_allowed_urls` entry carrying a path?** §F1.27 matches by
+    origin, so `https://host/admin` and `https://host/` are the same thing.
+    Recommend **origin only**, and *refuse* a declaration with a path rather
+    than silently ignoring the path — a rule that quietly means less than it
+    says is worse than no rule.
+13. **Does `saveAs` survive the structural change?** §F1.7's Chapter 2 idea was
+    a step binding its output into a variable bag for `{{...}}` to read. With no
+    templating, the natural spelling is a fourth source — `valueFrom: {step:
+    {id: extract-token, field: text}}` — which is *better*, because it is
+    checkable at save time against the step ids in the same document. Recommend
+    that shape when Chapter 2 gets there.
+
 **Still genuinely open:** §F1.8 (what a run returns — a recommendation is on the
 table, no objection yet) and §F1.11 (the `ROUTE_PREFIX` rollout, which has a live
-deployment attached). Plus the Chapter 2 list: `saveAs` chaining, locator
-*fallback* on top of E0's strategy choice, and a real flow editor.
+deployment attached). Plus the Chapter 2 list: step-output references (#13),
+locator *fallback* on top of E0's strategy choice, ConfigMaps (§F1.31), and a
+real flow editor.
 
 ---
 
@@ -1118,6 +1621,17 @@ Named so nobody has to ask:
   have used `execute_script`.
 - **No scheduling.** Nothing here runs a flow on a timer. That is n8n's job, and
   n8n can already POST to `/flows/run`.
+- **No templating, in anything, ever.** §F1.7 is structural references only. A
+  flow cannot compose a string from parts; if a value needs composing, the
+  caller composes it and passes it as a parameter.
+- **No flow calling another flow.** Closed as question #4: a flow is a wizard,
+  not a program. Compose them in something built to compose.
+- **No secret writing, and no ConfigMaps.** Part III is a read-only catalogue
+  and one binding. Creating a secret is question #10; ConfigMaps are designed in
+  §F1.31 and deliberately deferred.
+- **No sandbox.** §F1.24 is explicit: a secret typed into a page can be read
+  back off it with `execute_script`. This removes the credential from the
+  conversation; it does not contain it afterwards.
 - **No flow calling another flow.** Closed as question #4: a flow is a wizard,
   not a program. Compose them in something built to compose — n8n can POST to
   `/flows/run`.
