@@ -187,8 +187,10 @@ def test_a_listing_carries_what_you_choose_by_and_not_the_steps(store):
     assert summary["name"] == "login"
     assert summary["description"] == "Log in"
     assert summary["parameters"]["properties"] == {"email": {}}
-    # The count, not the content.
-    assert summary["steps"] == 2
+    # The count, not the content — and named so, because the document itself
+    # carries a list under `steps`.
+    assert summary["step_count"] == 2
+    assert "steps" not in summary
 
 
 # ---- damage a person can do by hand ----------------------------------------
@@ -236,3 +238,73 @@ def test_a_traversing_session_name_cannot_escape_the_data_directory(store):
 def test_a_traversing_flow_name_cannot_escape_either(store):
     with pytest.raises(InvalidName):
         store.save("bot", "../../escape", {"steps": []})
+
+
+# ---- what the review caught -------------------------------------------------
+
+
+def test_a_symlink_cannot_redirect_a_session_out_of_the_data_directory(store, tmp_path):
+    """The containment check used to stop at the session directory, so a link
+    left at <session>/flows redirected every read and write under it while the
+    boundary still looked guarded. resolve() follows links at every level."""
+    outside = tmp_path.parent / "outside"
+    outside.mkdir()
+    session = tmp_path / "bot"
+    session.mkdir()
+    (session / "flows").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(InvalidName, match="inside the data directory"):
+        store.save("bot", "escape", {"steps": []})
+    with pytest.raises(InvalidName, match="inside the data directory"):
+        store.get("bot", "escape")
+    assert list(outside.iterdir()) == []
+
+
+def test_a_symlinked_session_directory_is_refused_too(store, tmp_path):
+    outside = tmp_path.parent / "elsewhere"
+    outside.mkdir()
+    (tmp_path / "linked").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(InvalidName, match="inside the data directory"):
+        store.save("linked", "flow", {"steps": []})
+
+
+def test_a_file_of_invalid_utf8_reads_as_missing(store, tmp_path):
+    """UnicodeDecodeError is a ValueError, not an OSError, so it was slipping
+    past the corruption branch — one bad byte took out the whole listing."""
+    store.save("bot", "good", {"steps": []})
+    (tmp_path / "bot" / "flows" / "binary.yaml").write_bytes(b"\xff\xfe steps: []")
+    assert store.get("bot", "binary") is None
+    assert [s["name"] for s in store.summaries("bot")] == ["binary", "good"]
+
+
+def test_surrounding_whitespace_is_trimmed_rather_than_refused():
+    """Not slugging: these arrive from URL query parameters and hand-written
+    JSON, where a trailing space is a typo. A name that is only whitespace still
+    names nothing and is still refused."""
+    assert valid_name(" bot ") == "bot"
+    assert session_for(CallerKey("named: bot ", "named")) == "bot"
+    with pytest.raises(InvalidName):
+        valid_name("   ")
+
+
+def test_a_blank_explicit_directory_means_off_just_as_a_blank_env_does(monkeypatch):
+    """The CLI flag's default IS the env var, so an unnormalised explicit value
+    was the path FLOW_DATA_DIR actually took — and "   " became a directory
+    named three spaces while from_env called the same value off."""
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    assert SeleniumMCP(grid_url="http://grid.invalid:4444", flow_data_dir="   ").flows is None
+    assert SeleniumMCP(grid_url="http://grid.invalid:4444", flow_data_dir=None).flows is None
+
+
+def test_an_explicit_directory_is_used_and_trimmed(monkeypatch, tmp_path):
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    server = SeleniumMCP(
+        grid_url="http://grid.invalid:4444", flow_data_dir=f"  {tmp_path}  "
+    )
+    assert server.flows is not None
+    server.flows.save("bot", "login", {"steps": []})
+    assert (tmp_path / "bot" / "flows" / "login.yaml").is_file()

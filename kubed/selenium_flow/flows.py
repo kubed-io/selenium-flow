@@ -79,10 +79,19 @@ class InvalidName(ValueError):
 def valid_name(name, kind: str = "name") -> str:
     """``name`` if it can be a path segment, else raise.
 
-    **Rejected, never sanitised.** Slugging a bad name into a good one saves the
-    caller a round trip and costs them the flow: it is written somewhere they
-    will not look for it again, and nothing ever says so. A 400 they fix in one
-    try is strictly better than a file they cannot find.
+    **A bad name is rejected, never slugged into a good one.** Slugging saves
+    the caller a round trip and costs them the flow: it is written somewhere
+    they will not look for it again, and nothing ever says so. A 400 they fix in
+    one try is strictly better than a file they cannot find.
+
+    Surrounding whitespace is the one thing trimmed, and it is worth being
+    precise about why that is not the same act. Slugging *rewrites a name that
+    was refused* into a different, accepted one. Trimming is the ordinary
+    boundary coercion this package does everywhere — see ``as_bool`` and
+    ``as_int`` — because these values arrive from URL query parameters and JSON
+    written by hand, where a trailing space is a typo rather than an intent.
+    ``" bot "`` and ``"bot"`` therefore name the same library, deliberately, and
+    ``"   "`` is still refused because it names nothing at all.
     """
     text = "" if name is None else str(name).strip()
     if not NAME.match(text):
@@ -164,23 +173,41 @@ class LocalFlowStore:
 
     # -- layout: the only place a path is built -----------------------------
 
-    def _session_dir(self, session: str) -> Path:
-        """The directory holding one session's things.
+    def _resolved(self, *parts: str) -> Path:
+        """A path inside the data directory, or refuse.
 
-        ``valid_name`` has already refused anything with a separator in it, so
-        the resolve check below is belt and braces rather than the defence. It
-        stays because this is the one place a caller's string becomes a
-        filesystem path, and the cost of being wrong here is the whole disk.
+        ``valid_name`` has already refused anything with a separator in it, so a
+        caller cannot traverse out with a name alone. This is the second half,
+        and it is not redundant: ``resolve()`` follows **symlinks at every
+        level**, so a link left at ``<session>/flows`` pointing somewhere else
+        is caught here and nowhere else. Checking only the session directory
+        would have let a pre-existing link redirect every read and write under
+        it while the boundary still looked guarded.
+
+        Whole path, every time, because this is the one place a caller's string
+        becomes a filesystem path.
         """
-        name = valid_name(session, "session name")
-        path = (self.root / name).resolve()
-        if path != self.root.resolve() / name:
-            raise InvalidName(f"{session!r} does not resolve inside the data directory")
+        root = self.root.resolve()
+        path = root.joinpath(*parts).resolve()
+        if path != root and root not in path.parents:
+            raise InvalidName(
+                f"{'/'.join(parts)!r} does not resolve inside the data directory"
+            )
         return path
 
+    def _session_dir(self, session: str) -> Path:
+        """The directory holding one session's things."""
+        return self._resolved(valid_name(session, "session name"))
+
+    def _flows_dir(self, session: str) -> Path:
+        return self._resolved(valid_name(session, "session name"), FLOWS_DIR)
+
     def _path(self, session: str, name: str) -> Path:
-        flow = valid_name(name, "flow name")
-        return self._session_dir(session) / FLOWS_DIR / f"{flow}{SUFFIX}"
+        return self._resolved(
+            valid_name(session, "session name"),
+            FLOWS_DIR,
+            f"{valid_name(name, 'flow name')}{SUFFIX}",
+        )
 
     # -- reads ---------------------------------------------------------------
 
@@ -191,7 +218,7 @@ class LocalFlowStore:
         return sorted(p.name for p in self.root.iterdir() if p.is_dir())
 
     def names(self, session: str) -> list[str]:
-        directory = self._session_dir(session) / FLOWS_DIR
+        directory = self._flows_dir(session)
         if not directory.is_dir():
             return []
         return sorted(p.stem for p in directory.glob(f"*{SUFFIX}") if p.is_file())
@@ -212,7 +239,11 @@ class LocalFlowStore:
                     "session": session,
                     "description": document.get("description", ""),
                     "parameters": document.get("parameters", {}),
-                    "steps": len(document.get("steps") or []),
+                    # Named for what it is. Calling it `steps` would put an int
+                    # where the document itself carries a list, and E2 reads
+                    # both — one consumer doing summary["steps"][0] is the whole
+                    # cost of the shorter name.
+                    "step_count": len(document.get("steps") or []),
                 }
             )
         return found
@@ -229,7 +260,11 @@ class LocalFlowStore:
             loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return None
-        except (OSError, yaml.YAMLError) as exc:
+        # UnicodeDecodeError is a ValueError, NOT an OSError, so it needs
+        # naming here: a hand-edited file with one bad byte — or a binary file
+        # dropped in the directory — would otherwise take out every listing that
+        # walked past it, which is exactly what this branch exists to prevent.
+        except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
             log.warning("flow %s/%s could not be read: %s", session, name, exc)
             return None
         if not isinstance(loaded, dict):

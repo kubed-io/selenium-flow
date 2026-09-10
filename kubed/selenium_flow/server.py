@@ -64,9 +64,13 @@ class SeleniumMCP:
         # default, and is the feature being off rather than a degraded mode.
         # An explicit directory beats the environment, the way every flag here
         # does; see flows.py for why there is no fallback location.
-        self.flows = (
-            flows.LocalFlowStore(flow_data_dir) if flow_data_dir else flows.from_env()
-        )
+        # Stripped before it is judged, so an explicit directory and one out of
+        # the environment agree about what "unset" means. Without this a
+        # FLOW_DATA_DIR of "   " reached here through the CLI flag's default and
+        # became a directory named three spaces, while from_env called the same
+        # value off.
+        directory = (flow_data_dir or "").strip()
+        self.flows = flows.LocalFlowStore(directory) if directory else flows.from_env()
 
         # A token turns on auth for both surfaces. Absent, the server is open —
         # correct for a local `docker compose up`, and the reason the deployment

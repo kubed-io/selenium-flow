@@ -291,17 +291,17 @@ special case, it is the contract `/browser/*` already has applied to a new noun.
 $FLOW_DATA_DIR/
   global/                     # everything that did not name itself (§F1.2)
     flows/
-      cookie-banner.json
+      cookie-banner.yaml
     files/
   research-bot/               # ?session=research-bot
     flows/
-      login.json
-      weekly-report.json
+      login.yaml
+      weekly-report.yaml
     files/
       report-2026-09-10.pdf
   form-filler/
     flows/
-      onboarding.json
+      onboarding.yaml
     files/
 ```
 
@@ -313,7 +313,9 @@ $FLOW_DATA_DIR/
   disappear for reasons nobody could trace back to a config decision they never
   made.
 - The session directory is created lazily, on first write.
-- `flows/` holds one JSON document per flow, named `<flow>.json`.
+- `flows/` holds one document per flow, named `<flow>.yaml`. YAML rather than
+  JSON because a person edits these by hand and in the admin UI — see §F1.14,
+  which settled the format after this section was first written.
 - `files/` holds kept files, byte for byte as they came off the Grid.
 
 Both halves live under one root because they are the same idea: *this session's
