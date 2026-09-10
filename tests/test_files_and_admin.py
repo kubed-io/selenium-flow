@@ -119,11 +119,69 @@ def test_the_admin_page_carries_the_shared_components(client):
     assert "--accent" in page, "the shared stylesheet is missing"
 
 
+def test_the_admin_page_wires_up_ending_a_session(client):
+    """The button is useless if the page never hands the component a handler —
+    `onend` is what makes it render at all, so its absence is silent."""
+    page = client.get("/admin").text
+    assert "onend: endSession" in page
+    assert "/admin/sessions/' + encodeURIComponent(id), 'DELETE'" in page
+
+
+def test_the_components_only_offer_ending_when_asked(client):
+    """The same library renders inside an MCP app, which holds no credential.
+    A button that is always drawn would be a dead control there at best."""
+    page = client.get("/admin").text
+    assert "if (opts.onend)" in page, "the End button must be opt-in"
+
+
 def test_the_admin_api_requires_the_token(client):
     assert client.get("/admin/sessions").status_code == 401
     assert client.get("/admin/sessions/x/files").status_code == 401
     bad = {"Authorization": "Bearer nope"}
     assert client.get("/admin/sessions", headers=bad).status_code == 401
+
+
+# --- ending a session -----------------------------------------------------
+
+
+def test_ending_a_session_requires_the_token(client):
+    """It quits somebody's browser, so it is the last route to leave open."""
+    assert client.delete("/admin/sessions/abc").status_code == 401
+    bad = {"Authorization": "Bearer nope"}
+    assert client.delete("/admin/sessions/abc", headers=bad).status_code == 401
+
+
+def test_ending_a_session_quits_it_on_the_grid(client):
+    with patch.object(browser.Grid, "quit") as quit_:
+        response = client.delete(
+            "/admin/sessions/abc", headers={"Authorization": f"Bearer {TOKEN}"}
+        )
+    assert response.status_code == 200
+    assert response.json() == {"success": True, "session_id": "abc"}
+    quit_.assert_called_once_with("abc")
+
+
+def test_a_session_that_is_already_gone_reports_the_failure(client):
+    """A stale row is the common case for this button, so the Grid refusing is
+    an ordinary outcome and must not surface as a 500."""
+    with patch.object(browser.Grid, "quit", side_effect=RuntimeError("no such session")):
+        response = client.delete(
+            "/admin/sessions/gone", headers={"Authorization": f"Bearer {TOKEN}"}
+        )
+    assert response.status_code == 502
+    assert "no such session" in response.json()["error"]
+
+
+def test_ending_a_session_does_not_disturb_the_files_route(client):
+    """`/admin/sessions/<id>` and `/admin/sessions/<id>/files` are different
+    routes, and a DELETE to one must not be routed to the other."""
+    with patch.object(browser.Grid, "clear_files") as clear:
+        with patch.object(browser.Grid, "quit") as quit_:
+            client.delete(
+                "/admin/sessions/abc", headers={"Authorization": f"Bearer {TOKEN}"}
+            )
+    quit_.assert_called_once()
+    clear.assert_not_called()
 
 
 def test_a_file_needs_a_valid_signature_not_a_token(client):

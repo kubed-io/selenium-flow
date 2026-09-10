@@ -159,7 +159,7 @@ That last one travels: signed over path and expiry, because an `<img>` tag canno
 
 ## 🖥 Admin UI
 
-`GET /admin` — the sessions the Grid is running and what each downloaded, each marked with the browser it is running. Click a file to view it in place; click a session for a header of its context.
+`GET /admin` — the sessions the Grid is running and what each downloaded, each marked with the browser it is running. Click a file to view it in place; click a session for a header of its context. **End** quits a stale browser and gives its Grid slot back, rather than waiting out the Grid's idle timeout.
 
 The list **pushes its own updates** over Server-Sent Events — no refresh button, and no polling per tab: one loop serves every page. Rows carry the name their caller claimed; a browser this server has no record of is labelled as somebody else's rather than passed off as ours.
 

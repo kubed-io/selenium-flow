@@ -47,7 +47,10 @@ const SF = (() => {
   /* A list of live browser sessions.
      opts.onpick — called with a session id when a row is chosen. Omit it and
      the rows render as plain, non-interactive summaries, which is what an app
-     embedded in a transcript wants. */
+     embedded in a transcript wants.
+     opts.onend — called with a session id to end it. Omit it and no End button
+     is rendered, which is how the same component stays safe to embed somewhere
+     that holds no credential. */
   function sessionList(el, data, opts = {}) {
     const sessions = (data && data.sessions) || [];
     if (!sessions.length) return empty(el, 'No browsers are running.');
@@ -71,6 +74,17 @@ const SF = (() => {
         (s.flow === false ? ' · not opened through this server' : '') +
         (s.node ? ' · ' + esc(s.node) : '') + '</div>';
       if (opts.onpick) card.onclick = () => opts.onpick(s.session_id);
+      if (opts.onend) {
+        const end = document.createElement('button');
+        end.className = 'btn danger end';
+        end.type = 'button';
+        end.textContent = 'End';
+        end.title = 'Quit this browser and free its Grid slot';
+        // The card itself opens the session, so a click here must not also be
+        // a click on the card — ending one and navigating into its corpse.
+        end.onclick = (e) => { e.stopPropagation(); opts.onend(s.session_id); };
+        card.querySelector('.row').appendChild(end);
+      }
       el.appendChild(card);
     }
   }
@@ -111,8 +125,9 @@ const SF = (() => {
     el.appendChild(grid);
   }
 
-  /* One session's headline: what it is, who holds it, where it runs. */
-  function sessionSummary(el, data) {
+  /* One session's headline: what it is, who holds it, where it runs.
+     opts.onend — as for sessionList; omitted means no End button. */
+  function sessionSummary(el, data, opts = {}) {
     const s = data || {};
     const facts = [
       ['session', s.session_id],
@@ -135,12 +150,21 @@ const SF = (() => {
       (s.live === false
         ? '<span class="pill">ended</span>'
         : '<span class="pill live">live</span>') +
+      (opts.onend && s.live !== false
+        ? '<button type="button" class="btn danger end" id="endSession" ' +
+          'title="Quit this browser and free its Grid slot">End session</button>'
+        : '') +
       '</div><div class="facts">' +
       facts.map(([k, v]) =>
         '<div class="fact"><div class="k">' + esc(k) + '</div>' +
         '<div class="v' + (k === 'session' ? ' mono small' : '') + '">' +
         esc(v) + '</div></div>').join('') +
       '</div></div>';
+
+    // Bound after the markup exists, rather than inlined as an attribute, so
+    // this file never writes a handler into a string it also escapes into.
+    const end = el.querySelector('#endSession');
+    if (end) end.onclick = () => opts.onend(s.session_id);
   }
 
   /* Look at a file without leaving the page.

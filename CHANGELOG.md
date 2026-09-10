@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- End a session from the admin UI: an **End** button on every row and in a session's detail view, backed by `DELETE /admin/sessions/{id}`. An abandoned browser already expires on its own — the Grid reaps it on `SE_NODE_SESSION_TIMEOUT` and an autoscaled node then scales to zero — so this is for not waiting out those minutes while one of a handful of Grid slots sits held. It confirms first, and a caller whose saved session is ended transparently reopens where it left off.
 - `open_session(browser="firefox")` opens Firefox instead of Chrome — one argument, and every other action behaves identically on both, because both are plain W3C WebDriver and only session creation differs. The choice is stored with the session, so one the Grid reaped reopens as the same browser rather than the default; `session://current` reports it, and the admin UI marks each session with the browser it is running. Set a server-wide default with `DEFAULT_BROWSER`, or a per-client one with `?browser=` / `X-Browser`.
 
 - Session files: everything a browser downloads is kept in Selenium Grid's own per-session store, created with the session and deleted with it, so there is no second store to clean up. Read it as the `session://files` resource, one file at a time as `session://files/{name}`, or the `session_files` tool.

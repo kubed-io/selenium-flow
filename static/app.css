@@ -78,6 +78,14 @@ button, .btn {
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 button:disabled { opacity: 0.5; cursor: default; }
 
+/* Destructive, so it reads as one before it is clicked. Outlined rather than
+   filled: it sits beside a live pill on every row, and a wall of solid red
+   would make the list look like an alarm instead of an inventory. */
+button.danger { color: var(--warn); border-color: currentColor; background: transparent; }
+button.danger:hover:not(:disabled) { background: var(--warn); color: var(--panel); }
+/* Compact, since one rides in each session row next to the id. */
+.btn.end { padding: 3px 9px; font-size: 12px; }
+
 input[type=password], input[type=text] {
   font: inherit;
   padding: 8px 11px;

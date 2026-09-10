@@ -249,6 +249,39 @@ def register(
         )
 
     @mcp.custom_route(
+        "/admin/sessions/{session_id}",
+        methods=["DELETE"],
+        name="admin_end_session",
+    )
+    async def admin_end_session(request: Request) -> JSONResponse:
+        """End a browser from the dashboard, giving its Grid slot back now.
+
+        The Grid reaps an idle session on its own timeout, so this is not the
+        only way one ends — it is the way that does not cost five minutes of a
+        scarce slot while somebody waits. The listing already shows which
+        sessions this server has no record of, which are the ones most likely
+        to be worth ending by hand.
+
+        Goes through ``actions.close_session`` rather than the Grid directly, so
+        there is one path a session ends by. The saved-session mapping is left
+        alone deliberately: its owner's next call finds the browser gone and
+        transparently reopens where it left off, which is better than being told
+        an admin deleted something.
+        """
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        session_id = request.path_params["session_id"]
+        try:
+            # Blocking HTTP to the Grid, so off the event loop — a slow Grid
+            # would otherwise stall every other connected dashboard with it.
+            result = await run_in_threadpool(actions.close_session, session_id)
+        except Exception as exc:  # noqa: BLE001 - usually a session that ended
+            log.info("ending %s failed: %s", session_id, exc)
+            return JSONResponse({"error": str(exc)}, status_code=502)
+        log.info("session %s ended from the admin UI", session_id)
+        return JSONResponse(result)
+
+    @mcp.custom_route(
         "/admin/sessions/{session_id}/files",
         methods=["GET", "DELETE"],
         name="admin_files",

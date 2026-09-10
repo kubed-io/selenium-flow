@@ -98,7 +98,26 @@ function signOut() {
 }
 
 function paint(data) {
-  SF.sessionList($('sessions'), data, {onpick: openSession});
+  SF.sessionList($('sessions'), data, {onpick: openSession, onend: endSession});
+}
+
+/* Ending is destructive and irreversible — the browser is gone with whatever
+   state it held — so it asks first, everywhere it is offered. */
+async function endSession(id) {
+  if (!confirm('End this browser session? Anything it was holding is lost.')) return;
+  try {
+    await api('/admin/sessions/' + encodeURIComponent(id), 'DELETE');
+  } catch (e) {
+    alert('Could not end the session: ' + e.message);
+    return;
+  }
+  // The event stream repaints the list on its own, but only once the Grid stops
+  // reporting the session — so refresh rather than wait on a race.
+  if (current === id) {
+    show($('detailView'), false); show($('sessionsView'), true);
+    current = null;
+  }
+  loadSessions();
 }
 
 async function loadSessions() {
@@ -167,7 +186,7 @@ async function openSession(id) {
   $('detailHeader').innerHTML = '';
   try {
     const data = await api('/admin/sessions/' + encodeURIComponent(id) + '/files');
-    SF.sessionSummary($('detailHeader'), data.session || {session_id: id});
+    SF.sessionSummary($('detailHeader'), data.session || {session_id: id}, {onend: endSession});
     SF.fileGrid(box, data, {base: BASE});
   } catch (e) {
     box.innerHTML = '<div class="empty error">' + SF.esc(e.message) + '</div>';
