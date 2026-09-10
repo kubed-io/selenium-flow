@@ -51,10 +51,13 @@ opens a browser in one node and threads `session_id` through the rest.
 Open      POST /browser/open      {"width":1280,"height":800}   -> session_id
 Navigate  POST /browser/navigate  {"session_id":"...", "url":"..."}
 Write     POST /browser/write     {"session_id":"...", "xpath":"...", "text":"..."}
-Close     POST /browser/close     {"session_id":"..."}
+End       POST /browser/end       {"session_id":"..."}
 ```
 
-Wire the close step so it runs on **both** the success and failure paths.
+Wire the end step so it runs on **both** the success and failure paths.
+
+`POST /browser/close` is the old name for the same thing and still works, so an
+existing workflow does not need editing.
 
 ## Recovering a dead session
 

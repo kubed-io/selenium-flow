@@ -5,9 +5,13 @@
 ```bash
 git clone --recurse-submodules git@github.com:kubed-io/selenium-flow.git
 pip install -e ".[test]"
-ruff check kubed scripts
+ruff check .
 pytest
 ```
+
+`ruff check .` covers the whole checkout, tests included — the rule set and the
+two documented exceptions live in `[tool.ruff.lint]` in `pyproject.toml`, so
+there is no second list of paths to keep in sync.
 
 Python 3.14 is the baseline — it is what the image runs and the only interpreter
 a pull request is tested on. The package supports 3.10 and up, and CI sweeps the
@@ -109,7 +113,7 @@ A pull request runs these, and all of them are required to merge:
 | Check | What it is |
 |---|---|
 | `PR Tasks` | assigns you, and fails if `CHANGELOG.md` has no new `[Unreleased]` entry — that section becomes the release notes. The `no changelog` label is the escape hatch |
-| `Test (3.14)` | `ruff check kubed scripts` and the full pytest suite |
+| `Test (3.14)` | `ruff check .` and the full pytest suite |
 | `Package` | builds the sdist + wheel, `twine check --strict`, then installs the wheel clean and imports it |
 | `CodeQL` / `Dependency Audit` / `Workflow Audit` / `Dockerfile Lint` / `OpenAPI Spec` | `quality.yml` — code scanning, `pip-audit`, `zizmor`, `hadolint`, and a Redocly lint of the generated spec |
 | Copilot review | reviews against `.github/copilot-instructions.md` |
@@ -120,6 +124,23 @@ wheel instead, which is the part that is ours.
 
 When a quality gate is wrong rather than you, the fix is a rule exclusion **with
 its reason** in `.github/zizmor.yml` or `.hadolint.yaml` — never a bare ignore.
+
+## Writing a test
+
+`tests/conftest.py` owns the shared doubles — `RecordingActions`, `FakeGrid`,
+`manager()`, and the `named_caller` / `stateless_caller` fixtures that make the
+ambient request look like one kind of client or the other. Import them from
+there rather than writing another copy; two copies of `RecordingActions` had
+already drifted apart, and which behaviours a test could assert depended on
+which file it happened to live in.
+
+**Test a behaviour once, at the layer that owns it.** `SessionManager.end_browser`
+decides what happens to a record when a browser ends, so that belongs in
+`test_sessions.py`. The admin route's job is the status code, the response shape
+and the auth check — so `test_files_and_admin.py` asserts those and does not
+re-assert the manager's contract through HTTP. When both files test the same
+sentence, the second one is not extra safety: it is a second thing to update
+when the behaviour changes, and it will be the one that gets missed.
 
 ## Before you push
 

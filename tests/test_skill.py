@@ -180,9 +180,9 @@ async def test_a_reference_can_be_read_through_the_tool(server):
 
 def test_the_uri_follows_the_discovery_convention():
     """`list_skills` scans for exactly this shape; anything else is invisible."""
-    assert RESOURCE_URI == f"skill://{SKILL_NAME}/{ENTRY}"
+    assert f"skill://{SKILL_NAME}/{ENTRY}" == RESOURCE_URI
     assert RESOURCE_URI.startswith("skill://") and RESOURCE_URI.endswith("/SKILL.md")
-    assert MANIFEST_URI == f"skill://{SKILL_NAME}/{MANIFEST}"
+    assert f"skill://{SKILL_NAME}/{MANIFEST}" == MANIFEST_URI
 
 
 async def test_a_fastmcp_client_discovers_the_skill(server):

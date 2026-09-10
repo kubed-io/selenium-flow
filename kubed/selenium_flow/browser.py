@@ -495,6 +495,8 @@ def full_page_size(driver) -> tuple[int, int]:
     take the larger of the two.
     """
     return driver.execute_script(
-        "return [Math.max(document.body.scrollWidth, document.documentElement.scrollWidth),"
-        " Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)]"
+        "return ["
+        "Math.max(document.body.scrollWidth, document.documentElement.scrollWidth),"
+        "Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)"
+        "]"
     )

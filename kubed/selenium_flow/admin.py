@@ -22,7 +22,7 @@ import json
 import logging
 import mimetypes
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import anyio
 from starlette.concurrency import run_in_threadpool
@@ -34,7 +34,7 @@ from starlette.responses import (
     StreamingResponse,
 )
 
-from . import links
+from . import auth, links
 from .browser import DEFAULT_BROWSER, is_partial
 
 log = logging.getLogger(__name__)
@@ -145,13 +145,7 @@ def register(
     console = console_url or os.environ.get("GRID_CONSOLE_URL", DEFAULT_CONSOLE_URL)
 
     def authorized(request: Request) -> bool:
-        if not token:
-            return True
-        header = request.headers.get("authorization", "")
-        scheme, _, value = header.partition(" ")
-        return (scheme.lower() == "bearer" and value.strip() == token) or (
-            header.strip() == token
-        )
+        return auth.authorized(request, token)
 
     @mcp.custom_route("/admin", methods=["GET"], name="admin_ui")
     async def admin_ui(_request: Request) -> HTMLResponse:
@@ -412,7 +406,7 @@ def register(
             headers={
                 # Named for download, but shown inline when the browser can:
                 # the common case is looking at a screenshot, not saving it.
-                "Content-Disposition": f'inline; filename="{os.path.basename(name)}"',
+                "Content-Disposition": f'inline; filename="{PurePosixPath(name).name}"',
                 # Safe to cache hard — the signature already bounds the lifetime,
                 # and a stored file never changes under its own name.
                 "Cache-Control": "private, max-age=3600",

@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Every MCP tool now declares its safety annotations, so a client can tell a read that changes nothing from a click that might place an order. `extract` is marked read-only; `interact`, `press_key`, `dialog` and `execute_script` are marked destructive, because each hands the page an instruction the page is free to interpret. Without them MCP's default applies — `destructiveHint: true` — which made every tool here look equally dangerous and earned harmless ones a confirmation prompt.
 - `quality.yml` gates every pull request on five parallel checks: CodeQL over the Python **and** the workflows, `pip-audit` over the resolved runtime dependencies, `zizmor` over the CI itself, `hadolint` over the Dockerfile, and a Redocly lint of the generated OpenAPI spec.
 - `package.yml` builds the sdist and wheel, checks the metadata with `twine --strict`, and installs the wheel into a clean environment to prove `skills/` and `static/` actually shipped. `publish.yml` calls it at the release tag and attaches both files to the GitHub Release.
 - Copilot reviews pull requests against `.github/copilot-instructions.md` and the per-language files in `.github/instructions/`, which record this repo's non-negotiables — surface parity above all — and the settled false positives.
@@ -45,6 +46,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The bearer token is compared with `hmac.compare_digest` instead of `==`. String equality returns as soon as two bytes differ, so on routes reachable by anyone who can reach the port the timing leaked how long a correct prefix was. `links.py` had always taken this care for signatures; the token itself had not.
+- In-memory sessions no longer accumulate. `get` only ever expired the one key it was handed, so a session named once and never revisited stayed in memory until the process restarted; listing them now collects the expired ones as it goes. Redis never had the problem, which is why it was invisible in the deployment that matters and real in the default one.
+- An uploaded filename is reduced to its basename even when it arrives Windows-style. `os.path.basename` does not treat a backslash as a separator on Linux, so a name like `..\\..\\etc\\passwd` survived the one place a caller's string is narrowed before being written to disk.
+- The OpenAPI description and the stateless skill reference told callers to use `/browser/close`, which was renamed to `/browser/end`. The old path still works; the docs now name the current one.
 - Dependabot pull requests no longer fail the changelog gate. `dependabot.yml` already asked for the `no changelog` label, but Dependabot can only apply a label that already exists in the repository and drops the rest silently — none of the five existed, so every bump arrived unlabelled and failed. The labels are created, and `pr.yml` now skips the gate for Dependabot outright, so it cannot depend on repository state a rename would break.
 - The test suite runs on Python 3.10 again. `tests/test_packaging.py` imported `tomllib`, which is 3.11+, so the whole module failed to collect and took the run down with it; `tests/test_skill.py` reached for the same module and quietly skipped instead, dropping the check that proves every skill file reaches the wheel on the oldest interpreter. Both now fall back to `tomli`, and neither skips. Found by the new 3.10 → 3.14 matrix on its first sweep.
 - The admin detail view updates live. It dropped every pushed event while it was open — to avoid clobbering a file grid someone was reading — which left the header permanently stale: a browser attaching to the session you were looking at only showed if you navigated out and back. It now takes the update, and the file grid is still only refetched when the files actually changed.
@@ -55,6 +60,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `auth.py` is now the one place that decides whether a request carries the server's token, replacing two hand-rolled copies of the same header parsing in `routes.py` and `admin.py`.
+- The wait timeout is one constant rather than fourteen copies of the literal `30` spread across `tools.py` and `actions.py` — two lists that had to agree or the MCP and HTTP surfaces would quietly disagree about what an omitted argument means.
+- ruff now runs over the whole checkout with a much wider rule set (bugbear, simplifications, pathlib, import order, blind-except). The 19 existing `# noqa: BLE001` comments become meaningful rather than decorative, and `RUF100` fails any that stops applying. `os.path` is gone from the package in favour of `pathlib`.
+- The package metadata names each supported interpreter instead of a bare `Python :: 3`, so it says the same thing CI sweeps.
 - The image is no longer built on pull requests. A multi-arch build is ~9 minutes for a signal that almost never differs from the merge build, and the Dockerfile is now linted and the wheel built and installed on every PR instead.
 - Tests run on Python 3.10 through 3.14. A pull request runs 3.14 alone to stay fast; main and every release sweep the whole supported range, which is what makes the `requires-python >=3.10` claim real. The image and every CI job move to 3.14.
 - `wiki.yml` reads `GH_APP_ID`, the variable this org actually sets. It read `GH_CLIENT_ID`, which is set nowhere — so the App token step was always skipped and the built-in token pushed the wiki by accident rather than by the documented fallback.

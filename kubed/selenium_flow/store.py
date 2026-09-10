@@ -155,13 +155,24 @@ class MemoryStore:
         self._data.pop(key, None)
 
     def records(self) -> dict[str, SessionRecord]:
-        """Every live flow session, keyed the way it is stored."""
+        """Every live flow session, keyed the way it is stored.
+
+        Purges as it goes, which is the only thing that ever collects an entry
+        nobody asks for again. ``get`` expires the one key it was handed, so a
+        caller that names a session once and never returns — a script run from a
+        shell, a workflow that builds a name per invocation — left a record here
+        until the process restarted. Redis has never had this problem: it
+        expires entries itself, which is why the leak was invisible in the
+        deployment that matters and real in the default one.
+        """
         now = self._clock()
-        return {
-            key: record
-            for key, (expires_at, record) in list(self._data.items())
-            if now < expires_at
-        }
+        live = {}
+        for key, (expires_at, record) in list(self._data.items()):
+            if now < expires_at:
+                live[key] = record
+            else:
+                del self._data[key]
+        return live
 
     def owners(self) -> dict[str, str]:
         """session id -> the caller key holding it, for the sessions attached."""

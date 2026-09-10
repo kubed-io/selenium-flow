@@ -83,8 +83,10 @@ jobs:
     - name: Install
       run: pip install .[test]
 
+    # No paths: the ruff config covers the whole checkout now, tests included,
+    # so naming directories here is a second list to keep in sync with it.
     - name: Lint
-      run: ruff check kubed scripts
+      run: ruff check .
 
     # --junit-xml is what makes the results readable without opening the log:
     # the next step renders it into the run summary, and a failing assertion

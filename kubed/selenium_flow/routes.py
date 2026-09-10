@@ -18,7 +18,7 @@ from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from . import settings
+from . import auth, settings
 from .actions import Actions
 from .openapi import build_spec
 
@@ -123,7 +123,7 @@ def _add(mcp, actions, token, prefix, path, method_name) -> None:
 
     @mcp.custom_route(f"{prefix}/{path}", methods=["POST"], name=f"browser_{path}")
     async def handler(request: Request) -> JSONResponse:
-        if token and not _authorized(request, token):
+        if not auth.authorized(request, token):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
 
         try:
@@ -183,16 +183,3 @@ async def _body(request: Request) -> dict:
         return await request.json()
     except Exception:  # noqa: BLE001 - an empty body is legitimate for /open
         return {}
-
-
-def _authorized(request: Request, token: str) -> bool:
-    """Accept the token as a bearer credential or as a bare header value.
-
-    ``Authorization: Bearer <token>`` is what MCP clients send, so the REST side
-    accepts the same thing rather than inventing a second scheme.
-    """
-    header = request.headers.get("authorization", "")
-    scheme, _, value = header.partition(" ")
-    if scheme.lower() == "bearer" and value.strip() == token:
-        return True
-    return header.strip() == token

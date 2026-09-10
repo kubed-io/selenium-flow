@@ -12,7 +12,6 @@ from selenium import webdriver
 from kubed.selenium_flow import settings as settings_module
 from kubed.selenium_flow.browser import (
     BROWSERS,
-    DEFAULT_BROWSER,
     Grid,
     is_partial,
     normalize_browser,

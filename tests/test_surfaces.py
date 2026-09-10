@@ -7,7 +7,6 @@ other breaks that quietly, so it is asserted here rather than trusted.
 
 import pytest
 
-from kubed.selenium_flow.actions import Actions
 from kubed.selenium_flow.routes import ENDPOINTS
 
 pytestmark = pytest.mark.unit
@@ -75,6 +74,46 @@ async def test_tools_declare_real_parameter_schemas(server):
     assert "input" not in props
     # ctx is injected by FastMCP and must never reach the model as a parameter
     assert "ctx" not in props
+
+
+async def test_every_tool_declares_its_safety_hints(server):
+    """A client reads these to decide whether to ask the user first.
+
+    An unannotated tool falls back to the MCP defaults — `readOnlyHint` false
+    and `destructiveHint` TRUE — so a missing annotation is not neutral: it
+    makes a harmless tool look dangerous and earns it a confirmation prompt it
+    does not need. Every tool must say what it is.
+    """
+    for tool in await server.mcp.list_tools():
+        hints = tool.annotations
+        assert hints is not None, f"{tool.name} declares no annotations"
+        assert hints.title, f"{tool.name} has no display title"
+        # Every one of these drives a real browser on the open internet.
+        assert hints.open_world_hint is True, tool.name
+
+
+async def test_only_reading_the_page_is_marked_read_only(server):
+    """The hint is a promise a client is entitled to act on, so it is asserted
+    against a named list rather than left to whoever adds the next tool.
+
+    `screenshot` is the interesting exclusion: it looks like a pure read, but
+    `save=true` writes a file into the session's store, and a tool cannot be
+    read-only only sometimes.
+    """
+    read_only = {
+        t.name for t in await server.mcp.list_tools() if t.annotations.read_only_hint
+    }
+    assert read_only == {"extract"}
+
+
+async def test_a_tool_that_can_act_on_the_page_admits_it(server):
+    """These hand the page an instruction it is free to interpret — a click, a
+    keypress, an answered confirm, arbitrary JavaScript. Any of them can place
+    an order or delete a record, and this server cannot tell which, so none may
+    claim to be non-destructive."""
+    tools = {t.name: t for t in await server.mcp.list_tools()}
+    for name in ("interact", "press_key", "dialog", "execute_script"):
+        assert tools[name].annotations.destructive_hint is True, name
 
 
 async def test_press_key_lists_its_keys_in_the_description(server):

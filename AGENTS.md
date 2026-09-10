@@ -67,6 +67,26 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   wrappers over it. Adding a capability to one surface and not the other is the failure
   this design exists to prevent, and `tests/test_surfaces.py` asserts they match — if that
   test fails, add the missing half rather than editing the assertion.
+- **Every tool declares its MCP annotations, and they must be honest.** `_hints()` in
+  `tools.py` builds them. A client reads `readOnlyHint` / `destructiveHint` to decide
+  whether to ask the user before running a tool — ChatGPT skips the confirmation prompt
+  for a read-only tool — so these are a promise, not decoration. An *unannotated* tool is
+  not neutral: MCP's default is `destructiveHint: true`, so leaving them off makes a
+  harmless tool look dangerous.
+
+  `destructiveHint` is the one worth arguing about, and the rule is: **true wherever the
+  tool hands the page an instruction the page is free to interpret** — `interact`,
+  `press_key`, `dialog`, `execute_script`. A click is not destructive in itself and can
+  place an order, and this server cannot tell which. `extract` is the only read-only tool;
+  `screenshot` is not, because `save=true` writes a file, and a tool cannot be read-only
+  only sometimes. `tests/test_surfaces.py` pins all three claims.
+
+- **One place decides whether a request is authorised: `auth.py`.** It is used by the
+  action endpoints, the admin API and the event stream. The comparison is
+  `hmac.compare_digest`, because these routes are reachable by anyone who can reach the
+  port and `==` leaks the length of a correct prefix. There used to be two hand-rolled
+  copies of this check, both using `==`. If a third door appears, it calls `auth.py`.
+
 - **Type hints in `tools.py` are the tool schema.** FastMCP builds the JSON schema from the
   signature, so a missing or loose annotation is a worse tool, not a style nit. This is the
   whole reason the server exists: the n8n MCP trigger advertised every tool as a single
@@ -146,7 +166,7 @@ fails if a bare `<tool>.md` comes back.
 
 This is a rule, not a preference.
 
-- **An MCP client gets `open_session` and `close_session`. That is its session.**
+- **An MCP client gets `open_session` and `end_browser`. That is its session.**
 - **It can only ever control its own.** Nothing on the MCP surface enumerates
   sessions, because a listing hands any client somebody else's browser id — and
   a browser id is the entire credential for driving that browser.

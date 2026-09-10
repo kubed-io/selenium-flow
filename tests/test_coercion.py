@@ -6,6 +6,7 @@ through LLM tool calls. Each of the cases below has actually reached a handler.
 
 import pytest
 
+from kubed.selenium_flow.actions import _safe_name
 from kubed.selenium_flow.browser import as_bool, as_int, normalize_url, png_size
 
 pytestmark = pytest.mark.unit
@@ -80,3 +81,40 @@ def test_png_size_reads_the_ihdr_header():
     )
     assert png_size(one_px) == (1, 1)
     assert base64.b64decode(one_px)[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+# ---- the name an uploaded file is given -------------------------------------
+
+
+@pytest.mark.parametrize(
+    "given,expected",
+    [
+        ("report.csv", "report.csv"),
+        # Reduced to a basename: the caller chose this string and it is written
+        # to disk here, so it must not be able to name a directory.
+        ("/etc/passwd", "passwd"),
+        ("../../etc/passwd", "passwd"),
+        # Backslashes count too. os.path.basename does not treat one as a
+        # separator on Linux, so this used to survive intact as a "basename".
+        (r"..\..\etc\passwd", "passwd"),
+        (r"C:\Users\me\report.csv", "report.csv"),
+        # A leading dot would make a hidden file, and an empty name is not one.
+        (".hidden", "hidden"),
+        ("", "upload"),
+        (None, "upload"),
+        ("/", "upload"),
+    ],
+)
+def test_safe_name_narrows_whatever_the_caller_sent(given, expected):
+    assert _safe_name(given) == expected
+
+
+def test_safe_name_adds_the_extension_the_page_reads_the_type_from():
+    """The browser reports File.type from the EXTENSION, not the bytes, so a
+    name without one arrives as an empty type and no sniffing happens."""
+    assert _safe_name("data", mime_type="application/json") == "data.json"
+    assert _safe_name("data", mime_type="text/yaml") == "data.yaml"
+    # An extension already present is never second-guessed.
+    assert _safe_name("data.csv", mime_type="application/json") == "data.csv"
+    # Nothing to go on falls back to whatever the caller's surface defaults to.
+    assert _safe_name("data", default_extension=".txt") == "data.txt"
