@@ -76,6 +76,13 @@ def build_parser() -> argparse.ArgumentParser:
         "required to run more than one replica (env: STATELESS_HTTP)",
     )
     parser.add_argument(
+        "--flow-data-dir",
+        default=os.environ.get("FLOW_DATA_DIR", ""),
+        help="directory holding each session's saved flows and kept files. "
+        "Unset disables flows entirely; there is deliberately no default "
+        "location (env: FLOW_DATA_DIR)",
+    )
+    parser.add_argument(
         "--transport",
         default=os.environ.get("TRANSPORT", "http"),
         choices=["stdio", "http"],
@@ -112,14 +119,16 @@ def main(argv: list[str] | None = None) -> None:
         saved_sessions=args.saved_sessions,
         skill_enabled=args.skill_enabled,
         apps_enabled=args.apps_enabled,
+        flow_data_dir=args.flow_data_dir or None,
     )
     logging.getLogger(__name__).info(
-        "grid=%s auth=%s saved-sessions=%s stateless=%s skill=%s",
+        "grid=%s auth=%s saved-sessions=%s stateless=%s skill=%s flows=%s",
         args.grid_url,
         "on" if args.auth_token else "off",
         server.sessions.kind,
         args.stateless,
         server.skill.skill_info.name if server.skill else "off",
+        server.flows.kind if server.flows else "off",
     )
     server.run(transport=args.transport, host=args.host, port=args.port)
 

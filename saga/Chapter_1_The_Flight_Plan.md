@@ -918,41 +918,45 @@ any time; E6 rides along and finishes last.
 touch the tool surface, the HTTP surface, the OpenAPI responses, the wiki and the
 skill, and a single PR containing all of it would be unreviewable.
 
-### E0 — Pre-flight: selectors other than XPath
+### E0 — Pre-flight: selectors other than XPath — **DONE** (#9)
 
 The low-hanging fruit, independently valuable, and a prerequisite rather than a
 detour — step params are *derived* from tool params (§F1.6), so a selector choice
 that existed only in flows would need an exception in the one mechanism keeping a
 single source of truth (§F1.13).
 
-- [ ] One locator helper in `actions.py`, replacing the hardcoded `By.XPATH`
-- [ ] Mutually exclusive `xpath` / `css` params on every element-addressing tool,
+- [x] One locator helper in `actions.py`, replacing the hardcoded `By.XPATH`
+- [x] Mutually exclusive `xpath` / `css` params on every element-addressing tool,
       exactly one required; `xpath` behaves precisely as it does today
-- [ ] A clear error when both or neither are given — this is the one new way to
+- [x] A clear error when both or neither are given — this is the one new way to
       get a call wrong, so it must name the fix
-- [ ] `id` as a third key is worth considering in the same pass: it is the most
-      common selector of all and `//*[@id='x']` is a clumsy way to write it
-- [ ] Wiki regenerates; `SKILL.md` and `references/INTERACTION.md` gain the
+- [x] ~~`id` as a third key~~ — **not built.** `css="#foo"` already is it, and
+      the argument against the other five applies: two strategies to choose
+      between is a schema, eight is a quiz.
+- [x] Wiki regenerates; `SKILL.md` and `references/INTERACTION.md` gain the
       choice; `CHANGELOG.md` gets one line — this one users *do* notice
 
-### E1 — The hangar: storage and naming
+### E1 — The hangar: storage and naming — **code done**, deploy pending
 
-- [ ] `FlowStore` protocol + `local` implementation, shaped like `SessionStore`'s
+- [x] `FlowStore` protocol + `local` implementation, shaped like `SessionStore`'s
       `memory`/`redis` split so `webdav` lands later without a retrofit (§F1.12)
-- [ ] **No path arithmetic outside the store, and no assumption reads are local**
+- [x] **No path arithmetic outside the store, and no assumption reads are local**
       — the two things a WebDAV backend breaks if they are assumed (§F1.12)
-- [ ] YAML on disk, dicts in the API — `yaml.safe_load`/`safe_dump`, PyYAML is
+- [x] YAML on disk, dicts in the API — `yaml.safe_load`/`safe_dump`, PyYAML is
       already a dependency (§F1.14)
-- [ ] `FLOW_DATA_DIR` env var + `--flow-data-dir` flag; unset means the feature
+- [x] `FLOW_DATA_DIR` env var + `--flow-data-dir` flag; unset means the feature
       is off, with a log line saying so (§F1.3)
-- [ ] Session-name resolution: `named:` → its own directory, everything else →
+- [x] Session-name resolution: `named:` → its own directory, everything else →
       `global`; `global` reserved (§F1.2)
-- [ ] One name-validation function used by every surface; reject, never slug
+- [x] One name-validation function used by every surface; reject, never slug
       (§F1.4)
-- [ ] Tests: traversal on both names, a name of `..`, unset-dir behaviour, all
+- [x] Tests: traversal on both names, a name of `..`, unset-dir behaviour, all
       three unnamed key sources landing in `global`, lazy directory creation
 - [ ] **Cluster repo:** `emptyDir` volume + `FLOW_DATA_DIR` in `mcp.env`, with a
-      comment saying plainly that **a redeploy wipes saved flows** (§F1.12)
+      comment saying plainly that **a redeploy wipes saved flows** (§F1.12).
+      **Deliberately held back until E2/E3 land** — mounting a volume for a
+      feature with no tools on it deploys dead configuration, and it is a
+      change to a different repository besides.
 
 ### E2 — The flight plan: the document and its CRUD
 
