@@ -218,6 +218,9 @@ def register(
                     "url": record.url or None,
                     "browser": (record.settings or {}).get("browser")
                     or DEFAULT_BROWSER,
+                    # Beside the browser because it is the same kind of fact:
+                    # what this session is running, and how big.
+                    "window": record.window,
                     "started": record.opened_at or None,
                     "files_count": count,
                     **_grid_facts(running.get(sid, {})),

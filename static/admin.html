@@ -53,10 +53,15 @@
       <div class="row" style="margin-bottom:12px">
         <button id="back">&larr; Sessions</button>
         <span class="grow"></span>
+        <!-- One pair of controls, two verbs. Both destroy something belonging to
+             the browser this session holds, so they are styled and behave the
+             same and are ordered by how much they take. -->
+        <button id="clearFiles" class="danger"
+                title="Delete every file this browser downloaded. The browser keeps running.">
+          Clear files</button>
         <button id="endBrowser" class="danger"
                 title="Quit this browser. The session and its context are kept.">
           End browser</button>
-        <button id="clearFiles">Clear files</button>
       </div>
       <div id="detailHeader"></div>
       <div id="files"></div>
@@ -104,22 +109,23 @@ function paint(data) {
   SF.sessionList($('sessions'), data, {onpick: openSession});
 }
 
-/* Ending drops the browser, not the session: the record keeps its browser
-   choice and last page, so the caller's next open_session carries on. Still
-   destructive — whatever the browser held is gone — so it asks first. */
-async function endBrowser(key) {
-  if (!confirm('End this browser? The session and its context are kept — '
-             + 'whatever the browser was holding is lost.')) return;
-  try {
-    await api('/admin/sessions/' + encodeURIComponent(key), 'DELETE');
-  } catch (e) {
-    alert('Could not end the browser: ' + e.message);
-    return;
-  }
-  // The event stream repaints the list on its own, but only once the Grid stops
-  // reporting the session — so refresh rather than wait on a race.
-  // Stay on the detail view: the session is still there, just idle now.
-  if (current === key) openSession(key); else loadSessions();
+/* The two toolbar buttons are one control with two verbs: each DELETEs
+   something belonging to the browser the open session holds, asks before it
+   does, and repaints what it changed. Wiring them the same way is what keeps
+   them behaving the same — they had drifted into a red button and a plain one,
+   and only one of them told you when it failed. */
+function destructive(id, {ask, path = '', fail, done}) {
+  $(id).onclick = async () => {
+    const key = current;
+    if (!key || !confirm(ask)) return;
+    try {
+      await api('/admin/sessions/' + encodeURIComponent(key) + path, 'DELETE');
+    } catch (e) {
+      alert(fail + ': ' + e.message);
+      return;
+    }
+    done(key);
+  };
 }
 
 async function loadSessions() {
@@ -200,9 +206,10 @@ const filesStamp = (row) => (row.session_id || '-') + ':' + row.files_count;
 
 function showDetail(row) {
   SF.sessionSummary($('detailHeader'), row);
-  // Nothing to end when the session holds no browser, and a button that does
-  // nothing is worse than one that is visibly unavailable.
-  $('endBrowser').disabled = !row.attached;
+  // Both act on the browser, and a detached session has none — no browser, no
+  // files, since the Grid deletes the file store with the browser. A button
+  // that does nothing is worse than one that is visibly unavailable.
+  $('endBrowser').disabled = $('clearFiles').disabled = !row.attached;
 }
 
 async function loadFiles(key) {
@@ -254,13 +261,25 @@ $('back').onclick = () => {
 };
 $('signout').onclick = signOut;
 
-$('endBrowser').onclick = () => { if (current) endBrowser(current); };
+destructive('clearFiles', {
+  ask: 'Delete every file this browser downloaded?',
+  path: '/files',
+  fail: 'Could not clear the files',
+  done: loadFiles,
+});
 
-$('clearFiles').onclick = async () => {
-  if (!current || !confirm('Delete every file this session downloaded?')) return;
-  await api('/admin/sessions/' + encodeURIComponent(current) + '/files', 'DELETE');
-  loadFiles(current);
-};
+/* Ending drops the browser, not the session: the record keeps its browser
+   choice and last page, so the caller's next open_session carries on. Still
+   destructive — whatever the browser held is gone — so it asks first. */
+destructive('endBrowser', {
+  ask: 'End this browser? The session and its context are kept — '
+     + 'whatever the browser was holding is lost.',
+  fail: 'Could not end the browser',
+  // The event stream repaints the list on its own, but only once the Grid stops
+  // reporting the session — so refresh rather than wait on a race.
+  // Stay on the detail view: the session is still there, just idle now.
+  done: (key) => { if (current === key) openSession(key); else loadSessions(); },
+});
 
 const selectTab = (sessions) => {
   $('tabSessions').setAttribute('aria-selected', sessions);

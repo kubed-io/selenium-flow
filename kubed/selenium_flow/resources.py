@@ -44,9 +44,12 @@ _OFF = ("off", "false", "0", "no", "none")
 
 DESCRIPTION = (
     "The browser session this client is currently using, if any.\n\n"
-    "Returns session_id, the page it is on, and whether the Grid still has it "
-    "(live). Reading this never opens a browser: a null session_id means "
-    "nothing is held yet."
+    "Returns session_id, which browser it is, the page it is on, the window "
+    "size as WxH, whether it is inside a frame, and whether the Grid still has "
+    "it (live). Read it before judging anything about layout — the window is "
+    "not a fixed size and is what decides whether something is off-screen.\n\n"
+    "Reading this never opens a browser: a null session_id means nothing is "
+    "held yet."
 )
 
 

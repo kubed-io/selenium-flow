@@ -141,6 +141,30 @@ async def test_a_tool_that_can_act_on_the_page_admits_it(server):
         assert tools[name].annotations.destructive_hint is True, name
 
 
+async def test_resize_writes_the_new_size_back_to_the_session(server, monkeypatch):
+    """The one line of tool wiring that would fail silently.
+
+    `sessions.reshape` is tested on its own, but a `resize` that forgot to ask
+    for it would still answer correctly — the browser really is the new size —
+    and only diverge later, when the Grid reaped that browser and it came back
+    the size it was opened at. So assert the tool actually asks.
+    """
+    from .conftest import NAMED
+
+    resize = (await server.mcp.get_tool("resize")).fn
+    monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
+    monkeypatch.setattr(server.sessions, "resolve", lambda key, session_id: "abc")
+    monkeypatch.setattr(
+        server.actions,
+        "resize",
+        lambda s, width, height: {"width": width, "height": height, "url": "about:blank"},
+    )
+    server.sessions.remember(NAMED, "abc", "", {"browser": "firefox"})
+
+    resize(width=1024, height=768)
+    assert server.sessions.store.get(NAMED.value).window == "1024x768"
+
+
 async def test_press_key_lists_its_keys_in_the_description(server):
     """The key names are a closed set, so the model should be told them."""
     press_key = await server.mcp.get_tool("press_key")

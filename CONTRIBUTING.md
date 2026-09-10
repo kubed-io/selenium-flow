@@ -125,6 +125,39 @@ wheel instead, which is the part that is ours.
 When a quality gate is wrong rather than you, the fix is a rule exclusion **with
 its reason** in `.github/zizmor.yml` or `.hadolint.yaml` — never a bare ignore.
 
+## The changelog
+
+`CHANGELOG.md` is not a work log. **It is the release notes**, verbatim:
+`publish.yml` hands the `[Unreleased]` section to `duplocloud/version-bump`,
+which stamps a version heading on it and puts it straight into the GitHub
+Release. Whatever you write is what a stranger reads.
+
+So write for that stranger:
+
+- **One short line per entry**, saying what someone can now do. Not a paragraph,
+  not the reasoning, not what it replaced. If a line needs a "because", the
+  because belongs in `AGENTS.md` or the PR.
+- **Lead with the capability**, bolded, and stop when the sentence is answered.
+- **Internal work usually earns no line at all** — CI, refactors, dependency
+  bumps, tests, types, docs. When it genuinely changes something a user would
+  notice, it gets one terse line under `Changed`; when it does not, the PR takes
+  the **`no changelog`** label and writes nothing. An entry nobody outside this
+  repo can act on is worse than no entry, because it dilutes the ones that matter.
+- **Only `Added` / `Changed` / `Fixed` / `Removed`**, in that order, and only the
+  ones you actually have. Only a **BREAKING:** entry may run long.
+
+Two rules about *where* you write:
+
+- **Only ever edit `[Unreleased]`.** Every section below it carries a version
+  number and is immutable — those notes shipped, and rewording them rewrites
+  history somebody has already read.
+- **Never add a version heading or bump a version.** Versions come from git tags
+  via `setuptools_scm`, and the release flow owns them.
+
+`pr.yml` fails a pull request whose diff does not touch `[Unreleased]`. That
+check is a reminder, not the standard — a diff that adds a line of noise passes
+it just as well as a good one.
+
 ## Writing a test
 
 `tests/conftest.py` owns the shared doubles — `RecordingActions`, `FakeGrid`,

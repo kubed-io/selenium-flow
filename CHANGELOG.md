@@ -6,108 +6,59 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 <!--
-  These ARE the release notes. One line per entry, written for someone reading
-  "what's new" — never a paragraph. Length tracks impact: functional changes get
-  the most words (still one line); refactors/tests stay short; CI/devops are
-  shortest. Only **BREAKING:** may stretch.
+  These ARE the release notes. One SHORT line per entry, written for a user —
+  never a paragraph. Say what someone can now do, not how it was built and not
+  why. Only **BREAKING:** may stretch. Internal work — CI, refactors, tests,
+  types, docs — usually earns no line at all, and never more than a terse one.
+  Deeper detail lives in AGENTS.md or the PR, not here.
 
   ONLY EVER EDIT THE [Unreleased] SECTION. Every section below it carries a
   version number and is IMMUTABLE — those notes shipped with a release and must
   never be reworded, reordered, or removed. Add new work under [Unreleased].
   publish.yml (duplocloud/version-bump) rolls [Unreleased] into a dated version
-  section at release time. See AGENTS.md.
+  section at release time. See CONTRIBUTING.md / AGENTS.md.
 -->
 
 ## [Unreleased]
 
+The first release. Everything is new, which is why there is no *Changed* or
+*Fixed* below — both are relative to a version somebody is running, and there
+isn't one.
+
 ### Added
 
-- Every MCP tool now declares its safety annotations, so a client can tell a read that changes nothing from a click that might place an order. `extract` is marked read-only; `interact`, `press_key`, `dialog` and `execute_script` are marked destructive, because each hands the page an instruction the page is free to interpret. The mirror tools a client gets when it cannot read resources — `current_session`, `session_files`, `selenium_flow_skill` — are marked read-only too. Without them MCP's default applies — `destructiveHint: true` — which made every tool here look equally dangerous and earned harmless ones a confirmation prompt.
-- `quality.yml` gates every pull request on five parallel checks: CodeQL over the Python **and** the workflows, `pip-audit` over the resolved runtime dependencies, `zizmor` over the CI itself, `hadolint` over the Dockerfile, and a Redocly lint of the generated OpenAPI spec.
-- `package.yml` builds the sdist and wheel, checks the metadata with `twine --strict`, and installs the wheel into a clean environment to prove `skills/` and `static/` actually shipped. `publish.yml` calls it at the release tag and attaches both files to the GitHub Release.
-- Copilot reviews pull requests against `.github/copilot-instructions.md` and the per-language files in `.github/instructions/`, which record this repo's non-negotiables — surface parity above all — and the settled false positives.
-- `publish.yml` runs the full test matrix before it cuts a version, so a release cannot ship an interpreter it was never tested on.
-- A flow session now outlives the browsers it holds. `session_id` is empty when it holds none — after the Grid reaps one, or an operator ends one — and the record keeps the browser choice, window and last page. `open_session()` with no arguments inherits all of it, so recovery is one call: same browser, same window, back where you were. The settings cascade gains a tier for it, between the client default and an explicit argument.
-- Stateless callers get a record too, keyed under their own browser id, so their sessions appear in the admin history and expire like everything else. It is not a caller key — nothing resolves a caller from it, so the leak `caller_key` prevents stays prevented.
-- End a browser from the admin UI: an **End browser** button in a session's detail toolbar, beside Clear files, backed by `DELETE /admin/sessions/{key}`. It detaches the browser and keeps the session, so the caller loses the browser's live state but not its place. An abandoned browser already expires on its own — the Grid reaps it on `SE_NODE_SESSION_TIMEOUT` and an autoscaled node then scales to zero — so this is for not waiting out those minutes while one of a handful of Grid slots sits held.
-- `open_session(browser="firefox")` opens Firefox instead of Chrome — one argument, and every other action behaves identically on both, because both are plain W3C WebDriver and only session creation differs. The choice is stored with the session, so one the Grid reaped reopens as the same browser rather than the default; `session://current` reports it, and the admin UI marks each session with the browser it is running. Set a server-wide default with `DEFAULT_BROWSER`, or a per-client one with `?browser=` / `X-Browser`.
+- **Drive a real Chrome or Firefox browser from an agent.** Fourteen actions: open and end a browser, navigate, click, hover, type, press keys, read an element, screenshot, print to PDF, upload a file, switch frames, answer dialogs, resize, and run JavaScript.
 
-- Session files: everything a browser downloads is kept in Selenium Grid's own per-session store, created with the session and deleted with it, so there is no second store to clean up. Read it as the `session://files` resource, one file at a time as `session://files/{name}`, or the `session_files` tool.
-- `save_pdf` prints the current page with the browser's own print engine — selectable text, whole document — and keeps it with the session's files; `screenshot(save=true)` keeps a capture the same way.
-- Signed file URLs (`/files/{session}/{name}?exp=&sig=`), so a screenshot can be shown in an `<img>` tag or a chat transcript, neither of which can send an `Authorization` header. The MCP token is the signing key, so rotating it revokes every link.
-- An admin UI at `/admin`: the sessions the Grid is running, what each downloaded, clickable thumbnails, and the Grid's own console framed same-origin as a tab. The server's token is the whole credential.
-- MCP Apps: `session_files` and `browser_sessions` declare UI components, so hosts implementing the extension (Claude, ChatGPT, VS Code, Goose) render a file grid instead of JSON. The components are shared with the admin UI rather than copied, and the tools stay visible to an app-capable client that would otherwise have them hidden as resource mirrors.
-- The admin UI updates itself: the session list is pushed over Server-Sent Events when it changes, so there is no refresh button and no per-tab polling — one loop on the server serves every open page, with a slow poll kept only as a fallback if the stream is swallowed in transit.
-- Sessions are shown with the name their caller claimed (`?session=<name>` or `X-Session-Key`), joined from the session store, and a session the Grid is running that this server has no record of is labelled as not its own rather than listed as though it were.
-- Clicking a stored file opens it in place — images and PDFs in a lightbox rather than a new tab — and a session's detail view leads with a header of its context: name, owner, browser, node, start time.
-- `PUBLIC_BASE_URL`, `GRID_CONSOLE_URL` and `APPS_ENABLED` configure the above.
-- `wiki.yml` publishes the wiki: a pull request generates without pushing, a merge to main pushes, and `workflow_call` leaves the decision to the caller — the same shape as `image.yml`. `publish.yml` runs it alongside the image build rather than after, since the two share nothing.
-- The GitHub wiki is a submodule at `wiki/`, holding the manual the README has no room for: installing per MCP client, deployment across stdio/HTTP/Docker/Kubernetes, sessions, administration, and one page per action generated from `openapi.yaml` by `scripts/generate_wiki.py` so they cannot drift.
+- **Every action is an MCP tool *and* a plain HTTP endpoint**, one to one. Hand the whole job to an agent over MCP, or drive the same actions yourself from an n8n HTTP node when you want exact control.
 
-### Fixed
+- **The browser stays open between calls**, keeping its page, cookies and scroll position — it lives on the Grid, so a restart of this server does not lose it.
 
-- The bearer token is compared with `hmac.compare_digest` instead of `==`. String equality returns as soon as two bytes differ, so on routes reachable by anyone who can reach the port the timing leaked how long a correct prefix was. `links.py` had always taken this care for signatures; the token itself had not.
-- In-memory sessions no longer accumulate. `get` only ever expired the one key it was handed, so a session named once and never revisited stayed in memory until the process restarted; listing them now collects the expired ones as it goes. Redis never had the problem, which is why it was invisible in the deployment that matters and real in the default one.
-- An uploaded filename is reduced to its basename even when it arrives Windows-style. `os.path.basename` does not treat a backslash as a separator on Linux, so a name like `..\\..\\etc\\passwd` survived the one place a caller's string is narrowed before being written to disk.
-- The OpenAPI description and the stateless skill reference told callers to use `/browser/close`, which was renamed to `/browser/end`. The old path still works; the docs now name the current one.
-- Dependabot pull requests no longer fail the changelog gate. `dependabot.yml` already asked for the `no changelog` label, but Dependabot can only apply a label that already exists in the repository and drops the rest silently — none of the five existed, so every bump arrived unlabelled and failed. The labels are created, and `pr.yml` now skips the gate for Dependabot outright, so it cannot depend on repository state a rename would break.
-- The test suite runs on Python 3.10 again. `tests/test_packaging.py` imported `tomllib`, which is 3.11+, so the whole module failed to collect and took the run down with it; `tests/test_skill.py` reached for the same module and quietly skipped instead, dropping the check that proves every skill file reaches the wheel on the oldest interpreter. Both now fall back to `tomli`, and neither skips. Found by the new 3.10 → 3.14 matrix on its first sweep.
-- The admin detail view updates live. It dropped every pushed event while it was open — to avoid clobbering a file grid someone was reading — which left the header permanently stale: a browser attaching to the session you were looking at only showed if you navigated out and back. It now takes the update, and the file grid is still only refetched when the files actually changed.
-- Switching browser in the admin UI clears the file grid immediately, because the Grid keeps a file store per browser and deletes it with the browser — so after a switch those files do not merely look stale, they are gone.
-- A dead event stream is reopened with a freshly signed URL. The stream URL expires after an hour and EventSource only ever reconnects to the URL it was given, so past the expiry it retried a URL that could never work again for the life of the tab.
-- Switching browser no longer abandons the old one. `open_session` ends the browser this session is holding before opening its replacement, so `open_session(browser="firefox")` while on Chrome is now one call rather than a leak: previously the Chrome browser stayed on the Grid referenced by nothing, holding one of a handful of slots until the idle timeout. The tool description says so too, since an agent had no way to know it needed to close first.
-- `image.yml` rebuilds when `static/` or `skills/` change. Both are mapped into the package by `package-dir`, so they ship in the wheel and therefore in the image — but the workflow only watched `kubed/**`, so an admin UI or skill change committed cleanly, passed CI, built nothing, and left the running container serving the previous version with no signal anywhere. `tests/test_packaging.py` now derives the pairing from `pyproject.toml` so it cannot drift again.
+- **The server can hold your browser for you.** Name your session with `?session=<name>` on the MCP URL or an `X-Session-Key` header, and `session_id` becomes optional on every call.
 
-### Changed
+- **A session outlives its browser.** When the Grid reaps one, or an operator ends it, the session keeps the browser choice, the window size and the page it was on — so `open_session()` with no arguments puts you back where you were.
 
-- `auth.py` is now the one place that decides whether a request carries the server's token, replacing two hand-rolled copies of the same header parsing in `routes.py` and `admin.py`.
-- The wait timeout is one constant rather than fourteen copies of the literal `30` spread across `tools.py` and `actions.py` — two lists that had to agree or the MCP and HTTP surfaces would quietly disagree about what an omitted argument means.
-- ruff now runs over the whole checkout with a much wider rule set (bugbear, simplifications, pathlib, import order, blind-except). The 19 existing `# noqa: BLE001` comments become meaningful rather than decorative, and `RUF100` fails any that stops applying. `os.path` is gone from the package in favour of `pathlib`.
-- The package metadata names each supported interpreter instead of a bare `Python :: 3`, so it says the same thing CI sweeps.
-- The image is no longer built on pull requests. A multi-arch build is ~9 minutes for a signal that almost never differs from the merge build, and the Dockerfile is now linted and the wheel built and installed on every PR instead.
-- Tests run on Python 3.10 through 3.14. A pull request runs 3.14 alone to stay fast; main and every release sweep the whole supported range, which is what makes the `requires-python >=3.10` claim real. The image and every CI job move to 3.14.
-- `wiki.yml` reads `GH_APP_ID`, the variable this org actually sets. It read `GH_CLIENT_ID`, which is set nowhere — so the App token step was always skipped and the built-in token pushed the wiki by accident rather than by the documented fallback.
-- `publish.yml` drops `secrets: inherit` and passes only the secrets each called workflow declares, and its App tokens are scoped to `contents` instead of the App's full installation permissions.
-- **BREAKING:** `close_session` is now `end_browser`, on both surfaces, and it detaches rather than deletes. It ends the browser and keeps the flow session — its browser choice and last page — so `open_session()` afterwards resumes where it left off. Nothing removes a session any more: it expires after a day unused, and a named one reappears on the next call because the name comes from the caller's own URL or header. `POST /browser/close` still works and is mapped to the same action, since its callers live in n8n rather than in this repo.
-- One command ends a browser. The tool, the admin End button and `open_session` replacing one all go through `SessionManager.end_browser`, so what happens to the session cannot differ between them — previously the button detached, the tool deleted, and the two were separate code.
-- Image builds supersede each other instead of queueing: a push to main cancels the in-flight build for an older commit rather than waiting ~9 minutes to produce an image nobody wants. Release builds are exempt — `publish.yml` cuts the version tag before calling the build, so a cancelled one would strand a tag and a GitHub Release on an image that was never pushed.
-- **BREAKING:** the `browser_sessions` tool and the `grid://sessions` resource are removed. An MCP client owns one session and may only ever see that one; a listing handed any client somebody else's browser id, which is the whole credential for driving that browser. The session list is now an admin view over HTTP, and `session://current` remains the sanctioned "what am I holding" shape.
-- The admin session list shows flow sessions rather than every browser on the Grid, including ones with no browser attached. Browsers put on the Grid by something else are no longer listed at all — the Grid console tab is there for that.
-- `SESSION_TTL` defaults to 24h rather than 1h: a flow session is the history the admin view shows and the context the next open inherits, not a short-lived cache.
-- `openapi.yaml` is no longer committed — it is a generated artifact and is now gitignored. The server already built the same document per request at `GET /openapi.yaml`; the tests and the wiki generator now build it in-process too, so nothing reads a file that could be stale. `scripts/generate_openapi.py` still writes a copy when one is wanted, and CI writes one before linting it.
-- The README hands the fourteen per-action reference tables to the wiki and links to them, so it advertises and shows the main features rather than duplicating a reference that is generated anyway — it had reached Docker Hub's 25,000-byte description limit, where the next feature would have shipped it truncated.
-- The hand-written wiki prose moved from `wiki-notes/` in this repo to `wiki/notes/` inside the wiki submodule, named `<tool>.notes.md`. The suffix is load-bearing: a GitHub wiki addresses a page by basename whatever directory it sits in, so a bare `<tool>.md` would answer to the same URL as its own page.
+- **Chrome or Firefox, chosen per session** with `open_session(browser="firefox")`. Every other action behaves identically on either.
 
-- MCP server driving a Selenium Grid browser, with nine tools: open_session, navigate, click, write, press_key, extract, execute_script, screenshot, close_session.
-- The same nine actions served as plain JSON endpoints under `/browser`, so non-MCP callers can drive the browser without speaking JSON-RPC.
-- Screenshots return a real MCP image content block, so a vision model can see the page; viewport, single-element and full-page modes are all supported.
-- Bearer token auth covering both surfaces, enabled by setting `MCP_AUTH_TOKEN`; `/health` stays open so a kubelet can probe it.
-- `/health` reports Grid readiness and live session count, not just process liveness.
-- Saved sessions: an MCP caller may omit `session_id` and the browser it used earlier is found again, keyed on a name the client chooses (`X-Session-Key` header, else `?session=<name>` on the MCP URL) or on the negotiated `Mcp-Session-Id`. The HTTP endpoints stay explicit — session in, session out — so a workflow owns its session.
-- A remembered browser the Grid has already reaped is reopened on next use and returned to the page it was last on, so the refresh is invisible to the caller.
-- `SESSION_STORE` (`memory` or `redis`) and `SESSION_TTL` configure where mappings are kept and for how long; both stores honour the TTL identically, and browser lifetime stays the Grid's job via `SE_NODE_SESSION_TIMEOUT`.
-- Sessions are never keyed on FastMCP's `Context.session_id`, which returns a fresh `uuid4()` instead of failing when no session exists — that made every tool call look like a new client and leaked a Grid slot each time. The `Mcp-Session-Id` header is read directly instead.
-- `session://current` resource reporting the browser this client holds, the page it is on, and whether the Grid still has it; reading it never opens one.
-- The same status as a `current_session` tool for clients that cannot read MCP resources (n8n, for one), hidden from tools/list unless the client declares `?resources=off` or an `X-MCP-Resources: off` header.
-- An Agent Skill shipped inside the wheel: `SKILL.md` is a thin index over six lazily-loaded references — the two session modes, reading pages, interaction, troubleshooting, and configuring the server — each served as its own resource so an agent reads only what its task needs.
-- The skill uses FastMCP's own `SkillProvider` and URI convention, so `list_skills`, `get_skill_manifest` and `download_skill` work against this server unmodified; `SKILL_ENABLED=false` turns it off.
-- `interact` replaces `click`, covering click, double_click, right_click, hover and scroll_to — hover reaches menus that appear only on mouse-over, which nothing else could.
-- `upload_file` attaches a file to a file input, shipping the bytes to the Grid node the browser actually runs on. Content you already have as text goes straight in `text` with a `filename` — no encoding step; `content` takes base64 for binary, and the HTTP endpoint takes a normal `multipart/form-data` file part instead. The page reads a file's type from the filename extension, so `mime_type` supplies one when the name lacks it.
-- `dialog` answers a native alert, confirm or prompt. `unhandledPromptBehavior` is now `ignore`, because Chrome's default silently clicks Cancel on a confirmation and destroys the evidence.
-- `resize` changes the window on an already-open session, which `open_session` alone could not do for a caller whose browser was opened for it.
-- An action that opens a dialog now succeeds and reports it rather than failing: reading the resulting url and title is refused while a dialog is open, and the click had in fact landed.
-- Every wait now says what it was waiting for, for how long, and what URL the browser was on — Selenium raises timeouts with an empty message, which reached callers as the useless string "Message:".
-- `open_session` is always required and never implicit: it is the only place a browser is created and the only place its window size and timeouts can be chosen, so opening one on first use hid the settings.
-- The two session modes are exclusive and the advertised schemas say which you are in — `session_id` is absent from every tool in saved mode and required in stateless mode, so a model reads the rule instead of discovering it by failing a call. Using the wrong one errors and names the reference that explains it.
-- An open dialog no longer looks like a dead session. The liveness probe asks for the session's URL, which a dialog blocks — so a `confirm()` made the server decide the browser was reaped, reopen, and abandon the real one with its dialog still up, leaking a Grid slot each time. Only the Grid saying `invalid session id` counts as gone now.
-- `frame` moves a session into an iframe and back; frame contents are invisible to every locator otherwise. The switch is Grid-side session state and sticks until something switches back, so `session://current` reports `in_frame`.
-- Window size and both timeouts cascade: env var, then URL parameter or header, then the `open_session` argument. A session's settings are stored and replayed when the Grid reaps it, so a refresh cannot silently change the browser's shape.
-- `session://current` reports the `mode`, whether to pass `session_id`, the settings in force, whether the session is inside a frame, and a link to the reference that applies.
-- `--stateless` / `STATELESS_HTTP` to drop MCP transport sessions, which is what more than one replica requires.
-- `GET /openapi.yaml` and `/openapi.json` describing the HTTP surface, generated from the MCP tool schemas so the two contracts cannot drift; the spec is committed and CI fails if it goes stale.
+- **`session://current` says what you are holding**: the browser, the page, the window size, whether you are inside a frame, and whether the Grid still has it. Reading it never opens a browser.
 
-### Fixed
+- **Screenshots come back as images an agent can see** — the viewport, one element, or the whole scrollable page.
 
-- The published OpenAPI document omitted `session_id` from every request schema — the one field the HTTP surface always requires. It was built from a *tool listing*, which is shaped for whoever is asking, and outside a request the server identifies the caller as stdio and strips the field. It now builds from the registered tools, and the test that should have caught it no longer passes vacuously when the field is absent.
+- **`save_pdf` prints with the browser's own print engine**, so the text stays selectable and the whole document is included rather than just the viewport.
 
-- Chrome silently refused every download after the first, because a page's second automatic download needs a permission nobody was there to grant. One file per session arrived and the rest vanished with no error.
+- **Everything the browser downloads is kept with the session**, alongside anything saved with `screenshot(save=true)` or `save_pdf`, and listed as `session://files`.
+
+- **Signed file URLs**, so a screenshot can be shown in a chat transcript or an `<img>` tag rather than described. Rotating the server token revokes every link.
+
+- **An admin UI at `/admin`**: live sessions, what each has downloaded, clickable thumbnails, the Grid's own console, and buttons to clear a session's files or end its browser. It updates itself as things change.
+
+- **Bearer token auth on both surfaces.** `/health` stays open so a kubelet can probe a pod that has no credentials, and reports Grid readiness rather than just process liveness.
+
+- **`GET /openapi.yaml`** describing the HTTP surface, generated from the MCP tool schemas so the two contracts cannot drift.
+
+- **An Agent Skill ships inside the wheel**, written as an index so an agent loads only the reference its task needs.
+
+- **MCP Apps components**: a host that implements the extension renders a file grid instead of JSON.
+
+- **Sessions in memory or Redis**, and `--stateless` for running more than one replica.
+
+- Ships as the `kubed/selenium-flow` image and as a wheel attached to each release. The manual is the [wiki](https://github.com/kubed-io/selenium-flow/wiki).

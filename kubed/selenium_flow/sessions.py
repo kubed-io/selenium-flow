@@ -209,6 +209,7 @@ class SessionManager:
             "url": None,
             "live": None,
             "in_frame": None,
+            "window": None,
             "key": key.value if key else None,
             "key_source": key.source if key else None,
             "store": self.kind,
@@ -236,6 +237,14 @@ class SessionManager:
         # record written before browsers were selectable has none, and that
         # session really is the default one.
         status["browser"] = status["settings"].get("browser") or DEFAULT_BROWSER
+        # Same reasoning for the window: "how big is the page I am looking at"
+        # is a question an agent has to answer before it can judge whether
+        # something is off-screen or a layout has collapsed, and it should not
+        # have to dig it out of settings or take a screenshot to find out. The
+        # record's value is the fallback; a live browser is asked for its real
+        # size below, since only that one accounts for a resize made through the
+        # HTTP surface, which never reaches this record.
+        status["window"] = record.window
         # A record with no browser is an ordinary state, not a broken one: the
         # Grid reaped it or an admin ended it, and the context it left behind is
         # what the next open_session inherits.
@@ -243,15 +252,17 @@ class SessionManager:
             self.actions.grid.is_alive(record.session_id) if record.attached else False
         )
         if status["live"]:
-            # Only worth a round trip when there is a live browser to ask.
+            # Only worth a round trip when there is a live browser to ask, and
+            # one reconnect answers both questions.
             try:
                 from . import browser as browser_module
 
-                status["in_frame"] = browser_module.in_frame(
-                    self.actions.grid.reconnect(record.session_id)
-                )
+                driver = self.actions.grid.reconnect(record.session_id)
+                status["in_frame"] = browser_module.in_frame(driver)
+                size = driver.get_window_size()
+                status["window"] = f"{size['width']}x{size['height']}"
             except Exception:  # noqa: BLE001 - status must never fail
-                status["in_frame"] = None
+                pass
         return status
 
     def resolve(self, key: CallerKey | None, session_id: str | None) -> str:
@@ -391,6 +402,26 @@ class SessionManager:
         record = self.store.get(where)
         if record is not None:
             self.store.set(where, record.at(url))
+
+    def reshape(
+        self, key: CallerKey | None, result: dict, session_id: str = ""
+    ) -> None:
+        """Record the window size an action just gave the browser.
+
+        Only ``resize`` reaches this, because it is the only action that changes
+        something the record *stores* rather than just the page. The stored
+        settings are what a reopen replays, so a resize that stopped at the
+        browser would be silently undone the next time the Grid reaps it — a
+        session that came back the size it was opened at instead of the size it
+        was last set to, which is the shape change the settings exist to prevent.
+        """
+        where = self.store_key(key, session_id)
+        if where is None:
+            return
+        size = {k: result[k] for k in ("width", "height") if result.get(k)}
+        record = self.store.get(where) if size else None
+        if record is not None:
+            self.store.set(where, record.reshaped(size))
 
     def context(self, key: CallerKey | None) -> dict:
         """The browser and page this caller's session last had, for a reopen.
