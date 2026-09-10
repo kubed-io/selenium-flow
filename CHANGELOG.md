@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The admin detail view updates live. It dropped every pushed event while it was open — to avoid clobbering a file grid someone was reading — which left the header permanently stale: a browser attaching to the session you were looking at only showed if you navigated out and back. It now takes the update, and the file grid is still only refetched when the files actually changed.
+- Switching browser in the admin UI clears the file grid immediately, because the Grid keeps a file store per browser and deletes it with the browser — so after a switch those files do not merely look stale, they are gone.
+- A dead event stream is reopened with a freshly signed URL. The stream URL expires after an hour and EventSource only ever reconnects to the URL it was given, so past the expiry it retried a URL that could never work again for the life of the tab.
 - Switching browser no longer abandons the old one. `open_session` ends the browser this session is holding before opening its replacement, so `open_session(browser="firefox")` while on Chrome is now one call rather than a leak: previously the Chrome browser stayed on the Grid referenced by nothing, holding one of a handful of slots until the idle timeout. The tool description says so too, since an agent had no way to know it needed to close first.
 - `image.yml` rebuilds when `static/` or `skills/` change. Both are mapped into the package by `package-dir`, so they ship in the wheel and therefore in the image — but the workflow only watched `kubed/**`, so an admin UI or skill change committed cleanly, passed CI, built nothing, and left the running container serving the previous version with no signal anywhere. `tests/test_packaging.py` now derives the pairing from `pyproject.toml` so it cannot drift again.
 

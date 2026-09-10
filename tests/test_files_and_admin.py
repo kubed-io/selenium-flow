@@ -142,9 +142,49 @@ def test_the_admin_page_wires_up_ending_a_browser(client):
 
 
 def test_ending_is_unavailable_when_there_is_no_browser(client):
-    """A control that does nothing is worse than one that is visibly off."""
+    """A control that does nothing is worse than one that is visibly off.
+
+    Asserted on `showDetail`, which is the one place the header is drawn — from
+    a fetch and from a pushed update alike — so the button cannot be left
+    enabled on a session that went idle while someone was looking at it.
+    """
     page = client.get("/admin").text
-    assert "$('endBrowser').disabled = !(data.session && data.session.attached)" in page
+    assert "function showDetail(row)" in page
+    assert "$('endBrowser').disabled = !row.attached;" in page
+
+
+def test_the_detail_view_is_updated_by_the_event_stream(client):
+    """It used to drop every event while the detail view was open, to avoid
+    clobbering a file grid. The effect was a header that never changed: a
+    browser attaching to the session you were looking at only showed if you
+    navigated out and back."""
+    page = client.get("/admin").text
+    assert "if ($('detailView').hidden) paint(data); else refreshDetail(data);" in page
+
+
+def test_a_changed_browser_clears_the_file_grid(client):
+    """The Grid keeps a file store per browser and deletes it with the browser,
+    so after a switch the files on screen do not merely look stale — they are
+    gone. Leaving them up for the length of a fetch offers files that 404."""
+    page = client.get("/admin").text
+    assert "(row.session_id || null) !== shownBrowser" in page
+    assert "SF.fileGrid($('files'), {files: []})" in page
+
+
+def test_the_file_grid_is_not_redrawn_on_every_heartbeat(client):
+    """Redrawing it would close a lightbox and lose a scroll position, for a
+    payload that says nothing new about the files."""
+    page = client.get("/admin").text
+    assert "if (filesStamp(row) !== shownFiles) loadFiles(current);" in page
+
+
+def test_a_dead_event_stream_is_reopened_with_a_fresh_url(client):
+    """The stream URL is signed and expires. EventSource reconnects on its own,
+    but only ever to the URL it was given — so after the expiry it retries a URL
+    that can never work again, for the life of the tab."""
+    page = client.get("/admin").text
+    assert "if (events) { events.close(); events = null; }" in page
+    assert "watch(data.events_url);" in page
 
 
 def test_the_components_render_no_action_buttons(client):

@@ -147,10 +147,14 @@ function watch(url) {
   events.onmessage = (e) => {
     lastBeat = Date.now();
     badge('live', 'live');
-    // Only repaint the list when it is the thing on screen; clobbering a file
-    // grid someone is looking at because a browser opened elsewhere is rude.
-    if (!$('detailView').hidden) return;
-    try { paint(JSON.parse(e.data)); } catch {}
+    let data;
+    try { data = JSON.parse(e.data); } catch { return; }
+    // Whichever view is on screen gets the update. Dropping the event while the
+    // detail view was open left it permanently stale — a browser attaching to
+    // the session you were staring at only appeared if you navigated out and
+    // back. The file grid is still only refetched when it actually changed,
+    // which was the thing worth protecting.
+    if ($('detailView').hidden) paint(data); else refreshDetail(data);
   };
   // EventSource reconnects by itself; the badge just stops claiming to be live.
   events.onerror = () => badge('reconnecting…', '');
@@ -164,7 +168,14 @@ function watch(url) {
     badge('polling', '');
     try {
       const data = await api('/admin/sessions');
-      if ($('detailView').hidden) paint(data);
+      if ($('detailView').hidden) paint(data); else refreshDetail(data);
+      // The stream URL is signed and expires, so a reconnect after that just
+      // 401s forever and EventSource keeps retrying a URL that can never work
+      // again. This response carries a freshly signed one — take it.
+      if (data.events_url) {
+        if (events) { events.close(); events = null; }
+        watch(data.events_url);
+      }
     } catch {}
   }, 30000);
 }
@@ -180,22 +191,62 @@ function unwatch() {
   clearInterval(fallback);
 }
 
-async function openSession(key) {
-  current = key;
-  show($('sessionsView'), false); show($('detailView'), true);
+// What the file grid was last drawn for. A pushed update carries the session
+// row but not its files, so this is how an update decides whether the grid is
+// stale enough to be worth refetching and redrawing under someone's cursor.
+let shownFiles = null, shownBrowser = null;
+
+const filesStamp = (row) => (row.session_id || '-') + ':' + row.files_count;
+
+function showDetail(row) {
+  SF.sessionSummary($('detailHeader'), row);
+  // Nothing to end when the session holds no browser, and a button that does
+  // nothing is worse than one that is visibly unavailable.
+  $('endBrowser').disabled = !row.attached;
+}
+
+async function loadFiles(key) {
   const box = $('files');
-  box.innerHTML = '<div class="empty">Loading…</div>';
-  $('detailHeader').innerHTML = '';
   try {
     const data = await api('/admin/sessions/' + encodeURIComponent(key) + '/files');
-    SF.sessionSummary($('detailHeader'), data.session || {key: key});
-    // Nothing to end when the session holds no browser, and a button that does
-    // nothing is worse than one that is visibly unavailable.
-    $('endBrowser').disabled = !(data.session && data.session.attached);
+    const row = data.session || {key: key};
+    showDetail(row);
+    shownFiles = filesStamp(row);
+    shownBrowser = row.session_id || null;
     SF.fileGrid(box, data, {base: BASE});
   } catch (e) {
     box.innerHTML = '<div class="empty error">' + SF.esc(e.message) + '</div>';
   }
+}
+
+async function openSession(key) {
+  current = key;
+  show($('sessionsView'), false); show($('detailView'), true);
+  $('files').innerHTML = '<div class="empty">Loading…</div>';
+  $('detailHeader').innerHTML = '';
+  shownFiles = shownBrowser = null;
+  await loadFiles(key);
+}
+
+/* A pushed session list, applied to the detail view instead of the list. */
+function refreshDetail(data) {
+  if (!current) return;
+  const row = (data.sessions || []).find((s) => s.key === current);
+  // Gone from the store means expired. Leave what is on screen rather than
+  // blanking it: it is still a true record of what was there.
+  if (!row) return;
+  showDetail(row);
+  // A different browser is a different file store: the Grid creates one per
+  // browser and deletes it with the browser, so what is on screen is not just
+  // stale, it no longer exists. Clear it now rather than leaving the old
+  // browser's files sitting there for the length of a fetch.
+  if ((row.session_id || null) !== shownBrowser) {
+    shownBrowser = row.session_id || null;
+    SF.fileGrid($('files'), {files: []});
+  }
+  // Only when the files actually changed — redrawing the grid on every
+  // heartbeat would close a lightbox and lose a scroll position for nothing.
+  if (filesStamp(row) !== shownFiles) loadFiles(current);
 }
 
 $('back').onclick = () => {
@@ -208,7 +259,7 @@ $('endBrowser').onclick = () => { if (current) endBrowser(current); };
 $('clearFiles').onclick = async () => {
   if (!current || !confirm('Delete every file this session downloaded?')) return;
   await api('/admin/sessions/' + encodeURIComponent(current) + '/files', 'DELETE');
-  openSession(current);
+  loadFiles(current);
 };
 
 const selectTab = (sessions) => {
