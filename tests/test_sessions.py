@@ -361,7 +361,7 @@ def test_describe_never_opens_a_browser(named_caller):
 
 
 def test_describe_reports_a_held_session_and_whether_it_is_still_there(named_caller):
-    """"Is my browser still alive" is the question this resource exists for."""
+    """Whether the browser is still there is the question this resource is for."""
     actions = RecordingActions()
     actions.grid.alive.add("abc")
     sessions = manager(actions)

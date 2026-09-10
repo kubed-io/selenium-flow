@@ -34,6 +34,8 @@ from pathlib import Path
 
 from fastmcp.server.providers.skills.skill_provider import SkillProvider
 
+from .hints import reads
+
 log = logging.getLogger(__name__)
 
 SKILLS_DIR = "skills"
@@ -138,6 +140,9 @@ def register(mcp, provider: SkillProvider) -> set[str]:
             "for the guidance; pass file to read a supporting file, or "
             f"'{MANIFEST}' to list what ships."
         ),
+        # open_world=False: this is answered from files inside the installed
+        # package. It never reaches the browser, the Grid or the network.
+        annotations=reads("How to drive this browser well", open_world=False),
     )
     def selenium_flow_skill(file: str = ENTRY) -> str:
         content = read(provider, file)

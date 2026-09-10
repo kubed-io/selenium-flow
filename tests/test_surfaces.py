@@ -7,6 +7,7 @@ other breaks that quietly, so it is asserted here rather than trusted.
 
 import pytest
 
+from kubed.selenium_flow import resources as resources_module
 from kubed.selenium_flow.routes import ENDPOINTS
 
 pytestmark = pytest.mark.unit
@@ -76,20 +77,44 @@ async def test_tools_declare_real_parameter_schemas(server):
     assert "ctx" not in props
 
 
-async def test_every_tool_declares_its_safety_hints(server):
+@pytest.mark.parametrize("resources", ["on", "off"])
+async def test_every_tool_declares_its_safety_hints(server, monkeypatch, resources):
     """A client reads these to decide whether to ask the user first.
 
     An unannotated tool falls back to the MCP defaults — `readOnlyHint` false
     and `destructiveHint` TRUE — so a missing annotation is not neutral: it
     makes a harmless tool look dangerous and earns it a confirmation prompt it
     does not need. Every tool must say what it is.
+
+    Parametrised over `resources` because that switch CHANGES THE TOOL LIST: a
+    client that cannot read resources is also given the mirror tools
+    (`current_session`, `session_files`, `selenium_flow_skill`), and checking
+    only the default mode left all three unannotated — advertised as destructive
+    when every one of them merely reads.
     """
-    for tool in await server.mcp.list_tools():
+    monkeypatch.setattr(
+        resources_module, "_http", lambda: ({"resources": resources}, {})
+    )
+    tools = await server.mcp.list_tools()
+    assert tools, "no tools listed, so this proves nothing"
+    for tool in tools:
         hints = tool.annotations
         assert hints is not None, f"{tool.name} declares no annotations"
         assert hints.title, f"{tool.name} has no display title"
-        # Every one of these drives a real browser on the open internet.
-        assert hints.open_world_hint is True, tool.name
+
+
+async def test_the_mirror_tools_are_reads(server, monkeypatch):
+    """They exist so a client with no resource support can still ask a question.
+
+    Asking a question changes nothing, and `selenium_flow_skill` does not even
+    leave the process — it is answered from files inside the installed package.
+    """
+    monkeypatch.setattr(resources_module, "_http", lambda: ({"resources": "off"}, {}))
+    tools = {t.name: t for t in await server.mcp.list_tools()}
+    for name in ("current_session", "session_files", "selenium_flow_skill"):
+        assert tools[name].annotations.read_only_hint is True, name
+
+    assert tools["selenium_flow_skill"].annotations.open_world_hint is False
 
 
 async def test_only_reading_the_page_is_marked_read_only(server):
@@ -103,7 +128,7 @@ async def test_only_reading_the_page_is_marked_read_only(server):
     read_only = {
         t.name for t in await server.mcp.list_tools() if t.annotations.read_only_hint
     }
-    assert read_only == {"extract"}
+    assert read_only == {"extract"}, "of the browser ACTIONS, only extract reads"
 
 
 async def test_a_tool_that_can_act_on_the_page_admits_it(server):

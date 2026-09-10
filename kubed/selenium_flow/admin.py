@@ -138,6 +138,16 @@ def _grid_facts(session: dict) -> dict:
     return {"version": session.get("version"), "node": session.get("node")}
 
 
+def _basename(name: str) -> str:
+    """The last path segment of ``name``, whichever separator was used.
+
+    ``name`` arrives as a URL path parameter, so it is the caller's string.
+    Kept in step with ``actions._safe_name``, which narrows the same thing on
+    the way in.
+    """
+    return PurePosixPath(str(name).replace("\\", "/")).name
+
+
 def register(
     mcp, actions, token: str | None, console_url: str | None = None, sessions=None
 ) -> None:
@@ -406,7 +416,10 @@ def register(
             headers={
                 # Named for download, but shown inline when the browser can:
                 # the common case is looking at a screenshot, not saving it.
-                "Content-Disposition": f'inline; filename="{PurePosixPath(name).name}"',
+                # Backslashes folded first, exactly as actions._safe_name does:
+                # PurePosixPath does not treat one as a separator, so a
+                # Windows-style name would otherwise reach the header verbatim.
+                "Content-Disposition": f'inline; filename="{_basename(name)}"',
                 # Safe to cache hard — the signature already bounds the lifetime,
                 # and a stored file never changes under its own name.
                 "Cache-Control": "private, max-age=3600",
