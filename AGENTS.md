@@ -67,8 +67,9 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   wrappers over it. Adding a capability to one surface and not the other is the failure
   this design exists to prevent, and `tests/test_surfaces.py` asserts they match — if that
   test fails, add the missing half rather than editing the assertion.
-- **Every tool declares its MCP annotations, and they must be honest.** `_hints()` in
-  `tools.py` builds them. A client reads `readOnlyHint` / `destructiveHint` to decide
+- **Every tool declares its MCP annotations, and they must be honest.** `hints.py` builds
+  them, and has no intra-package imports so every surface that registers a tool can use it
+  without closing a cycle. A client reads `readOnlyHint` / `destructiveHint` to decide
   whether to ask the user before running a tool — ChatGPT skips the confirmation prompt
   for a read-only tool — so these are a promise, not decoration. An *unannotated* tool is
   not neutral: MCP's default is `destructiveHint: true`, so leaving them off makes a
@@ -77,9 +78,12 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   `destructiveHint` is the one worth arguing about, and the rule is: **true wherever the
   tool hands the page an instruction the page is free to interpret** — `interact`,
   `press_key`, `dialog`, `execute_script`. A click is not destructive in itself and can
-  place an order, and this server cannot tell which. `extract` is the only read-only tool;
-  `screenshot` is not, because `save=true` writes a file, and a tool cannot be read-only
-  only sometimes. `tests/test_surfaces.py` pins all three claims.
+  place an order, and this server cannot tell which. Of the browser actions `extract` is
+  the only read-only one; `screenshot` is not, because `save=true` writes a file, and a
+  tool cannot be read-only only sometimes. The three mirror tools are reads too, and are
+  the ones easiest to forget — they only appear for a client that declares it cannot read
+  resources, so a listing taken in the default mode proves nothing about them.
+  `tests/test_surfaces.py` pins all of this, parametrised over both modes.
 
 - **One place decides whether a request is authorised: `auth.py`.** It is used by the
   action endpoints, the admin API and the event stream. The comparison is
@@ -103,6 +107,23 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   better full-page image, and `Emulation.setDeviceMetricsOverride` adds JPEG and a 2x
   retina render — both tested working against this Grid. If that capability is wanted, add
   it as a **separate** tool so the portable path keeps working when CDP goes away.
+
+## The changelog is the release notes, not a work log
+
+`publish.yml` hands the `[Unreleased]` section to `duplocloud/version-bump`, which stamps a
+version heading on it and puts it straight into the GitHub Release. There is no editing
+pass between what you write and what a stranger reads.
+
+So: **one short line per entry, saying what someone can now do.** Not a paragraph, not the
+reasoning, not what it replaced — the reasoning belongs here in `AGENTS.md`. Agents get
+this wrong in one direction every time, by explaining. **Internal work earns no line at
+all**: a CI change, a refactor, a dependency bump or a test pass takes the `no changelog`
+label unless a user would actually notice something, in which case it gets one terse line.
+
+Only ever edit `[Unreleased]`; the version sections below it shipped and are immutable.
+Never write a version heading or bump a version — `setuptools_scm` reads them from git
+tags and the release flow owns them. Full rules in
+[CONTRIBUTING.md](CONTRIBUTING.md#the-changelog).
 
 ## The OpenAPI spec is a build artifact
 

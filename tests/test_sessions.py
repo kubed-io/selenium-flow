@@ -224,6 +224,30 @@ def test_a_refresh_reopens_on_the_same_browser():
     assert actions.opened_settings == [{"browser": "firefox"}]
 
 
+def test_a_resize_is_remembered_so_a_refresh_replays_it():
+    """`resize` is the only action that changes something the record *stores*.
+
+    Left at the browser it would be undone the next time the Grid reaped that
+    browser, which came back the size it was opened at — the silent shape change
+    the stored settings exist to prevent, and the harder kind to notice because
+    nothing errors.
+    """
+    actions = RecordingActions()
+    sessions = manager(actions)
+    sessions.remember(NAMED, "dead", "", {"browser": "firefox", "width": 800})
+    sessions.reshape(NAMED, {"width": 1024, "height": 768})
+
+    record = sessions.store.get(NAMED.value)
+    assert record.window == "1024x768"
+    assert record.settings["browser"] == "firefox", "a merge, not a swap"
+
+    # "dead" was never added to the fake Grid, so this takes the refresh path.
+    sessions.resolve(NAMED, None)
+    assert actions.opened_settings == [
+        {"browser": "firefox", "width": 1024, "height": 768}
+    ]
+
+
 def test_the_refreshed_session_replaces_the_stored_one():
     actions = RecordingActions()
     sessions = manager(actions)
@@ -398,6 +422,25 @@ def test_describe_reports_which_browser_is_being_driven(named_caller):
     sessions = manager(actions)
     sessions.remember(NAMED, "abc", "", {"browser": "firefox"})
     assert sessions.describe()["browser"] == "firefox"
+
+
+def test_describe_reports_the_window_it_is_working_in(named_caller):
+    """Top level, for the same reason as `browser`.
+
+    An agent deciding whether something is off-screen, or whether a layout has
+    collapsed, needs the window size — and should not have to take a screenshot
+    or know it is stored as a setting to find it. None when the session never
+    named one: the window is then whatever the Grid node's default happens to
+    be, and printing a number would claim we knew which.
+    """
+    actions = RecordingActions()
+    actions.grid.alive.add("abc")
+    sessions = manager(actions)
+    sessions.remember(NAMED, "abc", "", {"width": 1024, "height": 768})
+    assert sessions.describe()["window"] == "1024x768"
+
+    sessions.remember(NAMED, "abc", "", {"browser": "firefox"})
+    assert sessions.describe()["window"] is None
 
 
 def test_a_session_stored_before_browsers_were_selectable_reads_as_chrome(named_caller):

@@ -61,11 +61,14 @@ to ignore you.
 ## Review priorities (highest first)
 
 1. **Security** — a hardcoded token or Grid credential; a secret written to a
-   log, response or exception message; a missing auth check on a new route. Note
-   that the auth token is compared in `sessions.py`/`server.py`, and that this
-   server is *designed* to fetch arbitrary URLs on request — that is the product,
-   not an SSRF bug. Flag new *undocumented* egress or a path that lets a caller
-   reach the Grid's own control plane.
+   log, response or exception message; a missing auth check on a new route. The
+   token is compared in **`auth.py`**, with `hmac.compare_digest`, and that is
+   the only place it may be — a new route that hand-rolls the header parse or
+   uses `==` is a finding even when it looks correct, because that is exactly how
+   the two copies this file replaced came to disagree. Signed file URLs are
+   `links.py`, same rule. This server is *designed* to fetch arbitrary URLs on
+   request — that is the product, not an SSRF bug. Flag new *undocumented* egress
+   or a path that lets a caller reach the Grid's own control plane.
 2. **Surface parity** — the section above.
 3. **Tool schema quality** — see below. On this project a weak schema is a
    functional defect, not a style nit.
@@ -136,6 +139,30 @@ shape of the pipeline itself:
   `.hadolint.yaml` record *why* each rule is relaxed. A PR that adds an ignore
   without a reason is a finding.
 
+## Changelog entries are release notes — review them as such
+
+`CHANGELOG.md`'s `[Unreleased]` section is handed verbatim to the release. What
+a PR writes there is what a stranger reads on the GitHub Release, so it is worth
+a comment when it is wrong — and the failure is almost always the same one:
+
+- **A paragraph instead of a line.** Entries explain the reasoning, name what
+  they replaced, or narrate the investigation. Say so and propose the one-line
+  version. The reasoning belongs in `AGENTS.md` or the PR description. This is
+  about the *entries*: a version may open with a short prose preamble framing
+  the release, and the bold lead on an entry is weighting rather than a format
+  every bullet owes — neither is a finding.
+- **An entry for internal work.** CI changes, refactors, dependency bumps, test
+  passes and doc edits earn no entry — the `no changelog` label is the intended
+  answer. One terse line under `Changed` is right only when a user would
+  genuinely notice.
+- **An edit to a released section.** Everything below `[Unreleased]` is
+  immutable. Flag any diff that touches it.
+- **A hand-written version heading or version bump.** Versions come from git tags
+  via `setuptools_scm`; the release flow owns them.
+
+Do *not* ask for an entry that `pr.yml` did not — and do not ask for a version
+heading. Those rules are in `CONTRIBUTING.md` §The changelog.
+
 ## Review style
 
 - Be specific and actionable: cite file/line and name the exact fix.
@@ -150,12 +177,14 @@ shape of the pipeline itself:
   the documented escape hatch for what the other tools do not cover.
 - **The unroutable Grid address in the tests is deliberate.** Tests must not
   reach a real Grid; a test that does is an integration test and is marked one.
-- **Tests are excluded from ruff** (`[tool.ruff] exclude`). Don't ask for lint
-  compliance in `tests/`.
+- **The `run(session_id, lambda s: ...)` forwarding in `tools.py` is deliberate
+  repetition.** A decorator that forwarded arguments generically would erase the
+  signature, and the signature *is* the published tool schema. Don't propose
+  DRYing it.
 - **Actions are pinned to release tags, not commit hashes.** This is a recorded
   decision — see the `unpinned-uses` block in `.github/zizmor.yml`.
 - **`info.version` is a placeholder in the generated `openapi.yaml`.** The served
   document carries the true version; stamping it would make the artifact differ
   per checkout.
-- Don't ask for a `CHANGELOG.md` version heading — `pr.yml` requires an entry
-  under `[Unreleased]`, and the release flow rolls it.
+- **A terse changelog entry is correct, not lazy.** One line is the house style;
+  see the section above before asking for more detail in `CHANGELOG.md`.

@@ -139,6 +139,10 @@ const SF = (() => {
       ['browser', s.browser
         ? browserMark(s.browser) + ' ' + [s.browser, s.version].filter(Boolean).join(' ')
         : null],
+      // Beside the browser, because it is the same kind of fact. Absent when
+      // the session never named a size: the window is then whatever the Grid
+      // node's default is, and printing a number would claim we knew which.
+      ['window', s.window],
       // Absent rather than "none" when detached: the session is the row, and a
       // browser is a thing it currently happens to have.
       ['browser id', s.session_id],

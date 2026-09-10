@@ -133,23 +133,35 @@ def test_the_admin_page_carries_the_shared_components(client):
     assert "--accent" in page, "the shared stylesheet is missing"
 
 
-def test_the_admin_page_wires_up_ending_a_browser(client):
-    """A button wired to nothing fails silently, which is the worst kind."""
+def test_the_two_toolbar_actions_are_wired_the_same_way(client):
+    """A button wired to nothing fails silently, which is the worst kind — and
+    two buttons wired separately is how one of them ends up without the confirm
+    or the error alert the other has, which is what happened here.
+
+    Both now go through one `destructive` helper that owns the confirmation, the
+    DELETE and the failure message, and both wear the same class, so they read
+    as one control with two verbs rather than two unrelated ones.
+    """
     page = client.get("/admin").text
-    assert 'id="endBrowser"' in page
-    assert "/admin/sessions/' + encodeURIComponent(key), 'DELETE'" in page
+    assert "function destructive(id," in page
+    assert "'/admin/sessions/' + encodeURIComponent(key) + path, 'DELETE'" in page
+    for button in ("clearFiles", "endBrowser"):
+        assert f'id="{button}" class="danger"' in page, button
+        assert f"destructive('{button}'" in page, button
 
 
-def test_ending_is_unavailable_when_there_is_no_browser(client):
+def test_neither_toolbar_action_is_offered_without_a_browser(client):
     """A control that does nothing is worse than one that is visibly off.
 
-    Asserted on `showDetail`, which is the one place the header is drawn — from
-    a fetch and from a pushed update alike — so the button cannot be left
-    enabled on a session that went idle while someone was looking at it.
+    Both act on the browser — and a detached session has no files either, since
+    the Grid deletes the file store with the browser. Asserted on `showDetail`,
+    which is the one place the header is drawn, from a fetch and from a pushed
+    update alike, so neither can be left enabled on a session that went idle
+    while someone was looking at it.
     """
     page = client.get("/admin").text
     assert "function showDetail(row)" in page
-    assert "$('endBrowser').disabled = !row.attached;" in page
+    assert "$('endBrowser').disabled = $('clearFiles').disabled = !row.attached;" in page
 
 
 def test_the_detail_view_is_updated_by_the_event_stream(client):

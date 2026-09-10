@@ -67,19 +67,29 @@ execute_script for anything the other tools do not cover, scrolling included.
 def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
     """Register every action as an MCP tool on ``mcp``."""
 
-    def run(session_id: str | None, call: Callable[[str], dict]) -> dict:
+    def run(
+        session_id: str | None,
+        call: Callable[[str], dict],
+        *,
+        reshapes: bool = False,
+    ) -> dict:
         """Resolve the caller's browser, act, and remember where it ended up.
 
         The three steps every tool shares. ``touch`` is what lets a later reopen
         land on the right page, and keeps an in-use session from expiring out of
         the store. The resolved id is passed along so a stateless caller, which
         has no key, is still touched under the browser it is holding.
+
+        ``reshapes`` is for the one action that changes a setting the record
+        *stores* rather than just the page it is on. See ``sessions.reshape``.
         """
         key = sessions.key()
         resolved = sessions.resolve(key, session_id)
         result = call(resolved)
         if isinstance(result, dict):
             sessions.touch(key, result.get("url"), resolved)
+            if reshapes:
+                sessions.reshape(key, result, resolved)
         return result
 
     @mcp.tool(annotations=hints("Open browser session", destructive=True))
@@ -243,8 +253,16 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         when you need a different size partway through. The headless default is
         small and varies between Grid nodes, so set it explicitly before
         judging anything visual.
+
+        The new size sticks to the session, so a browser the Grid reaps and
+        reopens comes back the size you last set rather than the size it was
+        opened at.
         """
-        return run(session_id, lambda s: actions.resize(s, width=width, height=height))
+        return run(
+            session_id,
+            lambda s: actions.resize(s, width=width, height=height),
+            reshapes=True,
+        )
 
     @mcp.tool(
         description=(

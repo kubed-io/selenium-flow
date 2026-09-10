@@ -73,6 +73,20 @@ class SessionRecord:
         """Whether a browser is currently held."""
         return bool(self.session_id)
 
+    @property
+    def window(self) -> str | None:
+        """The window size this session is set to, as ``WxH``.
+
+        Kept current by ``resize``, so it is both the size the browser is now
+        and the size it would come back as if the Grid reaped it.
+
+        None when the session never named one, which is a real answer rather
+        than a missing value: the window is whatever the Grid node's default
+        happens to be, and printing a number here would claim we knew which.
+        """
+        width, height = self.settings.get("width"), self.settings.get("height")
+        return f"{width}x{height}" if width and height else None
+
     def to_json(self) -> str:
         return json.dumps(asdict(self))
 
@@ -94,6 +108,15 @@ class SessionRecord:
     def at(self, url: str) -> SessionRecord:
         """The same record, remembering a newer page."""
         return replace(self, url=url or self.url)
+
+    def reshaped(self, settings: dict) -> SessionRecord:
+        """The same record, with some of its settings replaced.
+
+        A merge rather than a swap: the caller names only the settings it just
+        changed, and the ones it does not mention — the browser, the timeouts —
+        have to survive or a reopen would replay a browser nobody asked for.
+        """
+        return replace(self, settings={**self.settings, **settings})
 
     def detached(self) -> SessionRecord:
         """The same record with no browser, keeping the context it had.
