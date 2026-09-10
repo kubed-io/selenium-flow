@@ -147,7 +147,10 @@ a comment when it is wrong — and the failure is almost always the same one:
 
 - **A paragraph instead of a line.** Entries explain the reasoning, name what
   they replaced, or narrate the investigation. Say so and propose the one-line
-  version. The reasoning belongs in `AGENTS.md` or the PR description.
+  version. The reasoning belongs in `AGENTS.md` or the PR description. This is
+  about the *entries*: a version may open with a short prose preamble framing
+  the release, and the bold lead on an entry is weighting rather than a format
+  every bullet owes — neither is a finding.
 - **An entry for internal work.** CI changes, refactors, dependency bumps, test
   passes and doc edits earn no entry — the `no changelog` label is the intended
   answer. One terse line under `Changed` is right only when a user would

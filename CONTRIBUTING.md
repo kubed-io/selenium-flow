@@ -137,7 +137,13 @@ So write for that stranger:
 - **One short line per entry**, saying what someone can now do. Not a paragraph,
   not the reasoning, not what it replaced. If a line needs a "because", the
   because belongs in `AGENTS.md` or the PR.
-- **Lead with the capability**, bolded, and stop when the sentence is answered.
+- **Lead with the capability and stop when the sentence is answered.** Bold that
+  lead on the entries someone would choose the release for; the bold is
+  weighting, so a minor item at the end of a list does not need it and a list
+  where everything is bold has stopped weighting anything.
+- **A version may open with a short preamble** above its first heading, framing
+  the release as a whole — the first release says so, for instance. That is
+  prose and the rule above does not reach it: it is about the entries.
 - **Internal work usually earns no line at all** — CI, refactors, dependency
   bumps, tests, types, docs. When it genuinely changes something a user would
   notice, it gets one terse line under `Changed`; when it does not, the PR takes

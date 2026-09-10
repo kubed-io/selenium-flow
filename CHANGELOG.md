@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   types, docs — usually earns no line at all, and never more than a terse one.
   Deeper detail lives in AGENTS.md or the PR, not here.
 
+  A version may open with a short preamble above its first heading, framing the
+  release as a whole. That is prose, and the "never a paragraph" rule does not
+  reach it — it is about the entries.
+
   ONLY EVER EDIT THE [Unreleased] SECTION. Every section below it carries a
   version number and is IMMUTABLE — those notes shipped with a release and must
   never be reworded, reordered, or removed. Add new work under [Unreleased].
@@ -61,4 +65,4 @@ isn't one.
 
 - **Sessions in memory or Redis**, and `--stateless` for running more than one replica.
 
-- Ships as the `kubed/selenium-flow` image and as a wheel attached to each release. The manual is the [wiki](https://github.com/kubed-io/selenium-flow/wiki).
+- **Ships as the `kubed/selenium-flow` image**, and as a wheel attached to each release. The manual is the [wiki](https://github.com/kubed-io/selenium-flow/wiki).
