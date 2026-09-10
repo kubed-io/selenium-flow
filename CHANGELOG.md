@@ -27,9 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **HTTP errors now say whose fault they are.** A request you can fix — a bad XPath, a rejected value, a wait that matched nothing — is `400`; a browser that has ended is `404`; a Grid that is unreachable or out of slots is `503`. Everything below the auth check used to be `500`, so a workflow retrying on 5xx kept replaying requests that could never succeed.
+- **HTTP errors now say whose fault they are**: `400` for a request you can fix, `404` for a browser that has ended, `503` for a Grid that is unreachable or full. They were all `500`.
 
-- Error messages no longer carry the driver's stack trace, just the line that says what happened.
+- Error messages no longer carry the driver's stack trace.
 
 ## [0.0.2] - 2026-09-10
 
