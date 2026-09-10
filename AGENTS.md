@@ -70,22 +70,59 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   retina render — both tested working against this Grid. If that capability is wanted, add
   it as a **separate** tool so the portable path keeps working when CDP goes away.
 
-- **The wiki's action pages are generated too**, from `openapi.yaml`, by
-  `python scripts/generate_wiki.py`. Hand-written prose lives in
-  `wiki/notes/<tool>.notes.md` and is folded into the bottom of that tool's
-  page. The suffix is load-bearing: a GitHub wiki addresses a page by basename
-  whatever directory it sits in, so a note named `<tool>.md` would answer to the
-  same URL as its own page and GitHub would serve the fragment.
-  `test_no_page_is_shadowed_by_a_file_in_a_subdirectory` fails if it comes back.
-- **`openapi.yaml` is generated — never edit it by hand.** Run
-  `python scripts/generate_openapi.py`. Request schemas are taken verbatim from the MCP
-  tool schemas, which is what makes the REST contract and the tool contract provably the
-  same thing rather than two things that agree today. The committed copy exists so the
-  diff shows up in review and `redocly lint` can read it in CI.
-- **Code generates the spec, not the other way round.** Spec-first was considered and
-  rejected: FastMCP derives tool schemas from Python signatures, so a YAML source would
-  mean generating Python and then deriving schemas from the generated Python. Nothing
-  here is a contract another team designs against, which is when spec-first pays.
+## `openapi.yaml`: generated twice, committed once
+
+**Never edit it by hand.** Run `python scripts/generate_openapi.py`.
+
+The spec exists in two places and they are not copies of each other in the way that
+phrase usually means — both are derived from the same source, which is the MCP tool
+schemas, which FastMCP derives from the Python signatures in `tools.py`:
+
+| | Where | Built |
+|---|---|---|
+| **served** | `GET /openapi.yaml`, `GET /openapi.json` | per request, from the live tool schemas |
+| **committed** | `openapi.yaml` at the repo root | by `scripts/generate_openapi.py` |
+
+The served document is built on the fly, so the file at the root is a second rendering of
+the same thing rather than the source of either. It is committed on purpose, and three
+things depend on it:
+
+- **`scripts/generate_wiki.py` reads it.** The wiki's action pages are rendered from the
+  committed file, not from a running server — this is the load-bearing one. Delete the
+  file and the wiki cannot be built without booting the app first.
+- **CI lints it.** `test.yml` runs `redocly lint openapi.yaml`.
+- **Review can see it.** A schema change shows up in the pull request as a diff, which is
+  the only place a reviewer would notice a tool's contract quietly changing shape.
+
+`test_the_committed_file_is_not_stale` regenerates and compares, so the file cannot drift
+from the code — a pull request that forgot to rerun the generator fails the suite. If you
+change a signature or a docstring in `tools.py`, rerun both generators.
+
+**Code generates the spec, not the other way round.** Spec-first was considered and
+rejected: FastMCP derives tool schemas from Python signatures, so a YAML source would mean
+generating Python and then deriving schemas from the generated Python. Nothing here is a
+contract another team designs against, which is when spec-first pays.
+
+**`info.version` cannot be dropped from the committed file.** OpenAPI requires it, so the
+artifact carries a placeholder while the served document stamps the real package version.
+The validator test catches this if it is ever removed.
+
+## The wiki is generated from the spec
+
+`python scripts/generate_wiki.py` renders one page per action from `openapi.yaml`, so the
+wiki is downstream of the code and cannot describe a server that no longer exists.
+`tests/test_wiki.py` fails when the committed pages do not match the generator.
+
+Hand-written prose lives in `wiki/notes/<tool>.notes.md` — inside the wiki submodule — and
+is folded into the bottom of that tool's page, below the generated tables. Regeneration
+leaves it alone, so it is where guidance a schema cannot express belongs.
+
+**The `.notes.md` suffix is load-bearing.** A GitHub wiki addresses a page by *basename*
+whatever directory it sits in, so a note named `<tool>.md` answers to the same URL as its
+own page — GitHub then served the fragment, and the page looked like it had lost
+everything but its prose while the file on disk was perfect. That is why `notes/` was
+deleted from the wiki once already. `test_no_page_is_shadowed_by_a_file_in_a_subdirectory`
+fails if a bare `<tool>.md` comes back.
 
 ## Sessions: what is stateful and what is not
 
@@ -295,9 +332,6 @@ is in use.
 - **The Grid's session timeout is not this repo's setting.** It comes from
   `SE_NODE_SESSION_TIMEOUT` on the Grid node, set in the cluster repo. A long-thinking
   agent will lose its browser mid-task if that is left at the 300s default.
-- **`info.version` cannot be dropped from the committed spec.** It is required by
-  OpenAPI, so the artifact carries a placeholder while the served document stamps the real
-  package version. The validator test catches this if it is ever removed.
 - **`@mcp.tool` returns the plain function**, not a Tool object, so a description cannot be
   patched after decoration. Pass `description=` to the decorator when it needs to be
   computed — `press_key` does this to interpolate the real key list.
