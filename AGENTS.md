@@ -232,10 +232,18 @@ every use, so one in daily use never goes and one abandoned yesterday does.
 There is deliberately no delete button: nothing should be permanently lost by a
 misclick, and the store is a cache of intent, not a system of record.
 
-Stateless callers get a record too, keyed under `session:<browser id>`. That is
-**not** giving them a caller key — nothing ever resolves a caller from it, so
-the leak `caller_key` exists to prevent stays prevented. It exists so their
-session appears in the admin history and expires like everything else.
+A keyless **MCP** caller gets a record too, under `session:<browser id>`. That is
+**not** giving it a caller key — nothing ever resolves a caller from it, so the leak
+`caller_key` exists to prevent stays prevented. It exists so that session appears in the
+admin history and expires like everything else.
+
+Read "keyless MCP caller" strictly. **A browser opened through the HTTP surface gets no
+record and does not appear in the admin list**, because `routes.py` never touches
+`SessionManager` at all — see *The HTTP endpoints never use any of this*, above. That is
+the current design and not an oversight, but it is worth knowing before you go looking
+for an n8n workflow's browser in the admin view: it is on the Grid console tab, not the
+sessions tab. If that is ever to change, the change is in `routes.py`, and it has to keep
+the HTTP contract — session id in, session id out — intact.
 
 ## Sessions: what is stateful and what is not
 
