@@ -23,6 +23,12 @@ on:
     - pyproject.toml
     - .github/workflows/image.yml
     - kubed/**
+    # Mapped into the package by [tool.setuptools.package-dir], so they are in
+    # the wheel and therefore in the image. Left out of this list, an admin UI
+    # or skill change builds nothing and the deployed image silently keeps the
+    # old one — which happened. tests/test_packaging.py guards the pairing.
+    - static/**
+    - skills/**
   push:
     branches: [main]
     paths:
@@ -31,6 +37,12 @@ on:
     - pyproject.toml
     - .github/workflows/image.yml
     - kubed/**
+    # Mapped into the package by [tool.setuptools.package-dir], so they are in
+    # the wheel and therefore in the image. Left out of this list, an admin UI
+    # or skill change builds nothing and the deployed image silently keeps the
+    # old one — which happened. tests/test_packaging.py guards the pairing.
+    - static/**
+    - skills/**
   workflow_dispatch:
     inputs:
       push:

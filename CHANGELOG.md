@@ -39,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `wiki.yml` publishes the wiki: a pull request generates without pushing, a merge to main pushes, and `workflow_call` leaves the decision to the caller — the same shape as `image.yml`. `publish.yml` runs it alongside the image build rather than after, since the two share nothing.
 - The GitHub wiki is a submodule at `wiki/`, holding the manual the README has no room for: installing per MCP client, deployment across stdio/HTTP/Docker/Kubernetes, sessions, administration, and one page per action generated from `openapi.yaml` by `scripts/generate_wiki.py` so they cannot drift.
 
+### Fixed
+
+- `image.yml` rebuilds when `static/` or `skills/` change. Both are mapped into the package by `package-dir`, so they ship in the wheel and therefore in the image — but the workflow only watched `kubed/**`, so an admin UI or skill change committed cleanly, passed CI, built nothing, and left the running container serving the previous version with no signal anywhere. `tests/test_packaging.py` now derives the pairing from `pyproject.toml` so it cannot drift again.
+
 ### Changed
 
 - **BREAKING:** the `browser_sessions` tool and the `grid://sessions` resource are removed. An MCP client owns one session and may only ever see that one; a listing handed any client somebody else's browser id, which is the whole credential for driving that browser. The session list is now an admin view over HTTP, and `session://current` remains the sanctioned "what am I holding" shape.
