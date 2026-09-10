@@ -78,7 +78,27 @@ def test_a_good_token_gets_past_auth(client):
 def test_missing_required_argument_is_a_400_not_a_500(open_client):
     response = open_client.post("/browser/interact", json={"session_id": "x"})
     assert response.status_code == 400
-    assert "xpath" in response.json()["error"]
+    assert "action" in response.json()["error"]
+
+
+def test_naming_no_element_is_a_400_that_says_how_to_address_one(open_client):
+    """`xpath` stopped being required when `css` was added, so the schema can no
+    longer catch this — the boundary check has to, and it has to say both."""
+    response = open_client.post(
+        "/browser/interact", json={"session_id": "x", "action": "click"}
+    )
+    assert response.status_code == 400
+    error = response.json()["error"]
+    assert "xpath" in error and "css" in error
+
+
+def test_naming_both_elements_is_a_400_rather_than_a_silent_choice(open_client):
+    response = open_client.post(
+        "/browser/interact",
+        json={"session_id": "x", "action": "click", "xpath": "//a", "css": "a"},
+    )
+    assert response.status_code == 400
+    assert "not both" in response.json()["error"]
 
 
 def test_unknown_keys_are_dropped_rather_than_rejected(open_client):

@@ -5,9 +5,16 @@ through LLM tool calls. Each of the cases below has actually reached a handler.
 """
 
 import pytest
+from selenium.webdriver.common.by import By
 
 from kubed.selenium_flow.actions import _safe_name
-from kubed.selenium_flow.browser import as_bool, as_int, normalize_url, png_size
+from kubed.selenium_flow.browser import (
+    as_bool,
+    as_int,
+    locator,
+    normalize_url,
+    png_size,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -118,3 +125,37 @@ def test_safe_name_adds_the_extension_the_page_reads_the_type_from():
     assert _safe_name("data.csv", mime_type="application/json") == "data.csv"
     # Nothing to go on falls back to whatever the caller's surface defaults to.
     assert _safe_name("data", default_extension=".txt") == "data.txt"
+
+
+def test_locator_resolves_each_strategy_to_the_pair_selenium_wants():
+    assert locator(xpath="//button") == (By.XPATH, "//button")
+    assert locator(css="button.go") == (By.CSS_SELECTOR, "button.go")
+
+
+def test_locator_refuses_both_rather_than_picking_one():
+    """The expensive failure this helper exists to prevent.
+
+    Resolving a caller that named both would act on whichever element one of
+    them found, silently, and a typo in the ignored one would never surface.
+    """
+    with pytest.raises(ValueError, match="not both"):
+        locator(xpath="//button", css="button.go")
+
+
+def test_locator_refuses_neither_and_says_how_to_fix_it():
+    with pytest.raises(ValueError, match="pass xpath or css") as caught:
+        locator()
+    # The message carries an example of each, because this is the one new way
+    # to get a call wrong and the model reads the error, not the docs.
+    assert "//button" in str(caught.value)
+    assert "button[type=submit]" in str(caught.value)
+
+
+@pytest.mark.parametrize("empty", ["", None])
+def test_an_empty_selector_counts_as_absent(empty):
+    """An omitted optional parameter often arrives as "" rather than absent,
+    and treating that as "the caller named an element" would wait 30s for an
+    element whose selector is the empty string."""
+    with pytest.raises(ValueError, match="pass xpath or css"):
+        locator(xpath=empty, css=empty)
+    assert locator(xpath=empty, css="a") == (By.CSS_SELECTOR, "a")

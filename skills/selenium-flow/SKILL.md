@@ -68,7 +68,7 @@ its context.
 the same window size, and the page you were last on. Pass arguments only to
 change something.
 
-## The three rules
+## The four rules
 
 **1. Read with `extract`, not `screenshot`.** An image of text costs orders of
 magnitude more, cannot be quoted, and may be a picture of a half-rendered page.
@@ -82,7 +82,12 @@ not two:
 extract(url="https://example.com/settings", xpath="//h1")
 ```
 
-**3. Always end the browser.** Including on failure paths. `end_browser()`
+**3. Address elements with `xpath` or `css`, never both.** `css` is shorter for
+ids, classes and attributes; `xpath` is the only one that can match visible text
+(`//button[contains(., 'Save')]`) or walk up to an ancestor. Passing both is an
+error rather than a preference — see `references/READING_PAGES.md`.
+
+**4. Always end the browser.** Including on failure paths. `end_browser()`
 frees the slot; skipping it makes the next person wait. It ends the *browser*,
 not your session — the session keeps your browser choice and last page, so this
 costs you nothing.
@@ -94,7 +99,7 @@ Load only what the task needs.
 | Doing | Read |
 |---|---|
 | Deciding how to pass sessions, or recovering a dead one | `references/STATELESS.md` / `references/SAVED_SESSIONS.md` |
-| Getting content out of a page, choosing an XPath | `references/READING_PAGES.md` |
+| Getting content out of a page, choosing a selector | `references/READING_PAGES.md` |
 | Clicking, hovering, typing, uploading, dialogs, scrolling, waiting | `references/INTERACTION.md` |
 | A timeout, an empty screenshot, a click that did nothing | `references/TROUBLESHOOTING.md` |
 | Setting the server up, connecting a client, which env var to change | `references/CONFIGURATION.md` |

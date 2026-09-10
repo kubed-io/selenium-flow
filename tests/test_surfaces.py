@@ -70,8 +70,11 @@ async def test_tools_declare_real_parameter_schemas(server):
     """
     click = await server.mcp.get_tool("interact")
     props = click.parameters["properties"]
-    assert {"session_id", "xpath", "url", "wait_timeout"} <= set(props)
-    assert click.parameters["required"] == ["action", "xpath"]
+    assert {"session_id", "xpath", "css", "url", "wait_timeout"} <= set(props)
+    # Only `action` is required. The element is addressed by EITHER xpath OR
+    # css, which a JSON schema cannot say without oneOf, so it is enforced at
+    # the boundary by `browser.locator` and asserted in test_coercion.py.
+    assert click.parameters["required"] == ["action"]
     assert "input" not in props
     # ctx is injected by FastMCP and must never reach the model as a parameter
     assert "ctx" not in props

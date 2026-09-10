@@ -13,9 +13,40 @@ wrong one is the most expensive mistake available with these tools.
 magnitude more than the paragraph, cannot be quoted or searched, and may be
 wrong if the page had not finished rendering.
 
+## Addressing an element: `xpath` or `css`
+
+Every tool that acts on an element takes **either** `xpath` **or** `css` —
+never both, never neither. Passing both is refused rather than resolved, because
+acting on whichever element one of them happened to find would hide a typo in
+the other.
+
+```
+interact(action="click", xpath="//button[@type='submit']")
+interact(action="click", css="button[type=submit]")
+```
+
+Which to reach for:
+
+| Situation | Use |
+|---|---|
+| An id, class, attribute or descendant — most of the time | `css` — shorter, and the syntax you already know from the page's own stylesheet |
+| Matching on **visible text** | `xpath` — `//button[contains(., 'Save')]`, which CSS cannot do at all |
+| Walking **upwards** to a parent or ancestor | `xpath` — `//input[@id='x']/ancestor::form` |
+| Anything positional or structural beyond `:nth-child` | `xpath` |
+
+`css` is usually the shorter of the two and `#id` covers the single most common
+case, so it is a good default. But **text matching and ancestor traversal are
+XPath-only**, and both come up constantly on real pages — a button you can see
+but whose markup you cannot guess is the normal case, and `//button[contains(.,
+'Continue')]` finds it in one line.
+
+There is no fallback: if the selector matches nothing, the wait times out and
+the error tells you what it waited for and what page the browser was actually
+on. See `TROUBLESHOOTING.md`.
+
 ## extract
 
-Returns `text` (visible text) and `html` (`innerHTML`) for one XPath, plus the
+Returns `text` (visible text) and `html` (`innerHTML`) for one element, plus the
 page `url` and `title`.
 
 ```
@@ -25,7 +56,7 @@ extract(url="https://example.com/settings", xpath="//main")
 
 Start wide, then narrow. `//body` on an unfamiliar page is still far cheaper
 than a screenshot and tells you the structure; once you know it, use a specific
-XPath so the result stays small.
+selector so the result stays small.
 
 Cheap orientation checks worth knowing:
 

@@ -219,11 +219,12 @@ class Actions:
         self,
         session_id: str,
         action: str,
-        xpath: str,
+        xpath=None,
         url=None,
         wait_timeout=WAIT_TIMEOUT,
+        css=None,
     ) -> dict:
-        """Perform a mouse action on the element at ``xpath``.
+        """Perform a mouse action on an element.
 
         One action rather than five tools: they take identical arguments and
         differ only in which gesture is sent, so splitting them would be five
@@ -235,15 +236,19 @@ class Actions:
                 f"unknown action {action!r}; known actions: "
                 f"{', '.join(sorted(MOUSE_ACTIONS))}"
             )
+        # Resolved before the browser is touched: a call naming both xpath and
+        # css is a mistake, and finding that out after a reconnect and a
+        # navigation costs a page load to learn nothing.
+        target = browser.locator(xpath, css)
         driver = self._at(session_id, url)
         timeout = as_int(wait_timeout, 30)
 
         # hover and scroll_to only need the element to exist. Requiring it to be
         # clickable would refuse exactly the off-screen element scroll_to is for.
         if resolved in ("hover", "scroll_to"):
-            element = browser.wait_for_element(driver, xpath, timeout)
+            element = browser.wait_for_element(driver, target, timeout)
         else:
-            element = browser.wait_for_clickable(driver, xpath, timeout)
+            element = browser.wait_for_clickable(driver, target, timeout)
 
         if resolved == "click":
             element.click()
@@ -271,6 +276,7 @@ class Actions:
         xpath=None,
         index=None,
         wait_timeout=WAIT_TIMEOUT,
+        css=None,
     ) -> dict:
         """Move the session into an iframe, or back out of it.
 
@@ -287,17 +293,21 @@ class Actions:
                 f"unknown action {action!r}; known actions: "
                 f"{', '.join(sorted(FRAME_ACTIONS))}"
             )
-        if resolved == "switch" and not xpath and index is None:
-            raise ValueError("switch needs either xpath or index to say which frame")
+        if resolved == "switch" and not xpath and not css and index is None:
+            raise ValueError(
+                "switch needs xpath, css or index to say which frame"
+            )
 
         driver = self.grid.reconnect(session_id)
         if resolved == "default":
             driver.switch_to.default_content()
         elif resolved == "parent":
             driver.switch_to.parent_frame()
-        elif xpath:
+        elif xpath or css:
             driver.switch_to.frame(
-                browser.wait_for_element(driver, xpath, as_int(wait_timeout, 30))
+                browser.wait_for_element(
+                    driver, browser.locator(xpath, css), as_int(wait_timeout, 30)
+                )
             )
         else:
             driver.switch_to.frame(as_int(index, 0))
@@ -370,7 +380,7 @@ class Actions:
     def upload_file(
         self,
         session_id: str,
-        xpath: str,
+        xpath=None,
         text=None,
         content=None,
         filename=None,
@@ -378,8 +388,9 @@ class Actions:
         path=None,
         url=None,
         wait_timeout=WAIT_TIMEOUT,
+        css=None,
     ) -> dict:
-        """Attach a file to the file input at ``xpath``.
+        """Attach a file to a file input.
 
         The file arrives one of three ways, and exactly one is required:
 
@@ -424,7 +435,9 @@ class Actions:
 
         driver = self._at(session_id, url)
         browser.accept_local_files(driver)
-        element = browser.wait_for_element(driver, xpath, as_int(wait_timeout, 30))
+        element = browser.wait_for_element(
+            driver, browser.locator(xpath, css), as_int(wait_timeout, 30)
+        )
 
         temp_dir = None
         try:
@@ -467,16 +480,18 @@ class Actions:
     def write(
         self,
         session_id: str,
-        xpath: str,
         text: str,
+        xpath=None,
         url=None,
         clear=True,
         submit=False,
         wait_timeout=WAIT_TIMEOUT,
+        css=None,
     ) -> dict:
-        """Type ``text`` into the field at ``xpath``."""
+        """Type ``text`` into a field."""
+        target = browser.locator(xpath, css)
         driver = self._at(session_id, url)
-        element = browser.wait_for_clickable(driver, xpath, as_int(wait_timeout, 30))
+        element = browser.wait_for_clickable(driver, target, as_int(wait_timeout, 30))
         if as_bool(clear, True):
             element.clear()
         element.send_keys(str(text))
@@ -491,7 +506,13 @@ class Actions:
         return {"value": value, **browser.page_state(driver)}
 
     def press_key(
-        self, session_id: str, key: str, xpath=None, url=None, wait_timeout=WAIT_TIMEOUT
+        self,
+        session_id: str,
+        key: str,
+        xpath=None,
+        url=None,
+        wait_timeout=WAIT_TIMEOUT,
+        css=None,
     ) -> dict:
         """Press a named key, at an element or wherever focus currently is.
 
@@ -505,8 +526,10 @@ class Actions:
                 f"unknown key {key!r}; known keys: {', '.join(sorted(KEYS))}"
             )
         driver = self._at(session_id, url)
-        if xpath:
-            target = browser.wait_for_clickable(driver, xpath, as_int(wait_timeout, 30))
+        if xpath or css:
+            target = browser.wait_for_clickable(
+                driver, browser.locator(xpath, css), as_int(wait_timeout, 30)
+            )
         else:
             target = driver.find_element(By.TAG_NAME, "body")
         target.send_keys(resolved)
@@ -531,11 +554,12 @@ class Actions:
     # ---- reading -----------------------------------------------------------
 
     def extract(
-        self, session_id: str, xpath: str, url=None, wait_timeout=WAIT_TIMEOUT
+        self, session_id: str, xpath=None, url=None, wait_timeout=WAIT_TIMEOUT, css=None
     ) -> dict:
-        """Read the text and HTML of the element at ``xpath``."""
+        """Read the text and HTML of an element."""
+        target = browser.locator(xpath, css)
         driver = self._at(session_id, url)
-        element = browser.wait_for_element(driver, xpath, as_int(wait_timeout, 30))
+        element = browser.wait_for_element(driver, target, as_int(wait_timeout, 30))
         return {
             "html": element.get_attribute("innerHTML"),
             "text": element.text,
@@ -553,6 +577,7 @@ class Actions:
         wait_timeout=WAIT_TIMEOUT,
         save=False,
         filename=None,
+        css=None,
     ) -> dict:
         """Capture a PNG and return it base64-encoded.
 
@@ -567,8 +592,10 @@ class Actions:
                 as_int(width, current["width"]), as_int(height, current["height"])
             )
 
-        if xpath:
-            element = browser.wait_for_element(driver, xpath, as_int(wait_timeout, 30))
+        if xpath or css:
+            element = browser.wait_for_element(
+                driver, browser.locator(xpath, css), as_int(wait_timeout, 30)
+            )
             image = element.screenshot_as_base64
         elif as_bool(full_page, False):
             before = driver.get_window_size()

@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **CSS selectors.** Every tool that acts on an element now takes `css` as well as `xpath` — pass one or the other.
+
 ### Changed
 
 - **HTTP errors now say whose fault they are**: `400` for a request you can fix, `404` for a browser that has ended, `503` for a Grid that is unreachable or full. They were all `500`.
