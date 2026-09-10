@@ -1,9 +1,10 @@
 # 🌊 Selenium Flow
 
-**One browser, many calls.** Drive a real Chrome on [Selenium Grid](https://www.selenium.dev/documentation/grid/) from an agent over MCP — or from anything else over plain HTTP. Same actions, same server, one browser that stays exactly where you left it. 🧭
+**One browser, many calls.** Drive a real Chrome or Firefox on [Selenium Grid](https://www.selenium.dev/documentation/grid/) from an agent over MCP — or from anything else over plain HTTP. Same actions, same server, one browser that stays exactly where you left it. 🧭
 
 [![🧪 Test](https://github.com/kubed-io/selenium-flow/actions/workflows/test.yml/badge.svg)](https://github.com/kubed-io/selenium-flow/actions/workflows/test.yml)
 [![📸 Image Builder](https://github.com/kubed-io/selenium-flow/actions/workflows/image.yml/badge.svg)](https://github.com/kubed-io/selenium-flow/actions/workflows/image.yml)
+[![📖 Wiki](https://github.com/kubed-io/selenium-flow/actions/workflows/wiki.yml/badge.svg)](https://github.com/kubed-io/selenium-flow/wiki)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-kubed%2Fselenium--flow-2496ed?logo=docker&logoColor=white)](https://hub.docker.com/r/kubed/selenium-flow)
 [![FastMCP](https://img.shields.io/badge/FastMCP-4-8a2be2)](https://gofastmcp.com/)
@@ -12,7 +13,7 @@
 
 ## The whole idea, in one breath
 
-Open a browser once. It stays alive — same page, same cookies, same scroll position — while an agent works through a task one call at a time, or an n8n workflow steps from node to node. Nothing relaunches, nothing logs in twice.
+Open a browser once. It stays alive — same page, same cookies, same scroll position — while an agent works a task one call at a time, or an n8n workflow steps node to node. Nothing relaunches, nothing logs in twice.
 
 ```
    agent  ──── MCP  /mcp ─────▶  ┌───────────────┐        ┌───────────────┐
@@ -22,7 +23,7 @@ workflow  ──── HTTP /browser ──▶ └──────────
                                                             lives here
 ```
 
-**This server holds no browser.** The session lives on the Grid, so the server can restart, scale to zero, or sit behind several replicas without anyone losing a tab. 🪄
+**This server holds no browser.** The session lives on the Grid, so the server can restart, scale to zero, or run several replicas without anyone losing a tab. 🪄
 
 ---
 
@@ -33,7 +34,7 @@ workflow  ──── HTTP /browser ──▶ └──────────
 | **MCP** over Streamable HTTP | agents and MCP clients | `/mcp` |
 | **JSON** over HTTP | n8n HTTP nodes, curl, scripts, anything | `/browser/*` |
 
-Every action is a tool **and** an endpoint, one to one, and a test fails the build if that stops being true. They differ in one place: `screenshot` hands MCP an image block a vision model can *see*, and HTTP a base64 payload a script can save.
+Every action is a tool **and** an endpoint, one to one, and a test fails the build if that stops being true. They differ in one place: `screenshot` hands MCP an image block a vision model can *see*, and HTTP a base64 payload.
 
 `GET /health` and `GET /openapi.yaml` need no credentials.
 
@@ -41,292 +42,38 @@ Every action is a tool **and** an endpoint, one to one, and a test fails the bui
 
 ## 🧰 Every action, both ways
 
-Fourteen actions, each a tool and an endpoint with identical parameters. All endpoints are `POST` with a JSON body.
+Fourteen actions, each a tool **and** an endpoint with identical parameters. All endpoints are `POST` with a JSON body.
 
 > **The one difference:** over HTTP `session_id` is always **required**; over MCP it depends on the mode, and the advertised schema says which. See [Sessions](#-sessions).
 
-<details>
-<summary><b><code>open_session</code></b> &nbsp;·&nbsp; <code>POST /browser/open</code> &nbsp;—&nbsp; start a browser 🚀</summary>
-
-<br>
-
-Starts a session on the Grid and hands back the `session_id` everything else needs.
-
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `url` | string | no | — | Navigate here once open |
-| `width` | integer | no | node default | Window width |
-| `height` | integer | no | node default | Window height |
-
-Headless window defaults are small and differ between Grid nodes, so set `width`/`height` whenever layout matters.
-
-**Returns** `session_id`, `url`, `title`, `width`, `height`.
-
-</details>
-
-<details>
-<summary><b><code>navigate</code></b> &nbsp;·&nbsp; <code>POST /browser/navigate</code> &nbsp;—&nbsp; go to a URL 🧭</summary>
-
-<br>
-
-Moves the browser somewhere, unconditionally.
-
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `session_id` | string | **yes** *(HTTP)* | — | |
-| `url` | string | **yes** | — | Where to go |
-
-**Returns** `url`, `title`.
-
-</details>
-
-<details>
-<summary><b><code>interact</code></b> &nbsp;·&nbsp; <code>POST /browser/interact</code> &nbsp;—&nbsp; click, hover, right-click 🖱️</summary>
-
-<br>
-
-Every mouse gesture, as one action — identical arguments, differing only in what is sent.
-
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `session_id` | string | **yes** *(HTTP)* | — | |
-| `action` | string | **yes** | — | `click`, `double_click`, `right_click`, `hover`, `scroll_to` |
-| `xpath` | string | **yes** | — | Element to act on |
-| `url` | string | no | — | Page the action happens on |
-| `wait_timeout` | integer | no | `30` | |
-
-**Returns** `action`, `url`, `title` — read *after* the gesture, so a navigation it caused shows up. If it opened a dialog, those are `null` and `dialog` carries the message.
-
-</details>
-
-<details>
-<summary><b><code>upload_file</code></b> &nbsp;·&nbsp; <code>POST /browser/upload</code> &nbsp;—&nbsp; attach a file 📎</summary>
-
-<br>
-
-The browser runs on a Grid node in another container, so a path means nothing to it. Send the file and it is shipped there for you.
-
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `session_id` | string | **yes** *(HTTP)* | — | |
-| `xpath` | string | **yes** | — | The `<input type="file">` |
-| `text` | string | one of three | — | The file's content as plain text — JSON, CSV, YAML, markdown |
-| `content` | string / file | one of three | — | Base64 over JSON and MCP; a **real file part** over multipart |
-| `path` | string | one of three | — | A file already on the **server's** filesystem |
-| `filename` | string | no | `upload` | What the page sees. **Its extension sets the MIME type** |
-| `mime_type` | string | no | — | Picks an extension when `filename` has none |
-| `url` / `wait_timeout` | | no | / `30` | |
-
-Something you generated needs no encoding step — pass it as `text` with a `filename`. Over HTTP a real file goes as a normal multipart part, binary included: `-F content=@shot.png`.
-
-**Returns** `filename` and `bytes` actually attached, plus page state.
-
-</details>
-
-<details>
-<summary><b><code>dialog</code></b> &nbsp;·&nbsp; <code>POST /browser/dialog</code> &nbsp;—&nbsp; answer an alert 💬</summary>
-
-<br>
-
-A native `alert`, `confirm` or `prompt` freezes the page — nothing else can even read the URL until it is answered.
-
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `session_id` | string | **yes** *(HTTP)* | — | |
-| `action` | string | no | `accept` | `accept`, `dismiss`, `read`, `send_text` |
-| `text` | string | only for `send_text` | — | Fills a prompt, then accepts |
-| `wait_timeout` | integer | no | `10` | |
-
-**Returns** `action`, `message` (read before answering), plus page state.
-
-</details>
-
-<details>
-<summary><b><code>frame</code></b> &nbsp;·&nbsp; <code>POST /browser/frame</code> &nbsp;—&nbsp; enter an iframe 🖼️</summary>
-
-<br>
-
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `session_id` | string | **yes** *(stateless)* | — | |
-| `action` | string | no | `switch` | `switch`, `parent`, `default` |
-| `xpath` | string | for `switch` | — | The `<iframe>` to enter |
-| `index` | integer | alternative to `xpath` | — | Zero-based frame index |
-| `wait_timeout` | integer | no | `30` | |
-
-**The switch sticks.** It is session state on the Grid, not per-call, so everything afterwards stays inside that frame until something switches back — which is why `session://current` reports `in_frame`.
-
-**Returns** `action`, `in_frame`, plus page state.
-
-</details>
-
-<details>
-<summary><b><code>resize</code></b> &nbsp;·&nbsp; <code>POST /browser/resize</code> &nbsp;—&nbsp; change the window 📐</summary>
-
-<br>
-
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `session_id` | string | **yes** *(HTTP)* | — | |
-| `width` | integer | no | unchanged | |
-| `height` | integer | no | unchanged | |
-
-The headless default is narrow and varies between Grid nodes, so set it before
-judging anything visual.
-
-**Returns** the `width` and `height` now in effect, plus page state.
-
-</details>
-
-<details>
-<summary><b><code>write</code></b> &nbsp;·&nbsp; <code>POST /browser/write</code> &nbsp;—&nbsp; type into a field ⌨️</summary>
-
-<br>
-
-Types into an input, textarea or contenteditable.
-
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `session_id` | string | **yes** *(HTTP)* | — | |
-| `xpath` | string | **yes** | — | The field to type into |
-| `text` | string | **yes** | — | Empty string with `clear: true` empties the field |
-| `url` | string | no | — | Page the field is on |
-| `clear` | boolean | no | `true` | Empty the field first |
-| `submit` | boolean | no | `false` | Press Enter afterwards — a one-call search box |
-| `wait_timeout` | integer | no | `30` | |
-
-**Returns** `value`, `url`, `title`. The value is read back off the element so you can confirm the text landed — and read *before* any submit, because submitting navigates and the element reference goes stale.
-
-</details>
-
-<details>
-<summary><b><code>press_key</code></b> &nbsp;·&nbsp; <code>POST /browser/press-key</code> &nbsp;—&nbsp; press a named key 🎹</summary>
-
-<br>
-
-Sends a key to an element, or to wherever focus happens to be.
-
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `session_id` | string | **yes** *(HTTP)* | — | |
-| `key` | string | **yes** | — | A name from the list below |
-| `xpath` | string | no | — | Send it here rather than to the focused element |
-| `url` | string | no | — | Page to press it on |
-| `wait_timeout` | integer | no | `30` | |
-
-**Returns** `key`, `url`, `title`.
-
-Names are lowercase — `tab`, `enter`, `escape`, `arrow_*`, `page_*`, `f1`–`f12`, `numpad0`–`numpad9`, and the rest of Selenium's set. The live list is interpolated into the tool description, so it cannot drift.
-
-⚠️ **Not a scrolling tool.** `page_down` only moves the page when focus happens to be on the scrollable container. Use `execute_script` to scroll.
-
-</details>
-
-<details>
-<summary><b><code>extract</code></b> &nbsp;·&nbsp; <code>POST /browser/extract</code> &nbsp;—&nbsp; read the page 📖</summary>
-
-<br>
-
-Waits for an element to exist, then reads it. **The cheap way to read a page** — reach for this long before a screenshot.
-
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `session_id` | string | **yes** *(HTTP)* | — | |
-| `xpath` | string | **yes** | — | Element to read |
-| `url` | string | no | — | Page to read from |
-| `wait_timeout` | integer | no | `30` | |
-
-**Returns** `html` (the element's `innerHTML`), `text` (visible text), `url`, `title`.
-
-`//body` reads everything; a narrower XPath keeps the result small.
-
-</details>
-
-<details>
-<summary><b><code>execute_script</code></b> &nbsp;·&nbsp; <code>POST /browser/script</code> &nbsp;—&nbsp; run JavaScript 🧪</summary>
-
-<br>
-
-The escape hatch for anything the other eight don't cover: scrolling, drag and drop, computed styles, direct DOM access, or batch-reading a dozen values in one call.
-
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `session_id` | string | **yes** *(HTTP)* | — | |
-| `script` | string | **yes** | — | Use `return` to send a value back |
-| `url` | string | no | — | Page to run it on |
-
-**Returns** `result` (any JSON type), `url`, `title`.
-
-</details>
-
-<details>
-<summary><b><code>screenshot</code></b> &nbsp;·&nbsp; <code>POST /browser/screenshot</code> &nbsp;—&nbsp; capture a PNG 📸</summary>
-
-<br>
-
-Three modes, in precedence order: `xpath` wins, then `full_page`, otherwise the visible viewport.
-
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `session_id` | string | **yes** *(HTTP)* | — | |
-| `url` | string | no | — | Page to capture |
-| `xpath` | string | no | — | Capture only this element |
-| `full_page` | boolean | no | `false` | The whole scrollable page |
-| `width` | integer | no | — | Resize before capturing, and **leave** it resized |
-| `height` | integer | no | — | |
-| `save` | boolean | no | `false` | Also keep it with the session's files, and get a link |
-| `filename` | string | no | `screenshot` | Name for the saved copy |
-| `wait_timeout` | integer | no | `30` | |
-
-**Over MCP** you get an image content block a vision model can actually see. **Over HTTP** you get `image` (base64 PNG), `width`, `height` (real pixels, read from the PNG header), `bytes` (decoded size — the quickest way to spot a blank capture), plus `url` and `title`.
-
-`width`/`height` resize the window and leave it that way; `full_page` resizes only for the capture and restores the previous size afterwards.
-
-Pass `save` when a **person** will look at it. Many clients cannot display an image returned by a tool — [see below](#-mcp-apps) — and every one of them can follow a link.
-
-```json
-{ "session_id": "…", "full_page": true, "width": 1280 }
-```
-
-</details>
-
-<details>
-<summary><b><code>save_pdf</code></b> &nbsp;·&nbsp; <code>POST /browser/pdf</code> &nbsp;—&nbsp; print the page 📄</summary>
-
-<br>
-
-The browser's own print output, so text stays selectable and the whole document is included rather than just the viewport. Kept with the session's files.
-
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `session_id` | string | **yes** *(HTTP)* | — | |
-| `url` | string | no | — | Page to print |
-| `filename` | string | no | `page` | Name for the stored file |
-
-**Returns** the stored `file`, its `bytes`, plus page state.
-
-</details>
-
-<details>
-<summary><b><code>close_session</code></b> &nbsp;·&nbsp; <code>POST /browser/close</code> &nbsp;—&nbsp; give the slot back 🧹</summary>
-
-<br>
-
-Quits the session and frees its Grid slot.
-
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `session_id` | string | **yes** *(HTTP)* | — | |
-
-**Returns** `success`, `session_id`.
-
-**Always call this, including on failure paths.** Slots are finite, and an abandoned session holds one until the Grid times it out.
-
-</details>
+| Action | Endpoint | |
+|---|---|---|
+| [`open_session`](https://github.com/kubed-io/selenium-flow/wiki/open_session) | `POST /browser/open` | Start a browser — `chrome` or `firefox` 🚀 |
+| [`navigate`](https://github.com/kubed-io/selenium-flow/wiki/navigate) | `POST /browser/navigate` | Go to a URL 🧭 |
+| [`interact`](https://github.com/kubed-io/selenium-flow/wiki/interact) | `POST /browser/interact` | Click, double-click, right-click, hover, scroll to 🖱️ |
+| [`write`](https://github.com/kubed-io/selenium-flow/wiki/write) | `POST /browser/write` | Type into a field ⌨️ |
+| [`press_key`](https://github.com/kubed-io/selenium-flow/wiki/press_key) | `POST /browser/press-key` | Press a named key — `tab`, `enter`, arrows 🎹 |
+| [`extract`](https://github.com/kubed-io/selenium-flow/wiki/extract) | `POST /browser/extract` | Read text and HTML off the page 📖 |
+| [`screenshot`](https://github.com/kubed-io/selenium-flow/wiki/screenshot) | `POST /browser/screenshot` | Capture a PNG, viewport or full page 📸 |
+| [`save_pdf`](https://github.com/kubed-io/selenium-flow/wiki/save_pdf) | `POST /browser/pdf` | Print the page with the browser's print engine 📄 |
+| [`execute_script`](https://github.com/kubed-io/selenium-flow/wiki/execute_script) | `POST /browser/script` | Run JavaScript — the escape hatch 🧪 |
+| [`frame`](https://github.com/kubed-io/selenium-flow/wiki/frame) | `POST /browser/frame` | Enter and leave an iframe 🖼️ |
+| [`dialog`](https://github.com/kubed-io/selenium-flow/wiki/dialog) | `POST /browser/dialog` | Answer a native alert, confirm or prompt 💬 |
+| [`resize`](https://github.com/kubed-io/selenium-flow/wiki/resize) | `POST /browser/resize` | Change the window at any time 📐 |
+| [`upload_file`](https://github.com/kubed-io/selenium-flow/wiki/upload_file) | `POST /browser/upload` | Attach a file to a file input 📎 |
+| [`close_session`](https://github.com/kubed-io/selenium-flow/wiki/close_session) | `POST /browser/close` | Give the slot back 🧹 |
+
+Every parameter, every return field and the traps worth knowing are one page per action in the **[wiki](https://github.com/kubed-io/selenium-flow/wiki/Actions)** — generated from `openapi.yaml`, which is itself generated from the live tool schemas, so it cannot drift from the server. The same schemas are served at `GET /openapi.yaml`.
+
+### 🦊 Chrome or Firefox
+
+`open_session(browser="firefox")` and you are on Firefox; leave it out and you are on Chrome. Every other action behaves identically on both — both are plain W3C WebDriver, so only session creation differs.
+
+The browser is stored with the session, so one the Grid reaped reopens as the same browser rather than the default. [More in the wiki](https://github.com/kubed-io/selenium-flow/wiki/open_session).
 
 ### 🧭 About that `url` parameter
 
-`click`, `write`, `press_key`, `extract`, `screenshot` and `execute_script` all take an optional `url`, and it is **not an assertion**. If the browser is somewhere else, it goes there first — so you can jump straight to a page instead of clicking a path to it.
+`click`, `write`, `press_key`, `extract`, `screenshot` and `execute_script` all take an optional `url`, and it is **not an assertion**. If the browser is elsewhere it goes there first, so you can jump straight to a page instead of clicking a path to it.
 
 ---
 
@@ -334,7 +81,7 @@ Quits the session and frees its Grid slot.
 
 Over HTTP it is session in, session out, always — so an n8n workflow owns its session and can pass it between nodes.
 
-**`open_session` always comes first.** Nothing opens a browser implicitly, because that is the only place its window size and timeouts can be chosen — hiding it hid the settings too.
+**`open_session` always comes first.** Nothing opens a browser implicitly, because that is the only place its browser, window size and timeouts can be chosen.
 
 After that there are two modes, and they are **exclusive**. `session://current` reports which one applies and links the reference that explains it:
 
@@ -343,7 +90,7 @@ After that there are two modes, and they are **exclusive**. `session://current` 
 | **saved** | the server can identify you | **never** pass `session_id` — it is not even advertised |
 | **stateless** | it cannot, or you are on `/browser/*` | `session_id` is **required** on every call |
 
-The server works out who is calling from the first of these it finds, and **never invents one** — a caller it cannot identify is stateless, not quietly handed a browser:
+It works out who is calling from the first of these it finds and **never invents one** — a caller it cannot identify is stateless, not quietly handed a browser:
 
 | Key | How it's set | How stable |
 |---|---|---|
@@ -351,17 +98,17 @@ The server works out who is calling from the first of these it finds, and **neve
 | **The MCP transport session** | the negotiated `Mcp-Session-Id` | Lasts the connection; a reconnect is a new key |
 | **stdio** | one process, one client | Lasts the process |
 
-Prefer the **query parameter**: one credential shared across callers, each naming itself in its URL. The **header** wins over it, so an admin can pin one browser per credential and a caller cannot override it.
+Prefer the **query parameter**: one credential shared across callers, each naming itself in its URL. The **header** wins over it, so an admin can pin one browser per credential.
 
 > ⚠️ n8n opens a **new MCP transport per tool call**, so the negotiated id is never the same twice. Name the session in the URL or saved mode cannot work there.
 
-Browser lifetime is the Grid's (`SE_NODE_SESSION_TIMEOUT`, 300s here); how long we remember a caller is `SESSION_TTL`, slid forward on every call. Nothing runs a cleanup loop — see AGENTS.md.
+Browser lifetime is the Grid's (`SE_NODE_SESSION_TIMEOUT`, 300s here); how long we remember a caller is `SESSION_TTL`, slid forward on every call. Nothing runs a cleanup loop.
 
 ### 📍 Where am I?
 
-`session://current` reports the mode, the browser this client holds, whether the Grid still has it, whether you are inside a frame, and a link to the reference that applies. Reading it never opens a browser.
+`session://current` reports the mode, the session this client holds and which browser it is running, whether the Grid still has it, whether you are inside a frame, and a link to the reference that applies. Reading it never opens a browser.
 
-Resources are the least widely implemented corner of MCP — n8n has none — so the same status is also a `current_session` **tool**, hidden unless a client declares `?resources=off` or `X-MCP-Resources: off`.
+The same status is also a `current_session` **tool**, hidden unless a client declares `?resources=off` or `X-MCP-Resources: off` — resources being the least implemented corner of MCP.
 
 ### 📖 It teaches you how to use it
 
@@ -397,28 +144,28 @@ both shapes off.
 
 ## 🗂 What a session leaves behind
 
-Everything a session downloads is kept **by the Grid**, in a per-session store beside the browser — created with the session, deleted with it. Two kinds of file land there and they are not distinguished: whatever the **site** served to a download, and whatever **you** kept with `screenshot(save=true)` or `save_pdf`.
+Everything a session downloads is kept **by the Grid**, in a per-session store beside the browser — created with the session, deleted with it. Two kinds of file land there, undistinguished: whatever the **site** served to a download, and whatever **you** kept with `screenshot(save=true)` or `save_pdf`.
 
 | Read it as | URI / path |
 |---|---|
 | a resource | `session://files` — the listing |
 | a resource | `session://files/{name}` — one file, as bytes |
-| a tool | `session_files` — same listing, for clients without resources |
+| a tool | `session_files` — same listing, where there are no resources |
 | a link | `GET /files/{session}/{name}?exp=…&sig=…` |
 
-That last one travels: signed over the path and an expiry, because an `<img>` tag cannot send an `Authorization` header.
+That last one travels: signed over path and expiry, because an `<img>` tag cannot send an `Authorization` header.
 
 ---
 
 ## 🖥 Admin UI
 
-`GET /admin` — the sessions the Grid is running and what each downloaded. Click a file to view it in place; click a session for a header of its context.
+`GET /admin` — the sessions the Grid is running and what each downloaded, each marked with the browser it is running. Click a file to view it in place; click a session for a header of its context.
 
-The list **pushes its own updates** over Server-Sent Events — no refresh button, and no polling per tab: one loop on the server serves every page. Rows carry the name their caller claimed, joined from the session store; a browser the Grid is running that this server has no record of is labelled as somebody else's rather than passed off as ours.
+The list **pushes its own updates** over Server-Sent Events — no refresh button, and no polling per tab: one loop serves every page. Rows carry the name their caller claimed; a browser this server has no record of is labelled as somebody else's rather than passed off as ours.
 
 There are no accounts: the sign-in box asks for the server's token, since anyone holding it can already drive every browser through the API. It is kept in `sessionStorage`, so it does not outlive the tab.
 
-The Grid's own console is a second tab, framed same-origin. Put both behind one host — the Grid at `/`, this server under a path — and the console's live view works with no cross-origin exception.
+The Grid's own console is a second tab, framed same-origin. Put both behind one host — the Grid at `/`, this server under a path — and its live view works with no cross-origin exception.
 
 ---
 
@@ -426,9 +173,7 @@ The Grid's own console is a second tab, framed same-origin. Put both behind one 
 
 Hosts implementing the [MCP Apps extension](https://modelcontextprotocol.io/extensions/apps/overview) — Claude, ChatGPT, VS Code, Goose — render a tool result as UI rather than JSON. `session_files` and `browser_sessions` each declare one, so a listing arrives as thumbnails.
 
-The components are shared with the admin UI, not copied — one stylesheet, one component library, so the two cannot drift.
-
-Degradation is the point, and it is the resource-mirroring shape again: one server, the client's capabilities pick the rendering.
+The components are shared with the admin UI, not copied, so the two cannot drift. Degradation is the point: one server, the client's capabilities pick the rendering.
 
 | The client can | It gets |
 |---|---|
@@ -442,7 +187,7 @@ Apps get a deny-by-default CSP with no network, so `PUBLIC_BASE_URL` is also wha
 
 ## ⚙️ Configuration
 
-Every flag has an environment fallback, because containers are configured with env vars and developers reach for flags.
+Every flag has an environment fallback: containers are configured with env vars, developers reach for flags.
 
 | Env | Flag | Default | Notes |
 |---|---|---|---|
@@ -452,27 +197,30 @@ Every flag has an environment fallback, because containers are configured with e
 | `SAVED_SESSIONS` | `--no-saved-sessions` | `true` | Let MCP callers omit `session_id`. Never affects HTTP |
 | `SESSION_STORE` | — | `memory` | `memory` or `redis`. Any `REDIS_*` setting implies `redis` |
 | `SESSION_TTL` | — | `3600` | Seconds a caller's mapping is kept |
-| `REDIS_URL`, or `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_USERNAME` / `REDIS_PASSWORD` / `REDIS_SSL` | — | unset | Connection for `SESSION_STORE=redis`. `REDIS_DB` applies even when the URL carries no `/<index>` |
+| `REDIS_URL`, or `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_USERNAME` / `REDIS_PASSWORD` / `REDIS_SSL` | — | unset | Connection for `SESSION_STORE=redis`. `REDIS_DB` applies even with no `/<index>` in the URL |
 | `REDIS_PREFIX` | — | `selenium-flow:session:` | Key namespace, so sharing a database is safe |
-| `SKILL_ENABLED` | `--no-skill` | `true` | Serve the embedded skill as a resource, and as a tool for clients without resources |
+| `SKILL_ENABLED` | `--no-skill` | `true` | Serve the embedded skill as a resource, and as a tool where there are none |
 | `APPS_ENABLED` | `--no-apps` | `true` | Offer the MCP Apps components to hosts that render them |
-| `PUBLIC_BASE_URL` | — | unset | Externally reachable root, e.g. `https://selenium.example.com/flow`. Needed for absolute file links and the app CSP |
+| `PUBLIC_BASE_URL` | — | unset | Externally reachable root, e.g. `https://selenium.example.com/flow`. Needed for file links and the app CSP |
 | `GRID_CONSOLE_URL` | — | `/` | Where the admin UI frames the Grid console from |
+| `DEFAULT_BROWSER` | — | `chrome` | `chrome` or `firefox` for new sessions. Not `BROWSER`, which many environments already set |
 | `WINDOW_WIDTH` / `WINDOW_HEIGHT` | — | node default | Default window size for new sessions |
 | `PAGE_LOAD_TIMEOUT` | — | unbounded | Seconds a navigation may take. **Worth setting** — a hung page holds a Grid slot |
 | `SCRIPT_TIMEOUT` | — | driver default | Seconds `execute_script` may take |
-| `STATELESS_HTTP` | `--stateless` | `false` | Drop MCP transport sessions. Required for more than one replica |
+| `STATELESS_HTTP` | `--stateless` | `false` | Drop MCP transport sessions. Required for >1 replica |
 | `TRANSPORT` | `--transport` | `http` | `http` or `stdio` |
 | `HOST` / `PORT` | `--host` / `--port` | `0.0.0.0` / `8000` | |
 | `LOG_LEVEL` | `--log-level` | `INFO` | `DEBUG` logs which key each call resolved to, and how |
 
 ### Session defaults cascade
 
-Window size and the two timeouts resolve in order of increasing specificity:
+The browser, the window size and the two timeouts resolve in order of increasing specificity:
 
 ```
 server default (env)  <  client default (?width= / X-Window-Width)  <  open_session argument
 ```
+
+A bad default is ignored and logged; an explicit `browser` fails loudly. The browser is stored with the session, so a reaped one reopens as the same browser.
 
 ### 🔐 Auth
 

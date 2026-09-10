@@ -16,6 +16,13 @@ const SF = (() => {
     zip: '🗜️', gz: '🗜️', mp4: '🎬', webm: '🎬', mov: '🎬', txt: '📝', md: '📝',
   };
 
+  /* One mark per browser, so a session says which it is at a glance rather
+     than only in the text beside it. Keyed on the capability the Grid reports,
+     which is the browser actually running — not what was asked for. */
+  const BROWSER = {chrome: '🟢', firefox: '🦊', msedge: '🌊', edge: '🌊', safari: '🧭'};
+
+  const browserMark = (name) => BROWSER[String(name ?? '').toLowerCase()] || '🌐';
+
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
     (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 
@@ -51,6 +58,8 @@ const SF = (() => {
       const count = s.files_count;
       card.innerHTML =
         '<div class="row">' +
+        '<span class="bmark" title="' + esc(s.browser || 'browser') + '">' +
+        browserMark(s.browser) + '</span>' +
         (s.name ? '<span class="pill name">' + esc(s.name) + '</span>' : '') +
         '<span class="mono grow' + (s.name ? ' small muted' : '') + '">' +
         esc(s.session_id) + '</span>' +
@@ -109,7 +118,9 @@ const SF = (() => {
       ['session', s.session_id],
       ['name', s.name],
       ['held by', s.name ? null : s.owner || (s.flow === false ? 'another client' : null)],
-      ['browser', [s.browser, s.version].filter(Boolean).join(' ')],
+      ['browser', s.browser
+        ? browserMark(s.browser) + ' ' + [s.browser, s.version].filter(Boolean).join(' ')
+        : null],
       ['started', s.started ? new Date(s.started).toLocaleString() : null],
       ['files', s.files_count === undefined ? null : String(s.files_count)],
       ['node', s.node],
@@ -118,6 +129,8 @@ const SF = (() => {
     el.innerHTML =
       '<div class="card">' +
       '<div class="row" style="margin-bottom:10px">' +
+      '<span class="bmark" title="' + esc(s.browser || 'browser') + '">' +
+      browserMark(s.browser) + '</span>' +
       '<strong class="grow">' + esc(s.name || 'Session') + '</strong>' +
       (s.live === false
         ? '<span class="pill">ended</span>'

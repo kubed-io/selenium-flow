@@ -255,6 +255,23 @@ def test_a_refresh_reopens_with_the_same_settings():
     assert sessions.store.get(NAMED.value).settings == {"width": 1400, "height": 900}
 
 
+def test_a_refresh_reopens_on_the_same_browser():
+    """The reason `browser` is stored as a setting rather than beside them.
+
+    A Firefox session that the Grid reaped and that came back as Chrome would be
+    exactly the silent change of shape the stored settings exist to prevent, and
+    the caller would have no way to see it happen.
+    """
+    actions = RecordingActions()
+    sessions = manager(actions)
+    sessions.store.set(
+        NAMED.value,
+        SessionRecord(session_id="dead", url="", settings={"browser": "firefox"}),
+    )
+    sessions.resolve(NAMED, None)
+    assert actions.opened_settings == [{"browser": "firefox"}]
+
+
 def test_the_refreshed_session_replaces_the_stored_one():
     actions = RecordingActions()
     sessions = manager(actions)
@@ -368,6 +385,41 @@ def test_describe_reports_the_settings_a_session_was_opened_with(monkeypatch):
     sessions = manager(actions)
     sessions.remember(NAMED, "abc", "", {"width": 1400})
     assert sessions.describe()["settings"] == {"width": 1400}
+
+
+def test_describe_reports_which_browser_is_being_driven(monkeypatch):
+    """Top level, not only inside settings: "which browser am I driving" is a
+    question this resource exists to answer, and a caller should not have to
+    know it happens to be stored as a setting."""
+    monkeypatch.setattr(
+        sessions_module, "http_request", lambda: http({"session": "desktop"})
+    )
+    actions = RecordingActions()
+    actions.grid.alive.add("abc")
+    sessions = manager(actions)
+    sessions.remember(NAMED, "abc", "", {"browser": "firefox"})
+    assert sessions.describe()["browser"] == "firefox"
+
+
+def test_a_session_stored_before_browsers_were_selectable_reads_as_chrome(monkeypatch):
+    """A record with no browser really is the default one — there was nothing
+    else to be — so reporting None would be less true than reporting chrome."""
+    monkeypatch.setattr(
+        sessions_module, "http_request", lambda: http({"session": "desktop"})
+    )
+    actions = RecordingActions()
+    actions.grid.alive.add("abc")
+    sessions = manager(actions)
+    sessions.remember(NAMED, "abc", "", {"width": 1400})
+    assert sessions.describe()["browser"] == "chrome"
+
+
+def test_describe_reports_no_browser_when_there_is_no_session(monkeypatch):
+    """Naming a browser for a session that does not exist would be a fiction."""
+    monkeypatch.setattr(
+        sessions_module, "http_request", lambda: http({"session": "desktop"})
+    )
+    assert manager().describe()["browser"] is None
 
 
 # ---- the stores ------------------------------------------------------------

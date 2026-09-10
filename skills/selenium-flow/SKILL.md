@@ -1,6 +1,6 @@
 ---
 name: selenium-flow
-description: Drive a real browser on Selenium Grid through the selenium-flow MCP server. Use when a task needs a live browser - logging in, filling and submitting a form, clicking through a multi-step flow, reading a page that only renders under JavaScript, or capturing how something looks. Start here to decide whether you must pass session_id, then read the one reference that matches what you are doing.
+description: Drive a real Chrome or Firefox browser on Selenium Grid through the selenium-flow MCP server. Use when a task needs a live browser - logging in, filling and submitting a form, clicking through a multi-step flow, reading a page that only renders under JavaScript, capturing how something looks, or checking a page in a second browser. Start here to decide whether you must pass session_id, then read the one reference that matches what you are doing.
 ---
 
 # Driving a browser with selenium-flow
@@ -34,7 +34,20 @@ call the same way. If you cannot read resources, the `current_session` tool
 returns the same object.
 
 **Either way, call `open_session` first.** Nothing opens a browser implicitly,
-because `open_session` is the only place its window size and timeouts can be set.
+because `open_session` is the only place its browser, window size and timeouts
+can be set.
+
+## Chrome or Firefox
+
+`open_session(browser="firefox")` opens Firefox; the default is Chrome. Every
+other tool behaves identically on both, so this is the only call that changes —
+reach for Firefox when the task is *about* Firefox, such as confirming a
+rendering difference or a site that treats the two differently, and otherwise
+leave it alone.
+
+A session cannot switch browser. To compare the two, open one session per
+browser and keep both ids; `session://current` reports which browser the one
+you are holding is.
 
 ## The three rules
 

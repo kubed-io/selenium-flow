@@ -58,7 +58,8 @@ def test_no_page_is_shadowed_by_a_file_in_a_subdirectory():
     `wiki/notes/screenshot.md` and `wiki/screenshot.md` therefore both answered
     to /wiki/screenshot, and GitHub served the fragment — so the page appeared
     to have lost everything but its prose while the raw file was perfect. The
-    notes moved to wiki-notes/ in this repo; this keeps them from coming back.
+    notes live in wiki/notes/ and are suffixed `.notes.md` for exactly that
+    reason; this keeps a bare `<tool>.md` from coming back.
     """
     top = {p.stem for p in WIKI.glob("*.md")}
     nested = {

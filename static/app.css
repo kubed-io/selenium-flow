@@ -157,6 +157,10 @@ iframe.console { width: 100%; height: 72vh; border: 1px solid var(--line); borde
 /* Session rows carry a name when a caller claimed one. */
 .pill.name { color: var(--accent); border-color: currentColor; }
 
+/* The browser mark. Sized to sit level with a pill rather than tower over it,
+   and non-selectable so dragging across a session id does not pick it up. */
+.bmark { font-size: 15px; line-height: 1; user-select: none; }
+
 /* Detail header: what this session is, above what it produced. */
 .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--gap); }
 .fact .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }

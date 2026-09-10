@@ -7,8 +7,8 @@ probably want `references/TROUBLESHOOTING.md` instead.
 ## What it needs
 
 One thing: a reachable **Selenium Grid**. The server holds no browser itself —
-it speaks WebDriver to the Grid, which runs Chrome. No browser is installed in
-the server image, deliberately.
+it speaks WebDriver to the Grid, which runs Chrome and Firefox. No browser is
+installed in the server image, deliberately.
 
 ```
 GRID_URL=http://selenium-grid-selenium-hub.<namespace>.svc.cluster.local:4444
@@ -92,7 +92,8 @@ will notice.
 
 ## Session defaults, and the three places they come from
 
-Window size and the two timeouts resolve in order of increasing specificity:
+The browser, the window size and the two timeouts resolve in order of
+increasing specificity:
 
 ```
 server default (env)   <   client default (URL param / header)   <   open_session argument
@@ -100,6 +101,7 @@ server default (env)   <   client default (URL param / header)   <   open_sessio
 
 | Setting | Env | Parameter | Header |
 |---|---|---|---|
+| Browser | `DEFAULT_BROWSER` | `?browser=` | `X-Browser` |
 | Window width | `WINDOW_WIDTH` | `?width=` | `X-Window-Width` |
 | Window height | `WINDOW_HEIGHT` | `?height=` | `X-Window-Height` |
 | Page load timeout (s) | `PAGE_LOAD_TIMEOUT` | `?page_load_timeout=` | `X-Page-Load-Timeout` |
@@ -113,6 +115,21 @@ hang indefinitely, holding one of the Grid's few slots until the Grid reaps it.
 An unusable value is ignored rather than fatal, and `open_session` reports the
 settings it actually resolved to — so a typo shows up as a missing setting
 rather than a mystery.
+
+**The browser is `chrome` unless something says otherwise**, and it is the one
+setting where an explicit argument is validated strictly: a bad *default* is
+ignored like any other, but `open_session(browser="chrom")` fails rather than
+quietly handing back Chrome. Note the env var is `DEFAULT_BROWSER` and not
+`BROWSER` — that name is a Unix convention for the user's preferred browser
+command and plenty of environments already set it to a shell script.
+
+Whichever browser a session opened with is stored with it, so when the Grid
+reaps an idle session and the next call transparently reopens it, it comes back
+as the same browser rather than the default one.
+
+The Grid must actually offer the browser you ask for. If it has no Firefox
+node, a Firefox request waits in the session queue until it times out — that is
+a Grid capacity question, not a server setting.
 
 ## Uploads need one writable directory
 

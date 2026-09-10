@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `open_session(browser="firefox")` opens Firefox instead of Chrome — one argument, and every other action behaves identically on both, because both are plain W3C WebDriver and only session creation differs. The choice is stored with the session, so one the Grid reaped reopens as the same browser rather than the default; `session://current` reports it, and the admin UI marks each session with the browser it is running. Set a server-wide default with `DEFAULT_BROWSER`, or a per-client one with `?browser=` / `X-Browser`.
+
 - Session files: everything a browser downloads is kept in Selenium Grid's own per-session store, created with the session and deleted with it, so there is no second store to clean up. Read it as the `session://files` resource, one file at a time as `session://files/{name}`, or the `session_files` tool.
 - `save_pdf` prints the current page with the browser's own print engine — selectable text, whole document — and keeps it with the session's files; `screenshot(save=true)` keeps a capture the same way.
 - Signed file URLs (`/files/{session}/{name}?exp=&sig=`), so a screenshot can be shown in an `<img>` tag or a chat transcript, neither of which can send an `Authorization` header. The MCP token is the signing key, so rotating it revokes every link.
@@ -33,6 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `PUBLIC_BASE_URL`, `GRID_CONSOLE_URL` and `APPS_ENABLED` configure the above.
 - `wiki.yml` publishes the wiki: a pull request generates without pushing, a merge to main pushes, and `workflow_call` leaves the decision to the caller — the same shape as `image.yml`. `publish.yml` runs it alongside the image build rather than after, since the two share nothing.
 - The GitHub wiki is a submodule at `wiki/`, holding the manual the README has no room for: installing per MCP client, deployment across stdio/HTTP/Docker/Kubernetes, sessions, administration, and one page per action generated from `openapi.yaml` by `scripts/generate_wiki.py` so they cannot drift.
+
+### Changed
+
+- The README hands the fourteen per-action reference tables to the wiki and links to them, so it advertises and shows the main features rather than duplicating a reference that is generated anyway — it had reached Docker Hub's 25,000-byte description limit, where the next feature would have shipped it truncated.
+- The hand-written wiki prose moved from `wiki-notes/` in this repo to `wiki/notes/` inside the wiki submodule, named `<tool>.notes.md`. The suffix is load-bearing: a GitHub wiki addresses a page by basename whatever directory it sits in, so a bare `<tool>.md` would answer to the same URL as its own page.
 
 - MCP server driving a Selenium Grid browser, with nine tools: open_session, navigate, click, write, press_key, extract, execute_script, screenshot, close_session.
 - The same nine actions served as plain JSON endpoints under `/browser`, so non-MCP callers can drive the browser without speaking JSON-RPC.

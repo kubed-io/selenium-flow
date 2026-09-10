@@ -28,12 +28,15 @@ paths:
       summary: Start a browser session. Do this first.
       description: "Start a browser session. Do this first.\n\nThis is the only place a browser is created,\
         \ and the only place its\nsettings can be chosen, so it is never done implicitly for you.\n\n\
-        Set width and height when layout matters \u2014 the headless default is\nnarrow and varies between\
-        \ Grid nodes. page_load_timeout bounds how long\na navigation may hang; without one a stuck page\
-        \ holds a scarce Grid slot\nuntil the Grid reaps it.\n\nThe returned session_id is what a stateless\
-        \ caller passes to every later\ncall. If this server is holding the browser for you, it is returned\
-        \ for\ninformation and you should NOT pass it back \u2014 read the session://current\nresource\
-        \ if you are unsure which of the two you are."
+        browser is \"chrome\" (the default) or \"firefox\". Every other tool works\nthe same on either,\
+        \ so pick Firefox only when the task is about\nFirefox \u2014 checking a rendering difference,\
+        \ or a site that treats the two\ndifferently. A session cannot change browser later: open another\
+        \ one.\n\nSet width and height when layout matters \u2014 the headless default is\nnarrow and\
+        \ varies between Grid nodes. page_load_timeout bounds how long\na navigation may hang; without\
+        \ one a stuck page holds a scarce Grid slot\nuntil the Grid reaps it.\n\nThe returned session_id\
+        \ is what a stateless caller passes to every later\ncall. If this server is holding the browser\
+        \ for you, it is returned for\ninformation and you should NOT pass it back \u2014 read the session://current\n\
+        resource if you are unsure which of the two you are."
       tags:
       - browser
       requestBody:
@@ -940,6 +943,11 @@ components:
           - type: string
           - type: 'null'
           default: null
+        browser:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
         width:
           anyOf:
           - type: integer
@@ -967,6 +975,9 @@ components:
         session_id:
           type: string
           description: Pass this to every other call.
+        browser:
+          type: string
+          description: The browser this session is running.
         url: *id001
         title: *id002
         width:

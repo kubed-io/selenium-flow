@@ -29,7 +29,7 @@ test that reaches the Grid is an integration test and is marked as one.
 | `skills/selenium-flow/` | the embedded Agent Skill, mapped into the package at build time |
 | `static/` | the admin UI and the MCP app components, mapped in the same way |
 | `wiki/` | the GitHub wiki, as a submodule — depth the README has no room for |
-| `wiki-notes/` | hand-written prose folded into the generated wiki pages |
+| `wiki/notes/` | hand-written prose folded into the generated wiki pages |
 
 Adding a capability means adding one function to `actions.py` and registering it
 on both surfaces. A test asserts the two sets match, so a tool without an
@@ -40,7 +40,7 @@ endpoint fails the build.
 `scripts/generate_wiki.py` renders one wiki page per action from `openapi.yaml`,
 so the fourteen pages share one shape and cannot describe a server that never
 shipped. `.github/workflows/wiki.yml` regenerates and pushes on every change to
-`openapi.yaml`, `wiki-notes/` or the generator. A pull request generates but
+`openapi.yaml`, `wiki/notes/` or the generator. A pull request generates but
 never pushes, and `workflow_call` leaves the decision to the caller — the same
 shape as `image.yml`.
 
@@ -48,7 +48,7 @@ Staleness is caught by `tests/test_wiki.py`, not by that workflow: `test.yml`
 checks out the submodule so those tests run, and a pull request that forgot to
 regenerate fails the suite where a contributor is already looking.
 
-Prose a schema cannot carry goes in `wiki-notes/<tool>.md` and is folded into
+Prose a schema cannot carry goes in `wiki/notes/<tool>.notes.md` and is folded into
 that tool's page. It lives in this repo rather than the wiki on purpose: a wiki
 page is addressed by basename regardless of directory, so `wiki/notes/foo.md`
 and `wiki/foo.md` both answer to `/wiki/foo`, and GitHub serves the fragment.

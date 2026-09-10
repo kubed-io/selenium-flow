@@ -31,11 +31,14 @@ from .actions import (
 from .sessions import NAME_PARAM, SessionManager
 
 INSTRUCTIONS = f"""\
-Drives a real Chrome browser on Selenium Grid. The browser is persistent: it \
-stays alive between tool calls and keeps its page, cookies and scroll position.
+Drives a real Chrome or Firefox browser on Selenium Grid. The browser is \
+persistent: it stays alive between tool calls and keeps its page, cookies and \
+scroll position.
 
 Lifecycle:
-1. Call open_session to start a browser. It returns a session_id.
+1. Call open_session to start a browser. It returns a session_id. Pass \
+browser="firefox" for Firefox; the default is Chrome. Every other tool behaves \
+identically on both.
 2. Pass that session_id to the other calls.
 3. Call close_session when finished, including after a failure. Sessions are a \
 scarce resource and an abandoned one holds a slot until the Grid reaps it.
@@ -75,6 +78,7 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
     @mcp.tool
     def open_session(
         url: str | None = None,
+        browser: str | None = None,
         width: int | None = None,
         height: int | None = None,
         page_load_timeout: int | None = None,
@@ -84,6 +88,11 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
 
         This is the only place a browser is created, and the only place its
         settings can be chosen, so it is never done implicitly for you.
+
+        browser is "chrome" (the default) or "firefox". Every other tool works
+        the same on either, so pick Firefox only when the task is about
+        Firefox — checking a rendering difference, or a site that treats the two
+        differently. A session cannot change browser later: open another one.
 
         Set width and height when layout matters — the headless default is
         narrow and varies between Grid nodes. page_load_timeout bounds how long
@@ -97,6 +106,7 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         """
         resolved = settings_module.resolve(
             {
+                "browser": browser,
                 "width": width,
                 "height": height,
                 "page_load_timeout": page_load_timeout,

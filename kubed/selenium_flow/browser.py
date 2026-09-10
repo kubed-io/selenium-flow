@@ -31,6 +31,33 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 DEFAULT_GRID_URL = "http://selenium-grid-selenium-hub.flow.svc.cluster.local:4444"
 
+# The browsers this server can open. Both are plain W3C WebDriver, which is the
+# whole reason a second one costs so little: every action already speaks the
+# standard protocol, so only session creation differs. Edge would be a third
+# entry plus a stereotype on the Grid, not a new code path.
+CHROME = "chrome"
+FIREFOX = "firefox"
+BROWSERS = (CHROME, FIREFOX)
+DEFAULT_BROWSER = CHROME
+
+
+def normalize_browser(value=None) -> str:
+    """A supported browser name, or the default when nothing was asked for.
+
+    Unlike the numeric settings, an unrecognised value is fatal rather than
+    ignored. Falling back would hand the caller a *different browser* than the
+    one it named and let it keep going — and the whole reason to name one is
+    that the choice matters.
+    """
+    if value is None or not str(value).strip():
+        return DEFAULT_BROWSER
+    name = str(value).strip().lower()
+    if name not in BROWSERS:
+        raise ValueError(
+            f"unknown browser {value!r}; known browsers: {', '.join(BROWSERS)}"
+        )
+    return name
+
 
 class ReattachDriver(RemoteWebDriver):
     """A driver that binds to an existing session instead of creating one.
@@ -78,12 +105,15 @@ def normalize_url(url: str) -> str:
 
 
 def is_partial(name: str) -> bool:
-    """Whether a download-directory entry is Chrome's scratch copy, not a file.
+    """Whether a download-directory entry is a scratch copy, not a finished file.
 
-    Two shapes, both renamed away once the download completes: ``<name>.crdownload``
-    and a hidden ``.com.google.Chrome.XXXXXX``.
+    Each browser has its own shape and all of them are renamed away once the
+    download completes: Chrome writes ``<name>.crdownload`` and a hidden
+    ``.com.google.Chrome.XXXXXX``, Firefox writes ``<name>.part``. Listing one
+    would offer the caller a half-written file that is about to be called
+    something else.
     """
-    return name.endswith(".crdownload") or name.startswith(".")
+    return name.endswith((".crdownload", ".part")) or name.startswith(".")
 
 
 def png_size(b64: str) -> tuple[int, int]:
@@ -99,12 +129,18 @@ class Grid:
         self.url = url.rstrip("/")
         self.timeout = timeout
 
-    def _options(self) -> webdriver.ChromeOptions:
-        options = webdriver.ChromeOptions()
-        options.add_argument("--no-sandbox")
-        # Chrome's default /dev/shm is 64MB and it crashes under it.
-        options.add_argument("--disable-dev-shm-usage")
-        # Never let the browser answer a dialog on the caller's behalf. Chrome's
+    def _options(self, browser: str | None = None):
+        """Capabilities for a new session of ``browser``.
+
+        The two capabilities that matter are W3C standard and identical for
+        every browser; only the vendor-specific noise below them differs, which
+        is why supporting a second browser is a branch rather than a subclass.
+        """
+        name = normalize_browser(browser)
+        options = (
+            webdriver.FirefoxOptions() if name == FIREFOX else webdriver.ChromeOptions()
+        )
+        # Never let the browser answer a dialog on the caller's behalf. The
         # default, "dismiss and notify", silently clicks Cancel on a confirm and
         # only reports it as an error on whatever command happened to notice —
         # so a destructive prompt gets answered by accident and the dialog is
@@ -115,6 +151,27 @@ class Grid:
         # is the whole file store — listed, read and reaped by the Grid itself.
         # Without this the browser downloads into a directory nothing can reach.
         options.set_capability("se:downloadsEnabled", True)
+
+        if name == FIREFOX:
+            # 2 = the directory the Grid node set for this session. Firefox
+            # otherwise saves to its own default and se:downloadsEnabled has
+            # nothing to collect.
+            options.set_preference("browser.download.folderList", 2)
+            options.set_preference("browser.download.useDownloadDir", True)
+            # Firefox's equivalent of Chrome's automatic-downloads prompt: it
+            # asks what to do with a type it does not recognise, and nobody is
+            # there to answer. `save_pdf` is the one that would hang without
+            # this, since Firefox opens PDFs in its own viewer by default.
+            options.set_preference(
+                "browser.helperApps.neverAsk.saveToDisk",
+                "application/pdf,image/png,application/octet-stream",
+            )
+            options.set_preference("pdfjs.disabled", True)
+            return options
+
+        options.add_argument("--no-sandbox")
+        # Chrome's default /dev/shm is 64MB and it crashes under it.
+        options.add_argument("--disable-dev-shm-usage")
         # Chrome asks permission before a page's *second* automatic download and
         # denies it silently when nobody can answer. The first file of a session
         # would arrive and every one after it would vanish with no error, which
@@ -125,12 +182,21 @@ class Grid:
         )
         return options
 
-    def open(self) -> RemoteWebDriver:
-        """Create a session and return its driver."""
-        return webdriver.Remote(command_executor=self.url, options=self._options())
+    def open(self, browser: str | None = None) -> RemoteWebDriver:
+        """Create a session on ``browser`` and return its driver."""
+        return webdriver.Remote(
+            command_executor=self.url, options=self._options(browser)
+        )
 
     def reconnect(self, session_id: str) -> RemoteWebDriver:
-        """Bind to a session that is already running on the Grid."""
+        """Bind to a session that is already running on the Grid.
+
+        The options are inert here and deliberately not parameterised by
+        browser: ``ReattachDriver`` skips ``start_session``, which is the only
+        thing that would ever send them. Reattaching to a Firefox session with
+        Chrome's options works for exactly that reason, and asking the caller
+        to know the browser to reconnect would be a lie about what is needed.
+        """
         driver = ReattachDriver(command_executor=self.url, options=self._options())
         driver.session_id = session_id
         return driver

@@ -43,6 +43,10 @@ RESPONSES = {
                 "type": "string",
                 "description": "Pass this to every other call.",
             },
+            "browser": {
+                "type": "string",
+                "description": "The browser this session is running.",
+            },
             **PAGE_STATE,
             "width": {"type": "integer", "description": "Window width in use."},
             "height": {"type": "integer", "description": "Window height in use."},

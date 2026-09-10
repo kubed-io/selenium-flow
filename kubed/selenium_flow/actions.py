@@ -22,7 +22,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 
 from . import browser
-from .browser import Grid, as_bool, as_int
+from .browser import Grid, as_bool, as_int, normalize_browser
 
 # Named keys a caller can press. Selenium's Keys members are unicode private-use
 # characters, so a caller cannot reasonably type them into JSON by hand.
@@ -110,6 +110,7 @@ class Actions:
     def open_session(
         self,
         url=None,
+        browser=None,
         width=None,
         height=None,
         page_load_timeout=None,
@@ -119,9 +120,12 @@ class Actions:
 
         This is the only place a browser is created, and the only place these
         settings can be chosen — window size can be changed later with
-        ``resize``, but the timeouts are set here and then simply hold.
+        ``resize``, but the browser and the timeouts are set here and then
+        simply hold. There is no switching a live session to another browser:
+        that is a different browser, so it is a different session.
         """
-        driver = self.grid.open()
+        name = normalize_browser(browser)
+        driver = self.grid.open(name)
         session_id = driver.session_id
 
         if width or height:
@@ -146,13 +150,22 @@ class Actions:
         # Reported back so a caller can see what the cascade actually resolved
         # to, rather than assuming its argument won. Both surfaces get this from
         # here, so they cannot describe the same session differently.
-        applied = {"width": size["width"], "height": size["height"]}
+        #
+        # `browser` is always present, unlike the timeouts: it is never unset,
+        # only defaulted, and it is what a refresh has to replay to reopen the
+        # same browser rather than the default one.
+        applied = {
+            "browser": name,
+            "width": size["width"],
+            "height": size["height"],
+        }
         if page_load_timeout:
             applied["page_load_timeout"] = as_int(page_load_timeout, 0)
         if script_timeout:
             applied["script_timeout"] = as_int(script_timeout, 0)
         return {
             "session_id": session_id,
+            "browser": name,
             "url": current_url,
             "title": title,
             "width": size["width"],

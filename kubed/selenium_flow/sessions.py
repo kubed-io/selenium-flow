@@ -47,6 +47,7 @@ import time
 from dataclasses import dataclass
 
 from .actions import Actions
+from .browser import DEFAULT_BROWSER
 from .store import MemoryStore, SessionRecord, SessionStore
 
 log = logging.getLogger(__name__)
@@ -194,6 +195,7 @@ class SessionManager:
         status = {
             "mode": mode,
             "session_id": None,
+            "browser": None,
             "url": None,
             "live": None,
             "in_frame": None,
@@ -218,6 +220,12 @@ class SessionManager:
         status["session_id"] = record.session_id
         status["url"] = record.url or None
         status["settings"] = dict(record.settings or {})
+        # Reported at the top level as well as inside settings, because "which
+        # browser am I driving" is the question this resource exists to answer
+        # and a caller should not have to know it is stored as a setting. A
+        # record written before browsers were selectable has none, and that
+        # session really is the default one.
+        status["browser"] = status["settings"].get("browser") or DEFAULT_BROWSER
         status["live"] = self.actions.grid.is_alive(record.session_id)
         if status["live"]:
             # Only worth a round trip when there is a live browser to ask.

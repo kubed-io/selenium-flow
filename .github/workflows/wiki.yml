@@ -7,7 +7,7 @@ name: 📖 Wiki
 #
 #   pull_request        generate only, never pushes — the "does it still build?" gate
 #   push: main          generate and push to the wiki
-#   workflow_dispatch   manual republish, e.g. after editing wiki-notes
+#   workflow_dispatch   manual republish, e.g. after editing wiki/notes
 #   workflow_call       called by publish.yml; the caller decides whether to push
 #
 # Staleness is NOT this workflow's job. tests/test_wiki.py fails when the
@@ -17,14 +17,14 @@ name: 📖 Wiki
 #
 # The wiki is its own git repository at <repo>.wiki.git, and a submodule here at
 # wiki/ — hence the submodule checkout and the push from inside that directory
-# rather than a commit to this repo.
+# rather than a commit to this repo. The hand-written notes live in there too,
+# under wiki/notes/, so a note edit shows up as a change to the `wiki` pointer.
 
 on:
   pull_request:
     branches: [main]
     paths:
     - openapi.yaml
-    - wiki-notes/**
     - wiki
     - scripts/generate_wiki.py
     - .github/workflows/wiki.yml
@@ -32,7 +32,6 @@ on:
     branches: [main]
     paths:
     - openapi.yaml
-    - wiki-notes/**
     - wiki
     - scripts/generate_wiki.py
     - .github/workflows/wiki.yml

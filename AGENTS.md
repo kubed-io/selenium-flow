@@ -70,6 +70,13 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   retina render — both tested working against this Grid. If that capability is wanted, add
   it as a **separate** tool so the portable path keeps working when CDP goes away.
 
+- **The wiki's action pages are generated too**, from `openapi.yaml`, by
+  `python scripts/generate_wiki.py`. Hand-written prose lives in
+  `wiki/notes/<tool>.notes.md` and is folded into the bottom of that tool's
+  page. The suffix is load-bearing: a GitHub wiki addresses a page by basename
+  whatever directory it sits in, so a note named `<tool>.md` would answer to the
+  same URL as its own page and GitHub would serve the fragment.
+  `test_no_page_is_shadowed_by_a_file_in_a_subdirectory` fails if it comes back.
 - **`openapi.yaml` is generated — never edit it by hand.** Run
   `python scripts/generate_openapi.py`. Request schemas are taken verbatim from the MCP
   tool schemas, which is what makes the REST contract and the tool contract provably the
