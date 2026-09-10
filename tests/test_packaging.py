@@ -1,4 +1,4 @@
-"""What ships in the image, and what rebuilds it.
+"""What ships in the image, what rebuilds it, and which build wins.
 
 These are the same question asked from two ends, and they drifted apart: the
 admin UI and the embedded skill live outside `kubed/` but are mapped into the
@@ -63,3 +63,36 @@ def test_the_package_source_directories_exist():
     """A mapping to a directory that is gone is a wheel missing a feature."""
     for directory in packaged_directories():
         assert (REPO / directory).is_dir(), f"package-dir maps missing {directory}/"
+
+
+# --- which build wins -------------------------------------------------------
+
+
+def image_concurrency() -> dict:
+    spec = yaml.safe_load(IMAGE_WORKFLOW.read_text())
+    return spec["concurrency"]
+
+
+def test_a_superseded_branch_build_is_cancelled():
+    """A build takes ~9 minutes. Queueing them meant waiting out an image for a
+    commit that had already been superseded before the one you wanted started.
+    """
+    assert image_concurrency()["cancel-in-progress"] == "${{ !inputs.tag }}"
+
+
+def test_a_release_build_can_never_be_cancelled_by_a_push():
+    """publish.yml cuts the version tag BEFORE calling this workflow.
+
+    So a release build cancelled by an ordinary push to main strands a git tag
+    and a GitHub Release pointing at an image that was never published — the
+    exact failure the "run publish with push=false first" rule exists to avoid.
+    Keying the group on the tag gives each release a group of its own, and the
+    cancel flag is off for anything carrying one.
+    """
+    concurrency = image_concurrency()
+    assert "inputs.tag" in concurrency["group"], (
+        "a release build must not share a concurrency group with branch builds"
+    )
+    assert concurrency["cancel-in-progress"] == "${{ !inputs.tag }}", (
+        "cancel-in-progress must be off whenever inputs.tag is set"
+    )

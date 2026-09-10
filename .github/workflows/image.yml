@@ -63,11 +63,19 @@ on:
         required: false
         default: false
 
-# Serialize image builds on the same branch: a new run waits for any in-flight
-# one instead of racing it (binfmt/buildx cache reservations collide otherwise).
-# cancel-in-progress stays false so queued runs are NOT killed.
+# One build at a time per group, and the newest branch build wins. A build takes
+# ~9 minutes, so queueing meant waiting out an image for a commit that had
+# already been superseded before the one you wanted even started.
+#
+# Releases are exempt, and that exemption is the point of keying on `tag`.
+# publish.yml cuts the version tag BEFORE calling this workflow, so a release
+# build cancelled by an ordinary push to main would strand a git tag and a
+# GitHub Release on an image that does not exist. Each release gets its own
+# group and is never cancelled; only branch and pull-request builds supersede
+# each other.
 concurrency:
-  group: image-${{ github.ref }}
+  group: image-${{ inputs.tag || github.ref }}
+  cancel-in-progress: ${{ !inputs.tag }}
 
 jobs:
   image:

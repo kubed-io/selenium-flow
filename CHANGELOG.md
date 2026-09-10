@@ -49,6 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Image builds supersede each other instead of queueing: a push to main cancels the in-flight build for an older commit rather than waiting ~9 minutes to produce an image nobody wants. Release builds are exempt — `publish.yml` cuts the version tag before calling the build, so a cancelled one would strand a tag and a GitHub Release on an image that was never pushed.
 - **BREAKING:** the `browser_sessions` tool and the `grid://sessions` resource are removed. An MCP client owns one session and may only ever see that one; a listing handed any client somebody else's browser id, which is the whole credential for driving that browser. The session list is now an admin view over HTTP, and `session://current` remains the sanctioned "what am I holding" shape.
 - The admin session list shows flow sessions rather than every browser on the Grid, including ones with no browser attached. Browsers put on the Grid by something else are no longer listed at all — the Grid console tab is there for that.
 - `SESSION_TTL` defaults to 24h rather than 1h: a flow session is the history the admin view shows and the context the next open inherits, not a short-lived cache.
