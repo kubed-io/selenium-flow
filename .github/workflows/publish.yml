@@ -75,10 +75,17 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write   # commit the rolled CHANGELOG + push the tag to main
+    # Deliberately NO release-notes output. GitHub refuses to set a job output
+    # whose value contains a registered secret, and the notes always contain
+    # `kubed-io` — every PR link generated for this repo does — which is a
+    # substring of a secret this workflow carries. The runner then logs
+    # "Skip output 'release-notes' since it may contain secret" as a *warning*
+    # and the job goes green with the output silently empty, which is how the
+    # first release nearly shipped with no notes at all. The notes travel as an
+    # artifact instead: artifact contents are not masked.
     outputs:
       tag: ${{ steps.bump.outputs.tag }}
       version: ${{ steps.bump.outputs.version }}
-      release-notes: ${{ steps.bump.outputs.release-notes }}
     steps:
 
     - name: Validate Branch
@@ -116,6 +123,34 @@ jobs:
         version: ${{ inputs.action }}
         push: ${{ inputs.push }}
         token: ${{ steps.app-token.outputs.token }}
+
+    # A step output is not subject to the job-output secret check, so the notes
+    # are readable here even though they cannot be published as a job output.
+    # Written to a file and carried on as an artifact.
+    #
+    # Empty is a hard failure, not a warning. These notes ARE the release —
+    # rolling CHANGELOG [Unreleased] is the one thing this job exists to do —
+    # and an empty body is exactly the kind of nothing that sails through a
+    # green run and is only noticed by whoever reads the release later.
+    - name: Save the Release Notes
+      env:
+        NOTES: ${{ steps.bump.outputs.release-notes }}
+      run: |
+        mkdir -p notes
+        printf '%s\n' "$NOTES" > notes/release-notes.md
+        if [[ ! -s notes/release-notes.md || -z "$(tr -d '[:space:]' < notes/release-notes.md)" ]]; then
+          echo "::error::The release notes came back empty. The GitHub Release \
+        would have no changelog, so this fails here rather than publishing one."
+          exit 1
+        fi
+        echo "Release notes: $(wc -l < notes/release-notes.md) lines." >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload the Release Notes
+      uses: actions/upload-artifact@v5
+      with:
+        name: release-notes
+        path: notes/release-notes.md
+        retention-days: 1
 
   # ---------------------------------------------------------------------------
   # Build + push the image at the freshly tagged commit. On a dry run there is no
@@ -191,8 +226,57 @@ jobs:
         name: ${{ needs.package.outputs.package }}
         path: dist
 
+    - name: Download the Release Notes
+      uses: actions/download-artifact@v8
+      with:
+        name: release-notes
+        path: notes
+
     - name: Show Release Assets
-      run: ls -l dist
+      run: ls -l dist notes
+
+    # Composed into a file rather than inlined into the action's `body:`, because
+    # the notes cannot travel as a job output — see the `version` job. Everything
+    # around them is static text about where to get what was just published.
+    - name: Compose the Release Body
+      env:
+        SERVER: ${{ github.server_url }}
+        REPO: ${{ github.repository }}
+        RUN_ID: ${{ github.run_id }}
+        TAG: ${{ needs.version.outputs.tag }}
+        WHEEL: ${{ needs.package.outputs.wheel }}
+      run: |
+        {
+          echo "[![Publish](${SERVER}/${REPO}/actions/workflows/publish.yml/badge.svg)](${SERVER}/${REPO}/actions/runs/${RUN_ID})"
+          echo "[![Image Builder](${SERVER}/${REPO}/actions/workflows/image.yml/badge.svg)](${SERVER}/${REPO}/actions/workflows/image.yml)"
+          echo "[![Tests](${SERVER}/${REPO}/actions/workflows/test.yml/badge.svg)](${SERVER}/${REPO}/actions/workflows/test.yml)"
+          echo "[![Quality](${SERVER}/${REPO}/actions/workflows/quality.yml/badge.svg)](${SERVER}/${REPO}/actions/workflows/quality.yml)"
+          echo
+          cat notes/release-notes.md
+          echo
+          echo "## Container image"
+          echo
+          echo "The image is what this repo ships, and what the cluster runs:"
+          echo
+          echo '```sh'
+          echo "docker pull kubed/selenium-flow:${TAG}"
+          echo '```'
+          echo
+          echo "## Python package"
+          echo
+          echo "Not on PyPI. The wheel and sdist are attached to this release:"
+          echo
+          echo '```sh'
+          echo "pip install ${SERVER}/${REPO}/releases/download/${TAG}/${WHEEL}"
+          echo '```'
+          echo
+          echo "Or straight from the tag:"
+          echo
+          echo '```sh'
+          echo "pip install git+${SERVER}/${REPO}.git@${TAG}"
+          echo '```'
+        } > body.md
+        cat body.md >> "$GITHUB_STEP_SUMMARY"
 
     - name: Create Release
       uses: softprops/action-gh-release@v3.0.3
@@ -201,45 +285,18 @@ jobs:
         name: ${{ needs.version.outputs.tag }}
         tag_name: ${{ needs.version.outputs.tag }}
         prerelease: ${{ contains(needs.version.outputs.tag, '-') }}
+        body_path: body.md
         files: |
           dist/${{ needs.package.outputs.sdist }}
           dist/${{ needs.package.outputs.wheel }}
-        body: |
-          [![Publish](${{ github.server_url }}/${{ github.repository }}/actions/workflows/publish.yml/badge.svg)](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          [![Image Builder](${{ github.server_url }}/${{ github.repository }}/actions/workflows/image.yml/badge.svg)](${{ github.server_url }}/${{ github.repository }}/actions/workflows/image.yml)
-          [![Tests](${{ github.server_url }}/${{ github.repository }}/actions/workflows/test.yml/badge.svg)](${{ github.server_url }}/${{ github.repository }}/actions/workflows/test.yml)
-          [![Quality](${{ github.server_url }}/${{ github.repository }}/actions/workflows/quality.yml/badge.svg)](${{ github.server_url }}/${{ github.repository }}/actions/workflows/quality.yml)
 
-          ${{ needs.version.outputs.release-notes }}
-
-          ## Container image
-
-          The image is what this repo ships, and what the cluster runs:
-
-          ```sh
-          docker pull kubed/selenium-flow:${{ needs.version.outputs.tag }}
-          ```
-
-          ## Python package
-
-          Not on PyPI. The wheel and sdist are attached to this release:
-
-          ```sh
-          pip install ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/${{ needs.package.outputs.wheel }}
-          ```
-
-          Or straight from the tag:
-
-          ```sh
-          pip install git+${{ github.server_url }}/${{ github.repository }}.git@${{ needs.version.outputs.tag }}
-          ```
-
+    # The notes are already in the summary, printed by "Compose the Release
+    # Body" — this is the what-shipped-where table that goes above them.
     - name: Summary
       env:
         TAG: ${{ needs.version.outputs.tag }}
         VERSION: ${{ needs.package.outputs.version }}
         WHEEL: ${{ needs.package.outputs.wheel }}
-        RELEASE_NOTES: ${{ needs.version.outputs.release-notes }}
       run: |
         cat >> "$GITHUB_STEP_SUMMARY" <<EOF
         ## Publish
@@ -248,8 +305,4 @@ jobs:
         - **Version**: \`${VERSION}\`
         - **Image**: \`kubed/selenium-flow:${TAG}\`
         - **Wheel**: \`${WHEEL}\`
-
-        ### Release Notes
-
-        ${RELEASE_NOTES}
         EOF
