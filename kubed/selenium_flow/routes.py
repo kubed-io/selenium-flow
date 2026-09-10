@@ -18,7 +18,7 @@ from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from . import auth, settings
+from . import auth, errors, settings
 from .actions import Actions
 from .openapi import build_spec
 
@@ -150,14 +150,18 @@ def _add(mcp, actions, token, prefix, path, method_name) -> None:
                     k: v for k, v in kwargs.items() if k not in settings.SETTINGS
                 }
             return JSONResponse(method(**kwargs))
-        except TypeError as exc:
-            # A missing required argument — the caller's mistake, not ours.
-            return JSONResponse({"error": str(exc)}, status_code=400)
-        except ValueError as exc:
-            return JSONResponse({"error": str(exc)}, status_code=400)
-        except Exception as exc:  # surface Grid failures as a 500
-            log.exception("%s failed", path)
-            return JSONResponse({"error": str(exc)}, status_code=500)
+        except Exception as exc:
+            # errors.py decides what the failure means; see it for why a
+            # timeout is the caller's problem and an unknown one is ours.
+            status = errors.status_for(exc)
+            text = errors.message(exc)
+            if status >= 500:
+                log.exception("%s failed", path)
+            else:
+                # A refused request is not an incident. Logging a mistyped
+                # XPath with a full traceback buried the real failures.
+                log.info("%s refused (%s): %s", path, status, text)
+            return JSONResponse({"error": text}, status_code=status)
 
     return handler
 

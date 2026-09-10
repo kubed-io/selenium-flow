@@ -85,6 +85,21 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   resources, so a listing taken in the default mode proves nothing about them.
   `tests/test_surfaces.py` pins all of this, parametrised over both modes.
 
+- **One place decides what a failure means: `errors.py`.** An HTTP status is a contract
+  with a *machine* — `4xx` says "your request is wrong, sending it again will not help",
+  `5xx` says "we are broken, retrying might". Everything below the auth check used to be a
+  500, so an n8n node with Retry-On-Fail replayed mistyped XPaths and every alert on the
+  5xx rate counted somebody's typo as an outage.
+
+  A timeout is the case worth knowing: it is **400**, not 5xx, because every wait here is
+  for an element, frame or dialog *the caller named*, and a page that never contained
+  `//nope` will not contain it on the retry. A dead browser is **404** — the fix is
+  specific and automatable, call `/browser/open`. An unreachable or full Grid is **503**.
+  Anything unrecognised stays **500**, deliberately: "the caller's fault" is the dangerous
+  guess about a failure we do not understand, because it tells a client to stop retrying
+  something that may be ours. Add a new status only alongside the `responses` block in
+  `openapi.py`, or the published contract starts lying.
+
 - **One place decides whether a request is authorised: `auth.py`.** It is used by the
   action endpoints, the admin API and the event stream. The comparison is
   `hmac.compare_digest`, because these routes are reachable by anyone who can reach the

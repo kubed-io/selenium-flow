@@ -36,6 +36,11 @@ dependencies = [
   # accept a plain file. It arrives transitively today; declared because a
   # transitive dependency disappearing would break uploads at runtime only.
   "python-multipart>=0.0.9",
+  # errors.py catches urllib3's connection failures by type, because that is
+  # what the Selenium driver surfaces when the Grid is unreachable. It arrives
+  # with requests and selenium either way; declared because a module that
+  # imports it should say so.
+  "urllib3>=2.0",
 ]
 
 [project.optional-dependencies]

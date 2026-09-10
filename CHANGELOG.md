@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **HTTP errors now say whose fault they are**: `400` for a request you can fix, `404` for a browser that has ended, `503` for a Grid that is unreachable or full. They were all `500`.
+
+- Error messages no longer carry the driver's stack trace.
+
 ## [0.0.2] - 2026-09-10
 
 The first release. Everything is new, which is why there is no *Changed* or
