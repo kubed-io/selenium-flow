@@ -137,10 +137,10 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         # "carry on where I was", which is a stronger signal than a server-wide
         # default and a weaker one than an argument it just typed.
         previous = sessions.context(key)
-        # A flow session holds one browser. Opening a second without ending the
-        # first leaves it on the Grid referenced by nothing, holding a slot
-        # until the idle timeout — which switching browser did.
-        sessions.end_browser(sessions.store_key(key))
+        # Resolved BEFORE the browser you are holding is ended, because this
+        # validates as well as merges: an explicit browser is checked strictly,
+        # and doing it afterwards meant a typo in `browser=` quit a perfectly
+        # good browser and then failed. A rejected argument must cost nothing.
         resolved = settings_module.resolve(
             {
                 "browser": browser,
@@ -151,6 +151,10 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
             },
             previous=previous.get("settings"),
         )
+        # A flow session holds one browser. Opening a second without ending the
+        # first leaves it on the Grid referenced by nothing, holding a slot
+        # until the idle timeout — which switching browser did.
+        sessions.end_browser(sessions.store_key(key))
         opened = actions.open_session(
             url=url or previous.get("url") or None, **resolved
         )

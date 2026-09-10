@@ -364,6 +364,33 @@ rather than raising: the click landed, it just opened a prompt, and failing the
 action would be a lie. Every action returns through that helper — if you add one,
 use it rather than reading `current_url` directly.
 
+## Clicks wait for navigation. Keystrokes do not.
+
+`element.click()` and `driver.get()` are *specified* to wait for a navigation they
+cause. `send_keys` carries no such promise: the command returns while the browser is
+still on the old page. So `write(submit=True)` and `press_key("enter")` used to report
+the page they had just submitted **from**, and could tear — the old URL beside the new
+document's not-yet-set title.
+
+Measured against this Grid before it was fixed: `write(submit=True)` reported the
+pre-submit page on **6 of 6** Firefox runs and 2 of 6 Chrome runs, while `interact` and
+`navigate` were correct 12 of 12 and 3 of 3. It is a race, not a browser quirk — Chrome
+merely wins it more often, which is the worst way for a bug like this to behave.
+
+`browser.settled()` is the fix: after a submitting keystroke, wait for the anchor
+element to go stale, then for the new document to stop parsing. Two rules keep it
+honest:
+
+- **Expiring is a normal outcome, not an error.** A form handled in JavaScript never
+  navigates and never goes stale, so the timeout is short (`NAVIGATION_SETTLE`) and a
+  timeout means "nothing navigated", which is a true answer.
+- **Only keys that can submit pay for it** — `SUBMIT_KEYS`, which is Enter and Return.
+  Tab, Escape and the arrows navigate nowhere, and making every one of them wait to
+  discover that would tax the common case for nothing.
+
+If you add an action that navigates by any means other than a click or `driver.get`, it
+needs this too.
+
 ## Waits explain themselves
 
 Selenium raises `TimeoutException` with an **empty message**, which reaches a

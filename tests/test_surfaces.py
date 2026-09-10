@@ -178,6 +178,50 @@ def test_actions_reject_a_missing_session_id(actions):
         actions._at("", None)
 
 
+class _Driver:
+    """Just enough driver to send a key at something."""
+
+    current_url = "https://example.test/"
+    title = "t"
+
+    def find_element(self, *_):
+        return self
+
+    def send_keys(self, *_):
+        pass
+
+    def execute_script(self, *_):
+        return False
+
+
+@pytest.mark.parametrize(
+    "key,waits",
+    [
+        ("enter", True),
+        ("return", True),
+        # The whole point of the narrowing: these navigate nowhere, and making
+        # each one wait to discover that would tax the common case for nothing.
+        ("tab", False),
+        ("escape", False),
+        ("arrow_down", False),
+    ],
+)
+def test_only_a_key_that_can_submit_waits_for_a_navigation(
+    actions, monkeypatch, key, waits
+):
+    """Sending keys is not specified to wait for a navigation it causes, so
+    `press_key("enter")` reported the page it was submitting FROM. `settled`
+    fixes that, and this pins which keys pay for it."""
+    from kubed.selenium_flow import actions as actions_module
+
+    called = []
+    monkeypatch.setattr(actions_module.browser, "settled", lambda *a, **k: called.append(a))
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
+
+    actions.press_key("abc", key)
+    assert bool(called) is waits
+
+
 async def test_stateless_mode_keeps_both_surfaces_intact(server):
     """Statelessness is a transport setting, not a capability change.
 

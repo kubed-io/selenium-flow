@@ -195,3 +195,42 @@ class TestASessionInheritsItsOwnLastValues:
         open_session, where it would be a TypeError."""
         resolved = settings_module.resolve({}, env={}, previous={"nonsense": 1})
         assert resolved == {}
+
+
+def test_ending_a_browser_the_grid_no_longer_has_is_success():
+    """A 404 from the Grid means the session is gone, which is the state `quit`
+    was asked to produce.
+
+    It matters because the moment a caller is most likely to end an already-gone
+    browser is a cleanup after a failure — exactly when a second error helps
+    least. A Grid that cannot be reached still raises: it has not told us the
+    browser is gone, so reporting success would be a guess.
+    """
+    from unittest.mock import Mock, patch
+
+    gone = Mock(status_code=404)
+    with patch("kubed.selenium_flow.browser.requests.delete", return_value=gone):
+        Grid("http://grid.invalid:4444").quit("already-gone")
+    gone.raise_for_status.assert_not_called()
+
+
+async def test_a_rejected_browser_does_not_cost_you_the_one_you_have(
+    server, monkeypatch
+):
+    """`open_session` ends the browser you hold before opening the next, which
+    is what makes switching a single call. The validation has to come first.
+
+    It used to come second, so a typo in `browser=` quit a working browser and
+    then failed — the caller lost its page, its cookies and the form it had
+    filled in, for a misspelling. A rejected argument must cost nothing.
+    """
+    from .conftest import NAMED
+
+    open_session = (await server.mcp.get_tool("open_session")).fn
+    ended = []
+    monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
+    monkeypatch.setattr(server.sessions, "end_browser", lambda *a: ended.append(a))
+
+    with pytest.raises(ValueError, match="safari"):
+        open_session(browser="safari")
+    assert ended == [], "the browser was ended before the argument was checked"

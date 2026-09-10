@@ -32,6 +32,11 @@ KEYS = {
     if name.isupper() and not name.startswith("_")
 }
 
+# The keys that can submit a form, and so are the only ones worth waiting on a
+# navigation for. Selenium spells RETURN and ENTER as different characters, so
+# both are here; every other key navigates nowhere by itself.
+SUBMIT_KEYS = frozenset({Keys.RETURN, Keys.ENTER})
+
 
 # Mouse gestures ``interact`` understands. hover and scroll_to are here rather
 # than in their own tools because they take the same arguments as a click.
@@ -480,6 +485,9 @@ class Actions:
         value = element.get_attribute("value")
         if as_bool(submit, False):
             element.send_keys(Keys.RETURN)
+            # And then wait for the navigation it may have caused, or the state
+            # below describes the page we just left. See `browser.settled`.
+            browser.settled(driver, element)
         return {"value": value, **browser.page_state(driver)}
 
     def press_key(
@@ -502,6 +510,11 @@ class Actions:
         else:
             target = driver.find_element(By.TAG_NAME, "body")
         target.send_keys(resolved)
+        # Only the keys that can submit a form. Tab, Escape and the arrows never
+        # navigate, and making every one of them wait to find that out would tax
+        # the common case for nothing. See `browser.settled`.
+        if resolved in SUBMIT_KEYS:
+            browser.settled(driver, target)
         return {"key": key, **browser.page_state(driver)}
 
     def execute_script(self, session_id: str, script: str, url=None) -> dict:

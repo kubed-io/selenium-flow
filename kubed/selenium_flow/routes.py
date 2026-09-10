@@ -138,12 +138,17 @@ def _add(mcp, actions, token, prefix, path, method_name) -> None:
         # Drop unknown keys rather than 400 on them: a caller sending a field a
         # newer version accepts should not be a hard failure.
         kwargs = {k: v for k, v in body.items() if k in accepted}
-        if method_name == "open_session":
-            # Same cascade as the tool: server default < client default < body.
-            kwargs = settings.resolve(kwargs) | {
-                k: v for k, v in kwargs.items() if k not in settings.SETTINGS
-            }
         try:
+            if method_name == "open_session":
+                # Same cascade as the tool: server default < client default <
+                # body. Inside the try because it VALIDATES as well as merges —
+                # an explicit browser is checked strictly — and run outside it
+                # that ValueError escaped the handler entirely, so a caller
+                # asking for Safari got a bare 500 with no body while the MCP
+                # surface got "unknown browser 'safari'; known browsers: ...".
+                kwargs = settings.resolve(kwargs) | {
+                    k: v for k, v in kwargs.items() if k not in settings.SETTINGS
+                }
             return JSONResponse(method(**kwargs))
         except TypeError as exc:
             # A missing required argument — the caller's mistake, not ours.

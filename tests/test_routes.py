@@ -216,6 +216,20 @@ def test_press_key_rejects_an_unknown_key(open_client):
     assert "unknown key" in response.json()["error"]
 
 
+def test_an_unsupported_browser_is_a_400_with_the_real_list(open_client):
+    """The settings cascade validates as well as merges, and it used to run
+    outside the handler's try — so this ValueError escaped as a bare 500 with no
+    body, while the MCP surface answered with the message below. The surfaces
+    may differ in return shape, never in whether an error is usable.
+    """
+    response = open_client.post("/browser/open", json={"browser": "safari"})
+    assert response.status_code == 400
+    error = response.json()["error"]
+    assert "safari" in error
+    for name in ("chrome", "firefox"):
+        assert name in error
+
+
 def test_every_endpoint_is_mounted(open_client):
     """A 404 here means the route table and the app disagree."""
     from kubed.selenium_flow.routes import ENDPOINTS

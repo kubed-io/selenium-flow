@@ -40,6 +40,12 @@ FIREFOX = "firefox"
 BROWSERS = (CHROME, FIREFOX)
 DEFAULT_BROWSER = CHROME
 
+# How long to give a keystroke-triggered navigation to commit before concluding
+# there was not one. See `settled`. Short on purpose: every Enter that navigates
+# nowhere waits this out, so it trades a small delay on those for a correct
+# answer on the ones that do navigate.
+NAVIGATION_SETTLE = 2.0
+
 
 def normalize_browser(value=None) -> str:
     """A supported browser name, or the default when nothing was asked for.
@@ -238,10 +244,20 @@ class Grid:
 
         Done over plain HTTP rather than ``driver.quit()`` so that a session
         whose driver cannot be reattached can still be cleaned up.
+
+        A 404 is success. The Grid has no such session, which is the state this
+        was asked to produce — ending is the one operation where "it was already
+        done" and "I did it" are the same answer. It matters because the moment
+        a caller is most likely to end a browser that is already gone is a
+        cleanup after a failure, which is exactly when a second error helps
+        least. Anything else still raises: a Grid that cannot be reached has not
+        told us the browser is gone, and reporting success would be a guess.
         """
         response = requests.delete(
             f"{self.url}/session/{session_id}", timeout=self.timeout
         )
+        if response.status_code == 404:
+            return
         response.raise_for_status()
 
     def sessions(self) -> list[dict]:
@@ -367,6 +383,47 @@ def wait_for_clickable(driver, xpath: str, timeout: int = 30):
         timeout,
         f"no clickable element matched {xpath!r}",
     )
+
+
+def settled(driver, anchor, timeout: float = NAVIGATION_SETTLE) -> None:
+    """Wait for a navigation a keystroke may just have started.
+
+    ``element.click()`` and ``driver.get()`` are both *specified* to wait for a
+    navigation they cause, which is why every action built on those reports the
+    page it landed on. Sending keys carries no such promise: the command returns
+    while the browser is still on the old page, so reading state straight
+    afterwards describes the page that was submitted FROM — and can tear,
+    pairing the old URL with the new document's not-yet-set title.
+
+    Measured against a real Grid before this existed: ``write(submit=True)``
+    reported the pre-submit page on 6 of 6 Firefox runs and 2 of 6 Chrome runs,
+    while ``interact`` and ``navigate`` were right every time.
+
+    The signal is ``anchor`` going stale, which happens when a new document
+    commits. It is deliberately best-effort and deliberately short: a form
+    handled in JavaScript never navigates and never goes stale, so *expiring is
+    an ordinary outcome here*, not an error, and it is the cost paid by the
+    keypresses that were never going anywhere.
+    """
+    try:
+        WebDriverWait(driver, timeout, poll_frequency=0.05).until(
+            EC.staleness_of(anchor)
+        )
+    except TimeoutException:
+        # Nothing navigated. The caller is on the page it was already on, which
+        # is a true answer and the common one.
+        return
+    except Exception:  # noqa: BLE001 - a dialog, or a session that just went
+        return
+    # Staleness only says the old document is gone. The new one may still be
+    # parsing, and its title is empty until it is not — the other half of the
+    # torn read.
+    try:
+        WebDriverWait(driver, timeout, poll_frequency=0.05).until(
+            lambda d: d.execute_script("return document.readyState") != "loading"
+        )
+    except Exception:  # noqa: BLE001 - same, and a URL alone is still useful
+        return
 
 
 def in_frame(driver) -> bool:
