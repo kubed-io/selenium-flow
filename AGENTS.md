@@ -15,17 +15,31 @@ component *of* the Selenium app rather than as a free-standing app.
 ## The loop (short version)
 
 ```
-branch + PR ─► test.yml runs ruff + pytest        ← the gate
-             + pr.yml fails if CHANGELOG [Unreleased] has no new entry
+branch + PR ─► test.yml    ruff + pytest on 3.14          ← the gate
+             + quality.yml CodeQL, pip-audit, zizmor,
+                           hadolint, OpenAPI lint
+             + pr.yml      fails if CHANGELOG [Unreleased]
+                           has no new entry
+             + Copilot reviews against .github/copilot-instructions.md
+     │       (the image is NOT built here — see image.yml for why)
      │
-   merge ───► image.yml pushes kubed/selenium-flow:main + :latest
+   merge ───► test.yml sweeps 3.10 → 3.14
+             image.yml pushes kubed/selenium-flow:main + :latest
      │
  publish  ──► Actions → 🧬 Publish Version → pick patch/minor/major
-  (manual)   version-bump: roll changelog → tag vX.Y.Z → GitHub Release
-     │       image.yml (called) pushes kubed/selenium-flow:vX.Y.Z
+  (manual)   test.yml (called) sweeps the full matrix first
+             version-bump: roll changelog → tag vX.Y.Z
+             image.yml   (called) pushes kubed/selenium-flow:vX.Y.Z
+             package.yml (called) builds the sdist + wheel → artifact
+             wiki.yml    (called) republishes the wiki
+             release: downloads that artifact → GitHub Release
      │
   deploy ───► bump newTag in the CLUSTER repo's components/mcp, then `kubectl up`
 ```
+
+`release` runs last and checks out nothing: it attaches the exact files
+`package.yml` built and verified. So the image is on Docker Hub and the
+distribution exists before the Release that points at them does.
 
 Run Publish once with `push=false` first. It computes the version and builds the image
 without pushing anything, which is the cheap way to find out the build is broken before a

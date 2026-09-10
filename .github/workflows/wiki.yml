@@ -56,14 +56,11 @@ on:
       # App key to publish under the App's identity instead, or if a ruleset
       # ever starts refusing the Actions one.
       #
-      # There is no client id here to match: it is the GH_CLIENT_ID *variable*,
-      # and variables reach a called workflow in the same repository without
-      # being passed at all.
+      # There is no app id here to match: it is the GH_APP_ID *variable*, and
+      # variables reach a called workflow in the same repository without being
+      # passed at all.
       GH_APP_KEY:
         required: false
-
-permissions:
-  contents: write   # the wiki repo lives under this repository's permissions
 
 # One publisher at a time. Two runs racing to push the same generated pages is a
 # guaranteed non-fast-forward, and the loser fails for no useful reason.
@@ -76,6 +73,8 @@ jobs:
   wiki:
     name: Publish Wiki
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # the wiki repo lives under this repository's permissions
     env:
       # true only for a real publish: merge to main, or a dispatch/call with
       # push=true. A pull_request run never pushes.
@@ -87,15 +86,24 @@ jobs:
     #
     # Gated on the variable rather than the key, because the `secrets` context
     # cannot be used in an `if` at all. That works out here: the App is the
-    # optional path, so no GH_CLIENT_ID means skip this and let the built-in
-    # token push.
+    # optional path, so no GH_APP_ID means skip this and let the built-in token
+    # push.
+    #
+    # The variable is GH_APP_ID, the same one publish.yml reads. It used to be
+    # GH_CLIENT_ID, which is not set anywhere in this org — so the step was
+    # always skipped and the built-in token did the push by accident rather than
+    # by the deliberate fallback described above.
     - name: Create GitHub App Token
       id: app-token
-      if: env.PUSH == 'true' && vars.GH_CLIENT_ID != ''
+      if: env.PUSH == 'true' && vars.GH_APP_ID != ''
       uses: actions/create-github-app-token@v3
       with:
-        client-id: ${{ vars.GH_CLIENT_ID }}
+        app-id: ${{ vars.GH_APP_ID }}
         private-key: ${{ secrets.GH_APP_KEY }}
+        # The wiki is a repository's own git repo, so a wiki push is a contents
+        # write. Without this the token would carry every permission the App is
+        # installed with.
+        permission-contents: write
 
     - name: Checkout
       uses: actions/checkout@v7

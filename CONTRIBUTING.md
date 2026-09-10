@@ -5,9 +5,16 @@
 ```bash
 git clone --recurse-submodules git@github.com:kubed-io/selenium-flow.git
 pip install -e ".[test]"
-ruff check kubed
+ruff check kubed scripts
 pytest
 ```
+
+Python 3.14 is the baseline — it is what the image runs and the only interpreter
+a pull request is tested on. The package supports 3.10 and up, and CI sweeps the
+whole range on main and on every release, so a 3.11+ feature is a build break on
+the oldest leg rather than a style question. See
+[`.github/instructions/python.instructions.md`](.github/instructions/python.instructions.md)
+for the ones that actually come up.
 
 The submodule is the GitHub wiki, checked out at `wiki/`. An existing clone
 picks it up with `git submodule update --init`. Nothing in the build or the
@@ -94,6 +101,25 @@ about only in a build log. `tests/test_readme.py` fails before that can happen.
 If it gets tight, the fix is not to compress prose: move contributor material
 here and design rationale to `AGENTS.md`. The README advertises; those two
 explain.
+
+## What CI will say about it
+
+A pull request runs these, and all of them are required to merge:
+
+| Check | What it is |
+|---|---|
+| `PR Tasks` | assigns you, and fails if `CHANGELOG.md` has no new `[Unreleased]` entry — that section becomes the release notes. The `no changelog` label is the escape hatch |
+| `Test (3.14)` | `ruff check kubed scripts` and the full pytest suite |
+| `Package` | builds the sdist + wheel, `twine check --strict`, then installs the wheel clean and imports it |
+| `CodeQL` / `Dependency Audit` / `Workflow Audit` / `Dockerfile Lint` / `OpenAPI Spec` | `quality.yml` — code scanning, `pip-audit`, `zizmor`, `hadolint`, and a Redocly lint of the generated spec |
+| Copilot review | reviews against `.github/copilot-instructions.md` |
+
+The image is **not** built on a pull request: a multi-arch build is ~9 minutes
+for a signal the merge build gives anyway. `package.yml` builds and installs the
+wheel instead, which is the part that is ours.
+
+When a quality gate is wrong rather than you, the fix is a rule exclusion **with
+its reason** in `.github/zizmor.yml` or `.hadolint.yaml` — never a bare ignore.
 
 ## Before you push
 

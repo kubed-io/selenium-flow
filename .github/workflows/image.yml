@@ -1,34 +1,27 @@
 name: 📸 Image Builder
 
 # Context-driven image build:
-#   pull_request        build only, never pushes — the "does it still build?" gate
 #   push: main          push :main + :latest          → test :latest in-cluster
 #   workflow_dispatch   manual build (push toggle)
 #   workflow_call       called by publish.yml with a version tag — checks out
 #                       that tag and pushes :vX.Y.Z (stable, pin this to deploy)
 #
-# There is deliberately NO `push: tags` trigger. Releases don't rely on a tag
-# push triggering a build; publish.yml calls this workflow (workflow_call) so the
-# image is on Docker Hub BEFORE the GitHub Release is cut.
+# There is deliberately NO `pull_request` trigger. A multi-arch build is ~9
+# minutes, which is most of a pull request's total wait for a signal that almost
+# never differs from what the merge build gives — and the merge build is the one
+# whose output anyone actually pulls. The Dockerfile is not unguarded on a PR:
+# quality.yml lints it with hadolint, and package.yml builds and installs the
+# wheel the image is a wrapper around, so a break in the part that is ours is
+# caught in seconds instead of minutes.
+#
+# There is deliberately NO `push: tags` trigger either. Releases don't rely on a
+# tag push triggering a build; publish.yml calls this workflow (workflow_call) so
+# the image is on Docker Hub BEFORE the GitHub Release is cut.
 #
 # This is a public repo, so there is no GCP/WIF hop for credentials — Docker Hub
 # creds come straight from the org secrets.
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-    - Dockerfile
-    - docker-compose.yaml
-    - pyproject.toml
-    - .github/workflows/image.yml
-    - kubed/**
-    # Mapped into the package by [tool.setuptools.package-dir], so they are in
-    # the wheel and therefore in the image. Left out of this list, an admin UI
-    # or skill change builds nothing and the deployed image silently keeps the
-    # old one — which happened. tests/test_packaging.py guards the pairing.
-    - static/**
-    - skills/**
   push:
     branches: [main]
     paths:
@@ -62,6 +55,17 @@ on:
         type: boolean
         required: false
         default: false
+    # Named rather than inherited. `secrets: inherit` hands a called workflow
+    # every secret the repo has, so a change to what this file does with them is
+    # invisible at the call site; listing the two it actually needs keeps the
+    # blast radius readable from publish.yml.
+    secrets:
+      DOCKER_USERNAME:
+        description: Docker Hub user for the push
+        required: false
+      DOCKER_PASSWORD:
+        description: Docker Hub token for the push
+        required: false
 
 # One build at a time per group, and the newest branch build wins. A build takes
 # ~9 minutes, so queueing meant waiting out an image for a commit that had
@@ -71,8 +75,7 @@ on:
 # publish.yml cuts the version tag BEFORE calling this workflow, so a release
 # build cancelled by an ordinary push to main would strand a git tag and a
 # GitHub Release on an image that does not exist. Each release gets its own
-# group and is never cancelled; only branch and pull-request builds supersede
-# each other.
+# group and is never cancelled; only branch builds supersede each other.
 concurrency:
   group: image-${{ inputs.tag || github.ref }}
   cancel-in-progress: ${{ !inputs.tag }}
@@ -85,7 +88,7 @@ jobs:
       contents: read
     env:
       # true only for a real registry push: merge to main, or a dispatch/publish
-      # with push=true. A pull_request build never pushes.
+      # with push=true. A dry-run publish builds without pushing.
       PUSH: ${{ (github.event_name == 'push' || ((github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.push)) && 'true' || 'false' }}
     environment:
       name: dockerhub
@@ -100,6 +103,9 @@ jobs:
         ref: ${{ inputs.tag }}
         # setuptools_scm derives the version from git history, not just HEAD.
         fetch-depth: 0
+        # The build needs no git identity, and a token left in .git/config would
+        # be readable by the build context this step is about to hand to Docker.
+        persist-credentials: false
 
     # GIT_TAG is the semantic bake tag: the version on a release (workflow_call),
     # else :latest on a main build.
