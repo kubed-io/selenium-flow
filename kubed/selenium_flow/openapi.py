@@ -175,8 +175,11 @@ the request schemas in this document are generated from those tools, so the two
 surfaces cannot describe different things.
 
 Call `/browser/open` first and pass the `session_id` it returns to every other
-call; nothing is stored server-side. Call `/browser/close` when finished,
-including after a failure, or the session holds a Grid slot until it times out.
+call; nothing is stored server-side. Call `/browser/end` when finished,
+including after a failure, or the browser holds a Grid slot until it times out.
+
+`/browser/close` is the old name for `/browser/end` and still works. It is not
+listed here, so that this document describes one name per action.
 """
 
 
@@ -423,8 +426,7 @@ def _error(description: str) -> dict:
 
 def _summary(description: str | None) -> str:
     """First sentence of the tool description, which is written as a summary."""
-    first = (description or "").strip().split("\n", 1)[0].strip()
-    return first
+    return (description or "").strip().split("\n", 1)[0].strip()
 
 
 def _camel(name: str) -> str:

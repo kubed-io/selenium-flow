@@ -23,9 +23,11 @@ import logging
 from fastmcp import FastMCP
 from fastmcp.server.middleware import Middleware
 
+from . import apps
+
 # Imported under the old name: this module (and its tests) patch _http to
 # simulate a request, and the alias keeps one seam rather than two.
-from . import apps
+from .hints import reads
 from .sessions import SessionManager
 from .sessions import http_request as _http
 
@@ -173,7 +175,12 @@ def register(mcp: FastMCP, sessions: SessionManager) -> set[str]:
     def current_session_resource() -> dict:
         return sessions.describe()
 
-    @mcp.tool(name=STATUS_TOOL, description=DESCRIPTION)
+    @mcp.tool(
+        name=STATUS_TOOL,
+        description=DESCRIPTION,
+        # Asks the Grid whether the browser is still alive, hence open_world.
+        annotations=reads("Which browser am I holding?"),
+    )
     def current_session_tool() -> dict:
         return sessions.describe()
 

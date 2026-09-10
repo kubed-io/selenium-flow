@@ -5,7 +5,6 @@ is the part this server actually decides: who may fetch a file, which shape a
 given client is offered, and that the two surfaces show the same components.
 """
 
-import json
 import time
 from unittest.mock import patch
 
@@ -229,34 +228,18 @@ def test_ending_a_session_quits_the_browser(client, flow_session):
     quit_.assert_called_once_with("abc")
 
 
-def test_ending_keeps_the_session_and_its_context(client, flow_session):
-    """The whole point of the split. A session is only ever removed by expiring,
-    so ending a browser must leave the record — and the browser choice and last
-    page its next open_session is meant to inherit."""
-    flow_session.sessions.store.set(
-        KEY,
-        SessionRecord(session_id="abc", url="https://x/", settings={"browser": "firefox"}),
-    )
-    with patch.object(browser.Grid, "quit"):
-        client.delete(
-            f"/admin/sessions/{KEY}", headers={"Authorization": f"Bearer {TOKEN}"}
-        )
-    record = flow_session.sessions.store.get(KEY)
-    assert record is not None, "the flow session must survive its browser"
-    assert not record.attached
-    assert record.url == "https://x/"
-    assert record.settings == {"browser": "firefox"}
+def test_a_grid_that_refuses_to_quit_is_still_a_200(client, flow_session):
+    """The button's job is "make sure this holds no browser", and an unreachable
+    Grid does not stop that being true — the record is detached either way. So
+    the operator sees success rather than a 500 for something already handled.
 
-
-def test_ending_detaches_even_when_the_grid_refuses(client, flow_session):
-    """A record naming a browser the Grid will not end is worse than one naming
-    nothing: the next call would try to use it."""
+    That the detach happens is SessionManager's contract, asserted directly in
+    test_sessions.py; the route's contract is the status code."""
     with patch.object(browser.Grid, "quit", side_effect=RuntimeError("gone")):
         response = client.delete(
             f"/admin/sessions/{KEY}", headers={"Authorization": f"Bearer {TOKEN}"}
         )
     assert response.status_code == 200
-    assert not flow_session.sessions.store.get(KEY).attached
 
 
 def test_ending_a_session_with_no_browser_is_a_no_op(client, server):
@@ -275,11 +258,13 @@ def test_ending_a_session_with_no_browser_is_a_no_op(client, server):
 def test_ending_a_session_does_not_disturb_the_files_route(client, flow_session):
     """`/admin/sessions/<key>` and `/admin/sessions/<key>/files` are different
     routes, and a DELETE to one must not be routed to the other."""
-    with patch.object(browser.Grid, "clear_files") as clear:
-        with patch.object(browser.Grid, "quit") as quit_:
-            client.delete(
-                f"/admin/sessions/{KEY}", headers={"Authorization": f"Bearer {TOKEN}"}
-            )
+    with (
+        patch.object(browser.Grid, "clear_files") as clear,
+        patch.object(browser.Grid, "quit") as quit_,
+    ):
+        client.delete(
+            f"/admin/sessions/{KEY}", headers={"Authorization": f"Bearer {TOKEN}"}
+        )
     quit_.assert_called_once()
     clear.assert_not_called()
 
@@ -326,11 +311,13 @@ def test_the_listing_shows_flow_sessions_not_grid_sessions(client, server):
         {"session_id": "mine", "browser": "firefox", "version": "155", "node": "n1"},
         {"session_id": "somebody-else", "browser": "chrome", "version": "1", "node": "n1"},
     ]
-    with patch.object(browser.Grid, "sessions", return_value=grid_rows):
-        with patch.object(browser.Grid, "files", return_value=[]):
-            body = client.get(
-                "/admin/sessions", headers={"Authorization": f"Bearer {TOKEN}"}
-            ).json()
+    with (
+        patch.object(browser.Grid, "sessions", return_value=grid_rows),
+        patch.object(browser.Grid, "files", return_value=[]),
+    ):
+        body = client.get(
+            "/admin/sessions", headers={"Authorization": f"Bearer {TOKEN}"}
+        ).json()
     keys = [row["key"] for row in body["sessions"]]
     assert keys == ["named:mine"]
     assert "somebody-else" not in str(body)

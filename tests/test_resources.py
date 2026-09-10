@@ -8,35 +8,15 @@ shapes and the switch between them.
 import pytest
 
 from kubed.selenium_flow import resources as resources_module
-from kubed.selenium_flow.resources import RESOURCE_URI, STATUS_TOOL, client_reads_resources
-from kubed.selenium_flow.sessions import CallerKey, SessionManager
-from kubed.selenium_flow.store import MemoryStore, SessionRecord
+from kubed.selenium_flow.resources import (
+    RESOURCE_URI,
+    STATUS_TOOL,
+    client_reads_resources,
+)
+
+from .conftest import http
 
 pytestmark = pytest.mark.unit
-
-NAMED = CallerKey("named:desktop", "named")
-
-
-class FakeGrid:
-    def __init__(self):
-        self.alive = set()
-
-    def is_alive(self, session_id):
-        return session_id in self.alive
-
-
-class RecordingActions:
-    def __init__(self):
-        self.opened = 0
-        self.grid = FakeGrid()
-
-    def open_session(self, url=None, **_kwargs):
-        self.opened += 1
-        return {"session_id": f"generated-{self.opened}", "url": url or "about:blank"}
-
-
-def http(params=None, headers=None):
-    return dict(params or {}), dict(headers or {})
 
 
 # ---- which shape a client gets ---------------------------------------------
@@ -156,55 +136,3 @@ async def test_shaping_does_not_leak_between_clients(server, monkeypatch):
     stateless(monkeypatch)
     tools = {t.name: t for t in await server.mcp.list_tools()}
     assert "session_id" in tools["navigate"].parameters["properties"]
-
-
-# ---- what the status says --------------------------------------------------
-
-
-def manager(actions=None, store=None):
-    return SessionManager(actions or RecordingActions(), store or MemoryStore())
-
-
-def test_describe_reports_nothing_held_without_opening_one(monkeypatch):
-    """Reading a status resource must never create a browser."""
-    monkeypatch.setattr(
-        "kubed.selenium_flow.sessions.http_request", lambda: http({"session": "desktop"})
-    )
-    actions = RecordingActions()
-    status = manager(actions).describe()
-    assert status["session_id"] is None
-    assert status["key"] == "named:desktop"
-    assert actions.opened == 0, "describe must never open a browser"
-
-
-def test_describe_reports_a_held_session_and_its_liveness(monkeypatch):
-    monkeypatch.setattr(
-        "kubed.selenium_flow.sessions.http_request", lambda: http({"session": "desktop"})
-    )
-    actions = RecordingActions()
-    actions.grid.alive.add("abc")
-    sessions = manager(actions)
-    sessions.store.set(
-        NAMED.value, SessionRecord(session_id="abc", url="https://example.com")
-    )
-    status = sessions.describe()
-    assert status["session_id"] == "abc"
-    assert status["url"] == "https://example.com"
-    assert status["live"] is True
-    assert status["key_source"] == "named"
-
-
-def test_describe_flags_a_session_the_grid_has_reaped(monkeypatch):
-    """The question a caller actually has: is my browser still there?"""
-    monkeypatch.setattr(
-        "kubed.selenium_flow.sessions.http_request", lambda: http({"session": "desktop"})
-    )
-    sessions = manager()
-    sessions.store.set(NAMED.value, SessionRecord(session_id="dead"))
-    assert sessions.describe()["live"] is False
-
-
-def test_describe_says_when_there_is_no_key_at_all(monkeypatch):
-    monkeypatch.setattr("kubed.selenium_flow.sessions.http_request", lambda: http())
-    status = manager().describe()
-    assert status["key"] is None and status["session_id"] is None

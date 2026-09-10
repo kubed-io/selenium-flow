@@ -3,13 +3,27 @@ name = "kubed-selenium-flow"
 description = "MCP server that drives a Selenium Grid browser, and serves the same actions as plain HTTP endpoints"
 readme = "README.md"
 dynamic = ["version"]
-requires-python = ">=3.10.0"
+requires-python = ">=3.10"
 keywords = ["mcp", "selenium", "browser-automation", "fastmcp", "ai"]
 license-files = ["LICENSE"]
+# One entry per interpreter CI actually sweeps, so the metadata and
+# .github/workflows/test.yml make the same claim. A bare "Python :: 3" tells an
+# installer nothing it can act on.
 classifiers = [
-  "Programming Language :: Python :: 3",
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Software Development :: Testing :: Acceptance",
+  "Topic :: Internet :: WWW/HTTP :: Browsers",
+  "Typing :: Typed",
 ]
 authors = [{ name = "Kelly", email = "admin@kellyferrone.com" }]
 maintainers = [{ name = "Kelly", email = "admin@kellyferrone.com" }]
@@ -106,4 +120,44 @@ markers = [
 ]
 
 [tool.ruff]
-exclude = ["tests/*"]
+# The oldest interpreter supported, so ruff flags a construct that would break
+# there rather than one that merely looks dated on the newest.
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+  "E", "W",   # pycodestyle
+  "F",        # pyflakes
+  "I",        # import sorting
+  "UP",       # constructs a newer supported Python does better
+  "B",        # bugbear: the mistakes that survive review
+  "SIM",      # simplifications
+  "C4",       # comprehensions
+  "PIE",      # small dead weight
+  "PTH",      # pathlib over os.path, which CONTRIBUTING already asks for
+  "RET",      # return-flow noise
+  "RUF",      # ruff's own, incl. RUF100 for noqas that stopped applying
+  "BLE",      # blind except
+]
+
+# TRY is deliberately absent. Its headline rule, TRY003, wants a long exception
+# message moved into a custom exception class per message — and here an error
+# message IS the interface: it tells the caller which session mode they are in,
+# what to call instead, and which skill reference explains it. Scattering that
+# guidance away from the check that raises it would cost the thing that makes
+# these errors useful.
+
+# BLE001 is ON, and every blind except in this package already carries a
+# `# noqa: BLE001` with the reason it is deliberate — a status resource that
+# must never fail, a probe that must never raise, a browser that is being
+# discarded anyway. Keeping the rule enabled is what makes those comments mean
+# something: RUF100 now fails a noqa that has stopped applying, so they cannot
+# rot into decoration, and a NEW blind except has to argue for itself.
+
+[tool.ruff.lint.per-file-ignores]
+# Long, specific assertion messages are the point of a test; wrapping them to 88
+# columns makes them harder to read, not easier.
+"tests/*" = ["E501"]
+# Both generators are executable scripts: they fix up sys.path so a checkout
+# runs without an install, which has to happen before the package imports.
+"scripts/generate_wiki.py" = ["E402"]

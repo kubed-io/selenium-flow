@@ -23,11 +23,14 @@ from fastmcp.utilities.types import Image
 from . import settings as settings_module
 from .actions import (
     DIALOG_ACTIONS,
+    DIALOG_TIMEOUT,
     FRAME_ACTIONS,
     KEYS,
     MOUSE_ACTIONS,
+    WAIT_TIMEOUT,
     Actions,
 )
+from .hints import hints
 from .sessions import NAME_PARAM, SessionManager
 
 INSTRUCTIONS = f"""\
@@ -60,6 +63,7 @@ execute_script for anything the other tools do not cover, scrolling included.
 """
 
 
+
 def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
     """Register every action as an MCP tool on ``mcp``."""
 
@@ -78,7 +82,7 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
             sessions.touch(key, result.get("url"), resolved)
         return result
 
-    @mcp.tool
+    @mcp.tool(annotations=hints("Open browser session", destructive=True))
     def open_session(
         url: str | None = None,
         browser: str | None = None,
@@ -143,7 +147,7 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         sessions.remember(key, opened["session_id"], opened.get("url", ""), resolved)
         return opened
 
-    @mcp.tool
+    @mcp.tool(annotations=hints("End browser", destructive=True, idempotent=True))
     def end_browser(session_id: str | None = None) -> dict:
         """Quit the browser and free its Grid slot. Do this when finished.
 
@@ -161,7 +165,7 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         sessions.end_browser(sessions.store_key(key, resolved), resolved)
         return {"success": True, "session_id": resolved}
 
-    @mcp.tool
+    @mcp.tool(annotations=hints("Navigate to URL", idempotent=True))
     def navigate(url: str, session_id: str | None = None) -> dict:
         """Go to a URL. Returns the resulting URL and page title.
 
@@ -182,14 +186,15 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
             "long page needs first.\n\n"
             "Returns the URL and title *after* the action, so any navigation it "
             "caused is visible in the result."
-        )
+        ),
+        annotations=hints("Mouse action on an element", destructive=True),
     )
     def interact(
         action: str,
         xpath: str,
         session_id: str | None = None,
         url: str | None = None,
-        wait_timeout: int = 30,
+        wait_timeout: int = WAIT_TIMEOUT,
     ) -> dict:
         return run(
             session_id,
@@ -209,14 +214,15 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
             "sticks** — every later call stays in that frame until you switch "
             "back, so if a locator that should work is failing, check "
             "session://current for in_frame."
-        )
+        ),
+        annotations=hints("Switch into or out of an iframe", idempotent=True),
     )
     def frame(
         action: str = "switch",
         xpath: str | None = None,
         index: int | None = None,
         session_id: str | None = None,
-        wait_timeout: int = 30,
+        wait_timeout: int = WAIT_TIMEOUT,
     ) -> dict:
         return run(
             session_id,
@@ -225,7 +231,7 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
             ),
         )
 
-    @mcp.tool
+    @mcp.tool(annotations=hints("Resize window", idempotent=True))
     def resize(
         width: int | None = None,
         height: int | None = None,
@@ -248,13 +254,14 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
             "and send_text with text to fill a prompt and accept it.\n\n"
             "An open dialog blocks every other command, so if a call fails "
             "complaining about an unexpected alert, this is how you clear it."
-        )
+        ),
+        annotations=hints("Answer a native dialog", destructive=True),
     )
     def dialog(
         action: str = "accept",
         text: str | None = None,
         session_id: str | None = None,
-        wait_timeout: int = 10,
+        wait_timeout: int = DIALOG_TIMEOUT,
     ) -> dict:
         return run(
             session_id,
@@ -263,7 +270,7 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
             ),
         )
 
-    @mcp.tool
+    @mcp.tool(annotations=hints("Attach a file to a file input"))
     def upload_file(
         xpath: str,
         text: str | None = None,
@@ -273,7 +280,7 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         session_id: str | None = None,
         path: str | None = None,
         url: str | None = None,
-        wait_timeout: int = 30,
+        wait_timeout: int = WAIT_TIMEOUT,
     ) -> dict:
         """Attach a file to a file input.
 
@@ -304,7 +311,7 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
             ),
         )
 
-    @mcp.tool
+    @mcp.tool(annotations=hints("Type text into a field"))
     def write(
         xpath: str,
         text: str,
@@ -312,7 +319,7 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         url: str | None = None,
         clear: bool = True,
         submit: bool = False,
-        wait_timeout: int = 30,
+        wait_timeout: int = WAIT_TIMEOUT,
     ) -> dict:
         """Type text into an input, textarea or contenteditable.
 
@@ -344,14 +351,15 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
             "Not a reliable way to scroll - page_down only moves the page when "
             "focus happens to be on the scrollable container. Use execute_script "
             "to scroll."
-        )
+        ),
+        annotations=hints("Press a named key", destructive=True),
     )
     def press_key(
         key: str,
         session_id: str | None = None,
         xpath: str | None = None,
         url: str | None = None,
-        wait_timeout: int = 30,
+        wait_timeout: int = WAIT_TIMEOUT,
     ) -> dict:
         return run(
             session_id,
@@ -360,12 +368,12 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
             ),
         )
 
-    @mcp.tool
+    @mcp.tool(annotations=hints("Read an element", read_only=True, idempotent=True))
     def extract(
         xpath: str,
         session_id: str | None = None,
         url: str | None = None,
-        wait_timeout: int = 30,
+        wait_timeout: int = WAIT_TIMEOUT,
     ) -> dict:
         """Read an element's visible text and innerHTML.
 
@@ -378,7 +386,7 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
             lambda s: actions.extract(s, xpath, url=url, wait_timeout=wait_timeout),
         )
 
-    @mcp.tool
+    @mcp.tool(annotations=hints("Run JavaScript in the page", destructive=True))
     def execute_script(
         script: str, session_id: str | None = None, url: str | None = None
     ) -> dict:
@@ -390,7 +398,7 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         """
         return run(session_id, lambda s: actions.execute_script(s, script, url=url))
 
-    @mcp.tool
+    @mcp.tool(annotations=hints("Capture a screenshot"))
     def screenshot(
         session_id: str | None = None,
         url: str | None = None,
@@ -398,7 +406,7 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         full_page: bool = False,
         width: int | None = None,
         height: int | None = None,
-        wait_timeout: int = 30,
+        wait_timeout: int = WAIT_TIMEOUT,
         save: bool = False,
         filename: str | None = None,
     ) -> Image:
@@ -431,7 +439,7 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         )
         return Image(data=base64.b64decode(result["image"]), format="png")
 
-    @mcp.tool
+    @mcp.tool(annotations=hints("Save the page as PDF"))
     def save_pdf(
         session_id: str | None = None,
         url: str | None = None,

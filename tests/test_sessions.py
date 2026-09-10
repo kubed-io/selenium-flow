@@ -21,60 +21,12 @@ from kubed.selenium_flow.store import (
     redis_configured,
 )
 
+from .conftest import NAMED, OTHER, RecordingActions, http, manager
+
 pytestmark = pytest.mark.unit
-
-NAMED = CallerKey("named:desktop", "named")
-OTHER = CallerKey("named:laptop", "named")
-
-
-class FakeGrid:
-    """Tracks which sessions are still live, and every liveness question asked."""
-
-    def __init__(self):
-        self.alive = set()
-        self.checked = []
-
-    def is_alive(self, session_id):
-        self.checked.append(session_id)
-        return session_id in self.alive
-
-
-class RecordingActions:
-    """Counts how many browsers were opened, without opening any."""
-
-    def __init__(self):
-        self.opened = 0
-        self.opened_urls = []
-        self.opened_settings = []
-        self.closed = []
-        self.grid = FakeGrid()
-
-    def open_session(self, url=None, **kwargs):
-        self.opened += 1
-        session_id = f"generated-{self.opened}"
-        self.opened_urls.append(url)
-        self.opened_settings.append(dict(kwargs))
-        self.grid.alive.add(session_id)
-        return {"session_id": session_id, "url": url or "about:blank"}
-
-    def end_browser(self, session_id):
-        self.closed.append(session_id)
-        self.grid.alive.discard(session_id)
-        return {"success": True, "session_id": session_id}
-
-
-def manager(actions=None, store=None, enabled=True):
-    return SessionManager(
-        actions or RecordingActions(), store or MemoryStore(), enabled=enabled
-    )
 
 
 # ---- identifying the caller ------------------------------------------------
-
-
-def http(params=None, headers=None):
-    """Stand in for the ambient HTTP request."""
-    return dict(params or {}), dict(headers or {})
 
 
 def test_a_named_session_in_the_query_string_is_the_key(monkeypatch):
@@ -148,7 +100,7 @@ def test_no_key_means_the_caller_must_be_explicit():
 
 def test_the_error_names_the_reference_that_explains_it():
     """An agent that hits this should not have to guess what to read."""
-    with pytest.raises(ValueError, match="STATELESS.md"):
+    with pytest.raises(ValueError, match=r"STATELESS\.md"):
         manager().resolve(None, None)
 
 
@@ -187,7 +139,7 @@ def test_saved_mode_refuses_a_session_id():
 
 
 def test_the_refusal_names_the_reference():
-    with pytest.raises(ValueError, match="SAVED_SESSIONS.md"):
+    with pytest.raises(ValueError, match=r"SAVED_SESSIONS\.md"):
         manager().resolve(NAMED, "abc")
 
 
@@ -301,18 +253,27 @@ def test_touch_on_an_unknown_key_is_harmless():
 
 
 def test_ending_a_browser_means_open_session_again():
+    """An agent is never told "your browser was taken". It is told it has none —
+    the same branch as never having had one — so it calls open_session, which is
+    the one path that opens one. resolve itself must never open anything."""
     actions = RecordingActions()
     sessions = manager(actions)
     actions.grid.alive.add("abc")
     sessions.remember(NAMED, "abc")
     sessions.end_browser(NAMED.value)
+    opened_before = actions.opened
     with pytest.raises(ValueError, match="call open_session first"):
         sessions.resolve(NAMED, None)
+    assert actions.opened == opened_before, "resolve must never open one"
 
 
 def test_ending_a_browser_never_removes_the_flow_session():
     """Nothing removes one. A session expires on its TTL, and a named one comes
-    straight back on the next call because the name is in the caller's URL."""
+    straight back on the next call because the name is in the caller's URL.
+
+    The record it leaves behind is also exactly what the next open_session
+    inherits — the browser choice and the last page — so this is the same
+    assertion as "ending keeps the context", made once."""
     sessions = manager()
     sessions.remember(NAMED, "mine", "https://x/", {"browser": "firefox"})
     sessions.end_browser(NAMED.value)
@@ -369,35 +330,58 @@ def test_the_backend_in_use_is_reported():
 
 
 # ---- what the status resource says -----------------------------------------
+#
+# describe() is SessionManager's, so it is tested here beside the rest of it.
+# test_resources.py covers the other half of the question — which SHAPE a client
+# gets this status in, a resource or a tool — and does not re-test the content.
 
 
-def test_describe_reports_the_mode_and_where_to_read_about_it(monkeypatch):
-    monkeypatch.setattr(sessions_module, "http_request", lambda: http({"session": "d"}))
+def test_describe_reports_the_mode_and_where_to_read_about_it(named_caller):
     status = manager().describe()
     assert status["mode"] == "saved"
     assert status["pass_session_id"] is False
     assert "SAVED_SESSIONS.md" in status["guidance"]
 
 
-def test_describe_reports_stateless_and_its_reference(monkeypatch):
-    monkeypatch.setattr(sessions_module, "http_request", lambda: http())
+def test_describe_reports_stateless_and_its_reference(stateless_caller):
     status = manager().describe()
     assert status["mode"] == "stateless"
     assert status["pass_session_id"] is True
+    assert status["key"] is None
     assert "STATELESS.md" in status["guidance"]
 
 
-def test_describe_never_opens_a_browser(monkeypatch):
-    monkeypatch.setattr(sessions_module, "http_request", lambda: http({"session": "d"}))
+def test_describe_never_opens_a_browser(named_caller):
+    """Reading a status resource must never create one."""
     actions = RecordingActions()
-    assert manager(actions).describe()["session_id"] is None
+    status = manager(actions).describe()
+    assert status["session_id"] is None
+    assert status["key"] == "named:desktop"
     assert actions.opened == 0
 
 
-def test_describe_reports_the_settings_a_session_was_opened_with(monkeypatch):
-    monkeypatch.setattr(
-        sessions_module, "http_request", lambda: http({"session": "desktop"})
+def test_describe_reports_a_held_session_and_whether_it_is_still_there(named_caller):
+    """Whether the browser is still there is the question this resource is for."""
+    actions = RecordingActions()
+    actions.grid.alive.add("abc")
+    sessions = manager(actions)
+    sessions.store.set(
+        NAMED.value, SessionRecord(session_id="abc", url="https://example.com")
     )
+    status = sessions.describe()
+    assert status["session_id"] == "abc"
+    assert status["url"] == "https://example.com"
+    assert status["live"] is True
+    assert status["key_source"] == "named"
+
+
+def test_describe_flags_a_session_the_grid_has_reaped(named_caller):
+    sessions = manager()
+    sessions.store.set(NAMED.value, SessionRecord(session_id="dead"))
+    assert sessions.describe()["live"] is False
+
+
+def test_describe_reports_the_settings_a_session_was_opened_with(named_caller):
     actions = RecordingActions()
     actions.grid.alive.add("abc")
     sessions = manager(actions)
@@ -405,13 +389,10 @@ def test_describe_reports_the_settings_a_session_was_opened_with(monkeypatch):
     assert sessions.describe()["settings"] == {"width": 1400}
 
 
-def test_describe_reports_which_browser_is_being_driven(monkeypatch):
+def test_describe_reports_which_browser_is_being_driven(named_caller):
     """Top level, not only inside settings: "which browser am I driving" is a
     question this resource exists to answer, and a caller should not have to
     know it happens to be stored as a setting."""
-    monkeypatch.setattr(
-        sessions_module, "http_request", lambda: http({"session": "desktop"})
-    )
     actions = RecordingActions()
     actions.grid.alive.add("abc")
     sessions = manager(actions)
@@ -419,12 +400,9 @@ def test_describe_reports_which_browser_is_being_driven(monkeypatch):
     assert sessions.describe()["browser"] == "firefox"
 
 
-def test_a_session_stored_before_browsers_were_selectable_reads_as_chrome(monkeypatch):
+def test_a_session_stored_before_browsers_were_selectable_reads_as_chrome(named_caller):
     """A record with no browser really is the default one — there was nothing
-    else to be — so reporting None would be less true than reporting chrome."""
-    monkeypatch.setattr(
-        sessions_module, "http_request", lambda: http({"session": "desktop"})
-    )
+    else to be — so reporting chrome is more true than reporting None."""
     actions = RecordingActions()
     actions.grid.alive.add("abc")
     sessions = manager(actions)
@@ -432,11 +410,8 @@ def test_a_session_stored_before_browsers_were_selectable_reads_as_chrome(monkey
     assert sessions.describe()["browser"] == "chrome"
 
 
-def test_describe_reports_no_browser_when_there_is_no_session(monkeypatch):
+def test_describe_reports_no_browser_when_there_is_no_session(named_caller):
     """Naming a browser for a session that does not exist would be a fiction."""
-    monkeypatch.setattr(
-        sessions_module, "http_request", lambda: http({"session": "desktop"})
-    )
     assert manager().describe()["browser"] is None
 
 
@@ -494,6 +469,21 @@ def test_the_memory_store_expires_like_redis_does():
     assert store.get("k").session_id == "abc"
     now[0] += 2
     assert store.get("k") is None
+
+
+def test_listing_collects_the_records_nobody_asks_for_again():
+    """`get` only ever expires the one key it is handed, so a session named once
+    and never revisited stayed in memory until the process restarted. Listing is
+    the only pass over every entry, so it is where they are collected."""
+    now = [1000.0]
+    store = MemoryStore(ttl=60, clock=lambda: now[0])
+    store.set("gone", SessionRecord(session_id="a"))
+    store.set("stays", SessionRecord(session_id="b"))
+    now[0] += 61
+    store.set("stays", SessionRecord(session_id="b"))
+
+    assert set(store.records()) == {"stays"}
+    assert "gone" not in store._data, "the expired record was filtered, not freed"
 
 
 def test_touch_slides_the_expiry_of_a_session_in_use():
@@ -699,36 +689,6 @@ def test_an_unreachable_grid_does_not_strand_the_session(monkeypatch):
 
 
 # ---- a flow session outlives its browser -----------------------------------
-
-
-def test_a_detached_session_reads_as_having_no_browser(monkeypatch):
-    """An agent is never told "your browser was taken". It is told it has none,
-    which is the same branch as never having had one — and it calls open_session,
-    the one path that opens one."""
-    monkeypatch.setattr(
-        sessions_module, "http_request", lambda: http({"session": "desktop"})
-    )
-    actions = RecordingActions()
-    sessions = manager(actions)
-    sessions.store.set(NAMED.value, SessionRecord(session_id="", url="https://x/"))
-    with pytest.raises(ValueError, match="no browser is open for you yet"):
-        sessions.resolve(NAMED, None)
-    assert actions.opened == 0, "resolve must never open one"
-
-
-def test_ending_keeps_the_context_the_next_open_inherits():
-    sessions = manager()
-    sessions.store.set(
-        NAMED.value,
-        SessionRecord(
-            session_id="abc", url="https://x/", settings={"browser": "firefox"}
-        ),
-    )
-    sessions.end_browser(NAMED.value)
-    record = sessions.store.get(NAMED.value)
-    assert record.session_id == ""
-    assert record.url == "https://x/"
-    assert record.settings == {"browser": "firefox"}
 
 
 def test_ending_something_that_is_not_there_is_not_an_error():

@@ -13,9 +13,9 @@ from __future__ import annotations
 import base64
 import binascii
 import mimetypes
-import os
 import shutil
 import tempfile
+from pathlib import Path, PurePosixPath
 
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
@@ -42,6 +42,18 @@ DIALOG_ACTIONS = ("accept", "dismiss", "read", "send_text")
 
 # Where a frame switch can go. "parent" matters for nested frames.
 FRAME_ACTIONS = ("switch", "parent", "default")
+
+# How long a locator waits for its element before giving up. Named because the
+# same number is the default on BOTH surfaces — every tool in tools.py and every
+# endpoint in routes.py derives its default from here. Two copies of a literal
+# 30 across two files is exactly how the surfaces come to disagree about what an
+# omitted argument means, which is the drift this project is built to prevent.
+WAIT_TIMEOUT = 30
+
+# Dialogs get less. A native dialog is either already open or it is not — there
+# is nothing to render and nothing to load — so a caller that guessed wrong
+# should find out in ten seconds rather than thirty.
+DIALOG_TIMEOUT = 10
 
 
 def _decode(content) -> bytes:
@@ -91,10 +103,16 @@ def _safe_name(filename, mime_type=None, default_extension="") -> str:
     disk here. An extension is appended when there is none, since without one
     the page reports an empty File.type and content sniffing does not happen.
     """
-    name = os.path.basename(str(filename or "")).strip().lstrip(".")
+    # Backslashes are folded to "/" first so a Windows-style name is reduced to
+    # its basename too. os.path.basename does not do that on Linux, which left
+    # r"..\..\etc\passwd" intact as a "basename" — harmless as the staged
+    # filename it becomes, but it is the caller's string and this is the one
+    # place it is narrowed before being written to disk.
+    raw_name = str(filename or "").replace("\\", "/")
+    name = PurePosixPath(raw_name).name.strip().lstrip(".")
     if not name:
         name = "upload"
-    if not os.path.splitext(name)[1]:
+    if not PurePosixPath(name).suffix:
         name += _extension_for(mime_type) or default_extension
     return name
 
@@ -193,7 +211,12 @@ class Actions:
     # ---- interaction -------------------------------------------------------
 
     def interact(
-        self, session_id: str, action: str, xpath: str, url=None, wait_timeout=30
+        self,
+        session_id: str,
+        action: str,
+        xpath: str,
+        url=None,
+        wait_timeout=WAIT_TIMEOUT,
     ) -> dict:
         """Perform a mouse action on the element at ``xpath``.
 
@@ -237,7 +260,12 @@ class Actions:
         }
 
     def frame(
-        self, session_id: str, action="switch", xpath=None, index=None, wait_timeout=30
+        self,
+        session_id: str,
+        action="switch",
+        xpath=None,
+        index=None,
+        wait_timeout=WAIT_TIMEOUT,
     ) -> dict:
         """Move the session into an iframe, or back out of it.
 
@@ -296,7 +324,7 @@ class Actions:
         }
 
     def dialog(
-        self, session_id: str, action="accept", text=None, wait_timeout=10
+        self, session_id: str, action="accept", text=None, wait_timeout=DIALOG_TIMEOUT
     ) -> dict:
         """Answer a native alert, confirm or prompt.
 
@@ -344,7 +372,7 @@ class Actions:
         mime_type=None,
         path=None,
         url=None,
-        wait_timeout=30,
+        wait_timeout=WAIT_TIMEOUT,
     ) -> dict:
         """Attach a file to the file input at ``xpath``.
 
@@ -408,17 +436,18 @@ class Actions:
                         f"directory ({exc}). Mount one at /tmp (an emptyDir "
                         "volume) or set TMPDIR to a writable path."
                     ) from exc
-                local = os.path.join(temp_dir, name)
-                with open(local, "wb") as handle:
-                    handle.write(raw)
+                staged = Path(temp_dir) / name
+                staged.write_bytes(raw)
             else:
-                local = str(path)
-                if not os.path.isfile(local):
-                    raise ValueError(f"no file at {local}")
+                staged = Path(str(path))
+                if not staged.is_file():
+                    raise ValueError(f"no file at {staged}")
 
-            element.send_keys(local)
-            size = os.path.getsize(local)
-            name = os.path.basename(local)
+            # send_keys wants a string path, and Selenium's LocalFileDetector
+            # reads it off the filesystem to ship the bytes to the Grid node.
+            element.send_keys(str(staged))
+            size = staged.stat().st_size
+            name = staged.name
         finally:
             # The bytes live on the Grid node now; this copy has done its job.
             if temp_dir:
@@ -438,7 +467,7 @@ class Actions:
         url=None,
         clear=True,
         submit=False,
-        wait_timeout=30,
+        wait_timeout=WAIT_TIMEOUT,
     ) -> dict:
         """Type ``text`` into the field at ``xpath``."""
         driver = self._at(session_id, url)
@@ -454,7 +483,7 @@ class Actions:
         return {"value": value, **browser.page_state(driver)}
 
     def press_key(
-        self, session_id: str, key: str, xpath=None, url=None, wait_timeout=30
+        self, session_id: str, key: str, xpath=None, url=None, wait_timeout=WAIT_TIMEOUT
     ) -> dict:
         """Press a named key, at an element or wherever focus currently is.
 
@@ -488,7 +517,9 @@ class Actions:
 
     # ---- reading -----------------------------------------------------------
 
-    def extract(self, session_id: str, xpath: str, url=None, wait_timeout=30) -> dict:
+    def extract(
+        self, session_id: str, xpath: str, url=None, wait_timeout=WAIT_TIMEOUT
+    ) -> dict:
         """Read the text and HTML of the element at ``xpath``."""
         driver = self._at(session_id, url)
         element = browser.wait_for_element(driver, xpath, as_int(wait_timeout, 30))
@@ -506,7 +537,7 @@ class Actions:
         full_page=False,
         width=None,
         height=None,
-        wait_timeout=30,
+        wait_timeout=WAIT_TIMEOUT,
         save=False,
         filename=None,
     ) -> dict:

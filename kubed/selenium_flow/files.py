@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 
 from . import admin, links
+from .hints import reads
 
 log = logging.getLogger(__name__)
 
@@ -97,7 +98,12 @@ def register(mcp, actions, sessions, token, app_config=None, base="") -> set[str
             raise ValueError("no session is being held for you")
         return actions.grid.read_file(target, name)
 
-    @mcp.tool(name=FILES_TOOL, description=DESCRIPTION, app=app_config)
+    @mcp.tool(
+        name=FILES_TOOL,
+        description=DESCRIPTION,
+        app=app_config,
+        annotations=reads("Files this session has downloaded"),
+    )
     def session_files(session_id: str | None = None) -> dict:
         return listing(actions, sessions, token, session_id=session_id, base=base)
 
