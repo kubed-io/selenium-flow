@@ -28,7 +28,7 @@ dependencies = [
 # Only needed to share saved sessions across replicas or across a restart. The
 # image installs it so the feature is a config change, not a rebuild.
 redis = [
-  "redis>=5.0,<7",
+  "redis>=5.0,<9",
 ]
 build = [
   "setuptools_scm",
@@ -45,7 +45,7 @@ test = [
   "ruff",
   "uvicorn",
   "openapi-spec-validator",
-  "redis>=5.0,<7",
+  "redis>=5.0,<9",
   # tests/test_packaging.py reads pyproject.toml. tomllib is 3.11+, so the
   # oldest supported interpreter needs the backport it was adopted from.
   "tomli; python_version < '3.11'",
