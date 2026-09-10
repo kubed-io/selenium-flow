@@ -11,7 +11,7 @@ from __future__ import annotations
 from fastmcp import FastMCP
 from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 
-from . import admin, apps, files, resources, routes, skill, tools
+from . import admin, apps, files, flows, resources, routes, skill, tools
 from .actions import Actions
 from .browser import DEFAULT_GRID_URL, Grid
 from .sessions import SessionManager
@@ -46,6 +46,7 @@ class SeleniumMCP:
         store: SessionStore | None = None,
         skill_enabled: bool = True,
         apps_enabled: bool = True,
+        flow_data_dir: str | None = None,
     ):
         self.grid = Grid(grid_url)
         self.actions = Actions(self.grid)
@@ -58,6 +59,18 @@ class SeleniumMCP:
             store=store if store is not None else from_env(),
             enabled=saved_sessions,
         )
+
+        # Saved flows, or None when no data directory was named — which is the
+        # default, and is the feature being off rather than a degraded mode.
+        # An explicit directory beats the environment, the way every flag here
+        # does; see flows.py for why there is no fallback location.
+        # Stripped before it is judged, so an explicit directory and one out of
+        # the environment agree about what "unset" means. Without this a
+        # FLOW_DATA_DIR of "   " reached here through the CLI flag's default and
+        # became a directory named three spaces, while from_env called the same
+        # value off.
+        directory = (flow_data_dir or "").strip()
+        self.flows = flows.LocalFlowStore(directory) if directory else flows.from_env()
 
         # A token turns on auth for both surfaces. Absent, the server is open —
         # correct for a local `docker compose up`, and the reason the deployment
