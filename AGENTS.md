@@ -74,9 +74,21 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
 
 **Never edit it by hand.** Run `python scripts/generate_openapi.py`.
 
-The spec exists in two places and they are not copies of each other in the way that
-phrase usually means — both are derived from the same source, which is the MCP tool
-schemas, which FastMCP derives from the Python signatures in `tools.py`:
+**Half of it is derived and half of it is written**, and knowing which is which is the
+part that matters:
+
+| Part of the document | Where it comes from |
+|---|---|
+| **request** schemas | the MCP tool schemas verbatim, which FastMCP derives from the signatures in `tools.py` |
+| **response** shapes | `RESPONSES` in `openapi.py`, by hand — the actions return plain dicts, so there is nothing to introspect |
+| info, servers, tags, `/health`, error shape | `openapi.py`, by hand |
+
+So adding a *parameter* to a tool updates the spec on its own; adding a *return field* does
+not, and `test_every_action_declares_a_response_shape` is what stops that being forgotten.
+The one sanctioned transform is `http_schema`, which puts `session_id` back as required —
+saved sessions let an MCP caller omit it, the HTTP surface never does.
+
+That document is then rendered in two places:
 
 | | Where | Built |
 |---|---|---|
@@ -84,8 +96,8 @@ schemas, which FastMCP derives from the Python signatures in `tools.py`:
 | **committed** | `openapi.yaml` at the repo root | by `scripts/generate_openapi.py` |
 
 The served document is built on the fly, so the file at the root is a second rendering of
-the same thing rather than the source of either. It is committed on purpose, and three
-things depend on it:
+the same thing rather than the source of either. Neither is hand-edited — `openapi.py` is
+where a change goes. The file is committed on purpose, and three things depend on it:
 
 - **`scripts/generate_wiki.py` reads it.** The wiki's action pages are rendered from the
   committed file, not from a running server — this is the load-bearing one. Delete the
