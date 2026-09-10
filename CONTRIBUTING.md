@@ -37,10 +37,11 @@ endpoint fails the build.
 
 ## The wiki is generated too
 
-`scripts/generate_wiki.py` renders one wiki page per action from `openapi.yaml`,
+`scripts/generate_wiki.py` renders one wiki page per action from the spec it builds
+in-process,
 so the fourteen pages share one shape and cannot describe a server that never
 shipped. `.github/workflows/wiki.yml` regenerates and pushes on every change to
-`openapi.yaml`, `wiki/notes/` or the generator. A pull request generates but
+`kubed/`, `wiki/notes/` or the generator. A pull request generates but
 never pushes, and `workflow_call` leaves the decision to the caller — the same
 shape as `image.yml`.
 
@@ -58,16 +59,20 @@ and `wiki/foo.md` both answer to `/wiki/foo`, and GitHub serves the fragment.
 
 Request schemas come from the MCP tools themselves — the same objects FastMCP
 publishes to agents — so the two contracts are the same schema rather than two
-descriptions that happen to agree. The document is committed so it can be
-reviewed in a pull request, and a test fails if it drifts:
+descriptions that happen to agree.
+
+`openapi.yaml` is a **build artifact and is gitignored**. The server builds the
+same document per request at `GET /openapi.yaml`, and the tests and the wiki
+generator build it in-process, so nothing needs the file. Write a copy when you
+want one to read, lint or publish:
 
 ```bash
-python scripts/generate_openapi.py   # the fix when that test fails
+python scripts/generate_openapi.py
 ```
 
-Response shapes are the one hand-maintained half, in `openapi.py`: the actions
-return plain dicts, so there is nothing to introspect. A test asserts every
-endpoint has one.
+Changes go in `openapi.py`, never in the generated file. Response shapes are the
+one hand-maintained half there: the actions return plain dicts, so there is
+nothing to introspect. A test asserts every endpoint has one.
 
 ## The embedded skill
 

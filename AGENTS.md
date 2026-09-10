@@ -70,11 +70,13 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   retina render — both tested working against this Grid. If that capability is wanted, add
   it as a **separate** tool so the portable path keeps working when CDP goes away.
 
-## `openapi.yaml`: generated twice, committed once
+## The OpenAPI spec is a build artifact
 
-**Never edit it by hand.** Run `python scripts/generate_openapi.py`.
+**`openapi.yaml` is generated and not committed.** It is in `.gitignore`. Write it with
+`python scripts/generate_openapi.py` when you want a copy to lint or publish; nothing in
+the repo needs it to exist.
 
-**Half of it is derived and half of it is written**, and knowing which is which is the
+**Half of the document is derived and half is written**, and knowing which is which is the
 part that matters:
 
 | Part of the document | Where it comes from |
@@ -88,41 +90,31 @@ not, and `test_every_action_declares_a_response_shape` is what stops that being 
 The one sanctioned transform is `http_schema`, which puts `session_id` back as required —
 saved sessions let an MCP caller omit it, the HTTP surface never does.
 
-That document is then rendered in two places:
+**`openapi.py` is where a change goes**, always. Both renderings come out of `build_spec`:
 
 | | Where | Built |
 |---|---|---|
 | **served** | `GET /openapi.yaml`, `GET /openapi.json` | per request, from the live tool schemas |
-| **committed** | `openapi.yaml` at the repo root | by `scripts/generate_openapi.py` |
+| **artifact** | `openapi.yaml`, gitignored | on demand by `scripts/generate_openapi.py`, and by `test.yml` before it lints |
 
-The served document is built on the fly, so the file at the root is a second rendering of
-the same thing rather than the source of either. Neither is hand-edited — `openapi.py` is
-where a change goes. The file is committed on purpose, and three things depend on it:
-
-- **`scripts/generate_wiki.py` reads it.** The wiki's action pages are rendered from the
-  committed file, not from a running server — this is the load-bearing one. Delete the
-  file and the wiki cannot be built without booting the app first.
-- **CI lints it.** `test.yml` runs `redocly lint openapi.yaml`.
-- **Review can see it.** A schema change shows up in the pull request as a diff, which is
-  the only place a reviewer would notice a tool's contract quietly changing shape.
-
-`test_the_committed_file_is_not_stale` regenerates and compares, so the file cannot drift
-from the code — a pull request that forgot to rerun the generator fails the suite. If you
-change a signature or a docstring in `tools.py`, rerun both generators.
+Nothing reads the artifact as an input. `scripts/generate_wiki.py` builds the spec
+in-process for the same reason the tests do — a generator that consumed a checked-in file
+could render from a stale one, and could not run until something else had written it.
 
 **Code generates the spec, not the other way round.** Spec-first was considered and
 rejected: FastMCP derives tool schemas from Python signatures, so a YAML source would mean
 generating Python and then deriving schemas from the generated Python. Nothing here is a
 contract another team designs against, which is when spec-first pays.
 
-**`info.version` cannot be dropped from the committed file.** OpenAPI requires it, so the
-artifact carries a placeholder while the served document stamps the real package version.
-The validator test catches this if it is ever removed.
+**`info.version` is a placeholder in the artifact.** OpenAPI requires the field, and
+stamping the real one would make the file differ per checkout since setuptools_scm derives
+it from git. The served document carries the true version.
 
 ## The wiki is generated from the spec
 
-`python scripts/generate_wiki.py` renders one page per action from `openapi.yaml`, so the
-wiki is downstream of the code and cannot describe a server that no longer exists.
+`python scripts/generate_wiki.py` renders one page per action from the spec it builds
+in-process, so the wiki is downstream of the code and cannot describe a server that no
+longer exists.
 `tests/test_wiki.py` fails when the committed pages do not match the generator.
 
 Hand-written prose lives in `wiki/notes/<tool>.notes.md` — inside the wiki submodule — and

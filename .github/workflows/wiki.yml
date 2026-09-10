@@ -1,9 +1,9 @@
 name: 📖 Wiki
 
-# Publishes the wiki. The action pages are generated from openapi.yaml, which is
-# itself generated from the live MCP tool schemas, so the wiki is downstream of
-# the code and has to be republished when the code changes — otherwise it
-# describes a server that no longer exists.
+# Publishes the wiki. The action pages are generated from the OpenAPI spec, which
+# the generator builds in-process from the live MCP tool schemas, so the wiki is
+# downstream of the code and has to be republished when the code changes —
+# otherwise it describes a server that no longer exists.
 #
 #   pull_request        generate only, never pushes — the "does it still build?" gate
 #   push: main          generate and push to the wiki
@@ -24,14 +24,14 @@ on:
   pull_request:
     branches: [main]
     paths:
-    - openapi.yaml
+    - kubed/**
     - wiki
     - scripts/generate_wiki.py
     - .github/workflows/wiki.yml
   push:
     branches: [main]
     paths:
-    - openapi.yaml
+    - kubed/**
     - wiki
     - scripts/generate_wiki.py
     - .github/workflows/wiki.yml
@@ -112,8 +112,10 @@ jobs:
       with:
         python-version: '3.13'
 
+    # The generator imports the package to build the spec from the live tool
+    # schemas, so the package itself is the dependency, not just a YAML writer.
     - name: Install
-      run: pip install pyyaml
+      run: pip install .
 
     - name: Generate
       run: python scripts/generate_wiki.py

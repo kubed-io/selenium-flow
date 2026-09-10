@@ -2,11 +2,13 @@
 
 The point of generating rather than writing it is that it cannot describe an API
 different from the one that runs. These tests hold that line: the request
-schemas must BE the MCP tool schemas, and the committed file must match what the
-code produces.
-"""
+schemas must BE the MCP tool schemas.
 
-import pathlib
+Everything here builds the spec in-process. There is no file on disk to compare
+against — ``openapi.yaml`` is a build artifact, produced by
+``scripts/generate_openapi.py`` and not committed — so the thing under test is
+what the server would actually serve.
+"""
 
 import pytest
 import yaml
@@ -21,8 +23,6 @@ from kubed.selenium_flow.openapi import (
 from kubed.selenium_flow.routes import ENDPOINTS
 
 pytestmark = pytest.mark.unit
-
-COMMITTED = pathlib.Path(__file__).resolve().parent.parent / "openapi.yaml"
 
 
 @pytest.fixture
@@ -104,19 +104,14 @@ async def test_operations_carry_a_summary_and_description(spec):
             assert op["operationId"], f"{method} {path} has no operationId"
 
 
-def test_the_document_validates():
-    """Validated with a real validator, not just eyeballed."""
+def test_the_document_validates(server_spec_yaml):
+    """Validated with a real validator, not just eyeballed.
+
+    Run against the generated document rather than a checked-in copy, so what is
+    validated is what the server serves and what the artifact is written from.
+    """
     validator = pytest.importorskip("openapi_spec_validator")
-    validator.validate(yaml.safe_load(COMMITTED.read_text()))
-
-
-def test_the_committed_file_is_not_stale(server_spec_yaml):
-    """Regenerate with `python scripts/generate_openapi.py` when this fails."""
-    committed = yaml.safe_load(COMMITTED.read_text())
-    generated = yaml.safe_load(server_spec_yaml)
-    assert committed == generated, (
-        "openapi.yaml is out of date — run python scripts/generate_openapi.py"
-    )
+    validator.validate(yaml.safe_load(server_spec_yaml))
 
 
 @pytest.fixture

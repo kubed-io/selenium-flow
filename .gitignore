@@ -3,6 +3,9 @@ build/
 dist/
 out/
 *.egg-info
+# Generated from the MCP tool schemas by scripts/generate_openapi.py. Served
+# live at GET /openapi.yaml; written to disk only to be linted or published.
+openapi.yaml
 
 # Python caches
 __pycache__/

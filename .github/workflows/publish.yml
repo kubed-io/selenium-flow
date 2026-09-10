@@ -95,7 +95,7 @@ jobs:
       tag: ${{ inputs.push && needs.version.outputs.tag || '' }}
       push: ${{ inputs.push }}
 
-  # Runs alongside `image`, not after it: the wiki is generated from openapi.yaml
+  # Runs alongside `image`, not after it: the wiki is generated from the spec
   # and has nothing to do with the container, so serialising them would only make
   # the release slower. Deliberately NOT in `release`'s needs — a wiki that fails
   # to publish should not hold back an image that is already on Docker Hub.

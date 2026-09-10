@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `openapi.yaml` is no longer committed — it is a generated artifact and is now gitignored. The server already built the same document per request at `GET /openapi.yaml`; the tests and the wiki generator now build it in-process too, so nothing reads a file that could be stale. `scripts/generate_openapi.py` still writes a copy when one is wanted, and CI writes one before linting it.
 - The README hands the fourteen per-action reference tables to the wiki and links to them, so it advertises and shows the main features rather than duplicating a reference that is generated anyway — it had reached Docker Hub's 25,000-byte description limit, where the next feature would have shipped it truncated.
 - The hand-written wiki prose moved from `wiki-notes/` in this repo to `wiki/notes/` inside the wiki submodule, named `<tool>.notes.md`. The suffix is load-bearing: a GitHub wiki addresses a page by basename whatever directory it sits in, so a bare `<tool>.md` would answer to the same URL as its own page.
 
