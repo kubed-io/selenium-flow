@@ -97,6 +97,12 @@ to ignore you.
   never a change to the portable path.
 - **Waits re-raise with a message.** A bare `TimeoutException` reaching a caller
   is unactionable; say which locator timed out.
+- **`errors.py` decides what an HTTP failure means, and it is the only place.**
+  A handler that hardcodes a status, or a new exception type that silently falls
+  through to 500 when the caller could have fixed it, is a finding. A new status
+  must also appear in the `responses` block in `openapi.py` or the published
+  contract lies. Note the default is deliberately 500: for a failure we do not
+  recognise, guessing "the caller's fault" is the dangerous direction.
 - Prefer `pathlib` over `os.path`, f-strings over `%`/`.format`, and
   `from __future__ import annotations` at the top of new modules to match the
   existing files.

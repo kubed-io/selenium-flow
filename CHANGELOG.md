@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **HTTP errors now say whose fault they are.** A request you can fix — a bad XPath, a rejected value, a wait that matched nothing — is `400`; a browser that has ended is `404`; a Grid that is unreachable or out of slots is `503`. Everything below the auth check used to be `500`, so a workflow retrying on 5xx kept replaying requests that could never succeed.
+
+- Error messages no longer carry the driver's stack trace, just the line that says what happened.
+
 ## [0.0.2] - 2026-09-10
 
 The first release. Everything is new, which is why there is no *Changed* or

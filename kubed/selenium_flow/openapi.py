@@ -251,10 +251,24 @@ async def build_spec(
                             }
                         },
                     },
-                    "400": _error("A required field is missing or a value is invalid."),
+                    # These are a contract with a machine, so they are split by
+                    # what the caller should DO, not by what went wrong. See
+                    # errors.py.
+                    "400": _error(
+                        "The request cannot succeed as sent — a missing field, "
+                        "a value that was rejected, or a locator that matched "
+                        "nothing before the wait ran out. Do not retry it "
+                        "unchanged."
+                    ),
                     "401": _error("Missing or wrong bearer token."),
-                    "500": _error(
-                        "The Grid rejected the action or the session is gone."
+                    "404": _error(
+                        "No such browser session. It ended, the Grid reaped it, "
+                        "or the id was never real. Open a new one and retry."
+                    ),
+                    "500": _error("Something failed that this server did not expect."),
+                    "503": _error(
+                        "The Grid could not serve this — unreachable, or no free "
+                        "slot for a new browser. Worth retrying after a wait."
                     ),
                 },
             }

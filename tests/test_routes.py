@@ -1,11 +1,35 @@
 """The HTTP surface, driven through the real ASGI app."""
 
 import pytest
+import requests
+import urllib3.exceptions
+from selenium.common.exceptions import (
+    InvalidArgumentException,
+    InvalidSelectorException,
+    InvalidSessionIdException,
+    JavascriptException,
+    NoSuchElementException,
+    SessionNotCreatedException,
+    TimeoutException,
+    WebDriverException,
+)
 from starlette.testclient import TestClient
+
+from kubed.selenium_flow import errors
 
 from .conftest import TOKEN
 
 pytestmark = pytest.mark.unit
+
+# The Grid address in these tests is unroutable, so any request that gets past
+# validation dies trying to reach it. That is the sentinel for "the input was
+# accepted": a 400 would mean the request itself was refused.
+#
+# It is 503 rather than 500 because an unreachable Grid is exactly what 503 is
+# for — this server is fine, its dependency is not, and the caller should retry
+# rather than change anything. Named so the distinction is stated once instead
+# of being a bare number in eight assertions.
+GRID_DOWN = 503
 
 
 @pytest.fixture
@@ -47,7 +71,7 @@ def test_a_good_token_gets_past_auth(client):
     response = client.post(
         "/browser/open", json={}, headers={"Authorization": f"Bearer {TOKEN}"}
     )
-    assert response.status_code == 500
+    assert response.status_code == GRID_DOWN
     assert "error" in response.json()
 
 
@@ -68,7 +92,7 @@ def test_unknown_keys_are_dropped_rather_than_rejected(open_client):
             "not_a_real_field": 1,
         },
     )
-    assert response.status_code == 500  # reached the Grid, not a 400
+    assert response.status_code == GRID_DOWN  # reached the Grid, not a 400
 
 
 def test_interact_rejects_an_unknown_action(open_client):
@@ -114,8 +138,8 @@ def test_upload_refuses_more_than_one_source(open_client):
 def test_upload_takes_plain_text_as_the_file(open_client):
     """The ergonomic path: an agent uploading something it just wrote.
 
-    A 500 means the text was accepted and only the unroutable Grid stopped it;
-    a 400 would mean the input was rejected.
+    Reaching the Grid means the text was accepted; a 400 would mean the input
+    was rejected.
     """
     response = open_client.post(
         "/browser/upload",
@@ -126,7 +150,7 @@ def test_upload_takes_plain_text_as_the_file(open_client):
             "filename": "data.json",
         },
     )
-    assert response.status_code == 500, response.json()
+    assert response.status_code == GRID_DOWN, response.json()
 
 
 def test_upload_needs_some_kind_of_file(open_client):
@@ -152,15 +176,15 @@ def test_upload_rejects_content_that_is_not_base64(open_client):
 def test_upload_accepts_a_multipart_file(open_client):
     """Sending a file over HTTP should be a file, not base64 inside JSON.
 
-    A 500 here is the *right* answer: the body parsed, the action ran, and only
-    the unroutable Grid stopped it. A 400 would mean the file never arrived.
+    Reaching the Grid is the *right* answer here: the body parsed and the
+    action ran. A 400 would mean the file never arrived.
     """
     response = open_client.post(
         "/browser/upload",
         data={"session_id": "x", "xpath": "//input"},
         files={"content": ("report.csv", b"a,b\n1,2\n", "text/csv")},
     )
-    assert response.status_code == 500, response.json()
+    assert response.status_code == GRID_DOWN, response.json()
 
 
 def test_a_multipart_filename_can_be_overridden(open_client):
@@ -169,7 +193,7 @@ def test_a_multipart_filename_can_be_overridden(open_client):
         data={"session_id": "x", "xpath": "//input", "filename": "renamed.csv"},
         files={"content": ("original.csv", b"x", "text/csv")},
     )
-    assert response.status_code == 500, response.json()
+    assert response.status_code == GRID_DOWN, response.json()
 
 
 def test_frame_rejects_an_unknown_action(open_client):
@@ -195,12 +219,12 @@ def test_frame_switch_needs_a_target(open_client):
 def test_frame_default_needs_no_target(open_client):
     """Going back to the main page is unambiguous, so it takes no arguments.
 
-    A 500 means it got past validation to the unroutable Grid.
+    Reaching the Grid means it got past validation.
     """
     response = open_client.post(
         "/browser/frame", json={"session_id": "x", "action": "default"}
     )
-    assert response.status_code == 500, response.json()
+    assert response.status_code == GRID_DOWN, response.json()
 
 
 def test_a_non_object_body_is_rejected(open_client):
@@ -260,3 +284,57 @@ def test_the_old_close_path_still_works(open_server):
         response = client.post("/browser/close", json={"session_id": "abc"})
     assert response.status_code == 200
     quit_.assert_called_once_with("abc")
+
+
+# ---- what a failure means --------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "exc,expected",
+    [
+        # The caller's request cannot succeed as sent. Retrying it unchanged is
+        # guaranteed to fail again, so a workflow should stop, not back off.
+        (TimeoutException("no element matched '//nope'"), 400),
+        (InvalidSelectorException("//[[["), 400),
+        (NoSuchElementException("//gone"), 400),
+        (JavascriptException("boom"), 400),
+        (InvalidArgumentException("-5 is outside of i32"), 400),
+        (ValueError("unknown key 'banana'"), 400),
+        (TypeError("missing 1 required positional argument: 'xpath'"), 400),
+        # The browser named is not on the Grid. Its own code because the fix is
+        # specific and automatable: open a new one.
+        (InvalidSessionIdException("invalid session id"), 404),
+        # The Grid cannot serve this now. Worth retrying, unlike everything above.
+        (SessionNotCreatedException("no free slot"), 503),
+        (requests.ConnectionError("refused"), 503),
+        (urllib3.exceptions.MaxRetryError(None, "http://grid.invalid"), 503),
+        # Unrecognised stays ours. Claiming the caller's fault about something we
+        # do not understand tells them to stop retrying a problem that may be ours.
+        (RuntimeError("something new"), 500),
+    ],
+)
+def test_a_failure_is_classified_by_what_the_caller_should_do(exc, expected):
+    assert errors.status_for(exc) == expected
+
+
+def test_the_message_drops_the_driver_internals():
+    """Selenium's str() is the useful line, then twenty lines of chrome://.
+
+    An agent and an n8n branch both have to read this field, and the stack trace
+    is noise in it — plus the bare "Message:" prefix is the artefact AGENTS.md
+    already calls out as useless.
+    """
+    raw = TimeoutException(
+        "no element matched '//nope' within 3s"
+    )
+    assert errors.message(raw) == "no element matched '//nope' within 3s"
+
+    noisy = WebDriverException(
+        "Message: Error: boom\nStacktrace:\nRemoteError@chrome://remote/x.mjs:8:8"
+    )
+    assert errors.message(noisy) == "Error: boom"
+
+
+def test_an_error_with_nothing_to_say_still_says_something():
+    """Empty is worse than a class name, which at least names the kind."""
+    assert errors.message(TimeoutException("")) == "TimeoutException"
