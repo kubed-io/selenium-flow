@@ -369,9 +369,8 @@ def register(
         # would reopen the browser there after the Grid reaped it. Keeping the
         # last page we genuinely know is the lesser wrong, and it is the same
         # rule the direct write path follows.
-        landed = report.get("url") or ""
-        if flowrun.HIDDEN not in landed:
-            sessions.touch(key, landed, resolved)
+        if not report.get("url_redacted"):
+            sessions.touch(key, report.get("url") or "", resolved)
         return report
 
     @mcp.tool(

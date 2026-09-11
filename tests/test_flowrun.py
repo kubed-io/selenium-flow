@@ -814,3 +814,40 @@ def test_a_value_typed_early_is_still_hidden_from_a_later_step():
 
     report = run(Lingering(), document, "b", params={"secret": "zzz-secret"})
     assert "zzz-secret" not in str(report)
+
+
+def test_an_empty_binding_is_malformed_rather_than_absent():
+    """Save-time validation rejects `value_from: {}`, and the store reads YAML
+    that never passed through it — treating it as absent let a literal `text`
+    beside it run instead, which is quietly doing the wrong thing."""
+    steps = [
+        {"tool": "write", "params": {"css": "#p", "text": "literal", "value_from": {}}}
+    ]
+    actions = FakeActions()
+    report = run(actions, flow(steps), "b")
+    assert report["status"] == "failed"
+    assert "names no source" in report["steps"][0]["error"]
+    assert actions.calls == []
+
+
+def test_a_redacted_page_is_reported_as_a_fact_not_a_marker():
+    """A caller deciding whether to persist the page needs to know, and a
+    secret whose value happens to be the marker makes searching for it
+    useless."""
+    steps = [
+        {"tool": "write", "params": {"css": "#q", "value_from": {"param": "secret"}}}
+    ]
+    document = flow(
+        steps, parameters={"type": "object", "properties": {"secret": {"writeOnly": True}}}
+    )
+
+    class Submitting(FakeActions):
+        def write(self, session_id, text, **kwargs):
+            return {"url": f"https://x.test/?q={text}", "title": "t"}
+
+    report = run(Submitting(), document, "b", params={"secret": "zzz"})
+    assert report["url_redacted"] is True
+
+
+def test_an_ordinary_run_does_not_claim_a_redacted_page():
+    assert "url_redacted" not in run(FakeActions(), flow(SIMPLE), "b")

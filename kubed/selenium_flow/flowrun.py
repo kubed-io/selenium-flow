@@ -238,8 +238,16 @@ def resolve_step(
     kwargs = dict(step.get("params") or {})
     guarded: set[str] = set()
     source = kwargs.pop(VALUE_FROM, None)
-    if not source:
+    if source is None:
         return kwargs, guarded
+    # `is None`, not truthiness: an empty mapping is a *malformed* binding, and
+    # save-time validation rejects it. Treating it as absent let a hand-edited
+    # stored flow fall through to a literal `text` sitting beside it — quietly
+    # running the step with the wrong value instead of refusing.
+    if not isinstance(source, dict) or not source:
+        raise FlowError(
+            f"step {step.get('id') or step.get('tool')}: {VALUE_FROM} names no source"
+        )
 
     tool = step.get("tool", "")
     label = step.get("id") or tool
@@ -369,6 +377,7 @@ def run(
 
     reports: list[dict] = []
     seen: set = set()
+    redacted_url = False
     last: dict = {}
     status = "ok"
     # `is None`, not `or`: an explicit 0 means "no budget" and must not be read
@@ -465,6 +474,12 @@ def run(
             raw = method(session_id, **kwargs)
             result = _clean(raw, guarded, hidden)
             entry["ok"] = True
+            # Recorded rather than inferred later by searching the string for
+            # the marker. A secret whose value happens to BE the marker makes
+            # that search useless, and a caller deciding whether to persist a
+            # page needs a fact rather than a guess.
+            if isinstance(raw, dict) and raw.get("url") != result.get("url"):
+                redacted_url = True
             last = result
             if after_step is not None:
                 after_step(tool, raw)
@@ -507,6 +522,10 @@ def run(
     for key in ("url", "title"):
         if last.get(key):
             report[key] = last[key]
+    if redacted_url:
+        # Says the reported page is not the page: a caller must not store it as
+        # somewhere to navigate back to.
+        report["url_redacted"] = True
     if last:
         report["result"] = last
     return report
