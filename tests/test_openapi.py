@@ -171,3 +171,56 @@ async def test_every_multipart_field_is_one_the_action_accepts(actions, spec):
     form = spec["paths"]["/browser/upload"]["post"]["requestBody"]["content"]
     advertised = set(form["multipart/form-data"]["schema"]["properties"])
     assert advertised - {"session_id"} <= accepted
+
+
+# ---- the /flows half, which is hand-written and therefore drifts ------------
+
+
+async def test_every_flow_endpoint_is_in_the_published_contract(spec):
+    """The guard the multipart upload schema did not have until it had already
+    drifted: these paths are written by hand, so the list is held against the
+    one the server actually binds."""
+    from kubed.selenium_flow.flowapi import FLOW_ENDPOINTS
+
+    published = {p for p in spec["paths"] if p.startswith("/flows/")}
+    assert published == {f"/flows/{path}" for path in FLOW_ENDPOINTS}
+
+
+async def test_the_flow_endpoints_are_tagged_apart_from_the_browser_ones(spec):
+    """They are a layer above /browser, and a docs UI should group them so."""
+    tags = {t["name"] for t in spec["tags"]}
+    assert "flows" in tags
+    for path, operations in spec["paths"].items():
+        if path.startswith("/flows/"):
+            assert operations["post"]["tags"] == ["flows"], path
+
+
+async def test_a_flow_listing_does_not_advertise_the_steps(spec):
+    """`step_count`, not `steps` — the contract has to say the same thing the
+    store does, or a generated client unpacks a list that is an int."""
+    summary = spec["components"]["schemas"]["FlowSummary"]["properties"]
+    assert "step_count" in summary
+    assert "steps" not in summary
+
+
+async def test_saving_requires_a_name_and_steps(spec):
+    body = spec["paths"]["/flows/save"]["post"]["requestBody"]
+    assert body["required"] is True
+    assert set(body["content"]["application/json"]["schema"]["required"]) == {
+        "name",
+        "steps",
+    }
+
+
+async def test_every_flow_response_schema_it_references_exists(spec):
+    """A $ref to a schema nobody defined renders as a blank box in every docs
+    UI and fails a strict linter."""
+    defined = set(spec["components"]["schemas"])
+    for path, operations in spec["paths"].items():
+        if not path.startswith("/flows/"):
+            continue
+        for block in operations["post"]["responses"].values():
+            schema = block["content"]["application/json"]["schema"]
+            ref = schema.get("$ref")
+            if ref:
+                assert ref.split("/")[-1] in defined, f"{path} -> {ref}"

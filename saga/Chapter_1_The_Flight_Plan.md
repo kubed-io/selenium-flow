@@ -1355,35 +1355,37 @@ single source of truth (§F1.13).
       feature with no tools on it deploys dead configuration, and it is a
       change to a different repository besides.
 
-### E2 — The flight plan: the document and its CRUD
+### E2 — The flight plan: the document and its CRUD — **DONE**
 
-- [ ] Step models **derived** from the FastMCP tool schemas via
+- [x] Step models **derived** from the FastMCP tool schemas via
       `pydantic.create_model()`, assembled into a discriminated union on `tool` —
       the move `openapi.py` already makes for request bodies (§F1.6)
-- [ ] Flow document: `name`, `description`, `parameters` (JSON Schema), `steps`
-- [ ] Step keys: `tool`, `params`, `id`, `onError`, `return`, `note`, `timeout`,
+- [x] Flow document: `name`, `description`, `parameters` (JSON Schema), `steps`
+- [x] Step keys: `tool`, `params`, `id`, `onError`, `return`, `note`, `timeout`,
       `valueFrom` (§F1.7)
-- [ ] `valueFrom` validated at **save** time against the derived model's field
+- [x] `valueFrom` validated at **save** time against the derived model's field
       names: an unknown parameter, a name also present in `params`, or a source
       that is not exactly one of param/secret/config is refused then, not at
       step nine of a run (§F1.7)
-- [ ] `flow://flows` and `flow://flows/{name}` resources; the listing returns
+- [x] `flow://flows` and `flow://flows/{name}` resources; the listing returns
       names, descriptions and `parameters` only — **never full documents**, so
       the WebDAV backend stays viable (§F1.5, §F1.12)
-- [ ] **Reads merge your session with `global`, your own winning on a collision;
+- [x] **Reads merge your session with `global`, your own winning on a collision;
       writes only ever touch your own** (§F1.2)
-- [ ] `list_flows` / `get_flow` mirror tools, into the existing `HideMirrorTools`
+- [x] `list_flows` / `get_flow` mirror tools, into the existing `HideMirrorTools`
       set (§F1.5)
-- [ ] `flow://schema` — the derived document schema, published so a model gets
+- [x] `flow://schema` — the derived document schema, published so a model gets
       the exact shape it must produce (§F1.6)
-- [ ] `save_flow` (create-or-update) and `delete_flow` tools
-- [ ] `/flows/*` HTTP endpoints, session name explicit, defaulting to `global`
-- [ ] **A separate `FLOW_ENDPOINTS` table and its own test.** `/flows` is a layer
+- [x] `save_flow` (create-or-update) and `delete_flow` tools
+- [x] `/flows/*` HTTP endpoints, session name explicit, defaulting to `global`
+- [x] **A separate `FLOW_ENDPOINTS` table and its own test.** `/flows` is a layer
       *above* `/browser`, not more of it, so `test_surfaces.py`'s `EXPECTED` set
       stays exactly as it is (question #7)
-- [ ] `RESPONSES` entries in `openapi.py` — response shapes are hand-written and
-      `test_every_action_declares_a_response_shape` catches their absence
-- [ ] **Validate on save, not on run.** Unknown tool, unknown param, missing
+- [x] The `/flows` half of `openapi.py`, written by hand like every response
+      shape, with a test holding the published path list against the one the
+      server binds — the guard the multipart upload schema did not have until
+      after it had already drifted
+- [x] **Validate on save, not on run.** Unknown tool, unknown param, missing
       required param. Discovering at step nine that step ten was never going to
       work is the worst version of this feature.
 
