@@ -1679,7 +1679,11 @@ Independent of everything above.
 - [x] Say in the skill that **`global` is shared and readable by every session**
       — not guessable from a tool schema (§F1.2). Writing it down found that
       `delete_flow`'s own description was wrong for exactly those callers: an
-      unnamed caller *is* `global`, so its delete removes a shared flow
+      unnamed caller *is* `global`, so its delete removes a shared flow. Review
+      then found the worse one: a caller *named* something that cannot be a
+      folder (`?session=my bot`) kept a private browser and was silently given
+      the shared library for its flows. The flow tools now refuse that name
+      out loud, as `session_for`'s comment had always claimed they did
 - [x] `README.md` — flows in the feature list and the env var table, as
       advertisement not explanation
 - [x] **Every flow the skill teaches is validated** against the live tool

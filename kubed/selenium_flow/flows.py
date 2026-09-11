@@ -103,6 +103,14 @@ def valid_name(name, kind: str = "name") -> str:
     return text
 
 
+def named_session(key) -> str | None:
+    """The name a caller gave itself, exactly as given, or None if it gave none."""
+    value = (getattr(key, "value", "") or "") if key is not None else ""
+    if not value.startswith("named:"):
+        return None
+    return value[len("named:") :]
+
+
 def session_for(key) -> str:
     """The session whose flows this caller owns.
 
@@ -115,12 +123,9 @@ def session_for(key) -> str:
     flows reach the shared library only by an admin promoting one. That
     asymmetry is real and is documented in §F1.2 — it is not an accident here.
     """
-    if key is None:
+    named = named_session(key)
+    if named is None:
         return GLOBAL_SESSION
-    value = getattr(key, "value", "") or ""
-    if not value.startswith("named:"):
-        return GLOBAL_SESSION
-    named = value[len("named:") :]
     try:
         return valid_name(named, "session name")
     except InvalidName:

@@ -95,7 +95,12 @@ This depends on your session name, and it is not guessable from any schema.
 | You are | You save into | You can run |
 |---|---|---|
 | **named** (`?session=` / `X-Session-Key`) | your own library | yours, plus the shared library |
+| **named `global`** | the shared library — that is its name | the shared library |
 | **unnamed** | the shared `global` library | the shared library |
+
+A name must be usable as a folder name — letters, digits, `.`, `-` and `_`,
+starting with a letter or digit. One that is not still keys your browser, but
+the flow tools refuse it rather than quietly putting your flows somewhere shared.
 
 **`global` is shared with every session.** Every caller can read and run what is
 in it, and every unnamed caller can overwrite or delete it — `save_flow` and
@@ -105,7 +110,8 @@ another agent to replace.
 
 Where a name exists in both, yours wins, and `list_flows` marks each entry
 `shared: true` or `false` so you can tell which one will run. A named session
-never changes the shared library; only an operator promotes a flow into it.
+never changes the shared library — unless it is named `global`, which *is* the
+shared library. Otherwise only an operator promotes a flow into it.
 
 ## Running one
 

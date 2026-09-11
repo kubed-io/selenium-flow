@@ -159,7 +159,7 @@ Drive a form once, save the steps under a name, and every run after that is one 
 run_flow(name="sign-up", params={"email": "a@example.com"})
 ```
 
-A step is just a tool call, validated against the live tool schemas when it is saved — so a flow that could not run is refused before it starts. It runs in whatever browser you already hold, which means the same flow checks Chrome and then Firefox without an edit. Each named session keeps its own library, beside a shared one. Set `FLOW_DATA_DIR` to turn them on.
+A step is just a tool call, validated against the live tool schemas when it is saved — so a flow that could not run is refused before it starts. It runs in whatever browser you already hold, which means the same flow checks Chrome and then Firefox without an edit. Each named session keeps its own library, beside a shared one called `global` — a caller that is unnamed, or names itself `global`, is using the shared one. Set `FLOW_DATA_DIR` to turn them on.
 
 ## 🔐 Secrets — typed, never shown
 
