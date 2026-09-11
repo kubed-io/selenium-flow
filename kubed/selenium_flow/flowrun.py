@@ -130,6 +130,9 @@ def hidden_forms(values) -> set:
     return forms
 
 
+HIDDEN = "<hidden>"
+
+
 def scrub(text: str, values) -> str:
     """``text`` with every guarded value replaced.
 
@@ -148,7 +151,7 @@ def scrub(text: str, values) -> str:
     """
     for value in values:
         if isinstance(value, str) and value:
-            text = text.replace(value, "<hidden>")
+            text = text.replace(value, HIDDEN)
     return text
 
 

@@ -715,3 +715,151 @@ def test_credentials_in_an_allowed_url_are_refused(tmp_path):
 
 def test_an_origin_never_carries_userinfo():
     assert origin("https://user:pass@example.com/x") == "https://example.com"
+
+
+# ---- the HTTP binding path, which had no test of its own --------------------
+
+
+@pytest.fixture
+def bound_http(tmp_path, monkeypatch):
+    """A real server with a real secret, and doubles only at the browser."""
+    from starlette.testclient import TestClient
+
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    from .conftest import TOKEN
+
+    monkeypatch.delenv("SECRETS_DIRS", raising=False)
+    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    make_secret(
+        tmp_path, "nextcloud", password="hunter2",
+        **{ALLOWED_URLS: "https://nc.example.com"},
+    )
+    typed = []
+
+    def write(
+        self, session_id, text, xpath=None, url=None, clear=True, submit=False,
+        wait_timeout=30, css=None, read_back=True,
+    ):
+        # The signature matters: `routes.py` derives the accepted request fields
+        # from it, so a double taking **kwargs would silently drop `url` and
+        # make the navigation refusal untestable.
+        typed.append((text, read_back))
+        return {
+            # As the real one does: the read does not happen when it is off.
+            "value": text if read_back else None,
+            "url": "https://nc.example.com/",
+            "title": "Home",
+        }
+
+    # Patched on the CLASS, before the server is built: `routes.py` binds each
+    # method at registration time, so patching the instance afterwards is too
+    # late and the real one dials the Grid.
+    from kubed.selenium_flow.actions import Actions
+
+    monkeypatch.setattr(Actions, "write", write)
+    monkeypatch.setattr(
+        Actions, "page",
+        lambda self, sid: {"url": "https://nc.example.com/login", "title": "Log in"},
+    )
+    server = SeleniumMCP(
+        grid_url="http://grid.invalid:4444",
+        auth_token=TOKEN,
+        secrets_dirs=str(tmp_path),
+    )
+    return TestClient(server.mcp.http_app()), typed
+
+
+AUTH = {"Authorization": "Bearer test-token-abc123"}
+
+
+def test_an_http_caller_can_bind_a_secret_it_never_sees(bound_http):
+    """The HTTP half of the capability. It existed with no test of its own —
+    the end-to-end one drives the MCP tool, and test_surfaces only compares
+    registration sets, so resolution, read_back and scrubbing were all free to
+    regress silently."""
+    client, typed = bound_http
+    response = client.post(
+        "/browser/write",
+        json={
+            "session_id": "b1",
+            "css": "#password",
+            "value_from": {"secret": {"name": "nextcloud", "key": "password"}},
+        },
+        headers=AUTH,
+    )
+    assert response.status_code == 200, response.text
+    # It reached the browser...
+    assert typed == [("hunter2", False)]
+    # ...the read-back was turned off, not merely redacted...
+    # ...and nothing came back.
+    assert "hunter2" not in response.text
+    assert response.json()["value"] is None
+    assert response.json()["value_from"] == "secret"
+
+
+def test_an_http_bind_on_a_disallowed_page_is_refused(bound_http, monkeypatch):
+    client, typed = bound_http
+    response = client.post(
+        "/browser/write",
+        json={
+            "session_id": "b1",
+            "css": "#password",
+            "value_from": {"secret": {"name": "nextcloud", "key": "nope"}},
+        },
+        headers=AUTH,
+    )
+    assert response.status_code == 400
+    assert typed == []
+    assert "hunter2" not in response.text
+
+
+def test_an_http_bind_may_not_also_navigate(bound_http):
+    """`_at` navigates before typing, so the leash would be checked against the
+    page being left."""
+    client, typed = bound_http
+    response = client.post(
+        "/browser/write",
+        json={
+            "session_id": "b1",
+            "css": "#password",
+            "url": "https://evil.test/",
+            "value_from": {"secret": {"name": "nextcloud", "key": "password"}},
+        },
+        headers=AUTH,
+    )
+    assert response.status_code == 400
+    assert "may not also navigate" in response.json()["error"]
+    assert typed == []
+
+
+@pytest.mark.parametrize(
+    "value_from", ["secret", {"secret": "x"}, {}, {"param": "email"}, 7]
+)
+def test_a_malformed_binding_over_http_is_a_400_not_a_500(bound_http, value_from):
+    """The HTTP surface hands raw JSON to the shared binder, without the typed
+    model the MCP parameter has — so the binder has to check the shape itself
+    or a caller's mistake reads as our outage."""
+    client, _ = bound_http
+    response = client.post(
+        "/browser/write",
+        json={"session_id": "b1", "css": "#p", "value_from": value_from},
+        headers=AUTH,
+    )
+    assert response.status_code == 400, response.text
+
+
+def test_an_http_caller_cannot_ask_for_the_read_back_to_be_skipped(bound_http):
+    """`read_back` is an internal switch, not a request field: accepting it
+    would let a caller get `value: null` with no binding at all."""
+    client, typed = bound_http
+    response = client.post(
+        "/browser/write",
+        json={"session_id": "b1", "css": "#p", "text": "plain", "read_back": False},
+        headers=AUTH,
+    )
+    assert response.status_code == 200, response.text
+    # The caller asked for False and the action was called with its default,
+    # so the field was dropped rather than honoured.
+    assert typed == [("plain", True)]
+    assert response.json()["value"] == "plain"

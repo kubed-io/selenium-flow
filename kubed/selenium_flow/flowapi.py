@@ -361,9 +361,17 @@ def register(
             secrets_catalogue=secrets_catalogue,
         )
         # One touch for the whole run, not one per step: the point of running
-        # server-side is that the bookkeeping happens once. A guarded URL never
-        # reaches the report, so it can never be stored here either.
-        sessions.touch(key, report.get("url"), resolved)
+        # server-side is that the bookkeeping happens once.
+        #
+        # But not a page the redaction had to touch. A submitting bound write
+        # lands on `?q=<what was typed>`, which comes back scrubbed — storing
+        # that would persist a URL which does not exist, and `sessions.resolve`
+        # would reopen the browser there after the Grid reaped it. Keeping the
+        # last page we genuinely know is the lesser wrong, and it is the same
+        # rule the direct write path follows.
+        landed = report.get("url") or ""
+        if flowrun.HIDDEN not in landed:
+            sessions.touch(key, landed, resolved)
         return report
 
     @mcp.tool(

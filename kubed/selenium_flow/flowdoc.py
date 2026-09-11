@@ -294,8 +294,9 @@ def _check_params(where: str, tool: str, params: dict, bound: set[str], schema: 
         # "None" into the field.
         if params.get(argument) is None and argument not in bound:
             problems.append(
-                f"{where}: {tool} needs {argument!r} — give it in params, or in "
-                "valueFrom to take it from a parameter or a secret"
+                f"{where}: {tool} needs {argument!r} — give it in params, or "
+                "give params a value_from to take it from a flow parameter or "
+                "a secret"
             )
 
     # Same shape for the element: exactly one of xpath or css, which a schema

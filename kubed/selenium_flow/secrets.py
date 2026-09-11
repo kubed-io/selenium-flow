@@ -387,10 +387,11 @@ LIST_DESCRIPTION = (
     "You never see a value — not here, not anywhere. Each entry gives the "
     "secret's name, the keys inside it, what it is for, and the sites it may "
     "be used on.\n\n"
-    "To use one, do NOT ask for it: name it where the value would go. In a "
-    "flow step that is valueFrom: {text: {secret: {name: ..., key: ...}}}. The "
-    "server reads it and types it; it never passes through you, which is the "
-    "point.\n\n"
+    "To use one, do NOT ask for it: name it where the value would go. Pass "
+    "write a value_from instead of text — value_from={'secret': {'name': ..., "
+    "'key': ...}} — or in a saved flow put the same thing in that step's "
+    "params. The server reads it and types it; it never passes through you, "
+    "which is the point.\n\n"
     "A secret listing allowed_urls may only be used on those sites. One that "
     "is not restricted may be used anywhere. If an entry carries "
     "allowed_urls_rejected, its leash is broken and it cannot be used at all "
@@ -467,7 +468,7 @@ class Refused(ValueError):
 
 
 def bind(catalogue, source: dict, url: str, tool: str = "write") -> str:
-    """The value a `valueFrom.secret` reference names, or refuse.
+    """The value a `value_from.secret` reference names, or refuse.
 
     **The only function in this package that returns a secret value**, and it
     returns it to exactly one caller: whichever surface is about to type it into
@@ -477,7 +478,17 @@ def bind(catalogue, source: dict, url: str, tool: str = "write") -> str:
     the bind. Checking anything else would check a permission against a page
     other than the one receiving the keystroke.
     """
-    reference = source.get("secret") or {}
+    # Shape-checked here, not only in the typed MCP parameter: the HTTP surface
+    # passes raw JSON straight in, so `value_from: "secret"` reached `.get` and
+    # raised AttributeError, which `errors.status_for` could only read as a 500
+    # — our failure, for a caller's malformed request.
+    if not isinstance(source, dict):
+        raise Refused("value_from must be an object naming a source")
+    reference = source.get("secret")
+    if reference is None:
+        raise Refused("value_from must name a secret: {'secret': {'name', 'key'}}")
+    if not isinstance(reference, dict):
+        raise Refused("value_from.secret must be an object with a name and a key")
     name, field = reference.get("name"), reference.get("key")
     key = field  # the identifier, never the credential — see the audit log below
 
