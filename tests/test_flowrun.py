@@ -769,3 +769,48 @@ def test_an_old_format_step_stops_the_flow_before_anything_runs():
     assert report["status"] == "failed"
     assert actions.calls == []
     assert report["steps"][0]["n"] == 2
+
+
+def test_a_non_string_guarded_value_is_still_scrubbed():
+    """`Actions.write` does `str(text)`, so a numeric writeOnly parameter really
+    is typed into the page — and a scrub that skipped non-strings missed it."""
+    steps = [
+        {
+            "tool": "write",
+            "params": {"css": "#pin", "value_from": {"param": "pin"}},
+            "return": True,
+        }
+    ]
+    document = flow(
+        steps, parameters={"type": "object", "properties": {"pin": {"writeOnly": True}}}
+    )
+
+    class Submitting(FakeActions):
+        def write(self, session_id, text, **kwargs):
+            return {"url": f"https://x.test/?pin={text}", "title": "t"}
+
+    report = run(Submitting(), document, "b", params={"pin": 123456})
+    assert "123456" not in str(report)
+
+
+def test_a_value_typed_early_is_still_hidden_from_a_later_step():
+    """A submitting bound write leaves the value in the browser's URL, and a
+    later ordinary step's page state would carry it back out."""
+    steps = [
+        {"tool": "write", "params": {"css": "#q", "value_from": {"param": "secret"}}},
+        {"tool": "navigate", "params": {"url": "https://x.test/next"}, "return": True},
+    ]
+    document = flow(
+        steps, parameters={"type": "object", "properties": {"secret": {"writeOnly": True}}}
+    )
+
+    class Lingering(FakeActions):
+        def write(self, session_id, text, **kwargs):
+            return {"url": "https://x.test/?q=zzz-secret", "title": "t"}
+
+        def navigate(self, session_id, **kwargs):
+            # The browser is still showing the submitted query.
+            return {"url": "https://x.test/next?ref=zzz-secret", "title": "t"}
+
+    report = run(Lingering(), document, "b", params={"secret": "zzz-secret"})
+    assert "zzz-secret" not in str(report)

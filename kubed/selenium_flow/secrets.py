@@ -91,10 +91,30 @@ def _origin(parts) -> str:
         # `.port` PARSES, and raises for anything out of range — so one
         # `https://host:99999` line in a permission file would have taken down
         # catalogue construction instead of being recorded as a rejected line.
-        port = f":{parts.port}" if parts.port else ""
+        #
+        # `is not None`, not truthiness: port 0 is an explicit port, and
+        # dropping it would make `https://host:0` compare equal to the same
+        # host on its default port. This is the exact-origin boundary, so an
+        # edge that collapses two origins into one is the kind that matters.
+        declared = parts.port
     except ValueError:
         return ""
+    port = f":{declared}" if declared is not None else ""
     return f"{parts.scheme.lower()}://{host}{port}"
+
+
+def _shown(line: str) -> str:
+    """A rejected permission line, safe to publish.
+
+    An operator needs to see *which* line is wrong. They do not need the
+    password that made it wrong, and `/secrets` is a place a credential must
+    never appear — so userinfo is replaced rather than echoed.
+    """
+    parts = urlsplit(line)
+    if parts.username or parts.password:
+        host = parts.hostname or ""
+        return f"{parts.scheme}://<credentials removed>@{host}{parts.path}"
+    return line
 
 
 def declared_origin(line: str) -> str | None:
@@ -237,7 +257,14 @@ class FilesystemSource:
             if not line.strip():
                 continue
             parsed = declared_origin(line)
-            (allowed if parsed else rejected).append(parsed or line.strip())
+            if parsed:
+                allowed.append(parsed)
+            else:
+                # Never the line itself: a rejected line may be rejected
+                # *because* it carries credentials, and publishing it in
+                # /secrets would hand them back — undoing the check that
+                # refused it.
+                rejected.append(_shown(line.strip()))
 
         entry = {
             "name": name,

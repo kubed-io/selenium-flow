@@ -1273,6 +1273,19 @@ overstates itself is worse than none:
 > back.** `document.querySelector('#password').value` is one call, and this
 > server cannot tell that from any other script.
 
+**A second limit, found in review and worth the same honesty.** The leash is
+checked by reading the page and then typing — two operations, not one. Nothing
+makes them atomic, so a *second* caller sharing the same browser session could
+navigate it between the check and the keystroke, and the value would land on a
+page that was never approved.
+
+It is a narrow window and it requires an attacker who can already drive your
+browser session — at which point they can navigate it anywhere regardless. A
+lock would not close it either: the browser is on the Grid, and another client
+holding the same session id can move it whatever this process does. So it is
+recorded as a known limit rather than defended against badly, and it is an
+argument for one session per caller (§F1.2) rather than for machinery here.
+
 So the guarantee is precise and limited: **the value never passes through the
 model on its way in.** It is not sealed off from a determined agent afterwards.
 The mitigations that do exist are §F1.27 (a secret can only be used on URLs its

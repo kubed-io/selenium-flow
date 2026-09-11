@@ -122,11 +122,17 @@ def hidden_forms(values) -> set:
     """
     forms = set()
     for value in values:
-        if not isinstance(value, str) or not value:
+        if value is None:
             continue
-        forms.add(value)
-        forms.add(quote(value, safe=""))
-        forms.add(quote_plus(value))
+        # Coerced, not skipped: `Actions.write` does `str(text)`, so a numeric
+        # or boolean writeOnly parameter really is typed into the page — and
+        # skipping non-strings here meant it came back unscrubbed.
+        text = value if isinstance(value, str) else str(value)
+        if not text:
+            continue
+        forms.add(text)
+        forms.add(quote(text, safe=""))
+        forms.add(quote_plus(text))
     return forms
 
 
@@ -362,6 +368,7 @@ def run(
     name = document.get("name", "flow")
 
     reports: list[dict] = []
+    seen: set = set()
     last: dict = {}
     status = "ok"
     # `is None`, not `or`: an explicit 0 means "no budget" and must not be read
@@ -441,9 +448,13 @@ def run(
             break
 
         entry["summary"] = summarise(tool, kwargs, guarded)
-        # The values this step must not echo, for the sweep in `_clean` and the
-        # error scrub below.
-        hidden = hidden_forms(kwargs.get(name) for name in guarded)
+        # Accumulated across the run, not scoped to this step. A submitting
+        # bound write in step two leaves the value in the browser's URL, and
+        # step five's page state would have carried it back out with `hidden`
+        # recomputed as empty. Once a value has been typed, nothing later in
+        # this run may echo it.
+        seen |= hidden_forms(kwargs.get(name) for name in guarded)
+        hidden = seen
         try:
             if guarded and tool in READ_BACK_OFF:
                 # The read must not HAPPEN for a bound value, not merely be

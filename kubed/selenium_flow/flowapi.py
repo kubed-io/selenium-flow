@@ -433,6 +433,43 @@ async def _document_schema(schemas: Schemas) -> dict:
         },
         "required": ["name", "steps"],
         "x-step-params": steps,
+        # `x-step-params` comes from the direct tool schemas, where `value_from`
+        # can only name a secret — a flow's own parameters mean nothing to a
+        # caller outside a flow. Inside one they do, so the extra source is
+        # described here rather than left to be discovered by a rejection.
+        "x-value-from": {
+            "description": (
+                "In a flow step, params.value_from may also take its value from "
+                "one of the flow's own parameters. The tool schemas describe "
+                "only the secret source, which is all a direct call can use."
+            ),
+            "oneOf": [
+                {
+                    "type": "object",
+                    "required": ["secret"],
+                    "properties": {
+                        "secret": {
+                            "type": "object",
+                            "required": ["name", "key"],
+                            "properties": {
+                                "name": {"type": "string"},
+                                "key": {"type": "string"},
+                            },
+                        }
+                    },
+                },
+                {
+                    "type": "object",
+                    "required": ["param"],
+                    "properties": {
+                        "param": {
+                            "type": "string",
+                            "description": "A name from this flow's parameters.",
+                        }
+                    },
+                },
+            ],
+        },
     }
 
 

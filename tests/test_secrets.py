@@ -707,10 +707,15 @@ def test_credentials_in_an_allowed_url_are_refused(tmp_path):
     permission file and make the same site read as two origins."""
     make_secret(
         tmp_path, "app", password="p",
-        **{ALLOWED_URLS: "https://user:pass@host.test"},
+        **{ALLOWED_URLS: "https://user:s3cr3t@host.test"},
     )
     entry = Catalogue([FilesystemSource(tmp_path)]).entry("app")
-    assert entry["allowed_urls_rejected"] == ["https://user:pass@host.test"]
+    # Reported so an operator can find the line — with the credential taken
+    # out, since /secrets is the last place one should turn up.
+    assert entry["allowed_urls_rejected"] == [
+        "https://<credentials removed>@host.test"
+    ]
+    assert "s3cr3t" not in str(entry)
 
 
 def test_an_origin_never_carries_userinfo():
@@ -863,3 +868,13 @@ def test_an_http_caller_cannot_ask_for_the_read_back_to_be_skipped(bound_http):
     # so the field was dropped rather than honoured.
     assert typed == [("plain", True)]
     assert response.json()["value"] == "plain"
+
+
+def test_port_zero_is_a_port_and_not_the_default(tmp_path):
+    """This is the exact-origin boundary, so an edge that collapses two origins
+    into one is the kind that matters."""
+    assert origin("https://host:0/") == "https://host:0"
+    make_secret(tmp_path, "app", password="p", **{ALLOWED_URLS: "https://host:0"})
+    catalogue = Catalogue([FilesystemSource(tmp_path)])
+    assert catalogue.allows("app", "https://host:0/x") is True
+    assert catalogue.allows("app", "https://host/x") is False

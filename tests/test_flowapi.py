@@ -433,3 +433,16 @@ async def test_a_resize_step_is_written_back_to_the_session(flow_server, monkeyp
     assert record.window == "1400x900"
     # And the browser choice survived, as reshape's merge promises.
     assert record.settings["browser"] == "firefox"
+
+
+async def test_the_published_schema_describes_the_flow_side_sources(flow_server):
+    """`x-step-params` comes from the direct tool schemas, where value_from can
+    only name a secret — a flow's own parameters mean nothing to a direct
+    caller. Inside a flow they do, and a caller following only the tool schema
+    would have thought `param` was invalid."""
+    schema = await call(flow_server, flowapi.SCHEMA_TOOL)
+    sources = schema["x-value-from"]["oneOf"]
+    required = {tuple(branch["required"]) for branch in sources}
+    assert required == {("secret",), ("param",)}
+    # And the tool half still describes the secret shape properly.
+    assert "value_from" in schema["x-step-params"]["write"]["properties"]
