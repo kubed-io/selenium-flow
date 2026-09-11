@@ -555,6 +555,44 @@ FLOW_SCHEMAS = {
             },
         },
     },
+    "FlowRun": {
+        "type": "object",
+        "properties": {
+            "flow": {"type": "string"},
+            "session": {"type": "string"},
+            "status": {"type": "string", "enum": ["ok", "failed"]},
+            "steps_run": {"type": "integer"},
+            "steps_total": {"type": "integer"},
+            "steps": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "n": {"type": "integer"},
+                        "id": {"type": "string"},
+                        "tool": {"type": "string"},
+                        "ok": {"type": "boolean"},
+                        "summary": {"type": "string"},
+                        "note": {"type": "string"},
+                        "error": {"type": "string"},
+                        "result": {
+                            "type": "object",
+                            "description": (
+                                "Present for a step marked return: true, or "
+                                "every step when verbose was set."
+                            ),
+                        },
+                    },
+                },
+            },
+            "url": {"type": "string"},
+            "title": {"type": "string"},
+            "result": {
+                "type": "object",
+                "description": "The last step's result.",
+            },
+        },
+    },
     "FlowDeleted": {
         "type": "object",
         "properties": {
@@ -637,6 +675,36 @@ _FLOW_OPERATIONS = {
             "properties": {**_SESSION, "name": {"type": "string"}},
         },
         "FlowDeleted",
+    ),
+    "run": (
+        "runFlow",
+        "Run a saved flow.",
+        "Every step, in order, server-side, against the browser named by "
+        "session_id. Stops at the first failing step unless that step says "
+        "onError: continue, and reports which step stopped it and what page the "
+        "browser was on. Returns a line per step; pass verbose for every step's "
+        "full result.",
+        {
+            "type": "object",
+            "required": ["name", "session_id"],
+            "properties": {
+                **_SESSION,
+                "name": {"type": "string"},
+                "session_id": {
+                    "type": "string",
+                    "description": (
+                        "The browser to run in. Required: this surface is "
+                        "always explicit, so open one with /browser/open first."
+                    ),
+                },
+                "params": {
+                    "type": "object",
+                    "description": "The values this flow declares.",
+                },
+                "verbose": {"type": "boolean", "default": False},
+            },
+        },
+        "FlowRun",
     ),
     "schema": (
         "flowSchema",

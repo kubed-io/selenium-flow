@@ -561,7 +561,7 @@ still means "supplied but not echoed back". But see §F1.29: for anything
 genuinely secret, `valueFrom.secret` is strictly better, because a `writeOnly`
 parameter still has to be *supplied* — which means a model held it.
 
-### §F1.8 — **OPEN**: what a run returns
+### §F1.8 — Decision (locked by E3): what a run returns
 
 A twelve-step flow whose steps include three `extract` calls on `//body` returns
 an enormous amount of text if it returns everything. Returning nothing makes the
@@ -596,8 +596,15 @@ number. A flow that fails at step nine and reports only "failed" would send the
 agent straight back to twelve individual calls to find out why, which loses more
 than the flow ever saved.
 
-**Recommendation:** compact, plus `return`-marked steps, plus a `verbose`
-escape hatch; stop on the first error, with `onError: continue` for steps that
+**Built as recommended**, and one thing was learned doing it: a step's result
+has to be *cleaned* rather than merely selected. `screenshot` returns a megabyte
+of base64, so a run that returned three of them would cost more than the twelve
+calls it replaced — the `image` field is dropped from every report, and
+`screenshot(save=True)` plus the file list is the way to look at one.
+
+The recommendation, for the record: compact, plus `return`-marked steps, plus a
+`verbose` escape hatch; stop on the first error, with `onError: continue` for
+steps that
 are allowed to fail — the cookie banner that is only sometimes there, which is a
 real and very common case. (§F1.6 settled the spelling: `onError`, from
 ToolHive, rather than the `optional: true` this section first proposed.)
@@ -1389,26 +1396,36 @@ single source of truth (§F1.13).
       required param. Discovering at step nine that step ten was never going to
       work is the worst version of this feature.
 
-### E3 — The clearance: running one
+### E3 — The clearance: running one — **DONE**
 
-- [ ] `run_flow` in `actions.py`, dispatching every step against **one** resolved
-      browser (§F1.1); its `/flows/run` endpoint
-- [ ] Required-parameter check **before step one**, against the flow's JSON
+- [x] `run_flow`, dispatching every step against **one** resolved browser
+      (§F1.1); its `/flows/run` endpoint.
+      **Deviation from this plan, recorded:** it lives in `flowrun.py`, not
+      `actions.py`. Running a flow is not a browser action — it is an
+      orchestration *over* them that has to read the flow store — and putting it
+      in `actions.py` would make the behaviour layer depend on the storage
+      layer, which is the one direction `AGENTS.md` does not allow. It stays out
+      of `ENDPOINTS` for the same reason `/flows` does (question #7).
+- [x] Required-parameter check **before step one**, against the flow's JSON
       Schema (§F1.7)
-- [ ] Structural resolution of each step's `valueFrom` into the call's kwargs —
+- [x] Structural resolution of each step's `valueFrom` into the call's kwargs —
       **no string scanning anywhere**, so a payload can never collide with a
       reference (§F1.7)
-- [ ] `writeOnly: true` params kept out of the run report and the logs, and
+- [x] `writeOnly: true` params kept out of the run report and the logs, and
       documented as a marker rather than encryption (§F1.7)
-- [ ] Result shape per §F1.8: compact by default, `return`-marked steps in full,
+- [x] Result shape per §F1.8: compact by default, `return`-marked steps in full,
       `verbose` escape hatch
-- [ ] `onError: abort` (default) / `continue`; a failed run reports the step id,
+- [x] `onError: abort` (default) / `continue`; a failed run reports the step id,
       the step number, the error, and the URL the browser was on
-- [ ] An overall run timeout, so a filed plan cannot hold a Grid slot forever
-- [ ] `run_flow` annotated `destructive: true` — it can click anything
-- [ ] Tests: mid-flow failure, missing param, unknown tool, `onError: continue`,
-      a `writeOnly` value absent from the report, and one asserting a `$`-bearing
-      `execute_script` step survives substitution untouched (§F1.7)
+- [x] An overall run timeout, so a filed plan cannot hold a Grid slot forever
+- [x] `run_flow` annotated `destructive: true` — it can click anything
+- [x] Tests: mid-flow failure, missing param, unknown tool, `onError: continue`,
+      a `writeOnly` value absent from the report, and one asserting that a
+      `${...}` payload and a `{{...}}` one both arrive byte for byte — the
+      substitution test became a *no-substitution* test when §F1.7 went
+      structural, which is the stronger assertion
+- [x] A secret reference **refuses** rather than typing nothing, so a login flow
+      cannot report success having left the password field empty (E9 fills it in)
 
 ### E4 — The hold: kept files
 
