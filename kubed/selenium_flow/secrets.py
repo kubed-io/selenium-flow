@@ -631,11 +631,23 @@ def prepare_write(
             "go to the page first, so the secret's allowed sites are checked "
             "against the page that receives it"
         )
-    if "param" in (source or {}):
+    # The same exactly-one-source rule the flow validator applies, applied to a
+    # body that never went through it. Without it `{"secret": ..., "config": ...}`
+    # was accepted and `bind` picked the secret — a request saying two things
+    # quietly became a request saying one.
+    from .flowdoc import NoSoleSource, sole_source
+
+    try:
+        kind = sole_source(source)
+    except NoSoleSource as exc:
+        raise Refused(str(exc)) from exc
+    if kind == "param":
         raise Refused(
             "value_from.param names one of a flow's own parameters and means "
             "nothing outside a flow; pass text, or name a secret"
         )
+    if kind != "secret":
+        raise Refused(f"a write cannot take its value from a {kind} on this server")
     here = actions.page(session_id).get("url", "")
     kwargs["text"] = bind(catalogue, source, here, tool="write")
     return kwargs, {"text"}

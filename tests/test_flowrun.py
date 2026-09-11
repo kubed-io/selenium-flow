@@ -910,3 +910,53 @@ def test_taints_asks_whether_the_value_is_there():
     # The marker is not evidence either way.
     assert flowrun.taints(f"https://x.test/?q={flowrun.HIDDEN}", {flowrun.HIDDEN}) is True
     assert flowrun.taints(None, {"hunter2"}) is False
+
+
+def test_a_run_that_navigates_away_reports_the_clean_page_it_ended_on():
+    """The flag describes the page the run *reports*, not its history. Sticky,
+    it threw away a perfectly ordinary final page because an earlier step had
+    briefly been somewhere unprintable."""
+    steps = [
+        {"tool": "write", "params": {"css": "#q", "value_from": {"param": "secret"}}},
+        {"tool": "navigate", "params": {"url": "https://x.test/done"}},
+    ]
+    document = flow(
+        steps, parameters={"type": "object", "properties": {"secret": {"writeOnly": True}}}
+    )
+
+    class SubmitsThenLeaves(FakeActions):
+        def write(self, session_id, text, **kwargs):
+            return {"url": f"https://x.test/?q={text}", "title": "t"}
+
+        def navigate(self, session_id, **kwargs):
+            return {"url": "https://x.test/done", "title": "Done"}
+
+    report = run(SubmitsThenLeaves(), document, "b", params={"secret": "zzz"})
+    assert report["status"] == "ok"
+    assert report["url"] == "https://x.test/done"
+    # The page it ended on is clean, so it is safe to remember.
+    assert "url_redacted" not in report
+    assert "zzz" not in str(report)
+
+
+def test_two_sources_are_refused_rather_than_one_of_them_chosen():
+    """A stored document never went through save-time validation. Testing the
+    sources in order took whichever the `if` reached first, so a step saying two
+    things ran as though it had said one."""
+    steps = [
+        {
+            "tool": "write",
+            "params": {
+                "css": "#p",
+                "value_from": {"param": "a", "secret": {"name": "n", "key": "k"}},
+            },
+        }
+    ]
+    document = flow(
+        steps, parameters={"type": "object", "properties": {"a": {"type": "string"}}}
+    )
+    actions = FakeActions()
+    report = run(actions, document, "b", params={"a": "plain"})
+    assert report["status"] == "failed"
+    assert "give exactly one source" in report["steps"][0]["error"]
+    assert actions.calls == []

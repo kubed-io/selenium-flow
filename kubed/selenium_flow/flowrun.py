@@ -35,7 +35,7 @@ import time
 from urllib.parse import quote, quote_plus
 
 from . import secrets
-from .flowdoc import FILLS, NOT_STEPS, VALUE_FROM
+from .flowdoc import FILLS, NOT_STEPS, VALUE_FROM, NoSoleSource, sole_source
 from .routes import ENDPOINTS
 
 # The only attributes a step may dispatch to. `getattr(actions, tool)` alone
@@ -254,17 +254,20 @@ def resolve_step(
     source = kwargs.pop(VALUE_FROM, None)
     if source is None:
         return kwargs, guarded
-    # `is None`, not truthiness: an empty mapping is a *malformed* binding, and
-    # save-time validation rejects it. Treating it as absent let a hand-edited
-    # stored flow fall through to a literal `text` sitting beside it — quietly
-    # running the step with the wrong value instead of refusing.
-    if not isinstance(source, dict) or not source:
-        raise FlowError(
-            f"step {step.get('id') or step.get('tool')}: {VALUE_FROM} names no source"
-        )
-
     tool = step.get("tool", "")
     label = step.get("id") or tool
+    # `is None` above, not truthiness: an empty mapping is a *malformed*
+    # binding, and save-time validation rejects it. Treating it as absent let a
+    # hand-edited stored flow fall through to a literal `text` sitting beside it
+    # — quietly running the step with the wrong value instead of refusing.
+    #
+    # The same rule the validator applies, applied again here: a stored document
+    # may never have been through it. Dispatching on `kind` rather than testing
+    # the sources in order is what stops two of them silently becoming one.
+    try:
+        kind = sole_source(source)
+    except NoSoleSource as exc:
+        raise FlowError(f"step {label}: {exc}") from exc
     target = FILLS.get(tool)
     if target is None:
         raise FlowError(f"step {label}: {tool} does not take {VALUE_FROM}")
@@ -273,7 +276,7 @@ def resolve_step(
     # `LocalFlowStore` reads YAML somebody may have written by hand. Every rule
     # that protects a secret is therefore checked again at the moment it is
     # used, where the document's provenance no longer matters.
-    if "secret" in source and kwargs.get("url"):
+    if kind == "secret" and kwargs.get("url"):
         raise FlowError(
             f"step {label}: a step that binds a secret may not also navigate — "
             "the secret's allowed sites are checked against the page the "
@@ -281,12 +284,12 @@ def resolve_step(
             "checked"
         )
 
-    if "param" in source:
+    if kind == "param":
         reference = source["param"]
         kwargs[target] = params.get(reference)
         if reference in sensitive:
             guarded.add(target)
-    elif "secret" in source:
+    elif kind == "secret":
         # The one place a run reads a credential. `page` is where the browser
         # actually is, so the secret's leash is checked against the page about
         # to receive the keystroke rather than wherever the flow started.
@@ -295,12 +298,12 @@ def resolve_step(
         except secrets.Refused as exc:
             raise FlowError(f"step {label}: {exc}") from exc
         guarded.add(target)
-    elif "config" in source:
+    elif kind == "config":
         raise FlowError(
             f"step {label}: config values are not available on this server yet"
         )
-    else:
-        raise FlowError(f"step {label}: valueFrom names no source this server knows")
+    else:  # pragma: no cover - only reachable if SOURCES grows and this does not
+        raise FlowError(f"step {label}: this server cannot resolve a {kind}")
     return kwargs, guarded
 
 
@@ -492,8 +495,13 @@ def run(
             # the marker, and asked of the raw URL rather than by comparing it
             # with its scrubbed form: a secret whose value happens to BE the
             # marker survives both of those tests unchanged.
-            if isinstance(raw, dict) and taints(raw.get("url"), hidden):
-                redacted_url = True
+            #
+            # Set per page rather than left sticky, because it describes the
+            # page this run *reports* — the last one — not the run's history. A
+            # flow that types a password and then navigates away ends somewhere
+            # perfectly ordinary, and a sticky flag threw that page away and
+            # left the session pointing at whatever it knew before.
+            redacted_url = isinstance(raw, dict) and taints(raw.get("url"), hidden)
             last = result
             if after_step is not None:
                 after_step(tool, raw)
@@ -510,14 +518,15 @@ def run(
             # page a bound write failed on is exactly the kind of place a
             # credential turns up without anyone putting it there.
             page = _page_state(actions, session_id)
-            # The same fact on the branch that had not recorded it: a step can
-            # fail *after* the value reached the page, so the URL it failed on
-            # is exactly as unsafe to store as one a step succeeded on.
-            if taints(page.get("url"), hidden):
-                redacted_url = True
             landed = scrub_values(page, hidden)
             if landed.get("url") and "url" not in guarded:
                 entry["url"] = landed["url"]
+                # The same fact on the branch that had not recorded it: a step
+                # can fail *after* the value reached the page, so the URL it
+                # failed on is exactly as unsafe to store as one a step
+                # succeeded on. Set where `last` changes, so the flag always
+                # describes the page the report ends up carrying.
+                redacted_url = taints(page.get("url"), hidden)
                 last = {**last, **landed}
             log.info(
                 "flow %s step %s (%s) failed: %s", name, number, label, entry["error"]

@@ -369,8 +369,13 @@ def register(
         # would reopen the browser there after the Grid reaped it. Keeping the
         # last page we genuinely know is the lesser wrong, and it is the same
         # rule the direct write path follows.
-        if not report.get("url_redacted"):
-            sessions.touch(key, report.get("url") or "", resolved)
+        #
+        # The touch happens regardless: it slides the TTL, and a run is the
+        # clearest evidence there is that a session is in use. Only the page is
+        # withheld.
+        sessions.touch(
+            key, None if report.get("url_redacted") else report.get("url"), resolved
+        )
         return report
 
     @mcp.tool(

@@ -959,8 +959,10 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
         css="#password",
         value_from={"secret": {"name": "nextcloud", "key": "password"}},
     )
-    # The page the value reached is never remembered, whatever the value is.
-    assert touched == []
+    # The page the value reached is never remembered, whatever the value is —
+    # but the session is still touched, because withholding the page must not
+    # also stop the clock that keeps the session alive.
+    assert touched == [None]
     assert result["url"] == f"https://nc.example.com/?q={flowrun.HIDDEN}"
 
 
@@ -1008,3 +1010,59 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
         value_from={"secret": {"name": "nextcloud", "key": "password"}},
     )
     assert touched == ["https://nc.example.com/home"]
+
+
+def test_an_http_binding_naming_two_sources_is_refused(bound_http, monkeypatch):
+    """`bind` reads `secret` and ignores whatever else is there, so the shape
+    check has to happen before it. A body saying two things is malformed, not a
+    request to pick one."""
+    client, typed = bound_http
+    response = client.post(
+        "/browser/write",
+        headers=AUTH,
+        json={
+            "session_id": "browser-1",
+            "css": "#password",
+            "value_from": {
+                "secret": {"name": "nextcloud", "key": "password"},
+                "config": {"name": "other", "key": "thing"},
+            },
+        },
+    )
+    assert response.status_code == 400
+    assert "exactly one source" in response.json()["error"]
+    # Refused before anything was typed.
+    assert typed == []
+
+
+def test_a_session_in_use_is_kept_alive_even_when_its_page_is_withheld():
+    """`touch` slides the TTL as well as recording the page, and the two are
+    separate facts. A login flow binding a secret every few minutes — the exact
+    thing secrets exist for — expired out of the store *because* its URL was
+    correctly kept out of it.
+
+    Driven through `touch` rather than the store: `SessionRecord.at` has always
+    kept the old page when given nothing, and it was `touch`'s own early return
+    that threw the refresh away. A test on the store would have passed
+    throughout.
+    """
+    from kubed.selenium_flow.store import MemoryStore, SessionRecord
+
+    from .conftest import NAMED, manager
+
+    clock = [1000.0]
+    store = MemoryStore(ttl=60, clock=lambda: clock[0])
+    store.set(
+        NAMED.value, SessionRecord(session_id="browser-1", url="https://nc.test/home")
+    )
+    sessions = manager(store=store)
+
+    clock[0] += 50
+    # The page is withheld, the way a bound write withholds it.
+    sessions.touch(NAMED, None, "browser-1")
+
+    clock[0] += 50  # past the original expiry, inside the slid one
+    kept = store.get(NAMED.value)
+    assert kept is not None, "the session expired while it was being used"
+    # And the page it already knew survives being touched with nothing.
+    assert kept.url == "https://nc.test/home"

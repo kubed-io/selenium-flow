@@ -462,13 +462,16 @@ def register(
         # Only remember a page the value never reached. A submitting write can
         # land on `?q=<what was typed>`; storing the scrubbed form would persist
         # a URL that does not exist, and a later reattach would navigate to it.
-        # Not updating is the lesser wrong.
         #
         # Asked of the URL rather than by comparing it with its scrubbed form:
         # a secret whose value is the marker scrubs to itself, so equality would
         # have called the credential URL safe and stored it.
-        if not flowrun.taints(result.get("url"), hidden):
-            sessions.touch(key, shown.get("url"), resolved)
+        #
+        # Touched either way. Withholding the page must not also stop the clock:
+        # `touch` slides the TTL, and skipping it entirely let a session expire
+        # *because* its URL was correctly kept out of the store.
+        safe = None if flowrun.taints(result.get("url"), hidden) else shown.get("url")
+        sessions.touch(key, safe, resolved)
         return shown
 
     # The description is passed rather than left as a docstring so the real key

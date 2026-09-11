@@ -112,6 +112,63 @@ def _needs_an_element(tool: str, params: dict) -> bool:
 KEYED_SOURCES = ("secret", "config")
 
 
+class NoSoleSource(ValueError):
+    """A ``value_from`` that does not name exactly one source.
+
+    Carries every problem it found rather than just the first: naming an
+    unknown source and naming no known one are both true of
+    ``{"secrets": ...}``, and an author who is told only the second goes
+    looking for a typo in the wrong place.
+    """
+
+    def __init__(self, problems: list[str]):
+        self.problems = problems
+        super().__init__("; ".join(problems))
+
+
+def sole_source(source) -> str:
+    """Which source a ``value_from`` names. Exactly one, or refuse.
+
+    **One implementation, three callers**, which is the point of it being here.
+    The validator enforces this when a flow is saved; `flowrun.resolve_step`
+    enforces it again when a stored document is run, because `LocalFlowStore`
+    reads YAML that may never have been saved through the validator; and
+    `secrets.prepare_write` enforces it for the direct write, whose `value_from`
+    arrives as raw JSON from an HTTP body.
+
+    Written three times it was three rules, and two of them were weaker: both
+    runtime paths tested the sources in order and took the first that matched,
+    so `{"param": ..., "secret": ...}` ran happily on whichever the `if` reached
+    first. A caller who names two sources has said something they cannot mean,
+    and picking one for them is the kind of guess that is wrong silently.
+    """
+    if not isinstance(source, dict):
+        raise NoSoleSource(["value_from must be an object naming one source"])
+    # An empty object is not "not an object" — it is one that names no source,
+    # which is what the message below says. Worth the extra branch: `{}` is what
+    # a half-finished hand edit looks like, and the author needs to be told
+    # which source to add rather than that they wrote the wrong kind of thing.
+    named = [key for key in SOURCES if key in source]
+    unknown = sorted(set(source) - set(SOURCES))
+    problems = []
+    if unknown:
+        problems.append(
+            f"value_from has no source called {', '.join(unknown)}; "
+            f"use one of {', '.join(SOURCES)}"
+        )
+    if not named:
+        problems.append(
+            f"value_from names no source; give exactly one of {', '.join(SOURCES)}"
+        )
+    elif len(named) > 1:
+        problems.append(
+            f"value_from names {' and '.join(named)}; give exactly one source"
+        )
+    if problems:
+        raise NoSoleSource(problems)
+    return named[0]
+
+
 class InvalidFlow(ValueError):
     """A flow document that cannot be saved, with every reason it cannot.
 
@@ -179,28 +236,11 @@ def _check_value_from(
     if not isinstance(source, dict):
         return [f"{where}: value_from must be an object naming one source"]
 
-    named = [key for key in SOURCES if key in source]
-    unknown = sorted(set(source) - set(SOURCES))
-    problems = []
-    if unknown:
-        problems.append(
-            f"{where}: value_from has no source called {', '.join(unknown)}; "
-            f"use one of {', '.join(SOURCES)}"
-        )
-    if not named:
-        return [
-        *problems,
-            f"{where}: value_from names no source; "
-            f"give exactly one of {', '.join(SOURCES)}"
-        ]
-    if len(named) > 1:
-        return [
-        *problems,
-            f"{where}: value_from names {' and '.join(named)}; "
-            "give exactly one source"
-        ]
-
-    kind = named[0]
+    try:
+        kind = sole_source(source)
+    except NoSoleSource as exc:
+        return [f"{where}: {problem}" for problem in exc.problems]
+    problems: list[str] = []
     reference = source[kind]
 
     if kind == "secret" and tool and tool not in BINDABLE_TOOLS:

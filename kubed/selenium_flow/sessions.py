@@ -393,9 +393,16 @@ class SessionManager:
         a session in active use does not expire out of the store underneath the
         caller. Stateless callers are touched too, which is what keeps their
         entry in the history alive for as long as they are working.
+
+        **No URL still slides the TTL**, keeping the page already recorded —
+        `SessionRecord.at` was written for exactly that (`url or self.url`) and
+        the early return here contradicted it. The two halves are separate
+        facts: "the browser is somewhere I should not write down" is not "this
+        session is idle". A bound write lands on `?q=<the password>` and its URL
+        is deliberately withheld (§F1.24), and withholding it used to stop the
+        clock — so a flow that logs in every few minutes, the one thing secrets
+        exist for, expired out of the store while it was being used.
         """
-        if not url:
-            return
         where = self.store_key(key, session_id)
         if where is None:
             return

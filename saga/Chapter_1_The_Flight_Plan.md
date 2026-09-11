@@ -1400,6 +1400,15 @@ Dr K's instinct that `write` is the only consumer holds up under exactly this
 kind of enumeration, which is why it is written down as a list of refusals
 rather than as a single yes.
 
+**Exactly one source has one implementation.** `flowdoc.sole_source` is called
+by the validator when a flow is saved, by `flowrun.resolve_step` when a stored
+document is run, and by `secrets.prepare_write` for a direct write whose
+`value_from` arrives as raw JSON. Written three times it was three rules and two
+were weaker: both runtime paths tested the sources in order and took the first
+match, so `{"param": …, "secret": …}` ran as though it had named one. A caller
+naming two sources has said something they cannot mean, and choosing one for
+them is a guess that is wrong silently.
+
 ### §F1.29 — Decision (locked): binding supersedes `writeOnly` parameters for real secrets
 
 §F1.7 gave a flow `parameters` with `writeOnly: true` for values a caller
@@ -1424,7 +1433,15 @@ and the admin event stream already exists to carry it. A refused bind is the
 more interesting event of the two and must be recorded loudest — it is the
 signal that something tried to use a credential somewhere it should not.
 
-Two things the implementation had to learn, both the same mistake:
+**Withholding a page must not stop the clock.** `sessions.touch` does two
+things — records where the browser is, and slides the session's TTL — and a
+bound write has a reason to skip the first and none to skip the second. Skipping
+both meant a flow that logs in every few minutes, which is the thing secrets
+exist for, expired out of the store *because* its URL was correctly kept out of
+it. A no-URL touch now keeps the page it already knew and refreshes the record,
+which is what `SessionRecord.at` was already written to do.
+
+Three things the implementation had to learn, the first two the same mistake:
 
 **The identifiers are read off the catalogue's entry, not off the request.** The
 line says which secret was *resolved*, spelled the way its source spells it,
