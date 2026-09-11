@@ -274,6 +274,9 @@ async def build_spec(
             }
         }
 
+    schemas.update(FLOW_SCHEMAS)
+    paths.update(_flow_paths())
+
     paths["/health"] = {
         "get": {
             "operationId": "health",
@@ -330,6 +333,13 @@ async def build_spec(
         ],
         "tags": [
             {"name": "browser", "description": "Browser actions."},
+            {
+                "name": "flows",
+                "description": (
+                    "Saved sequences of browser actions. A layer above "
+                    "/browser: these are about documents that contain actions."
+                ),
+            },
             {"name": "ops", "description": "Operational endpoints."},
         ],
         "paths": paths,
@@ -452,3 +462,225 @@ def _summary(description: str | None) -> str:
 
 def _camel(name: str) -> str:
     return "".join(part.capitalize() for part in name.split("_"))
+
+
+# ---------------------------------------------------------------------------
+# The /flows surface, written by hand.
+#
+# Unlike the browser endpoints, these are not derived from tool schemas: their
+# request bodies are a document plus a session name, not an action's arguments.
+# That makes them the same kind of liability `_request_content`'s multipart form
+# turned out to be — a hand-written schema next to derived ones drifts, quietly,
+# and only a test notices. `test_openapi.py` holds the path list to
+# `flowapi.FLOW_ENDPOINTS` for exactly that reason.
+
+FLOW_STEP = {
+    "type": "object",
+    "required": ["tool"],
+    "description": "One tool call. See GET /flows/schema for what each tool takes.",
+    "properties": {
+        "tool": {"type": "string", "description": "Which action this step runs."},
+        "params": {"type": "object", "description": "That action's arguments."},
+        "valueFrom": {
+            "type": "object",
+            "description": (
+                "Arguments taken from somewhere else instead of given "
+                "literally: {'text': {'param': 'email'}}, or {'text': "
+                "{'secret': {'name': 'x', 'key': 'password'}}}. There is no "
+                "string templating."
+            ),
+        },
+        "id": {"type": "string"},
+        "note": {"type": "string"},
+        "onError": {"type": "string", "enum": ["abort", "continue"]},
+        "return": {"type": "boolean"},
+        "timeout": {"type": "integer"},
+    },
+}
+
+FLOW_SCHEMAS = {
+    "FlowStep": FLOW_STEP,
+    "Flow": {
+        "type": "object",
+        "required": ["name", "steps"],
+        "properties": {
+            "name": {"type": "string"},
+            "description": {"type": "string"},
+            "parameters": {
+                "type": "object",
+                "description": "JSON Schema for the values a run accepts.",
+            },
+            "steps": {
+                "type": "array",
+                "minItems": 1,
+                "items": {"$ref": "#/components/schemas/FlowStep"},
+            },
+        },
+    },
+    "FlowSummary": {
+        "type": "object",
+        "description": "One entry in a listing. Never carries the steps.",
+        "properties": {
+            "name": {"type": "string"},
+            "session": {"type": "string"},
+            "description": {"type": "string"},
+            "parameters": {"type": "object"},
+            "step_count": {"type": "integer"},
+            "shared": {
+                "type": "boolean",
+                "description": "True when it came from the shared global library.",
+            },
+        },
+    },
+    "FlowList": {
+        "type": "object",
+        "properties": {
+            "session": {"type": "string"},
+            "count": {"type": "integer"},
+            "flows": {
+                "type": "array",
+                "items": {"$ref": "#/components/schemas/FlowSummary"},
+            },
+        },
+    },
+    "FlowSaved": {
+        "type": "object",
+        "properties": {
+            "saved": {"type": "boolean"},
+            "session": {"type": "string"},
+            "name": {"type": "string"},
+            "steps": {
+                "type": "array",
+                "items": {"$ref": "#/components/schemas/FlowStep"},
+            },
+        },
+    },
+    "FlowDeleted": {
+        "type": "object",
+        "properties": {
+            "deleted": {
+                "type": "boolean",
+                "description": (
+                    "False when there was no such flow, which is not an error."
+                ),
+            },
+            "session": {"type": "string"},
+            "name": {"type": "string"},
+        },
+    },
+}
+
+# A session name is optional everywhere and defaults to the shared library, the
+# same way it does on the MCP surface for a caller with no name of its own.
+_SESSION = {
+    "session": {
+        "type": "string",
+        "description": (
+            "Whose library. Defaults to the caller's session name if the "
+            "request carries one, else the shared 'global' library."
+        ),
+    }
+}
+
+_FLOW_OPERATIONS = {
+    "list": (
+        "listFlows",
+        "Every flow this session can run.",
+        "Its own, plus the shared global library. A flow of its own wins a name "
+        "collision, and each entry says which library it came from.",
+        {"type": "object", "properties": dict(_SESSION)},
+        "FlowList",
+    ),
+    "get": (
+        "getFlow",
+        "One saved flow, with its steps.",
+        "Falls back to the shared library when this session has no flow of that "
+        "name.",
+        {
+            "type": "object",
+            "required": ["name"],
+            "properties": {**_SESSION, "name": {"type": "string"}},
+        },
+        "Flow",
+    ),
+    "save": (
+        "saveFlow",
+        "Create or replace a flow.",
+        "The same name updates, a new one creates. Always writes to this "
+        "session's own library, never the shared one. The document is validated "
+        "against the live tools and a refusal lists every problem at once.",
+        {
+            "type": "object",
+            "required": ["name", "steps"],
+            "properties": {
+                **_SESSION,
+                "name": {"type": "string"},
+                "description": {"type": "string"},
+                "parameters": {"type": "object"},
+                "steps": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"$ref": "#/components/schemas/FlowStep"},
+                },
+            },
+        },
+        "FlowSaved",
+    ),
+    "delete": (
+        "deleteFlow",
+        "Delete one of this session's flows.",
+        "Deleting one that is not there is not an error. A flow in the shared "
+        "library is not yours to delete and is untouched.",
+        {
+            "type": "object",
+            "required": ["name"],
+            "properties": {**_SESSION, "name": {"type": "string"}},
+        },
+        "FlowDeleted",
+    ),
+    "schema": (
+        "flowSchema",
+        "The shape of a flow document.",
+        "Every tool that may be a step and the parameters each takes, derived "
+        "from the live tools — so it cannot describe a step that would not run.",
+        {"type": "object", "properties": {}},
+        None,
+    ),
+}
+
+
+def _flow_paths(prefix: str = "/flows") -> dict:
+    """The five /flows endpoints."""
+    paths = {}
+    for path, (op, summary, description, request, response) in _FLOW_OPERATIONS.items():
+        schema = (
+            {"$ref": f"#/components/schemas/{response}"}
+            if response
+            else {"type": "object"}
+        )
+        paths[f"{prefix}/{path}"] = {
+            "post": {
+                "operationId": op,
+                "summary": summary,
+                "description": description,
+                "tags": ["flows"],
+                "requestBody": {
+                    "required": path not in ("list", "schema"),
+                    "content": {"application/json": {"schema": request}},
+                },
+                "responses": {
+                    "200": {
+                        "description": summary,
+                        "content": {"application/json": {"schema": schema}},
+                    },
+                    "400": _error(
+                        "The request cannot succeed as sent — an unusable name, "
+                        "a flow that does not exist, or a document that would "
+                        "not run. Do not retry it unchanged."
+                    ),
+                    "401": _error("Missing or wrong bearer token."),
+                    "500": _error("Something failed that this server did not expect."),
+                },
+            }
+        }
+    return paths

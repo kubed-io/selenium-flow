@@ -7,6 +7,7 @@ other breaks that quietly, so it is asserted here rather than trusted.
 
 import pytest
 
+from kubed.selenium_flow import flowapi
 from kubed.selenium_flow import resources as resources_module
 from kubed.selenium_flow.routes import ENDPOINTS
 
@@ -19,6 +20,25 @@ pytestmark = pytest.mark.unit
 # deliberately absent: neither is a browser action, neither has an HTTP
 # counterpart, and both are hidden from tools/list unless a client declares it
 # cannot read resources. See test_resources.py and test_skill.py.
+# Saved flows are a layer ABOVE the browser actions, not more of them: they are
+# about documents that contain actions, they live under /flows rather than
+# /browser, and they have their own route table. So they are subtracted from
+# every assertion below rather than added to EXPECTED — see saga §F1.7 and
+# tests/test_flowapi.py, which holds them to their own contract.
+FLOW_TOOLS = {
+    flowapi.SAVE_TOOL,
+    flowapi.DELETE_TOOL,
+    flowapi.LIST_TOOL,
+    flowapi.GET_TOOL,
+    flowapi.SCHEMA_TOOL,
+}
+
+
+def browser_tools(tools) -> set[str]:
+    """Just the browser actions, whatever else is registered beside them."""
+    return {t.name for t in tools} - FLOW_TOOLS
+
+
 EXPECTED = {
     "open_session",
     "end_browser",
@@ -48,12 +68,11 @@ def test_route_table_covers_every_action():
 
 
 async def test_tool_names_match_the_action_names(server):
-    names = {t.name for t in await server.mcp.list_tools()}
-    assert names == EXPECTED
+    assert browser_tools(await server.mcp.list_tools()) == EXPECTED
 
 
 async def test_every_action_is_reachable_from_both_surfaces(server):
-    tools = {t.name for t in await server.mcp.list_tools()}
+    tools = browser_tools(await server.mcp.list_tools())
     routed = set(ENDPOINTS.values())
     assert tools == routed, (
         "an action is exposed on one surface only: "
@@ -129,8 +148,10 @@ async def test_only_reading_the_page_is_marked_read_only(server):
     read-only only sometimes.
     """
     read_only = {
-        t.name for t in await server.mcp.list_tools() if t.annotations.read_only_hint
-    }
+        t.name
+        for t in await server.mcp.list_tools()
+        if t.annotations.read_only_hint
+    } - FLOW_TOOLS
     assert read_only == {"extract"}, "of the browser ACTIONS, only extract reads"
 
 
@@ -239,4 +260,4 @@ async def test_stateless_mode_keeps_both_surfaces_intact(server):
     )
     assert stateless.stateless is True
     assert server.stateless is False
-    assert {t.name for t in await stateless.mcp.list_tools()} == EXPECTED
+    assert browser_tools(await stateless.mcp.list_tools()) == EXPECTED

@@ -11,7 +11,7 @@ from __future__ import annotations
 from fastmcp import FastMCP
 from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 
-from . import admin, apps, files, flows, resources, routes, skill, tools
+from . import admin, apps, files, flowapi, flows, resources, routes, skill, tools
 from .actions import Actions
 from .browser import DEFAULT_GRID_URL, Grid
 from .sessions import SessionManager
@@ -106,6 +106,11 @@ class SeleniumMCP:
         )
         app_tools |= self.apps
         mirrors |= app_tools
+        # Saved flows. Registered whether or not there is a store, so a client
+        # that asks is told flows are not enabled here rather than finding the
+        # tool absent — a missing capability and a disabled one look identical
+        # from the outside, and only one of them is fixable.
+        mirrors |= flowapi.register(self.mcp, self.flows, self.sessions, auth_token)
         self.mcp.add_middleware(
             resources.HideMirrorTools(mirrors, app_tools if apps_enabled else set())
         )
@@ -117,6 +122,7 @@ class SeleniumMCP:
         routes.register(
             self.mcp, self.actions, auth_token, route_prefix, self.sessions.kind
         )
+
         # The admin pages and the signed file route. Always on: they are how a
         # person sees what the agents have been doing, and the file route is the
         # only way an image reaches somewhere that cannot send a token.
