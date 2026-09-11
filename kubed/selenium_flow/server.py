@@ -118,7 +118,13 @@ class SeleniumMCP:
         base = apps.public_base()
         app_config = apps.config_for(base) if apps_enabled else None
         app_tools = files.register(
-            self.mcp, self.actions, self.sessions, auth_token, app_config, base
+            self.mcp,
+            self.actions,
+            self.sessions,
+            self.flows,
+            auth_token,
+            app_config,
+            base,
         )
         self.apps = (
             apps.register(self.mcp, self.actions, auth_token) if apps_enabled else set()
@@ -158,7 +164,13 @@ class SeleniumMCP:
         # The admin pages and the signed file route. Always on: they are how a
         # person sees what the agents have been doing, and the file route is the
         # only way an image reaches somewhere that cannot send a token.
-        admin.register(self.mcp, self.actions, auth_token, sessions=self.sessions)
+        admin.register(
+            self.mcp,
+            self.actions,
+            auth_token,
+            sessions=self.sessions,
+            flow_store=self.flows,
+        )
 
     def run(
         self, transport: str = "http", host: str = "0.0.0.0", port: int = 8000

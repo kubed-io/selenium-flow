@@ -286,6 +286,8 @@ async def build_spec(
 
     schemas.update(FLOW_SCHEMAS)
     paths.update(_flow_paths())
+    schemas.update(FILE_SCHEMAS)
+    paths.update(_file_paths())
 
     paths["/health"] = {
         "get": {
@@ -348,6 +350,13 @@ async def build_spec(
                 "description": (
                     "Saved sequences of browser actions. A layer above "
                     "/browser: these are about documents that contain actions."
+                ),
+            },
+            {
+                "name": "files",
+                "description": (
+                    "What a session has downloaded, and what it has kept "
+                    "beyond the browser that downloaded it."
                 ),
             },
             {"name": "ops", "description": "Operational endpoints."},
@@ -752,6 +761,210 @@ def _flow_paths(prefix: str = "/flows") -> dict:
                     "401": _error("Missing or wrong bearer token."),
                     "500": _error("Something failed that this server did not expect."),
                 },
+            }
+        }
+    return paths
+
+
+# ---------------------------------------------------------------------------
+# The /files surface, written by hand for the same reason /flows is: these take
+# a file name and a session, not an action's arguments, so there is no tool
+# schema to derive them from. `test_kept_files.py` holds the path list to
+# `files.FILE_ENDPOINTS` so a new one cannot go undocumented.
+
+FILE_SCHEMAS = {
+    "FileEntry": {
+        "type": "object",
+        "description": (
+            "One file a session has. Both halves of the list share this shape — "
+            "`kept` is what distinguishes them."
+        ),
+        "properties": {
+            "name": {"type": "string"},
+            "size": {"type": "integer"},
+            "created": {
+                "type": ["integer", "null"],
+                "description": "When it was written, in epoch milliseconds.",
+            },
+            "content_type": {"type": "string"},
+            "image": {
+                "type": "boolean",
+                "description": "Whether it can be displayed inline.",
+            },
+            "kept": {
+                "type": "boolean",
+                "description": (
+                    "True when it belongs to the session and outlives the "
+                    "browser. False when it is a download, which the Grid "
+                    "deletes with the browser and cannot delete singly."
+                ),
+            },
+            "url": {
+                "type": "string",
+                "description": "Signed and time-limited; needs no bearer token.",
+            },
+            "absolute_url": {
+                "type": "string",
+                "description": (
+                    "The same URL made absolute, when PUBLIC_BASE_URL is set."
+                ),
+            },
+        },
+    },
+    "FileList": {
+        "type": "object",
+        "properties": {
+            "component": {"type": "string"},
+            "session_id": {
+                "type": ["string", "null"],
+                "description": "The browser these downloads belong to, if any.",
+            },
+            "session": {
+                "type": ["string", "null"],
+                "description": "The session whose kept files these are.",
+            },
+            "count": {"type": "integer"},
+            "files": {
+                "type": "array",
+                "items": {"$ref": "#/components/schemas/FileEntry"},
+            },
+        },
+    },
+    "FileKept": {
+        "type": "object",
+        "properties": {
+            "kept": {"type": "boolean"},
+            "session": {"type": "string"},
+            "name": {"type": "string"},
+            "size": {"type": "integer"},
+            "creationTime": {"type": "integer"},
+        },
+    },
+    "FileDeleted": {
+        "type": "object",
+        "properties": {
+            "deleted": {
+                "type": "boolean",
+                "description": (
+                    "False when there was no such kept file, which is not an error."
+                ),
+            },
+            "session": {"type": "string"},
+            "name": {"type": "string"},
+        },
+    },
+}
+
+_FILE_SESSION = {
+    "session": {
+        "type": "string",
+        "description": (
+            "Whose kept files. Defaults to the caller's session name if the "
+            "request carries one, else the shared 'global' session."
+        ),
+    }
+}
+
+# path -> (operationId, summary, description, request, response, touches the Grid)
+_FILE_OPERATIONS = {
+    "list": (
+        "listFiles",
+        "Every file this session has.",
+        "The browser's downloads and the session's kept files as one list, "
+        "newest first, each entry saying which it is. A name in both resolves "
+        "to the kept one. Works after the browser is gone, returning the kept "
+        "files alone.",
+        {
+            "type": "object",
+            "properties": {**_FILE_SESSION, "session_id": {"type": "string"}},
+        },
+        "FileList",
+        True,
+    ),
+    "keep": (
+        "keepFile",
+        "Keep one download beyond its browser.",
+        "Copies the file out of the Grid's store onto the server, where it "
+        "survives the browser. Keeping a name that is already kept replaces it. "
+        "The original download stays: the Grid offers no way to remove one file.",
+        {
+            "type": "object",
+            "required": ["session_id", "name"],
+            "properties": {
+                **_FILE_SESSION,
+                "session_id": {
+                    "type": "string",
+                    "description": "The browser holding the file to copy.",
+                },
+                "name": {"type": "string"},
+            },
+        },
+        "FileKept",
+        True,
+    ),
+    "delete": (
+        "deleteFile",
+        "Delete one kept file.",
+        "Only a kept file can be deleted. A download belongs to the browser and "
+        "the Grid has no per-file delete — clear removes all of them at once. "
+        "Deleting one that is not there is not an error.",
+        {
+            "type": "object",
+            "required": ["name"],
+            "properties": {**_FILE_SESSION, "name": {"type": "string"}},
+        },
+        "FileDeleted",
+        False,
+    ),
+}
+
+
+def _file_paths(prefix: str = "/files") -> dict:
+    """The four /files endpoints."""
+    paths = {}
+    for path, (op, summary, description, request, response, grid) in (
+        _FILE_OPERATIONS.items()
+    ):
+        responses = {
+            "200": {
+                "description": summary,
+                "content": {
+                    "application/json": {
+                        "schema": {"$ref": f"#/components/schemas/{response}"}
+                    }
+                },
+            },
+            "400": _error(
+                "The request cannot succeed as sent — an unusable name, or a "
+                "server with no FLOW_DATA_DIR to keep files in. Do not retry it "
+                "unchanged."
+            ),
+            "401": _error("Missing or wrong bearer token."),
+            "500": _error("Something failed that this server did not expect."),
+        }
+        if grid:
+            # Only the operations that actually dial the Grid can fail its way.
+            # Declaring 404 and 503 on `delete`, which never leaves this server,
+            # would publish two outcomes that cannot happen.
+            responses["404"] = _error(
+                "No such browser session. It ended, the Grid reaped it, or the "
+                "id was never real."
+            )
+            responses["503"] = _error(
+                "The Grid could not serve this — unreachable, or gone. Worth "
+                "retrying after a wait."
+            )
+        paths[f"{prefix}/{path}"] = {
+            "post": {
+                "operationId": op,
+                "summary": summary,
+                "description": description,
+                "tags": ["files"],
+                "requestBody": {
+                    "required": path != "list",
+                    "content": {"application/json": {"schema": request}},
+                },
+                "responses": responses,
             }
         }
     return paths

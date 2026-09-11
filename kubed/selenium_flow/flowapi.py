@@ -83,26 +83,11 @@ def _require(store):
     return store
 
 
-def session_of(sessions, explicit: str | None = None) -> str:
-    """Whose library this call is about.
-
-    An explicit name is how the HTTP surface says it, because that surface is
-    always explicit — the same contract `/browser/*` already has. Over MCP it
-    comes from the caller's key, and anything unnamed is `global` (§F1.2).
-    """
-    if explicit:
-        return flows.valid_name(explicit, "session name")
-    # A caller that NAMED itself and cannot have that name as a library is
-    # refused here, out loud. `session_for` falls back to `global` for such a
-    # name, which is right for the browser — an opaque key, and refusing it would
-    # break a working session — and was wrong here: `?session=my bot` got a
-    # private browser and saved its flows into the shared library, where every
-    # unnamed caller can overwrite or delete them, while believing they were its
-    # own. `flows.session_for`'s comment promised this refusal; nothing did it.
-    named = flows.named_session(sessions.key())
-    if named is not None:
-        return flows.valid_name(named, "session name")
-    return flows.GLOBAL_SESSION
+# Which session owns a caller's documents, and its kept files with them. It
+# lives in `flows.py` because the rule is about the session directory rather
+# than about flows — `files.py` needs the identical answer, and two functions
+# deciding who owns a directory is how one of them starts disagreeing.
+session_of = flows.session_of
 
 
 def catalogue(store, session: str) -> dict:

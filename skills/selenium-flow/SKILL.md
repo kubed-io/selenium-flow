@@ -52,7 +52,9 @@ leave it alone.
 To switch, just call `open_session(browser="firefox")` again — the browser you
 are holding is ended for you first, so do not close and reopen. **The files it
 had go with it**: the Grid keeps a file store per browser and deletes it with
-the browser, so keep anything you still need before switching.
+the browser. `keep_file(name)` copies one out first — a kept file belongs to
+your session instead, so it survives switching, ending, and the Grid reaping an
+idle browser. `session_files` lists both kinds and marks which is which.
 
 One session holds one browser. To use both at once, open one session per
 browser and keep both ids; `session://current` reports which browser the one

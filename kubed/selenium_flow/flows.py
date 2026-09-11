@@ -57,8 +57,8 @@ GLOBAL_SESSION = "global"
 # /openapi.yaml (§F1.14).
 SUFFIX = ".yaml"
 FLOWS_DIR = "flows"
-# Not used yet: kept files land here in E4. Named now so the layout lives in one
-# place rather than being invented twice.
+# Where a kept file lands — a copy of something the browser downloaded, taken
+# out of the Grid's store so it outlives the browser (§F1.10).
 FILES_DIR = "files"
 
 # A name becomes a path segment, and the session half of one arrives from a URL
@@ -66,6 +66,20 @@ FILES_DIR = "files"
 # `..`, `a/b`, a leading dot and an empty string are all refused by the same
 # expression.
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+# A FILE name plays by different rules, and the difference is about who chose
+# it. A session or flow name is picked by a caller, so refusing an untidy one
+# costs them a retry. A file name is *handed to us* — by the site that served
+# the download, or by Chrome deduplicating it into `report (1).pdf` — so the
+# same rule would make perfectly ordinary files unkeepable, and `Q3 summary.csv`
+# is not a mistake anyone can fix.
+#
+# So this asks only what a path segment must satisfy: no separator, no NUL or
+# control character, and short enough for a filesystem. `.` and `..` and any
+# leading dot are refused below, since a dotfile is never something the Grid
+# hands us — `is_partial` already skips Chrome's scratch names — and allowing
+# one would let a listing write `.bashrc` into the session directory.
+FILE_NAME = re.compile(r"^[^/\\\x00-\x1f]{1,255}$")
 
 
 class InvalidName(ValueError):
@@ -103,9 +117,38 @@ def valid_name(name, kind: str = "name") -> str:
     return text
 
 
+def valid_file_name(name) -> str:
+    """``name`` if it can be a file inside a session directory, else raise.
+
+    Deliberately permissive where :func:`valid_name` is strict — see
+    :data:`FILE_NAME` for why — and strict about exactly one thing: the result
+    must be a single, ordinary path segment. Traversal is refused here, and
+    refused again by ``_resolved``, because this value reaches the store from a
+    URL path parameter as well as from the Grid's own listing.
+    """
+    text = "" if name is None else str(name).strip()
+    if not FILE_NAME.match(text) or text.startswith("."):
+        raise InvalidName(
+            f"{text!r} is not a usable file name: it must be a single name "
+            "with no path separators, no control characters and no leading dot"
+        )
+    return text
+
+
 def named_session(key) -> str | None:
-    """The name a caller gave itself, exactly as given, or None if it gave none."""
-    value = (getattr(key, "value", "") or "") if key is not None else ""
+    """The name a caller gave itself, exactly as given, or None if it gave none.
+
+    Accepts a ``CallerKey`` or the bare string a store holds. The admin surface
+    only ever has the string — it reads the store's keys rather than a live
+    caller — and giving it a second way to unpack one is how the two would come
+    to disagree about which session owns a file.
+    """
+    if key is None:
+        value = ""
+    elif isinstance(key, str):
+        value = key
+    else:
+        value = getattr(key, "value", "") or ""
     if not value.startswith("named:"):
         return None
     return value[len("named:") :]
@@ -140,6 +183,31 @@ def session_for(key) -> str:
         return GLOBAL_SESSION
 
 
+def session_of(sessions, explicit: str | None = None) -> str:
+    """Whose library — and whose kept files — this call is about.
+
+    An explicit name is how the HTTP surface says it, because that surface is
+    always explicit — the same contract ``/browser/*`` already has. Over MCP it
+    comes from the caller's key, and anything unnamed is :data:`GLOBAL_SESSION`
+    (§F1.2).
+
+    A caller that NAMED itself and cannot have that name as a directory is
+    refused here, out loud. :func:`session_for` falls back to ``global`` for
+    such a name, which is right for the browser — an opaque key, and refusing it
+    would break a working session — and is wrong here: ``?session=my bot`` got a
+    private browser and saved its flows into the shared library, where every
+    unnamed caller can overwrite or delete them, while believing they were its
+    own. Kept files inherit the same rule for the same reason, which is why this
+    lives here rather than beside the flow tools that first needed it.
+    """
+    if explicit:
+        return valid_name(explicit, "session name")
+    named = named_session(sessions.key())
+    if named is not None:
+        return valid_name(named, "session name")
+    return GLOBAL_SESSION
+
+
 def _step_count(document: dict) -> int:
     """How many steps a document has, for a listing.
 
@@ -154,12 +222,16 @@ def _step_count(document: dict) -> int:
 
 
 class FlowStore(Protocol):
-    """Reads and writes flow documents for a session.
+    """Reads and writes a session's flow documents and its kept files.
 
     One protocol, two implementations eventually: this directory, and WebDAV.
-    Kept files (E4) belong to the same session directory and will extend this
-    rather than getting a store of their own — one root, one env var, one thing
-    to point at Nextcloud.
+    Kept files live in the same session directory and extend this rather than
+    getting a store of their own — one root, one env var, one thing to point at
+    Nextcloud.
+
+    The file half is bytes rather than documents, and is deliberately the whole
+    of what a file store needs: the Grid supplies the only other operations
+    there are, and it supplies them for *its* files, not ours.
     """
 
     kind: str
@@ -175,6 +247,14 @@ class FlowStore(Protocol):
     def save(self, session: str, name: str, document: dict) -> dict: ...
 
     def delete(self, session: str, name: str) -> bool: ...
+
+    def files(self, session: str) -> list[dict]: ...
+
+    def read_file(self, session: str, name: str) -> bytes: ...
+
+    def write_file(self, session: str, name: str, data: bytes) -> dict: ...
+
+    def delete_file(self, session: str, name: str) -> bool: ...
 
 
 class LocalFlowStore:
@@ -235,6 +315,16 @@ class LocalFlowStore:
             valid_name(session, "session name"),
             FLOWS_DIR,
             f"{valid_name(name, 'flow name')}{SUFFIX}",
+        )
+
+    def _files_dir(self, session: str) -> Path:
+        return self._resolved(valid_name(session, "session name"), FILES_DIR)
+
+    def _file_path(self, session: str, name: str) -> Path:
+        return self._resolved(
+            valid_name(session, "session name"),
+            FILES_DIR,
+            valid_file_name(name),
         )
 
     # -- reads ---------------------------------------------------------------
@@ -346,6 +436,72 @@ class LocalFlowStore:
         """Remove one flow. False if it was not there."""
         try:
             self._path(session, name).unlink()
+        except FileNotFoundError:
+            return False
+        return True
+
+    # -- kept files ----------------------------------------------------------
+
+    def _entry(self, path: Path) -> dict:
+        """One kept file, shaped exactly like the Grid's own listing entry.
+
+        The two listings are merged into one array (§F1.10), so they have to
+        agree on both the key names and the *units*: the Grid reports
+        milliseconds, and a seconds-based timestamp beside it would sort every
+        kept file to 1970 without anything looking wrong.
+        """
+        info = path.stat()
+        return {
+            "name": path.name,
+            "size": info.st_size,
+            "creationTime": int(info.st_mtime * 1000),
+        }
+
+    def files(self, session: str) -> list[dict]:
+        """Every file kept for this session, newest first.
+
+        Newest first because that is the order the Grid uses, and these are
+        shown interleaved with its entries.
+        """
+        directory = self._files_dir(session)
+        if not directory.is_dir():
+            return []
+        found = []
+        for path in directory.iterdir():
+            if not path.is_file():
+                continue
+            # Anything this store would refuse to address is skipped rather than
+            # returned, for the reason `names` gives: every caller turns a name
+            # back into a path, so an entry that cannot round-trip would be
+            # handed to `read_file`, raise, and take the listing down with it.
+            try:
+                self._file_path(session, path.name)
+            except InvalidName:
+                log.warning("ignoring kept file %r: not a usable name", path.name)
+                continue
+            found.append(self._entry(path))
+        return sorted(found, key=lambda f: f["creationTime"], reverse=True)
+
+    def read_file(self, session: str, name: str) -> bytes:
+        """One kept file's bytes. Raises FileNotFoundError if it is not there."""
+        return self._file_path(session, name).read_bytes()
+
+    def write_file(self, session: str, name: str, data: bytes) -> dict:
+        """Keep one file, creating it or replacing it. Returns its entry.
+
+        Create-or-replace, the same rule `save` follows: keeping a name that is
+        already kept is how someone re-keeps a file they have since downloaded
+        again, and the alternative is a second copy under a name nobody chose.
+        """
+        path = self._file_path(session, name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return self._entry(path)
+
+    def delete_file(self, session: str, name: str) -> bool:
+        """Remove one kept file. False if it was not there."""
+        try:
+            self._file_path(session, name).unlink()
         except FileNotFoundError:
             return False
         return True

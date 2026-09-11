@@ -296,6 +296,19 @@ written down here so nobody discovers it later and thinks it was an accident.
 takes the session name as a parameter, defaulting to `global`. That is not a
 special case, it is the contract `/browser/*` already has applied to a new noun.
 
+**Moving a flow is one verb, and `global` is a folder like any other (Dr K,
+2026-09-11).** The admin UI needs no separate notion of "promote": a flow lives
+in exactly one directory, so the only action is *which one*. Promotion is that
+action with `global` as the value; claiming a shared flow is the same action
+with a session's name. Moving a flow **between two sessions** therefore needs no
+new mechanism at all — push it to `global` from one, claim it from the other.
+The button reads **To global** when the flow is the session's own, and **To this
+session** when it is global.
+
+That changes the shape of promotion, not the policy. The agent-facing tools
+still never write to `global`: `save_flow` and `delete_flow` touch only your own
+session (§F1.5). The move lives in the admin UI, where a person is present.
+
 ### §F1.3 — Decision (locked): one directory, two subdirectories, one per session
 
 ```
@@ -739,6 +752,39 @@ The consequences that need building rather than deciding:
   rule is no schedulers, so the admin UI shows total size per session and a
   person decides. See open question #5.
 
+**What designing it settled (2026-09-11), and one constraint the Grid imposes.**
+
+Drawing this surface (§F1.36) turned up a fact that decides most of what is left
+open above: **the Grid's file API is list, read-one, delete-*all*.**
+`browser.py` wraps exactly those three, and `save_to_downloads` records why
+there is no fourth: "There is no API for writing into the Grid's store — it only
+lists, reads and deletes." So:
+
+- **Keeping a file is a copy, never a move.** One file cannot be deleted from
+  the Grid, so the original stays until the browser ends or the store is cleared.
+- **There is no per-file delete for an ephemeral file.** Only kept files can be
+  deleted one at a time, because only kept files are ours.
+- **Which makes clearing the downloads safe rather than dangerous.** The
+  objection that condemned the old `Clear files` button — that it would take the
+  kept ones with it — evaporates once keeping is a copy: it empties the Grid's
+  store, and kept files are elsewhere by definition. It is named **Clear
+  downloads** for that reason, and its confirm **lists the names** it will
+  remove, so the scope is shown rather than asserted.
+- **Pinning is one-way.** "Unpin" is only coherent while the browser still holds
+  the original; after that it is indistinguishable from delete — a verb whose
+  meaning changes with hidden state. There is no unpin. **Delete** is the escape
+  hatch for a mistaken pin.
+- **No copy-back path is needed.** `upload_file(path=...)` already reaches this
+  server's filesystem, so a kept file can be attached to a page without ever
+  going back into the Grid's store.
+- **The naming was backwards.** In this codebase a session *outlives* its
+  browser, so the ephemeral files are the **browser's** (`Downloads`) and the
+  kept ones are the **session's** (`Kept`). "Session files" for the ephemeral
+  ones reads exactly the wrong way round.
+- **One list, as this section already decided.** The design briefly split the box
+  into two groups and it was immediately more cluttered for no gain; the corner
+  marks carry the distinction instead (§F1.36).
+
 ### §F1.11 — **OPEN**: `ROUTE_PREFIX` becomes a global prefix, and `/browser` stops moving
 
 Dr K's proposal, and I agree with it. Today `ROUTE_PREFIX` renames the browser
@@ -1063,6 +1109,47 @@ guidance on when *not* to file one — a one-off sequence you will never repeat 
 cheaper as three tool calls than as a saved document.
 
 ---
+
+### §F1.36 — Decision (locked): the admin UI, designed before it is built
+
+The whole admin surface was designed in Penpot on 2026-09-11 — file **Admin
+UI**, one page, 18 boards, a clickable prototype starting at sign-in. It is a
+design and nothing more: none of it exists in `static/` yet, and writing it down
+here is what stops the drawing and the code drifting apart.
+
+**What is designed**
+
+- **Sessions list** — as today, plus a flow count beside the file count.
+- **Session detail, regrouped.** The old facts grid put seven columns in one row
+  and buried the two that matter. Now: identity, then **the last page on a
+  full-width row of its own** — a URL is twenty characters or two hundred, and it
+  is a link — then two blocks with *different lifetimes*: **SESSION** (browser,
+  window, started) and **BROWSER** (version, id, node). The files count left the
+  header; the Files section already carries it.
+- **Two accordions, Files and Flows.** Dr K's shape, and the reason the page
+  stays a single column.
+- **Files: one grid.** A blue bubble marks a download, a pin marks a kept file,
+  and a trash appears on hover **only on kept files** — the only per-file delete
+  the Grid permits (§F1.10). `Clear downloads` sits in the section header.
+- **Flows: a list on the left, the chosen flow on the right.** A step is its
+  number, tool and id — no selectors, no URLs — and clicking one opens its
+  parameters. A 🔒 marks a step that binds a secret. Ownership is shown only on
+  shared flows (🌐); a session's own flows carry no badge, because a badge on
+  everything says nothing.
+- **Flow actions:** `Edit YAML`, the move button (§F1.2), and `Delete`, which
+  confirms.
+- **A YAML editor overlay**, carrying the real file from the running pod.
+
+**What it deliberately is not:** no dark mode (the tokens exist; a second set
+would do it), no confirm on `End browser`, and — the significant gap — **no
+detached-browser state**, which is what a session looks like most of the time.
+
+**Method worth keeping.** The design tokens are transcribed from `app.css`'s own
+custom properties (`--accent`, `--line`, `--radius`…) rather than invented, so
+the design cannot drift from the stylesheet without one of them being wrong on
+purpose. Every colour and type property is token-bound; the bubble's five
+gradient fills are the only exception, because a gradient cannot bind to a
+single colour token.
 
 ## Part III — Sealed orders: the secrets system
 
@@ -1640,16 +1727,55 @@ single source of truth (§F1.13).
 
 ### E4 — The hold: kept files
 
-- [ ] `keep_file(name)` tool + endpoint — name only, type-agnostic (§F1.10)
-- [ ] **One** file listing, unioned across the Grid and the store, every entry
+The backend is **done**; the UI that reads it is the next PR.
+
+- [x] `keep_file(name)` tool + endpoint — name only, type-agnostic (§F1.10)
+- [x] **One** file listing, unioned across the Grid and the store, every entry
       carrying `kept` (§F1.10)
-- [ ] The listing works **after the browser is gone**, returning kept files alone
-- [ ] Files produced during a run carry the **flow's name** as a tag (§F1.10)
-- [ ] Name collisions: the kept file wins, `keep_file` overwrites — the same
+- [x] The listing works **after the browser is gone**, returning kept files alone
+- [x] Name collisions: the kept file wins, `keep_file` overwrites — the same
       create-or-update rule `save_flow` uses
-- [ ] A signed URL route for kept files keyed by session name, through
-      `links.py` — no second signing implementation
-- [ ] Admin UI: an overlay icon marking ephemeral versus kept, total kept size
+- [x] A signed URL route for kept files keyed by session name, through
+      `links.py` — no second signing implementation. It is `/kept/{session}/{name}`,
+      a route of its own rather than a flag on `/files/{browser}/{name}`, because
+      the two are keyed by different things and a signature is bound to its path
+- [x] Keeping is a **copy**: the Grid has no per-file delete and no write (§F1.10)
+- [x] Per-file delete for **kept files only**; no unpin, because Delete is it.
+      Deleting a *download* answers `deleted: false` rather than pretending
+- [x] `Clear downloads` is `grid.clear_files()` and provably leaves kept files
+      alone — `test_clearing_downloads_leaves_kept_files_alone` is the proof
+      that the objection which condemned the old button cannot happen now
+- [ ] Files produced during a run carry the **flow's name** as a tag (§F1.10).
+      **Deferred, and bigger than it looks:** the tag would have to be attached
+      where the file is *made*, which for a download is inside the Grid's store,
+      where we can write nothing. It needs a sidecar of our own keyed by name,
+      so it is its own change rather than a line in this one
+- [ ] Admin UI: the marks are a bubble (download), a pin (kept) and a trash on
+      hover for kept files only — designed in §F1.36, and the payload it needs
+      now exists: every entry carries `kept`, and each session row carries
+      `kept_count` and `flows_count`
+- [ ] `Clear downloads`' confirm **lists the names** it will remove — UI, so it
+      goes with the row above
+- [ ] **Cluster repo:** `FLOW_DATA_DIR` is a 64Mi emptyDir today — right for
+      YAML, far too small once files land beside it. **This is now load-bearing
+      rather than theoretical:** kept files land there as of this epic
+
+**What building it added that the plan did not name.** A `delete_file` tool, so
+the per-file delete is a capability rather than an admin-only button; a `/files`
+route table beside `/flows`, for the same reason that one exists; and
+`session_of` moved into `flows.py`, because a file and a flow must land in the
+same session directory and two functions deciding that is how they come to
+disagree.
+
+Deliberately **not** added: a `/files/clear` endpoint. Clearing is real, but it
+has no MCP tool, and an endpoint without one is precisely the half-a-capability
+this project forbids. The admin route already reaches it, which is the operator
+surface it belongs on.
+
+One bug worth recording, because it was invisible in review and loud in a test:
+`admin.py` already bound a local named `store` — the *session record* store —
+one scope above where the new flow store was used, so the listing called
+`MemoryStore.files` and died. Both are now named for what they hold.
 
 ### E5 — The approach plate: `ROUTE_PREFIX` goes global
 
@@ -1672,9 +1798,13 @@ Independent of everything above.
 - [ ] Admin UI: every session directory listed, with its flows and its kept-file
       size, and a **delete** for a directory whose session is finished with
       (question #5)
-- [ ] Admin UI: a **simple YAML editor** for one flow, and the **promote to
-      `global`** action — the only way anything reaches the shared library
-      (§F1.2, §F1.14). A richer editor is a later chapter.
+- [ ] Admin UI: a **simple YAML editor** for one flow, and the move button —
+      **To global** / **To this session**, which is one verb rather than a
+      promote (§F1.2, §F1.14). A richer editor is a later chapter.
+- [ ] Admin UI: a **Delete** for one flow, beside the move. `delete_flow`
+      already exists; the UI never offered it.
+- [ ] **All of the above is now designed** (§F1.36) and none of it is built.
+      The drawing is the Penpot file **Admin UI**.
 - [x] `skills/selenium-flow/references/FLOWS.md` + its row in `SKILL.md` (§F1.16)
 - [x] Say in the skill that **`global` is shared and readable by every session**
       — not guessable from a tool schema (§F1.2). Writing it down found that
