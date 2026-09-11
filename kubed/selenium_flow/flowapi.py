@@ -191,6 +191,7 @@ def run_one(
     verbose: bool = False,
     session_id: str = "",
     after_step=None,
+    secrets_catalogue=None,
 ) -> dict:
     """Run one flow against an already-resolved browser."""
     document = read_one(store, session, name)
@@ -201,12 +202,14 @@ def run_one(
         params=params,
         verbose=verbose,
         after_step=after_step,
+        catalogue=secrets_catalogue,
     )
     return {"session": document["session"], **report}
 
 
 def register(
-    mcp, store, sessions, actions, token: str | None, prefix: str = "/flows"
+    mcp, store, sessions, actions, token: str | None, prefix: str = "/flows",
+    secrets_catalogue=None,
 ) -> set[str]:
     """Register the flow resources, tools and endpoints. Returns mirror names."""
     schemas = Schemas(mcp)
@@ -352,6 +355,7 @@ def register(
             verbose=verbose,
             session_id=resolved,
             after_step=remember,
+            secrets_catalogue=secrets_catalogue,
         )
         # One touch for the whole run, not one per step: the point of running
         # server-side is that the bookkeeping happens once. A guarded URL never
@@ -371,7 +375,9 @@ def register(
     def delete_flow(name: str) -> dict:
         return delete_one(store, session_of(sessions), name)
 
-    _routes(mcp, store, sessions, actions, schemas, token, prefix)
+    _routes(
+        mcp, store, sessions, actions, schemas, token, prefix, secrets_catalogue
+    )
     return {LIST_TOOL, GET_TOOL, SCHEMA_TOOL}
 
 
@@ -415,7 +421,10 @@ async def _document_schema(schemas: Schemas) -> dict:
     }
 
 
-def _routes(mcp, store, sessions, actions, schemas: Schemas, token, prefix) -> None:
+def _routes(
+    mcp, store, sessions, actions, schemas: Schemas, token, prefix,
+    secrets_catalogue=None,
+) -> None:
     """The same five operations as plain JSON, for callers that are not MCP."""
 
     async def handle(request: Request, what: str) -> JSONResponse:
@@ -463,6 +472,7 @@ def _routes(mcp, store, sessions, actions, schemas: Schemas, token, prefix) -> N
                         # extract in the flow.
                         verbose=as_bool(body.get("verbose"), False),
                         session_id=session_id,
+                        secrets_catalogue=secrets_catalogue,
                     )
                 )
             document = {

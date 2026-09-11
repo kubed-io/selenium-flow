@@ -20,6 +20,7 @@ from collections.abc import Callable
 from fastmcp import FastMCP
 from fastmcp.utilities.types import Image
 
+from . import secrets as secrets_module
 from . import settings as settings_module
 from .actions import (
     DIALOG_ACTIONS,
@@ -74,7 +75,9 @@ execute_script for anything the other tools do not cover, scrolling included.
 
 
 
-def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
+def register(
+    mcp: FastMCP, actions: Actions, sessions: SessionManager, catalogue=None
+) -> None:
     """Register every action as an MCP tool on ``mcp``."""
 
     def run(
@@ -359,7 +362,7 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
 
     @mcp.tool(annotations=hints("Type text into a field"))
     def write(
-        text: str,
+        text: str | None = None,
         xpath: str | None = None,
         css: str | None = None,
         session_id: str | None = None,
@@ -367,6 +370,7 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         clear: bool = True,
         submit: bool = False,
         wait_timeout: int = WAIT_TIMEOUT,
+        value_from: dict | None = None,
     ) -> dict:
         """Type text into an input, textarea or contenteditable.
 
@@ -376,8 +380,24 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
 
         Address the field with EITHER xpath OR css, never both and never
         neither.
+
+        To type a secret, pass value_from={"secret": {"name": ..., "key": ...}}
+        instead of text. list_secrets shows what there is. You never see the
+        value: the server reads it and types it, and the result comes back with
+        value: null. A secret may only be used on the sites its owner allowed,
+        checked against the page you are on, so navigate there first.
         """
-        return run(
+        bound = value_from is not None
+        if bound:
+            if text is not None:
+                raise ValueError("pass text or value_from, not both")
+            key = sessions.key()
+            here = actions.page(sessions.resolve(key, session_id)).get("url", "")
+            text = secrets_module.bind(catalogue, value_from, here, tool="write")
+        elif text is None:
+            raise ValueError("write needs text, or value_from to supply it")
+
+        result = run(
             session_id,
             lambda s: actions.write(
                 s,
@@ -390,6 +410,12 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
                 wait_timeout=wait_timeout,
             ),
         )
+        if bound:
+            # `write` reads the field back and returns it so a caller can
+            # confirm the text landed. For a bound value that would hand the
+            # secret straight back on the very call meant to protect it.
+            result = {**result, "value": None, "value_from": "secret"}
+        return result
 
     # The description is passed rather than left as a docstring so the real key
     # list is interpolated in — a model guessing key names gets a 400, and the

@@ -114,7 +114,7 @@ async def test_a_broken_flow_is_refused_at_save_with_every_reason(flow_server, s
             steps=[{"tool": "nope", "params": {}}, {"tool": "write", "params": {}}],
         )
     assert "no tool called 'nope'" in str(caught.value)
-    assert "requires 'text'" in str(caught.value)
+    assert "write needs 'text'" in str(caught.value)
     # And nothing was written.
     assert store.names("desktop") == []
 

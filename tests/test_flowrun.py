@@ -373,7 +373,7 @@ def test_a_flow_binding_a_secret_refuses_rather_than_typing_nothing():
     actions = FakeActions()
     report = run(actions, flow(steps), "b")
     assert report["status"] == "failed"
-    assert "secrets are not available" in report["steps"][0]["error"]
+    assert "secrets are not enabled" in report["steps"][0]["error"]
     assert actions.calls == []
 
 
@@ -458,33 +458,18 @@ def test_a_failure_reports_the_page_the_browser_is_actually_on():
     the browser on the new page while the last success holds the newest URL."""
 
     class Navigating(FakeActions):
-        def __init__(self):
-            super().__init__()
-            self.grid = self
-
-        def reconnect(self, session_id):
-            return "driver"
+        def page(self, session_id):
+            return {"url": "https://example.test/two", "title": "Two"}
 
         def write(self, session_id, **kwargs):
             raise RuntimeError("no element matched")
 
-    import kubed.selenium_flow.flowrun as module
-
-    actions = Navigating()
     steps = [
         {"tool": "navigate", "params": {"url": "https://example.test/one"}},
         {"tool": "write", "params": {"url": "https://example.test/two", "css": "#a",
                                      "text": "x"}},
     ]
-    original = module.browser.page_state
-    module.browser.page_state = lambda driver: {
-        "url": "https://example.test/two",
-        "title": "Two",
-    }
-    try:
-        report = run(actions, flow(steps), "b")
-    finally:
-        module.browser.page_state = original
+    report = run(Navigating(), flow(steps), "b")
 
     assert report["status"] == "failed"
     assert report["steps"][-1]["url"] == "https://example.test/two"
@@ -494,11 +479,7 @@ def test_a_failure_reports_the_page_the_browser_is_actually_on():
 
 def test_reading_the_failed_page_can_never_make_a_failure_worse():
     class Exploding(FakeActions):
-        def __init__(self):
-            super().__init__()
-            self.grid = self
-
-        def reconnect(self, session_id):
+        def page(self, session_id):
             raise RuntimeError("the grid is gone too")
 
         def write(self, session_id, **kwargs):
@@ -605,24 +586,13 @@ def test_a_failed_page_read_does_not_reintroduce_a_guarded_url():
     secret = "https://example.test/?token=abc123"
 
     class Failing(FakeActions):
-        def __init__(self):
-            super().__init__()
-            self.grid = self
-
-        def reconnect(self, session_id):
-            return "driver"
+        def page(self, session_id):
+            return {"url": secret, "title": "x"}
 
         def navigate(self, session_id, **kwargs):
             raise RuntimeError("timed out")
 
-    import kubed.selenium_flow.flowrun as module
-
-    original = module.browser.page_state
-    module.browser.page_state = lambda driver: {"url": secret, "title": "x"}
-    try:
-        report = run(Failing(), document, "b", params={"magic_link": secret})
-    finally:
-        module.browser.page_state = original
+    report = run(Failing(), document, "b", params={"magic_link": secret})
     assert "abc123" not in str(report)
 
 

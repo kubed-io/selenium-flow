@@ -415,3 +415,93 @@ def register(mcp, catalogue, sessions, token: str | None, prefix: str = "") -> s
             )
 
     return {LIST_TOOL}
+
+
+# ---------------------------------------------------------------------------
+# Binding: the one path that reads a value, and the only one there will be.
+
+# Which actions may have a secret bound into them, and nothing else (§F1.28).
+#
+# Not `execute_script`: a script is arbitrary code, and a bindable argument
+# there is an exfiltration API with extra steps. Not `navigate`: a secret in a
+# URL lands in browser history, the referrer header, and this server's own
+# session record, which is stored in Redis. Not `press_key`, which has no value
+# to carry. `upload_file` says "not yet" rather than "never" — a credentials
+# file is a plausible later case.
+BINDABLE = {"write"}
+NOT_YET = {"upload_file"}
+
+
+class Refused(ValueError):
+    """A binding this server will not perform.
+
+    A ValueError so `errors.py` returns 400: every one of these is something
+    the caller or the operator can fix, and none of them is our failure.
+    """
+
+
+def bind(catalogue, source: dict, url: str, tool: str = "write") -> str:
+    """The value a `valueFrom.secret` reference names, or refuse.
+
+    **The only function in this package that returns a secret value**, and it
+    returns it to exactly one caller: whichever surface is about to type it into
+    a field. It is not cached, not logged, and not put in any result.
+
+    ``url`` is the page the browser is **actually on**, read at the moment of
+    the bind. Checking anything else would check a permission against a page
+    other than the one receiving the keystroke.
+    """
+    reference = source.get("secret") or {}
+    name, key = reference.get("name"), reference.get("key")
+
+    if tool in NOT_YET:
+        raise Refused(
+            f"{tool} cannot take a secret yet — only {', '.join(sorted(BINDABLE))} can"
+        )
+    if tool not in BINDABLE:
+        raise Refused(
+            f"a secret cannot be bound into {tool}: only "
+            f"{', '.join(sorted(BINDABLE))} may receive one, because it is the "
+            "only action that types a value into a field and nothing else"
+        )
+    if catalogue is None:
+        raise Refused(
+            "secrets are not enabled on this server: it was started with no "
+            "SECRETS_DIRS, so there is nowhere to read them from"
+        )
+    if not name or not key:
+        raise Refused("a secret reference needs both a name and a key")
+
+    entry = catalogue.entry(name)
+    if entry is None:
+        raise Refused(
+            f"there is no secret called {name!r}. list_secrets shows what there is."
+        )
+    if key not in entry["keys"]:
+        raise Refused(
+            f"the secret {name!r} has no key {key!r}. It has: "
+            f"{', '.join(entry['keys']) or 'none'}"
+        )
+
+    if not catalogue.allows(name, url):
+        # Logged loudest of anything here: something tried to use a credential
+        # on a page its owner did not allow, which is the event an operator most
+        # wants to know about.
+        log.warning(
+            "REFUSED binding secret %s/%s on %s: not an allowed site",
+            name, key, origin(url) or "an unknown page",
+        )
+        allowed = ", ".join(entry.get("allowed_urls") or [])
+        raise Refused(
+            f"the secret {name!r} may not be used on "
+            f"{origin(url) or 'this page'}. It allows: "
+            + (allowed or "nowhere — its _allowed_urls file does not parse")
+        )
+
+    value = catalogue.value(name, key)
+    if value is None:
+        raise Refused(f"the secret {name!r} has no readable value for {key!r}")
+
+    # The audit trail: what was used, where, by which action. Never the value.
+    log.info("bound secret %s/%s on %s for %s", name, key, origin(url), tool)
+    return value

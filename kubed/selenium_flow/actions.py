@@ -663,6 +663,16 @@ class Actions:
         )
         return {"file": entry, "bytes": len(data), **browser.page_state(driver)}
 
+    def page(self, session_id: str) -> dict:
+        """Where the browser is, without touching it.
+
+        Not a capability and so not a tool: `session://current` already answers
+        this for a caller. It exists because a secret's leash is checked against
+        the page about to receive the keystroke, and that check has to read the
+        page rather than trust what the caller said about it.
+        """
+        return browser.page_state(self.grid.reconnect(session_id))
+
     def _at(self, session_id: str, url=None):
         """Reconnect, and put the browser on ``url`` if it is not already there."""
         if not session_id:

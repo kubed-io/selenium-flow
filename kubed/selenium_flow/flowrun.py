@@ -33,7 +33,7 @@ from __future__ import annotations
 import logging
 import time
 
-from . import browser
+from . import secrets
 from .flowdoc import NOT_STEPS
 from .routes import ENDPOINTS
 
@@ -181,7 +181,13 @@ def check_params(document: dict, params: dict) -> None:
         )
 
 
-def resolve_step(step: dict, params: dict, sensitive: set[str]) -> tuple[dict, set]:
+def resolve_step(
+    step: dict,
+    params: dict,
+    sensitive: set[str],
+    catalogue=None,
+    page: str = "",
+) -> tuple[dict, set]:
     """A step's keyword arguments, and **which of them** must not be echoed.
 
     Structural: each entry of `valueFrom` names a source and the value goes
@@ -202,14 +208,19 @@ def resolve_step(step: dict, params: dict, sensitive: set[str]) -> tuple[dict, s
             if reference in sensitive:
                 guarded.add(name)
         elif "secret" in source:
-            # E9. Refused rather than skipped: a login flow that silently typed
-            # nothing into the password field would "succeed" and leave someone
-            # staring at a login page wondering why.
-            raise FlowError(
-                f"step {step.get('id') or step.get('tool')}: this flow binds the "
-                f"secret {source['secret'].get('name')!r}, and secrets are not "
-                "available on this server yet"
-            )
+            # The one place a run reads a credential. `page` is where the
+            # browser actually is, so the secret's leash is checked against the
+            # page about to receive the keystroke rather than against wherever
+            # the flow started.
+            try:
+                kwargs[name] = secrets.bind(
+                    catalogue, source, page, tool=step.get("tool", "")
+                )
+            except secrets.Refused as exc:
+                raise FlowError(
+                    f"step {step.get('id') or step.get('tool')}: {exc}"
+                ) from exc
+            guarded.add(name)
         elif "config" in source:
             raise FlowError(
                 f"step {step.get('id') or step.get('tool')}: config values are "
@@ -260,12 +271,17 @@ def _page_state(actions, session_id: str) -> dict:
     misleading; letting `sessions.touch` store it is worse, because a later
     reopen would land on the wrong page.
 
-    Same reconnect-and-read `sessions.describe` already does, and wrapped the
-    same way: this runs while reporting a failure and must never turn one
+    Goes through `actions.page` rather than reaching for the Grid itself, so
+    that "where is the browser" has one implementation. The binding check reads
+    the page the same way, and a secret's leash being checked against a
+    different notion of "here" than the failure report uses would be a subtle
+    and unpleasant divergence.
+
+    Wrapped because it runs while reporting a failure and must never turn one
     failure into two.
     """
     try:
-        return browser.page_state(actions.grid.reconnect(session_id))
+        return actions.page(session_id)
     except Exception:  # noqa: BLE001 - a best-effort read, on an error path
         return {}
 
@@ -278,6 +294,7 @@ def run(
     verbose: bool = False,
     timeout: int = RUN_TIMEOUT,
     after_step=None,
+    catalogue=None,
 ) -> dict:
     """Run every step of ``document`` against the browser ``session_id``.
 
@@ -335,7 +352,12 @@ def run(
             break
 
         try:
-            kwargs, guarded = resolve_step(step, params, sensitive)
+            # Only read the page when a step actually binds a secret: it costs a
+            # WebDriver round trip, and every other step has no leash to check.
+            page = ""
+            if any("secret" in s for s in (step.get("valueFrom") or {}).values()):
+                page = _page_state(actions, session_id).get("url", "")
+            kwargs, guarded = resolve_step(step, params, sensitive, catalogue, page)
         except FlowError as exc:
             entry.update(ok=False, error=str(exc))
             reports.append(entry)

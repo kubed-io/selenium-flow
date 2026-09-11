@@ -62,6 +62,22 @@ RESERVED_PARAMS = {"session_id"}
 
 # Where a value may come from. Exactly one per reference.
 SOURCES = ("param", "secret", "config")
+# Kept in step with secrets.BINDABLE, and asserted equal by the tests. Named
+# here rather than imported so this module keeps validating a document without
+# needing a secrets backend to exist.
+BINDABLE_TOOLS = {"write"}
+
+# `write` accepts its value as `text` or through a binding, so the tool schema
+# marks neither required and this says what it actually needs.
+NEEDED_SOMEHOW = {"write": ("text",)}
+
+# Tools that act on an element, and the ones where naming none is legitimate —
+# press_key goes wherever focus is, screenshot captures the viewport, frame
+# takes an index instead.
+ADDRESSES_AN_ELEMENT = {
+    "interact", "write", "extract", "upload_file", "press_key", "screenshot", "frame",
+}
+OPTIONAL_ELEMENT = {"press_key", "screenshot", "frame"}
 # The two that name a thing and a key inside it. `param` is just a name.
 KEYED_SOURCES = ("secret", "config")
 
@@ -126,7 +142,9 @@ def _type_fits(value, accepted: set[str]) -> bool:
     return False
 
 
-def _check_value_from(where: str, name: str, source, declared: set[str]) -> list[str]:
+def _check_value_from(
+    where: str, name: str, source, declared: set[str], tool: str = ""
+) -> list[str]:
     """One entry of a step's ``valueFrom`` map."""
     if not isinstance(source, dict):
         return [f"{where}: valueFrom.{name} must be an object naming one source"]
@@ -154,6 +172,13 @@ def _check_value_from(where: str, name: str, source, declared: set[str]) -> list
 
     kind = named[0]
     reference = source[kind]
+
+    if kind == "secret" and tool and tool not in BINDABLE_TOOLS:
+        problems.append(
+            f"{where}: a secret cannot be bound into {tool}. Only "
+            f"{', '.join(sorted(BINDABLE_TOOLS))} may receive one — it is the "
+            "only action that types a value into a field and nothing else"
+        )
 
     if kind == "param":
         if not isinstance(reference, str) or not reference:
@@ -226,6 +251,27 @@ def _check_params(where: str, tool: str, params: dict, bound: set[str], schema: 
                 "one value, one place"
             )
 
+    # Arguments a tool needs but its JSON schema cannot demand, because they
+    # may arrive by more than one route. `write` takes `text` OR a binding, so
+    # neither is `required` in the schema — and without this, a step with no
+    # text at all saved cleanly and failed at run time, which is the whole thing
+    # validating-on-save exists to prevent.
+    for argument in NEEDED_SOMEHOW.get(tool, ()):
+        if argument not in params and argument not in bound:
+            problems.append(
+                f"{where}: {tool} needs {argument!r} — give it in params, or in "
+                "valueFrom to take it from a parameter or a secret"
+            )
+
+    # Same shape for the element: exactly one of xpath or css, which a schema
+    # cannot say without a oneOf and `browser.locator` enforces at the boundary.
+    if tool in ADDRESSES_AN_ELEMENT:
+        named = [k for k in ("xpath", "css") if params.get(k) or k in bound]
+        if len(named) > 1:
+            problems.append(f"{where}: {tool} takes xpath or css, not both")
+        elif not named and tool not in OPTIONAL_ELEMENT:
+            problems.append(f"{where}: {tool} needs an element — give xpath or css")
+
     for name in schema.get("required") or []:
         if name not in params and name not in bound and name not in RESERVED_PARAMS:
             problems.append(f"{where}: {tool} requires {name!r}")
@@ -285,8 +331,19 @@ def _check_step(index: int, step, declared: set[str], schemas: dict) -> list[str
     value_from = step.get("valueFrom", {})
     if not isinstance(value_from, dict):
         return [*problems, f"{where}: valueFrom must be an object"]
+    sources = [s for s in value_from.values() if isinstance(s, dict)]
+    binds_secret = any("secret" in s for s in sources)
+    if binds_secret and params.get("url"):
+        # The leash is checked against the page the browser is on. A step that
+        # navigates first would be checked against the page it is leaving, and
+        # a redirect would defeat even that. Navigate as its own step.
+        problems.append(
+            f"{where}: a step that binds a secret may not also navigate — "
+            "put the url in its own navigate step, so the secret's allowed "
+            "sites are checked against the page that receives it"
+        )
     for name, source in sorted(value_from.items()):
-        problems += _check_value_from(where, name, source, declared)
+        problems += _check_value_from(where, name, source, declared, tool)
 
     checked = _check_params(where, tool, params, set(value_from), schemas[tool])
     return [*problems, *checked]

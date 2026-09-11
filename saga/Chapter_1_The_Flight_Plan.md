@@ -806,6 +806,109 @@ And it is a genuinely good destination: flows in Nextcloud means they are
 versioned, shared, browsable and backed up by something that already does all
 four — the same argument every other `nextcloud-*` project in this fleet makes.
 
+### §F1.33 — Decision (locked): a flow declares where it applies, and the page you are on decides what you see
+
+Dr K's, and it solves a problem the feature is about to have rather than one it
+has: a library of thirty flows across six sites, where twenty-nine of them are
+noise on any given page.
+
+> *"Since the browser always has context on some URL we are currently on, we can
+> put a glob-like list of URLs the flow works on. Then list_flows can filter by
+> relevant flows. The context of what flows are available is the site itself."*
+
+A flow gains an optional `urls`:
+
+```yaml
+name: login
+description: Log in to the admin panel
+urls:
+- https://nextcloud.example.com/*
+steps: [...]
+```
+
+- **Globs over the whole URL**, matched with `fnmatch`. `*` on its own means
+  every site, which is the escape hatch for a genuinely generic flow.
+- **No `urls` at all means everywhere**, so every flow saved before this
+  existed keeps appearing. Absent and `*` behave identically, deliberately.
+- **A URL with no path is matched as though it ended in `/`**, so
+  `https://host` matches the pattern `https://host/*` rather than mysteriously
+  not doing.
+
+**This is a filter, not a leash, and the distinction has to survive contact with
+the next person who reads both features.** A secret's `_allowed_urls` (§F1.27)
+is a *security control*: origin-exact, substring matching explicitly rejected,
+failing closed when it cannot be parsed. A flow's `urls` is a *discovery
+convenience*: glob, fails **open** — when in doubt the flow is listed — and
+worth nothing as a defence, because a caller can name any flow it likes.
+
+They look similar and must never be merged. Merging them would either make
+discovery annoyingly strict or, far worse, make the secret leash a glob.
+
+**Running is not gated on it.** A flow's first step is very often `navigate`,
+so at the moment a run starts the browser is frequently on `about:blank` or on
+the page you came from — gating the run on the pattern would refuse exactly the
+common case. `urls` says where a flow is *relevant*, not where it is *permitted*.
+See open question #14.
+
+### §F1.34 — Decision (locked): the filtered view is its own resource, because MCP has no filter
+
+Dr K asked directly: *"do resources have a filter?"*
+
+**No.** A resource is identified by its URI and nothing else; there is no query
+or parameter mechanism in the protocol. The one variable part is a **resource
+template** (RFC 6570), which parameterises *path segments* — which is how
+`flow://flows/{name}` already works. So a filtered view has to be a different
+URI, exactly as Dr K guessed.
+
+The obvious spelling has a collision worth catching before it ships:
+
+> `flow://flows/current` would be ambiguous with `flow://flows/{name}` — it is
+> also the URI of a flow that somebody named `current`.
+
+Reserving the name would be a rule nobody can see from the outside. So:
+
+| URI | What |
+|---|---|
+| `flow://here` | the flows that apply to the page the browser is on |
+| `flow://flows` | every flow this session can run |
+| `flow://flows/{name}` | one flow, unchanged |
+
+`flow://here` cannot collide with a flow name, and it reads as what it is.
+
+**The tool takes a flag instead**, because a tool *can* have parameters:
+`list_flows(everywhere=False)`. The default is the current page, which is Dr K's
+call and the right one — the common question is "what can I do *here*".
+
+**The current URL comes from the session record, not from the Grid.** It is what
+the last action reported, it is already kept current by `sessions.touch`, and
+reading it costs nothing. A resource read must never open a browser or spend a
+round trip, and this one does neither. The cost is that a page which navigated
+itself since the last action is not reflected — an acceptable trade for a
+listing, and stated so nobody assumes otherwise.
+
+### §F1.35 — Decision (locked): the session status says when the page has flows
+
+The other half of Dr K's idea, and the one that makes the feature discoverable
+rather than merely filterable:
+
+> *"When the URL changes or the browser session starts, there can be a hint
+> about the specific URL having flows."*
+
+`session://current` — which the skill already tells an agent to read first —
+gains `flows_here`: the **names** of the flows that apply to the page it is on.
+Names only, not descriptions: it is a pointer into `flow://here`, not a
+duplicate of it.
+
+That makes the flow library announce itself at exactly the moment it is useful,
+without an agent having to think to ask. It also gives the skill a much better
+opening move than "list your flows": *read the status, and if `flows_here` is
+not empty, one of them is probably the task you were given.*
+
+**The listing has to be cheap for this to be free**, because the status resource
+is read often and a summary today reads every flow file in the session. So the
+flow store gains the same short-TTL catalogue cache the secrets catalogue
+already has (§F1.23) — cache the listing, never the documents.
+
 ### §F1.13 — Decision (locked): selector strategy is a per-step, mutually exclusive choice — and it lands in the tools first
 
 Dr K, answering what had been open question #8:
@@ -1519,25 +1622,54 @@ API from inside a pod rather than reasoned about.
 - [ ] **Cluster repo:** Role + RoleBinding, with a comment saying plainly that
       this grants read of every secret in the namespace (§F1.20)
 
-### E9 — Handing over the pouch: the binding
+### E11 — Local knowledge: flows that know where they apply
 
-- [ ] **First, and with a test before the feature: close the `write` read-back.**
+- [ ] `urls` on a flow document: a list of globs, validated at save time —
+      strings only, and a pattern that is not a string is refused (§F1.33)
+- [ ] Matching helper: `fnmatch` over the whole URL, a path-less URL treated as
+      ending in `/`, absent-or-`*` meaning everywhere
+- [ ] `flow://here` resource — **not** `flow://flows/current`, which collides
+      with a flow named `current` (§F1.34)
+- [ ] `list_flows(everywhere=False)`, defaulting to the current page; with no
+      current URL there is nothing to filter by, so show everything rather than
+      nothing
+- [ ] `/flows/list` takes the same flag, and a `url` override so an HTTP caller
+      with no session can ask "what applies to this page"
+- [ ] `flows_here` on `session://current` and `current_session` (§F1.35)
+- [ ] Short-TTL cache on the flow listing, so the status resource stays cheap —
+      cache the listing, never the documents
+- [ ] The skill's opening move becomes "read the status; if `flows_here` is not
+      empty, one of them is probably your task"
+- [ ] Tests: a glob matching and not matching, `*`, absent, a path-less URL, the
+      no-current-URL fallback, and one asserting `flow://here` and a flow named
+      `current` do not collide
+- [ ] **A test that the two URL mechanisms stay apart**: a secret's leash is
+      origin-exact and fails closed, a flow's `urls` is a glob and fails open.
+      They will look mergeable to somebody one day (§F1.33)
+
+### E9 — Handing over the pouch: the binding — **DONE**
+
+- [x] **First, and with a test before the feature: close the `write` read-back.**
       A bound write returns `"value": null` plus a `"value_from"` naming what was
       used, and does not perform the read at all (§F1.25)
-- [ ] A typed `ValueFrom` model — exactly one of `param`, `secret`, `config` —
+- [x] A typed `ValueFrom` model — exactly one of `param`, `secret`, `config` —
       shared by the tool parameter and the flow step key (§F1.7, §F1.26)
-- [ ] `value_from` on `write`, mutually exclusive with `text`, refused at the
+- [x] `value_from` on `write`, mutually exclusive with `text`, refused at the
       boundary with the `browser.locator` idiom (§F1.26)
-- [ ] Allowed-URL enforcement, **matched by origin**, against the page the
-      browser is actually on at the moment of the write (§F1.27)
-- [ ] Refusals with reasons for `execute_script`, `navigate` and `press_key`;
+- [x] Allowed-URL enforcement, **matched by origin**, against the page the
+      browser is actually on at the moment of the write (§F1.27).
+      **Consequence found while building:** a step that binds a secret may not
+      also carry `url`. A step that navigates first would have its leash checked
+      against the page it is leaving, and a redirect would defeat even that —
+      so navigation is its own step, refused at save time with that reasoning.
+- [x] Refusals with reasons for `execute_script`, `navigate` and `press_key`;
       `upload_file` says "not yet" rather than "never" (§F1.28)
-- [ ] Audit events: flow, step, secret, key, URL, allowed — never a value, and a
+- [x] Audit events: flow, step, secret, key, URL, allowed — never a value, and a
       refused bind logged loudest (§F1.30)
 - [x] `secret://secrets` resource, `list_secrets` mirror tool, `GET /secrets`
       (§F1.31) — **shipped with E7**: the catalogue is the half that stands on
       its own, and it is what a skill can teach before any binding exists
-- [ ] Tests: a bound value never appears in a tool result, a run report, a saved
+- [x] Tests: a bound value never appears in a tool result, a run report, a saved
       flow or a log record; an origin-suffix attack is refused; a bind on a
       disallowed URL is refused before any keystroke is sent
 
@@ -1623,6 +1755,14 @@ answer is the useful part.
     {id: extract-token, field: text}}` — which is *better*, because it is
     checkable at save time against the step ids in the same document. Recommend
     that shape when Chapter 2 gets there.
+
+14. **Should `urls` ever gate a *run*, not just a listing?** §F1.33 says no,
+    because a flow's first step is usually `navigate` and the browser is often
+    on `about:blank` when the run starts — gating would refuse the common case.
+    A softer version exists: warn when a flow declares `urls`, the current page
+    matches none of them, **and** its first step does not navigate. That is a
+    real smell and a cheap check. Recommend: not in Chapter 1, and only if
+    running the wrong flow on the wrong page turns out to happen.
 
 **Still genuinely open:** §F1.8 (what a run returns — a recommendation is on the
 table, no objection yet) and §F1.11 (the `ROUTE_PREFIX` rollout, which has a live

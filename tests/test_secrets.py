@@ -503,3 +503,153 @@ def test_an_unreadable_root_is_no_secrets_rather_than_a_crash(tmp_path):
         assert FilesystemSource(root).names() == []
     finally:
         root.chmod(0o755)
+
+
+# ---- binding: the one path that reads a value ---------------------------------
+
+
+@pytest.fixture
+def bindable(tmp_path):
+    make_secret(
+        tmp_path, "nextcloud", username="admin", password="hunter2",
+        **{ALLOWED_URLS: "https://nc.example.com"},
+    )
+    make_secret(tmp_path, "anywhere", token="free")
+    return Catalogue([FilesystemSource(tmp_path)])
+
+
+def test_a_bind_returns_the_value_to_exactly_one_caller(bindable):
+    value = secrets.bind(
+        bindable, {"secret": {"name": "nextcloud", "key": "password"}},
+        "https://nc.example.com/login",
+    )
+    assert value == "hunter2"
+
+
+def test_a_bind_on_a_page_the_secret_does_not_allow_is_refused(bindable):
+    with pytest.raises(secrets.Refused, match="may not be used"):
+        secrets.bind(
+            bindable, {"secret": {"name": "nextcloud", "key": "password"}},
+            "https://evil.test/login",
+        )
+
+
+def test_the_origin_suffix_attack_is_refused_at_bind_time(bindable):
+    with pytest.raises(secrets.Refused):
+        secrets.bind(
+            bindable, {"secret": {"name": "nextcloud", "key": "password"}},
+            "https://nc.example.com.evil.test/login",
+        )
+
+
+def test_an_unrestricted_secret_binds_anywhere(bindable):
+    assert secrets.bind(
+        bindable, {"secret": {"name": "anywhere", "key": "token"}},
+        "https://wherever.test/",
+    ) == "free"
+
+
+@pytest.mark.parametrize("tool", ["execute_script", "navigate", "press_key", "extract"])
+def test_only_write_may_receive_a_secret(bindable, tool):
+    """A script is arbitrary code; a URL lands in history, the referrer and our
+    own session record. Neither may carry a credential (§F1.28)."""
+    with pytest.raises(secrets.Refused, match="cannot be bound into"):
+        secrets.bind(
+            bindable, {"secret": {"name": "anywhere", "key": "token"}},
+            "https://x.test/", tool=tool,
+        )
+
+
+def test_upload_file_says_not_yet_rather_than_never(bindable):
+    """A credentials file is a plausible later case, and the refusal should say
+    which kind of no it is."""
+    with pytest.raises(secrets.Refused, match="cannot take a secret yet"):
+        secrets.bind(
+            bindable, {"secret": {"name": "anywhere", "key": "token"}},
+            "https://x.test/", tool="upload_file",
+        )
+
+
+def test_a_missing_secret_or_key_says_what_there_is(bindable):
+    with pytest.raises(secrets.Refused, match="list_secrets"):
+        secrets.bind(bindable, {"secret": {"name": "nope", "key": "k"}},
+                     "https://x.test/")
+    with pytest.raises(secrets.Refused, match="has no key") as caught:
+        secrets.bind(bindable, {"secret": {"name": "nextcloud", "key": "nope"}},
+                     "https://nc.example.com/")
+    assert "password" in str(caught.value)
+
+
+def test_a_refusal_never_carries_the_value(bindable):
+    for source, url in (
+        ({"secret": {"name": "nextcloud", "key": "password"}}, "https://evil.test/"),
+        ({"secret": {"name": "nextcloud", "key": "nope"}}, "https://nc.example.com/"),
+    ):
+        try:
+            secrets.bind(bindable, source, url)
+        except secrets.Refused as exc:
+            assert "hunter2" not in str(exc)
+
+
+def test_the_bindable_set_matches_what_the_validator_enforces():
+    """Two modules name this, and they must not drift: flowdoc refuses at save,
+    secrets refuses at bind."""
+    from kubed.selenium_flow.flowdoc import BINDABLE_TOOLS
+
+    assert BINDABLE_TOOLS == secrets.BINDABLE
+
+
+async def test_a_login_flow_types_a_secret_it_never_shows(tmp_path, monkeypatch):
+    """The whole arsenal, end to end: a saved flow, a bound secret, one call."""
+    from kubed.selenium_flow import flowapi
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    from .conftest import NAMED, TOKEN
+
+    monkeypatch.delenv("SECRETS_DIRS", raising=False)
+    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    make_secret(
+        tmp_path / "secrets", "nextcloud", username="admin", password="hunter2",
+        **{ALLOWED_URLS: "https://nc.example.com"},
+    )
+    server = SeleniumMCP(
+        grid_url="http://grid.invalid:4444",
+        auth_token=TOKEN,
+        secrets_dirs=str(tmp_path / "secrets"),
+        flow_data_dir=str(tmp_path / "flows"),
+    )
+    monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
+    monkeypatch.setattr(server.sessions, "resolve", lambda key, sid: "browser-1")
+    typed = []
+    monkeypatch.setattr(
+        server.actions, "page",
+        lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
+    )
+    monkeypatch.setattr(
+        server.actions, "write",
+        lambda sid, text, **kw: typed.append(text)
+        or {"value": text, "url": "https://nc.example.com/", "title": "Home"},
+    )
+
+    save = await server.mcp.get_tool("save_flow")
+    await save.fn(
+        name="login",
+        steps=[
+            {
+                "tool": "write",
+                "params": {"css": "#password"},
+                "valueFrom": {
+                    "text": {"secret": {"name": "nextcloud", "key": "password"}}
+                },
+            }
+        ],
+    )
+    run_flow = await server.mcp.get_tool(flowapi.RUN_TOOL)
+    report = run_flow.fn(name="login")
+
+    assert report["status"] == "ok"
+    # It reached the browser...
+    assert typed == ["hunter2"]
+    # ...and nothing anywhere in the report says so.
+    assert "hunter2" not in str(report)
+    assert report["steps"][0]["summary"].endswith("text=<hidden>")
