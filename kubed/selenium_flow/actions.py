@@ -487,8 +487,18 @@ class Actions:
         submit=False,
         wait_timeout=WAIT_TIMEOUT,
         css=None,
+        read_back=True,
     ) -> dict:
-        """Type ``text`` into a field."""
+        """Type ``text`` into a field.
+
+        ``read_back`` is normally true and is what lets a caller confirm the
+        text landed. It is turned off for a value the caller must never be shown
+        again — a bound secret — and turning it off means the read is **not
+        performed**, not that its answer is dropped later. Redacting afterwards
+        still puts the credential in a local variable, in a traceback if one
+        fires between the two, and in whatever the action returned before
+        anything wrapped it.
+        """
         target = browser.locator(xpath, css)
         driver = self._at(session_id, url)
         element = browser.wait_for_clickable(driver, target, as_int(wait_timeout, 30))
@@ -497,7 +507,7 @@ class Actions:
         element.send_keys(str(text))
         # Read the value back before any submit: submitting navigates, which
         # makes the element reference stale.
-        value = element.get_attribute("value")
+        value = element.get_attribute("value") if as_bool(read_back, True) else None
         if as_bool(submit, False):
             element.send_keys(Keys.RETURN)
             # And then wait for the navigation it may have caused, or the state

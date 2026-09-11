@@ -484,3 +484,28 @@ async def test_wait_timeout_is_the_per_step_bound_and_is_accepted(step_schema_ma
         flow(steps=[{"tool": "extract", "params": {"css": "h1", "wait_timeout": 5}}]),
         step_schema_map,
     )
+
+
+async def test_switching_to_a_frame_still_needs_a_target(step_schema_map):
+    """`frame` is not simply selector-optional: switch needs xpath, css or
+    index, and `actions.frame` refuses that call at run time — so treating the
+    whole action as optional put validation and execution back out of step."""
+    with pytest.raises(InvalidFlow, match="needs an element"):
+        validate(
+            flow(steps=[{"tool": "frame", "params": {"action": "switch"}}]),
+            step_schema_map,
+        )
+
+
+async def test_switching_by_index_needs_no_selector(step_schema_map):
+    assert validate(
+        flow(steps=[{"tool": "frame", "params": {"action": "switch", "index": 0}}]),
+        step_schema_map,
+    )
+
+
+@pytest.mark.parametrize("action", ["parent", "default"])
+async def test_leaving_a_frame_needs_nothing(step_schema_map, action):
+    assert validate(
+        flow(steps=[{"tool": "frame", "params": {"action": action}}]), step_schema_map
+    )

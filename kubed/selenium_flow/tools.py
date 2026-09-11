@@ -19,7 +19,9 @@ from collections.abc import Callable
 
 from fastmcp import FastMCP
 from fastmcp.utilities.types import Image
+from pydantic import BaseModel
 
+from . import flowrun
 from . import secrets as secrets_module
 from . import settings as settings_module
 from .actions import (
@@ -42,6 +44,24 @@ SELECTOR = (
     "neither - e.g. xpath=\"//button[@type='submit']\" or "
     "css=\"button[type=submit]\"."
 )
+
+class SecretRef(BaseModel):
+    """Which secret, and which key inside it."""
+
+    name: str
+    key: str
+
+
+class ValueFrom(BaseModel):
+    """Where a value comes from, instead of being given literally.
+
+    A real model rather than a bare dict so the shape is **published**: a model
+    filling this in is told it needs `secret.name` and `secret.key` rather than
+    being handed an unconstrained object and left to guess.
+    """
+
+    secret: SecretRef | None = None
+
 
 INSTRUCTIONS = f"""\
 Drives a real Chrome or Firefox browser on Selenium Grid. The browser is \
@@ -370,7 +390,7 @@ def register(
         clear: bool = True,
         submit: bool = False,
         wait_timeout: int = WAIT_TIMEOUT,
-        value_from: dict | None = None,
+        value_from: ValueFrom | None = None,
     ) -> dict:
         """Type text into an input, textarea or contenteditable.
 
@@ -387,34 +407,54 @@ def register(
         value: null. A secret may only be used on the sites its owner allowed,
         checked against the page you are on, so navigate there first.
         """
-        bound = value_from is not None
-        if bound:
-            if text is not None:
-                raise ValueError("pass text or value_from, not both")
-            key = sessions.key()
-            here = actions.page(sessions.resolve(key, session_id)).get("url", "")
-            text = secrets_module.bind(catalogue, value_from, here, tool="write")
-        elif text is None:
+        if value_from is None and text is None:
             raise ValueError("write needs text, or value_from to supply it")
+        if value_from is None:
+            return run(
+                session_id,
+                lambda s: actions.write(
+                    s,
+                    text,
+                    xpath=xpath,
+                    css=css,
+                    url=url,
+                    clear=clear,
+                    submit=submit,
+                    wait_timeout=wait_timeout,
+                ),
+            )
 
-        result = run(
-            session_id,
-            lambda s: actions.write(
-                s,
-                text,
+        # A bound write does not go through `run`, deliberately. `run` touches
+        # the session with the URL the action returned, and `submit=True` can
+        # land the browser on `?q=<what was typed>` — so the shared wrapper
+        # would persist the credential into the session record before anything
+        # had a chance to redact it.
+        key = sessions.key()
+        resolved = sessions.resolve(key, session_id)
+        given, _guarded = secrets_module.prepare_write(
+            catalogue,
+            actions,
+            resolved,
+            {"text": text, "url": url, "value_from": value_from},
+        )
+        hidden = {given["text"]}
+        try:
+            result = actions.write(
+                resolved,
+                given["text"],
                 xpath=xpath,
                 css=css,
-                url=url,
                 clear=clear,
                 submit=submit,
                 wait_timeout=wait_timeout,
-            ),
-        )
-        if bound:
-            # `write` reads the field back and returns it so a caller can
-            # confirm the text landed. For a bound value that would hand the
-            # secret straight back on the very call meant to protect it.
-            result = {**result, "value": None, "value_from": "secret"}
+                # Not read back at all, rather than read and then hidden.
+                read_back=False,
+            )
+        except Exception as exc:  # noqa: BLE001 - rewrapped, never swallowed
+            # An action puts its arguments in its error text.
+            raise ValueError(flowrun.scrub(str(exc), hidden)) from None
+        result = flowrun.scrub_values({**result, "value_from": "secret"}, hidden)
+        sessions.touch(key, result.get("url"), resolved)
         return result
 
     # The description is passed rather than left as a docstring so the real key

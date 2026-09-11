@@ -56,6 +56,7 @@ def register(
     token: str | None,
     prefix: str,
     sessions_kind: str = "memory",
+    catalogue=None,
 ) -> None:
     """Register ``/health`` and the ``<prefix>/*`` action endpoints on ``mcp``."""
 
@@ -113,13 +114,23 @@ def register(
         return JSONResponse(await spec())
 
     for path, method_name in {**ENDPOINTS, **LEGACY_PATHS}.items():
-        _add(mcp, actions, token, prefix, path, method_name)
+        _add(mcp, actions, token, prefix, path, method_name, catalogue)
 
 
-def _add(mcp, actions, token, prefix, path, method_name) -> None:
+def _add(mcp, actions, token, prefix, path, method_name, catalogue=None) -> None:
     """Bind one action method to ``<prefix>/<path>``."""
     method = getattr(actions, method_name)
     accepted = set(inspect.signature(method).parameters)
+    # `value_from` is not an argument of the action — resolving it needs the
+    # secret catalogue, which the behaviour layer deliberately cannot see. It is
+    # still a parameter of the *capability*, so this surface has to accept it or
+    # the two surfaces differ in what they can do, which is the one divergence
+    # this package does not allow. It is dropped from `accepted` by that same
+    # signature check, so without this branch an HTTP caller's binding vanished
+    # silently while the published spec advertised it.
+    binds = method_name == "write"
+    if binds:
+        accepted = accepted | {"value_from"}
 
     @mcp.custom_route(f"{prefix}/{path}", methods=["POST"], name=f"browser_{path}")
     async def handler(request: Request) -> JSONResponse:
@@ -138,7 +149,20 @@ def _add(mcp, actions, token, prefix, path, method_name) -> None:
         # Drop unknown keys rather than 400 on them: a caller sending a field a
         # newer version accepts should not be a hard failure.
         kwargs = {k: v for k, v in body.items() if k in accepted}
+        guarded: set[str] = set()
         try:
+            if binds and kwargs.get("value_from") is not None:
+                from . import secrets as secrets_module
+
+                session = kwargs.get("session_id") or ""
+                if not session:
+                    raise ValueError("session_id is required")
+                kwargs, guarded = secrets_module.prepare_write(
+                    catalogue, actions, session, kwargs
+                )
+                kwargs["read_back"] = False
+            elif binds:
+                kwargs.pop("value_from", None)
             if method_name == "open_session":
                 # Same cascade as the tool: server default < client default <
                 # body. Inside the try because it VALIDATES as well as merges —
@@ -149,12 +173,24 @@ def _add(mcp, actions, token, prefix, path, method_name) -> None:
                 kwargs = settings.resolve(kwargs) | {
                     k: v for k, v in kwargs.items() if k not in settings.SETTINGS
                 }
-            return JSONResponse(method(**kwargs))
+            result = method(**kwargs)
+            if guarded:
+                from . import flowrun
+
+                hidden = {kwargs.get(name) for name in guarded}
+                result = flowrun.scrub_values(
+                    {**result, "value_from": "secret"}, hidden
+                )
+            return JSONResponse(result)
         except Exception as exc:
             # errors.py decides what the failure means; see it for why a
             # timeout is the caller's problem and an unknown one is ours.
             status = errors.status_for(exc)
             text = errors.message(exc)
+            if guarded:
+                from . import flowrun
+
+                text = flowrun.scrub(text, {kwargs.get(n) for n in guarded})
             if status >= 500:
                 log.exception("%s failed", path)
             else:

@@ -72,7 +72,23 @@ def origin(url: str) -> str:
     parts = urlsplit((url or "").strip())
     if not parts.scheme or not parts.netloc:
         return ""
-    return f"{parts.scheme}://{parts.netloc}".lower()
+    return _origin(parts)
+
+
+def _origin(parts) -> str:
+    """Scheme, host and port from an already-split URL.
+
+    Built from `hostname` and `port`, never `netloc`: netloc includes
+    **userinfo**, so `https://user:pass@example.com/` would have put a password
+    into the audit log and into every refusal message — and would have compared
+    unequal to the same site without credentials, which is a leash that fails in
+    a confusing direction even though it fails closed.
+    """
+    host = (parts.hostname or "").lower()
+    if not host:
+        return ""
+    port = f":{parts.port}" if parts.port else ""
+    return f"{parts.scheme.lower()}://{host}{port}"
 
 
 def declared_origin(line: str) -> str | None:
@@ -94,7 +110,11 @@ def declared_origin(line: str) -> str | None:
     # SplitResult — a `;` segment lands in `path` for this one.
     if parts.path.strip("/") or parts.query or parts.fragment:
         return None
-    return f"{parts.scheme}://{parts.netloc}".lower()
+    if parts.username or parts.password:
+        # Credentials in a permission line are always a mistake, and accepting
+        # them would mean the same site reads as two different origins.
+        return None
+    return _origin(parts)
 
 
 class SecretSource(Protocol):
@@ -516,3 +536,41 @@ def bind(catalogue, source: dict, url: str, tool: str = "write") -> str:
     # codeql[py/clear-text-logging-sensitive-data]
     log.info("bound secret %s/%s on %s for %s", name, key, origin(url), tool)
     return value
+
+
+def prepare_write(
+    catalogue, actions, session_id: str, kwargs: dict
+) -> tuple[dict, set]:
+    """Turn a `value_from` on a write into the text it stands for.
+
+    Shared by the MCP tool and the HTTP endpoint, because the alternative is two
+    implementations of a security check and one of them being the older.
+
+    Refuses `url` alongside it, for the reason the flow validator refuses the
+    same pair: `actions.write` navigates *before* it types, so a leash checked
+    beforehand would be checked against the page being left — and a redirect
+    would defeat even checking the URL that was asked for. Navigation is its own
+    call.
+    """
+    kwargs = dict(kwargs)
+    source = kwargs.pop("value_from", None)
+    if source is None:
+        return kwargs, set()
+    if hasattr(source, "model_dump"):
+        source = source.model_dump(exclude_none=True)
+    if kwargs.get("text") is not None:
+        raise Refused("pass text or value_from, not both")
+    if kwargs.get("url"):
+        raise Refused(
+            "a write that takes its value from a secret may not also navigate: "
+            "go to the page first, so the secret's allowed sites are checked "
+            "against the page that receives it"
+        )
+    if "param" in (source or {}):
+        raise Refused(
+            "value_from.param names one of a flow's own parameters and means "
+            "nothing outside a flow; pass text, or name a secret"
+        )
+    here = actions.page(session_id).get("url", "")
+    kwargs["text"] = bind(catalogue, source, here, tool="write")
+    return kwargs, {"text"}

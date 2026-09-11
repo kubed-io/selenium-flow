@@ -100,8 +100,17 @@ def type_of(field: dict) -> str:
     if branches:
         names = [b.get("type") for b in branches if b.get("type") != "null"]
         return " or ".join(n for n in names if n) or "any"
-    if "type" in field:
-        return field["type"]
+    declared = field.get("type")
+    if isinstance(declared, list):
+        # `type: [string, null]` is the other spelling of the same thing, and
+        # OpenAPI 3.1 accepts both. Read the same way: the null branch is
+        # optionality, not a type worth printing.
+        names = [n for n in declared if n != "null"]
+        return " or ".join(names) or "any"
+    if declared:
+        return declared
+    if "$ref" in field:
+        return field["$ref"].rsplit("/", 1)[-1]
     return "any"
 
 

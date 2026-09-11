@@ -147,7 +147,12 @@ class SeleniumMCP:
         # No saved sessions here, deliberately: the HTTP surface takes a session
         # id in and gives one back, so the caller owns it.
         routes.register(
-            self.mcp, self.actions, auth_token, route_prefix, self.sessions.kind
+            self.mcp,
+            self.actions,
+            auth_token,
+            route_prefix,
+            self.sessions.kind,
+            catalogue=self.secrets,
         )
 
         # The admin pages and the signed file route. Always on: they are how a

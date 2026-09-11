@@ -216,6 +216,18 @@ def resolve_step(
     if target is None:
         raise FlowError(f"step {label}: {tool} does not take {VALUE_FROM}")
 
+    # Saving checks this, and saving is not the only way a document gets here:
+    # `LocalFlowStore` reads YAML somebody may have written by hand. Every rule
+    # that protects a secret is therefore checked again at the moment it is
+    # used, where the document's provenance no longer matters.
+    if "secret" in source and kwargs.get("url"):
+        raise FlowError(
+            f"step {label}: a step that binds a secret may not also navigate — "
+            "the secret's allowed sites are checked against the page the "
+            "browser is on, and this would type it on a page that was never "
+            "checked"
+        )
+
     if "param" in source:
         reference = source["param"]
         kwargs[target] = params.get(reference)
@@ -333,6 +345,29 @@ def run(
     deadline = time.monotonic() + budget
 
     for number, step in enumerate(document.get("steps") or [], start=1):
+        if isinstance(step, dict) and "valueFrom" in step:
+            # The step-level key this format used before value_from became a
+            # parameter. A stored flow written then would silently lose its
+            # binding — a missing value, or worse a literal one used in its
+            # place — so it is refused with the fix rather than half-run.
+            return {
+                "flow": name,
+                "status": "failed",
+                "steps_run": 0,
+                "steps_total": len(document.get("steps") or []),
+                "steps": [
+                    {
+                        "n": number,
+                        "tool": step.get("tool"),
+                        "ok": False,
+                        "error": (
+                            "this flow was saved in an older format: valueFrom "
+                            "is a parameter now, so move it inside params as "
+                            "value_from and save it again"
+                        ),
+                    }
+                ],
+            }
         tool = step.get("tool")
         label = step.get("id") or tool
         entry = {"n": number, "tool": tool}

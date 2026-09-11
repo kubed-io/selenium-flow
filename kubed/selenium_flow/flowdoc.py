@@ -92,7 +92,22 @@ NEEDED_SOMEHOW = {"write": ("text",)}
 ADDRESSES_AN_ELEMENT = {
     "interact", "write", "extract", "upload_file", "press_key", "screenshot", "frame",
 }
-OPTIONAL_ELEMENT = {"press_key", "screenshot", "frame"}
+OPTIONAL_ELEMENT = {"press_key", "screenshot"}
+
+
+def _needs_an_element(tool: str, params: dict) -> bool:
+    """Whether this particular call has to name one.
+
+    `frame` is not simply optional: `switch` needs xpath, css **or** index, and
+    only `parent` and `default` need nothing. Treating the whole action as
+    optional let `frame(action="switch")` with no target save cleanly and then
+    be refused by `actions.frame` at run time, which is precisely the split
+    between validation and execution that save-time checking exists to close.
+    """
+    if tool == "frame":
+        action = str(params.get("action", "switch")).strip().lower()
+        return action == "switch" and params.get("index") is None
+    return tool not in OPTIONAL_ELEMENT
 # The two that name a thing and a key inside it. `param` is just a name.
 KEYED_SOURCES = ("secret", "config")
 
@@ -285,7 +300,7 @@ def _check_params(where: str, tool: str, params: dict, bound: set[str], schema: 
         named = [k for k in ("xpath", "css") if params.get(k) or k in bound]
         if len(named) > 1:
             problems.append(f"{where}: {tool} takes xpath or css, not both")
-        elif not named and tool not in OPTIONAL_ELEMENT:
+        elif not named and _needs_an_element(tool, params):
             problems.append(f"{where}: {tool} needs an element — give xpath or css")
 
     for name in schema.get("required") or []:

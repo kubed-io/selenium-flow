@@ -652,3 +652,42 @@ def test_a_guarded_value_is_swept_out_of_any_field_at_all():
 
     report = run(Nested(), document, "b", params={"magic": "https://x.test/?t=zzz"})
     assert "zzz" not in str(report)
+
+
+def test_a_flow_saved_in_the_old_format_is_refused_with_the_fix():
+    """`valueFrom` was a step key before it became a parameter. A stored flow
+    from then would silently lose its binding — a missing value, or a literal
+    one used in its place — so it is refused rather than half-run."""
+    steps = [
+        {
+            "tool": "write",
+            "params": {"css": "#p"},
+            "valueFrom": {"secret": {"name": "n", "key": "password"}},
+        }
+    ]
+    actions = FakeActions()
+    report = run(actions, flow(steps), "b")
+    assert report["status"] == "failed"
+    assert "older format" in report["steps"][0]["error"]
+    assert "value_from" in report["steps"][0]["error"]
+    assert actions.calls == []
+
+
+def test_a_stored_step_binding_a_secret_and_a_url_is_refused_at_run_time():
+    """Saving refuses this, and saving is not the only way a document gets
+    here: the store reads YAML somebody may have written by hand."""
+    steps = [
+        {
+            "tool": "write",
+            "params": {
+                "css": "#p",
+                "url": "https://evil.test/",
+                "value_from": {"secret": {"name": "n", "key": "password"}},
+            },
+        }
+    ]
+    actions = FakeActions()
+    report = run(actions, flow(steps), "b")
+    assert report["status"] == "failed"
+    assert "may not also navigate" in report["steps"][0]["error"]
+    assert actions.calls == []

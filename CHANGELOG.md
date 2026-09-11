@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Flows take parameters, so one saved login serves every account.
 
-- **Flows can type a secret you never see.** Bind one to a field with `valueFrom: {text: {secret: {name: ..., key: ...}}}` and the server reads it and types it — it never reaches the model, the transcript or the saved flow. A secret is only usable on the sites its owner allowed.
+- **Type a secret you never see.** Give `write` a `value_from` naming one instead of text, and the server reads it and types it — in a flow step or a single call.
 
 - **A secrets catalogue.** Point `SECRETS_DIRS` at a directory per secret and a file per key — the shape Kubernetes already mounts — and `list_secrets` shows an agent what it can use. Values are never returned by anything.
 
