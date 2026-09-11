@@ -446,3 +446,38 @@ async def test_the_published_schema_describes_the_flow_side_sources(flow_server)
     assert required == {("secret",), ("param",)}
     # And the tool half still describes the secret shape properly.
     assert "value_from" in schema["x-step-params"]["write"]["properties"]
+
+
+def _objects(node):
+    """Every JSON-Schema object node under `node`, however deep."""
+    if isinstance(node, dict):
+        if node.get("type") == "object":
+            yield node
+        for value in node.values():
+            yield from _objects(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _objects(value)
+
+
+async def test_every_object_in_the_published_sources_is_closed(flow_server):
+    """JSON Schema allows any extra property by default, so an open branch
+    published `{secret, config}` and a misspelt reference as valid while
+    `save_flow` refused both. Walked rather than listed, so a branch added later
+    cannot be left open without this noticing."""
+    schema = await call(flow_server, flowapi.SCHEMA_TOOL)
+    objects = list(_objects(schema["x-value-from"]))
+    # Both branches and the nested secret reference, at least.
+    assert len(objects) >= 3
+    for node in objects:
+        assert node.get("additionalProperties") is False, node
+
+
+async def test_the_published_secret_reference_is_the_tool_model(flow_server):
+    """Derived, not copied: the flow schema and the direct tool must describe a
+    secret reference identically, or one of them is wrong."""
+    from kubed.selenium_flow.tools import SecretRef
+
+    schema = await call(flow_server, flowapi.SCHEMA_TOOL)
+    branch = next(b for b in schema["x-value-from"]["oneOf"] if "secret" in b["required"])
+    assert branch["properties"]["secret"] == SecretRef.model_json_schema()

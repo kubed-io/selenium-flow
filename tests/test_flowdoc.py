@@ -520,3 +520,72 @@ async def test_a_null_text_is_not_a_supplied_value(step_schema_map):
             flow(steps=[{"tool": "write", "params": {"css": "#p", "text": None}}]),
             step_schema_map,
         )
+
+
+# ---- the skill's own examples ----------------------------------------------
+
+
+def _documented():
+    """Every flow document and step written in the skill, with where it is.
+
+    A ```json block holding `steps` is a document (unless it is a run report,
+    which has a `status`); one holding `tool` is a single step. Everything else
+    — a secret listing, say — is not a flow and is left alone.
+    """
+    import json
+    import re
+
+    from kubed.selenium_flow import skill as skill_module
+
+    root = skill_module.skill_path()
+    found = []
+    for path in sorted(root.rglob("*.md")):
+        for block in re.findall(r"```json\n(.*?)```", path.read_text(), re.S):
+            data = json.loads(block)
+            where = path.relative_to(root).as_posix()
+            if "steps" in data and "status" not in data:
+                found.append((where, data))
+            elif "tool" in data:
+                found.append((where, {"steps": [data]}))
+    return found
+
+
+def test_every_json_example_in_the_skill_parses():
+    """Otherwise a broken example is skipped by the check below rather than
+    failing it — the silent version of the bug this exists to catch."""
+    import json
+    import re
+
+    from kubed.selenium_flow import skill as skill_module
+
+    for path in skill_module.skill_path().rglob("*.md"):
+        for block in re.findall(r"```json\n(.*?)```", path.read_text(), re.S):
+            json.loads(block)
+
+
+def test_the_skill_documents_flows_in_both_references():
+    """Guards the regex as much as the docs: finding nothing would pass the
+    validation test vacuously."""
+    where = {path for path, _ in _documented()}
+    assert {"references/FLOWS.md", "references/SECRETS.md"} <= where
+
+
+@pytest.mark.parametrize(
+    "where,document", _documented(), ids=lambda v: v if isinstance(v, str) else ""
+)
+async def test_every_flow_the_skill_teaches_would_save(step_schema_map, where, document):
+    """Checked against the live tool schemas, the same way `save_flow` checks.
+
+    Every recurring defect in the flows and secrets work was documentation that
+    taught a shape the code refused — a withdrawn `valueFrom`, a `{text: ...}`
+    level that was never there, prompts describing a step key that did not
+    exist. A skill is documentation an agent *acts on*, so its examples are
+    tested rather than trusted.
+    """
+    from kubed.selenium_flow.flows import valid_name
+
+    document = dict(document)
+    name = document.pop("name", None)
+    if name is not None:
+        valid_name(name, "flow name")
+    assert validate(document, step_schema_map), where

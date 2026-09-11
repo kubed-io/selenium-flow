@@ -43,6 +43,7 @@ from . import auth, errors, flowdoc, flowrun, flows
 from .browser import as_bool
 from .hints import hints, reads
 from .routes import ENDPOINTS
+from .tools import SecretRef
 
 log = logging.getLogger(__name__)
 
@@ -382,8 +383,11 @@ def register(
         name=DELETE_TOOL,
         description=(
             "Delete one of this session's saved flows. Deleting one that is not "
-            "there is not an error. A flow in the shared library is not yours to "
-            "delete and is untouched."
+            "there is not an error.\n\n"
+            "It deletes from the library you save into. For a named session that "
+            "is your own, and the shared library is untouched. An unnamed caller "
+            "saves into the shared library itself — so for one, this deletes a "
+            "flow every session can see."
         ),
         annotations=hints("Delete a flow", destructive=True, idempotent=True),
     )
@@ -447,24 +451,25 @@ async def _document_schema(schemas: Schemas) -> dict:
                 "one of the flow's own parameters. The tool schemas describe "
                 "only the secret source, which is all a direct call can use."
             ),
+            # Every object here is CLOSED, as the validator and the MCP model
+            # are. JSON Schema's default is to allow any extra property, so a
+            # consumer building from this schema could produce `{secret, config}`
+            # or a misspelt reference that it accepts and `save_flow` refuses.
+            #
+            # The secret reference is the MCP tool's own model rather than a
+            # copy of it — a hand-written one is how this repo keeps finding its
+            # bugs, and it had already drifted by not being closed.
             "oneOf": [
                 {
                     "type": "object",
                     "required": ["secret"],
-                    "properties": {
-                        "secret": {
-                            "type": "object",
-                            "required": ["name", "key"],
-                            "properties": {
-                                "name": {"type": "string"},
-                                "key": {"type": "string"},
-                            },
-                        }
-                    },
+                    "additionalProperties": False,
+                    "properties": {"secret": SecretRef.model_json_schema()},
                 },
                 {
                     "type": "object",
                     "required": ["param"],
+                    "additionalProperties": False,
                     "properties": {
                         "param": {
                             "type": "string",

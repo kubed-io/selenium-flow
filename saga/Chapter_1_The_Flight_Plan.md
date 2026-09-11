@@ -1051,7 +1051,9 @@ well not ship.
 from the tool schemas:
 
 1. **Discover** — drive it once by hand, using `extract` to find the XPaths.
-2. **Build** — write the steps down, with `{{params}}` for anything that varies.
+2. **Build** — write the steps down, with a `value_from: {param: …}` for
+   anything that varies. (This line said `{{params}}` until E6 — written before
+   §F1.7 withdrew templating, and the last place the withdrawn shape survived.)
 3. **Save** — `save_flow`, once.
 4. **Run** — `run_flow` forever after, without re-deriving any of it.
 
@@ -1673,13 +1675,24 @@ Independent of everything above.
 - [ ] Admin UI: a **simple YAML editor** for one flow, and the **promote to
       `global`** action — the only way anything reaches the shared library
       (§F1.2, §F1.14). A richer editor is a later chapter.
-- [ ] `skills/selenium-flow/references/FLOWS.md` + its row in `SKILL.md` (§F1.16)
-- [ ] Say in the skill that **`global` is shared and readable by every session**
-      — not guessable from a tool schema (§F1.2)
-- [ ] `README.md` — flows in the feature list and the env var table, as
+- [x] `skills/selenium-flow/references/FLOWS.md` + its row in `SKILL.md` (§F1.16)
+- [x] Say in the skill that **`global` is shared and readable by every session**
+      — not guessable from a tool schema (§F1.2). Writing it down found that
+      `delete_flow`'s own description was wrong for exactly those callers: an
+      unnamed caller *is* `global`, so its delete removes a shared flow
+- [x] `README.md` — flows in the feature list and the env var table, as
       advertisement not explanation
+- [x] **Every flow the skill teaches is validated** against the live tool
+      schemas by `test_every_flow_the_skill_teaches_would_save`. Nearly every
+      review finding on E2–E9 was prose teaching a shape the code refused; a
+      skill is prose an agent *acts on*, so its examples are tested, not trusted
 - [ ] `wiki/` regenerates from the spec; hand-written guidance goes in
       `wiki/notes/run_flow.notes.md` (the `.notes.md` suffix is load-bearing)
+      **Not yet, and it is generator work rather than prose:** the spec
+      already carries `/flows`, but `generate_wiki.py` renders only
+      `/browser/*` — its page template is shaped around a browser action and
+      a `curl` to `/browser/{path}`. Split out of the skill PR so neither
+      becomes the other's review
 - [ ] `CHANGELOG.md` `[Unreleased]` — one short line per user-visible thing, per
       PR, or `pr.yml` fails the gate
 - [ ] **Separate, last PR:** the `AGENTS.md` thinning (§F1.15)
@@ -1780,14 +1793,17 @@ API from inside a pod rather than reasoned about.
 
 ### E10 — Ground school II: the secrets skill
 
-- [ ] `skills/selenium-flow/references/SECRETS.md` + its row in `SKILL.md`,
+- [x] `skills/selenium-flow/references/SECRETS.md` + its row in `SKILL.md`,
       teaching discover → selectors → build → save → run (§F1.32)
-- [ ] The rule from §F1.29 in one line: parameters for what varies, bindings for
+- [x] The rule from §F1.29 in one line: parameters for what varies, bindings for
       what must not be seen
-- [ ] The honest limit from §F1.24 stated plainly — a secret typed into a page
+- [x] The honest limit from §F1.24 stated plainly — a secret typed into a page
       can be read back off it, so a bound flow is not a sandbox
-- [ ] `README.md` and the env var table gain `SECRETS_DIRS`
-- [ ] `CHANGELOG.md` — one line, and this one users very much notice
+- [x] `README.md` and the env var table gain `SECRETS_DIRS`
+- [x] `CHANGELOG.md` — one line, and this one users very much notice (landed
+      with E9; this PR adds the one for the skill)
+- [x] `SKILL.md`'s own worked example stopped typing a password as `text=`. It
+      was the skill's only login, and it taught the thing secrets exist to end
 
 ---
 

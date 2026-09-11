@@ -1136,3 +1136,39 @@ def test_a_leash_and_a_value_always_describe_the_same_secret(tmp_path):
     assert catalogue.allows("shared", "https://a.test/") is True
     assert catalogue.allows("shared", "https://b.test/") is False
     assert catalogue.value("shared", "password") == "new"
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        {"name": "nextcloud", "key": "password", "namespace": "other"},
+        {"name": "nextcloud", "kye": "password"},
+        {"name": "nextcloud", "key": "password", "kye": "x"},
+    ],
+)
+def test_a_reference_with_a_field_the_binder_ignores_is_refused(bindable, reference):
+    """The binder read `name` and `key` and dropped the rest, so over HTTP a
+    reference could run as a different binding than it described — while the
+    validator and the MCP model both refused the same shape."""
+    with pytest.raises(secrets.Refused):
+        secrets.bind(
+            bindable, {"secret": reference}, "https://nc.example.com/login"
+        )
+
+
+def test_an_http_reference_with_an_unknown_field_is_a_400(bound_http):
+    client, typed = bound_http
+    response = client.post(
+        "/browser/write",
+        headers=AUTH,
+        json={
+            "session_id": "browser-1",
+            "css": "#password",
+            "value_from": {
+                "secret": {"name": "nextcloud", "key": "password", "namespace": "x"}
+            },
+        },
+    )
+    assert response.status_code == 400
+    assert "does not take namespace" in response.json()["error"]
+    assert typed == []
