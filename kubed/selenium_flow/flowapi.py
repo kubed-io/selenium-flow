@@ -190,11 +190,17 @@ def run_one(
     params: dict | None = None,
     verbose: bool = False,
     session_id: str = "",
+    after_step=None,
 ) -> dict:
     """Run one flow against an already-resolved browser."""
     document = read_one(store, session, name)
     report = flowrun.run(
-        actions, document, session_id, params=params, verbose=verbose
+        actions,
+        document,
+        session_id,
+        params=params,
+        verbose=verbose,
+        after_step=after_step,
     )
     return {"session": document["session"], **report}
 
@@ -327,6 +333,16 @@ def register(
     ) -> dict:
         key = sessions.key()
         resolved = sessions.resolve(key, session_id)
+
+        def remember(tool, result):
+            # `resize` changes something the session RECORD stores, not just the
+            # page it is on. The per-call path in tools.py has always done this;
+            # a flow that skipped it would resize the live browser and then come
+            # back the old size the next time the Grid reaped it — the silent
+            # shape change `sessions.reshape` exists to prevent.
+            if tool == "resize" and isinstance(result, dict):
+                sessions.reshape(key, result, resolved)
+
         report = run_one(
             store,
             actions,
@@ -335,9 +351,11 @@ def register(
             params=params,
             verbose=verbose,
             session_id=resolved,
+            after_step=remember,
         )
         # One touch for the whole run, not one per step: the point of running
-        # server-side is that the bookkeeping happens once.
+        # server-side is that the bookkeeping happens once. A guarded URL never
+        # reaches the report, so it can never be stored here either.
         sessions.touch(key, report.get("url"), resolved)
         return report
 

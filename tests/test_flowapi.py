@@ -410,3 +410,27 @@ def test_verbose_false_over_http_does_not_turn_verbose_on(client, flow_server,
     )
     assert response.status_code == 200, response.text
     assert "result" not in response.json()["steps"][0]
+
+
+async def test_a_resize_step_is_written_back_to_the_session(flow_server, monkeypatch):
+    """Otherwise the flow resizes the live browser and the session comes back
+    the old size the next time the Grid reaps it."""
+    monkeypatch.setattr(
+        flow_server.actions,
+        "resize",
+        lambda session_id, **kw: {"width": kw["width"], "height": kw["height"],
+                                  "url": "u", "title": "t"},
+    )
+    monkeypatch.setattr(flow_server.sessions, "resolve", lambda key, sid: "browser-1")
+    flow_server.sessions.remember(NAMED, "browser-1", "", {"browser": "firefox"})
+    await call(
+        flow_server,
+        flowapi.SAVE_TOOL,
+        name="widen",
+        steps=[{"tool": "resize", "params": {"width": 1400, "height": 900}}],
+    )
+    await call(flow_server, flowapi.RUN_TOOL, name="widen")
+    record = flow_server.sessions.store.get(NAMED.value)
+    assert record.window == "1400x900"
+    # And the browser choice survived, as reshape's merge promises.
+    assert record.settings["browser"] == "firefox"
