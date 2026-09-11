@@ -589,3 +589,27 @@ async def test_every_flow_the_skill_teaches_would_save(step_schema_map, where, d
     if name is not None:
         valid_name(name, "flow name")
     assert validate(document, step_schema_map), where
+
+
+async def test_a_document_with_integer_keys_is_refused_with_every_problem(step_schema_map):
+    """The save path of the same YAML hazard: every key a refusal lists is made a
+    string first, so a malformed document is described rather than crashing."""
+    from kubed.selenium_flow.flowdoc import InvalidFlow
+
+    document = {
+        "steps": [
+            {
+                "tool": "write",
+                7: "stray",
+                "params": {
+                    "css": "#p",
+                    "value_from": {"secret": {"name": "n", "key": "k", 1: "x"}},
+                },
+            }
+        ]
+    }
+    with pytest.raises(InvalidFlow) as caught:
+        validate(document, step_schema_map)
+    text = str(caught.value)
+    assert "unknown step key 7" in text
+    assert "does not take 1" in text
