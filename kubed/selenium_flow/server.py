@@ -11,7 +11,18 @@ from __future__ import annotations
 from fastmcp import FastMCP
 from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 
-from . import admin, apps, files, flowapi, flows, resources, routes, skill, tools
+from . import (
+    admin,
+    apps,
+    files,
+    flowapi,
+    flows,
+    resources,
+    routes,
+    secrets,
+    skill,
+    tools,
+)
 from .actions import Actions
 from .browser import DEFAULT_GRID_URL, Grid
 from .sessions import SessionManager
@@ -47,6 +58,7 @@ class SeleniumMCP:
         skill_enabled: bool = True,
         apps_enabled: bool = True,
         flow_data_dir: str | None = None,
+        secrets_dirs: str | None = None,
     ):
         self.grid = Grid(grid_url)
         self.actions = Actions(self.grid)
@@ -71,6 +83,13 @@ class SeleniumMCP:
         # value off.
         directory = (flow_data_dir or "").strip()
         self.flows = flows.LocalFlowStore(directory) if directory else flows.from_env()
+
+        # The secrets an agent may bind, or None when none were configured.
+        # Read-only and value-free: this holds a catalogue, never a credential.
+        named = (secrets_dirs or "").strip()
+        self.secrets = (
+            secrets.from_env({"SECRETS_DIRS": named}) if named else secrets.from_env()
+        )
 
         # A token turns on auth for both surfaces. Absent, the server is open —
         # correct for a local `docker compose up`, and the reason the deployment
@@ -113,6 +132,7 @@ class SeleniumMCP:
         mirrors |= flowapi.register(
             self.mcp, self.flows, self.sessions, self.actions, auth_token
         )
+        mirrors |= secrets.register(self.mcp, self.secrets, self.sessions, auth_token)
         self.mcp.add_middleware(
             resources.HideMirrorTools(mirrors, app_tools if apps_enabled else set())
         )

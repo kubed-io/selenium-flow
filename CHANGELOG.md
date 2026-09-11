@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Flows take parameters, so one saved login serves every account.
 
+- **A secrets catalogue.** Point `SECRETS_DIRS` at a directory per secret and a file per key — the shape Kubernetes already mounts — and `list_secrets` shows an agent what it can use. Values are never returned by anything.
+
 - **CSS selectors.** Every tool that acts on an element now takes `css` as well as `xpath` — pass one or the other.
 
 ### Changed

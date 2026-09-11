@@ -1476,24 +1476,24 @@ Independent of everything above.
       PR, or `pr.yml` fails the gate
 - [ ] **Separate, last PR:** the `AGENTS.md` thinning (§F1.15)
 
-### E7 — The pouch: secrets from the filesystem
+### E7 — The pouch: secrets from the filesystem — **DONE**
 
 The whole feature for someone with no Kubernetes, and the foundation for E8.
 
-- [ ] `secrets.py`: a `SecretSource` protocol and a `FilesystemSource`, shaped
+- [x] `secrets.py`: a `SecretSource` protocol and a `FilesystemSource`, shaped
       like `FlowStore` so a second source slots in (§F1.18)
-- [ ] `SECRETS_DIRS`, PATH-like and colon-separated; unset means no filesystem
+- [x] `SECRETS_DIRS`, PATH-like and colon-separated; unset means no filesystem
       secrets, which is not an error
-- [ ] Directory per secret, file per key, **one level deep**; dotfiles skipped;
+- [x] Directory per secret, file per key, **one level deep**; dotfiles skipped;
       an unreadable secret is absent rather than fatal (§F1.18)
-- [ ] First match wins across directories, and the listing names the source each
+- [x] First match wins across directories, and the listing names the source each
       secret came from (§F1.18)
-- [ ] Reserved `_description` and `_allowed_urls` keys, excluded from the key
+- [x] Reserved `_description` and `_allowed_urls` keys, excluded from the key
       list and never bindable (§F1.19)
-- [ ] A `Catalogue` merging sources, answering "what may this session see" —
+- [x] A `Catalogue` merging sources, answering "what may this session see" —
       filesystem entries are global (§F1.22)
-- [ ] Short-TTL cache of the catalogue; **no value is ever cached** (§F1.23)
-- [ ] Tests: a k8s-shaped mount read from a temp dir including the `..data`
+- [x] Short-TTL cache of the catalogue; **no value is ever cached** (§F1.23)
+- [x] Tests: a k8s-shaped mount read from a temp dir including the `..data`
       symlink layout, precedence across two dirs, a reserved key absent from the
       key list, one unreadable secret not taking out the catalogue
 
@@ -1534,8 +1534,9 @@ API from inside a pod rather than reasoned about.
       `upload_file` says "not yet" rather than "never" (§F1.28)
 - [ ] Audit events: flow, step, secret, key, URL, allowed — never a value, and a
       refused bind logged loudest (§F1.30)
-- [ ] `secret://secrets` resource, `list_secrets` mirror tool, `GET /secrets`
-      (§F1.31)
+- [x] `secret://secrets` resource, `list_secrets` mirror tool, `GET /secrets`
+      (§F1.31) — **shipped with E7**: the catalogue is the half that stands on
+      its own, and it is what a skill can teach before any binding exists
 - [ ] Tests: a bound value never appears in a tool result, a run report, a saved
       flow or a log record; an origin-suffix attack is refused; a bind on a
       disallowed URL is refused before any keystroke is sent
@@ -1608,11 +1609,14 @@ answer is the useful part.
     alternative is an agent that cannot discover what it may bind. Recommend
     accepting it, with §F1.21's opt-in label as the real control — a secret
     nobody exposed is not in the catalogue at all.
-12. **What about an `_allowed_urls` entry carrying a path?** §F1.27 matches by
-    origin, so `https://host/admin` and `https://host/` are the same thing.
-    Recommend **origin only**, and *refuse* a declaration with a path rather
-    than silently ignoring the path — a rule that quietly means less than it
-    says is worse than no rule.
+12. ~~**What about an `_allowed_urls` entry carrying a path?**~~ **Closed in
+    E7, the hard way.** The recommendation here was to *refuse* such a line
+    rather than trim it — and the first implementation trimmed it anyway, along
+    with treating a declaration that parsed to nothing as no declaration at all.
+    Review caught both. A path-carrying line is refused, one bad line
+    invalidates the whole declaration, and a secret whose leash does not parse
+    is usable **nowhere** rather than everywhere. The rejected lines are
+    published in the listing so an operator can see why.
 13. **Does `saveAs` survive the structural change?** §F1.7's Chapter 2 idea was
     a step binding its output into a variable bag for `{{...}}` to read. With no
     templating, the natural spelling is a fourth source — `valueFrom: {step:

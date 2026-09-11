@@ -507,3 +507,187 @@ def test_reading_the_failed_page_can_never_make_a_failure_worse():
     report = run(Exploding(), flow(SIMPLE), "b")
     assert report["status"] == "failed"
     assert "no element matched" in report["steps"][-1]["error"]
+
+
+# ---- what the third review round caught --------------------------------------
+
+
+def test_a_guarded_url_does_not_come_back_in_the_result():
+    """`navigate` answers with the page state, whose `url` is the one it was
+    given — so redacting only `value` handed a magic-link token straight back."""
+    steps = [
+        {
+            "tool": "navigate",
+            "params": {},
+            "valueFrom": {"url": {"param": "magic_link"}},
+            "return": True,
+        }
+    ]
+    document = flow(
+        steps,
+        parameters={"type": "object", "properties": {"magic_link": {"writeOnly": True}}},
+    )
+
+    class Echoing(FakeActions):
+        def navigate(self, session_id, **kwargs):
+            self.calls.append(("navigate", session_id, kwargs))
+            return {"url": kwargs["url"], "title": "Welcome"}
+
+    secret = "https://example.test/login?token=abc123"
+    report = run(Echoing(), document, "b", params={"magic_link": secret})
+    assert report["steps"][0]["result"]["url"] is None
+    assert "abc123" not in str(report)
+
+
+def test_a_guarded_url_never_reaches_the_top_level_report():
+    """Which is what sessions.touch stores — a secret URL in Redis outlives the
+    run, and a later reopen would navigate straight back to it."""
+    steps = [
+        {
+            "tool": "navigate",
+            "params": {},
+            "valueFrom": {"url": {"param": "magic_link"}},
+        }
+    ]
+    document = flow(
+        steps,
+        parameters={"type": "object", "properties": {"magic_link": {"writeOnly": True}}},
+    )
+
+    class Echoing(FakeActions):
+        def navigate(self, session_id, **kwargs):
+            self.calls.append(("navigate", session_id, kwargs))
+            return {"url": kwargs["url"], "title": "Welcome"}
+
+    report = run(Echoing(), document, "b",
+                 params={"magic_link": "https://x.test/?token=zzz"})
+    assert report.get("url") is None
+    assert "zzz" not in str(report)
+
+
+def test_a_guarded_value_is_scrubbed_out_of_an_error():
+    """An action puts its arguments in its error text: upload_file bound to a
+    guarded path raises `no file at <path>`."""
+    steps = [
+        {
+            "tool": "write",
+            "params": {"css": "#p"},
+            "valueFrom": {"text": {"param": "password"}},
+        }
+    ]
+    document = flow(
+        steps, parameters={"type": "object", "properties": {"password": {"writeOnly": True}}}
+    )
+
+    class Leaky(FakeActions):
+        def write(self, session_id, **kwargs):
+            raise ValueError(f"could not type {kwargs['text']} into #p")
+
+    report = run(Leaky(), document, "b", params={"password": "hunter2"})
+    assert "hunter2" not in str(report)
+    assert "<hidden>" in report["steps"][0]["error"]
+    # And the rest of the message survives, so the failure is still diagnosable.
+    assert "could not type" in report["steps"][0]["error"]
+
+
+def test_a_failed_page_read_does_not_reintroduce_a_guarded_url():
+    steps = [
+        {
+            "tool": "navigate",
+            "params": {},
+            "valueFrom": {"url": {"param": "magic_link"}},
+        }
+    ]
+    document = flow(
+        steps,
+        parameters={"type": "object", "properties": {"magic_link": {"writeOnly": True}}},
+    )
+    secret = "https://example.test/?token=abc123"
+
+    class Failing(FakeActions):
+        def __init__(self):
+            super().__init__()
+            self.grid = self
+
+        def reconnect(self, session_id):
+            return "driver"
+
+        def navigate(self, session_id, **kwargs):
+            raise RuntimeError("timed out")
+
+    import kubed.selenium_flow.flowrun as module
+
+    original = module.browser.page_state
+    module.browser.page_state = lambda driver: {"url": secret, "title": "x"}
+    try:
+        report = run(Failing(), document, "b", params={"magic_link": secret})
+    finally:
+        module.browser.page_state = original
+    assert "abc123" not in str(report)
+
+
+def test_an_after_step_callback_sees_every_successful_step():
+    seen = []
+    run(FakeActions(), flow(SIMPLE), "b", after_step=lambda tool, r: seen.append(tool))
+    assert seen == ["navigate", "write", "interact"]
+
+
+def test_a_failing_step_does_not_fire_the_callback():
+    seen = []
+    run(
+        FakeActions(fail_on={"write"}),
+        flow(SIMPLE),
+        "b",
+        after_step=lambda tool, r: seen.append(tool),
+    )
+    assert seen == ["navigate"]
+
+
+def test_a_guarded_script_does_not_come_back_under_result():
+    """`execute_script` answers under `result`, which was missing from the
+    named-field map — so a guarded script echoed itself."""
+    steps = [
+        {
+            "tool": "execute_script",
+            "params": {},
+            "valueFrom": {"script": {"param": "snippet"}},
+            "return": True,
+        }
+    ]
+    document = flow(
+        steps, parameters={"type": "object", "properties": {"snippet": {"writeOnly": True}}}
+    )
+
+    class Echoing(FakeActions):
+        def execute_script(self, session_id, **kwargs):
+            self.calls.append(("execute_script", session_id, kwargs))
+            return {"result": kwargs["script"], "url": "u", "title": "t"}
+
+    report = run(Echoing(), document, "b", params={"snippet": "return 'sekrit'"})
+    assert "sekrit" not in str(report)
+
+
+def test_a_guarded_value_is_swept_out_of_any_field_at_all():
+    """The named map is a list somebody has to remember to extend. For a
+    guarded step every string in the result is swept, so a field nobody mapped
+    cannot carry the value out."""
+    steps = [
+        {
+            "tool": "extract",
+            "params": {"css": "h1"},
+            "valueFrom": {"url": {"param": "magic"}},
+            "return": True,
+        }
+    ]
+    document = flow(
+        steps, parameters={"type": "object", "properties": {"magic": {"writeOnly": True}}}
+    )
+
+    class Nested(FakeActions):
+        def extract(self, session_id, **kwargs):
+            self.calls.append(("extract", session_id, kwargs))
+            # A field nobody mapped, nested, carrying the value.
+            return {"text": "ok", "meta": {"seen": [kwargs["url"]]}, "title": "t"}
+
+    report = run(Nested(), document, "b", params={"magic": "https://x.test/?t=zzz"})
+    assert "zzz" not in str(report)
