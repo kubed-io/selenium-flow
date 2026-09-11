@@ -75,6 +75,28 @@ def origin(url: str) -> str:
     return f"{parts.scheme}://{parts.netloc}".lower()
 
 
+def declared_origin(line: str) -> str | None:
+    """One line of ``_allowed_urls`` as an origin, or None if it is not one.
+
+    A path is **refused**, not trimmed. §F1.27 compares origins, so
+    ``https://host/admin`` and ``https://host/`` are the same permission —
+    quietly widening the first into the second makes the file say less than its
+    author wrote, and open question #12 settled that a rule which quietly means
+    less than it says is worse than no rule.
+    """
+    text = (line or "").strip()
+    if not text:
+        return None
+    parts = urlsplit(text)
+    if not parts.scheme or not parts.netloc:
+        return None
+    # No `params` here: that is urlparse's ParseResult, not urlsplit's
+    # SplitResult — a `;` segment lands in `path` for this one.
+    if parts.path.strip("/") or parts.query or parts.fragment:
+        return None
+    return f"{parts.scheme}://{parts.netloc}".lower()
+
+
 class SecretSource(Protocol):
     """Somewhere secrets come from. Kubernetes is the second one (E8)."""
 
@@ -113,10 +135,19 @@ class FilesystemSource:
         return path
 
     def names(self) -> list[str]:
-        if not self.root.is_dir():
+        try:
+            if not self.root.is_dir():
+                return []
+            entries = list(self.root.iterdir())
+        except OSError as exc:
+            # "Unreadable is absent" is a promise this module makes and did not
+            # keep: a PermissionError here propagated through Catalogue._entries
+            # and took down the whole catalogue rather than skipping one
+            # directory.
+            log.warning("could not list %s: %s", self.root, exc)
             return []
         found = []
-        for path in self.root.iterdir():
+        for path in entries:
             # A k8s projected volume is full of these: `..data` is a symlink to
             # a timestamped directory, and every key is a symlink through it.
             # The secrets themselves never start with a dot.
@@ -142,13 +173,17 @@ class FilesystemSource:
             directory = self._dir(name)
         except InvalidName:
             return {}
-        if not directory.is_dir():
+        try:
+            if not directory.is_dir():
+                return {}
+            return {
+                path.name: path
+                for path in sorted(directory.iterdir())
+                if path.is_file() and not path.name.startswith(".")
+            }
+        except OSError as exc:
+            log.warning("could not read %s: %s", directory, exc)
             return {}
-        return {
-            path.name: path
-            for path in sorted(directory.iterdir())
-            if path.is_file() and not path.name.startswith(".")
-        }
 
     def _read(self, path: Path) -> str | None:
         try:
@@ -164,16 +199,35 @@ class FilesystemSource:
             return None
         keys = sorted(k for k in files if not k.startswith(RESERVED_PREFIX))
         described = self._read(files[DESCRIPTION]) if DESCRIPTION in files else ""
-        urls = self._read(files[ALLOWED_URLS]) if ALLOWED_URLS in files else ""
-        allowed = [origin(line) for line in (urls or "").splitlines() if line.strip()]
-        return {
+
+        # Whether a leash was DECLARED, kept separately from what it resolved
+        # to. A file that exists but parses to nothing must not read as "no
+        # restriction" — that is one typo turning a leashed credential into an
+        # unleashed one, silently.
+        declared = ALLOWED_URLS in files
+        raw = self._read(files[ALLOWED_URLS]) if declared else ""
+        allowed, rejected = [], []
+        for line in (raw or "").splitlines():
+            if not line.strip():
+                continue
+            parsed = declared_origin(line)
+            (allowed if parsed else rejected).append(parsed or line.strip())
+
+        entry = {
             "name": name,
             "keys": keys,
             "description": described or "",
-            "allowed_urls": [u for u in allowed if u],
+            "allowed_urls": allowed,
+            "restricted": declared,
             "source": self.kind,
             "location": str(self.root),
         }
+        if rejected:
+            # Published rather than logged and forgotten: the listing is where
+            # an operator finds out their leash does not work, and the secret is
+            # unusable until they fix it.
+            entry["allowed_urls_rejected"] = rejected
+        return entry
 
     def value(self, name: str, key: str) -> str | None:
         """One value, read now and returned to exactly one caller.
@@ -250,15 +304,23 @@ class Catalogue:
     def allows(self, name: str, url: str) -> bool:
         """Whether this secret may be used on the page the browser is on.
 
-        No declaration means no restriction, which is the pragmatic default for
-        a homelab — and the listing shows which secrets are unrestricted, so the
-        gap is visible rather than assumed.
+        **No declaration** means no restriction — the pragmatic default for a
+        homelab, and the listing marks which secrets those are so the gap is
+        visible rather than assumed.
+
+        **A declaration that does not parse means nowhere.** Failing open there
+        would turn one typo in a metadata file into an unleashed credential, and
+        would do it silently. A broken leash is still a leash.
         """
         entry = self.entry(name)
         if entry is None:
             return False
+        if not entry.get("restricted"):
+            return True
+        if entry.get("allowed_urls_rejected"):
+            return False
         allowed = entry.get("allowed_urls") or []
-        return not allowed or origin(url) in allowed
+        return bool(allowed) and origin(url) in allowed
 
 
 def directories(env: dict | None = None) -> list[str]:
@@ -303,8 +365,10 @@ LIST_DESCRIPTION = (
     "flow step that is valueFrom: {text: {secret: {name: ..., key: ...}}}. The "
     "server reads it and types it; it never passes through you, which is the "
     "point.\n\n"
-    "A secret listing allowed_urls may only be used on those sites. One with "
-    "an empty list is unrestricted."
+    "A secret listing allowed_urls may only be used on those sites. One that "
+    "is not restricted may be used anywhere. If an entry carries "
+    "allowed_urls_rejected, its leash is broken and it cannot be used at all "
+    "until an operator fixes the file."
 )
 
 

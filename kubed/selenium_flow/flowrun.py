@@ -75,7 +75,7 @@ HEAVY_FIELDS = ("image",)
 # bound to `url` coming straight back in the result, in the run's top-level
 # `url`, and — worst of the three — in `sessions.touch`, which persists it to
 # Redis as the page a later reopen should return to.
-RESULT_FROM_ARGUMENT = {"text": "value"}
+RESULT_FROM_ARGUMENT = {"text": "value", "script": "result"}
 
 
 def redacted_fields(guarded: set) -> set:
@@ -85,6 +85,27 @@ def redacted_fields(guarded: set) -> set:
         if argument in guarded:
             fields.add(field)
     return fields
+
+
+def scrub_values(obj, values):
+    """``obj`` with every guarded value replaced, however deep it sits.
+
+    The named-field map above is precise and cheap, and it is a list somebody
+    has to remember to extend — `script` -> `result` was missing from it, which
+    is how a guarded script came back under a name nobody had mapped. So the
+    map handles the fields we know and this handles the ones we do not: for a
+    guarded step, and only a guarded step, every string in the result is swept.
+
+    Only reached when a step actually bound something, so the cost lands on the
+    rare call rather than on `extract` returning a page of HTML.
+    """
+    if isinstance(obj, str):
+        return scrub(obj, values)
+    if isinstance(obj, dict):
+        return {key: scrub_values(value, values) for key, value in obj.items()}
+    if isinstance(obj, list):
+        return [scrub_values(value, values) for value in obj]
+    return obj
 
 
 def scrub(text: str, values) -> str:
@@ -219,15 +240,15 @@ def summarise(tool: str, kwargs: dict, guarded: set) -> str:
     return f"{tool} {' '.join(parts)}".strip()
 
 
-def _clean(result, guarded: set) -> dict:
+def _clean(result, guarded: set, hidden=()) -> dict:
     """A step's result, without the parts a report must not carry."""
     if not isinstance(result, dict):
-        return {"result": result}
+        result = {"result": result}
     cleaned = {k: v for k, v in result.items() if k not in HEAVY_FIELDS}
     for field in redacted_fields(guarded):
         if field in cleaned:
             cleaned[field] = None
-    return cleaned
+    return scrub_values(cleaned, hidden) if hidden else cleaned
 
 
 def _page_state(actions, session_id: str) -> dict:
@@ -322,10 +343,12 @@ def run(
             break
 
         entry["summary"] = summarise(tool, kwargs, guarded)
+        # The values this step must not echo, for the sweep in `_clean` and the
+        # error scrub below.
         hidden = {kwargs.get(name) for name in guarded}
         try:
             raw = method(session_id, **kwargs)
-            result = _clean(raw, guarded)
+            result = _clean(raw, guarded, hidden)
             entry["ok"] = True
             last = result
             if after_step is not None:

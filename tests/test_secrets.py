@@ -414,3 +414,92 @@ def test_the_endpoint_serves_the_catalogue_and_needs_the_token(secret_server):
     assert response.status_code == 200
     assert response.json()["secrets"][0]["name"] == "nextcloud-admin"
     assert "hunter2" not in response.text
+
+
+# ---- what the review caught ---------------------------------------------------
+
+
+def test_a_declaration_that_parses_to_nothing_allows_nothing(tmp_path):
+    """One typo in a metadata file must not turn a leashed credential into an
+    unleashed one. A broken leash is still a leash."""
+    make_secret(tmp_path, "app", password="p", **{ALLOWED_URLS: "nextcloud.example.com"})
+    catalogue = Catalogue([FilesystemSource(tmp_path)])
+    assert catalogue.allows("app", "https://nextcloud.example.com/") is False
+    assert catalogue.allows("app", "https://anywhere.test/") is False
+
+
+def test_a_broken_leash_is_published_so_an_operator_can_see_it(tmp_path):
+    make_secret(tmp_path, "app", password="p", **{ALLOWED_URLS: "not a url\n"})
+    entry = Catalogue([FilesystemSource(tmp_path)]).entry("app")
+    assert entry["restricted"] is True
+    assert entry["allowed_urls"] == []
+    assert entry["allowed_urls_rejected"] == ["not a url"]
+
+
+def test_one_bad_line_invalidates_the_whole_declaration(tmp_path):
+    """Not "use the lines that parsed": the author wrote two permissions and
+    only one of them means anything, so the file has to be fixed."""
+    make_secret(
+        tmp_path, "app", password="p",
+        **{ALLOWED_URLS: "https://good.example.com\noops\n"},
+    )
+    catalogue = Catalogue([FilesystemSource(tmp_path)])
+    assert catalogue.allows("app", "https://good.example.com/") is False
+
+
+def test_a_declaration_carrying_a_path_is_refused_not_trimmed(tmp_path):
+    """Origins are what §F1.27 compares, so https://host/admin and https://host
+    are the same permission. Quietly widening one into the other makes the file
+    say less than its author wrote."""
+    make_secret(
+        tmp_path, "app", password="p",
+        **{ALLOWED_URLS: "https://nextcloud.example.com/admin"},
+    )
+    catalogue = Catalogue([FilesystemSource(tmp_path)])
+    assert catalogue.entry("app")["allowed_urls_rejected"] == [
+        "https://nextcloud.example.com/admin"
+    ]
+    assert catalogue.allows("app", "https://nextcloud.example.com/admin") is False
+
+
+@pytest.mark.parametrize(
+    "line", ["https://host", "https://host/", "https://host:8443", "HTTPS://Host/"]
+)
+def test_a_bare_origin_is_accepted_with_or_without_a_trailing_slash(tmp_path, line):
+    make_secret(tmp_path, "app", password="p", **{ALLOWED_URLS: line})
+    entry = Catalogue([FilesystemSource(tmp_path)]).entry("app")
+    assert "allowed_urls_rejected" not in entry
+    assert len(entry["allowed_urls"]) == 1
+
+
+def test_a_secret_with_no_declaration_is_marked_unrestricted(tmp_path):
+    make_secret(tmp_path, "app", password="p")
+    entry = Catalogue([FilesystemSource(tmp_path)]).entry("app")
+    assert entry["restricted"] is False
+    assert Catalogue([FilesystemSource(tmp_path)]).allows("app", "https://x.test") is True
+
+
+def test_an_unreadable_directory_does_not_take_down_the_catalogue(tmp_path):
+    """"Unreadable is absent" is a promise this module makes, and iterdir can
+    raise PermissionError."""
+    make_secret(tmp_path, "readable", token="t")
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    (locked / "token").write_text("t")
+    locked.chmod(0o000)
+    try:
+        catalogue = Catalogue([FilesystemSource(tmp_path)])
+        names = [s["name"] for s in catalogue.listing()["secrets"]]
+        assert "readable" in names
+    finally:
+        locked.chmod(0o755)
+
+
+def test_an_unreadable_root_is_no_secrets_rather_than_a_crash(tmp_path):
+    root = tmp_path / "locked-root"
+    root.mkdir()
+    root.chmod(0o000)
+    try:
+        assert FilesystemSource(root).names() == []
+    finally:
+        root.chmod(0o755)

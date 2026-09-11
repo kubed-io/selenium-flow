@@ -641,3 +641,53 @@ def test_a_failing_step_does_not_fire_the_callback():
         after_step=lambda tool, r: seen.append(tool),
     )
     assert seen == ["navigate"]
+
+
+def test_a_guarded_script_does_not_come_back_under_result():
+    """`execute_script` answers under `result`, which was missing from the
+    named-field map — so a guarded script echoed itself."""
+    steps = [
+        {
+            "tool": "execute_script",
+            "params": {},
+            "valueFrom": {"script": {"param": "snippet"}},
+            "return": True,
+        }
+    ]
+    document = flow(
+        steps, parameters={"type": "object", "properties": {"snippet": {"writeOnly": True}}}
+    )
+
+    class Echoing(FakeActions):
+        def execute_script(self, session_id, **kwargs):
+            self.calls.append(("execute_script", session_id, kwargs))
+            return {"result": kwargs["script"], "url": "u", "title": "t"}
+
+    report = run(Echoing(), document, "b", params={"snippet": "return 'sekrit'"})
+    assert "sekrit" not in str(report)
+
+
+def test_a_guarded_value_is_swept_out_of_any_field_at_all():
+    """The named map is a list somebody has to remember to extend. For a
+    guarded step every string in the result is swept, so a field nobody mapped
+    cannot carry the value out."""
+    steps = [
+        {
+            "tool": "extract",
+            "params": {"css": "h1"},
+            "valueFrom": {"url": {"param": "magic"}},
+            "return": True,
+        }
+    ]
+    document = flow(
+        steps, parameters={"type": "object", "properties": {"magic": {"writeOnly": True}}}
+    )
+
+    class Nested(FakeActions):
+        def extract(self, session_id, **kwargs):
+            self.calls.append(("extract", session_id, kwargs))
+            # A field nobody mapped, nested, carrying the value.
+            return {"text": "ok", "meta": {"seen": [kwargs["url"]]}, "title": "t"}
+
+    report = run(Nested(), document, "b", params={"magic": "https://x.test/?t=zzz"})
+    assert "zzz" not in str(report)
