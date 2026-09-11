@@ -391,3 +391,22 @@ def test_running_over_http_needs_an_explicit_browser(client):
     response = client.post("/flows/run", json={"name": "f"}, headers=AUTH)
     assert response.status_code == 400
     assert "session_id is required" in response.json()["error"]
+
+
+def test_verbose_false_over_http_does_not_turn_verbose_on(client, flow_server,
+                                                          monkeypatch):
+    """bool("false") is True. Over HTTP everything arrives as a string, so the
+    boundary has to coerce — the reason as_bool exists at all."""
+    monkeypatch.setattr(
+        flow_server.actions,
+        "navigate",
+        lambda session_id, **kw: {"url": "u", "title": "t", "big": "x" * 100},
+    )
+    client.post("/flows/save", json={"name": "f", "steps": GOOD}, headers=AUTH)
+    response = client.post(
+        "/flows/run",
+        json={"name": "f", "session_id": "b", "verbose": "false"},
+        headers=AUTH,
+    )
+    assert response.status_code == 200, response.text
+    assert "result" not in response.json()["steps"][0]

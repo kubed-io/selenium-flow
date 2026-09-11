@@ -458,7 +458,7 @@ one does not:
 | `onError` | 1 | `abort` (default) \| `continue` — ToolHive's word, better than the `optional: true` this chapter first proposed |
 | `return` | 1 | include this step's full result in the run report (§F1.8) |
 | `note` | 1 | a human comment, so a twelve-step flow is readable |
-| `timeout` | 1 | per-step bound; falls back to the action's own default |
+| ~~`timeout`~~ | — | **withdrawn in E3.** Nothing could honour it: a Selenium call blocks, so a wall-clock bound cannot interrupt one, and every action that *can* wait already takes `wait_timeout` in its own params — which is validated against that tool's schema and is the real per-step bound. A key that parses and then does nothing is worse than one that is refused. |
 | `saveAs` | 2 | bind this step's output into the variable bag (§F1.7) |
 
 **Two ideas from Chrome's schema deliberately deferred, and worth writing down
@@ -1368,8 +1368,9 @@ single source of truth (§F1.13).
       `pydantic.create_model()`, assembled into a discriminated union on `tool` —
       the move `openapi.py` already makes for request bodies (§F1.6)
 - [x] Flow document: `name`, `description`, `parameters` (JSON Schema), `steps`
-- [x] Step keys: `tool`, `params`, `id`, `onError`, `return`, `note`, `timeout`,
-      `valueFrom` (§F1.7)
+- [x] Step keys: `tool`, `params`, `id`, `onError`, `return`, `note`,
+      `valueFrom` (§F1.7). `timeout` was **withdrawn** — see §F1.6; `wait_timeout`
+      in a step's own params is the per-step bound.
 - [x] `valueFrom` validated at **save** time against the derived model's field
       names: an unknown parameter, a name also present in `params`, or a source
       that is not exactly one of param/secret/config is refused then, not at

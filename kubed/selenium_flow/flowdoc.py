@@ -40,8 +40,13 @@ STEP_KEYS = {
     "onError",  # abort (default) | continue
     "return",  # include this step's full result in the run report
     "note",  # a human comment
-    "timeout",  # per-step bound, falling back to the action's own default
 }
+# `timeout` was specified as a step key and is deliberately NOT one. Nothing
+# could honour it: a Selenium call blocks, so a wall-clock bound cannot
+# interrupt one, and the actions that *can* be bounded already take
+# `wait_timeout` in their own params — which is the per-step bound, is
+# validated against each tool's schema, and is what a step should use. A key
+# that parses and then does nothing is worse than a key that is refused.
 
 ON_ERROR = ("abort", "continue")
 
@@ -267,7 +272,7 @@ def _check_step(index: int, step, declared: set[str], schemas: dict) -> list[str
             f"{where}: onError is {on_error!r}; use {' or '.join(ON_ERROR)}"
         )
 
-    for key, kind in (("id", str), ("note", str), ("timeout", int)):
+    for key, kind in (("id", str), ("note", str)):
         if key in step and not isinstance(step[key], kind):
             problems.append(f"{where}: {key} must be a {kind.__name__}")
     if "return" in step and not isinstance(step["return"], bool):

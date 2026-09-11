@@ -379,3 +379,131 @@ def test_a_flow_binding_a_secret_refuses_rather_than_typing_nothing():
 
 def test_the_run_timeout_has_a_default():
     assert flowrun.RUN_TIMEOUT > 0
+
+
+# ---- what the review caught -------------------------------------------------
+
+
+def test_a_guarded_value_is_hidden_whatever_field_it_lands_in():
+    """The whitelist decides which fields could ever be printed; the guard has
+    to decide per value. A magic-link login binds a secret to `url`, and one
+    flag meant only `text` was ever hidden."""
+    steps = [
+        {
+            "tool": "navigate",
+            "params": {},
+            "valueFrom": {"url": {"param": "magic_link"}},
+        }
+    ]
+    document = flow(
+        steps,
+        parameters={"type": "object", "properties": {"magic_link": {"writeOnly": True}}},
+    )
+    secret = "https://example.test/login?token=abc123"
+    report = run(FakeActions(), document, "b", params={"magic_link": secret})
+    assert "url=<hidden>" in report["steps"][0]["summary"]
+    assert "abc123" not in report["steps"][0]["summary"]
+
+
+def test_an_unguarded_field_is_still_printed_beside_a_guarded_one():
+    steps = [
+        {
+            "tool": "write",
+            "params": {"css": "#password"},
+            "valueFrom": {"text": {"param": "password"}},
+        }
+    ]
+    document = flow(
+        steps, parameters={"type": "object", "properties": {"password": {"writeOnly": True}}}
+    )
+    summary = run(FakeActions(), document, "b", params={"password": "x"})["steps"][0][
+        "summary"
+    ]
+    assert "css='#password'" in summary
+    assert "text=<hidden>" in summary
+
+
+@pytest.mark.parametrize("attribute", ["clear_files", "_at", "files", "__init__"])
+def test_a_step_cannot_dispatch_to_an_attribute_that_is_not_an_action(attribute):
+    """`getattr` accepts any callable. Saving validates the name, but a file
+    edited on disk never passed through saving — and `clear_files` would wipe
+    the session's downloads."""
+    actions = FakeActions()
+    called = []
+    setattr(actions, attribute, lambda *a, **k: called.append(attribute))
+    report = run(actions, flow([{"tool": attribute, "params": {}}]), "b")
+    assert report["status"] == "failed"
+    assert "no action called" in report["steps"][0]["error"]
+    assert called == []
+
+
+def test_a_run_error_reads_as_the_caller_s_mistake():
+    """Every one of these is fixable by whoever called. As a RuntimeError they
+    reached errors.status_for as a 500, telling a retrying client to replay a
+    request that was never going to work."""
+    from kubed.selenium_flow import errors
+
+    document = flow(SIMPLE, parameters={"type": "object", "properties": {},
+                                        "required": ["email"]})
+    try:
+        run(FakeActions(), document, "b")
+    except FlowError as exc:
+        assert errors.status_for(exc) == 400
+    else:  # pragma: no cover
+        pytest.fail("expected a FlowError")
+
+
+def test_a_failure_reports_the_page_the_browser_is_actually_on():
+    """A step carrying `url` navigates before it waits, so a failed wait leaves
+    the browser on the new page while the last success holds the newest URL."""
+
+    class Navigating(FakeActions):
+        def __init__(self):
+            super().__init__()
+            self.grid = self
+
+        def reconnect(self, session_id):
+            return "driver"
+
+        def write(self, session_id, **kwargs):
+            raise RuntimeError("no element matched")
+
+    import kubed.selenium_flow.flowrun as module
+
+    actions = Navigating()
+    steps = [
+        {"tool": "navigate", "params": {"url": "https://example.test/one"}},
+        {"tool": "write", "params": {"url": "https://example.test/two", "css": "#a",
+                                     "text": "x"}},
+    ]
+    original = module.browser.page_state
+    module.browser.page_state = lambda driver: {
+        "url": "https://example.test/two",
+        "title": "Two",
+    }
+    try:
+        report = run(actions, flow(steps), "b")
+    finally:
+        module.browser.page_state = original
+
+    assert report["status"] == "failed"
+    assert report["steps"][-1]["url"] == "https://example.test/two"
+    # And the run-level URL, which is what sessions.touch stores.
+    assert report["url"] == "https://example.test/two"
+
+
+def test_reading_the_failed_page_can_never_make_a_failure_worse():
+    class Exploding(FakeActions):
+        def __init__(self):
+            super().__init__()
+            self.grid = self
+
+        def reconnect(self, session_id):
+            raise RuntimeError("the grid is gone too")
+
+        def write(self, session_id, **kwargs):
+            raise RuntimeError("no element matched")
+
+    report = run(Exploding(), flow(SIMPLE), "b")
+    assert report["status"] == "failed"
+    assert "no element matched" in report["steps"][-1]["error"]

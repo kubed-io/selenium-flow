@@ -40,6 +40,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from . import auth, errors, flowdoc, flowrun, flows
+from .browser import as_bool
 from .hints import hints, reads
 from .routes import ENDPOINTS
 
@@ -273,7 +274,8 @@ def register(
             "steps is a list of {tool, params} objects — one tool call each, in "
             "order. A step may also carry id, note, onError ('abort' or "
             "'continue'), return (include its full result in the run report), "
-            "timeout, and valueFrom.\n\n"
+            "and valueFrom. To bound one step, set wait_timeout in its params — "
+            "the actions that can wait all take it.\n\n"
             "valueFrom maps a parameter name to a source instead of a literal: "
             "{'text': {'param': 'email'}} takes it from this flow's parameters, "
             "and {'text': {'secret': {'name': 'x', 'key': 'password'}}} takes it "
@@ -386,7 +388,6 @@ async def _document_schema(schemas: Schemas) -> dict:
                         "note": {"type": "string"},
                         "onError": {"type": "string", "enum": list(flowdoc.ON_ERROR)},
                         "return": {"type": "boolean"},
-                        "timeout": {"type": "integer"},
                     },
                 },
             },
@@ -438,7 +439,11 @@ def _routes(mcp, store, sessions, actions, schemas: Schemas, token, prefix) -> N
                         session,
                         name,
                         params=body.get("params"),
-                        verbose=bool(body.get("verbose")),
+                        # as_bool, not bool: over HTTP "false" arrives as a
+                        # string, and bool("false") is True — which would
+                        # turn on full per-step results and return every
+                        # extract in the flow.
+                        verbose=as_bool(body.get("verbose"), False),
                         session_id=session_id,
                     )
                 )

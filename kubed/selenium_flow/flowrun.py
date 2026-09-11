@@ -33,7 +33,17 @@ from __future__ import annotations
 import logging
 import time
 
+from . import browser
 from .flowdoc import NOT_STEPS
+from .routes import ENDPOINTS
+
+# The only attributes a step may dispatch to. `getattr(actions, tool)` alone
+# accepts any callable on the object — `clear_files` would wipe the session's
+# downloads and `__init__` would re-point it at another Grid — and saving
+# validates the name but a file edited on disk never passed through saving.
+# ENDPOINTS is the canonical list of browser actions and is already held to the
+# tool surface by test_surfaces.py.
+RUNNABLE = frozenset(ENDPOINTS.values()) - NOT_STEPS
 
 log = logging.getLogger(__name__)
 
@@ -64,11 +74,17 @@ HEAVY_FIELDS = ("image",)
 SENSITIVE_RESULT_FIELDS = ("value",)
 
 
-class FlowError(RuntimeError):
+class FlowError(ValueError):
     """A run that could not start, or a step that could not be resolved.
 
     Distinct from a step *failing*, which is an ordinary outcome and is reported
     rather than raised.
+
+    A **ValueError**, deliberately: every one of these is something the caller
+    got wrong and can fix — a missing parameter, a name the flow does not take,
+    a source this server cannot resolve. As a RuntimeError it reached
+    `errors.status_for` as a 500, telling an n8n node with Retry-On-Fail to
+    replay a request that was never going to work.
     """
 
 
@@ -109,21 +125,26 @@ def check_params(document: dict, params: dict) -> None:
         )
 
 
-def resolve_step(step: dict, params: dict, sensitive: set[str]) -> tuple[dict, bool]:
-    """A step's keyword arguments, and whether any of them must not be echoed.
+def resolve_step(step: dict, params: dict, sensitive: set[str]) -> tuple[dict, set]:
+    """A step's keyword arguments, and **which of them** must not be echoed.
 
     Structural: each entry of `valueFrom` names a source and the value goes
     straight into the kwargs. No string is inspected for placeholders, which is
     why a payload can never collide with a reference.
+
+    The guard is a set of argument *names* rather than one flag. A `writeOnly`
+    parameter can be bound to any argument, not just `text` — a magic-link login
+    binds one to `url` — and a single flag meant such a value was printed
+    verbatim by the summary while `text` was the only thing hidden.
     """
     kwargs = dict(step.get("params") or {})
-    guarded = False
+    guarded: set[str] = set()
     for name, source in (step.get("valueFrom") or {}).items():
         if "param" in source:
             reference = source["param"]
             kwargs[name] = params.get(reference)
             if reference in sensitive:
-                guarded = True
+                guarded.add(name)
         elif "secret" in source:
             # E9. Refused rather than skipped: a login flow that silently typed
             # nothing into the password field would "succeed" and leave someone
@@ -141,20 +162,29 @@ def resolve_step(step: dict, params: dict, sensitive: set[str]) -> tuple[dict, b
     return kwargs, guarded
 
 
-def summarise(tool: str, kwargs: dict, guarded: bool) -> str:
-    """One short line saying what a step did, built from what is safe to say."""
-    parts = [f"{key}={kwargs[key]!r}" for key in SAFE_IN_SUMMARY if kwargs.get(key)]
+def summarise(tool: str, kwargs: dict, guarded: set) -> str:
+    """One short line saying what a step did, built from what is safe to say.
+
+    Two filters, not one. The whitelist decides which *fields* could ever be
+    printed; `guarded` then hides the ones whose value came from somewhere it
+    must not come back from, whatever field they landed in.
+    """
+    parts = []
+    for key in SAFE_IN_SUMMARY:
+        if not kwargs.get(key):
+            continue
+        parts.append(f"{key}=<hidden>" if key in guarded else f"{key}={kwargs[key]!r}")
     if "text" in kwargs:
         value = kwargs["text"]
         parts.append(
             "text=<hidden>"
-            if guarded
+            if "text" in guarded
             else f"text={len(value) if isinstance(value, str) else '?'} chars"
         )
     return f"{tool} {' '.join(parts)}".strip()
 
 
-def _clean(result, guarded: bool) -> dict:
+def _clean(result, guarded: set) -> dict:
     """A step's result, without the parts a report must not carry."""
     if not isinstance(result, dict):
         return {"result": result}
@@ -164,6 +194,25 @@ def _clean(result, guarded: bool) -> dict:
             if field in cleaned:
                 cleaned[field] = None
     return cleaned
+
+
+def _page_state(actions, session_id: str) -> dict:
+    """Where the browser actually is, best effort.
+
+    A step that carries `url` navigates *before* it waits for its element, so a
+    failed wait leaves the browser on the new page while the last successful
+    step's URL is the newest one recorded. Reporting that stale URL is
+    misleading; letting `sessions.touch` store it is worse, because a later
+    reopen would land on the wrong page.
+
+    Same reconnect-and-read `sessions.describe` already does, and wrapped the
+    same way: this runs while reporting a failure and must never turn one
+    failure into two.
+    """
+    try:
+        return browser.page_state(actions.grid.reconnect(session_id))
+    except Exception:  # noqa: BLE001 - a best-effort read, on an error path
+        return {}
 
 
 def run(
@@ -211,10 +260,12 @@ def run(
             status = "failed"
             break
 
-        method = getattr(actions, tool, None)
-        if tool in NOT_STEPS or method is None or not callable(method):
-            # Saving validates this, so reaching it means the document was
-            # written before a tool was renamed, or edited on disk by hand.
+        method = getattr(actions, tool, None) if tool in RUNNABLE else None
+        if method is None:
+            # Saving validates the name, so reaching this means the document was
+            # written before a tool was renamed — or edited on disk, which never
+            # passed through saving at all. Hence the allowlist rather than a
+            # callable check: `clear_files` and `_at` are both callable.
             entry.update(ok=False, error=f"there is no action called {tool!r}")
             reports.append(entry)
             status = "failed"
@@ -238,6 +289,11 @@ def run(
         except Exception as exc:  # noqa: BLE001 - a failing step is an outcome
             entry["ok"] = False
             entry["error"] = str(exc)
+            # Where it actually failed, not where the last step succeeded.
+            landed = _page_state(actions, session_id)
+            if landed.get("url"):
+                entry["url"] = landed["url"]
+                last = {**last, **landed}
             log.info("flow %s step %s (%s) failed: %s", name, number, label, exc)
             reports.append(entry)
             if step.get("onError") == "continue":

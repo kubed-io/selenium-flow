@@ -494,7 +494,6 @@ FLOW_STEP = {
         "note": {"type": "string"},
         "onError": {"type": "string", "enum": ["abort", "continue"]},
         "return": {"type": "boolean"},
-        "timeout": {"type": "integer"},
     },
 }
 
