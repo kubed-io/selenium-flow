@@ -19,7 +19,7 @@ from collections.abc import Callable
 
 from fastmcp import FastMCP
 from fastmcp.utilities.types import Image
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from . import flowrun
 from . import secrets as secrets_module
@@ -48,6 +48,11 @@ SELECTOR = (
 class SecretRef(BaseModel):
     """Which secret, and which key inside it."""
 
+    # Unknown fields are refused rather than dropped, the same way the flow
+    # validator refuses them. Pydantic's default is to ignore them silently,
+    # which turns a caller's mistake into a different request than they sent.
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     key: str
 
@@ -63,7 +68,17 @@ class ValueFrom(BaseModel):
     source — a flow's own parameters mean nothing outside a flow — so an
     optional field would have published `value_from: {}` as legal and turned a
     shape error into a run-time one.
+
+    **Extra fields are refused**, which on this model is a security property
+    rather than tidiness. Pydantic ignores unknown fields by default, so
+    `{"secret": ..., "config": ...}` arrived at the binder already reduced to
+    the `secret` branch — `sole_source` never saw the second one, and this
+    surface quietly picked one of two sources while the HTTP endpoint and the
+    flow validator refused the same request. The check has to be in front of the
+    model, not behind it.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     secret: SecretRef
 

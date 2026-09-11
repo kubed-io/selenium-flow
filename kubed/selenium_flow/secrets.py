@@ -328,13 +328,25 @@ class Catalogue:
         self.sources = list(sources)
         self._ttl = ttl
         self._clock = clock
-        self._cache: tuple[float, dict] | None = None
+        self._cache: tuple[float, dict, dict] | None = None
 
-    def _entries(self) -> dict:
+    def _snapshot(self) -> tuple[dict, dict]:
+        """Every secret, and which source each one came from, read together.
+
+        **One snapshot, because the two are one fact.** The entry carries the
+        policy — which URLs a secret may be used on — and the owner is where its
+        value will be read from. Resolved separately they could disagree: the
+        listing was cached while `source_of` walked the sources live, so a name
+        appearing in a higher-priority directory during the TTL meant the old
+        secret's leash was checked and the new secret's value was returned.
+
+        A bind is a policy and a value about the same secret, or it is nothing.
+        """
         now = self._clock()
         if self._cache is not None and now < self._cache[0]:
-            return self._cache[1]
+            return self._cache[1], self._cache[2]
         entries: dict[str, dict] = {}
+        owners: dict[str, SecretSource] = {}
         for source in self.sources:
             for name in source.names():
                 if name in entries:
@@ -342,8 +354,12 @@ class Catalogue:
                 entry = source.entry(name)
                 if entry is not None:
                     entries[name] = entry
-        self._cache = (now + self._ttl, entries)
-        return entries
+                    owners[name] = source
+        self._cache = (now + self._ttl, entries, owners)
+        return entries, owners
+
+    def _entries(self) -> dict:
+        return self._snapshot()[0]
 
     def listing(self, session: str = "") -> dict:
         """The catalogue, as a caller may see it. Names and keys, never values."""
@@ -358,14 +374,22 @@ class Catalogue:
         return self._entries().get(name)
 
     def source_of(self, name: str) -> SecretSource | None:
-        """Which source owns a name, for reading its value."""
-        for source in self.sources:
-            if name in source.names():
-                return source
-        return None
+        """Which source owns a name, as of the current snapshot.
+
+        Read from the same listing the entry came from rather than by walking
+        the sources again, so the owner and the policy can never be two
+        different secrets.
+        """
+        return self._snapshot()[1].get(name)
 
     def value(self, name: str, key: str) -> str | None:
-        """One value, for the binding path. No surface reaches this."""
+        """One value, for the binding path. No surface reaches this.
+
+        The value itself is read now rather than cached — a rotated password
+        should be the one that gets typed, and keeping credentials in memory to
+        make a check atomic would be a poor trade. What the snapshot fixes is
+        *which secret* is being read, not what is inside it.
+        """
         source = self.source_of(name)
         return None if source is None else source.value(name, key)
 

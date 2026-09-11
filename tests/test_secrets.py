@@ -8,6 +8,7 @@ plain tree it looks like from outside.
 """
 
 import pytest
+from pydantic import ValidationError
 
 from kubed.selenium_flow import secrets
 from kubed.selenium_flow.secrets import (
@@ -1066,3 +1067,72 @@ def test_a_session_in_use_is_kept_alive_even_when_its_page_is_withheld():
     assert kept is not None, "the session expired while it was being used"
     # And the page it already knew survives being touched with nothing.
     assert kept.url == "https://nc.test/home"
+
+
+async def test_the_mcp_surface_refuses_two_sources_like_the_other_two(server):
+    """Pydantic drops unknown fields by default, so `{secret, config}` reached
+    the binder already reduced to `secret` and `sole_source` never saw the
+    second one. The MCP tool picked one while HTTP and the flow validator
+    refused — the surface divergence the repo's first rule forbids.
+
+    Asserted on the **published schema and the model**, not by calling `fn`:
+    `fn` is the undecorated function, so a test driving it skips the very
+    validation this is about and would pass either way.
+    """
+    from kubed.selenium_flow.tools import ValueFrom
+
+    write = await server.mcp.get_tool("write")
+    published = write.parameters["$defs"]["ValueFrom"]
+    assert published["additionalProperties"] is False
+
+    with pytest.raises(ValidationError):
+        ValueFrom.model_validate(
+            {
+                "secret": {"name": "nextcloud", "key": "password"},
+                "config": {"name": "other", "key": "thing"},
+            }
+        )
+
+
+async def test_the_mcp_surface_refuses_an_unknown_field_in_a_secret_reference(server):
+    """Same rule one level down, where the flow validator already refused it."""
+    from kubed.selenium_flow.tools import SecretRef
+
+    write = await server.mcp.get_tool("write")
+    assert write.parameters["$defs"]["SecretRef"]["additionalProperties"] is False
+
+    with pytest.raises(ValidationError):
+        SecretRef.model_validate({"name": "nextcloud", "key": "password", "kye": "x"})
+
+
+def test_a_leash_and_a_value_always_describe_the_same_secret(tmp_path):
+    """The policy was read from a cached listing while the owner was resolved by
+    walking the sources live. A name appearing in a higher-priority directory
+    during the TTL meant one secret's leash was checked and another's value was
+    returned."""
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    # Only the low-priority directory has it to begin with.
+    make_secret(second, "shared", password="old", **{ALLOWED_URLS: "https://b.test"})
+
+    clock = [1000.0]
+    catalogue = Catalogue(
+        [FilesystemSource(first), FilesystemSource(second)],
+        ttl=60,
+        clock=lambda: clock[0],
+    )
+    assert catalogue.allows("shared", "https://b.test/") is True
+
+    # A higher-priority secret of the same name appears inside the TTL.
+    make_secret(first, "shared", password="new", **{ALLOWED_URLS: "https://a.test"})
+
+    # The snapshot has not expired, so the whole bind still describes the old
+    # secret: its leash AND its value. Not one of each.
+    assert catalogue.allows("shared", "https://b.test/") is True
+    assert catalogue.value("shared", "password") == "old"
+
+    clock[0] += 61  # the snapshot expires and the new owner takes over, whole
+    assert catalogue.allows("shared", "https://a.test/") is True
+    assert catalogue.allows("shared", "https://b.test/") is False
+    assert catalogue.value("shared", "password") == "new"

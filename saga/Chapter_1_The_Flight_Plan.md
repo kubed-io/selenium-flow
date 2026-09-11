@@ -1400,10 +1400,23 @@ Dr K's instinct that `write` is the only consumer holds up under exactly this
 kind of enumeration, which is why it is written down as a list of refusals
 rather than as a single yes.
 
+**A bind is a policy and a value about the same secret, or it is nothing.** The
+catalogue caches its listing; the owner of a name was resolved by walking the
+sources live. So a name appearing in a higher-priority directory during the TTL
+meant the *old* secret's leash was checked and the *new* secret's value was
+returned — §F1.27's whole point, undone by reading two halves of one fact at two
+times. Entries and owners now come from one snapshot. The value itself is still
+read fresh: a rotated password should be the one that gets typed, and holding
+credentials in memory to make a check atomic is a poor trade.
+
 **Exactly one source has one implementation.** `flowdoc.sole_source` is called
 by the validator when a flow is saved, by `flowrun.resolve_step` when a stored
 document is run, and by `secrets.prepare_write` for a direct write whose
-`value_from` arrives as raw JSON. Written three times it was three rules and two
+`value_from` arrives as raw JSON. The MCP tool needed one thing more: its
+`ValueFrom` model must **forbid** extra fields, because pydantic's default is to
+drop them — so `{"secret": …, "config": …}` was reduced to one source *before*
+the shared rule ever saw it. A check behind a model that silently rewrites its
+input is not a check. Written three times it was three rules and two
 were weaker: both runtime paths tested the sources in order and took the first
 match, so `{"param": …, "secret": …}` ran as though it had named one. A caller
 naming two sources has said something they cannot mean, and choosing one for
