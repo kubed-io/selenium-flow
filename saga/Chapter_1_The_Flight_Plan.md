@@ -504,15 +504,16 @@ steps:
 
 - id: fill-email
   tool: write
-  params: {css: "#email"}
-  valueFrom:
-    text: {param: email}
+  params:
+    css: "#email"
+    value_from: {param: email}
 
 - id: fill-password
   tool: write
-  params: {css: "#password"}
-  valueFrom:
-    text: {secret: {name: nextcloud-admin, key: password}}
+  params:
+    css: "#password"
+    value_from:
+      secret: {name: nextcloud-admin, key: password}
 
 - tool: interact
   params: {action: click, css: "button[type=submit]"}
@@ -520,17 +521,54 @@ steps:
 
 The rules:
 
-- **`valueFrom` is a step-level key**, a map of *parameter name* → *source*. It
-  sits beside `id`, `onError` and `note` (§F1.6) rather than inside `params`.
-  That is what keeps `params` exactly the tool's own schema, so §F1.6's
-  derivation is untouched: `params` is validated against the derived model
-  as-is, and `valueFrom` is checked separately against the same model's field
-  names.
+- **`value_from` is an ordinary parameter of the action**, so a step's `params`
+  is *exactly* the arguments of the call, with no exception — and a step is
+  literally the call a caller would make directly.
+
+  **Corrected twice on 2026-09-11.** The first draft made `valueFrom` a
+  step-level map of parameter-name → source. Dr K cut the map:
+
+  > *"You have that extra level of `text` that was unnecessary. Remember that
+  > k8s has `value` and `valueFrom` on the same level as mutually exclusive
+  > keys."*
+
+  …and then cut the step-level key itself:
+
+  > *"For the tools to be symmetric the valueFrom can be nested under params
+  > since it is specific only to write."*
+
+  Both are right, and the second is the stronger claim. Kubernetes shapes an env
+  var as a **thing that already has a name**, with `value` and `valueFrom` as
+  mutually exclusive siblings; the name is never repeated inside `valueFrom`.
+  Here the *action* is the named thing and it declares which argument a
+  `value_from` fills, so nothing repeats a name — and because it is a parameter
+  rather than a step key, the step form and the direct-call form stop being two
+  shapes at all:
+
+  ```python
+  write(css="#password", value_from={"secret": {...}})              # direct
+  ```
+  ```yaml
+  {tool: write, params: {css: "#password", value_from: {secret: {...}}}}
+  ```
+
+  It is spelled `value_from`, not `valueFrom`, because it is a parameter and
+  every other parameter on this surface is snake_case. The *step* keys stay
+  camelCase (`onError`) — those are ours; parameters are the tool's.
+
+  **What it costs**, stated so it is a decision rather than an oversight: a
+  value can only reach an argument an action has *chosen to open*, and only
+  `write` has (§F1.28). Taking `navigate`'s `url` from a flow parameter is not
+  expressible today. That is deliberately a one-line change per action — a
+  `value_from` parameter plus an entry in `FILLS` — so it is a decision
+  deferred, not a door closed.
 - **A source is exactly one of three**: `param` (a name from this flow's
   `parameters`), `secret` (`{name, key}`), or `config` (`{name, key}`, when
   ConfigMaps land — §F1.31). Two is refused, zero is refused.
-- **A parameter may not be given twice.** A name appearing in both `params` and
-  `valueFrom` is refused at save time, not silently resolved in one direction.
+- **A value may not be given twice.** Giving the action's value argument *and* a
+  `value_from` is refused at save time, not silently resolved in one direction —
+  exactly what Kubernetes means by `value` and `valueFrom` being mutually
+  exclusive.
 - **References resolve to whole values, never fragments.** There is no way to
   express "the URL is `https://` plus this param plus `/login`". If a flow needs
   a composed value, the composition is the caller's job and it passes the
@@ -558,7 +596,7 @@ simplification.
 
 `writeOnly: true` on a parameter (this section's original proposal) survives and
 still means "supplied but not echoed back". But see §F1.29: for anything
-genuinely secret, `valueFrom.secret` is strictly better, because a `writeOnly`
+genuinely secret, `value_from.secret` is strictly better, because a `writeOnly`
 parameter still has to be *supplied* — which means a model held it.
 
 ### §F1.8 — Decision (locked by E3): what a run returns
@@ -805,6 +843,109 @@ WebDAV backend will break if they are assumed:
 And it is a genuinely good destination: flows in Nextcloud means they are
 versioned, shared, browsable and backed up by something that already does all
 four — the same argument every other `nextcloud-*` project in this fleet makes.
+
+### §F1.33 — Decision (locked): a flow declares where it applies, and the page you are on decides what you see
+
+Dr K's, and it solves a problem the feature is about to have rather than one it
+has: a library of thirty flows across six sites, where twenty-nine of them are
+noise on any given page.
+
+> *"Since the browser always has context on some URL we are currently on, we can
+> put a glob-like list of URLs the flow works on. Then list_flows can filter by
+> relevant flows. The context of what flows are available is the site itself."*
+
+A flow gains an optional `urls`:
+
+```yaml
+name: login
+description: Log in to the admin panel
+urls:
+- https://nextcloud.example.com/*
+steps: [...]
+```
+
+- **Globs over the whole URL**, matched with `fnmatch`. `*` on its own means
+  every site, which is the escape hatch for a genuinely generic flow.
+- **No `urls` at all means everywhere**, so every flow saved before this
+  existed keeps appearing. Absent and `*` behave identically, deliberately.
+- **A URL with no path is matched as though it ended in `/`**, so
+  `https://host` matches the pattern `https://host/*` rather than mysteriously
+  not doing.
+
+**This is a filter, not a leash, and the distinction has to survive contact with
+the next person who reads both features.** A secret's `_allowed_urls` (§F1.27)
+is a *security control*: origin-exact, substring matching explicitly rejected,
+failing closed when it cannot be parsed. A flow's `urls` is a *discovery
+convenience*: glob, fails **open** — when in doubt the flow is listed — and
+worth nothing as a defence, because a caller can name any flow it likes.
+
+They look similar and must never be merged. Merging them would either make
+discovery annoyingly strict or, far worse, make the secret leash a glob.
+
+**Running is not gated on it.** A flow's first step is very often `navigate`,
+so at the moment a run starts the browser is frequently on `about:blank` or on
+the page you came from — gating the run on the pattern would refuse exactly the
+common case. `urls` says where a flow is *relevant*, not where it is *permitted*.
+See open question #14.
+
+### §F1.34 — Decision (locked): the filtered view is its own resource, because MCP has no filter
+
+Dr K asked directly: *"do resources have a filter?"*
+
+**No.** A resource is identified by its URI and nothing else; there is no query
+or parameter mechanism in the protocol. The one variable part is a **resource
+template** (RFC 6570), which parameterises *path segments* — which is how
+`flow://flows/{name}` already works. So a filtered view has to be a different
+URI, exactly as Dr K guessed.
+
+The obvious spelling has a collision worth catching before it ships:
+
+> `flow://flows/current` would be ambiguous with `flow://flows/{name}` — it is
+> also the URI of a flow that somebody named `current`.
+
+Reserving the name would be a rule nobody can see from the outside. So:
+
+| URI | What |
+|---|---|
+| `flow://here` | the flows that apply to the page the browser is on |
+| `flow://flows` | every flow this session can run |
+| `flow://flows/{name}` | one flow, unchanged |
+
+`flow://here` cannot collide with a flow name, and it reads as what it is.
+
+**The tool takes a flag instead**, because a tool *can* have parameters:
+`list_flows(everywhere=False)`. The default is the current page, which is Dr K's
+call and the right one — the common question is "what can I do *here*".
+
+**The current URL comes from the session record, not from the Grid.** It is what
+the last action reported, it is already kept current by `sessions.touch`, and
+reading it costs nothing. A resource read must never open a browser or spend a
+round trip, and this one does neither. The cost is that a page which navigated
+itself since the last action is not reflected — an acceptable trade for a
+listing, and stated so nobody assumes otherwise.
+
+### §F1.35 — Decision (locked): the session status says when the page has flows
+
+The other half of Dr K's idea, and the one that makes the feature discoverable
+rather than merely filterable:
+
+> *"When the URL changes or the browser session starts, there can be a hint
+> about the specific URL having flows."*
+
+`session://current` — which the skill already tells an agent to read first —
+gains `flows_here`: the **names** of the flows that apply to the page it is on.
+Names only, not descriptions: it is a pointer into `flow://here`, not a
+duplicate of it.
+
+That makes the flow library announce itself at exactly the moment it is useful,
+without an agent having to think to ask. It also gives the skill a much better
+opening move than "list your flows": *read the status, and if `flows_here` is
+not empty, one of them is probably the task you were given.*
+
+**The listing has to be cheap for this to be free**, because the status resource
+is read often and a summary today reads every flow file in the session. So the
+flow store gains the same short-TTL catalogue cache the secrets catalogue
+already has (§F1.23) — cache the listing, never the documents.
 
 ### §F1.13 — Decision (locked): selector strategy is a per-step, mutually exclusive choice — and it lands in the tools first
 
@@ -1132,12 +1273,32 @@ overstates itself is worse than none:
 > back.** `document.querySelector('#password').value` is one call, and this
 > server cannot tell that from any other script.
 
+**A second limit, found in review and worth the same honesty.** The leash is
+checked by reading the page and then typing — two operations, not one. Nothing
+makes them atomic, so a *second* caller sharing the same browser session could
+navigate it between the check and the keystroke, and the value would land on a
+page that was never approved.
+
+It is a narrow window and it requires an attacker who can already drive your
+browser session — at which point they can navigate it anywhere regardless. A
+lock would not close it either: the browser is on the Grid, and another client
+holding the same session id can move it whatever this process does. So it is
+recorded as a known limit rather than defended against badly, and it is an
+argument for one session per caller (§F1.2) rather than for machinery here.
+
 So the guarantee is precise and limited: **the value never passes through the
 model on its way in.** It is not sealed off from a determined agent afterwards.
 The mitigations that do exist are §F1.27 (a secret can only be used on URLs its
 owner allowed) and the flow itself (a reviewed sequence with no model in the
 loop between steps). This is the same honesty §F1.7 applies to `writeOnly`:
 a marker, not encryption.
+
+And it is never *evidence*. Three places decided whether a page was safe to
+remember by comparing a URL with its scrubbed form, which is the same question
+as "did the marker appear" — and a secret whose value is exactly `<hidden>`
+scrubs to itself, so all three called the credential URL clean. The question is
+whether the value is in the text; `flowrun.taints` asks that, and the three
+callers ask it instead of inferring.
 
 ### §F1.25 — Decision (locked): `write` currently returns what it typed, and that leak must close first
 
@@ -1181,9 +1342,10 @@ uses. In a **flow step**:
 
 ```yaml
 - tool: write
-  params: {css: "#password"}
-  valueFrom:
-    text: {secret: {name: nextcloud-admin, key: password}}
+  params:
+    css: "#password"
+    value_from:
+      secret: {name: nextcloud-admin, key: password}
 ```
 
 and on a **direct tool call**, where there is no flow and so no `param` source
@@ -1194,10 +1356,9 @@ write(css="#password", value_from={"secret": {"name": "nextcloud-admin",
                                               "key": "password"}})
 ```
 
-- `value_from` on the tool targets the text, because `text` is the only
-  bindable parameter `write` has (§F1.28). A tool that ever gains a second one
-  gets the map form; today the map would have exactly one key and be pure
-  ceremony.
+- **The two are the same shape**, which they were not in the first two drafts:
+  `value_from` is a parameter of `write` on both surfaces. It names a source,
+  and which argument it fills is `write`'s own business (§F1.7).
 - **Exactly one of `text` or `value_from`**, enforced at the boundary with the
   idiom `browser.locator` already uses for `xpath`/`css` — both is refused
   rather than resolved.
@@ -1239,6 +1400,28 @@ Dr K's instinct that `write` is the only consumer holds up under exactly this
 kind of enumeration, which is why it is written down as a list of refusals
 rather than as a single yes.
 
+**A bind is a policy and a value about the same secret, or it is nothing.** The
+catalogue caches its listing; the owner of a name was resolved by walking the
+sources live. So a name appearing in a higher-priority directory during the TTL
+meant the *old* secret's leash was checked and the *new* secret's value was
+returned — §F1.27's whole point, undone by reading two halves of one fact at two
+times. Entries and owners now come from one snapshot. The value itself is still
+read fresh: a rotated password should be the one that gets typed, and holding
+credentials in memory to make a check atomic is a poor trade.
+
+**Exactly one source has one implementation.** `flowdoc.sole_source` is called
+by the validator when a flow is saved, by `flowrun.resolve_step` when a stored
+document is run, and by `secrets.prepare_write` for a direct write whose
+`value_from` arrives as raw JSON. The MCP tool needed one thing more: its
+`ValueFrom` model must **forbid** extra fields, because pydantic's default is to
+drop them — so `{"secret": …, "config": …}` was reduced to one source *before*
+the shared rule ever saw it. A check behind a model that silently rewrites its
+input is not a check. Written three times it was three rules and two
+were weaker: both runtime paths tested the sources in order and took the first
+match, so `{"param": …, "secret": …}` ran as though it had named one. A caller
+naming two sources has said something they cannot mean, and choosing one for
+them is a guess that is wrong silently.
+
 ### §F1.29 — Decision (locked): binding supersedes `writeOnly` parameters for real secrets
 
 §F1.7 gave a flow `parameters` with `writeOnly: true` for values a caller
@@ -1262,6 +1445,30 @@ That is cheap, it is the record an operator wants after something goes wrong,
 and the admin event stream already exists to carry it. A refused bind is the
 more interesting event of the two and must be recorded loudest — it is the
 signal that something tried to use a credential somewhere it should not.
+
+**Withholding a page must not stop the clock.** `sessions.touch` does two
+things — records where the browser is, and slides the session's TTL — and a
+bound write has a reason to skip the first and none to skip the second. Skipping
+both meant a flow that logs in every few minutes, which is the thing secrets
+exist for, expired out of the store *because* its URL was correctly kept out of
+it. A no-URL touch now keeps the page it already knew and refreshes the record,
+which is what `SessionRecord.at` was already written to do.
+
+Three things the implementation had to learn, the first two the same mistake:
+
+**The identifiers are read off the catalogue's entry, not off the request.** The
+line says which secret was *resolved*, spelled the way its source spells it,
+rather than echoing the string a caller asked with. More accurate, and it also
+means nothing in the audit line descends from the caller-supplied `value_from` —
+which is what a scanner reads as the credential itself, and it is not wrong to.
+
+**A rejected permission line is rebuilt, never echoed with the bad part removed.**
+`_allowed_urls` refuses a line carrying userinfo or a path, and `/secrets`
+publishes which line was refused so an operator can fix it. Taking the userinfo
+out and printing the rest published `?token=…` — so the branch that refuses a
+line *for carrying a credential* handed it straight back. What is shown is
+assembled from the scheme, host and port; what went missing is named, never
+quoted.
 
 ### §F1.31 — Decision (locked): the surfaces, and ConfigMaps later
 
@@ -1291,8 +1498,8 @@ arc, because no single tool description can:
    never see a value, and you do not need one.
 2. **Discover the selectors** — drive the login page by hand once, `extract` to
    find the field selectors (§F1.13 now offers `css` as well as `xpath`).
-3. **Build the flow** — steps with the selectors, and `secret`/`secret_key` on
-   the password field instead of a value.
+3. **Build the flow** — steps with the selectors, and a `value_from` naming the
+   secret on the password step instead of a value.
 4. **Save it** — `save_flow`, once.
 5. **Run it** — `run_flow`, forever after, with no credential in any transcript.
 
@@ -1368,13 +1575,14 @@ single source of truth (§F1.13).
       `pydantic.create_model()`, assembled into a discriminated union on `tool` —
       the move `openapi.py` already makes for request bodies (§F1.6)
 - [x] Flow document: `name`, `description`, `parameters` (JSON Schema), `steps`
-- [x] Step keys: `tool`, `params`, `id`, `onError`, `return`, `note`,
-      `valueFrom` (§F1.7). `timeout` was **withdrawn** — see §F1.6; `wait_timeout`
-      in a step's own params is the per-step bound.
-- [x] `valueFrom` validated at **save** time against the derived model's field
-      names: an unknown parameter, a name also present in `params`, or a source
-      that is not exactly one of param/secret/config is refused then, not at
-      step nine of a run (§F1.7)
+- [x] Step keys: `tool`, `params`, `id`, `onError`, `return`, `note`. `timeout`
+      was **withdrawn** (§F1.6) — `wait_timeout` in a step's own params is the
+      per-step bound — and `valueFrom` was withdrawn too: it is a *parameter*,
+      `value_from`, so `params` is exactly the call's arguments (§F1.7).
+- [x] `value_from` validated at **save** time: a source that is not exactly one
+      of param/secret/config, an undeclared parameter, a value also given
+      literally, or an action that does not offer the parameter at all — all
+      refused then, not at step nine of a run (§F1.7)
 - [x] `flow://flows` and `flow://flows/{name}` resources; the listing returns
       names, descriptions and `parameters` only — **never full documents**, so
       the WebDAV backend stays viable (§F1.5, §F1.12)
@@ -1519,25 +1727,54 @@ API from inside a pod rather than reasoned about.
 - [ ] **Cluster repo:** Role + RoleBinding, with a comment saying plainly that
       this grants read of every secret in the namespace (§F1.20)
 
-### E9 — Handing over the pouch: the binding
+### E11 — Local knowledge: flows that know where they apply
 
-- [ ] **First, and with a test before the feature: close the `write` read-back.**
+- [ ] `urls` on a flow document: a list of globs, validated at save time —
+      strings only, and a pattern that is not a string is refused (§F1.33)
+- [ ] Matching helper: `fnmatch` over the whole URL, a path-less URL treated as
+      ending in `/`, absent-or-`*` meaning everywhere
+- [ ] `flow://here` resource — **not** `flow://flows/current`, which collides
+      with a flow named `current` (§F1.34)
+- [ ] `list_flows(everywhere=False)`, defaulting to the current page; with no
+      current URL there is nothing to filter by, so show everything rather than
+      nothing
+- [ ] `/flows/list` takes the same flag, and a `url` override so an HTTP caller
+      with no session can ask "what applies to this page"
+- [ ] `flows_here` on `session://current` and `current_session` (§F1.35)
+- [ ] Short-TTL cache on the flow listing, so the status resource stays cheap —
+      cache the listing, never the documents
+- [ ] The skill's opening move becomes "read the status; if `flows_here` is not
+      empty, one of them is probably your task"
+- [ ] Tests: a glob matching and not matching, `*`, absent, a path-less URL, the
+      no-current-URL fallback, and one asserting `flow://here` and a flow named
+      `current` do not collide
+- [ ] **A test that the two URL mechanisms stay apart**: a secret's leash is
+      origin-exact and fails closed, a flow's `urls` is a glob and fails open.
+      They will look mergeable to somebody one day (§F1.33)
+
+### E9 — Handing over the pouch: the binding — **DONE**
+
+- [x] **First, and with a test before the feature: close the `write` read-back.**
       A bound write returns `"value": null` plus a `"value_from"` naming what was
       used, and does not perform the read at all (§F1.25)
-- [ ] A typed `ValueFrom` model — exactly one of `param`, `secret`, `config` —
+- [x] A typed `ValueFrom` model — exactly one of `param`, `secret`, `config` —
       shared by the tool parameter and the flow step key (§F1.7, §F1.26)
-- [ ] `value_from` on `write`, mutually exclusive with `text`, refused at the
+- [x] `value_from` on `write`, mutually exclusive with `text`, refused at the
       boundary with the `browser.locator` idiom (§F1.26)
-- [ ] Allowed-URL enforcement, **matched by origin**, against the page the
-      browser is actually on at the moment of the write (§F1.27)
-- [ ] Refusals with reasons for `execute_script`, `navigate` and `press_key`;
+- [x] Allowed-URL enforcement, **matched by origin**, against the page the
+      browser is actually on at the moment of the write (§F1.27).
+      **Consequence found while building:** a step that binds a secret may not
+      also carry `url`. A step that navigates first would have its leash checked
+      against the page it is leaving, and a redirect would defeat even that —
+      so navigation is its own step, refused at save time with that reasoning.
+- [x] Refusals with reasons for `execute_script`, `navigate` and `press_key`;
       `upload_file` says "not yet" rather than "never" (§F1.28)
-- [ ] Audit events: flow, step, secret, key, URL, allowed — never a value, and a
+- [x] Audit events: flow, step, secret, key, URL, allowed — never a value, and a
       refused bind logged loudest (§F1.30)
 - [x] `secret://secrets` resource, `list_secrets` mirror tool, `GET /secrets`
       (§F1.31) — **shipped with E7**: the catalogue is the half that stands on
       its own, and it is what a skill can teach before any binding exists
-- [ ] Tests: a bound value never appears in a tool result, a run report, a saved
+- [x] Tests: a bound value never appears in a tool result, a run report, a saved
       flow or a log record; an origin-suffix attack is refused; a bind on a
       disallowed URL is refused before any keystroke is sent
 
@@ -1623,6 +1860,14 @@ answer is the useful part.
     {id: extract-token, field: text}}` — which is *better*, because it is
     checkable at save time against the step ids in the same document. Recommend
     that shape when Chapter 2 gets there.
+
+14. **Should `urls` ever gate a *run*, not just a listing?** §F1.33 says no,
+    because a flow's first step is usually `navigate` and the browser is often
+    on `about:blank` when the run starts — gating would refuse the common case.
+    A softer version exists: warn when a flow declares `urls`, the current page
+    matches none of them, **and** its first step does not navigate. That is a
+    real smell and a cheap check. Recommend: not in Chapter 1, and only if
+    running the wrong flow on the wrong page turns out to happen.
 
 **Still genuinely open:** §F1.8 (what a run returns — a recommendation is on the
 table, no objection yet) and §F1.11 (the `ROUTE_PREFIX` rollout, which has a live

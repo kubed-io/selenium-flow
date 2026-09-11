@@ -98,11 +98,34 @@ def type_of(field: dict) -> str:
     """
     branches = field.get("anyOf")
     if branches:
-        names = [b.get("type") for b in branches if b.get("type") != "null"]
+        # A branch is a plain type OR a reference to a model — an optional
+        # typed parameter arrives as `anyOf: [{$ref: ...}, {type: null}]`, and
+        # reading only `type` rendered the whole thing as "any", losing exactly
+        # the shape the model was added to publish.
+        names = [_named(b) for b in branches if b.get("type") != "null"]
         return " or ".join(n for n in names if n) or "any"
-    if "type" in field:
-        return field["type"]
+    declared = field.get("type")
+    if isinstance(declared, list):
+        # `type: [string, null]` is the other spelling of the same thing, and
+        # OpenAPI 3.1 accepts both. Read the same way: the null branch is
+        # optionality, not a type worth printing.
+        names = [n for n in declared if n != "null"]
+        return " or ".join(names) or "any"
+    if declared:
+        return declared
+    if "$ref" in field:
+        return field["$ref"].rsplit("/", 1)[-1]
     return "any"
+
+
+def _named(branch: dict) -> str:
+    """One schema branch as a type name: its own, or the model it points at."""
+    if "$ref" in branch:
+        return branch["$ref"].rsplit("/", 1)[-1]
+    declared = branch.get("type")
+    if isinstance(declared, list):
+        return " or ".join(n for n in declared if n != "null")
+    return declared or ""
 
 
 def default_of(field: dict) -> str:

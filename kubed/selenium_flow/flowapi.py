@@ -191,6 +191,7 @@ def run_one(
     verbose: bool = False,
     session_id: str = "",
     after_step=None,
+    secrets_catalogue=None,
 ) -> dict:
     """Run one flow against an already-resolved browser."""
     document = read_one(store, session, name)
@@ -201,12 +202,14 @@ def run_one(
         params=params,
         verbose=verbose,
         after_step=after_step,
+        catalogue=secrets_catalogue,
     )
     return {"session": document["session"], **report}
 
 
 def register(
-    mcp, store, sessions, actions, token: str | None, prefix: str = "/flows"
+    mcp, store, sessions, actions, token: str | None, prefix: str = "/flows",
+    secrets_catalogue=None,
 ) -> set[str]:
     """Register the flow resources, tools and endpoints. Returns mirror names."""
     schemas = Schemas(mcp)
@@ -278,14 +281,17 @@ def register(
         description=(
             "Save a flow under a name, creating it or replacing it.\n\n"
             "steps is a list of {tool, params} objects — one tool call each, in "
-            "order. A step may also carry id, note, onError ('abort' or "
-            "'continue'), return (include its full result in the run report), "
-            "and valueFrom. To bound one step, set wait_timeout in its params — "
-            "the actions that can wait all take it.\n\n"
-            "valueFrom maps a parameter name to a source instead of a literal: "
-            "{'text': {'param': 'email'}} takes it from this flow's parameters, "
-            "and {'text': {'secret': {'name': 'x', 'key': 'password'}}} takes it "
-            "from a secret you never see. There is no {{templating}}.\n\n"
+            "order, where params is exactly the arguments of that call. A step "
+            "may also carry id, note, onError ('abort' or 'continue') and "
+            "return (include its full result in the run report). To bound one "
+            "step, set wait_timeout in its params.\n\n"
+            "To take a value from somewhere instead of writing it in, put "
+            "value_from in the params beside the others: "
+            "{'tool': 'write', 'params': {'css': '#p', 'value_from': "
+            "{'secret': {'name': 'x', 'key': 'password'}}}} types a secret you "
+            "never see, and {'value_from': {'param': 'email'}} takes the value "
+            "from this flow's own parameters. Exactly one source, and you may "
+            "not also give the value literally. There is no {{templating}}.\n\n"
             "open_session and end_browser are not steps: a flow runs in the "
             "browser you already have, which is what lets one flow run on "
             "Chrome and then on Firefox unchanged.\n\n"
@@ -352,11 +358,24 @@ def register(
             verbose=verbose,
             session_id=resolved,
             after_step=remember,
+            secrets_catalogue=secrets_catalogue,
         )
         # One touch for the whole run, not one per step: the point of running
-        # server-side is that the bookkeeping happens once. A guarded URL never
-        # reaches the report, so it can never be stored here either.
-        sessions.touch(key, report.get("url"), resolved)
+        # server-side is that the bookkeeping happens once.
+        #
+        # But not a page the redaction had to touch. A submitting bound write
+        # lands on `?q=<what was typed>`, which comes back scrubbed — storing
+        # that would persist a URL which does not exist, and `sessions.resolve`
+        # would reopen the browser there after the Grid reaped it. Keeping the
+        # last page we genuinely know is the lesser wrong, and it is the same
+        # rule the direct write path follows.
+        #
+        # The touch happens regardless: it slides the TTL, and a run is the
+        # clearest evidence there is that a session is in use. Only the page is
+        # withheld.
+        sessions.touch(
+            key, None if report.get("url_redacted") else report.get("url"), resolved
+        )
         return report
 
     @mcp.tool(
@@ -371,7 +390,9 @@ def register(
     def delete_flow(name: str) -> dict:
         return delete_one(store, session_of(sessions), name)
 
-    _routes(mcp, store, sessions, actions, schemas, token, prefix)
+    _routes(
+        mcp, store, sessions, actions, schemas, token, prefix, secrets_catalogue
+    )
     return {LIST_TOOL, GET_TOOL, SCHEMA_TOOL}
 
 
@@ -400,8 +421,12 @@ async def _document_schema(schemas: Schemas) -> dict:
                     "required": ["tool"],
                     "properties": {
                         "tool": {"type": "string", "enum": sorted(steps)},
+                        # No `valueFrom` here: it is a parameter, so it lives
+                        # in `params` and the per-action schemas below describe
+                        # it. A step key would be a second place to say it, and
+                        # a caller following this resource would have built a
+                        # document save_flow rejects.
                         "params": {"type": "object"},
-                        "valueFrom": {"type": "object"},
                         "id": {"type": "string"},
                         "note": {"type": "string"},
                         "onError": {"type": "string", "enum": list(flowdoc.ON_ERROR)},
@@ -412,10 +437,50 @@ async def _document_schema(schemas: Schemas) -> dict:
         },
         "required": ["name", "steps"],
         "x-step-params": steps,
+        # `x-step-params` comes from the direct tool schemas, where `value_from`
+        # can only name a secret — a flow's own parameters mean nothing to a
+        # caller outside a flow. Inside one they do, so the extra source is
+        # described here rather than left to be discovered by a rejection.
+        "x-value-from": {
+            "description": (
+                "In a flow step, params.value_from may also take its value from "
+                "one of the flow's own parameters. The tool schemas describe "
+                "only the secret source, which is all a direct call can use."
+            ),
+            "oneOf": [
+                {
+                    "type": "object",
+                    "required": ["secret"],
+                    "properties": {
+                        "secret": {
+                            "type": "object",
+                            "required": ["name", "key"],
+                            "properties": {
+                                "name": {"type": "string"},
+                                "key": {"type": "string"},
+                            },
+                        }
+                    },
+                },
+                {
+                    "type": "object",
+                    "required": ["param"],
+                    "properties": {
+                        "param": {
+                            "type": "string",
+                            "description": "A name from this flow's parameters.",
+                        }
+                    },
+                },
+            ],
+        },
     }
 
 
-def _routes(mcp, store, sessions, actions, schemas: Schemas, token, prefix) -> None:
+def _routes(
+    mcp, store, sessions, actions, schemas: Schemas, token, prefix,
+    secrets_catalogue=None,
+) -> None:
     """The same five operations as plain JSON, for callers that are not MCP."""
 
     async def handle(request: Request, what: str) -> JSONResponse:
@@ -463,6 +528,7 @@ def _routes(mcp, store, sessions, actions, schemas: Schemas, token, prefix) -> N
                         # extract in the flow.
                         verbose=as_bool(body.get("verbose"), False),
                         session_id=session_id,
+                        secrets_catalogue=secrets_catalogue,
                     )
                 )
             document = {

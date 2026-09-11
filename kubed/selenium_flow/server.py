@@ -101,7 +101,7 @@ class SeleniumMCP:
             )
 
         self.mcp = FastMCP("Selenium", instructions=tools.INSTRUCTIONS, auth=auth)
-        tools.register(self.mcp, self.actions, self.sessions)
+        tools.register(self.mcp, self.actions, self.sessions, self.secrets)
 
         # Resources, each with a tool that mirrors it for clients which cannot
         # read resources. The mirrors are collected rather than hidden
@@ -130,7 +130,12 @@ class SeleniumMCP:
         # tool absent — a missing capability and a disabled one look identical
         # from the outside, and only one of them is fixable.
         mirrors |= flowapi.register(
-            self.mcp, self.flows, self.sessions, self.actions, auth_token
+            self.mcp,
+            self.flows,
+            self.sessions,
+            self.actions,
+            auth_token,
+            secrets_catalogue=self.secrets,
         )
         mirrors |= secrets.register(self.mcp, self.secrets, self.sessions, auth_token)
         self.mcp.add_middleware(
@@ -142,7 +147,12 @@ class SeleniumMCP:
         # No saved sessions here, deliberately: the HTTP surface takes a session
         # id in and gives one back, so the caller owns it.
         routes.register(
-            self.mcp, self.actions, auth_token, route_prefix, self.sessions.kind
+            self.mcp,
+            self.actions,
+            auth_token,
+            route_prefix,
+            self.sessions.kind,
+            catalogue=self.secrets,
         )
 
         # The admin pages and the signed file route. Always on: they are how a

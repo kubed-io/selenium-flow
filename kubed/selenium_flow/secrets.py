@@ -72,7 +72,64 @@ def origin(url: str) -> str:
     parts = urlsplit((url or "").strip())
     if not parts.scheme or not parts.netloc:
         return ""
-    return f"{parts.scheme}://{parts.netloc}".lower()
+    return _origin(parts)
+
+
+def _origin(parts) -> str:
+    """Scheme, host and port from an already-split URL.
+
+    Built from `hostname` and `port`, never `netloc`: netloc includes
+    **userinfo**, so `https://user:pass@example.com/` would have put a password
+    into the audit log and into every refusal message — and would have compared
+    unequal to the same site without credentials, which is a leash that fails in
+    a confusing direction even though it fails closed.
+    """
+    host = (parts.hostname or "").lower()
+    if not host:
+        return ""
+    try:
+        # `.port` PARSES, and raises for anything out of range — so one
+        # `https://host:99999` line in a permission file would have taken down
+        # catalogue construction instead of being recorded as a rejected line.
+        #
+        # `is not None`, not truthiness: port 0 is an explicit port, and
+        # dropping it would make `https://host:0` compare equal to the same
+        # host on its default port. This is the exact-origin boundary, so an
+        # edge that collapses two origins into one is the kind that matters.
+        declared = parts.port
+    except ValueError:
+        return ""
+    port = f":{declared}" if declared is not None else ""
+    return f"{parts.scheme.lower()}://{host}{port}"
+
+
+def _shown(line: str) -> str:
+    """A rejected permission line, safe to publish.
+
+    An operator needs to see *which* line is wrong. They do not need anything it
+    carries, and `/secrets` is a place a credential must never appear — so this
+    **rebuilds** the line from its harmless parts rather than echoing it with
+    the bad part taken out.
+
+    That distinction is the whole fix. Removing userinfo still published the
+    path and query, and `https://host/login?token=hunter2` is exactly the shape
+    a credential arrives in — so the branch that refuses a line for carrying one
+    was handing it back. What went missing is *named*, never quoted: the reason
+    a line was refused is enough to correct it.
+    """
+    try:
+        parts = urlsplit((line or "").strip())
+        origin = _origin(parts)
+    except ValueError:
+        return "<a line that is not a URL>"
+    if not parts.scheme or not origin:
+        return "<a line that is not a URL>"
+    dropped = []
+    if parts.username or parts.password:
+        dropped.append("credentials")
+    if parts.path.strip("/") or parts.query or parts.fragment:
+        dropped.append("a path")
+    return origin + (f" (+ {' and '.join(dropped)})" if dropped else "")
 
 
 def declared_origin(line: str) -> str | None:
@@ -94,7 +151,11 @@ def declared_origin(line: str) -> str | None:
     # SplitResult — a `;` segment lands in `path` for this one.
     if parts.path.strip("/") or parts.query or parts.fragment:
         return None
-    return f"{parts.scheme}://{parts.netloc}".lower()
+    if parts.username or parts.password:
+        # Credentials in a permission line are always a mistake, and accepting
+        # them would mean the same site reads as two different origins.
+        return None
+    return _origin(parts)
 
 
 class SecretSource(Protocol):
@@ -211,7 +272,14 @@ class FilesystemSource:
             if not line.strip():
                 continue
             parsed = declared_origin(line)
-            (allowed if parsed else rejected).append(parsed or line.strip())
+            if parsed:
+                allowed.append(parsed)
+            else:
+                # Never the line itself: a rejected line may be rejected
+                # *because* it carries credentials, and publishing it in
+                # /secrets would hand them back — undoing the check that
+                # refused it.
+                rejected.append(_shown(line.strip()))
 
         entry = {
             "name": name,
@@ -260,13 +328,25 @@ class Catalogue:
         self.sources = list(sources)
         self._ttl = ttl
         self._clock = clock
-        self._cache: tuple[float, dict] | None = None
+        self._cache: tuple[float, dict, dict] | None = None
 
-    def _entries(self) -> dict:
+    def _snapshot(self) -> tuple[dict, dict]:
+        """Every secret, and which source each one came from, read together.
+
+        **One snapshot, because the two are one fact.** The entry carries the
+        policy — which URLs a secret may be used on — and the owner is where its
+        value will be read from. Resolved separately they could disagree: the
+        listing was cached while `source_of` walked the sources live, so a name
+        appearing in a higher-priority directory during the TTL meant the old
+        secret's leash was checked and the new secret's value was returned.
+
+        A bind is a policy and a value about the same secret, or it is nothing.
+        """
         now = self._clock()
         if self._cache is not None and now < self._cache[0]:
-            return self._cache[1]
+            return self._cache[1], self._cache[2]
         entries: dict[str, dict] = {}
+        owners: dict[str, SecretSource] = {}
         for source in self.sources:
             for name in source.names():
                 if name in entries:
@@ -274,8 +354,12 @@ class Catalogue:
                 entry = source.entry(name)
                 if entry is not None:
                     entries[name] = entry
-        self._cache = (now + self._ttl, entries)
-        return entries
+                    owners[name] = source
+        self._cache = (now + self._ttl, entries, owners)
+        return entries, owners
+
+    def _entries(self) -> dict:
+        return self._snapshot()[0]
 
     def listing(self, session: str = "") -> dict:
         """The catalogue, as a caller may see it. Names and keys, never values."""
@@ -290,14 +374,22 @@ class Catalogue:
         return self._entries().get(name)
 
     def source_of(self, name: str) -> SecretSource | None:
-        """Which source owns a name, for reading its value."""
-        for source in self.sources:
-            if name in source.names():
-                return source
-        return None
+        """Which source owns a name, as of the current snapshot.
+
+        Read from the same listing the entry came from rather than by walking
+        the sources again, so the owner and the policy can never be two
+        different secrets.
+        """
+        return self._snapshot()[1].get(name)
 
     def value(self, name: str, key: str) -> str | None:
-        """One value, for the binding path. No surface reaches this."""
+        """One value, for the binding path. No surface reaches this.
+
+        The value itself is read now rather than cached — a rotated password
+        should be the one that gets typed, and keeping credentials in memory to
+        make a check atomic would be a poor trade. What the snapshot fixes is
+        *which secret* is being read, not what is inside it.
+        """
         source = self.source_of(name)
         return None if source is None else source.value(name, key)
 
@@ -361,10 +453,11 @@ LIST_DESCRIPTION = (
     "You never see a value — not here, not anywhere. Each entry gives the "
     "secret's name, the keys inside it, what it is for, and the sites it may "
     "be used on.\n\n"
-    "To use one, do NOT ask for it: name it where the value would go. In a "
-    "flow step that is valueFrom: {text: {secret: {name: ..., key: ...}}}. The "
-    "server reads it and types it; it never passes through you, which is the "
-    "point.\n\n"
+    "To use one, do NOT ask for it: name it where the value would go. Pass "
+    "write a value_from instead of text — value_from={'secret': {'name': ..., "
+    "'key': ...}} — or in a saved flow put the same thing in that step's "
+    "params. The server reads it and types it; it never passes through you, "
+    "which is the point.\n\n"
     "A secret listing allowed_urls may only be used on those sites. One that "
     "is not restricted may be used anywhere. If an entry carries "
     "allowed_urls_rejected, its leash is broken and it cannot be used at all "
@@ -415,3 +508,170 @@ def register(mcp, catalogue, sessions, token: str | None, prefix: str = "") -> s
             )
 
     return {LIST_TOOL}
+
+
+# ---------------------------------------------------------------------------
+# Binding: the one path that reads a value, and the only one there will be.
+
+# Which actions may have a secret bound into them, and nothing else (§F1.28).
+#
+# Not `execute_script`: a script is arbitrary code, and a bindable argument
+# there is an exfiltration API with extra steps. Not `navigate`: a secret in a
+# URL lands in browser history, the referrer header, and this server's own
+# session record, which is stored in Redis. Not `press_key`, which has no value
+# to carry. `upload_file` says "not yet" rather than "never" — a credentials
+# file is a plausible later case.
+BINDABLE = {"write"}
+NOT_YET = {"upload_file"}
+
+
+class Refused(ValueError):
+    """A binding this server will not perform.
+
+    A ValueError so `errors.py` returns 400: every one of these is something
+    the caller or the operator can fix, and none of them is our failure.
+    """
+
+
+def bind(catalogue, source: dict, url: str, tool: str = "write") -> str:
+    """The value a `value_from.secret` reference names, or refuse.
+
+    **The only function in this package that returns a secret value**, and it
+    returns it to exactly one caller: whichever surface is about to type it into
+    a field. It is not cached, not logged, and not put in any result.
+
+    ``url`` is the page the browser is **actually on**, read at the moment of
+    the bind. Checking anything else would check a permission against a page
+    other than the one receiving the keystroke.
+    """
+    # Shape-checked here, not only in the typed MCP parameter: the HTTP surface
+    # passes raw JSON straight in, so `value_from: "secret"` reached `.get` and
+    # raised AttributeError, which `errors.status_for` could only read as a 500
+    # — our failure, for a caller's malformed request.
+    if not isinstance(source, dict):
+        raise Refused("value_from must be an object naming a source")
+    reference = source.get("secret")
+    if reference is None:
+        raise Refused("value_from must name a secret: {'secret': {'name', 'key'}}")
+    if not isinstance(reference, dict):
+        raise Refused("value_from.secret must be an object with a name and a key")
+    name, key = reference.get("name"), reference.get("key")
+
+    if tool in NOT_YET:
+        raise Refused(
+            f"{tool} cannot take a secret yet — only {', '.join(sorted(BINDABLE))} can"
+        )
+    if tool not in BINDABLE:
+        raise Refused(
+            f"a secret cannot be bound into {tool}: only "
+            f"{', '.join(sorted(BINDABLE))} may receive one, because it is the "
+            "only action that types a value into a field and nothing else"
+        )
+    if catalogue is None:
+        raise Refused(
+            "secrets are not enabled on this server: it was started with no "
+            "SECRETS_DIRS, so there is nowhere to read them from"
+        )
+    if not name or not key:
+        raise Refused("a secret reference needs both a name and a key")
+
+    entry = catalogue.entry(name)
+    if entry is None:
+        raise Refused(
+            f"there is no secret called {name!r}. list_secrets shows what there is."
+        )
+    if key not in entry["keys"]:
+        raise Refused(
+            f"the secret {name!r} has no key {key!r}. It has: "
+            f"{', '.join(entry['keys']) or 'none'}"
+        )
+
+    # What the audit lines below name the secret by. Taken from the catalogue's
+    # own record rather than from the caller's `value_from`, which is both safer
+    # and more accurate: it is the secret that was *resolved*, spelled as the
+    # source spells it, instead of the string a request asked with.
+    #
+    # `name` and `key` are IDENTIFIERS — "nextcloud" and "password" — never the
+    # credential, and an audit line without them says nothing useful. Reading
+    # them off the entry is also what stops a scanner reading every field of a
+    # caller-supplied `{"secret": ...}` object as the secret itself: the entry
+    # is built from the source's own listing, so nothing here is derived from
+    # the request. `test_the_audit_trail_never_contains_a_value` captures this
+    # logger and proves the value never joins them.
+    known = entry.get("name") or "?"
+    known_key = next((k for k in entry["keys"] if k == key), "?")
+
+    if not catalogue.allows(name, url):
+        # Logged loudest of anything here: something tried to use a credential
+        # on a page its owner did not allow, which is the event an operator most
+        # wants to know about.
+        log.warning(
+            "REFUSED binding secret %s/%s on %s: not an allowed site",
+            known, known_key, origin(url) or "an unknown page",
+        )
+        allowed = ", ".join(entry.get("allowed_urls") or [])
+        raise Refused(
+            f"the secret {name!r} may not be used on "
+            f"{origin(url) or 'this page'}. It allows: "
+            + (allowed or "nowhere — its _allowed_urls file does not parse")
+        )
+
+    value = catalogue.value(name, key)
+    if value is None:
+        raise Refused(f"the secret {name!r} has no readable value for {key!r}")
+
+    # The audit trail: what was used, where, by which action. Never the value —
+    # these are the identifiers it was looked up by, and `value` above is
+    # deliberately not among the arguments.
+    log.info("bound secret %s/%s on %s for %s", known, known_key, origin(url), tool)
+    return value
+
+
+def prepare_write(
+    catalogue, actions, session_id: str, kwargs: dict
+) -> tuple[dict, set]:
+    """Turn a `value_from` on a write into the text it stands for.
+
+    Shared by the MCP tool and the HTTP endpoint, because the alternative is two
+    implementations of a security check and one of them being the older.
+
+    Refuses `url` alongside it, for the reason the flow validator refuses the
+    same pair: `actions.write` navigates *before* it types, so a leash checked
+    beforehand would be checked against the page being left — and a redirect
+    would defeat even checking the URL that was asked for. Navigation is its own
+    call.
+    """
+    kwargs = dict(kwargs)
+    source = kwargs.pop("value_from", None)
+    if source is None:
+        return kwargs, set()
+    if hasattr(source, "model_dump"):
+        source = source.model_dump(exclude_none=True)
+    if kwargs.get("text") is not None:
+        raise Refused("pass text or value_from, not both")
+    if kwargs.get("url"):
+        raise Refused(
+            "a write that takes its value from a secret may not also navigate: "
+            "go to the page first, so the secret's allowed sites are checked "
+            "against the page that receives it"
+        )
+    # The same exactly-one-source rule the flow validator applies, applied to a
+    # body that never went through it. Without it `{"secret": ..., "config": ...}`
+    # was accepted and `bind` picked the secret — a request saying two things
+    # quietly became a request saying one.
+    from .flowdoc import NoSoleSource, sole_source
+
+    try:
+        kind = sole_source(source)
+    except NoSoleSource as exc:
+        raise Refused(str(exc)) from exc
+    if kind == "param":
+        raise Refused(
+            "value_from.param names one of a flow's own parameters and means "
+            "nothing outside a flow; pass text, or name a secret"
+        )
+    if kind != "secret":
+        raise Refused(f"a write cannot take its value from a {kind} on this server")
+    here = actions.page(session_id).get("url", "")
+    kwargs["text"] = bind(catalogue, source, here, tool="write")
+    return kwargs, {"text"}

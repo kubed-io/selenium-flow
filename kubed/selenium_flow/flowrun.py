@@ -32,9 +32,10 @@ from __future__ import annotations
 
 import logging
 import time
+from urllib.parse import quote, quote_plus
 
-from . import browser
-from .flowdoc import NOT_STEPS
+from . import secrets
+from .flowdoc import FILLS, NOT_STEPS, VALUE_FROM, NoSoleSource, sole_source
 from .routes import ENDPOINTS
 
 # The only attributes a step may dispatch to. `getattr(actions, tool)` alone
@@ -77,6 +78,9 @@ HEAVY_FIELDS = ("image",)
 # Redis as the page a later reopen should return to.
 RESULT_FROM_ARGUMENT = {"text": "value", "script": "result"}
 
+# Actions that can be told not to read their value back off the page.
+READ_BACK_OFF = {"write"}
+
 
 def redacted_fields(guarded: set) -> set:
     """Result fields that would carry a guarded argument's value back out."""
@@ -108,6 +112,33 @@ def scrub_values(obj, values):
     return obj
 
 
+def hidden_forms(values) -> set:
+    """Every spelling a guarded value can come back in.
+
+    A submitting write lands the browser on `?q=<what was typed>`, and the
+    browser percent-encodes it on the way — so `a/b` comes back as `a%2Fb` and a
+    literal replacement misses it entirely. Both quoting styles are covered
+    because a form submission uses `+` for spaces and a path does not.
+    """
+    forms = set()
+    for value in values:
+        if value is None:
+            continue
+        # Coerced, not skipped: `Actions.write` does `str(text)`, so a numeric
+        # or boolean writeOnly parameter really is typed into the page — and
+        # skipping non-strings here meant it came back unscrubbed.
+        text = value if isinstance(value, str) else str(value)
+        if not text:
+            continue
+        forms.add(text)
+        forms.add(quote(text, safe=""))
+        forms.add(quote_plus(text))
+    return forms
+
+
+HIDDEN = "<hidden>"
+
+
 def scrub(text: str, values) -> str:
     """``text`` with every guarded value replaced.
 
@@ -126,8 +157,22 @@ def scrub(text: str, values) -> str:
     """
     for value in values:
         if isinstance(value, str) and value:
-            text = text.replace(value, "<hidden>")
+            text = text.replace(value, HIDDEN)
     return text
+
+
+def taints(text, values) -> bool:
+    """Whether any guarded value is actually present in ``text``.
+
+    Asked directly, rather than inferred by comparing a string with its scrubbed
+    form. Three places had made that comparison and all three were wrong the
+    same way: a value that is exactly ``HIDDEN`` scrubs to itself, so equality
+    holds while the credential is still there. A marker is evidence of nothing —
+    the question is whether the value is in the text, so ask that.
+    """
+    if not isinstance(text, str) or not text:
+        return False
+    return any(isinstance(value, str) and value and value in text for value in values)
 
 
 class FlowError(ValueError):
@@ -181,40 +226,84 @@ def check_params(document: dict, params: dict) -> None:
         )
 
 
-def resolve_step(step: dict, params: dict, sensitive: set[str]) -> tuple[dict, set]:
+def resolve_step(
+    step: dict,
+    params: dict,
+    sensitive: set[str],
+    catalogue=None,
+    page: str = "",
+) -> tuple[dict, set]:
     """A step's keyword arguments, and **which of them** must not be echoed.
 
-    Structural: each entry of `valueFrom` names a source and the value goes
-    straight into the kwargs. No string is inspected for placeholders, which is
-    why a payload can never collide with a reference.
+    Structural: `valueFrom` names a source and the value goes straight into the
+    kwargs. No string is inspected for placeholders, which is why a payload can
+    never collide with a reference.
 
-    The guard is a set of argument *names* rather than one flag. A `writeOnly`
-    parameter can be bound to any argument, not just `text` — a magic-link login
-    binds one to `url` — and a single flag meant such a value was printed
-    verbatim by the summary while `text` was the only thing hidden.
+    `value_from` is an ordinary parameter of the action, so a step's `params`
+    is exactly the arguments of the call and a step is literally the call a
+    caller would make directly. Which argument it fills is the action's own
+    business — `write` fills `text` — so nothing repeats a name, the way
+    Kubernetes never repeats an env var's name inside its `valueFrom`.
+
+    The guard is a set of argument names rather than one flag. It holds at most
+    one today, and stays a set because the *result* redaction keys off argument
+    names and a second bindable argument should not require rewriting that.
     """
     kwargs = dict(step.get("params") or {})
     guarded: set[str] = set()
-    for name, source in (step.get("valueFrom") or {}).items():
-        if "param" in source:
-            reference = source["param"]
-            kwargs[name] = params.get(reference)
-            if reference in sensitive:
-                guarded.add(name)
-        elif "secret" in source:
-            # E9. Refused rather than skipped: a login flow that silently typed
-            # nothing into the password field would "succeed" and leave someone
-            # staring at a login page wondering why.
-            raise FlowError(
-                f"step {step.get('id') or step.get('tool')}: this flow binds the "
-                f"secret {source['secret'].get('name')!r}, and secrets are not "
-                "available on this server yet"
-            )
-        elif "config" in source:
-            raise FlowError(
-                f"step {step.get('id') or step.get('tool')}: config values are "
-                "not available on this server yet"
-            )
+    source = kwargs.pop(VALUE_FROM, None)
+    if source is None:
+        return kwargs, guarded
+    tool = step.get("tool", "")
+    label = step.get("id") or tool
+    # `is None` above, not truthiness: an empty mapping is a *malformed*
+    # binding, and save-time validation rejects it. Treating it as absent let a
+    # hand-edited stored flow fall through to a literal `text` sitting beside it
+    # — quietly running the step with the wrong value instead of refusing.
+    #
+    # The same rule the validator applies, applied again here: a stored document
+    # may never have been through it. Dispatching on `kind` rather than testing
+    # the sources in order is what stops two of them silently becoming one.
+    try:
+        kind = sole_source(source)
+    except NoSoleSource as exc:
+        raise FlowError(f"step {label}: {exc}") from exc
+    target = FILLS.get(tool)
+    if target is None:
+        raise FlowError(f"step {label}: {tool} does not take {VALUE_FROM}")
+
+    # Saving checks this, and saving is not the only way a document gets here:
+    # `LocalFlowStore` reads YAML somebody may have written by hand. Every rule
+    # that protects a secret is therefore checked again at the moment it is
+    # used, where the document's provenance no longer matters.
+    if kind == "secret" and kwargs.get("url"):
+        raise FlowError(
+            f"step {label}: a step that binds a secret may not also navigate — "
+            "the secret's allowed sites are checked against the page the "
+            "browser is on, and this would type it on a page that was never "
+            "checked"
+        )
+
+    if kind == "param":
+        reference = source["param"]
+        kwargs[target] = params.get(reference)
+        if reference in sensitive:
+            guarded.add(target)
+    elif kind == "secret":
+        # The one place a run reads a credential. `page` is where the browser
+        # actually is, so the secret's leash is checked against the page about
+        # to receive the keystroke rather than wherever the flow started.
+        try:
+            kwargs[target] = secrets.bind(catalogue, source, page, tool=tool)
+        except secrets.Refused as exc:
+            raise FlowError(f"step {label}: {exc}") from exc
+        guarded.add(target)
+    elif kind == "config":
+        raise FlowError(
+            f"step {label}: config values are not available on this server yet"
+        )
+    else:  # pragma: no cover - only reachable if SOURCES grows and this does not
+        raise FlowError(f"step {label}: this server cannot resolve a {kind}")
     return kwargs, guarded
 
 
@@ -260,12 +349,17 @@ def _page_state(actions, session_id: str) -> dict:
     misleading; letting `sessions.touch` store it is worse, because a later
     reopen would land on the wrong page.
 
-    Same reconnect-and-read `sessions.describe` already does, and wrapped the
-    same way: this runs while reporting a failure and must never turn one
+    Goes through `actions.page` rather than reaching for the Grid itself, so
+    that "where is the browser" has one implementation. The binding check reads
+    the page the same way, and a secret's leash being checked against a
+    different notion of "here" than the failure report uses would be a subtle
+    and unpleasant divergence.
+
+    Wrapped because it runs while reporting a failure and must never turn one
     failure into two.
     """
     try:
-        return browser.page_state(actions.grid.reconnect(session_id))
+        return actions.page(session_id)
     except Exception:  # noqa: BLE001 - a best-effort read, on an error path
         return {}
 
@@ -278,6 +372,7 @@ def run(
     verbose: bool = False,
     timeout: int = RUN_TIMEOUT,
     after_step=None,
+    catalogue=None,
 ) -> dict:
     """Run every step of ``document`` against the browser ``session_id``.
 
@@ -298,12 +393,43 @@ def run(
     name = document.get("name", "flow")
 
     reports: list[dict] = []
+    seen: set = set()
+    redacted_url = False
     last: dict = {}
     status = "ok"
     # `is None`, not `or`: an explicit 0 means "no budget" and must not be read
     # as "unset" and silently given the full five minutes.
     budget = RUN_TIMEOUT if timeout is None else max(int(timeout), 0)
     deadline = time.monotonic() + budget
+
+    stale = [
+        number
+        for number, step in enumerate(document.get("steps") or [], start=1)
+        if isinstance(step, dict) and "valueFrom" in step
+    ]
+    if stale:
+        # Preflighted, not caught mid-loop: a stale key on step nine would
+        # otherwise have run the first eight and then reported `steps_run: 0`,
+        # which both half-runs a flow the message says was refused and misstates
+        # what happened.
+        return {
+            "flow": name,
+            "status": "failed",
+            "steps_run": 0,
+            "steps_total": len(document.get("steps") or []),
+            "steps": [
+                {
+                    "n": number,
+                    "ok": False,
+                    "error": (
+                        "this flow was saved in an older format: valueFrom is a "
+                        "parameter now, so move it inside params as value_from "
+                        "and save it again"
+                    ),
+                }
+                for number in stale
+            ],
+        }
 
     for number, step in enumerate(document.get("steps") or [], start=1):
         tool = step.get("tool")
@@ -335,7 +461,12 @@ def run(
             break
 
         try:
-            kwargs, guarded = resolve_step(step, params, sensitive)
+            # Only read the page when a step actually binds a secret: it costs a
+            # WebDriver round trip, and every other step has no leash to check.
+            page = ""
+            if "secret" in ((step.get("params") or {}).get(VALUE_FROM) or {}):
+                page = _page_state(actions, session_id).get("url", "")
+            kwargs, guarded = resolve_step(step, params, sensitive, catalogue, page)
         except FlowError as exc:
             entry.update(ok=False, error=str(exc))
             reports.append(entry)
@@ -343,13 +474,34 @@ def run(
             break
 
         entry["summary"] = summarise(tool, kwargs, guarded)
-        # The values this step must not echo, for the sweep in `_clean` and the
-        # error scrub below.
-        hidden = {kwargs.get(name) for name in guarded}
+        # Accumulated across the run, not scoped to this step. A submitting
+        # bound write in step two leaves the value in the browser's URL, and
+        # step five's page state would have carried it back out with `hidden`
+        # recomputed as empty. Once a value has been typed, nothing later in
+        # this run may echo it.
+        seen |= hidden_forms(kwargs.get(name) for name in guarded)
+        hidden = seen
         try:
+            if guarded and tool in READ_BACK_OFF:
+                # The read must not HAPPEN for a bound value, not merely be
+                # redacted afterwards. The direct tool and the HTTP endpoint
+                # both did this; the flow path — the main one — did not, and
+                # the end-to-end test missed it because its action is a double.
+                kwargs = {**kwargs, "read_back": False}
             raw = method(session_id, **kwargs)
             result = _clean(raw, guarded, hidden)
             entry["ok"] = True
+            # Recorded rather than inferred later by searching the string for
+            # the marker, and asked of the raw URL rather than by comparing it
+            # with its scrubbed form: a secret whose value happens to BE the
+            # marker survives both of those tests unchanged.
+            #
+            # Set per page rather than left sticky, because it describes the
+            # page this run *reports* — the last one — not the run's history. A
+            # flow that types a password and then navigates away ends somewhere
+            # perfectly ordinary, and a sticky flag threw that page away and
+            # left the session pointing at whatever it knew before.
+            redacted_url = isinstance(raw, dict) and taints(raw.get("url"), hidden)
             last = result
             if after_step is not None:
                 after_step(tool, raw)
@@ -360,12 +512,21 @@ def run(
             # An action puts its arguments in its error text, so the message is
             # scrubbed before it reaches either the report or the log.
             entry["error"] = scrub(str(exc), hidden)
-            # Where it actually failed, not where the last step succeeded —
-            # unless the URL itself was guarded, in which case knowing the page
-            # is worth less than not printing the token in it.
-            landed = _page_state(actions, session_id)
+            # Where it actually failed, not where the last step succeeded.
+            # Swept, because the page can carry the value back: typing into a
+            # search box lands you on `?q=<what you typed>`, and the URL of the
+            # page a bound write failed on is exactly the kind of place a
+            # credential turns up without anyone putting it there.
+            page = _page_state(actions, session_id)
+            landed = scrub_values(page, hidden)
             if landed.get("url") and "url" not in guarded:
                 entry["url"] = landed["url"]
+                # The same fact on the branch that had not recorded it: a step
+                # can fail *after* the value reached the page, so the URL it
+                # failed on is exactly as unsafe to store as one a step
+                # succeeded on. Set where `last` changes, so the flag always
+                # describes the page the report ends up carrying.
+                redacted_url = taints(page.get("url"), hidden)
                 last = {**last, **landed}
             log.info(
                 "flow %s step %s (%s) failed: %s", name, number, label, entry["error"]
@@ -390,6 +551,10 @@ def run(
     for key in ("url", "title"):
         if last.get(key):
             report[key] = last[key]
+    if redacted_url:
+        # Says the reported page is not the page: a caller must not store it as
+        # somewhere to navigate back to.
+        report["url_redacted"] = True
     if last:
         report["result"] = last
     return report

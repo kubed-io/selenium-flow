@@ -19,7 +19,10 @@ from collections.abc import Callable
 
 from fastmcp import FastMCP
 from fastmcp.utilities.types import Image
+from pydantic import BaseModel, ConfigDict
 
+from . import flowrun
+from . import secrets as secrets_module
 from . import settings as settings_module
 from .actions import (
     DIALOG_ACTIONS,
@@ -41,6 +44,44 @@ SELECTOR = (
     "neither - e.g. xpath=\"//button[@type='submit']\" or "
     "css=\"button[type=submit]\"."
 )
+
+class SecretRef(BaseModel):
+    """Which secret, and which key inside it."""
+
+    # Unknown fields are refused rather than dropped, the same way the flow
+    # validator refuses them. Pydantic's default is to ignore them silently,
+    # which turns a caller's mistake into a different request than they sent.
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    key: str
+
+
+class ValueFrom(BaseModel):
+    """Where a value comes from, instead of being given literally.
+
+    A real model rather than a bare dict so the shape is **published**: a caller
+    is told it needs `secret.name` and `secret.key` rather than being handed an
+    unconstrained object and left to guess.
+
+    ``secret`` is required, not optional. This surface supports exactly one
+    source — a flow's own parameters mean nothing outside a flow — so an
+    optional field would have published `value_from: {}` as legal and turned a
+    shape error into a run-time one.
+
+    **Extra fields are refused**, which on this model is a security property
+    rather than tidiness. Pydantic ignores unknown fields by default, so
+    `{"secret": ..., "config": ...}` arrived at the binder already reduced to
+    the `secret` branch — `sole_source` never saw the second one, and this
+    surface quietly picked one of two sources while the HTTP endpoint and the
+    flow validator refused the same request. The check has to be in front of the
+    model, not behind it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    secret: SecretRef
+
 
 INSTRUCTIONS = f"""\
 Drives a real Chrome or Firefox browser on Selenium Grid. The browser is \
@@ -74,7 +115,9 @@ execute_script for anything the other tools do not cover, scrolling included.
 
 
 
-def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
+def register(
+    mcp: FastMCP, actions: Actions, sessions: SessionManager, catalogue=None
+) -> None:
     """Register every action as an MCP tool on ``mcp``."""
 
     def run(
@@ -359,7 +402,7 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
 
     @mcp.tool(annotations=hints("Type text into a field"))
     def write(
-        text: str,
+        text: str | None = None,
         xpath: str | None = None,
         css: str | None = None,
         session_id: str | None = None,
@@ -367,6 +410,7 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
         clear: bool = True,
         submit: bool = False,
         wait_timeout: int = WAIT_TIMEOUT,
+        value_from: ValueFrom | None = None,
     ) -> dict:
         """Type text into an input, textarea or contenteditable.
 
@@ -376,20 +420,74 @@ def register(mcp: FastMCP, actions: Actions, sessions: SessionManager) -> None:
 
         Address the field with EITHER xpath OR css, never both and never
         neither.
+
+        To type a secret, pass value_from={"secret": {"name": ..., "key": ...}}
+        instead of text. list_secrets shows what there is. You never see the
+        value: the server reads it and types it, and the result comes back with
+        value: null. A secret may only be used on the sites its owner allowed,
+        checked against the page you are on, so navigate there first.
         """
-        return run(
-            session_id,
-            lambda s: actions.write(
-                s,
-                text,
+        if value_from is None and text is None:
+            raise ValueError("write needs text, or value_from to supply it")
+        if value_from is None:
+            return run(
+                session_id,
+                lambda s: actions.write(
+                    s,
+                    text,
+                    xpath=xpath,
+                    css=css,
+                    url=url,
+                    clear=clear,
+                    submit=submit,
+                    wait_timeout=wait_timeout,
+                ),
+            )
+
+        # A bound write does not go through `run`, deliberately. `run` touches
+        # the session with the URL the action returned, and `submit=True` can
+        # land the browser on `?q=<what was typed>` — so the shared wrapper
+        # would persist the credential into the session record before anything
+        # had a chance to redact it.
+        key = sessions.key()
+        resolved = sessions.resolve(key, session_id)
+        given, _guarded = secrets_module.prepare_write(
+            catalogue,
+            actions,
+            resolved,
+            {"text": text, "url": url, "value_from": value_from},
+        )
+        hidden = flowrun.hidden_forms([given["text"]])
+        try:
+            result = actions.write(
+                resolved,
+                given["text"],
                 xpath=xpath,
                 css=css,
-                url=url,
                 clear=clear,
                 submit=submit,
                 wait_timeout=wait_timeout,
-            ),
-        )
+                # Not read back at all, rather than read and then hidden.
+                read_back=False,
+            )
+        except Exception as exc:  # noqa: BLE001 - rewrapped, never swallowed
+            # An action puts its arguments in its error text.
+            raise ValueError(flowrun.scrub(str(exc), hidden)) from None
+        shown = flowrun.scrub_values({**result, "value_from": "secret"}, hidden)
+        # Only remember a page the value never reached. A submitting write can
+        # land on `?q=<what was typed>`; storing the scrubbed form would persist
+        # a URL that does not exist, and a later reattach would navigate to it.
+        #
+        # Asked of the URL rather than by comparing it with its scrubbed form:
+        # a secret whose value is the marker scrubs to itself, so equality would
+        # have called the credential URL safe and stored it.
+        #
+        # Touched either way. Withholding the page must not also stop the clock:
+        # `touch` slides the TTL, and skipping it entirely let a session expire
+        # *because* its URL was correctly kept out of the store.
+        safe = None if flowrun.taints(result.get("url"), hidden) else shown.get("url")
+        sessions.touch(key, safe, resolved)
+        return shown
 
     # The description is passed rather than left as a docstring so the real key
     # list is interpolated in — a model guessing key names gets a 400, and the

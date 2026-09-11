@@ -430,8 +430,13 @@ async def test_apps_can_be_turned_off():
 def test_the_app_csp_admits_our_own_origin_and_the_sdk():
     """An app gets no network by default, so both have to be declared."""
     csp = apps.config_for("https://selenium.example.com/flow").csp
-    assert "https://selenium.example.com" in csp.resource_domains
-    assert apps.SDK_ORIGIN in csp.resource_domains
+    # Compared element-wise rather than with `in`. It is already exact — these
+    # are lists, so `in` is membership, not a substring test — but the reader
+    # that flags this cannot tell the two apart, and neither can a person
+    # skimming. Being explicit costs nothing and the substring version of this
+    # check is a real bug elsewhere (see the origin matching in secrets.py).
+    assert any(d == "https://selenium.example.com" for d in csp.resource_domains)
+    assert any(d == apps.SDK_ORIGIN for d in csp.resource_domains)
 
 
 def test_the_app_csp_omits_an_origin_it_does_not_have():

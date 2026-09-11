@@ -8,6 +8,7 @@ plain tree it looks like from outside.
 """
 
 import pytest
+from pydantic import ValidationError
 
 from kubed.selenium_flow import secrets
 from kubed.selenium_flow.secrets import (
@@ -355,10 +356,7 @@ async def test_no_tool_on_this_server_returns_a_secret_value(secret_server,
         steps=[
             {
                 "tool": "write",
-                "params": {"css": "#password"},
-                "valueFrom": {
-                    "text": {"secret": {"name": "nextcloud-admin", "key": "password"}}
-                },
+                "params": {"css": "#password", "value_from": {"secret": {"name": "nextcloud-admin", "key": "password"}}},
             }
         ],
     )
@@ -433,7 +431,9 @@ def test_a_broken_leash_is_published_so_an_operator_can_see_it(tmp_path):
     entry = Catalogue([FilesystemSource(tmp_path)]).entry("app")
     assert entry["restricted"] is True
     assert entry["allowed_urls"] == []
-    assert entry["allowed_urls_rejected"] == ["not a url"]
+    # Not echoed: a line is rebuilt from the parts that are safe to publish, and
+    # one with no origin in it has none of those.
+    assert entry["allowed_urls_rejected"] == ["<a line that is not a URL>"]
 
 
 def test_one_bad_line_invalidates_the_whole_declaration(tmp_path):
@@ -457,7 +457,7 @@ def test_a_declaration_carrying_a_path_is_refused_not_trimmed(tmp_path):
     )
     catalogue = Catalogue([FilesystemSource(tmp_path)])
     assert catalogue.entry("app")["allowed_urls_rejected"] == [
-        "https://nextcloud.example.com/admin"
+        "https://nextcloud.example.com (+ a path)"
     ]
     assert catalogue.allows("app", "https://nextcloud.example.com/admin") is False
 
@@ -503,3 +503,636 @@ def test_an_unreadable_root_is_no_secrets_rather_than_a_crash(tmp_path):
         assert FilesystemSource(root).names() == []
     finally:
         root.chmod(0o755)
+
+
+# ---- binding: the one path that reads a value ---------------------------------
+
+
+@pytest.fixture
+def bindable(tmp_path):
+    make_secret(
+        tmp_path, "nextcloud", username="admin", password="hunter2",
+        **{ALLOWED_URLS: "https://nc.example.com"},
+    )
+    make_secret(tmp_path, "anywhere", token="free")
+    return Catalogue([FilesystemSource(tmp_path)])
+
+
+def test_a_bind_returns_the_value_to_exactly_one_caller(bindable):
+    value = secrets.bind(
+        bindable, {"secret": {"name": "nextcloud", "key": "password"}},
+        "https://nc.example.com/login",
+    )
+    assert value == "hunter2"
+
+
+def test_a_bind_on_a_page_the_secret_does_not_allow_is_refused(bindable):
+    with pytest.raises(secrets.Refused, match="may not be used"):
+        secrets.bind(
+            bindable, {"secret": {"name": "nextcloud", "key": "password"}},
+            "https://evil.test/login",
+        )
+
+
+def test_the_origin_suffix_attack_is_refused_at_bind_time(bindable):
+    with pytest.raises(secrets.Refused):
+        secrets.bind(
+            bindable, {"secret": {"name": "nextcloud", "key": "password"}},
+            "https://nc.example.com.evil.test/login",
+        )
+
+
+def test_an_unrestricted_secret_binds_anywhere(bindable):
+    assert secrets.bind(
+        bindable, {"secret": {"name": "anywhere", "key": "token"}},
+        "https://wherever.test/",
+    ) == "free"
+
+
+@pytest.mark.parametrize("tool", ["execute_script", "navigate", "press_key", "extract"])
+def test_only_write_may_receive_a_secret(bindable, tool):
+    """A script is arbitrary code; a URL lands in history, the referrer and our
+    own session record. Neither may carry a credential (§F1.28)."""
+    with pytest.raises(secrets.Refused, match="cannot be bound into"):
+        secrets.bind(
+            bindable, {"secret": {"name": "anywhere", "key": "token"}},
+            "https://x.test/", tool=tool,
+        )
+
+
+def test_upload_file_says_not_yet_rather_than_never(bindable):
+    """A credentials file is a plausible later case, and the refusal should say
+    which kind of no it is."""
+    with pytest.raises(secrets.Refused, match="cannot take a secret yet"):
+        secrets.bind(
+            bindable, {"secret": {"name": "anywhere", "key": "token"}},
+            "https://x.test/", tool="upload_file",
+        )
+
+
+def test_a_missing_secret_or_key_says_what_there_is(bindable):
+    with pytest.raises(secrets.Refused, match="list_secrets"):
+        secrets.bind(bindable, {"secret": {"name": "nope", "key": "k"}},
+                     "https://x.test/")
+    with pytest.raises(secrets.Refused, match="has no key") as caught:
+        secrets.bind(bindable, {"secret": {"name": "nextcloud", "key": "nope"}},
+                     "https://nc.example.com/")
+    assert "password" in str(caught.value)
+
+
+def test_a_refusal_never_carries_the_value(bindable):
+    for source, url in (
+        ({"secret": {"name": "nextcloud", "key": "password"}}, "https://evil.test/"),
+        ({"secret": {"name": "nextcloud", "key": "nope"}}, "https://nc.example.com/"),
+    ):
+        try:
+            secrets.bind(bindable, source, url)
+        except secrets.Refused as exc:
+            assert "hunter2" not in str(exc)
+
+
+def test_the_bindable_set_matches_what_the_validator_enforces():
+    """Two modules name this, and they must not drift: flowdoc refuses at save,
+    secrets refuses at bind."""
+    from kubed.selenium_flow.flowdoc import BINDABLE_TOOLS
+
+    assert BINDABLE_TOOLS == secrets.BINDABLE
+
+
+async def test_a_login_flow_types_a_secret_it_never_shows(tmp_path, monkeypatch):
+    """The whole arsenal, end to end: a saved flow, a bound secret, one call."""
+    from kubed.selenium_flow import flowapi
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    from .conftest import NAMED, TOKEN
+
+    monkeypatch.delenv("SECRETS_DIRS", raising=False)
+    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    make_secret(
+        tmp_path / "secrets", "nextcloud", username="admin", password="hunter2",
+        **{ALLOWED_URLS: "https://nc.example.com"},
+    )
+    server = SeleniumMCP(
+        grid_url="http://grid.invalid:4444",
+        auth_token=TOKEN,
+        secrets_dirs=str(tmp_path / "secrets"),
+        flow_data_dir=str(tmp_path / "flows"),
+    )
+    monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
+    monkeypatch.setattr(server.sessions, "resolve", lambda key, sid: "browser-1")
+    typed = []
+    monkeypatch.setattr(
+        server.actions, "page",
+        lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
+    )
+    monkeypatch.setattr(
+        server.actions, "write",
+        lambda sid, text, **kw: typed.append(text)
+        or {"value": text, "url": "https://nc.example.com/", "title": "Home"},
+    )
+
+    save = await server.mcp.get_tool("save_flow")
+    await save.fn(
+        name="login",
+        steps=[
+            {
+                "tool": "write",
+                "params": {"css": "#password", "value_from": {"secret": {"name": "nextcloud", "key": "password"}}},
+            }
+        ],
+    )
+    run_flow = await server.mcp.get_tool(flowapi.RUN_TOOL)
+    report = run_flow.fn(name="login")
+
+    assert report["status"] == "ok"
+    # It reached the browser...
+    assert typed == ["hunter2"]
+    # ...and nothing anywhere in the report says so.
+    assert "hunter2" not in str(report)
+    assert report["steps"][0]["summary"].endswith("text=<hidden>")
+
+
+def test_the_audit_trail_never_contains_a_value(bindable, caplog):
+    """The audit line names the secret and the key it was looked up by, which
+    is the point of an audit line. Both are read off the catalogue's own entry
+    rather than the caller's reference, so the line records what was *resolved*
+    — and nothing in it is derived from the `{"secret": ...}` object a scanner
+    reads as the credential itself.
+    """
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.secrets"):
+        secrets.bind(
+            bindable, {"secret": {"name": "nextcloud", "key": "password"}},
+            "https://nc.example.com/login",
+        )
+    logged = "\n".join(r.getMessage() for r in caplog.records)
+    # The identifiers are there — an audit line without them says nothing.
+    assert "nextcloud/password" in logged
+    # Compared whole rather than as a substring: "is this URL in that string"
+    # is the shape of check that lets nc.example.com.evil.test through, and it
+    # should not be modelled even in a test.
+    assert any(part == "https://nc.example.com" for part in logged.split())
+    # The credential is not.
+    assert "hunter2" not in logged
+
+
+def test_a_refused_bind_is_logged_loudly_and_still_without_the_value(bindable, caplog):
+    import logging
+
+    with (
+        caplog.at_level(logging.INFO, logger="kubed.selenium_flow.secrets"),
+        pytest.raises(secrets.Refused),
+    ):
+        secrets.bind(
+            bindable, {"secret": {"name": "nextcloud", "key": "password"}},
+            "https://evil.test/login",
+        )
+    refusals = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert refusals, "a credential used somewhere it may not be is a warning"
+    assert "hunter2" not in "\n".join(r.getMessage() for r in caplog.records)
+
+
+def test_an_unparseable_port_is_a_rejected_line_not_a_crash(tmp_path):
+    """`SplitResult.port` PARSES, and raises for anything out of range — so one
+    bad line would have taken down catalogue construction rather than being
+    recorded as rejected."""
+    make_secret(
+        tmp_path, "app", password="p",
+        **{ALLOWED_URLS: "https://host:99999\nhttps://good.test\n"},
+    )
+    catalogue = Catalogue([FilesystemSource(tmp_path)])
+    entry = catalogue.entry("app")
+    # The port is what could not be parsed, so there is no origin to show.
+    assert entry["allowed_urls_rejected"] == ["<a line that is not a URL>"]
+    assert catalogue.allows("app", "https://good.test/") is False  # one bad line voids it
+
+
+def test_credentials_in_an_allowed_url_are_refused(tmp_path):
+    """netloc carries userinfo, so accepting one would put a password in the
+    permission file and make the same site read as two origins."""
+    make_secret(
+        tmp_path, "app", password="p",
+        **{ALLOWED_URLS: "https://user:s3cr3t@host.test"},
+    )
+    entry = Catalogue([FilesystemSource(tmp_path)]).entry("app")
+    # Reported so an operator can find the line — with the credential taken
+    # out, since /secrets is the last place one should turn up.
+    assert entry["allowed_urls_rejected"] == ["https://host.test (+ credentials)"]
+    assert "s3cr3t" not in str(entry)
+    assert "user" not in str(entry)
+
+
+def test_a_rejected_line_never_publishes_its_query(tmp_path):
+    """The sharpest shape of this: a line is refused *because* it carries a
+    credential, and `?token=` is how one usually arrives. Removing userinfo and
+    echoing the rest handed it straight back through /secrets."""
+    make_secret(
+        tmp_path, "app", password="p",
+        **{ALLOWED_URLS: "https://host.test/login?token=hunter2"},
+    )
+    entry = Catalogue([FilesystemSource(tmp_path)]).entry("app")
+    assert entry["allowed_urls_rejected"] == ["https://host.test (+ a path)"]
+    assert "hunter2" not in str(entry)
+    assert "token" not in str(entry)
+
+
+def test_a_rejected_line_still_says_which_host_it_was(tmp_path):
+    """Rebuilt, not blanked: an operator with three permission lines has to be
+    able to tell which one is wrong, and the origin is the part that is safe."""
+    make_secret(
+        tmp_path, "app", password="p",
+        **{ALLOWED_URLS: "https://good.test\nhttps://other.test:8443/admin\n"},
+    )
+    entry = Catalogue([FilesystemSource(tmp_path)]).entry("app")
+    assert entry["allowed_urls_rejected"] == ["https://other.test:8443 (+ a path)"]
+
+
+def test_an_origin_never_carries_userinfo():
+    assert origin("https://user:pass@example.com/x") == "https://example.com"
+
+
+# ---- the HTTP binding path, which had no test of its own --------------------
+
+
+@pytest.fixture
+def bound_http(tmp_path, monkeypatch):
+    """A real server with a real secret, and doubles only at the browser."""
+    from starlette.testclient import TestClient
+
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    from .conftest import TOKEN
+
+    monkeypatch.delenv("SECRETS_DIRS", raising=False)
+    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    make_secret(
+        tmp_path, "nextcloud", password="hunter2",
+        **{ALLOWED_URLS: "https://nc.example.com"},
+    )
+    typed = []
+
+    def write(
+        self, session_id, text, xpath=None, url=None, clear=True, submit=False,
+        wait_timeout=30, css=None, read_back=True,
+    ):
+        # The signature matters: `routes.py` derives the accepted request fields
+        # from it, so a double taking **kwargs would silently drop `url` and
+        # make the navigation refusal untestable.
+        typed.append((text, read_back))
+        return {
+            # As the real one does: the read does not happen when it is off.
+            "value": text if read_back else None,
+            "url": "https://nc.example.com/",
+            "title": "Home",
+        }
+
+    # Patched on the CLASS, before the server is built: `routes.py` binds each
+    # method at registration time, so patching the instance afterwards is too
+    # late and the real one dials the Grid.
+    from kubed.selenium_flow.actions import Actions
+
+    monkeypatch.setattr(Actions, "write", write)
+    monkeypatch.setattr(
+        Actions, "page",
+        lambda self, sid: {"url": "https://nc.example.com/login", "title": "Log in"},
+    )
+    server = SeleniumMCP(
+        grid_url="http://grid.invalid:4444",
+        auth_token=TOKEN,
+        secrets_dirs=str(tmp_path),
+    )
+    return TestClient(server.mcp.http_app()), typed
+
+
+AUTH = {"Authorization": "Bearer test-token-abc123"}
+
+
+def test_an_http_caller_can_bind_a_secret_it_never_sees(bound_http):
+    """The HTTP half of the capability. It existed with no test of its own —
+    the end-to-end one drives the MCP tool, and test_surfaces only compares
+    registration sets, so resolution, read_back and scrubbing were all free to
+    regress silently."""
+    client, typed = bound_http
+    response = client.post(
+        "/browser/write",
+        json={
+            "session_id": "b1",
+            "css": "#password",
+            "value_from": {"secret": {"name": "nextcloud", "key": "password"}},
+        },
+        headers=AUTH,
+    )
+    assert response.status_code == 200, response.text
+    # It reached the browser...
+    assert typed == [("hunter2", False)]
+    # ...the read-back was turned off, not merely redacted...
+    # ...and nothing came back.
+    assert "hunter2" not in response.text
+    assert response.json()["value"] is None
+    assert response.json()["value_from"] == "secret"
+
+
+def test_an_http_bind_on_a_disallowed_page_is_refused(bound_http, monkeypatch):
+    client, typed = bound_http
+    response = client.post(
+        "/browser/write",
+        json={
+            "session_id": "b1",
+            "css": "#password",
+            "value_from": {"secret": {"name": "nextcloud", "key": "nope"}},
+        },
+        headers=AUTH,
+    )
+    assert response.status_code == 400
+    assert typed == []
+    assert "hunter2" not in response.text
+
+
+def test_an_http_bind_may_not_also_navigate(bound_http):
+    """`_at` navigates before typing, so the leash would be checked against the
+    page being left."""
+    client, typed = bound_http
+    response = client.post(
+        "/browser/write",
+        json={
+            "session_id": "b1",
+            "css": "#password",
+            "url": "https://evil.test/",
+            "value_from": {"secret": {"name": "nextcloud", "key": "password"}},
+        },
+        headers=AUTH,
+    )
+    assert response.status_code == 400
+    assert "may not also navigate" in response.json()["error"]
+    assert typed == []
+
+
+@pytest.mark.parametrize(
+    "value_from", ["secret", {"secret": "x"}, {}, {"param": "email"}, 7]
+)
+def test_a_malformed_binding_over_http_is_a_400_not_a_500(bound_http, value_from):
+    """The HTTP surface hands raw JSON to the shared binder, without the typed
+    model the MCP parameter has — so the binder has to check the shape itself
+    or a caller's mistake reads as our outage."""
+    client, _ = bound_http
+    response = client.post(
+        "/browser/write",
+        json={"session_id": "b1", "css": "#p", "value_from": value_from},
+        headers=AUTH,
+    )
+    assert response.status_code == 400, response.text
+
+
+def test_an_http_caller_cannot_ask_for_the_read_back_to_be_skipped(bound_http):
+    """`read_back` is an internal switch, not a request field: accepting it
+    would let a caller get `value: null` with no binding at all."""
+    client, typed = bound_http
+    response = client.post(
+        "/browser/write",
+        json={"session_id": "b1", "css": "#p", "text": "plain", "read_back": False},
+        headers=AUTH,
+    )
+    assert response.status_code == 200, response.text
+    # The caller asked for False and the action was called with its default,
+    # so the field was dropped rather than honoured.
+    assert typed == [("plain", True)]
+    assert response.json()["value"] == "plain"
+
+
+def test_port_zero_is_a_port_and_not_the_default(tmp_path):
+    """This is the exact-origin boundary, so an edge that collapses two origins
+    into one is the kind that matters."""
+    assert origin("https://host:0/") == "https://host:0"
+    make_secret(tmp_path, "app", password="p", **{ALLOWED_URLS: "https://host:0"})
+    catalogue = Catalogue([FilesystemSource(tmp_path)])
+    assert catalogue.allows("app", "https://host:0/x") is True
+    assert catalogue.allows("app", "https://host/x") is False
+
+
+async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
+    tmp_path, monkeypatch
+):
+    """The third surface of the same rule. It decided by comparing the URL with
+    its scrubbed form, so a secret whose value is the marker compared equal and
+    the credential URL went into the session record — from where a reattach
+    would have navigated back to it.
+    """
+    from kubed.selenium_flow import flowrun
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    from .conftest import NAMED, TOKEN
+
+    monkeypatch.delenv("SECRETS_DIRS", raising=False)
+    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    make_secret(
+        tmp_path, "nextcloud", password=flowrun.HIDDEN,
+        **{ALLOWED_URLS: "https://nc.example.com"},
+    )
+    server = SeleniumMCP(
+        grid_url="http://grid.invalid:4444",
+        auth_token=TOKEN,
+        secrets_dirs=str(tmp_path),
+    )
+    monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
+    monkeypatch.setattr(server.sessions, "resolve", lambda key, sid: "browser-1")
+    monkeypatch.setattr(
+        server.actions, "page",
+        lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
+    )
+    monkeypatch.setattr(
+        server.actions, "write",
+        lambda sid, text, **kw: {
+            "value": None,
+            # Submitted, so the page carries what was typed.
+            "url": f"https://nc.example.com/?q={text}",
+            "title": "Home",
+        },
+    )
+    touched = []
+    monkeypatch.setattr(
+        server.sessions, "touch",
+        lambda key, url, sid: touched.append(url),
+    )
+
+    write = await server.mcp.get_tool("write")
+    result = write.fn(
+        css="#password",
+        value_from={"secret": {"name": "nextcloud", "key": "password"}},
+    )
+    # The page the value reached is never remembered, whatever the value is —
+    # but the session is still touched, because withholding the page must not
+    # also stop the clock that keeps the session alive.
+    assert touched == [None]
+    assert result["url"] == f"https://nc.example.com/?q={flowrun.HIDDEN}"
+
+
+async def test_a_direct_bound_write_still_remembers_an_untouched_page(
+    tmp_path, monkeypatch
+):
+    """The other half: refusing to remember every bound write would lose the
+    session's page for the ordinary case, where the value never reaches the URL.
+    """
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    from .conftest import NAMED, TOKEN
+
+    monkeypatch.delenv("SECRETS_DIRS", raising=False)
+    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    make_secret(
+        tmp_path, "nextcloud", password="hunter2",
+        **{ALLOWED_URLS: "https://nc.example.com"},
+    )
+    server = SeleniumMCP(
+        grid_url="http://grid.invalid:4444",
+        auth_token=TOKEN,
+        secrets_dirs=str(tmp_path),
+    )
+    monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
+    monkeypatch.setattr(server.sessions, "resolve", lambda key, sid: "browser-1")
+    monkeypatch.setattr(
+        server.actions, "page",
+        lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
+    )
+    monkeypatch.setattr(
+        server.actions, "write",
+        lambda sid, text, **kw: {
+            "value": None, "url": "https://nc.example.com/home", "title": "Home",
+        },
+    )
+    touched = []
+    monkeypatch.setattr(
+        server.sessions, "touch", lambda key, url, sid: touched.append(url)
+    )
+
+    write = await server.mcp.get_tool("write")
+    write.fn(
+        css="#password",
+        value_from={"secret": {"name": "nextcloud", "key": "password"}},
+    )
+    assert touched == ["https://nc.example.com/home"]
+
+
+def test_an_http_binding_naming_two_sources_is_refused(bound_http, monkeypatch):
+    """`bind` reads `secret` and ignores whatever else is there, so the shape
+    check has to happen before it. A body saying two things is malformed, not a
+    request to pick one."""
+    client, typed = bound_http
+    response = client.post(
+        "/browser/write",
+        headers=AUTH,
+        json={
+            "session_id": "browser-1",
+            "css": "#password",
+            "value_from": {
+                "secret": {"name": "nextcloud", "key": "password"},
+                "config": {"name": "other", "key": "thing"},
+            },
+        },
+    )
+    assert response.status_code == 400
+    assert "exactly one source" in response.json()["error"]
+    # Refused before anything was typed.
+    assert typed == []
+
+
+def test_a_session_in_use_is_kept_alive_even_when_its_page_is_withheld():
+    """`touch` slides the TTL as well as recording the page, and the two are
+    separate facts. A login flow binding a secret every few minutes — the exact
+    thing secrets exist for — expired out of the store *because* its URL was
+    correctly kept out of it.
+
+    Driven through `touch` rather than the store: `SessionRecord.at` has always
+    kept the old page when given nothing, and it was `touch`'s own early return
+    that threw the refresh away. A test on the store would have passed
+    throughout.
+    """
+    from kubed.selenium_flow.store import MemoryStore, SessionRecord
+
+    from .conftest import NAMED, manager
+
+    clock = [1000.0]
+    store = MemoryStore(ttl=60, clock=lambda: clock[0])
+    store.set(
+        NAMED.value, SessionRecord(session_id="browser-1", url="https://nc.test/home")
+    )
+    sessions = manager(store=store)
+
+    clock[0] += 50
+    # The page is withheld, the way a bound write withholds it.
+    sessions.touch(NAMED, None, "browser-1")
+
+    clock[0] += 50  # past the original expiry, inside the slid one
+    kept = store.get(NAMED.value)
+    assert kept is not None, "the session expired while it was being used"
+    # And the page it already knew survives being touched with nothing.
+    assert kept.url == "https://nc.test/home"
+
+
+async def test_the_mcp_surface_refuses_two_sources_like_the_other_two(server):
+    """Pydantic drops unknown fields by default, so `{secret, config}` reached
+    the binder already reduced to `secret` and `sole_source` never saw the
+    second one. The MCP tool picked one while HTTP and the flow validator
+    refused — the surface divergence the repo's first rule forbids.
+
+    Asserted on the **published schema and the model**, not by calling `fn`:
+    `fn` is the undecorated function, so a test driving it skips the very
+    validation this is about and would pass either way.
+    """
+    from kubed.selenium_flow.tools import ValueFrom
+
+    write = await server.mcp.get_tool("write")
+    published = write.parameters["$defs"]["ValueFrom"]
+    assert published["additionalProperties"] is False
+
+    with pytest.raises(ValidationError):
+        ValueFrom.model_validate(
+            {
+                "secret": {"name": "nextcloud", "key": "password"},
+                "config": {"name": "other", "key": "thing"},
+            }
+        )
+
+
+async def test_the_mcp_surface_refuses_an_unknown_field_in_a_secret_reference(server):
+    """Same rule one level down, where the flow validator already refused it."""
+    from kubed.selenium_flow.tools import SecretRef
+
+    write = await server.mcp.get_tool("write")
+    assert write.parameters["$defs"]["SecretRef"]["additionalProperties"] is False
+
+    with pytest.raises(ValidationError):
+        SecretRef.model_validate({"name": "nextcloud", "key": "password", "kye": "x"})
+
+
+def test_a_leash_and_a_value_always_describe_the_same_secret(tmp_path):
+    """The policy was read from a cached listing while the owner was resolved by
+    walking the sources live. A name appearing in a higher-priority directory
+    during the TTL meant one secret's leash was checked and another's value was
+    returned."""
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    # Only the low-priority directory has it to begin with.
+    make_secret(second, "shared", password="old", **{ALLOWED_URLS: "https://b.test"})
+
+    clock = [1000.0]
+    catalogue = Catalogue(
+        [FilesystemSource(first), FilesystemSource(second)],
+        ttl=60,
+        clock=lambda: clock[0],
+    )
+    assert catalogue.allows("shared", "https://b.test/") is True
+
+    # A higher-priority secret of the same name appears inside the TTL.
+    make_secret(first, "shared", password="new", **{ALLOWED_URLS: "https://a.test"})
+
+    # The snapshot has not expired, so the whole bind still describes the old
+    # secret: its leash AND its value. Not one of each.
+    assert catalogue.allows("shared", "https://b.test/") is True
+    assert catalogue.value("shared", "password") == "old"
+
+    clock[0] += 61  # the snapshot expires and the new owner takes over, whole
+    assert catalogue.allows("shared", "https://a.test/") is True
+    assert catalogue.allows("shared", "https://b.test/") is False
+    assert catalogue.value("shared", "password") == "new"

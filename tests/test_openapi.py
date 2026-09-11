@@ -17,6 +17,7 @@ from starlette.testclient import TestClient
 from kubed.selenium_flow.openapi import (
     PLACEHOLDER_VERSION,
     RESPONSES,
+    _hoisted,
     build_spec,
     http_schema,
 )
@@ -49,7 +50,11 @@ async def test_request_schemas_are_the_tool_schemas(server, spec):
     """The anti-drift guarantee, asserted rather than assumed.
 
     Equality holds through `http_schema`, which applies the one sanctioned
-    difference: session_id is required on an endpoint and optional on a tool.
+    difference — session_id is required on an endpoint and optional on a tool —
+    and through `_hoisted`, which is presentation rather than content: a nested
+    model's definition moves from the schema's own `$defs` into the document's
+    components, because a `$ref` resolves against the document root and would
+    otherwise point at nothing.
 
     Compared against the *registered* tool, not a listing of them. A listing is
     shaped for the client asking for it, and comparing the document to one
@@ -60,7 +65,20 @@ async def test_request_schemas_are_the_tool_schemas(server, spec):
         documented = spec["components"]["schemas"][
             "".join(p.capitalize() for p in action.split("_")) + "Request"
         ]
-        assert documented == http_schema(tool.parameters), action
+        expected, _ = _hoisted(http_schema(tool.parameters))
+        assert documented == expected, action
+
+
+async def test_a_nested_model_is_published_as_its_own_schema(spec):
+    """`value_from` is a typed model, not a bare object, so a client is told it
+    needs `secret.name` and `secret.key` instead of guessing at a blob."""
+    defined = spec["components"]["schemas"]
+    assert "ValueFrom" in defined and "SecretRef" in defined
+    assert set(defined["SecretRef"]["required"]) == {"name", "key"}
+    # And every reference to it resolves inside the document.
+    ref = defined["WriteRequest"]["properties"]["value_from"]
+    assert "$defs" not in defined["WriteRequest"]
+    assert "#/$defs/" not in str(ref)
 
 
 async def test_session_id_is_required_on_every_endpoint_that_takes_one(server, spec):

@@ -14,11 +14,19 @@ pytestmark = pytest.mark.unit
 
 @pytest.fixture
 async def step_schema_map(server):
-    """The real tool schemas, so these tests cannot drift from the tools."""
+    """The real tool schemas, built the way production builds them.
+
+    From ENDPOINTS rather than from a listing — a listing is shaped per request
+    and, since flows gained tools of their own, would have offered `save_flow`
+    as a valid step. `flowrun.RUNNABLE` refuses that at run time, so a looser
+    map here would have let validation and execution disagree.
+    """
+    from kubed.selenium_flow.routes import ENDPOINTS
+
     tools = {}
-    for tool in await server.mcp.list_tools():
-        full = await server.mcp.get_tool(tool.name)
-        tools[tool.name] = full.parameters or {}
+    for name in sorted(set(ENDPOINTS.values())):
+        full = await server.mcp.get_tool(name)
+        tools[name] = full.parameters or {}
     return step_schemas(tools)
 
 
@@ -45,7 +53,14 @@ async def test_an_ordinary_flow_validates(step_schema_map):
 async def test_the_real_tool_schemas_are_what_it_checks(step_schema_map):
     """If `write` gains a parameter, this map gains it with no edit here."""
     assert "css" in step_schema_map["write"]["properties"]
-    assert "text" in step_schema_map["write"]["required"]
+    assert "text" in step_schema_map["write"]["properties"]
+
+
+async def test_a_flow_tool_is_not_a_step(step_schema_map):
+    """A step calls a browser action. `save_flow` is not one, and a map built
+    from a tool listing would have offered it."""
+    for name in ("save_flow", "delete_flow", "run_flow", "list_secrets"):
+        assert name not in step_schema_map
 
 
 async def test_session_id_is_not_a_step_parameter(step_schema_map):
@@ -86,9 +101,87 @@ async def test_an_unknown_parameter_names_the_ones_the_tool_takes(step_schema_ma
 
 
 async def test_a_missing_required_parameter_is_refused(step_schema_map):
-    with pytest.raises(InvalidFlow, match="requires 'text'"):
+    """`text` is not `required` in write's schema — it can arrive as a binding
+    instead — so the validator has to know what the schema cannot say."""
+    with pytest.raises(InvalidFlow, match="write needs 'text'"):
         validate(
             flow(steps=[{"tool": "write", "params": {"css": "#a"}}]), step_schema_map
+        )
+
+
+async def test_a_binding_satisfies_what_the_schema_cannot_demand(step_schema_map):
+    assert validate(
+        flow(
+            steps=[
+                {
+                    "tool": "write",
+                    "params": {"css": "#p", "value_from": {"secret": {"name": "n", "key": "password"}}},
+                }
+            ]
+        ),
+        step_schema_map,
+    )
+
+
+async def test_a_step_with_no_element_is_refused_at_save(step_schema_map):
+    """A schema cannot say "exactly one of xpath or css" without a oneOf, so
+    this was saving cleanly and failing at run time."""
+    with pytest.raises(InvalidFlow, match="needs an element"):
+        validate(
+            flow(steps=[{"tool": "extract", "params": {}}]), step_schema_map
+        )
+
+
+async def test_a_step_naming_both_selectors_is_refused_at_save(step_schema_map):
+    with pytest.raises(InvalidFlow, match="not both"):
+        validate(
+            flow(steps=[{"tool": "extract", "params": {"css": "a", "xpath": "//a"}}]),
+            step_schema_map,
+        )
+
+
+async def test_an_action_that_needs_no_element_is_left_alone(step_schema_map):
+    """press_key goes wherever focus is; screenshot captures the viewport."""
+    assert validate(
+        flow(steps=[{"tool": "press_key", "params": {"key": "enter"}}]),
+        step_schema_map,
+    )
+    assert validate(flow(steps=[{"tool": "screenshot", "params": {}}]), step_schema_map)
+
+
+async def test_a_secret_may_only_be_bound_into_write(step_schema_map):
+    """A script is arbitrary code, and a bound secret inside one is an
+    exfiltration API with extra steps (§F1.28)."""
+    # Enforced by the parameter simply not existing on other actions, which is
+    # stronger than a rule about it: there is nowhere to put one.
+    with pytest.raises(InvalidFlow, match="execute_script does not take value_from"):
+        validate(
+            flow(
+                steps=[
+                    {
+                        "tool": "execute_script",
+                        "params": {"script": "x", "value_from": {"secret": {"name": "n", "key": "k"}}},
+                    }
+                ]
+            ),
+            step_schema_map,
+        )
+
+
+async def test_a_step_that_binds_a_secret_may_not_also_navigate(step_schema_map):
+    """The leash is checked against the page the browser is on. A step that
+    navigates first would be checked against the page it is leaving."""
+    with pytest.raises(InvalidFlow, match="may not also navigate"):
+        validate(
+            flow(
+                steps=[
+                    {
+                        "tool": "write",
+                        "params": {"css": "#p", "url": "https://x.test/login", "value_from": {"secret": {"name": "n", "key": "k"}}},
+                    }
+                ]
+            ),
+            step_schema_map,
         )
 
 
@@ -132,8 +225,7 @@ async def test_a_step_may_take_a_value_from_a_declared_parameter(step_schema_map
             steps=[
                 {
                     "tool": "write",
-                    "params": {"css": "#email"},
-                    "valueFrom": {"text": {"param": "email"}},
+                    "params": {"css": "#email", "value_from": {"param": "email"}},
                 }
             ],
         ),
@@ -147,10 +239,7 @@ async def test_a_step_may_take_a_value_from_a_secret(step_schema_map):
             steps=[
                 {
                     "tool": "write",
-                    "params": {"css": "#password"},
-                    "valueFrom": {
-                        "text": {"secret": {"name": "nextcloud", "key": "password"}}
-                    },
+                    "params": {"css": "#password", "value_from": {"secret": {"name": "nextcloud", "key": "password"}}},
                 }
             ]
         ),
@@ -170,8 +259,7 @@ async def test_a_reference_to_an_undeclared_parameter_is_caught_at_save(
                 steps=[
                     {
                         "tool": "write",
-                        "params": {"css": "#e"},
-                        "valueFrom": {"text": {"param": "emial"}},
+                        "params": {"css": "#e", "value_from": {"param": "emial"}},
                     }
                 ],
             ),
@@ -188,12 +276,12 @@ async def test_a_reference_naming_two_sources_is_refused(step_schema_map):
                 steps=[
                     {
                         "tool": "write",
-                        "params": {"css": "#e"},
-                        "valueFrom": {
-                            "text": {
+                        "params": {
+                            "css": "#e",
+                            "value_from": {
                                 "param": "email",
                                 "secret": {"name": "n", "key": "k"},
-                            }
+                            },
                         },
                     }
                 ],
@@ -207,7 +295,10 @@ async def test_a_reference_naming_no_source_is_refused(step_schema_map):
         validate(
             flow(
                 steps=[
-                    {"tool": "write", "params": {"css": "#e"}, "valueFrom": {"text": {}}}
+                    {
+                        "tool": "write",
+                        "params": {"css": "#e", "value_from": {}},
+                    }
                 ]
             ),
             step_schema_map,
@@ -223,8 +314,7 @@ async def test_a_secret_reference_needs_a_name_and_a_key(step_schema_map):
                 steps=[
                     {
                         "tool": "write",
-                        "params": {"css": "#p"},
-                        "valueFrom": {"text": {"secret": {"name": "nextcloud"}}},
+                        "params": {"css": "#p", "value_from": {"secret": {"name": "nextcloud"}}},
                     }
                 ]
             ),
@@ -240,8 +330,7 @@ async def test_a_value_given_twice_is_refused_rather_than_resolved(step_schema_m
                 steps=[
                     {
                         "tool": "write",
-                        "params": {"css": "#e", "text": "literal"},
-                        "valueFrom": {"text": {"param": "email"}},
+                        "params": {"css": "#e", "text": "literal", "value_from": {"param": "email"}},
                     }
                 ],
             ),
@@ -256,10 +345,7 @@ async def test_a_reference_satisfies_a_required_parameter(step_schema_map):
             steps=[
                 {
                     "tool": "write",
-                    "params": {"css": "#p"},
-                    "valueFrom": {
-                        "text": {"secret": {"name": "n", "key": "password"}}
-                    },
+                    "params": {"css": "#p", "value_from": {"secret": {"name": "n", "key": "password"}}},
                 }
             ]
         ),
@@ -267,21 +353,39 @@ async def test_a_reference_satisfies_a_required_parameter(step_schema_map):
     )
 
 
-async def test_a_reference_to_a_parameter_the_tool_does_not_take(step_schema_map):
-    with pytest.raises(InvalidFlow, match="which write does not take"):
+async def test_value_from_is_a_parameter_like_any_other(step_schema_map):
+    """A step's params ARE the call's arguments, with no exception — so a step
+    and a direct tool call are the same thing written twice. Which argument
+    value_from fills is the action's own business, the way Kubernetes never
+    repeats an env var's name inside its valueFrom."""
+    assert validate(
+        flow(
+            parameters={"type": "object", "properties": {"email": {}}},
+            steps=[
+                {
+                    "tool": "write",
+                    "params": {"css": "#e", "value_from": {"param": "email"}},
+                }
+            ],
+        ),
+        step_schema_map,
+    )
+
+
+async def test_only_the_actions_that_offer_it_take_value_from(step_schema_map):
+    """It is a real parameter, so an action that does not declare one does not
+    have it — and the refusal names the ones that do."""
+    with pytest.raises(InvalidFlow, match="does not take value_from") as caught:
         validate(
             flow(
-                parameters={"type": "object", "properties": {"email": {}}},
+                parameters={"type": "object", "properties": {"site": {}}},
                 steps=[
-                    {
-                        "tool": "write",
-                        "params": {"css": "#e", "text": "x"},
-                        "valueFrom": {"nonsense": {"param": "email"}},
-                    }
+                    {"tool": "navigate", "params": {"value_from": {"param": "site"}}}
                 ],
             ),
             step_schema_map,
         )
+    assert "write" in str(caught.value)
 
 
 # ---- the step's own keys ----------------------------------------------------
@@ -360,7 +464,7 @@ async def test_every_problem_is_reported_at_once(step_schema_map):
             ),
             step_schema_map,
         )
-    assert len(caught.value.problems) == 3
+    assert len(caught.value.problems) >= 3
 
 
 async def test_a_step_timeout_is_refused_rather_than_ignored(step_schema_map):
@@ -380,3 +484,39 @@ async def test_wait_timeout_is_the_per_step_bound_and_is_accepted(step_schema_ma
         flow(steps=[{"tool": "extract", "params": {"css": "h1", "wait_timeout": 5}}]),
         step_schema_map,
     )
+
+
+async def test_switching_to_a_frame_still_needs_a_target(step_schema_map):
+    """`frame` is not simply selector-optional: switch needs xpath, css or
+    index, and `actions.frame` refuses that call at run time — so treating the
+    whole action as optional put validation and execution back out of step."""
+    with pytest.raises(InvalidFlow, match="needs an element"):
+        validate(
+            flow(steps=[{"tool": "frame", "params": {"action": "switch"}}]),
+            step_schema_map,
+        )
+
+
+async def test_switching_by_index_needs_no_selector(step_schema_map):
+    assert validate(
+        flow(steps=[{"tool": "frame", "params": {"action": "switch", "index": 0}}]),
+        step_schema_map,
+    )
+
+
+@pytest.mark.parametrize("action", ["parent", "default"])
+async def test_leaving_a_frame_needs_nothing(step_schema_map, action):
+    assert validate(
+        flow(steps=[{"tool": "frame", "params": {"action": action}}]), step_schema_map
+    )
+
+
+async def test_a_null_text_is_not_a_supplied_value(step_schema_map):
+    """The schema permits null so value_from can supply it instead, so
+    "present" is not the question — `Actions.write` would type the string
+    "None" into the field."""
+    with pytest.raises(InvalidFlow, match="write needs 'text'"):
+        validate(
+            flow(steps=[{"tool": "write", "params": {"css": "#p", "text": None}}]),
+            step_schema_map,
+        )

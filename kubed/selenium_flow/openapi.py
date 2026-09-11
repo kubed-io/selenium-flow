@@ -97,10 +97,18 @@ RESPONSES = {
     ),
     "write": _page(
         value={
-            "type": "string",
+            "type": ["string", "null"],
             "description": "The field's value read back off the element, so a "
-            "caller can confirm the text landed.",
-        }
+            "caller can confirm the text landed. Null for a write whose value "
+            "came from a secret — that read is not performed at all, so the "
+            "credential is never returned.",
+        },
+        value_from={
+            "type": "string",
+            "description": "Present only when the value came from somewhere "
+            "rather than being given: the kind of source it came from, never "
+            "the value.",
+        },
     ),
     "press_key": _page(key={"type": "string", "description": "The key that was sent."}),
     "extract": _page(
@@ -227,7 +235,9 @@ async def build_spec(
 
         request_name = f"{_camel(action)}Request"
         response_name = f"{_camel(action)}Response"
-        schemas[request_name] = http_schema(tool.parameters)
+        request, nested = _hoisted(http_schema(tool.parameters))
+        schemas.update(nested)
+        schemas[request_name] = request
         schemas[response_name] = RESPONSES.get(action, {"type": "object"})
 
         paths[f"{prefix}/{path}"] = {
@@ -481,15 +491,9 @@ FLOW_STEP = {
     "properties": {
         "tool": {"type": "string", "description": "Which action this step runs."},
         "params": {"type": "object", "description": "That action's arguments."},
-        "valueFrom": {
-            "type": "object",
-            "description": (
-                "Arguments taken from somewhere else instead of given "
-                "literally: {'text': {'param': 'email'}}, or {'text': "
-                "{'secret': {'name': 'x', 'key': 'password'}}}. There is no "
-                "string templating."
-            ),
-        },
+        # `value_from` is not here: it is a parameter of the action, so it
+        # lives in `params` and is described by that action's own schema. A step
+        # key would have been a second place to say it, and the two would drift.
         "id": {"type": "string"},
         "note": {"type": "string"},
         "onError": {"type": "string", "enum": ["abort", "continue"]},
@@ -751,3 +755,38 @@ def _flow_paths(prefix: str = "/flows") -> dict:
             }
         }
     return paths
+
+
+def _hoisted(schema: dict) -> tuple[dict, dict]:
+    """A schema with its ``$defs`` lifted into ``components/schemas``.
+
+    Pydantic writes a nested model as ``$ref: '#/$defs/ValueFrom'`` with the
+    definition alongside. A ``$ref`` resolves against the **document root**, and
+    once the schema is a component there is no ``$defs`` there — so the
+    reference points at nothing and a strict reader rejects the whole document.
+
+    Lifting rather than inlining, so a model used by two actions is described
+    once and a generated client gets one class for it.
+    """
+    definitions = schema.pop("$defs", None)
+    if not definitions:
+        return schema, {}
+    return _repointed(schema), {
+        name: _repointed(body) for name, body in definitions.items()
+    }
+
+
+def _repointed(node):
+    """``node`` with every ``#/$defs/x`` reference aimed at the components."""
+    if isinstance(node, dict):
+        return {
+            key: (
+                value.replace("#/$defs/", "#/components/schemas/")
+                if key == "$ref" and isinstance(value, str)
+                else _repointed(value)
+            )
+            for key, value in node.items()
+        }
+    if isinstance(node, list):
+        return [_repointed(item) for item in node]
+    return node
