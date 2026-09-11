@@ -231,8 +231,7 @@ def test_a_parameter_reaches_the_step_that_names_it():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#email"},
-            "valueFrom": {"text": {"param": "email"}},
+            "params": {"css": "#email", "value_from": {"param": "email"}},
         }
     ]
     document = flow(
@@ -288,8 +287,7 @@ def test_a_write_only_parameter_is_not_echoed_by_the_step_that_used_it():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#password"},
-            "valueFrom": {"text": {"param": "password"}},
+            "params": {"css": "#password", "value_from": {"param": "password"}},
             "return": True,
         }
     ]
@@ -309,8 +307,7 @@ def test_a_guarded_value_is_hidden_in_the_summary_too():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#password"},
-            "valueFrom": {"text": {"param": "password"}},
+            "params": {"css": "#password", "value_from": {"param": "password"}},
         }
     ]
     document = flow(
@@ -329,8 +326,7 @@ def test_an_ordinary_parameter_is_not_hidden():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#email"},
-            "valueFrom": {"text": {"param": "email"}},
+            "params": {"css": "#email", "value_from": {"param": "email"}},
             "return": True,
         }
     ]
@@ -344,8 +340,7 @@ def test_the_value_still_reaches_the_browser():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#password"},
-            "valueFrom": {"text": {"param": "password"}},
+            "params": {"css": "#password", "value_from": {"param": "password"}},
         }
     ]
     document = flow(
@@ -365,8 +360,7 @@ def test_a_flow_binding_a_secret_refuses_rather_than_typing_nothing():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#password"},
-            "valueFrom": {"text": {"secret": {"name": "nextcloud", "key": "password"}}},
+            "params": {"css": "#password", "value_from": {"secret": {"name": "nextcloud", "key": "password"}}},
             "id": "fill-password",
         }
     ]
@@ -384,15 +378,15 @@ def test_the_run_timeout_has_a_default():
 # ---- what the review caught -------------------------------------------------
 
 
-def test_a_guarded_value_is_hidden_whatever_field_it_lands_in():
-    """The whitelist decides which fields could ever be printed; the guard has
-    to decide per value. A magic-link login binds a secret to `url`, and one
-    flag meant only `text` was ever hidden."""
+def test_the_guard_keys_off_the_argument_not_a_flag():
+    """The whitelist decides which fields could ever be printed; the guard
+    decides per argument. Only `write.text` is bindable today, and the guard
+    stays a set so a second bindable argument needs no rewrite of the
+    redaction."""
     steps = [
         {
-            "tool": "navigate",
-            "params": {},
-            "valueFrom": {"url": {"param": "magic_link"}},
+            "tool": "write",
+            "params": {"css": "#p", "value_from": {"param": "magic_link"}},
         }
     ]
     document = flow(
@@ -401,7 +395,7 @@ def test_a_guarded_value_is_hidden_whatever_field_it_lands_in():
     )
     secret = "https://example.test/login?token=abc123"
     report = run(FakeActions(), document, "b", params={"magic_link": secret})
-    assert "url=<hidden>" in report["steps"][0]["summary"]
+    assert "text=<hidden>" in report["steps"][0]["summary"]
     assert "abc123" not in report["steps"][0]["summary"]
 
 
@@ -409,8 +403,7 @@ def test_an_unguarded_field_is_still_printed_beside_a_guarded_one():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#password"},
-            "valueFrom": {"text": {"param": "password"}},
+            "params": {"css": "#password", "value_from": {"param": "password"}},
         }
     ]
     document = flow(
@@ -493,14 +486,13 @@ def test_reading_the_failed_page_can_never_make_a_failure_worse():
 # ---- what the third review round caught --------------------------------------
 
 
-def test_a_guarded_url_does_not_come_back_in_the_result():
-    """`navigate` answers with the page state, whose `url` is the one it was
-    given — so redacting only `value` handed a magic-link token straight back."""
+def test_a_guarded_value_does_not_come_back_in_the_result():
+    """`write` reads the field back and answers with it, so redacting only the
+    summary would hand the value straight back."""
     steps = [
         {
-            "tool": "navigate",
-            "params": {},
-            "valueFrom": {"url": {"param": "magic_link"}},
+            "tool": "write",
+            "params": {"css": "#p", "value_from": {"param": "magic_link"}},
             "return": True,
         }
     ]
@@ -510,24 +502,23 @@ def test_a_guarded_url_does_not_come_back_in_the_result():
     )
 
     class Echoing(FakeActions):
-        def navigate(self, session_id, **kwargs):
-            self.calls.append(("navigate", session_id, kwargs))
-            return {"url": kwargs["url"], "title": "Welcome"}
+        def write(self, session_id, **kwargs):
+            self.calls.append(("write", session_id, kwargs))
+            return {"value": kwargs["text"], "url": "u", "title": "Welcome"}
 
     secret = "https://example.test/login?token=abc123"
     report = run(Echoing(), document, "b", params={"magic_link": secret})
-    assert report["steps"][0]["result"]["url"] is None
+    assert report["steps"][0]["result"]["value"] is None
     assert "abc123" not in str(report)
 
 
-def test_a_guarded_url_never_reaches_the_top_level_report():
+def test_a_guarded_value_never_reaches_the_top_level_report():
     """Which is what sessions.touch stores — a secret URL in Redis outlives the
     run, and a later reopen would navigate straight back to it."""
     steps = [
         {
-            "tool": "navigate",
-            "params": {},
-            "valueFrom": {"url": {"param": "magic_link"}},
+            "tool": "write",
+            "params": {"css": "#p", "value_from": {"param": "magic_link"}},
         }
     ]
     document = flow(
@@ -536,14 +527,13 @@ def test_a_guarded_url_never_reaches_the_top_level_report():
     )
 
     class Echoing(FakeActions):
-        def navigate(self, session_id, **kwargs):
-            self.calls.append(("navigate", session_id, kwargs))
-            return {"url": kwargs["url"], "title": "Welcome"}
+        def write(self, session_id, **kwargs):
+            self.calls.append(("write", session_id, kwargs))
+            return {"value": kwargs["text"], "url": "u", "title": "Welcome"}
 
-    report = run(Echoing(), document, "b",
-                 params={"magic_link": "https://x.test/?token=zzz"})
-    assert report.get("url") is None
-    assert "zzz" not in str(report)
+    report = run(Echoing(), document, "b", params={"magic_link": "zzz-secret"})
+    # The whole report, not one field: nothing anywhere may carry it.
+    assert "zzz-secret" not in str(report)
 
 
 def test_a_guarded_value_is_scrubbed_out_of_an_error():
@@ -552,8 +542,7 @@ def test_a_guarded_value_is_scrubbed_out_of_an_error():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#p"},
-            "valueFrom": {"text": {"param": "password"}},
+            "params": {"css": "#p", "value_from": {"param": "password"}},
         }
     ]
     document = flow(
@@ -571,29 +560,32 @@ def test_a_guarded_value_is_scrubbed_out_of_an_error():
     assert "could not type" in report["steps"][0]["error"]
 
 
-def test_a_failed_page_read_does_not_reintroduce_a_guarded_url():
+def test_a_failed_page_read_does_not_reintroduce_a_guarded_value():
     steps = [
         {
-            "tool": "navigate",
-            "params": {},
-            "valueFrom": {"url": {"param": "magic_link"}},
+            "tool": "write",
+            "params": {"css": "#p", "value_from": {"param": "magic_link"}},
         }
     ]
     document = flow(
         steps,
         parameters={"type": "object", "properties": {"magic_link": {"writeOnly": True}}},
     )
-    secret = "https://example.test/?token=abc123"
+    secret = "abc123"
 
     class Failing(FakeActions):
         def page(self, session_id):
-            return {"url": secret, "title": "x"}
+            # Typing into a search box lands you on `?q=<what you typed>`, so
+            # the page a bound write failed on can carry the value back.
+            return {"url": f"https://example.test/?q={secret}", "title": "x"}
 
-        def navigate(self, session_id, **kwargs):
+        def write(self, session_id, **kwargs):
             raise RuntimeError("timed out")
 
     report = run(Failing(), document, "b", params={"magic_link": secret})
-    assert "abc123" not in str(report)
+    assert secret not in str(report)
+    # And the rest of the page is still reported, so the failure is diagnosable.
+    assert "example.test" in str(report)
 
 
 def test_an_after_step_callback_sees_every_successful_step():
@@ -613,14 +605,13 @@ def test_a_failing_step_does_not_fire_the_callback():
     assert seen == ["navigate"]
 
 
-def test_a_guarded_script_does_not_come_back_under_result():
-    """`execute_script` answers under `result`, which was missing from the
-    named-field map — so a guarded script echoed itself."""
+def test_a_guarded_value_does_not_come_back_under_an_unmapped_name():
+    """An action can answer under a name nobody mapped. The named map handles
+    the fields we know; the sweep handles the ones we do not."""
     steps = [
         {
-            "tool": "execute_script",
-            "params": {},
-            "valueFrom": {"script": {"param": "snippet"}},
+            "tool": "write",
+            "params": {"css": "#p", "value_from": {"param": "snippet"}},
             "return": True,
         }
     ]
@@ -629,9 +620,10 @@ def test_a_guarded_script_does_not_come_back_under_result():
     )
 
     class Echoing(FakeActions):
-        def execute_script(self, session_id, **kwargs):
-            self.calls.append(("execute_script", session_id, kwargs))
-            return {"result": kwargs["script"], "url": "u", "title": "t"}
+        def write(self, session_id, **kwargs):
+            self.calls.append(("write", session_id, kwargs))
+            # An unmapped name, which is the case the sweep exists for.
+            return {"echoed": kwargs["text"], "url": "u", "title": "t"}
 
     report = run(Echoing(), document, "b", params={"snippet": "return 'sekrit'"})
     assert "sekrit" not in str(report)
@@ -643,9 +635,8 @@ def test_a_guarded_value_is_swept_out_of_any_field_at_all():
     cannot carry the value out."""
     steps = [
         {
-            "tool": "extract",
-            "params": {"css": "h1"},
-            "valueFrom": {"url": {"param": "magic"}},
+            "tool": "write",
+            "params": {"css": "#p", "value_from": {"param": "magic"}},
             "return": True,
         }
     ]
@@ -654,10 +645,10 @@ def test_a_guarded_value_is_swept_out_of_any_field_at_all():
     )
 
     class Nested(FakeActions):
-        def extract(self, session_id, **kwargs):
-            self.calls.append(("extract", session_id, kwargs))
+        def write(self, session_id, **kwargs):
+            self.calls.append(("write", session_id, kwargs))
             # A field nobody mapped, nested, carrying the value.
-            return {"text": "ok", "meta": {"seen": [kwargs["url"]]}, "title": "t"}
+            return {"ok": True, "meta": {"seen": [kwargs["text"]]}, "title": "t"}
 
     report = run(Nested(), document, "b", params={"magic": "https://x.test/?t=zzz"})
     assert "zzz" not in str(report)

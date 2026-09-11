@@ -484,10 +484,12 @@ FLOW_STEP = {
         "valueFrom": {
             "type": "object",
             "description": (
-                "Arguments taken from somewhere else instead of given "
-                "literally: {'text': {'param': 'email'}}, or {'text': "
-                "{'secret': {'name': 'x', 'key': 'password'}}}. There is no "
-                "string templating."
+                "Where this action's value comes from, instead of giving it in "
+                "params: {'param': 'email'} takes it from the flow's own "
+                "parameters, {'secret': {'name': 'x', 'key': 'password'}} from "
+                "a secret nobody sees. Exactly one source, and mutually "
+                "exclusive with giving the value in params. There is no string "
+                "templating."
             ),
         },
         "id": {"type": "string"},

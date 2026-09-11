@@ -115,10 +115,7 @@ async def test_a_binding_satisfies_what_the_schema_cannot_demand(step_schema_map
             steps=[
                 {
                     "tool": "write",
-                    "params": {"css": "#p"},
-                    "valueFrom": {
-                        "text": {"secret": {"name": "n", "key": "password"}}
-                    },
+                    "params": {"css": "#p", "value_from": {"secret": {"name": "n", "key": "password"}}},
                 }
             ]
         ),
@@ -155,16 +152,15 @@ async def test_an_action_that_needs_no_element_is_left_alone(step_schema_map):
 async def test_a_secret_may_only_be_bound_into_write(step_schema_map):
     """A script is arbitrary code, and a bound secret inside one is an
     exfiltration API with extra steps (§F1.28)."""
-    with pytest.raises(InvalidFlow, match="cannot be bound into execute_script"):
+    # Enforced by the parameter simply not existing on other actions, which is
+    # stronger than a rule about it: there is nowhere to put one.
+    with pytest.raises(InvalidFlow, match="execute_script does not take value_from"):
         validate(
             flow(
                 steps=[
                     {
                         "tool": "execute_script",
-                        "params": {"script": "x"},
-                        "valueFrom": {
-                            "script": {"secret": {"name": "n", "key": "k"}}
-                        },
+                        "params": {"script": "x", "value_from": {"secret": {"name": "n", "key": "k"}}},
                     }
                 ]
             ),
@@ -181,10 +177,7 @@ async def test_a_step_that_binds_a_secret_may_not_also_navigate(step_schema_map)
                 steps=[
                     {
                         "tool": "write",
-                        "params": {"css": "#p", "url": "https://x.test/login"},
-                        "valueFrom": {
-                            "text": {"secret": {"name": "n", "key": "k"}}
-                        },
+                        "params": {"css": "#p", "url": "https://x.test/login", "value_from": {"secret": {"name": "n", "key": "k"}}},
                     }
                 ]
             ),
@@ -232,8 +225,7 @@ async def test_a_step_may_take_a_value_from_a_declared_parameter(step_schema_map
             steps=[
                 {
                     "tool": "write",
-                    "params": {"css": "#email"},
-                    "valueFrom": {"text": {"param": "email"}},
+                    "params": {"css": "#email", "value_from": {"param": "email"}},
                 }
             ],
         ),
@@ -247,10 +239,7 @@ async def test_a_step_may_take_a_value_from_a_secret(step_schema_map):
             steps=[
                 {
                     "tool": "write",
-                    "params": {"css": "#password"},
-                    "valueFrom": {
-                        "text": {"secret": {"name": "nextcloud", "key": "password"}}
-                    },
+                    "params": {"css": "#password", "value_from": {"secret": {"name": "nextcloud", "key": "password"}}},
                 }
             ]
         ),
@@ -270,8 +259,7 @@ async def test_a_reference_to_an_undeclared_parameter_is_caught_at_save(
                 steps=[
                     {
                         "tool": "write",
-                        "params": {"css": "#e"},
-                        "valueFrom": {"text": {"param": "emial"}},
+                        "params": {"css": "#e", "value_from": {"param": "emial"}},
                     }
                 ],
             ),
@@ -288,12 +276,12 @@ async def test_a_reference_naming_two_sources_is_refused(step_schema_map):
                 steps=[
                     {
                         "tool": "write",
-                        "params": {"css": "#e"},
-                        "valueFrom": {
-                            "text": {
+                        "params": {
+                            "css": "#e",
+                            "value_from": {
                                 "param": "email",
                                 "secret": {"name": "n", "key": "k"},
-                            }
+                            },
                         },
                     }
                 ],
@@ -307,7 +295,10 @@ async def test_a_reference_naming_no_source_is_refused(step_schema_map):
         validate(
             flow(
                 steps=[
-                    {"tool": "write", "params": {"css": "#e"}, "valueFrom": {"text": {}}}
+                    {
+                        "tool": "write",
+                        "params": {"css": "#e", "value_from": {}},
+                    }
                 ]
             ),
             step_schema_map,
@@ -323,8 +314,7 @@ async def test_a_secret_reference_needs_a_name_and_a_key(step_schema_map):
                 steps=[
                     {
                         "tool": "write",
-                        "params": {"css": "#p"},
-                        "valueFrom": {"text": {"secret": {"name": "nextcloud"}}},
+                        "params": {"css": "#p", "value_from": {"secret": {"name": "nextcloud"}}},
                     }
                 ]
             ),
@@ -340,8 +330,7 @@ async def test_a_value_given_twice_is_refused_rather_than_resolved(step_schema_m
                 steps=[
                     {
                         "tool": "write",
-                        "params": {"css": "#e", "text": "literal"},
-                        "valueFrom": {"text": {"param": "email"}},
+                        "params": {"css": "#e", "text": "literal", "value_from": {"param": "email"}},
                     }
                 ],
             ),
@@ -356,10 +345,7 @@ async def test_a_reference_satisfies_a_required_parameter(step_schema_map):
             steps=[
                 {
                     "tool": "write",
-                    "params": {"css": "#p"},
-                    "valueFrom": {
-                        "text": {"secret": {"name": "n", "key": "password"}}
-                    },
+                    "params": {"css": "#p", "value_from": {"secret": {"name": "n", "key": "password"}}},
                 }
             ]
         ),
@@ -367,21 +353,39 @@ async def test_a_reference_satisfies_a_required_parameter(step_schema_map):
     )
 
 
-async def test_a_reference_to_a_parameter_the_tool_does_not_take(step_schema_map):
-    with pytest.raises(InvalidFlow, match="which write does not take"):
+async def test_value_from_is_a_parameter_like_any_other(step_schema_map):
+    """A step's params ARE the call's arguments, with no exception — so a step
+    and a direct tool call are the same thing written twice. Which argument
+    value_from fills is the action's own business, the way Kubernetes never
+    repeats an env var's name inside its valueFrom."""
+    assert validate(
+        flow(
+            parameters={"type": "object", "properties": {"email": {}}},
+            steps=[
+                {
+                    "tool": "write",
+                    "params": {"css": "#e", "value_from": {"param": "email"}},
+                }
+            ],
+        ),
+        step_schema_map,
+    )
+
+
+async def test_only_the_actions_that_offer_it_take_value_from(step_schema_map):
+    """It is a real parameter, so an action that does not declare one does not
+    have it — and the refusal names the ones that do."""
+    with pytest.raises(InvalidFlow, match="does not take value_from") as caught:
         validate(
             flow(
-                parameters={"type": "object", "properties": {"email": {}}},
+                parameters={"type": "object", "properties": {"site": {}}},
                 steps=[
-                    {
-                        "tool": "write",
-                        "params": {"css": "#e", "text": "x"},
-                        "valueFrom": {"nonsense": {"param": "email"}},
-                    }
+                    {"tool": "navigate", "params": {"value_from": {"param": "site"}}}
                 ],
             ),
             step_schema_map,
         )
+    assert "write" in str(caught.value)
 
 
 # ---- the step's own keys ----------------------------------------------------

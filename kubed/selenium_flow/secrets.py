@@ -487,6 +487,14 @@ def bind(catalogue, source: dict, url: str, tool: str = "write") -> str:
         # Logged loudest of anything here: something tried to use a credential
         # on a page its owner did not allow, which is the event an operator most
         # wants to know about.
+        #
+        # `name` and `key` are IDENTIFIERS — "nextcloud" and "password" — not
+        # the credential, and an audit line without them says nothing useful.
+        # CodeQL flags them because the words look like secrets; the value is
+        # not read until after every check below has passed, and
+        # `test_the_audit_trail_never_contains_a_value` captures this logger and
+        # proves it.
+        # codeql[py/clear-text-logging-sensitive-data]
         log.warning(
             "REFUSED binding secret %s/%s on %s: not an allowed site",
             name, key, origin(url) or "an unknown page",
@@ -502,6 +510,9 @@ def bind(catalogue, source: dict, url: str, tool: str = "write") -> str:
     if value is None:
         raise Refused(f"the secret {name!r} has no readable value for {key!r}")
 
-    # The audit trail: what was used, where, by which action. Never the value.
+    # The audit trail: what was used, where, by which action. Never the value —
+    # `name` and `key` are the identifiers it was looked up by, and `value`
+    # below is deliberately not among the arguments.
+    # codeql[py/clear-text-logging-sensitive-data]
     log.info("bound secret %s/%s on %s for %s", name, key, origin(url), tool)
     return value

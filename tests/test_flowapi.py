@@ -369,8 +369,7 @@ async def test_parameters_reach_the_step_that_names_them(ran):
         steps=[
             {
                 "tool": "write",
-                "params": {"css": "#email"},
-                "valueFrom": {"text": {"param": "email"}},
+                "params": {"css": "#email", "value_from": {"param": "email"}},
             }
         ],
     )

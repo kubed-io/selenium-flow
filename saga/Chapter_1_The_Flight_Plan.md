@@ -504,15 +504,16 @@ steps:
 
 - id: fill-email
   tool: write
-  params: {css: "#email"}
-  valueFrom:
-    text: {param: email}
+  params:
+    css: "#email"
+    value_from: {param: email}
 
 - id: fill-password
   tool: write
-  params: {css: "#password"}
-  valueFrom:
-    text: {secret: {name: nextcloud-admin, key: password}}
+  params:
+    css: "#password"
+    value_from:
+      secret: {name: nextcloud-admin, key: password}
 
 - tool: interact
   params: {action: click, css: "button[type=submit]"}
@@ -520,17 +521,54 @@ steps:
 
 The rules:
 
-- **`valueFrom` is a step-level key**, a map of *parameter name* → *source*. It
-  sits beside `id`, `onError` and `note` (§F1.6) rather than inside `params`.
-  That is what keeps `params` exactly the tool's own schema, so §F1.6's
-  derivation is untouched: `params` is validated against the derived model
-  as-is, and `valueFrom` is checked separately against the same model's field
-  names.
+- **`value_from` is an ordinary parameter of the action**, so a step's `params`
+  is *exactly* the arguments of the call, with no exception — and a step is
+  literally the call a caller would make directly.
+
+  **Corrected twice on 2026-09-11.** The first draft made `valueFrom` a
+  step-level map of parameter-name → source. Dr K cut the map:
+
+  > *"You have that extra level of `text` that was unnecessary. Remember that
+  > k8s has `value` and `valueFrom` on the same level as mutually exclusive
+  > keys."*
+
+  …and then cut the step-level key itself:
+
+  > *"For the tools to be symmetric the valueFrom can be nested under params
+  > since it is specific only to write."*
+
+  Both are right, and the second is the stronger claim. Kubernetes shapes an env
+  var as a **thing that already has a name**, with `value` and `valueFrom` as
+  mutually exclusive siblings; the name is never repeated inside `valueFrom`.
+  Here the *action* is the named thing and it declares which argument a
+  `value_from` fills, so nothing repeats a name — and because it is a parameter
+  rather than a step key, the step form and the direct-call form stop being two
+  shapes at all:
+
+  ```python
+  write(css="#password", value_from={"secret": {...}})              # direct
+  ```
+  ```yaml
+  {tool: write, params: {css: "#password", value_from: {secret: {...}}}}
+  ```
+
+  It is spelled `value_from`, not `valueFrom`, because it is a parameter and
+  every other parameter on this surface is snake_case. The *step* keys stay
+  camelCase (`onError`) — those are ours; parameters are the tool's.
+
+  **What it costs**, stated so it is a decision rather than an oversight: a
+  value can only reach an argument an action has *chosen to open*, and only
+  `write` has (§F1.28). Taking `navigate`'s `url` from a flow parameter is not
+  expressible today. That is deliberately a one-line change per action — a
+  `value_from` parameter plus an entry in `FILLS` — so it is a decision
+  deferred, not a door closed.
 - **A source is exactly one of three**: `param` (a name from this flow's
   `parameters`), `secret` (`{name, key}`), or `config` (`{name, key}`, when
   ConfigMaps land — §F1.31). Two is refused, zero is refused.
-- **A parameter may not be given twice.** A name appearing in both `params` and
-  `valueFrom` is refused at save time, not silently resolved in one direction.
+- **A value may not be given twice.** Giving the action's value argument *and* a
+  `value_from` is refused at save time, not silently resolved in one direction —
+  exactly what Kubernetes means by `value` and `valueFrom` being mutually
+  exclusive.
 - **References resolve to whole values, never fragments.** There is no way to
   express "the URL is `https://` plus this param plus `/login`". If a flow needs
   a composed value, the composition is the caller's job and it passes the
@@ -558,7 +596,7 @@ simplification.
 
 `writeOnly: true` on a parameter (this section's original proposal) survives and
 still means "supplied but not echoed back". But see §F1.29: for anything
-genuinely secret, `valueFrom.secret` is strictly better, because a `writeOnly`
+genuinely secret, `value_from.secret` is strictly better, because a `writeOnly`
 parameter still has to be *supplied* — which means a model held it.
 
 ### §F1.8 — Decision (locked by E3): what a run returns
@@ -1284,9 +1322,10 @@ uses. In a **flow step**:
 
 ```yaml
 - tool: write
-  params: {css: "#password"}
-  valueFrom:
-    text: {secret: {name: nextcloud-admin, key: password}}
+  params:
+    css: "#password"
+    value_from:
+      secret: {name: nextcloud-admin, key: password}
 ```
 
 and on a **direct tool call**, where there is no flow and so no `param` source
@@ -1297,10 +1336,9 @@ write(css="#password", value_from={"secret": {"name": "nextcloud-admin",
                                               "key": "password"}})
 ```
 
-- `value_from` on the tool targets the text, because `text` is the only
-  bindable parameter `write` has (§F1.28). A tool that ever gains a second one
-  gets the map form; today the map would have exactly one key and be pure
-  ceremony.
+- **The two are the same shape**, which they were not in the first two drafts:
+  `value_from` is a parameter of `write` on both surfaces. It names a source,
+  and which argument it fills is `write`'s own business (§F1.7).
 - **Exactly one of `text` or `value_from`**, enforced at the boundary with the
   idiom `browser.locator` already uses for `xpath`/`css` — both is refused
   rather than resolved.
@@ -1394,8 +1432,8 @@ arc, because no single tool description can:
    never see a value, and you do not need one.
 2. **Discover the selectors** — drive the login page by hand once, `extract` to
    find the field selectors (§F1.13 now offers `css` as well as `xpath`).
-3. **Build the flow** — steps with the selectors, and `secret`/`secret_key` on
-   the password field instead of a value.
+3. **Build the flow** — steps with the selectors, and a `value_from` naming the
+   secret on the password step instead of a value.
 4. **Save it** — `save_flow`, once.
 5. **Run it** — `run_flow`, forever after, with no credential in any transcript.
 
@@ -1471,13 +1509,14 @@ single source of truth (§F1.13).
       `pydantic.create_model()`, assembled into a discriminated union on `tool` —
       the move `openapi.py` already makes for request bodies (§F1.6)
 - [x] Flow document: `name`, `description`, `parameters` (JSON Schema), `steps`
-- [x] Step keys: `tool`, `params`, `id`, `onError`, `return`, `note`,
-      `valueFrom` (§F1.7). `timeout` was **withdrawn** — see §F1.6; `wait_timeout`
-      in a step's own params is the per-step bound.
-- [x] `valueFrom` validated at **save** time against the derived model's field
-      names: an unknown parameter, a name also present in `params`, or a source
-      that is not exactly one of param/secret/config is refused then, not at
-      step nine of a run (§F1.7)
+- [x] Step keys: `tool`, `params`, `id`, `onError`, `return`, `note`. `timeout`
+      was **withdrawn** (§F1.6) — `wait_timeout` in a step's own params is the
+      per-step bound — and `valueFrom` was withdrawn too: it is a *parameter*,
+      `value_from`, so `params` is exactly the call's arguments (§F1.7).
+- [x] `value_from` validated at **save** time: a source that is not exactly one
+      of param/secret/config, an undeclared parameter, a value also given
+      literally, or an action that does not offer the parameter at all — all
+      refused then, not at step nine of a run (§F1.7)
 - [x] `flow://flows` and `flow://flows/{name}` resources; the listing returns
       names, descriptions and `parameters` only — **never full documents**, so
       the WebDAV backend stays viable (§F1.5, §F1.12)

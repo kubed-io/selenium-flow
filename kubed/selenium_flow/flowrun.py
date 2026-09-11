@@ -34,7 +34,7 @@ import logging
 import time
 
 from . import secrets
-from .flowdoc import NOT_STEPS
+from .flowdoc import FILLS, NOT_STEPS, VALUE_FROM
 from .routes import ENDPOINTS
 
 # The only attributes a step may dispatch to. `getattr(actions, tool)` alone
@@ -190,42 +190,52 @@ def resolve_step(
 ) -> tuple[dict, set]:
     """A step's keyword arguments, and **which of them** must not be echoed.
 
-    Structural: each entry of `valueFrom` names a source and the value goes
-    straight into the kwargs. No string is inspected for placeholders, which is
-    why a payload can never collide with a reference.
+    Structural: `valueFrom` names a source and the value goes straight into the
+    kwargs. No string is inspected for placeholders, which is why a payload can
+    never collide with a reference.
 
-    The guard is a set of argument *names* rather than one flag. A `writeOnly`
-    parameter can be bound to any argument, not just `text` — a magic-link login
-    binds one to `url` — and a single flag meant such a value was printed
-    verbatim by the summary while `text` was the only thing hidden.
+    `value_from` is an ordinary parameter of the action, so a step's `params`
+    is exactly the arguments of the call and a step is literally the call a
+    caller would make directly. Which argument it fills is the action's own
+    business — `write` fills `text` — so nothing repeats a name, the way
+    Kubernetes never repeats an env var's name inside its `valueFrom`.
+
+    The guard is a set of argument names rather than one flag. It holds at most
+    one today, and stays a set because the *result* redaction keys off argument
+    names and a second bindable argument should not require rewriting that.
     """
     kwargs = dict(step.get("params") or {})
     guarded: set[str] = set()
-    for name, source in (step.get("valueFrom") or {}).items():
-        if "param" in source:
-            reference = source["param"]
-            kwargs[name] = params.get(reference)
-            if reference in sensitive:
-                guarded.add(name)
-        elif "secret" in source:
-            # The one place a run reads a credential. `page` is where the
-            # browser actually is, so the secret's leash is checked against the
-            # page about to receive the keystroke rather than against wherever
-            # the flow started.
-            try:
-                kwargs[name] = secrets.bind(
-                    catalogue, source, page, tool=step.get("tool", "")
-                )
-            except secrets.Refused as exc:
-                raise FlowError(
-                    f"step {step.get('id') or step.get('tool')}: {exc}"
-                ) from exc
-            guarded.add(name)
-        elif "config" in source:
-            raise FlowError(
-                f"step {step.get('id') or step.get('tool')}: config values are "
-                "not available on this server yet"
-            )
+    source = kwargs.pop(VALUE_FROM, None)
+    if not source:
+        return kwargs, guarded
+
+    tool = step.get("tool", "")
+    label = step.get("id") or tool
+    target = FILLS.get(tool)
+    if target is None:
+        raise FlowError(f"step {label}: {tool} does not take {VALUE_FROM}")
+
+    if "param" in source:
+        reference = source["param"]
+        kwargs[target] = params.get(reference)
+        if reference in sensitive:
+            guarded.add(target)
+    elif "secret" in source:
+        # The one place a run reads a credential. `page` is where the browser
+        # actually is, so the secret's leash is checked against the page about
+        # to receive the keystroke rather than wherever the flow started.
+        try:
+            kwargs[target] = secrets.bind(catalogue, source, page, tool=tool)
+        except secrets.Refused as exc:
+            raise FlowError(f"step {label}: {exc}") from exc
+        guarded.add(target)
+    elif "config" in source:
+        raise FlowError(
+            f"step {label}: config values are not available on this server yet"
+        )
+    else:
+        raise FlowError(f"step {label}: valueFrom names no source this server knows")
     return kwargs, guarded
 
 
@@ -355,7 +365,7 @@ def run(
             # Only read the page when a step actually binds a secret: it costs a
             # WebDriver round trip, and every other step has no leash to check.
             page = ""
-            if any("secret" in s for s in (step.get("valueFrom") or {}).values()):
+            if "secret" in ((step.get("params") or {}).get(VALUE_FROM) or {}):
                 page = _page_state(actions, session_id).get("url", "")
             kwargs, guarded = resolve_step(step, params, sensitive, catalogue, page)
         except FlowError as exc:
@@ -382,10 +392,12 @@ def run(
             # An action puts its arguments in its error text, so the message is
             # scrubbed before it reaches either the report or the log.
             entry["error"] = scrub(str(exc), hidden)
-            # Where it actually failed, not where the last step succeeded —
-            # unless the URL itself was guarded, in which case knowing the page
-            # is worth less than not printing the token in it.
-            landed = _page_state(actions, session_id)
+            # Where it actually failed, not where the last step succeeded.
+            # Swept, because the page can carry the value back: typing into a
+            # search box lands you on `?q=<what you typed>`, and the URL of the
+            # page a bound write failed on is exactly the kind of place a
+            # credential turns up without anyone putting it there.
+            landed = scrub_values(_page_state(actions, session_id), hidden)
             if landed.get("url") and "url" not in guarded:
                 entry["url"] = landed["url"]
                 last = {**last, **landed}

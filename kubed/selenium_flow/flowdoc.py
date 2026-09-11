@@ -34,8 +34,7 @@ log = logging.getLogger(__name__)
 # against its schema; everything else is ours and is checked here.
 STEP_KEYS = {
     "tool",  # which action — the discriminator
-    "params",  # its arguments, literally
-    "valueFrom",  # arguments that come from somewhere else (§F1.7)
+    "params",  # its arguments, literally and completely
     "id",  # a name for this step, unique in the flow
     "onError",  # abort (default) | continue
     "return",  # include this step's full result in the run report
@@ -66,6 +65,22 @@ SOURCES = ("param", "secret", "config")
 # here rather than imported so this module keeps validating a document without
 # needing a secrets backend to exist.
 BINDABLE_TOOLS = {"write"}
+
+# `value_from` is an ordinary tool PARAMETER, not a step key — so a step's
+# `params` is exactly the arguments of the call, with no exception, and a step
+# is literally the same call a caller would make directly.
+#
+# Which argument it fills is a property of the action that offers it.
+# Kubernetes shapes an env var as a thing that already has a name, with `value`
+# and `valueFrom` as mutually exclusive siblings; here the action is the named
+# thing, so nothing repeats a name.
+#
+# Only `write` offers it today (§F1.28). Giving another action one is a
+# parameter on that action plus an entry here — deliberately a small change,
+# because the cost of this shape is that a value can only reach an argument an
+# action has chosen to open.
+VALUE_FROM = "value_from"
+FILLS = {"write": "text"}
 
 # `write` accepts its value as `text` or through a binding, so the tool schema
 # marks neither required and this says what it actually needs.
@@ -143,30 +158,30 @@ def _type_fits(value, accepted: set[str]) -> bool:
 
 
 def _check_value_from(
-    where: str, name: str, source, declared: set[str], tool: str = ""
+    where: str, source, declared: set[str], tool: str = ""
 ) -> list[str]:
-    """One entry of a step's ``valueFrom`` map."""
+    """``params.value_from``: exactly one source for the action's value."""
     if not isinstance(source, dict):
-        return [f"{where}: valueFrom.{name} must be an object naming one source"]
+        return [f"{where}: value_from must be an object naming one source"]
 
     named = [key for key in SOURCES if key in source]
     unknown = sorted(set(source) - set(SOURCES))
     problems = []
     if unknown:
         problems.append(
-            f"{where}: valueFrom.{name} has no source called {', '.join(unknown)}; "
+            f"{where}: value_from has no source called {', '.join(unknown)}; "
             f"use one of {', '.join(SOURCES)}"
         )
     if not named:
         return [
         *problems,
-            f"{where}: valueFrom.{name} names no source; "
+            f"{where}: value_from names no source; "
             f"give exactly one of {', '.join(SOURCES)}"
         ]
     if len(named) > 1:
         return [
         *problems,
-            f"{where}: valueFrom.{name} names {' and '.join(named)}; "
+            f"{where}: value_from names {' and '.join(named)}; "
             "give exactly one source"
         ]
 
@@ -182,12 +197,12 @@ def _check_value_from(
 
     if kind == "param":
         if not isinstance(reference, str) or not reference:
-            problems.append(f"{where}: valueFrom.{name}.param must be a parameter name")
+            problems.append(f"{where}: value_from.param must be a parameter name")
         elif reference not in declared:
             known = ", ".join(sorted(declared)) or "none are declared"
             problems.append(
-                f"{where}: valueFrom.{name}.param is {reference!r}, which this "
-                f"flow does not declare. Declared parameters: {known}"
+                f"{where}: value_from.param is {reference!r}, which this flow "
+                f"does not declare. Declared parameters: {known}"
             )
         return problems
 
@@ -197,17 +212,17 @@ def _check_value_from(
     if not isinstance(reference, dict):
         return [
         *problems,
-            f"{where}: valueFrom.{name}.{kind} must be an object with name and key"
+            f"{where}: value_from.{kind} must be an object with name and key"
         ]
     for field in ("name", "key"):
         if not reference.get(field) or not isinstance(reference[field], str):
             problems.append(
-                f"{where}: valueFrom.{name}.{kind} needs a {field}"
+                f"{where}: value_from.{kind} needs a {field}"
             )
     extra = sorted(set(reference) - {"name", "key"})
     if extra:
         problems.append(
-            f"{where}: valueFrom.{name}.{kind} does not take {', '.join(extra)}"
+            f"{where}: value_from.{kind} does not take {', '.join(extra)}"
         )
     return problems
 
@@ -240,15 +255,16 @@ def _check_params(where: str, tool: str, params: dict, bound: set[str], schema: 
 
     for name in bound:
         if name in RESERVED_PARAMS:
-            problems.append(f"{where}: valueFrom cannot supply {name}")
+            problems.append(f"{where}: value_from cannot supply {name}")
         elif name not in known:
             problems.append(
-                f"{where}: valueFrom names {name!r}, which {tool} does not take"
+                f"{where}: value_from names {name!r}, which {tool} does not take"
             )
         elif name in params:
             problems.append(
-                f"{where}: {name} is given in both params and valueFrom — "
-                "one value, one place"
+                f"{where}: {name} is given in params and by value_from — "
+                "one value, one place. Kubernetes spells this the same way: "
+                "value and valueFrom are mutually exclusive"
             )
 
     # Arguments a tool needs but its JSON schema cannot demand, because they
@@ -328,11 +344,20 @@ def _check_step(index: int, step, declared: set[str], schemas: dict) -> list[str
     if not isinstance(params, dict):
         return [*problems, f"{where}: params must be an object"]
 
-    value_from = step.get("valueFrom", {})
-    if not isinstance(value_from, dict):
-        return [*problems, f"{where}: valueFrom must be an object"]
-    sources = [s for s in value_from.values() if isinstance(s, dict)]
-    binds_secret = any("secret" in s for s in sources)
+    value_from = params.get(VALUE_FROM)
+    bound = set()
+    if value_from is not None:
+        target = FILLS.get(tool)
+        if target is None:
+            problems.append(
+                f"{where}: {tool} does not take {VALUE_FROM}. The actions that "
+                f"do: {', '.join(sorted(FILLS))}"
+            )
+        else:
+            bound = {target}
+            problems += _check_value_from(where, value_from, declared, tool)
+
+    binds_secret = isinstance(value_from, dict) and "secret" in value_from
     if binds_secret and params.get("url"):
         # The leash is checked against the page the browser is on. A step that
         # navigates first would be checked against the page it is leaving, and
@@ -342,10 +367,11 @@ def _check_step(index: int, step, declared: set[str], schemas: dict) -> list[str
             "put the url in its own navigate step, so the secret's allowed "
             "sites are checked against the page that receives it"
         )
-    for name, source in sorted(value_from.items()):
-        problems += _check_value_from(where, name, source, declared, tool)
-
-    checked = _check_params(where, tool, params, set(value_from), schemas[tool])
+    # `value_from` is a real parameter, so the generic check below sees it and
+    # would report it as an unknown one for every action that has none. Its own
+    # message above is better, so it is dropped from what that check inspects.
+    params = {k: v for k, v in params.items() if k != VALUE_FROM}
+    checked = _check_params(where, tool, params, bound, schemas[tool])
     return [*problems, *checked]
 
 

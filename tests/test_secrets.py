@@ -355,10 +355,7 @@ async def test_no_tool_on_this_server_returns_a_secret_value(secret_server,
         steps=[
             {
                 "tool": "write",
-                "params": {"css": "#password"},
-                "valueFrom": {
-                    "text": {"secret": {"name": "nextcloud-admin", "key": "password"}}
-                },
+                "params": {"css": "#password", "value_from": {"secret": {"name": "nextcloud-admin", "key": "password"}}},
             }
         ],
     )
@@ -637,10 +634,7 @@ async def test_a_login_flow_types_a_secret_it_never_shows(tmp_path, monkeypatch)
         steps=[
             {
                 "tool": "write",
-                "params": {"css": "#password"},
-                "valueFrom": {
-                    "text": {"secret": {"name": "nextcloud", "key": "password"}}
-                },
+                "params": {"css": "#password", "value_from": {"secret": {"name": "nextcloud", "key": "password"}}},
             }
         ],
     )
@@ -653,3 +647,39 @@ async def test_a_login_flow_types_a_secret_it_never_shows(tmp_path, monkeypatch)
     # ...and nothing anywhere in the report says so.
     assert "hunter2" not in str(report)
     assert report["steps"][0]["summary"].endswith("text=<hidden>")
+
+
+def test_the_audit_trail_never_contains_a_value(bindable, caplog):
+    """The audit line names the secret and the key it was looked up by, which
+    is the point of an audit line — and CodeQL flags exactly that, because the
+    words look like credentials. This proves what the suppression claims.
+    """
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.secrets"):
+        secrets.bind(
+            bindable, {"secret": {"name": "nextcloud", "key": "password"}},
+            "https://nc.example.com/login",
+        )
+    logged = "\n".join(r.getMessage() for r in caplog.records)
+    # The identifiers are there — an audit line without them says nothing.
+    assert "nextcloud/password" in logged
+    assert "https://nc.example.com" in logged
+    # The credential is not.
+    assert "hunter2" not in logged
+
+
+def test_a_refused_bind_is_logged_loudly_and_still_without_the_value(bindable, caplog):
+    import logging
+
+    with (
+        caplog.at_level(logging.INFO, logger="kubed.selenium_flow.secrets"),
+        pytest.raises(secrets.Refused),
+    ):
+        secrets.bind(
+            bindable, {"secret": {"name": "nextcloud", "key": "password"}},
+            "https://evil.test/login",
+        )
+    refusals = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert refusals, "a credential used somewhere it may not be is a warning"
+    assert "hunter2" not in "\n".join(r.getMessage() for r in caplog.records)
