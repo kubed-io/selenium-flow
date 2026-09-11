@@ -112,6 +112,47 @@ def _needs_an_element(tool: str, params: dict) -> bool:
 KEYED_SOURCES = ("secret", "config")
 
 
+def listed(keys) -> str:
+    """Keys from a document, as a sorted, comma-separated line for a message.
+
+    Every key is made a string first. A flow is YAML that anyone may have
+    written by hand, and YAML happily makes `1:` an integer key — so sorting a
+    mix of `1` and `"name"` raised TypeError, and so did joining even a lone
+    `1`. The message whose job was to refuse a malformed document became a 500
+    about our own code instead.
+    """
+    return ", ".join(sorted(str(key) for key in keys))
+
+
+REFERENCE_FIELDS = ("name", "key")
+
+
+def reference_problems(kind: str, reference) -> list[str]:
+    """What is wrong with a keyed reference — ``value_from.secret`` or ``.config``.
+
+    Both name a thing and a key inside it. Two fields, never one dotted string:
+    a Kubernetes key is routinely `tls.crt`, so there is no split point to find
+    (§F1.26).
+
+    Shared with `secrets.bind` for the reason `sole_source` is shared: the HTTP
+    body reaches the binder as raw JSON, and the binder read `name` and `key`
+    and ignored the rest — so `{"name": ..., "key": ..., "namespace": ...}` ran
+    as a different binding than the request described, while the validator and
+    the MCP model both refused it. Unknown fields are refused, never dropped.
+    """
+    if not isinstance(reference, dict):
+        return [f"value_from.{kind} must be an object with name and key"]
+    problems = [
+        f"value_from.{kind} needs a {field}"
+        for field in REFERENCE_FIELDS
+        if not reference.get(field) or not isinstance(reference[field], str)
+    ]
+    extra = set(reference) - set(REFERENCE_FIELDS)
+    if extra:
+        problems.append(f"value_from.{kind} does not take {listed(extra)}")
+    return problems
+
+
 class NoSoleSource(ValueError):
     """A ``value_from`` that does not name exactly one source.
 
@@ -149,11 +190,11 @@ def sole_source(source) -> str:
     # a half-finished hand edit looks like, and the author needs to be told
     # which source to add rather than that they wrote the wrong kind of thing.
     named = [key for key in SOURCES if key in source]
-    unknown = sorted(set(source) - set(SOURCES))
+    unknown = set(source) - set(SOURCES)
     problems = []
     if unknown:
         problems.append(
-            f"value_from has no source called {', '.join(unknown)}; "
+            f"value_from has no source called {listed(unknown)}; "
             f"use one of {', '.join(SOURCES)}"
         )
     if not named:
@@ -254,32 +295,16 @@ def _check_value_from(
         if not isinstance(reference, str) or not reference:
             problems.append(f"{where}: value_from.param must be a parameter name")
         elif reference not in declared:
-            known = ", ".join(sorted(declared)) or "none are declared"
+            known = listed(declared) or "none are declared"
             problems.append(
                 f"{where}: value_from.param is {reference!r}, which this flow "
                 f"does not declare. Declared parameters: {known}"
             )
         return problems
 
-    # secret and config both name a thing and a key inside it. Two fields, never
-    # one dotted string: a Kubernetes key is routinely `tls.crt`, so there is no
-    # split point to find (§F1.26).
-    if not isinstance(reference, dict):
-        return [
-        *problems,
-            f"{where}: value_from.{kind} must be an object with name and key"
-        ]
-    for field in ("name", "key"):
-        if not reference.get(field) or not isinstance(reference[field], str):
-            problems.append(
-                f"{where}: value_from.{kind} needs a {field}"
-            )
-    extra = sorted(set(reference) - {"name", "key"})
-    if extra:
-        problems.append(
-            f"{where}: value_from.{kind} does not take {', '.join(extra)}"
-        )
-    return problems
+    return problems + [
+        f"{where}: {problem}" for problem in reference_problems(kind, reference)
+    ]
 
 
 def _check_params(where: str, tool: str, params: dict, bound: set[str], schema: dict):
@@ -364,10 +389,10 @@ def _check_step(index: int, step, declared: set[str], schemas: dict) -> list[str
         where = f"step {index} ({step['id']})"
 
     problems = []
-    unknown = sorted(set(step) - STEP_KEYS)
+    unknown = set(step) - STEP_KEYS
     if unknown:
         problems.append(
-            f"{where}: unknown step key {', '.join(unknown)}; "
+            f"{where}: unknown step key {listed(unknown)}; "
             f"a step takes {', '.join(sorted(STEP_KEYS))}"
         )
 

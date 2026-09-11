@@ -548,14 +548,20 @@ def bind(catalogue, source: dict, url: str, tool: str = "write") -> str:
     # passes raw JSON straight in, so `value_from: "secret"` reached `.get` and
     # raised AttributeError, which `errors.status_for` could only read as a 500
     # — our failure, for a caller's malformed request.
+    from .flowdoc import reference_problems
+
     if not isinstance(source, dict):
         raise Refused("value_from must be an object naming a source")
     reference = source.get("secret")
     if reference is None:
         raise Refused("value_from must name a secret: {'secret': {'name', 'key'}}")
-    if not isinstance(reference, dict):
-        raise Refused("value_from.secret must be an object with a name and a key")
-    name, key = reference.get("name"), reference.get("key")
+    # The validator's rule, not a copy of it: a reference with a field this
+    # reads nothing from is a request for a different binding than the one that
+    # would run.
+    problems = reference_problems("secret", reference)
+    if problems:
+        raise Refused("; ".join(problems))
+    name, key = reference["name"], reference["key"]
 
     if tool in NOT_YET:
         raise Refused(
@@ -572,9 +578,6 @@ def bind(catalogue, source: dict, url: str, tool: str = "write") -> str:
             "secrets are not enabled on this server: it was started with no "
             "SECRETS_DIRS, so there is nowhere to read them from"
         )
-    if not name or not key:
-        raise Refused("a secret reference needs both a name and a key")
-
     entry = catalogue.entry(name)
     if entry is None:
         raise Refused(

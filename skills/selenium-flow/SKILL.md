@@ -1,6 +1,6 @@
 ---
 name: selenium-flow
-description: Drive a real Chrome or Firefox browser on Selenium Grid through the selenium-flow MCP server. Use when a task needs a live browser - logging in, filling and submitting a form, clicking through a multi-step flow, reading a page that only renders under JavaScript, capturing how something looks, or checking a page in a second browser. Start here to decide whether you must pass session_id, then read the one reference that matches what you are doing.
+description: Drive a real Chrome or Firefox browser on Selenium Grid through the selenium-flow MCP server. Use when a task needs a live browser - logging in, filling and submitting a form, clicking through a multi-step flow, reading a page that only renders under JavaScript, capturing how something looks, checking a page in a second browser, saving a sequence to replay in one call, or logging in with a stored secret you are never shown. Start here to decide whether you must pass session_id, then read the one reference that matches what you are doing.
 ---
 
 # Driving a browser with selenium-flow
@@ -103,6 +103,8 @@ Load only what the task needs.
 | Clicking, hovering, typing, uploading, dialogs, scrolling, waiting | `references/INTERACTION.md` |
 | A timeout, an empty screenshot, a click that did nothing | `references/TROUBLESHOOTING.md` |
 | Setting the server up, connecting a client, which env var to change | `references/CONFIGURATION.md` |
+| Doing a sequence you or another agent will repeat — save it once, run it in one call | `references/FLOWS.md` |
+| Typing a password, token or anything else you must not see | `references/SECRETS.md` |
 
 ## A whole task, minimally
 
@@ -111,14 +113,22 @@ In saved mode — `open_session` once, then no `session_id` anywhere:
 ```
 open_session(width=1400, height=900)
 write(url="https://example.com/login", xpath="//input[@name='email']", text="a@example.com")
-write(xpath="//input[@name='password']", text="...")
+write(xpath="//input[@name='password']",
+      value_from={"secret": {"name": "example", "key": "password"}})
 interact(action="click", xpath="//button[@type='submit']")
 extract(xpath="//h1")            # confirm you landed
 end_browser()
 ```
 
+**Never put a real password in `text`.** Name a secret instead and the server
+types it without it ever passing through you — `list_secrets` shows what there
+is, and `references/SECRETS.md` covers the rest.
+
 Stateless is the same shape with `session_id` on every call. That is the only
 difference between the two modes.
+
+If you will do this again, save it as a flow and it becomes one `run_flow` call
+(`references/FLOWS.md`).
 
 ## The rest of the surface
 

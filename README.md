@@ -151,6 +151,26 @@ both shapes off.
 
 ---
 
+## 🔁 Flows — do it once, run it forever
+
+Drive a form once, save the steps under a name, and every run after that is one call:
+
+```
+run_flow(name="sign-up", params={"email": "a@example.com"})
+```
+
+A step is just a tool call, validated against the live tool schemas when it is saved — so a flow that could not run is refused before it starts. It runs in whatever browser you already hold, which means the same flow checks Chrome and then Firefox without an edit. Each named session keeps its own library, beside a shared one called `global` — a caller that is unnamed, or names itself `global`, is using the shared one. Set `FLOW_DATA_DIR` to turn them on.
+
+## 🔐 Secrets — typed, never shown
+
+Mount credentials as a directory per secret and a file per key — exactly how Kubernetes already mounts a `Secret` — and point `SECRETS_DIRS` at it. An agent sees the names and keys, never a value, and binds one where the value would go:
+
+```
+write(css="#password", value_from={"secret": {"name": "nextcloud", "key": "password"}})
+```
+
+The server types it; it never passes through the model, the transcript or a log. A secret can be pinned to the sites it may be used on, and is refused anywhere else.
+
 ## 🗂 What a session leaves behind
 
 Everything a session downloads is kept **by the Grid**, in a per-session store beside the browser — created with the session, deleted with it. Two kinds of file land there, undistinguished: whatever the **site** served to a download, and whatever **you** kept with `screenshot(save=true)` or `save_pdf`.
@@ -210,6 +230,8 @@ Every flag has an environment fallback: containers are configured with env vars,
 | `SESSION_TTL` | — | `3600` | Seconds a caller's mapping is kept |
 | `REDIS_URL`, or `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_USERNAME` / `REDIS_PASSWORD` / `REDIS_SSL` | — | unset | Connection for `SESSION_STORE=redis`. `REDIS_DB` applies even with no `/<index>` in the URL |
 | `REDIS_PREFIX` | — | `selenium-flow:session:` | Key namespace, so sharing a database is safe |
+| `FLOW_DATA_DIR` | `--flow-data-dir` | unset | Where saved flows live, one folder per session name. Unset turns flows off |
+| `SECRETS_DIRS` | `--secrets-dirs` | unset | Colon-separated directories of secrets, first match wins. Unset turns secrets off |
 | `SKILL_ENABLED` | `--no-skill` | `true` | Serve the embedded skill as a resource, and as a tool where there are none |
 | `APPS_ENABLED` | `--no-apps` | `true` | Offer the MCP Apps components to hosts that render them |
 | `PUBLIC_BASE_URL` | — | unset | Externally reachable root, e.g. `https://selenium.example.com/flow`. Needed for file links and the app CSP |

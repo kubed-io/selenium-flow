@@ -960,3 +960,27 @@ def test_two_sources_are_refused_rather_than_one_of_them_chosen():
     assert report["status"] == "failed"
     assert "give exactly one source" in report["steps"][0]["error"]
     assert actions.calls == []
+
+
+@pytest.mark.parametrize(
+    "value_from",
+    [
+        {"secret": {"name": "n", "key": "k", 1: "x"}},  # an extra key YAML made an int
+        {"secret": {"name": "n", "key": "k"}, 1: "x"},  # a stray source, likewise
+    ],
+)
+def test_a_hand_edited_flow_with_an_integer_key_is_refused_not_a_crash(value_from):
+    """YAML turns `1:` into an integer key, and the stored flow never passed
+    through save-time validation. Listing that key in the refusal raised
+    TypeError — a 500 about our code instead of a refusal of the document."""
+    steps = [{"tool": "write", "params": {"css": "#p", "value_from": value_from}}]
+    actions = FakeActions()
+    report = run(actions, flow(steps), "b")
+    assert report["status"] == "failed"
+    assert "1" in report["steps"][0]["error"]
+    assert actions.calls == []
+
+
+def test_listed_names_any_key_a_document_can_hold():
+    assert flowrun.listed({"b", 1, "a"}) == "1, a, b"
+    assert flowrun.listed([]) == ""

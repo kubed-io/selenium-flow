@@ -35,7 +35,7 @@ import time
 from urllib.parse import quote, quote_plus
 
 from . import secrets
-from .flowdoc import FILLS, NOT_STEPS, VALUE_FROM, NoSoleSource, sole_source
+from .flowdoc import FILLS, NOT_STEPS, VALUE_FROM, NoSoleSource, listed, sole_source
 from .routes import ENDPOINTS
 
 # The only attributes a step may dispatch to. `getattr(actions, tool)` alone
@@ -214,15 +214,15 @@ def check_params(document: dict, params: dict) -> None:
     if missing:
         raise FlowError(
             f"{document.get('name', 'this flow')} needs "
-            f"{', '.join(sorted(missing))}: pass them in params"
+            f"{listed(missing)}: pass them in params"
         )
     declared = set((document.get("parameters") or {}).get("properties") or {})
-    unknown = sorted(set(params or {}) - declared)
+    unknown = set(params or {}) - declared
     if unknown:
-        known = ", ".join(sorted(declared)) or "it takes none"
+        known = listed(declared) or "it takes none"
         raise FlowError(
             f"{document.get('name', 'this flow')} does not take "
-            f"{', '.join(unknown)}. Takes: {known}"
+            f"{listed(unknown)}. Takes: {known}"
         )
 
 

@@ -19,7 +19,7 @@ from collections.abc import Callable
 
 from fastmcp import FastMCP
 from fastmcp.utilities.types import Image
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from . import flowrun
 from . import secrets as secrets_module
@@ -53,8 +53,11 @@ class SecretRef(BaseModel):
     # which turns a caller's mistake into a different request than they sent.
     model_config = ConfigDict(extra="forbid")
 
-    name: str
-    key: str
+    # Non-empty, because the validator refuses an empty one and the flow schema
+    # publishes this model: a published `string` told a caller `""` was fine,
+    # and `save_flow` then answered 400.
+    name: str = Field(min_length=1)
+    key: str = Field(min_length=1)
 
 
 class ValueFrom(BaseModel):
