@@ -851,3 +851,62 @@ def test_a_redacted_page_is_reported_as_a_fact_not_a_marker():
 
 def test_an_ordinary_run_does_not_claim_a_redacted_page():
     assert "url_redacted" not in run(FakeActions(), flow(SIMPLE), "b")
+
+
+def test_a_secret_that_is_the_marker_is_still_a_redacted_page():
+    """The collision the equality check could not see: `<hidden>` scrubs to
+    itself, so comparing a URL with its scrubbed form said nothing had been
+    redacted while the credential was still in it. The question is whether the
+    value is in the URL, so that is what is asked."""
+    steps = [
+        {"tool": "write", "params": {"css": "#q", "value_from": {"param": "secret"}}}
+    ]
+    document = flow(
+        steps, parameters={"type": "object", "properties": {"secret": {"writeOnly": True}}}
+    )
+
+    class Submitting(FakeActions):
+        def write(self, session_id, text, **kwargs):
+            return {"url": f"https://x.test/?q={text}", "title": "t"}
+
+    report = run(Submitting(), document, "b", params={"secret": flowrun.HIDDEN})
+    assert report["url_redacted"] is True
+
+
+def test_a_step_that_fails_after_typing_reports_a_redacted_page():
+    """A step can fail *after* the value reached the page, so the URL it failed
+    on is exactly as unsafe to store as one a step succeeded on. Only the
+    success branch recorded it."""
+    steps = [
+        {"tool": "write", "params": {"css": "#q", "value_from": {"param": "secret"}}},
+        {"tool": "navigate", "params": {"url": "https://x.test/next"}},
+    ]
+    document = flow(
+        steps, parameters={"type": "object", "properties": {"secret": {"writeOnly": True}}}
+    )
+
+    class FailsAfterTyping(FakeActions):
+        def write(self, session_id, text, **kwargs):
+            # Lands somewhere clean, so the successful step records nothing and
+            # the failure below is the only thing that can set the flag.
+            return {"url": "https://x.test/home", "title": "t"}
+
+        def navigate(self, session_id, **kwargs):
+            raise RuntimeError("nope")
+
+        def page(self, session_id):
+            # A redirect carried the value into the URL on the way.
+            return {"url": "https://x.test/sso?token=zzz-secret", "title": "t"}
+
+    report = run(FailsAfterTyping(), document, "b", params={"secret": "zzz-secret"})
+    assert report["status"] == "failed"
+    assert report["url_redacted"] is True
+    assert "zzz-secret" not in str(report)
+
+
+def test_taints_asks_whether_the_value_is_there():
+    assert flowrun.taints("https://x.test/?q=hunter2", {"hunter2"}) is True
+    assert flowrun.taints("https://x.test/", {"hunter2"}) is False
+    # The marker is not evidence either way.
+    assert flowrun.taints(f"https://x.test/?q={flowrun.HIDDEN}", {flowrun.HIDDEN}) is True
+    assert flowrun.taints(None, {"hunter2"}) is False

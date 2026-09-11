@@ -459,11 +459,15 @@ def register(
             # An action puts its arguments in its error text.
             raise ValueError(flowrun.scrub(str(exc), hidden)) from None
         shown = flowrun.scrub_values({**result, "value_from": "secret"}, hidden)
-        # Only remember a page the redaction did not have to touch. A submitting
-        # write can land on `?q=<what was typed>`; storing the scrubbed form
-        # would persist a URL that does not exist, and a later reattach would
-        # navigate to it. Not updating is the lesser wrong.
-        if shown.get("url") == result.get("url"):
+        # Only remember a page the value never reached. A submitting write can
+        # land on `?q=<what was typed>`; storing the scrubbed form would persist
+        # a URL that does not exist, and a later reattach would navigate to it.
+        # Not updating is the lesser wrong.
+        #
+        # Asked of the URL rather than by comparing it with its scrubbed form:
+        # a secret whose value is the marker scrubs to itself, so equality would
+        # have called the credential URL safe and stored it.
+        if not flowrun.taints(result.get("url"), hidden):
             sessions.touch(key, shown.get("url"), resolved)
         return shown
 

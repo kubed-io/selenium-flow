@@ -106,15 +106,30 @@ def _origin(parts) -> str:
 def _shown(line: str) -> str:
     """A rejected permission line, safe to publish.
 
-    An operator needs to see *which* line is wrong. They do not need the
-    password that made it wrong, and `/secrets` is a place a credential must
-    never appear — so userinfo is replaced rather than echoed.
+    An operator needs to see *which* line is wrong. They do not need anything it
+    carries, and `/secrets` is a place a credential must never appear — so this
+    **rebuilds** the line from its harmless parts rather than echoing it with
+    the bad part taken out.
+
+    That distinction is the whole fix. Removing userinfo still published the
+    path and query, and `https://host/login?token=hunter2` is exactly the shape
+    a credential arrives in — so the branch that refuses a line for carrying one
+    was handing it back. What went missing is *named*, never quoted: the reason
+    a line was refused is enough to correct it.
     """
-    parts = urlsplit(line)
+    try:
+        parts = urlsplit((line or "").strip())
+        origin = _origin(parts)
+    except ValueError:
+        return "<a line that is not a URL>"
+    if not parts.scheme or not origin:
+        return "<a line that is not a URL>"
+    dropped = []
     if parts.username or parts.password:
-        host = parts.hostname or ""
-        return f"{parts.scheme}://<credentials removed>@{host}{parts.path}"
-    return line
+        dropped.append("credentials")
+    if parts.path.strip("/") or parts.query or parts.fragment:
+        dropped.append("a path")
+    return origin + (f" (+ {' and '.join(dropped)})" if dropped else "")
 
 
 def declared_origin(line: str) -> str | None:
@@ -516,8 +531,7 @@ def bind(catalogue, source: dict, url: str, tool: str = "write") -> str:
         raise Refused("value_from must name a secret: {'secret': {'name', 'key'}}")
     if not isinstance(reference, dict):
         raise Refused("value_from.secret must be an object with a name and a key")
-    name, field = reference.get("name"), reference.get("key")
-    key = field  # the identifier, never the credential — see the audit log below
+    name, key = reference.get("name"), reference.get("key")
 
     if tool in NOT_YET:
         raise Refused(
@@ -548,21 +562,28 @@ def bind(catalogue, source: dict, url: str, tool: str = "write") -> str:
             f"{', '.join(entry['keys']) or 'none'}"
         )
 
+    # What the audit lines below name the secret by. Taken from the catalogue's
+    # own record rather than from the caller's `value_from`, which is both safer
+    # and more accurate: it is the secret that was *resolved*, spelled as the
+    # source spells it, instead of the string a request asked with.
+    #
+    # `name` and `key` are IDENTIFIERS — "nextcloud" and "password" — never the
+    # credential, and an audit line without them says nothing useful. Reading
+    # them off the entry is also what stops a scanner reading every field of a
+    # caller-supplied `{"secret": ...}` object as the secret itself: the entry
+    # is built from the source's own listing, so nothing here is derived from
+    # the request. `test_the_audit_trail_never_contains_a_value` captures this
+    # logger and proves the value never joins them.
+    known = entry.get("name") or "?"
+    known_key = next((k for k in entry["keys"] if k == key), "?")
+
     if not catalogue.allows(name, url):
         # Logged loudest of anything here: something tried to use a credential
         # on a page its owner did not allow, which is the event an operator most
         # wants to know about.
-        #
-        # `name` and `key` are IDENTIFIERS — "nextcloud" and "password" — not
-        # the credential, and an audit line without them says nothing useful.
-        # CodeQL flags them because the words look like secrets; the value is
-        # not read until after every check below has passed, and
-        # `test_the_audit_trail_never_contains_a_value` captures this logger and
-        # proves it.
-        # codeql[py/clear-text-logging-sensitive-data]
         log.warning(
             "REFUSED binding secret %s/%s on %s: not an allowed site",
-            name, key, origin(url) or "an unknown page",
+            known, known_key, origin(url) or "an unknown page",
         )
         allowed = ", ".join(entry.get("allowed_urls") or [])
         raise Refused(
@@ -576,10 +597,9 @@ def bind(catalogue, source: dict, url: str, tool: str = "write") -> str:
         raise Refused(f"the secret {name!r} has no readable value for {key!r}")
 
     # The audit trail: what was used, where, by which action. Never the value —
-    # `name` and `key` are the identifiers it was looked up by, and `value`
-    # below is deliberately not among the arguments.
-    # codeql[py/clear-text-logging-sensitive-data]
-    log.info("bound secret %s/%s on %s for %s", name, key, origin(url), tool)
+    # these are the identifiers it was looked up by, and `value` above is
+    # deliberately not among the arguments.
+    log.info("bound secret %s/%s on %s for %s", known, known_key, origin(url), tool)
     return value
 
 

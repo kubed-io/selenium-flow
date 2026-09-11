@@ -1293,6 +1293,13 @@ owner allowed) and the flow itself (a reviewed sequence with no model in the
 loop between steps). This is the same honesty §F1.7 applies to `writeOnly`:
 a marker, not encryption.
 
+And it is never *evidence*. Three places decided whether a page was safe to
+remember by comparing a URL with its scrubbed form, which is the same question
+as "did the marker appear" — and a secret whose value is exactly `<hidden>`
+scrubs to itself, so all three called the credential URL clean. The question is
+whether the value is in the text; `flowrun.taints` asks that, and the three
+callers ask it instead of inferring.
+
 ### §F1.25 — Decision (locked): `write` currently returns what it typed, and that leak must close first
 
 The single most important implementation note in this Part, and it is in code
@@ -1416,6 +1423,22 @@ That is cheap, it is the record an operator wants after something goes wrong,
 and the admin event stream already exists to carry it. A refused bind is the
 more interesting event of the two and must be recorded loudest — it is the
 signal that something tried to use a credential somewhere it should not.
+
+Two things the implementation had to learn, both the same mistake:
+
+**The identifiers are read off the catalogue's entry, not off the request.** The
+line says which secret was *resolved*, spelled the way its source spells it,
+rather than echoing the string a caller asked with. More accurate, and it also
+means nothing in the audit line descends from the caller-supplied `value_from` —
+which is what a scanner reads as the credential itself, and it is not wrong to.
+
+**A rejected permission line is rebuilt, never echoed with the bad part removed.**
+`_allowed_urls` refuses a line carrying userinfo or a path, and `/secrets`
+publishes which line was refused so an operator can fix it. Taking the userinfo
+out and printing the rest published `?token=…` — so the branch that refuses a
+line *for carrying a credential* handed it straight back. What is shown is
+assembled from the scheme, host and port; what went missing is named, never
+quoted.
 
 ### §F1.31 — Decision (locked): the surfaces, and ConfigMaps later
 

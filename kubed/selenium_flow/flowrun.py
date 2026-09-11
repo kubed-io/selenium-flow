@@ -161,6 +161,20 @@ def scrub(text: str, values) -> str:
     return text
 
 
+def taints(text, values) -> bool:
+    """Whether any guarded value is actually present in ``text``.
+
+    Asked directly, rather than inferred by comparing a string with its scrubbed
+    form. Three places had made that comparison and all three were wrong the
+    same way: a value that is exactly ``HIDDEN`` scrubs to itself, so equality
+    holds while the credential is still there. A marker is evidence of nothing —
+    the question is whether the value is in the text, so ask that.
+    """
+    if not isinstance(text, str) or not text:
+        return False
+    return any(isinstance(value, str) and value and value in text for value in values)
+
+
 class FlowError(ValueError):
     """A run that could not start, or a step that could not be resolved.
 
@@ -475,10 +489,10 @@ def run(
             result = _clean(raw, guarded, hidden)
             entry["ok"] = True
             # Recorded rather than inferred later by searching the string for
-            # the marker. A secret whose value happens to BE the marker makes
-            # that search useless, and a caller deciding whether to persist a
-            # page needs a fact rather than a guess.
-            if isinstance(raw, dict) and raw.get("url") != result.get("url"):
+            # the marker, and asked of the raw URL rather than by comparing it
+            # with its scrubbed form: a secret whose value happens to BE the
+            # marker survives both of those tests unchanged.
+            if isinstance(raw, dict) and taints(raw.get("url"), hidden):
                 redacted_url = True
             last = result
             if after_step is not None:
@@ -495,7 +509,13 @@ def run(
             # search box lands you on `?q=<what you typed>`, and the URL of the
             # page a bound write failed on is exactly the kind of place a
             # credential turns up without anyone putting it there.
-            landed = scrub_values(_page_state(actions, session_id), hidden)
+            page = _page_state(actions, session_id)
+            # The same fact on the branch that had not recorded it: a step can
+            # fail *after* the value reached the page, so the URL it failed on
+            # is exactly as unsafe to store as one a step succeeded on.
+            if taints(page.get("url"), hidden):
+                redacted_url = True
+            landed = scrub_values(page, hidden)
             if landed.get("url") and "url" not in guarded:
                 entry["url"] = landed["url"]
                 last = {**last, **landed}

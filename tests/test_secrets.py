@@ -430,7 +430,9 @@ def test_a_broken_leash_is_published_so_an_operator_can_see_it(tmp_path):
     entry = Catalogue([FilesystemSource(tmp_path)]).entry("app")
     assert entry["restricted"] is True
     assert entry["allowed_urls"] == []
-    assert entry["allowed_urls_rejected"] == ["not a url"]
+    # Not echoed: a line is rebuilt from the parts that are safe to publish, and
+    # one with no origin in it has none of those.
+    assert entry["allowed_urls_rejected"] == ["<a line that is not a URL>"]
 
 
 def test_one_bad_line_invalidates_the_whole_declaration(tmp_path):
@@ -454,7 +456,7 @@ def test_a_declaration_carrying_a_path_is_refused_not_trimmed(tmp_path):
     )
     catalogue = Catalogue([FilesystemSource(tmp_path)])
     assert catalogue.entry("app")["allowed_urls_rejected"] == [
-        "https://nextcloud.example.com/admin"
+        "https://nextcloud.example.com (+ a path)"
     ]
     assert catalogue.allows("app", "https://nextcloud.example.com/admin") is False
 
@@ -651,8 +653,10 @@ async def test_a_login_flow_types_a_secret_it_never_shows(tmp_path, monkeypatch)
 
 def test_the_audit_trail_never_contains_a_value(bindable, caplog):
     """The audit line names the secret and the key it was looked up by, which
-    is the point of an audit line — and CodeQL flags exactly that, because the
-    words look like credentials. This proves what the suppression claims.
+    is the point of an audit line. Both are read off the catalogue's own entry
+    rather than the caller's reference, so the line records what was *resolved*
+    — and nothing in it is derived from the `{"secret": ...}` object a scanner
+    reads as the credential itself.
     """
     import logging
 
@@ -698,7 +702,8 @@ def test_an_unparseable_port_is_a_rejected_line_not_a_crash(tmp_path):
     )
     catalogue = Catalogue([FilesystemSource(tmp_path)])
     entry = catalogue.entry("app")
-    assert entry["allowed_urls_rejected"] == ["https://host:99999"]
+    # The port is what could not be parsed, so there is no origin to show.
+    assert entry["allowed_urls_rejected"] == ["<a line that is not a URL>"]
     assert catalogue.allows("app", "https://good.test/") is False  # one bad line voids it
 
 
@@ -712,10 +717,34 @@ def test_credentials_in_an_allowed_url_are_refused(tmp_path):
     entry = Catalogue([FilesystemSource(tmp_path)]).entry("app")
     # Reported so an operator can find the line — with the credential taken
     # out, since /secrets is the last place one should turn up.
-    assert entry["allowed_urls_rejected"] == [
-        "https://<credentials removed>@host.test"
-    ]
+    assert entry["allowed_urls_rejected"] == ["https://host.test (+ credentials)"]
     assert "s3cr3t" not in str(entry)
+    assert "user" not in str(entry)
+
+
+def test_a_rejected_line_never_publishes_its_query(tmp_path):
+    """The sharpest shape of this: a line is refused *because* it carries a
+    credential, and `?token=` is how one usually arrives. Removing userinfo and
+    echoing the rest handed it straight back through /secrets."""
+    make_secret(
+        tmp_path, "app", password="p",
+        **{ALLOWED_URLS: "https://host.test/login?token=hunter2"},
+    )
+    entry = Catalogue([FilesystemSource(tmp_path)]).entry("app")
+    assert entry["allowed_urls_rejected"] == ["https://host.test (+ a path)"]
+    assert "hunter2" not in str(entry)
+    assert "token" not in str(entry)
+
+
+def test_a_rejected_line_still_says_which_host_it_was(tmp_path):
+    """Rebuilt, not blanked: an operator with three permission lines has to be
+    able to tell which one is wrong, and the origin is the part that is safe."""
+    make_secret(
+        tmp_path, "app", password="p",
+        **{ALLOWED_URLS: "https://good.test\nhttps://other.test:8443/admin\n"},
+    )
+    entry = Catalogue([FilesystemSource(tmp_path)]).entry("app")
+    assert entry["allowed_urls_rejected"] == ["https://other.test:8443 (+ a path)"]
 
 
 def test_an_origin_never_carries_userinfo():
@@ -878,3 +907,104 @@ def test_port_zero_is_a_port_and_not_the_default(tmp_path):
     catalogue = Catalogue([FilesystemSource(tmp_path)])
     assert catalogue.allows("app", "https://host:0/x") is True
     assert catalogue.allows("app", "https://host/x") is False
+
+
+async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
+    tmp_path, monkeypatch
+):
+    """The third surface of the same rule. It decided by comparing the URL with
+    its scrubbed form, so a secret whose value is the marker compared equal and
+    the credential URL went into the session record — from where a reattach
+    would have navigated back to it.
+    """
+    from kubed.selenium_flow import flowrun
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    from .conftest import NAMED, TOKEN
+
+    monkeypatch.delenv("SECRETS_DIRS", raising=False)
+    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    make_secret(
+        tmp_path, "nextcloud", password=flowrun.HIDDEN,
+        **{ALLOWED_URLS: "https://nc.example.com"},
+    )
+    server = SeleniumMCP(
+        grid_url="http://grid.invalid:4444",
+        auth_token=TOKEN,
+        secrets_dirs=str(tmp_path),
+    )
+    monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
+    monkeypatch.setattr(server.sessions, "resolve", lambda key, sid: "browser-1")
+    monkeypatch.setattr(
+        server.actions, "page",
+        lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
+    )
+    monkeypatch.setattr(
+        server.actions, "write",
+        lambda sid, text, **kw: {
+            "value": None,
+            # Submitted, so the page carries what was typed.
+            "url": f"https://nc.example.com/?q={text}",
+            "title": "Home",
+        },
+    )
+    touched = []
+    monkeypatch.setattr(
+        server.sessions, "touch",
+        lambda key, url, sid: touched.append(url),
+    )
+
+    write = await server.mcp.get_tool("write")
+    result = write.fn(
+        css="#password",
+        value_from={"secret": {"name": "nextcloud", "key": "password"}},
+    )
+    # The page the value reached is never remembered, whatever the value is.
+    assert touched == []
+    assert result["url"] == f"https://nc.example.com/?q={flowrun.HIDDEN}"
+
+
+async def test_a_direct_bound_write_still_remembers_an_untouched_page(
+    tmp_path, monkeypatch
+):
+    """The other half: refusing to remember every bound write would lose the
+    session's page for the ordinary case, where the value never reaches the URL.
+    """
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    from .conftest import NAMED, TOKEN
+
+    monkeypatch.delenv("SECRETS_DIRS", raising=False)
+    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    make_secret(
+        tmp_path, "nextcloud", password="hunter2",
+        **{ALLOWED_URLS: "https://nc.example.com"},
+    )
+    server = SeleniumMCP(
+        grid_url="http://grid.invalid:4444",
+        auth_token=TOKEN,
+        secrets_dirs=str(tmp_path),
+    )
+    monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
+    monkeypatch.setattr(server.sessions, "resolve", lambda key, sid: "browser-1")
+    monkeypatch.setattr(
+        server.actions, "page",
+        lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
+    )
+    monkeypatch.setattr(
+        server.actions, "write",
+        lambda sid, text, **kw: {
+            "value": None, "url": "https://nc.example.com/home", "title": "Home",
+        },
+    )
+    touched = []
+    monkeypatch.setattr(
+        server.sessions, "touch", lambda key, url, sid: touched.append(url)
+    )
+
+    write = await server.mcp.get_tool("write")
+    write.fn(
+        css="#password",
+        value_from={"secret": {"name": "nextcloud", "key": "password"}},
+    )
+    assert touched == ["https://nc.example.com/home"]
