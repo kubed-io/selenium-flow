@@ -39,7 +39,8 @@ import logging
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import auth, errors, flowdoc, flows
+from . import auth, errors, flowdoc, flowrun, flows
+from .browser import as_bool
 from .hints import hints, reads
 from .routes import ENDPOINTS
 
@@ -52,12 +53,13 @@ SCHEMA_URI = "flow://schema"
 LIST_TOOL = "list_flows"
 GET_TOOL = "get_flow"
 SCHEMA_TOOL = "flow_schema"
+RUN_TOOL = "run_flow"
 SAVE_TOOL = "save_flow"
 DELETE_TOOL = "delete_flow"
 
 # Path -> the function behind it. Separate from routes.ENDPOINTS on purpose:
 # these are not browser actions and must not be counted as though they were.
-FLOW_ENDPOINTS = ("list", "get", "save", "delete", "schema")
+FLOW_ENDPOINTS = ("list", "get", "save", "delete", "schema", "run")
 
 OFF = (
     "saved flows are not enabled on this server: it was started with no "
@@ -180,8 +182,25 @@ class Schemas:
         return self._cache
 
 
+def run_one(
+    store,
+    actions,
+    session: str,
+    name: str,
+    params: dict | None = None,
+    verbose: bool = False,
+    session_id: str = "",
+) -> dict:
+    """Run one flow against an already-resolved browser."""
+    document = read_one(store, session, name)
+    report = flowrun.run(
+        actions, document, session_id, params=params, verbose=verbose
+    )
+    return {"session": document["session"], **report}
+
+
 def register(
-    mcp, store, sessions, token: str | None, prefix: str = "/flows"
+    mcp, store, sessions, actions, token: str | None, prefix: str = "/flows"
 ) -> set[str]:
     """Register the flow resources, tools and endpoints. Returns mirror names."""
     schemas = Schemas(mcp)
@@ -255,7 +274,8 @@ def register(
             "steps is a list of {tool, params} objects — one tool call each, in "
             "order. A step may also carry id, note, onError ('abort' or "
             "'continue'), return (include its full result in the run report), "
-            "timeout, and valueFrom.\n\n"
+            "and valueFrom. To bound one step, set wait_timeout in its params — "
+            "the actions that can wait all take it.\n\n"
             "valueFrom maps a parameter name to a source instead of a literal: "
             "{'text': {'param': 'email'}} takes it from this flow's parameters, "
             "and {'text': {'secret': {'name': 'x', 'key': 'password'}}} takes it "
@@ -282,6 +302,46 @@ def register(
         )
 
     @mcp.tool(
+        name=RUN_TOOL,
+        description=(
+            "Run a saved flow: every step, in order, server-side, in one call.\n\n"
+            "This is the point of flows. A twelve-step form becomes one call and "
+            "one decision instead of twelve of each, and it replays a sequence "
+            "somebody already got right rather than re-deriving it.\n\n"
+            "It runs in the browser you already have — call open_session first. "
+            "That is also how you run the same flow on a different browser: open "
+            "Firefox and run it again, unchanged.\n\n"
+            "params supplies the values the flow declares; list_flows shows what "
+            "each one takes. Returns a line per step plus the final page; pass "
+            "verbose for every step's full result, or mark a step with "
+            "return: true when only that one matters.\n\n"
+            "Stops at the first failing step unless that step says "
+            "onError: continue, and reports which step stopped it and what page "
+            "the browser was on."
+        ),
+        annotations=hints("Run a saved flow", destructive=True),
+    )
+    def run_flow(
+        name: str, params: dict | None = None, verbose: bool = False,
+        session_id: str | None = None,
+    ) -> dict:
+        key = sessions.key()
+        resolved = sessions.resolve(key, session_id)
+        report = run_one(
+            store,
+            actions,
+            session_of(sessions),
+            name,
+            params=params,
+            verbose=verbose,
+            session_id=resolved,
+        )
+        # One touch for the whole run, not one per step: the point of running
+        # server-side is that the bookkeeping happens once.
+        sessions.touch(key, report.get("url"), resolved)
+        return report
+
+    @mcp.tool(
         name=DELETE_TOOL,
         description=(
             "Delete one of this session's saved flows. Deleting one that is not "
@@ -293,7 +353,7 @@ def register(
     def delete_flow(name: str) -> dict:
         return delete_one(store, session_of(sessions), name)
 
-    _routes(mcp, store, sessions, schemas, token, prefix)
+    _routes(mcp, store, sessions, actions, schemas, token, prefix)
     return {LIST_TOOL, GET_TOOL, SCHEMA_TOOL}
 
 
@@ -328,7 +388,6 @@ async def _document_schema(schemas: Schemas) -> dict:
                         "note": {"type": "string"},
                         "onError": {"type": "string", "enum": list(flowdoc.ON_ERROR)},
                         "return": {"type": "boolean"},
-                        "timeout": {"type": "integer"},
                     },
                 },
             },
@@ -338,7 +397,7 @@ async def _document_schema(schemas: Schemas) -> dict:
     }
 
 
-def _routes(mcp, store, sessions, schemas: Schemas, token, prefix) -> None:
+def _routes(mcp, store, sessions, actions, schemas: Schemas, token, prefix) -> None:
     """The same five operations as plain JSON, for callers that are not MCP."""
 
     async def handle(request: Request, what: str) -> JSONResponse:
@@ -365,6 +424,29 @@ def _routes(mcp, store, sessions, schemas: Schemas, token, prefix) -> None:
                 return JSONResponse(read_one(store, session, name))
             if what == "delete":
                 return JSONResponse(delete_one(store, session, name))
+            if what == "run":
+                session_id = body.get("session_id")
+                if not session_id:
+                    raise ValueError(
+                        "session_id is required: this surface is always "
+                        "explicit, so open a browser with /browser/open and "
+                        "pass the id it returns"
+                    )
+                return JSONResponse(
+                    run_one(
+                        store,
+                        actions,
+                        session,
+                        name,
+                        params=body.get("params"),
+                        # as_bool, not bool: over HTTP "false" arrives as a
+                        # string, and bool("false") is True — which would
+                        # turn on full per-step results and return every
+                        # extract in the flow.
+                        verbose=as_bool(body.get("verbose"), False),
+                        session_id=session_id,
+                    )
+                )
             document = {
                 key: body[key]
                 for key in ("description", "parameters", "steps")

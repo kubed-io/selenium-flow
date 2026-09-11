@@ -298,3 +298,115 @@ def test_delete_is_idempotent_over_http(client):
     assert not client.post("/flows/delete", json={"name": "gone"}, headers=AUTH).json()[
         "deleted"
     ]
+
+
+# ---- running one ------------------------------------------------------------
+
+
+@pytest.fixture
+def ran(flow_server, monkeypatch):
+    """The server with a resolved browser and an action layer that records."""
+    calls = []
+
+    def record(tool):
+        def action(session_id, **kwargs):
+            calls.append((tool, session_id, kwargs))
+            return {"url": "https://example.test/after", "title": "After"}
+
+        return action
+
+    for tool in ("navigate", "write", "interact"):
+        monkeypatch.setattr(flow_server.actions, tool, record(tool))
+    monkeypatch.setattr(flow_server.sessions, "resolve", lambda key, sid: "browser-1")
+    return flow_server, calls
+
+
+async def test_a_saved_flow_runs_end_to_end(ran):
+    server, calls = ran
+    await call(
+        server,
+        flowapi.SAVE_TOOL,
+        name="login",
+        steps=[
+            {"tool": "navigate", "params": {"url": "https://example.test/login"}},
+            {"tool": "write", "params": {"css": "#email", "text": "a@b.c"}},
+            {"tool": "interact", "params": {"action": "click", "css": "button"}},
+        ],
+    )
+    report = await call(server, flowapi.RUN_TOOL, name="login")
+    assert report["status"] == "ok"
+    assert report["steps_run"] == 3
+    assert [tool for tool, _, _ in calls] == ["navigate", "write", "interact"]
+    # One browser for the whole run, which is the point (§F1.1).
+    assert {session for _, session, _ in calls} == {"browser-1"}
+
+
+async def test_running_a_shared_flow_works_and_says_it_was_shared(ran):
+    server, _calls = ran
+    server.flows.save(
+        GLOBAL_SESSION,
+        "banner",
+        {"steps": [{"tool": "navigate", "params": {"url": "x"}}]},
+    )
+    report = await call(server, flowapi.RUN_TOOL, name="banner")
+    assert report["status"] == "ok"
+    assert report["session"] == GLOBAL_SESSION
+
+
+async def test_running_a_flow_that_is_not_there_says_where_to_look(ran):
+    server, _ = ran
+    with pytest.raises(ValueError, match="list_flows"):
+        await call(server, flowapi.RUN_TOOL, name="nope")
+
+
+async def test_parameters_reach_the_step_that_names_them(ran):
+    server, calls = ran
+    await call(
+        server,
+        flowapi.SAVE_TOOL,
+        name="login",
+        parameters={"type": "object", "properties": {"email": {"type": "string"}}},
+        steps=[
+            {
+                "tool": "write",
+                "params": {"css": "#email"},
+                "valueFrom": {"text": {"param": "email"}},
+            }
+        ],
+    )
+    await call(server, flowapi.RUN_TOOL, name="login",
+               params={"email": "someone@example.test"})
+    assert calls[0][2]["text"] == "someone@example.test"
+
+
+async def test_run_flow_admits_it_is_destructive(flow_server):
+    """It can click anything, and this server cannot tell which click."""
+    tools = {t.name: t for t in await flow_server.mcp.list_tools()}
+    assert tools[flowapi.RUN_TOOL].annotations.destructive_hint is True
+
+
+def test_running_over_http_needs_an_explicit_browser(client):
+    """This surface is always explicit — session id in, session id out."""
+    client.post("/flows/save", json={"name": "f", "steps": GOOD}, headers=AUTH)
+    response = client.post("/flows/run", json={"name": "f"}, headers=AUTH)
+    assert response.status_code == 400
+    assert "session_id is required" in response.json()["error"]
+
+
+def test_verbose_false_over_http_does_not_turn_verbose_on(client, flow_server,
+                                                          monkeypatch):
+    """bool("false") is True. Over HTTP everything arrives as a string, so the
+    boundary has to coerce — the reason as_bool exists at all."""
+    monkeypatch.setattr(
+        flow_server.actions,
+        "navigate",
+        lambda session_id, **kw: {"url": "u", "title": "t", "big": "x" * 100},
+    )
+    client.post("/flows/save", json={"name": "f", "steps": GOOD}, headers=AUTH)
+    response = client.post(
+        "/flows/run",
+        json={"name": "f", "session_id": "b", "verbose": "false"},
+        headers=AUTH,
+    )
+    assert response.status_code == 200, response.text
+    assert "result" not in response.json()["steps"][0]

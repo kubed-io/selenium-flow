@@ -110,7 +110,9 @@ class SeleniumMCP:
         # that asks is told flows are not enabled here rather than finding the
         # tool absent — a missing capability and a disabled one look identical
         # from the outside, and only one of them is fixable.
-        mirrors |= flowapi.register(self.mcp, self.flows, self.sessions, auth_token)
+        mirrors |= flowapi.register(
+            self.mcp, self.flows, self.sessions, self.actions, auth_token
+        )
         self.mcp.add_middleware(
             resources.HideMirrorTools(mirrors, app_tools if apps_enabled else set())
         )

@@ -26,6 +26,7 @@ pytestmark = pytest.mark.unit
 # every assertion below rather than added to EXPECTED — see saga §F1.7 and
 # tests/test_flowapi.py, which holds them to their own contract.
 FLOW_TOOLS = {
+    flowapi.RUN_TOOL,
     flowapi.SAVE_TOOL,
     flowapi.DELETE_TOOL,
     flowapi.LIST_TOOL,

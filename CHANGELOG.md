@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Saved flows.** Save a sequence of steps under a name, then run the whole thing in one call with `run_flow` — a twelve-step form becomes one call instead of twelve. Set `FLOW_DATA_DIR` to turn them on.
+
+- Flows take parameters, so one saved login serves every account.
+
 - **CSS selectors.** Every tool that acts on an element now takes `css` as well as `xpath` — pass one or the other.
 
 ### Changed

@@ -361,3 +361,22 @@ async def test_every_problem_is_reported_at_once(step_schema_map):
             step_schema_map,
         )
     assert len(caught.value.problems) == 3
+
+
+async def test_a_step_timeout_is_refused_rather_than_ignored(step_schema_map):
+    """It was specified as a step key and nothing could honour it: a Selenium
+    call blocks, and the actions that can be bounded already take wait_timeout
+    in their own params. A key that parses and then does nothing is worse than
+    one that is refused."""
+    with pytest.raises(InvalidFlow, match="unknown step key timeout"):
+        validate(
+            flow(steps=[{"tool": "navigate", "params": {"url": "x"}, "timeout": 5}]),
+            step_schema_map,
+        )
+
+
+async def test_wait_timeout_is_the_per_step_bound_and_is_accepted(step_schema_map):
+    assert validate(
+        flow(steps=[{"tool": "extract", "params": {"css": "h1", "wait_timeout": 5}}]),
+        step_schema_map,
+    )
