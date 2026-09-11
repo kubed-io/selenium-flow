@@ -509,3 +509,14 @@ async def test_leaving_a_frame_needs_nothing(step_schema_map, action):
     assert validate(
         flow(steps=[{"tool": "frame", "params": {"action": action}}]), step_schema_map
     )
+
+
+async def test_a_null_text_is_not_a_supplied_value(step_schema_map):
+    """The schema permits null so value_from can supply it instead, so
+    "present" is not the question — `Actions.write` would type the string
+    "None" into the field."""
+    with pytest.raises(InvalidFlow, match="write needs 'text'"):
+        validate(
+            flow(steps=[{"tool": "write", "params": {"css": "#p", "text": None}}]),
+            step_schema_map,
+        )

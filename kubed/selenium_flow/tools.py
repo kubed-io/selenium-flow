@@ -55,12 +55,17 @@ class SecretRef(BaseModel):
 class ValueFrom(BaseModel):
     """Where a value comes from, instead of being given literally.
 
-    A real model rather than a bare dict so the shape is **published**: a model
-    filling this in is told it needs `secret.name` and `secret.key` rather than
-    being handed an unconstrained object and left to guess.
+    A real model rather than a bare dict so the shape is **published**: a caller
+    is told it needs `secret.name` and `secret.key` rather than being handed an
+    unconstrained object and left to guess.
+
+    ``secret`` is required, not optional. This surface supports exactly one
+    source — a flow's own parameters mean nothing outside a flow — so an
+    optional field would have published `value_from: {}` as legal and turned a
+    shape error into a run-time one.
     """
 
-    secret: SecretRef | None = None
+    secret: SecretRef
 
 
 INSTRUCTIONS = f"""\
@@ -437,7 +442,7 @@ def register(
             resolved,
             {"text": text, "url": url, "value_from": value_from},
         )
-        hidden = {given["text"]}
+        hidden = flowrun.hidden_forms([given["text"]])
         try:
             result = actions.write(
                 resolved,
@@ -453,9 +458,14 @@ def register(
         except Exception as exc:  # noqa: BLE001 - rewrapped, never swallowed
             # An action puts its arguments in its error text.
             raise ValueError(flowrun.scrub(str(exc), hidden)) from None
-        result = flowrun.scrub_values({**result, "value_from": "secret"}, hidden)
-        sessions.touch(key, result.get("url"), resolved)
-        return result
+        shown = flowrun.scrub_values({**result, "value_from": "secret"}, hidden)
+        # Only remember a page the redaction did not have to touch. A submitting
+        # write can land on `?q=<what was typed>`; storing the scrubbed form
+        # would persist a URL that does not exist, and a later reattach would
+        # navigate to it. Not updating is the lesser wrong.
+        if shown.get("url") == result.get("url"):
+            sessions.touch(key, shown.get("url"), resolved)
+        return shown
 
     # The description is passed rather than left as a docstring so the real key
     # list is interpolated in — a model guessing key names gets a 400, and the

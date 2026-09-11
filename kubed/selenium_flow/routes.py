@@ -130,7 +130,10 @@ def _add(mcp, actions, token, prefix, path, method_name, catalogue=None) -> None
     # silently while the published spec advertised it.
     binds = method_name == "write"
     if binds:
-        accepted = accepted | {"value_from"}
+        # `read_back` is an internal switch for a bound write, not a request
+        # field: accepting it would let a caller ask for `value: null` with no
+        # binding, which neither MCP nor the published spec offers.
+        accepted = (accepted | {"value_from"}) - {"read_back"}
 
     @mcp.custom_route(f"{prefix}/{path}", methods=["POST"], name=f"browser_{path}")
     async def handler(request: Request) -> JSONResponse:
@@ -177,7 +180,7 @@ def _add(mcp, actions, token, prefix, path, method_name, catalogue=None) -> None
             if guarded:
                 from . import flowrun
 
-                hidden = {kwargs.get(name) for name in guarded}
+                hidden = flowrun.hidden_forms(kwargs.get(n) for n in guarded)
                 result = flowrun.scrub_values(
                     {**result, "value_from": "secret"}, hidden
                 )
@@ -190,9 +193,17 @@ def _add(mcp, actions, token, prefix, path, method_name, catalogue=None) -> None
             if guarded:
                 from . import flowrun
 
-                text = flowrun.scrub(text, {kwargs.get(n) for n in guarded})
+                text = flowrun.scrub(
+                    text, flowrun.hidden_forms(kwargs.get(n) for n in guarded)
+                )
             if status >= 500:
-                log.exception("%s failed", path)
+                if guarded:
+                    # No traceback: the exception and its frames can hold the
+                    # bound value, and this is the one path where that is worth
+                    # losing a stack trace over.
+                    log.error("%s failed: %s", path, text)
+                else:
+                    log.exception("%s failed", path)
             else:
                 # A refused request is not an incident. Logging a mistyped
                 # XPath with a full traceback buried the real failures.

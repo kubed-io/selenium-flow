@@ -667,7 +667,7 @@ def test_the_audit_trail_never_contains_a_value(bindable, caplog):
     # Compared whole rather than as a substring: "is this URL in that string"
     # is the shape of check that lets nc.example.com.evil.test through, and it
     # should not be modelled even in a test.
-    assert any("https://nc.example.com" == part for part in logged.split())
+    assert any(part == "https://nc.example.com" for part in logged.split())
     # The credential is not.
     assert "hunter2" not in logged
 
@@ -686,3 +686,32 @@ def test_a_refused_bind_is_logged_loudly_and_still_without_the_value(bindable, c
     refusals = [r for r in caplog.records if r.levelno >= logging.WARNING]
     assert refusals, "a credential used somewhere it may not be is a warning"
     assert "hunter2" not in "\n".join(r.getMessage() for r in caplog.records)
+
+
+def test_an_unparseable_port_is_a_rejected_line_not_a_crash(tmp_path):
+    """`SplitResult.port` PARSES, and raises for anything out of range — so one
+    bad line would have taken down catalogue construction rather than being
+    recorded as rejected."""
+    make_secret(
+        tmp_path, "app", password="p",
+        **{ALLOWED_URLS: "https://host:99999\nhttps://good.test\n"},
+    )
+    catalogue = Catalogue([FilesystemSource(tmp_path)])
+    entry = catalogue.entry("app")
+    assert entry["allowed_urls_rejected"] == ["https://host:99999"]
+    assert catalogue.allows("app", "https://good.test/") is False  # one bad line voids it
+
+
+def test_credentials_in_an_allowed_url_are_refused(tmp_path):
+    """netloc carries userinfo, so accepting one would put a password in the
+    permission file and make the same site read as two origins."""
+    make_secret(
+        tmp_path, "app", password="p",
+        **{ALLOWED_URLS: "https://user:pass@host.test"},
+    )
+    entry = Catalogue([FilesystemSource(tmp_path)]).entry("app")
+    assert entry["allowed_urls_rejected"] == ["https://user:pass@host.test"]
+
+
+def test_an_origin_never_carries_userinfo():
+    assert origin("https://user:pass@example.com/x") == "https://example.com"

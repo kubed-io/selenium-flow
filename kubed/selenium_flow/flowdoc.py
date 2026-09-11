@@ -288,7 +288,11 @@ def _check_params(where: str, tool: str, params: dict, bound: set[str], schema: 
     # text at all saved cleanly and failed at run time, which is the whole thing
     # validating-on-save exists to prevent.
     for argument in NEEDED_SOMEHOW.get(tool, ()):
-        if argument not in params and argument not in bound:
+        # `is None` as well as absent: the schema permits null so that
+        # `value_from` can supply the value instead, and `params: {text: null}`
+        # would otherwise save cleanly and have `Actions.write` type the string
+        # "None" into the field.
+        if params.get(argument) is None and argument not in bound:
             problems.append(
                 f"{where}: {tool} needs {argument!r} — give it in params, or in "
                 "valueFrom to take it from a parameter or a secret"

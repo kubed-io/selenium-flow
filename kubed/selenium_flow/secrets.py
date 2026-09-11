@@ -87,7 +87,13 @@ def _origin(parts) -> str:
     host = (parts.hostname or "").lower()
     if not host:
         return ""
-    port = f":{parts.port}" if parts.port else ""
+    try:
+        # `.port` PARSES, and raises for anything out of range — so one
+        # `https://host:99999` line in a permission file would have taken down
+        # catalogue construction instead of being recorded as a rejected line.
+        port = f":{parts.port}" if parts.port else ""
+    except ValueError:
+        return ""
     return f"{parts.scheme.lower()}://{host}{port}"
 
 
@@ -472,7 +478,8 @@ def bind(catalogue, source: dict, url: str, tool: str = "write") -> str:
     other than the one receiving the keystroke.
     """
     reference = source.get("secret") or {}
-    name, key = reference.get("name"), reference.get("key")
+    name, field = reference.get("name"), reference.get("key")
+    key = field  # the identifier, never the credential — see the audit log below
 
     if tool in NOT_YET:
         raise Refused(

@@ -691,3 +691,81 @@ def test_a_stored_step_binding_a_secret_and_a_url_is_refused_at_run_time():
     assert report["status"] == "failed"
     assert "may not also navigate" in report["steps"][0]["error"]
     assert actions.calls == []
+
+
+def test_a_bound_write_in_a_flow_does_not_read_the_field_back():
+    """The direct tool and the HTTP endpoint both turned the read-back off and
+    the flow path — the main one — did not. The end-to-end test missed it
+    because its action is a double that never reads anything."""
+    seen = {}
+
+    class Recording(FakeActions):
+        def write(self, session_id, text, **kwargs):
+            seen.update(kwargs)
+            return {"value": None, "url": "u", "title": "t"}
+
+    steps = [
+        {
+            "tool": "write",
+            "params": {"css": "#p", "value_from": {"param": "password"}},
+        }
+    ]
+    document = flow(
+        steps,
+        parameters={"type": "object", "properties": {"password": {"writeOnly": True}}},
+    )
+    run(Recording(), document, "b", params={"password": "hunter2"})
+    assert seen["read_back"] is False
+
+
+def test_an_unbound_write_still_reads_the_field_back():
+    seen = {}
+
+    class Recording(FakeActions):
+        def write(self, session_id, text, **kwargs):
+            seen.update(kwargs)
+            return {"value": text, "url": "u", "title": "t"}
+
+    run(Recording(), flow([{"tool": "write", "params": {"css": "#a", "text": "x"}}]), "b")
+    assert seen.get("read_back") is None
+
+
+def test_a_percent_encoded_value_is_scrubbed_too():
+    """A submitting write lands on `?q=<what was typed>` and the browser
+    encodes it on the way, so a literal replacement misses it entirely."""
+    steps = [
+        {
+            "tool": "write",
+            "params": {"css": "#q", "value_from": {"param": "secret"}},
+            "return": True,
+        }
+    ]
+    document = flow(
+        steps, parameters={"type": "object", "properties": {"secret": {"writeOnly": True}}}
+    )
+
+    class Submitting(FakeActions):
+        def write(self, session_id, text, **kwargs):
+            return {"url": "https://x.test/?q=a%2Fb+c", "title": "t"}
+
+    report = run(Submitting(), document, "b", params={"secret": "a/b c"})
+    assert "a%2Fb" not in str(report)
+    assert "a/b c" not in str(report)
+
+
+def test_an_old_format_step_stops_the_flow_before_anything_runs():
+    """A stale key on step two would otherwise run step one and then report
+    steps_run: 0 — half-running a flow the message says was refused."""
+    steps = [
+        {"tool": "navigate", "params": {"url": "https://x.test/"}},
+        {
+            "tool": "write",
+            "params": {"css": "#p"},
+            "valueFrom": {"secret": {"name": "n", "key": "password"}},
+        },
+    ]
+    actions = FakeActions()
+    report = run(actions, flow(steps), "b")
+    assert report["status"] == "failed"
+    assert actions.calls == []
+    assert report["steps"][0]["n"] == 2

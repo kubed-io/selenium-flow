@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import logging
 import time
+from urllib.parse import quote, quote_plus
 
 from . import secrets
 from .flowdoc import FILLS, NOT_STEPS, VALUE_FROM
@@ -77,6 +78,9 @@ HEAVY_FIELDS = ("image",)
 # Redis as the page a later reopen should return to.
 RESULT_FROM_ARGUMENT = {"text": "value", "script": "result"}
 
+# Actions that can be told not to read their value back off the page.
+READ_BACK_OFF = {"write"}
+
 
 def redacted_fields(guarded: set) -> set:
     """Result fields that would carry a guarded argument's value back out."""
@@ -106,6 +110,24 @@ def scrub_values(obj, values):
     if isinstance(obj, list):
         return [scrub_values(value, values) for value in obj]
     return obj
+
+
+def hidden_forms(values) -> set:
+    """Every spelling a guarded value can come back in.
+
+    A submitting write lands the browser on `?q=<what was typed>`, and the
+    browser percent-encodes it on the way — so `a/b` comes back as `a%2Fb` and a
+    literal replacement misses it entirely. Both quoting styles are covered
+    because a form submission uses `+` for spaces and a path does not.
+    """
+    forms = set()
+    for value in values:
+        if not isinstance(value, str) or not value:
+            continue
+        forms.add(value)
+        forms.add(quote(value, safe=""))
+        forms.add(quote_plus(value))
+    return forms
 
 
 def scrub(text: str, values) -> str:
@@ -344,30 +366,36 @@ def run(
     budget = RUN_TIMEOUT if timeout is None else max(int(timeout), 0)
     deadline = time.monotonic() + budget
 
+    stale = [
+        number
+        for number, step in enumerate(document.get("steps") or [], start=1)
+        if isinstance(step, dict) and "valueFrom" in step
+    ]
+    if stale:
+        # Preflighted, not caught mid-loop: a stale key on step nine would
+        # otherwise have run the first eight and then reported `steps_run: 0`,
+        # which both half-runs a flow the message says was refused and misstates
+        # what happened.
+        return {
+            "flow": name,
+            "status": "failed",
+            "steps_run": 0,
+            "steps_total": len(document.get("steps") or []),
+            "steps": [
+                {
+                    "n": number,
+                    "ok": False,
+                    "error": (
+                        "this flow was saved in an older format: valueFrom is a "
+                        "parameter now, so move it inside params as value_from "
+                        "and save it again"
+                    ),
+                }
+                for number in stale
+            ],
+        }
+
     for number, step in enumerate(document.get("steps") or [], start=1):
-        if isinstance(step, dict) and "valueFrom" in step:
-            # The step-level key this format used before value_from became a
-            # parameter. A stored flow written then would silently lose its
-            # binding — a missing value, or worse a literal one used in its
-            # place — so it is refused with the fix rather than half-run.
-            return {
-                "flow": name,
-                "status": "failed",
-                "steps_run": 0,
-                "steps_total": len(document.get("steps") or []),
-                "steps": [
-                    {
-                        "n": number,
-                        "tool": step.get("tool"),
-                        "ok": False,
-                        "error": (
-                            "this flow was saved in an older format: valueFrom "
-                            "is a parameter now, so move it inside params as "
-                            "value_from and save it again"
-                        ),
-                    }
-                ],
-            }
         tool = step.get("tool")
         label = step.get("id") or tool
         entry = {"n": number, "tool": tool}
@@ -412,8 +440,14 @@ def run(
         entry["summary"] = summarise(tool, kwargs, guarded)
         # The values this step must not echo, for the sweep in `_clean` and the
         # error scrub below.
-        hidden = {kwargs.get(name) for name in guarded}
+        hidden = hidden_forms(kwargs.get(name) for name in guarded)
         try:
+            if guarded and tool in READ_BACK_OFF:
+                # The read must not HAPPEN for a bound value, not merely be
+                # redacted afterwards. The direct tool and the HTTP endpoint
+                # both did this; the flow path — the main one — did not, and
+                # the end-to-end test missed it because its action is a double.
+                kwargs = {**kwargs, "read_back": False}
             raw = method(session_id, **kwargs)
             result = _clean(raw, guarded, hidden)
             entry["ok"] = True
