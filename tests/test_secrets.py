@@ -664,7 +664,10 @@ def test_the_audit_trail_never_contains_a_value(bindable, caplog):
     logged = "\n".join(r.getMessage() for r in caplog.records)
     # The identifiers are there — an audit line without them says nothing.
     assert "nextcloud/password" in logged
-    assert "https://nc.example.com" in logged
+    # Compared whole rather than as a substring: "is this URL in that string"
+    # is the shape of check that lets nc.example.com.evil.test through, and it
+    # should not be modelled even in a test.
+    assert any("https://nc.example.com" == part for part in logged.split())
     # The credential is not.
     assert "hunter2" not in logged
 
