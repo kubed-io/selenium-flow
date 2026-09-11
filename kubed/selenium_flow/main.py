@@ -83,6 +83,13 @@ def build_parser() -> argparse.ArgumentParser:
         "location (env: FLOW_DATA_DIR)",
     )
     parser.add_argument(
+        "--secrets-dirs",
+        default=os.environ.get("SECRETS_DIRS", ""),
+        help="directories holding secrets, separated like PATH. Each is a "
+        "directory per secret and a file per key, which is how Kubernetes "
+        "mounts one (env: SECRETS_DIRS)",
+    )
+    parser.add_argument(
         "--transport",
         default=os.environ.get("TRANSPORT", "http"),
         choices=["stdio", "http"],
@@ -120,15 +127,17 @@ def main(argv: list[str] | None = None) -> None:
         skill_enabled=args.skill_enabled,
         apps_enabled=args.apps_enabled,
         flow_data_dir=args.flow_data_dir or None,
+        secrets_dirs=args.secrets_dirs or None,
     )
     logging.getLogger(__name__).info(
-        "grid=%s auth=%s saved-sessions=%s stateless=%s skill=%s flows=%s",
+        "grid=%s auth=%s saved-sessions=%s stateless=%s skill=%s flows=%s secrets=%s",
         args.grid_url,
         "on" if args.auth_token else "off",
         server.sessions.kind,
         args.stateless,
         server.skill.skill_info.name if server.skill else "off",
         server.flows.kind if server.flows else "off",
+        len(server.secrets.sources) if server.secrets else "off",
     )
     server.run(transport=args.transport, host=args.host, port=args.port)
 
