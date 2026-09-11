@@ -409,8 +409,12 @@ async def _document_schema(schemas: Schemas) -> dict:
                     "required": ["tool"],
                     "properties": {
                         "tool": {"type": "string", "enum": sorted(steps)},
+                        # No `valueFrom` here: it is a parameter, so it lives
+                        # in `params` and the per-action schemas below describe
+                        # it. A step key would be a second place to say it, and
+                        # a caller following this resource would have built a
+                        # document save_flow rejects.
                         "params": {"type": "object"},
-                        "valueFrom": {"type": "object"},
                         "id": {"type": "string"},
                         "note": {"type": "string"},
                         "onError": {"type": "string", "enum": list(flowdoc.ON_ERROR)},

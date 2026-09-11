@@ -98,7 +98,11 @@ def type_of(field: dict) -> str:
     """
     branches = field.get("anyOf")
     if branches:
-        names = [b.get("type") for b in branches if b.get("type") != "null"]
+        # A branch is a plain type OR a reference to a model — an optional
+        # typed parameter arrives as `anyOf: [{$ref: ...}, {type: null}]`, and
+        # reading only `type` rendered the whole thing as "any", losing exactly
+        # the shape the model was added to publish.
+        names = [_named(b) for b in branches if b.get("type") != "null"]
         return " or ".join(n for n in names if n) or "any"
     declared = field.get("type")
     if isinstance(declared, list):
@@ -112,6 +116,16 @@ def type_of(field: dict) -> str:
     if "$ref" in field:
         return field["$ref"].rsplit("/", 1)[-1]
     return "any"
+
+
+def _named(branch: dict) -> str:
+    """One schema branch as a type name: its own, or the model it points at."""
+    if "$ref" in branch:
+        return branch["$ref"].rsplit("/", 1)[-1]
+    declared = branch.get("type")
+    if isinstance(declared, list):
+        return " or ".join(n for n in declared if n != "null")
+    return declared or ""
 
 
 def default_of(field: dict) -> str:
