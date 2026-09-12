@@ -304,8 +304,15 @@ def test_the_outline_grows_the_panel_instead_of_scrolling_inside_it(page):
     nothing. A long flow makes the panel taller; that is what the page scrolls
     for."""
     flows = page.split("/* ---- flows ---")[1].split("/* ---- modals")[0]
-    assert "overflow" not in flows
     assert "max-height" not in flows
+    assert "overflow-y" not in flows
+    # `overflow-x` on the code block is the opposite case and deliberate: a
+    # program must not wrap, and it is the block that scrolls, not the outline.
+    outside_code = [
+        line for line in flows.splitlines()
+        if "overflow" in line and "overflow-x: auto" not in line
+    ]
+    assert not outside_code, outside_code
 
 
 def test_the_params_section_is_there_even_when_there_are_none(page):
@@ -361,7 +368,7 @@ def test_a_listing_refresh_carries_the_open_flow_with_it(page):
     # Gone from the listing: drop it rather than render a flow that is not there.
     assert "flowName = flowDoc = picked = null;" in body
     # Still there: the listing says it exists, not what is in it.
-    assert "if (flowName) loadFlow(flowName);" in body
+    assert "if (flowName) loadFlow(key, flowName);" in body
 
 
 def test_a_refresh_is_not_a_click(page):
@@ -371,8 +378,8 @@ def test_a_refresh_is_not_a_click(page):
     step the reader was looking at."""
     opener = page.split("async function openFlow(name)")[1].split("\n}\n")[0]
     assert "picked = null;" in opener and "flowDoc = null;" in opener
-    assert "return loadFlow(name);" in opener
-    fetcher = page.split("async function loadFlow(name)")[1].split("\n}\n")[0]
+    assert "return loadFlow(current, name);" in opener
+    fetcher = page.split("async function loadFlow(key, name)")[1].split("\n}\n")[0]
     assert "picked" not in fetcher and "renderFlows()" not in fetcher
 
 
@@ -383,7 +390,7 @@ def test_a_document_fetch_has_its_own_generation(page):
     fetches again. That is an Edit button handing back YAML older than the file,
     which a save would then write back over the newer one."""
     assert "let filesSeq = 0, flowsSeq = 0, flowDocSeq = 0;" in page
-    fetcher = page.split("async function loadFlow(name)")[1].split("\n}\n")[0]
+    fetcher = page.split("async function loadFlow(key, name)")[1].split("\n}\n")[0]
     assert "const mine = ++flowDocSeq;" in fetcher
     # Both paths, or an error from the stale one blanks the fresh panel.
     assert fetcher.count("mine !== flowDocSeq") == 2
@@ -596,3 +603,51 @@ def test_the_page_script_is_valid_javascript(page, tmp_path):
         ["node", "--check", str(js)], capture_output=True, text=True
     )
     assert done.returncode == 0, done.stderr
+
+
+def test_a_multi_line_argument_is_shown_as_code(page):
+    """`script` is the argument that does this. In a key/value cell the
+    newlines collapse, so the program reads as one run-on line, and the
+    `break-all` that suits a URL then splits it mid-identifier — `doc ument`,
+    `qu erySelectorAll`. Keyed off the VALUE rather than off the name `script`,
+    so an argument nobody has thought of yet gets the same treatment."""
+    assert "String(v).indexOf('\\n') === -1" in page
+    assert '<pre class="pv code">' in page
+    assert ".pairs .pv.code {" in page
+    css = page.split(".pairs .pv.code {")[1].split("}")[0]
+    assert "white-space: pre;" in css
+    assert "word-break: normal;" in css, "break-all is wrong for a program"
+
+
+def test_the_session_a_flow_fetch_is_for_is_passed_not_read(page):
+    """`loadFlows(key)` refreshes the open document, and `loadFlow` used to
+    re-read `current` to do it — so a refresh begun for session A could fetch
+    from B if the operator moved in between. The key is threaded instead, which
+    is also why the editor no longer reopens the flow after saving: that reopen
+    was the last caller reading `current` a second time."""
+    assert "const key = current;\n  const mine = ++flowDocSeq;" not in page
+    assert "async function loadFlow(key, name)" in page
+    saved = page.split("await api(path, 'PUT', {yaml:")[1].split("},")[0]
+    assert "openFlow(" not in saved
+    assert "await loadFlows(key);" in saved
+
+
+def test_acting_on_one_session_does_not_disturb_another(page):
+    """`flowsSeq` is one counter for the page. Saving a flow in session A after
+    the operator has moved to B takes a number ABOVE the listing load already
+    in flight for B — B's answer then fails `mine !== flowsSeq` and A's fails
+    `gone(key)`, so NEITHER renders and B sits on "Loading…" with nothing left
+    to fetch again.
+
+    And `flowName`/`flowDoc` describe what is on screen, so clearing them after
+    acting on A would close B's open flow, not A's.
+    """
+    handler = page.split("$('flows').addEventListener")[1].split("async function openSession")[0]
+    # The editor's save: refresh only if that session is still on screen.
+    assert "if (current === key) await loadFlows(key);" in handler
+    # Move and delete: bail entirely, before touching the shared selection.
+    assert handler.count("if (current !== key) return;") == 2
+    cleared = handler.split("if (current !== key) return;")
+    for after in cleared[1:]:
+        selection = after.split("await loadFlows(key);")[0]
+        assert "flowName = flowDoc" in selection, "the guard has to come first"

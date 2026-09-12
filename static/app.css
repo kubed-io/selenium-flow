@@ -444,6 +444,23 @@ iframe.console { width: 100%; height: 72vh; border: 1px solid var(--line); borde
 .pairs .pk { color: var(--muted); width: 96px; flex: none; }
 .pairs .pv { color: var(--ink); min-width: 0; word-break: break-all; }
 
+/* A multi-line value is code. It gets the whole width and its own newlines,
+   and it does NOT inherit `break-all` — breaking anywhere is right for a URL
+   or a selector and wrong for a program, where it splits identifiers in half.
+   Scrolls sideways rather than wrapping, for the same reason. */
+.pairs .pair.block { flex-direction: column; gap: 4px; }
+.pairs .pv.code {
+  margin: 0;
+  padding: 8px 10px;
+  width: 100%;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  font: inherit;
+  white-space: pre;
+  word-break: normal;
+  overflow-x: auto;
+}
+
 /* ---- modals: the confirm that lists, and the YAML editor ----------------- */
 
 .modal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: grid; place-items: center; z-index: 60; padding: 20px; }

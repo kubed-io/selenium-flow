@@ -51,6 +51,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A parameter's `default` is used when you leave it out.** It was declared, accepted and shown in the admin UI, and then ignored — so a flow relying on one sent `${name}` to the browser as literal text.
+
+- **Saving a script that uses a JavaScript template literal tells you to escape it** (`$${...}`), instead of reporting a parameter you never meant to write.
+
+- **A step's script reads as code in the admin UI**, with its own line breaks, instead of one run-on line broken mid-word.
+
 - **The admin UI shows flows as they change**, instead of only when you reopen the session.
 
 - **The session list counts each file once**, where a kept file and its download were counted twice.

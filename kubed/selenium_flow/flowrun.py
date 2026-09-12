@@ -238,6 +238,40 @@ def required_params(document: dict) -> list[str]:
     return list(required) if isinstance(required, list) else []
 
 
+def with_defaults(document: dict, params: dict) -> dict:
+    """``params``, plus the declared ``default`` of anything the caller omitted.
+
+    A parameter is declared with JSON Schema's own vocabulary, and `default` is
+    the word that vocabulary uses. It was accepted at save time, rendered in the
+    admin panel as "Default", and then ignored — so a flow declaring
+    `lang: {default: en}` and run without `lang` sent the browser to
+    `https://${lang}.wikipedia.org` *literally* and failed on a DNS error that
+    names nothing to do with the cause.
+
+    `substitute` cannot fix this on its own, and deliberately: it leaves an
+    unsupplied `${name}` exactly as written, because a `script` argument holding
+    a JavaScript template literal is an ordinary payload and blanking it would
+    corrupt the step. That rule is right. The gap was that nothing ever put the
+    default into `params` for it to find.
+
+    Only declared names, and only when absent — an explicit `None` is a value
+    the caller chose, and overriding it here would make `lang: null` mean
+    something different from every other value.
+
+    Applied AFTER `check_params`, so a parameter that is both `required` and
+    defaulted still has to be passed. A default that satisfied `required` would
+    empty the word of meaning, and the two together are a contradiction in the
+    document rather than a case worth honouring.
+    """
+    filled = dict(params or {})
+    for name, spec in _properties(document).items():
+        if not isinstance(spec, dict) or name in filled:
+            continue
+        if "default" in spec:
+            filled[name] = spec["default"]
+    return filled
+
+
 def check_params(document: dict, params: dict) -> None:
     """Refuse before step one rather than at step two with half a form filled."""
     missing = [name for name in required_params(document) if name not in (params or {})]
@@ -443,8 +477,12 @@ def run(
     time the Grid reaped the browser — exactly the silent shape change
     `sessions.reshape` was written to prevent.
     """
-    params = dict(params or {})
-    check_params(document, params)
+    # Checked against what the CALLER passed, then filled. The other order lets
+    # a `default` satisfy `required`, which would make `required` mean nothing —
+    # and "needs term: pass them in params" is advice the caller can act on,
+    # where a silently-defaulted required parameter is not.
+    check_params(document, params or {})
+    params = with_defaults(document, params)
     name = document.get("name", "flow")
 
     reports: list[dict] = []
