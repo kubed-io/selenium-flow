@@ -8,6 +8,7 @@ deployed image silently kept the old one.
 """
 
 import pathlib
+import sys
 
 # tomllib is 3.11+. The package supports 3.10, so on that leg the reader is
 # tomli — the same parser tomllib was adopted from, pulled in by the `test`
@@ -27,6 +28,10 @@ pytestmark = pytest.mark.unit
 REPO = pathlib.Path(__file__).resolve().parent.parent
 PYPROJECT = REPO / "pyproject.toml"
 IMAGE_WORKFLOW = REPO / ".github" / "workflows" / "image.yml"
+DOCKERFILE = REPO / "Dockerfile"
+
+sys.path.insert(0, str(REPO / "scripts"))
+import requirements  # noqa: E402 - needs the path above
 
 
 def packaged_directories() -> set[str]:
@@ -111,3 +116,100 @@ def test_a_release_build_can_never_be_cancelled_by_a_push():
     assert concurrency["cancel-in-progress"] == "${{ !inputs.tag }}", (
         "cancel-in-progress must be off whenever inputs.tag is set"
     )
+
+
+# ---- the requirement list the image installs ---------------------------------
+#
+# The Dockerfile installs dependencies in a stage that sees pyproject.toml and
+# the script that reads it, and nothing else — that is what keeps a source edit
+# from invalidating the install. These hold the script to pyproject.toml, and
+# the Dockerfile to the split.
+
+
+def test_the_runtime_list_is_what_pyproject_declares():
+    """Read, never restated. A second copy of this list is a second thing to
+    keep in step, and the way it fails is an image built against dependencies
+    nobody declared."""
+    data = tomllib.loads(PYPROJECT.read_text())
+    assert requirements.runtime(data, []) == data["project"]["dependencies"]
+
+
+def test_an_extra_is_appended_whole():
+    """`[redis]` is baked into the image so that turning on shared saved
+    sessions is a config change rather than a different build."""
+    data = tomllib.loads(PYPROJECT.read_text())
+    extra = data["project"]["optional-dependencies"]["redis"]
+    assert requirements.runtime(data, ["redis"])[-len(extra):] == extra
+
+
+def test_an_extra_that_does_not_exist_says_which_do():
+    """It runs inside a Docker layer, where a KeyError is a traceback with no
+    context and the fix is in a file the reader is not looking at."""
+    data = tomllib.loads(PYPROJECT.read_text())
+    with pytest.raises(SystemExit) as raised:
+        requirements.runtime(data, ["nope"])
+    assert "no [nope] extra" in str(raised.value)
+    assert "redis" in str(raised.value), "it has to name what there is"
+
+
+def test_the_build_list_is_the_pep_518_one():
+    """`[build-system].requires` already names and pins the backend — it is the
+    one list that has to be right for `pip install .` to work anywhere."""
+    data = tomllib.loads(PYPROJECT.read_text())
+    assert requirements.build(data, []) == data["build-system"]["requires"]
+
+
+def dockerfile_stages() -> dict[str, list[str]]:
+    """Each `FROM ... AS <name>` stage, as its list of instruction lines.
+
+    Parsed rather than split on the word FROM, which also appears in the prose
+    at the top of the file — a split found the comment and silently returned an
+    empty stage, so the test below passed by testing nothing.
+    """
+    stages: dict[str, list[str]] = {}
+    current = None
+    for raw in DOCKERFILE.read_text().splitlines():
+        line = raw.strip()
+        if line.startswith("FROM ") and " AS " in line:
+            current = line.rsplit(" AS ", 1)[1]
+            stages[current] = []
+        elif current is not None and line and not line.startswith("#"):
+            stages[current].append(line)
+    return stages
+
+
+def test_the_dependency_stage_cannot_see_the_source():
+    """The whole point of the split. A `COPY . .` here would put the install
+    back behind every source edit — which is where it was, and why the build
+    was more than twice as long."""
+    copies = [ln for ln in dockerfile_stages()["deps"] if ln.startswith("COPY ")]
+    assert copies == [
+        "COPY pyproject.toml ./",
+        "COPY scripts/requirements.py ./scripts/",
+    ]
+
+
+def test_nothing_the_wheel_is_built_with_reaches_the_runner():
+    """`runner` is FROM deps, so anything installed in `deps` ships. git is
+    there to let setuptools_scm read the version and has no business in a
+    running pod, so it goes in `wheel` — which nothing is FROM."""
+    stages = dockerfile_stages()
+    assert "git" not in " ".join(stages["deps"]), "deps ships; keep git out of it"
+    assert "apt-get install -y --no-install-recommends git" in stages["wheel"]
+    # And the shape that makes that true: the runner inherits the dependency
+    # layer, not the stage that built the wheel.
+    body = DOCKERFILE.read_text()
+    assert "FROM deps AS runner" in body
+    assert "FROM deps AS wheel" in body
+
+
+def test_the_runner_installs_the_wheel_the_ordinary_way():
+    """Not `--no-deps`. Everything is already in the layer underneath, so pip
+    reports each requirement satisfied and installs only our wheel — and if the
+    two ever drift it fixes that rather than shipping an ImportError. `--no-deps`
+    would also silently ignore the [redis] extra, which is the whole reason the
+    image can turn on shared sessions with an env var."""
+    runner = dockerfile_stages()["runner"]
+    install = next(ln for ln in runner if ln.startswith("pip install"))
+    assert "--no-deps" not in install
+    assert "[redis]" in install

@@ -1,71 +1,76 @@
 # The image is a wrapper around the wheel. No browser here — the browser lives
 # on the Grid, which is the whole point; this only speaks WebDriver to it.
 #
-# Three stages, split so the expensive one is cached on the one file that
-# decides it. Installing the third-party dependency set IS most of this build,
-# and roughly twice over, because linux/arm64 is built under emulation. It used
-# to sit behind `COPY . .`, so every source edit paid for it again — and in
-# practice *every commit* did, because .git is in the context (setuptools_scm
-# needs it) and .git changes even for a docs-only push. The GitHub Actions
-# cache was configured the whole time and could never hit.
+# Three stages, and `runner` is the whole point of the shape: it is `FROM
+# deps`, so it carries the runtime dependencies and NOTHING else — no git,
+# no build backend, no source. Those live in `wheel`, which is also FROM
+# deps and which nothing inherits from.
 #
-# Now the dependency stage sees pyproject.toml and nothing else, so its cache
-# key is that file's digest: edit the admin UI, and it is a cache hit.
+# The split exists because installing the third-party dependency set IS this
+# build, and it used to be done TWICE: the build stage installed the runtime
+# dependencies (and twine) in order to build a wheel that needs neither, and
+# the runner then installed them all again. Removing that duplication is what
+# takes the build from ~9m30 to ~4m15.
+#
+# What is left is linux/arm64 under emulation. The identical dependency install
+# measures 21s on amd64 and 222s on arm64; native arm64 runners, not this file,
+# are what would close that.
+#
+# The split is also what a layer cache needs in order to be useful, since the
+# install no longer sits behind `COPY . .` — which every commit invalidated,
+# .git being in the context for setuptools_scm. That half is done. It buys
+# nothing across runs YET: `docker buildx bake` is invoked from a plain shell
+# step with no ACTIONS_RUNTIME_TOKEN in its environment, so the `type=gha`
+# cache configured in docker-compose.yaml is silently a no-op — measured, not
+# assumed: two identical builds in a row, zero CACHED layers, no cache manifest
+# imported or exported. Wiring it up is a change to kubed-io/actions.
 ARG PY_VERSION=3.14
 
 # ---- deps: the third-party install, and NOTHING that changes with the source.
+#      Everything below is FROM this, so anything added here ships.
 FROM python:${PY_VERSION}-slim AS deps
 
 WORKDIR /app
 
+# The only two files that decide the dependency set, so this layer's cache key
+# is their digest and a source edit cannot invalidate it. See the note above
+# about what still has to happen for that to mean a cache HIT.
 COPY pyproject.toml ./
+COPY scripts/requirements.py ./scripts/
 
 RUN <<'SHELL'
 set -eu
-python - <<'PY' > /tmp/requirements.txt
-import sys
-try:
-    import tomllib
-except ModuleNotFoundError:  # 3.10 has no tomllib, and nothing builds on 3.10
-    sys.exit("PY_VERSION must be 3.11 or newer to build this image")
-project = tomllib.load(open("pyproject.toml", "rb"))["project"]
-# Read rather than restated: pyproject.toml is where the pins live, and a list
-# repeated in a Dockerfile is a second one to keep in step. [redis] is baked in
-# so that turning on shared saved sessions is a matter of setting REDIS_URL,
-# not of building a different image.
-extras = project.get("optional-dependencies", {})
-print(*project["dependencies"], *extras["redis"], sep="\n")
-PY
+# Read out of pyproject.toml rather than restated here: a second copy is a
+# second thing to keep in step, and the way that fails is an image built
+# against dependencies nobody declared. [redis] is baked in so that turning on
+# shared saved sessions is a matter of setting REDIS_URL, not of building a
+# different image — and so the runner's install below finds it already there.
+python scripts/requirements.py runtime --extra redis > /tmp/requirements.txt
 pip install --no-cache-dir --upgrade pip
 pip install --no-cache-dir -r /tmp/requirements.txt
-# Nothing of the source belongs in the runtime image, and this stage IS the
-# runtime image.
-rm -f pyproject.toml /tmp/requirements.txt
+# This stage IS the runtime image, so the source it was configured from does
+# not stay in it. The wheel stage copies back what it needs.
+rm -rf scripts pyproject.toml /tmp/requirements.txt
 SHELL
 
-# ---- wheel: our own code, and the build backend that turns it into one.
-FROM python:${PY_VERSION}-slim AS wheel
+# ---- wheel: our own code, built with tools that must not reach the runner.
+#      git is installed HERE and only here. Putting it in `deps` would ship it.
+FROM deps AS wheel
 
-WORKDIR /app
-
-# Before the source, so the backend install is cached on pyproject.toml too.
+# Before the source, so the backend install is cached on these two alone.
 COPY pyproject.toml ./
+COPY scripts/requirements.py ./scripts/
 
 RUN <<'SHELL'
 set -eu
 # setuptools_scm resolves the version from git history, so git has to be here
-# and .git has to survive .dockerignore. It never reaches the runtime image.
+# and .git has to survive .dockerignore.
 apt-get update
 apt-get install -y --no-install-recommends git
 rm -rf /var/lib/apt/lists/*
-python - <<'PY' > /tmp/build-requirements.txt
-import tomllib
-# [build-system].requires already names and pins the backend — it is the one
-# list that has to be right for `pip install .` to work anywhere. `build` is
-# the frontend that reads it and is deliberately not part of it.
-print(*tomllib.load(open("pyproject.toml", "rb"))["build-system"]["requires"], sep="\n")
-PY
-pip install --no-cache-dir --upgrade pip
+# `build` is the frontend; what it needs to run is [build-system].requires,
+# which pyproject.toml already names and pins.
+python scripts/requirements.py build > /tmp/build-requirements.txt
 pip install --no-cache-dir build -r /tmp/build-requirements.txt
 SHELL
 
@@ -79,19 +84,18 @@ git config --global --add safe.directory /app
 python -m build --wheel --no-isolation
 SHELL
 
-# ---- runner: the dependency layer, plus our wheel and nothing else.
+# ---- runner: the dependency layer, plus our wheel. No git, no build backend.
 FROM deps AS runner
 
 COPY --from=wheel /app/dist ./dist/
 
 RUN <<'SHELL'
 set -eu
-# --no-deps because everything the wheel needs is already in this layer,
-# installed from the same pyproject.toml the wheel was built from. `pip check`
-# is what makes that safe to assert: if the two ever disagreed, this fails the
-# build instead of shipping an ImportError to a running pod.
-pip install --no-cache-dir --no-deps ./dist/*.whl
-pip check
+# An ordinary install, not `--no-deps`. Everything it needs is already in the
+# layer underneath, so pip reports each one already satisfied and installs only
+# our wheel — and if the two ever drift it fixes that rather than shipping an
+# ImportError. `--no-deps` would also silently ignore the [redis] extra.
+pip install --no-cache-dir "$(echo ./dist/*.whl)[redis]"
 rm -rf ./dist
 SHELL
 
