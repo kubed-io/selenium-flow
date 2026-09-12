@@ -209,3 +209,145 @@ iframe.console { width: 100%; height: 72vh; border: 1px solid var(--line); borde
   color: #fff;
   border-color: transparent;
 }
+
+/* ---- the session header, grouped by lifetime ----------------------------
+   The old header put seven facts in one row and buried the two that matter.
+   These are two groups because they have two different lifetimes: what the
+   SESSION keeps, and what belongs to the BROWSER it currently holds and goes
+   when that does. */
+
+.groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--gap); }
+.group { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
+
+.group > .label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+/* The last page gets a full row of its own: a URL is twenty characters or two
+   hundred, and it is the single most useful thing about a live session. */
+.lastpage { padding: 9px 0 12px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+.lastpage a { word-break: break-all; }
+
+/* ---- accordions ---------------------------------------------------------- */
+
+.section { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); margin-bottom: 12px; }
+.section > .head { display: flex; align-items: center; gap: var(--gap); padding: 11px 14px; }
+/* A real <button>, stripped back to looking like a heading. Keeping the element
+   semantic is what gives it keyboard focus and an announced expanded state; the
+   styling is the part that was ever in question. */
+.section > .head .title {
+  font: inherit; font-weight: 600; color: inherit;
+  background: none; border: 0; padding: 0;
+  cursor: pointer; user-select: none;
+}
+.section > .head .title:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.section > .head .title .caret { display: inline-block; width: 12px; color: var(--muted); }
+.section > .body { padding: 0 14px 14px; }
+.section[data-open=false] > .body { display: none; }
+
+/* ---- file marks ----------------------------------------------------------
+   A download is ephemeral and a kept file is not, so each tile carries one
+   mark saying which. The bubble is an action as well as a state — clicking it
+   keeps the file — but ONLY on a surface that can act: these same tiles render
+   inside an MCP app holding no credential, where a control would be dead. That
+   is what `.can-act` gates. */
+
+.file { position: relative; }
+
+.mark {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  line-height: 1;
+  z-index: 1;
+}
+
+/* Ephemeral. A gradient rather than a flat dot so it reads as a bubble — a
+   thing that will pop — rather than as a status light. */
+.mark.bubble {
+  background: radial-gradient(circle at 32% 28%,
+    color-mix(in srgb, var(--accent) 55%, #fff),
+    var(--accent) 62%,
+    color-mix(in srgb, var(--accent) 78%, #000));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+}
+
+.mark.pin { background: var(--panel); border: 1px solid var(--line); }
+
+.can-act .mark { cursor: pointer; }
+.can-act .mark:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* A keyboard user cannot hover, so focus has to reveal the trash that hover does. */
+.can-act .mark.pin:focus-visible { border-color: var(--warn); color: var(--warn); }
+.can-act .mark.pin:focus-visible .trash { display: block; }
+.can-act .mark.pin:focus-visible .icon { display: none; }
+.can-act .mark.bubble:hover { transform: scale(1.12); }
+/* Hovering a kept file's pin offers the only per-file delete the Grid allows.
+   Downloads have no trash because there is no operation behind one. */
+.can-act .mark.pin .trash { display: none; }
+.can-act .mark.pin:hover { border-color: var(--warn); color: var(--warn); }
+.can-act .mark.pin:hover .trash { display: block; }
+.can-act .mark.pin:hover .icon { display: none; }
+
+/* ---- flows ---------------------------------------------------------------
+   A list of flows on the left, the chosen one on the right. The sidebar is
+   what you navigate between; the pane is what you read. */
+
+.flows { display: grid; grid-template-columns: minmax(180px, 240px) 1fr; gap: var(--gap); align-items: start; }
+@media (max-width: 680px) { .flows { grid-template-columns: 1fr; } }
+
+.flowlist { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.flowlist .item { padding: 9px 11px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.flowlist .item:last-child { border-bottom: none; }
+.flowlist .item:hover { background: color-mix(in srgb, var(--ink) 4%, transparent); }
+.flowlist .item[aria-selected=true] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.flowlist .item .nm { font-size: 13px; word-break: break-all; }
+
+.panel { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+
+/* A step is its number, its tool and its id — no selectors and no URLs. Those
+   are parameters, and they belong in the pane beside it once you pick one. */
+.steps { display: flex; flex-direction: column; gap: 4px; margin: 10px 0 0; }
+.steps .step { display: flex; gap: 9px; align-items: baseline; padding: 6px 8px; border-radius: 7px; cursor: pointer; }
+.steps .step:hover { background: color-mix(in srgb, var(--ink) 4%, transparent); }
+.steps .step[aria-selected=true] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.steps .n { color: var(--muted); font-size: 11px; min-width: 16px; }
+.steps .tool { font-weight: 600; font-size: 13px; }
+
+.params { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+.params .pair { display: flex; gap: 9px; padding: 3px 0; font-size: 12px; }
+.params .pk { color: var(--muted); min-width: 92px; }
+.params .pv { word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+/* ---- modals: the confirm that lists, and the YAML editor ----------------- */
+
+.modal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: grid; place-items: center; z-index: 60; padding: 20px; }
+.modal .sheet { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); width: min(720px, 100%); max-height: 82vh; display: flex; flex-direction: column; }
+.modal .sheet > .head { padding: 13px 16px; border-bottom: 1px solid var(--line); font-weight: 600; }
+.modal .sheet > .body { padding: 14px 16px; overflow: auto; }
+.modal .sheet > .foot { padding: 12px 16px; border-top: 1px solid var(--line); display: flex; gap: 9px; justify-content: flex-end; }
+
+/* The names it will remove, shown rather than asserted. */
+.modal .names { margin: 10px 0 0; padding-left: 18px; font-size: 13px; }
+.modal .names li { word-break: break-all; }
+
+textarea.yaml {
+  width: 100%;
+  min-height: 42vh;
+  font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  resize: vertical;
+}

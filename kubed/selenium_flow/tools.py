@@ -18,6 +18,7 @@ import base64
 from collections.abc import Callable
 
 from fastmcp import FastMCP
+from fastmcp.tools import ToolResult
 from fastmcp.utilities.types import Image
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -570,7 +571,7 @@ def register(
         wait_timeout: int = WAIT_TIMEOUT,
         save: bool = False,
         filename: str | None = None,
-    ) -> Image:
+    ) -> Image | ToolResult:
         """Capture a PNG of the page and return it as an image you can see.
 
         Three modes: pass xpath (or css) for one element, full_page for the
@@ -582,7 +583,8 @@ def register(
         Set save to also keep it with the session's files, where it gets a URL
         that opens in a browser. Worth doing whenever a person will look at it:
         many clients cannot display an image returned by a tool, and every one
-        of them can follow a link. session_files lists what has been kept.
+        of them can follow a link. Saving also returns the file's name, which is
+        what keep_file and session_files take.
         """
         result = run(
             session_id,
@@ -599,7 +601,19 @@ def register(
                 filename=filename,
             ),
         )
-        return Image(data=base64.b64decode(result["image"]), format="png")
+        image = Image(data=base64.b64decode(result["image"]), format="png")
+        entry = result.get("file")
+        if entry is None:
+            return image
+        # A saved screenshot has a name, and the name is the whole point: it is
+        # the argument keep_file takes. Chrome deduplicates, so `shot.png` can
+        # land as `shot (1).png` and the caller cannot derive it — returning the
+        # image alone left the one thing you have to know discoverable only by
+        # listing the files and guessing which entry was yours. The HTTP surface
+        # always returned it; this is the tool catching up.
+        return ToolResult(
+            content=[image.to_image_content()], structured_content={"file": entry}
+        )
 
     @mcp.tool(annotations=hints("Save the page as PDF"))
     def save_pdf(

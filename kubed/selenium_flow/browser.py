@@ -173,6 +173,9 @@ class Grid:
                 "application/pdf,image/png,application/octet-stream",
             )
             options.set_preference("pdfjs.disabled", True)
+            # See the Chrome block below: the password-save prompt is a browser
+            # popup, and the browser is the only thing that can answer it.
+            options.set_preference("signon.rememberSignons", False)
             return options
 
         options.add_argument("--no-sandbox")
@@ -184,7 +187,23 @@ class Grid:
         # is a miserable thing to debug. 1 = allow.
         options.add_experimental_option(
             "prefs",
-            {"profile.default_content_setting_values.automatic_downloads": 1},
+            {
+                "profile.default_content_setting_values.automatic_downloads": 1,
+                # Submitting a password offers to save it, and that offer is a
+                # *browser* popup rather than anything in the page. It takes the
+                # input focus and never gives it back, so every later click and
+                # keystroke is delivered to the bubble instead of the document —
+                # silently: the element is found, the command succeeds, and
+                # nothing happens. A flow that logs in would leave the browser
+                # looking fine and unable to do anything, which is the worst
+                # shape a failure can take. Nobody is here to answer the offer,
+                # so do not let it be made.
+                "credentials_enable_service": False,
+                "profile.password_manager_enabled": False,
+                # Same popup, different trigger: Chrome warns about a password it
+                # believes was breached.
+                "profile.password_manager_leak_detection": False,
+            },
         )
         return options
 

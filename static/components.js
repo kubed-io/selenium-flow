@@ -26,6 +26,11 @@ const SF = (() => {
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
     (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 
+  /* A URL is only ever put in an href when it is one we would follow. The page
+     a session last visited is whatever it navigated to, and `javascript:` is a
+     URL too — escaping makes it safe to *display*, not safe to click. */
+  const safeHref = (u) => (/^https?:\/\//i.test(String(u ?? '')) ? String(u) : '');
+
   function bytes(n) {
     if (!Number.isFinite(n)) return '';
     if (n < 1024) return n + ' B';
@@ -90,22 +95,48 @@ const SF = (() => {
     }
   }
 
-  /* The files one session has downloaded.
-     Each entry needs {name, size, url, image}. `url` is already signed by the
-     server, so this component never sees a token. */
+  /* Every file one session has — the browser's downloads and the files kept
+     beyond it — as one list.
+
+     Each entry needs {name, size, url, image, kept}. `url` is already signed by
+     the server, so this component never sees a token.
+
+     The corner mark says which kind it is, and doubles as the control for
+     changing that: a bubble is a download (click to keep), a pin is a kept file
+     (hover for the trash). It is rendered as data attributes rather than
+     buttons, and is inert unless `opts.actions` is set — these same tiles are
+     drawn inside an MCP app that holds no credential, where a live control
+     would be a button that cannot work. The page that can act wires the clicks;
+     this library stays rendering-only. */
   function fileGrid(el, data, opts = {}) {
     const files = (data && data.files) || [];
-    if (!files.length) return empty(el, 'Nothing downloaded in this session yet.');
+    if (!files.length) return empty(el, 'No files in this session yet.');
     const base = opts.base || '';
     el.innerHTML = '';
     const grid = document.createElement('div');
-    grid.className = 'files';
+    grid.className = 'files' + (opts.actions ? ' can-act' : '');
+    /* On a surface that can act, a mark is the only control for keeping or
+       deleting — so it has to be operable without a mouse. It is still a span:
+       this library renders and never wires, and the host that turned actions on
+       owns the handler. Off, the mark is decoration and must NOT be focusable:
+       a tab stop that does nothing is worse than no tab stop. */
+    const act = (label) => (opts.actions
+      ? ' role="button" tabindex="0" aria-label="' + esc(label) + '"'
+      : '');
     for (const f of files) {
       const ext = (f.name.split('.').pop() || '').toLowerCase();
       const href = base + f.url;
       const item = document.createElement('div');
       item.className = 'file';
       item.innerHTML =
+        (f.kept
+          ? '<span class="mark pin" data-delete="' + esc(f.name) + '"' +
+            act('Delete kept file ' + f.name) + ' title="' +
+            'Kept: it outlives this browser. Hover to delete it.">' +
+            '<span class="icon">📌</span><span class="trash">🗑</span></span>'
+          : '<span class="mark bubble" data-keep="' + esc(f.name) + '"' +
+            act('Keep ' + f.name + ' beyond this browser') + ' title="' +
+            'A download: it goes when this browser does. Click to keep it."></span>') +
         '<a class="thumb" href="' + esc(href) + '" target="_blank" rel="noopener">' +
         (f.image
           ? '<img loading="lazy" alt="' + esc(f.name) + '" src="' + esc(href) + '">'
@@ -126,32 +157,27 @@ const SF = (() => {
     el.appendChild(grid);
   }
 
-  /* One session's headline: what it is, who holds it, where it runs. */
+  /* One session's headline, grouped by how long each fact lives.
+
+     The previous version put seven facts in one grid and buried the two that
+     matter. Now: identity, then the page it is on — a full row of its own,
+     because a URL is twenty characters or two hundred and it is the thing you
+     actually came to read — then two blocks with *different lifetimes*. What
+     the SESSION keeps survives its browser; what the BROWSER has goes with it.
+
+     The file count is gone from here on purpose: the Files section below
+     carries it, and saying it twice invites the two to disagree. */
   function sessionSummary(el, data) {
     const s = data || {};
-    const facts = [
-      // Neither the name nor the key when there is a name: the heading above is
-      // the name, and the key is only ever `named:<that same name>`. Shown for
-      // the others, where the heading is a kind — "mcp client", "stateless" —
-      // and the key is the only thing saying *which* one.
-      ['session', s.name ? null : s.key],
-      ['held by', s.name ? null : s.owner],
-      ['browser', s.browser
-        ? browserMark(s.browser) + ' ' + [s.browser, s.version].filter(Boolean).join(' ')
-        : null],
-      // Beside the browser, because it is the same kind of fact. Absent when
-      // the session never named a size: the window is then whatever the Grid
-      // node's default is, and printing a number would claim we knew which.
-      ['window', s.window],
-      // Absent rather than "none" when detached: the session is the row, and a
-      // browser is a thing it currently happens to have.
-      ['browser id', s.session_id],
-      ['last page', s.url],
-      ['started', s.started ? new Date(s.started * 1000).toLocaleString() : null],
-      ['files', s.files_count === undefined || s.files_count === null
-        ? null : String(s.files_count)],
-      ['node', s.node],
-    ].filter(([, v]) => v);
+    const group = (label, facts) => {
+      const rows = facts.filter(([, v]) => v);
+      if (!rows.length) return '';
+      return '<div class="group"><div class="label">' + esc(label) + '</div>' +
+        rows.map(([k, v]) =>
+          '<div class="fact"><div class="k">' + esc(k) + '</div>' +
+          '<div class="v">' + esc(v) + '</div></div>').join('') + '</div>';
+    };
+    const href = safeHref(s.url);
 
     el.innerHTML =
       '<div class="card">' +
@@ -162,11 +188,36 @@ const SF = (() => {
       (s.live
         ? '<span class="pill live">live</span>'
         : '<span class="pill">idle</span>') +
-      '</div><div class="facts">' +
-      facts.map(([k, v]) =>
-        '<div class="fact"><div class="k">' + esc(k) + '</div>' +
-        '<div class="v' + (k === 'session' ? ' mono small' : '') + '">' +
-        esc(v) + '</div></div>').join('') +
+      '</div>' +
+      '<div class="lastpage"><div class="k small muted">last page</div>' +
+      (href
+        ? '<a href="' + esc(href) + '" target="_blank" rel="noopener noreferrer">' +
+          esc(s.url) + '</a>'
+        : '<span class="small muted">' +
+          esc(s.url || 'nowhere yet') + '</span>') +
+      '</div><div class="groups">' +
+      // Kept by the session, and inherited by whatever browser it opens next.
+      group('session', [
+        // Neither the name nor the key when there is a name: the heading above
+        // is the name, and the key is only ever `named:<that same name>`. Shown
+        // for the others, where the heading is a kind — "mcp client",
+        // "stateless" — and the key is the only thing saying *which* one.
+        ['key', s.name ? null : s.key],
+        ['held by', s.name ? null : s.owner],
+        ['browser', s.browser],
+        // Absent when the session never named a size: the window is then
+        // whatever the Grid node's default is, and printing a number would
+        // claim we knew which.
+        ['window', s.window],
+        ['started', s.started ? new Date(s.started * 1000).toLocaleString() : null],
+      ]) +
+      // Gone the moment this browser ends, which is why it is a block of its
+      // own rather than three more cells in one undifferentiated grid.
+      group('browser', [
+        ['version', s.version],
+        ['id', s.session_id],
+        ['node', s.node],
+      ]) +
       '</div></div>';
   }
 

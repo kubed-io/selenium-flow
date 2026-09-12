@@ -53,18 +53,45 @@
       <div class="row" style="margin-bottom:12px">
         <button id="back">&larr; Sessions</button>
         <span class="grow"></span>
-        <!-- One pair of controls, two verbs. Both destroy something belonging to
-             the browser this session holds, so they are styled and behave the
-             same and are ordered by how much they take. -->
-        <button id="clearFiles" class="danger"
-                title="Delete every file this browser downloaded. The browser keeps running.">
-          Clear files</button>
         <button id="endBrowser" class="danger"
                 title="Quit this browser. The session and its context are kept.">
           End browser</button>
       </div>
       <div id="detailHeader"></div>
-      <div id="files"></div>
+
+      <!-- Two accordions, which is what keeps this page one column. Files and
+           flows are the two things a session accumulates, and each is worth
+           collapsing when you came to look at the other. -->
+      <section class="section" id="filesSection" data-open="true">
+        <div class="head">
+          <!-- A button, not a styled span: this is the only way to open or
+               close the section, so it has to be reachable by keyboard and to
+               announce its state. -->
+          <button type="button" class="title" data-toggle="filesSection"
+                  aria-expanded="true" aria-controls="filesBody">
+            <span class="caret">&#9662;</span> Files</button>
+          <span id="filesCount" class="pill"></span>
+          <span class="grow"></span>
+          <!-- Clears what the BROWSER downloaded. Kept files are ours and live
+               elsewhere, so they are untouched — which is the whole reason this
+               button can exist at all. -->
+          <button id="clearFiles" class="danger"
+                  title="Delete everything this browser downloaded. Kept files stay.">
+            Clear downloads</button>
+        </div>
+        <div class="body" id="filesBody"><div id="files"></div></div>
+      </section>
+
+      <section class="section" id="flowsSection" data-open="true">
+        <div class="head">
+          <button type="button" class="title" data-toggle="flowsSection"
+                  aria-expanded="true" aria-controls="flowsBody">
+            <span class="caret">&#9662;</span> Flows</button>
+          <span id="flowsCount" class="pill"></span>
+          <span class="grow"></span>
+        </div>
+        <div class="body" id="flowsBody"><div id="flows"></div></div>
+      </section>
     </div>
   </section>
 
@@ -86,16 +113,94 @@ const show = (el, on) => { el.hidden = !on; };
 let token = sessionStorage.getItem('sf-token') || '';
 let current = null;
 
+/* Every load below is an await against a session the operator can navigate away
+   from while it is in flight. A late reply is not merely a stale render: the
+   action buttons build their paths from `current`, so B's panel showing A's
+   flows would let an edit, a move or a delete land on the wrong library.
+   Checked on the success AND the error path — an error from A must not blank
+   B's panel either. */
+const gone = (key) => key !== current;
+
 // sessionStorage, not localStorage: this is the server's full-privilege token,
 // so it should not outlive the tab someone typed it into.
-async function api(path, method = 'GET') {
+async function api(path, method = 'GET', body) {
   const res = await fetch(BASE + path, {
-    method, headers: {Authorization: 'Bearer ' + token},
+    method,
+    headers: {
+      Authorization: 'Bearer ' + token,
+      ...(body === undefined ? {} : {'Content-Type': 'application/json'}),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (res.status === 401) { signOut(); throw new Error('unauthorized'); }
-  if (!res.ok) throw new Error('request failed (' + res.status + ')');
+  if (!res.ok) {
+    // The server's own message, not a status code. These are written to be
+    // read — "the shared 'global' library is read-only…" tells an operator
+    // which rule they hit and what to do; "request failed (400)" does not.
+    let said = '';
+    try { said = (await res.json()).error || ''; } catch {}
+    throw new Error(said || 'request failed (' + res.status + ')');
+  }
   return res.json();
 }
+
+const sessionPath = (key, rest = '') =>
+  '/admin/sessions/' + encodeURIComponent(key) + rest;
+
+/* One modal, three uses: the confirm that lists what it is about to remove,
+   the flow delete confirm, and the YAML editor.
+
+   Native confirm() cannot show a list, and "Delete 12 files?" without saying
+   which twelve is an assertion rather than a disclosure — the whole point of
+   the Clear downloads confirm is that the scope is shown. */
+function modal({title, body, confirm = 'OK', danger = false, onconfirm}) {
+  const box = document.createElement('div');
+  box.className = 'modal';
+  box.innerHTML =
+    '<div class="sheet"><div class="head">' + SF.esc(title) + '</div>' +
+    '<div class="body">' + body + '</div>' +
+    '<div class="foot"><button type="button" data-close>Cancel</button>' +
+    '<button type="button" class="' + (danger ? 'danger' : 'primary') + '" data-go>' +
+    SF.esc(confirm) + '</button></div></div>';
+
+  const close = () => {
+    box.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  function onKey(e) { if (e.key === 'Escape') close(); }
+
+  box.addEventListener('click', async (e) => {
+    if (e.target === box || e.target.hasAttribute('data-close')) return close();
+    if (!e.target.hasAttribute('data-go')) return;
+    e.target.disabled = true;
+    try {
+      await onconfirm(box);
+      close();
+    } catch (err) {
+      // Stay open on failure: closing would throw away what they typed in the
+      // editor, and the message is about the thing still on screen.
+      e.target.disabled = false;
+      alert(err.message);
+    }
+  });
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(box);
+  return box;
+}
+
+/* The accordion headers. Delegated, because the sections are static markup and
+   one listener cannot come adrift from a re-render. */
+document.addEventListener('click', (e) => {
+  const tab = e.target.closest('[data-toggle]');
+  if (!tab) return;
+  const box = $(tab.dataset.toggle);
+  const open = box.getAttribute('data-open') !== 'false';
+  box.setAttribute('data-open', String(!open));
+  // Kept in step with data-open, which is what the CSS reads. A caret alone
+  // says nothing to anyone not looking at it.
+  tab.setAttribute('aria-expanded', String(!open));
+  tab.querySelector('.caret').innerHTML = open ? '&#9656;' : '&#9662;';
+});
 
 function signOut() {
   unwatch();
@@ -109,11 +214,12 @@ function paint(data) {
   SF.sessionList($('sessions'), data, {onpick: openSession});
 }
 
-/* The two toolbar buttons are one control with two verbs: each DELETEs
-   something belonging to the browser the open session holds, asks before it
-   does, and repaints what it changed. Wiring them the same way is what keeps
-   them behaving the same — they had drifted into a red button and a plain one,
-   and only one of them told you when it failed. */
+/* Ending the browser: confirm, DELETE, repaint what changed, and say so when it
+   fails. Clearing the downloads used to share this helper, and no longer can —
+   its confirm has to *list* the files it will remove, which a native confirm()
+   cannot do. Both still ask first and both report a failure, which was the part
+   worth keeping: they had once drifted into a red button and a plain one, where
+   only one of them told you anything had gone wrong. */
 function destructive(id, {ask, path = '', fail, done}) {
   $(id).onclick = async () => {
     const key = current;
@@ -200,39 +306,312 @@ function unwatch() {
 // What the file grid was last drawn for. A pushed update carries the session
 // row but not its files, so this is how an update decides whether the grid is
 // stale enough to be worth refetching and redrawing under someone's cursor.
-let shownFiles = null, shownBrowser = null;
+let shownFiles = null, shownBrowser = null, downloads = [];
 
 const filesStamp = (row) => (row.session_id || '-') + ':' + row.files_count;
 
 function showDetail(row) {
   SF.sessionSummary($('detailHeader'), row);
   // Both act on the browser, and a detached session has none — no browser, no
-  // files, since the Grid deletes the file store with the browser. A button
-  // that does nothing is worse than one that is visibly unavailable.
+  // downloads, since the Grid deletes its file store with the browser. A button
+  // that does nothing is worse than one that is visibly unavailable. The kept
+  // files below are unaffected: that is what keeping them is for.
   $('endBrowser').disabled = $('clearFiles').disabled = !row.attached;
 }
 
 async function loadFiles(key) {
   const box = $('files');
   try {
-    const data = await api('/admin/sessions/' + encodeURIComponent(key) + '/files');
+    const data = await api(sessionPath(key, '/files'));
+    if (gone(key)) return;
     const row = data.session || {key: key};
     showDetail(row);
     shownFiles = filesStamp(row);
     shownBrowser = row.session_id || null;
-    SF.fileGrid(box, data, {base: BASE});
+    // Straight from the server, NOT filtered out of data.files: that list is
+    // de-duplicated, so a download sharing a name with a kept file is missing
+    // from it — and Clear downloads would still delete it. The confirm has to
+    // name everything it takes.
+    downloads = data.downloads || [];
+    $('filesCount').textContent = (data.files || []).length;
+    SF.fileGrid(box, data, {base: BASE, actions: true});
   } catch (e) {
+    if (gone(key)) return;
     box.innerHTML = '<div class="empty error">' + SF.esc(e.message) + '</div>';
   }
 }
+
+/* The corner mark on a tile. A bubble keeps the file; a pin reveals the only
+   per-file delete the Grid permits, which is why a download has no trash. */
+$('files').addEventListener('click', async (e) => {
+  const mark = e.target.closest('.mark');
+  if (!mark || !current) return;
+
+  const keep = mark.getAttribute('data-keep');
+  if (keep !== null) {
+    try {
+      await api(sessionPath(current, '/files/' + encodeURIComponent(keep) + '/keep'),
+                'POST');
+    } catch (err) {
+      alert('Could not keep that file: ' + err.message);
+      return;
+    }
+    loadFiles(current);
+    return;
+  }
+
+  const drop = mark.getAttribute('data-delete');
+  if (drop === null) return;
+  modal({
+    title: 'Delete a kept file',
+    body: '<p>This removes it from the server for good. Keeping is one-way, so '
+        + 'it can only come back by being downloaded again.</p>'
+        + '<ul class="names"><li>' + SF.esc(drop) + '</li></ul>',
+    confirm: 'Delete',
+    danger: true,
+    onconfirm: async () => {
+      await api(sessionPath(current, '/files/' + encodeURIComponent(drop)), 'DELETE');
+      loadFiles(current);
+    },
+  });
+});
+
+/* The marks carry role=button and a tab stop, so they must answer the keys a
+   button answers. Space is preventDefault-ed or the page scrolls underneath. */
+$('files').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const mark = e.target.closest('.mark[role=button]');
+  if (!mark) return;
+  e.preventDefault();
+  mark.click();
+});
+
+/* ---- flows ---------------------------------------------------------------
+   A list on the left, the chosen flow on the right: the list is what you
+   navigate between, the panel is what you read. A step shows its number, tool
+   and id — never a selector or a URL, which are parameters and belong in the
+   pane once you pick one. */
+
+let flowsData = null, flowDoc = null, flowName = null, stepIndex = null;
+
+async function loadFlows(key) {
+  let data;
+  try {
+    data = await api(sessionPath(key, '/flows'));
+  } catch (e) {
+    if (gone(key)) return;
+    $('flows').innerHTML = '<div class="empty error">' + SF.esc(e.message) + '</div>';
+    return;
+  }
+  if (gone(key)) return;
+  flowsData = data;
+  $('flowsCount').textContent =
+    flowsData.enabled ? (flowsData.flows || []).length : 'off';
+  renderFlows();
+}
+
+function renderFlows() {
+  const box = $('flows');
+  const data = flowsData || {flows: []};
+  if (!data.enabled) {
+    box.innerHTML = '<div class="empty">Flows are off: this server was started '
+                  + 'with no FLOW_DATA_DIR.</div>';
+    return;
+  }
+  const list = data.flows || [];
+  if (!list.length) { box.innerHTML = '<div class="empty">No flows yet.</div>'; return; }
+  box.innerHTML = '<div class="flows"><div class="flowlist" id="flowlist"></div>'
+                + '<div id="flowpanel"></div></div>';
+  for (const f of list) {
+    const item = document.createElement('div');
+    item.className = 'item';
+    item.setAttribute('aria-selected', String(f.name === flowName));
+    // The globe marks only the shared ones. A badge on everything says nothing,
+    // and a session's own flows are the unremarkable case.
+    item.innerHTML =
+      '<div class="nm">' + (f.shared ? '&#127760; ' : '') + SF.esc(f.name) + '</div>'
+      + '<div class="small muted">' + f.step_count + ' step'
+      + (f.step_count === 1 ? '' : 's') + '</div>';
+    item.onclick = () => openFlow(f.name);
+    $('flowlist').appendChild(item);
+  }
+  renderFlowPanel();
+}
+
+async function openFlow(name) {
+  const key = current;
+  flowName = name;
+  stepIndex = null;
+  flowDoc = null;
+  renderFlows();
+  let doc;
+  try {
+    doc = await api(sessionPath(key, '/flows/' + encodeURIComponent(name)));
+  } catch (e) {
+    // Also guarded on `flowName`: picking B while A is in flight must not leave
+    // A's error sitting in B's panel.
+    if (gone(key) || flowName !== name) return;
+    const panel = $('flowpanel');
+    if (panel) panel.innerHTML = '<div class="empty error">' + SF.esc(e.message) + '</div>';
+    return;
+  }
+  if (gone(key) || flowName !== name) return;
+  flowDoc = doc;
+  renderFlowPanel();
+}
+
+/* A step binds a secret when its params name one — worth its own mark, because
+   it is the difference between a flow anybody can read and one that types a
+   credential nobody can see. */
+const bindsSecret = (step) =>
+  !!(step && step.params && step.params.value_from && step.params.value_from.secret);
+
+function paramsOf(step) {
+  if (!step) {
+    return '<div class="params small muted">Pick a step to see what it passes.</div>';
+  }
+  const params = step.params || {};
+  const keys = Object.keys(params);
+  if (!keys.length) {
+    return '<div class="params small muted">This step takes nothing.</div>';
+  }
+  return '<div class="params">' + keys.map((k) => {
+    const v = params[k];
+    // A binding is shown as the reference it is. There is no value here to
+    // show — the server never sends one — and naming the secret says more than
+    // an empty cell would.
+    const text = k === 'value_from'
+      ? (v && v.secret
+          ? 'secret ' + v.secret.name + ' / ' + v.secret.key
+          : 'parameter ' + (v && v.param))
+      : (v !== null && typeof v === 'object' ? JSON.stringify(v) : String(v));
+    return '<div class="pair"><span class="pk">' + SF.esc(k) + '</span>'
+         + '<span class="pv">' + SF.esc(text) + '</span></div>';
+  }).join('') + '</div>';
+}
+
+function renderFlowPanel() {
+  const el = $('flowpanel');
+  if (!el) return;
+  if (!flowName) { el.innerHTML = '<div class="empty">Pick a flow.</div>'; return; }
+  const f = flowDoc;
+  if (!f || f.name !== flowName) {
+    el.innerHTML = '<div class="empty">Loading…</div>';
+    return;
+  }
+  const steps = f.steps || [];
+  el.innerHTML =
+    '<div class="panel">' +
+    '<div class="row"><strong class="grow">' + SF.esc(f.name) + '</strong>' +
+    (f.shared ? '<span class="pill">&#127760; global</span>' : '') + '</div>' +
+    (f.description
+      ? '<div class="small muted" style="margin-top:4px">' + SF.esc(f.description) + '</div>'
+      : '') +
+    '<div class="steps">' + steps.map((s, i) =>
+      '<div class="step" data-step="' + i + '" aria-selected="' + (i === stepIndex) + '">'
+      + '<span class="n">' + (i + 1) + '</span>'
+      + '<span class="tool">' + SF.esc(s.tool) + '</span>'
+      + (s.id ? '<span class="small muted">' + SF.esc(s.id) + '</span>' : '')
+      + '<span class="grow"></span>'
+      + (bindsSecret(s) ? '<span title="types a secret">&#128274;</span>' : '')
+      + '</div>').join('') + '</div>' +
+    paramsOf(steps[stepIndex]) +
+    '<div class="row" style="margin-top:12px">' +
+    '<button type="button" data-edit>Edit YAML</button>' +
+    // One verb, not two. `global` is a folder like any other, so the only
+    // action is which folder it lives in, and the label flips with the answer.
+    // Offered only when there are two folders to choose between: a session
+    // literally named `global` *is* the shared library, so both ends of the
+    // move are the same place and the button would be a no-op wearing the
+    // label of a real action.
+    (flowsData && flowsData.session === 'global' ? '' :
+      '<button type="button" data-move>' +
+      (f.shared ? 'To this session' : 'To global') + '</button>') +
+    '<span class="grow"></span>' +
+    '<button type="button" class="danger" data-drop>Delete</button>' +
+    '</div></div>';
+}
+
+$('flows').addEventListener('click', (e) => {
+  const step = e.target.closest('.step');
+  if (step) {
+    // Clicking the open one closes it: the params pane is a detail, not a mode.
+    const n = Number(step.dataset.step);
+    stepIndex = stepIndex === n ? null : n;
+    renderFlowPanel();
+    return;
+  }
+  const doc = flowDoc;
+  if (!doc || !current) return;
+  const path = sessionPath(current, '/flows/' + encodeURIComponent(doc.name));
+
+  if (e.target.hasAttribute('data-edit')) {
+    const box = modal({
+      title: 'Edit ' + doc.name,
+      body: '<textarea class="yaml" spellcheck="false"></textarea>',
+      confirm: 'Save',
+      onconfirm: async (sheet) => {
+        await api(path, 'PUT', {yaml: sheet.querySelector('textarea').value});
+        await loadFlows(current);
+        await openFlow(doc.name);
+      },
+    });
+    // The real file from the store, comments and all — not a re-dump of the
+    // parsed document, which would quietly lose them the first time anyone
+    // pressed Save.
+    box.querySelector('textarea').value = doc.yaml || '';
+    return;
+  }
+
+  if (e.target.hasAttribute('data-move')) {
+    const to = doc.shared ? flowsData.session : 'global';
+    modal({
+      title: doc.shared ? 'Move to this session' : 'Move to global',
+      body: doc.shared
+        ? '<p>It moves out of the shared library into <strong>' + SF.esc(to)
+          + '</strong>. Other sessions stop seeing it.</p>'
+        : '<p>It moves into the shared <strong>global</strong> library, where '
+          + 'every session can list and run it. No agent can change what is in '
+          + 'there — only an operator, here.</p>',
+      confirm: 'Move',
+      onconfirm: async () => {
+        await api(path + '/move', 'POST', {to: to});
+        flowName = flowDoc = null;
+        await loadFlows(current);
+      },
+    });
+    return;
+  }
+
+  if (e.target.hasAttribute('data-drop')) {
+    modal({
+      title: 'Delete this flow?',
+      body: '<p>It is removed from the folder it lives in. A flow in the '
+          + '<strong>global</strong> folder goes for every session, not just '
+          + 'this one.</p><ul class="names"><li>'
+          + (doc.shared ? 'global / ' : '') + SF.esc(doc.name) + '</li></ul>',
+      confirm: 'Delete',
+      danger: true,
+      onconfirm: async () => {
+        await api(path, 'DELETE');
+        flowName = flowDoc = null;
+        await loadFlows(current);
+      },
+    });
+  }
+});
 
 async function openSession(key) {
   current = key;
   show($('sessionsView'), false); show($('detailView'), true);
   $('files').innerHTML = '<div class="empty">Loading…</div>';
+  $('flows').innerHTML = '<div class="empty">Loading…</div>';
   $('detailHeader').innerHTML = '';
   shownFiles = shownBrowser = null;
+  flowsData = flowDoc = flowName = null;
+  stepIndex = null;
   await loadFiles(key);
+  await loadFlows(key);
 }
 
 /* A pushed session list, applied to the detail view instead of the list. */
@@ -261,12 +640,29 @@ $('back').onclick = () => {
 };
 $('signout').onclick = signOut;
 
-destructive('clearFiles', {
-  ask: 'Delete every file this browser downloaded?',
-  path: '/files',
-  fail: 'Could not clear the files',
-  done: loadFiles,
-});
+/* Clear downloads shows what it will take rather than asserting a number. It is
+   safe to offer at all only because keeping is a copy: kept files live in our
+   own store, so emptying the Grid's cannot reach them (§F1.10). */
+$('clearFiles').onclick = () => {
+  if (!current) return;
+  modal({
+    title: 'Clear downloads',
+    body: '<p>Deletes what this browser downloaded. Files you kept are held '
+        + 'separately and are <strong>not</strong> touched.</p>'
+        + (downloads.length
+            ? '<ul class="names">'
+              + downloads.map((n) => '<li>' + SF.esc(n) + '</li>').join('') + '</ul>'
+            : '<p class="small muted">There is nothing downloaded to clear.</p>'),
+    confirm: downloads.length
+      ? 'Clear ' + downloads.length + ' file' + (downloads.length === 1 ? '' : 's')
+      : 'Clear',
+    danger: true,
+    onconfirm: async () => {
+      await api(sessionPath(current, '/files'), 'DELETE');
+      loadFiles(current);
+    },
+  });
+};
 
 /* Ending drops the browser, not the session: the record keeps its browser
    choice and last page, so the caller's next open_session carries on. Still

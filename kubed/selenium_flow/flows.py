@@ -317,6 +317,26 @@ def library_of(key) -> str | None:
         return None
 
 
+def yaml_complaint(exc: Exception) -> str:
+    """Say where a flow document broke, without quoting what was there.
+
+    PyYAML's own message embeds the offending source line verbatim. That text
+    is a person's document, typed into an editor that accepts anything, and it
+    travels further than the person expects: into the HTTP response and into
+    the server log, which outlives the request and is read by people who were
+    never shown the flow. Position plus the parser's short ``problem`` is
+    enough to find the mistake and carries none of the line.
+
+    Every YAML failure in this server goes through here — the store reading a
+    hand-edited file and the admin editor saving one are the same disclosure.
+    """
+    problem = getattr(exc, "problem", None) or "it could not be parsed"
+    mark = getattr(exc, "problem_mark", None)
+    if mark is None:
+        return str(problem).strip()
+    return f"{str(problem).strip()} (line {mark.line + 1}, column {mark.column + 1})"
+
+
 def _step_count(document: dict) -> int:
     """How many steps a document has, for a listing.
 
@@ -356,6 +376,10 @@ class FlowStore(Protocol):
     def save(self, session: str, name: str, document: dict) -> dict: ...
 
     def delete(self, session: str, name: str) -> bool: ...
+
+    def read_text(self, session: str, name: str) -> str | None: ...
+
+    def write_text(self, session: str, name: str, text: str) -> None: ...
 
     def files(self, session: str) -> list[dict]: ...
 
@@ -508,7 +532,14 @@ class LocalFlowStore:
         # naming here: a hand-edited file with one bad byte — or a binary file
         # dropped in the directory — would otherwise take out every listing that
         # walked past it, which is exactly what this branch exists to prevent.
-        except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        except yaml.YAMLError as exc:
+            # Sanitised, because the parser's own message quotes the line it
+            # choked on and this goes to the log. See `yaml_complaint`.
+            log.warning(
+                "flow %s/%s could not be read: %s", session, name, yaml_complaint(exc)
+            )
+            return None
+        except (OSError, UnicodeDecodeError) as exc:
             log.warning("flow %s/%s could not be read: %s", session, name, exc)
             return None
         if not isinstance(loaded, dict):
@@ -548,6 +579,33 @@ class LocalFlowStore:
         except FileNotFoundError:
             return False
         return True
+
+    # -- the document as text, for the editor --------------------------------
+
+    def read_text(self, session: str, name: str) -> str | None:
+        """One flow exactly as it sits on disk, or None if it is not there.
+
+        The editor edits **YAML**, not a re-dump of a parsed dict (§F1.14). A
+        person writes comments in these, and ordering they chose; round-tripping
+        through ``get`` and ``safe_dump`` would silently throw both away the
+        first time anybody opened the editor and saved.
+        """
+        try:
+            return self._path(session, name).read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return None
+
+    def write_text(self, session: str, name: str, text: str) -> None:
+        """Store one flow's YAML verbatim.
+
+        Verbatim for the same reason ``read_text`` exists: what a person typed
+        is what is kept. **The caller validates first** — this writes whatever
+        it is handed, and an invalid document reaching disk is how a listing
+        starts skipping a flow nobody can see is broken.
+        """
+        path = self._path(session, name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
 
     # -- kept files ----------------------------------------------------------
 

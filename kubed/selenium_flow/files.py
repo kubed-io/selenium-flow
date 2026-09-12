@@ -151,6 +151,7 @@ def merged(
     session_id: str,
     token: str | None,
     base: str = "",
+    downloads: list[dict] | None = None,
 ) -> list[dict]:
     """Both halves of a session's files as one list, newest first.
 
@@ -164,10 +165,18 @@ def merged(
     kept half is returned alone — so an error from a browser we were told is
     live is a real fault, and hiding it behind a short list would make a broken
     Grid look like an empty session.
+
+    ``downloads`` is the Grid's own listing when the caller already has it. The
+    admin does, because it has to report what "clear" would remove and this
+    merge is precisely where that answer stops being recoverable — a download
+    shadowed by a kept file of the same name is gone from the result and still
+    very much on the Grid.
     """
     entries: dict[str, dict] = {}
+    if downloads is None:
+        downloads = actions.grid.files(session_id) if session_id else []
     if session_id:
-        for entry in actions.grid.files(session_id):
+        for entry in downloads:
             entries[entry.get("name", "")] = describe(session_id, entry, token, base)
     if store is not None and session:
         for entry in store.files(session):

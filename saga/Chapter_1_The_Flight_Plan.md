@@ -375,6 +375,23 @@ What building it settled:
   added to all of them, so they now share one core (`library_of`) instead of
   three copies of the same branch. The previous round added the third resolver;
   this one stopped them being able to disagree.
+
+**Still open: `stdio` is a name a caller could have chosen.** Review caught the
+rest of that thought after #17 merged. Reserving the name (which the merge does)
+closes the theft, but two things remain. A directory created *before* the
+upgrade by a legitimate `?session=stdio` caller becomes the stdio transport's
+library, so stdio inherits another caller's flows and kept files while the
+original owner is locked out of them. And `?session=stdio`, previously legal,
+now fails — a breaking change for a name nobody was told was special.
+
+**The fix is to name the internal library something a caller cannot produce.**
+`valid_name` requires a leading letter or digit, so `_stdio` is structurally
+unreachable: no pre-existing directory can collide with it, `?session=stdio`
+goes back to being an ordinary private library, and the reserved-name concept —
+along with the exception the skill would otherwise have to teach — disappears
+entirely. The store's path builders would take an internal-name escape hatch;
+nothing else changes. Deferred rather than dropped: it bites only where someone
+already used that one name.
 - **Naming a library is not the same as remembering a browser.** Review caught
   the two conflated. `SessionManager.key()` answers None when `SAVED_SESSIONS`
   is off — correctly, because that switch decides whether this server holds a
@@ -1238,8 +1255,34 @@ here is what stops the drawing and the code drifting apart.
 - **A YAML editor overlay**, carrying the real file from the running pod.
 
 **What it deliberately is not:** no dark mode (the tokens exist; a second set
-would do it), no confirm on `End browser`, and — the significant gap — **no
-detached-browser state**, which is what a session looks like most of the time.
+would do it) and — the significant gap — **no detached-browser state**, which is
+what a session looks like most of the time.
+
+*Corrected 2026-09-12:* this list also said "no confirm on `End browser`". That
+was never true of the built page — `End browser` has always gone through
+`destructive()`, which confirms. A reviewer caught the prose disagreeing with a
+test that pins the confirm, which is the right way round: the test described the
+code and the sentence described nothing.
+
+**Built (2026-09-12).** The page now matches the drawing. Three things the
+drawing could not settle and the build did:
+
+- **The shared component library may not grow buttons.** `components.js` is
+  rendered by the MCP app too, which holds no credential, and a control there
+  is a button that cannot work — there is a test pinning that. So the file
+  tiles render their marks as **spans with data attributes**, inert until the
+  page opts in with `actions: true`, and the page wires the clicks. Flow
+  rendering did not go in that library at all: flows are admin-only, so putting
+  them in the *shared* one would have been filing them by convenience.
+- **`Clear downloads` could not use `confirm()`.** §F1.10 says its confirm
+  lists the names it will remove, and a native dialog cannot show a list — so
+  the page grew one small modal, which the flow delete and the YAML editor then
+  reused. The two toolbar buttons consequently stopped sharing one helper,
+  which a test had been asserting; it now asserts the thing that actually
+  mattered, which is that both ask first and both report a failure.
+- **The last page is a link, so it had to stop being trusted.** Escaping makes
+  a URL safe to *display*; `javascript:` is a URL too. `safeHref` is why only
+  `http(s)` becomes an anchor.
 
 **Method worth keeping.** The design tokens are transcribed from `app.css`'s own
 custom properties (`--accent`, `--line`, `--radius`…) rather than invented, so
@@ -1247,6 +1290,55 @@ the design cannot drift from the stylesheet without one of them being wrong on
 purpose. Every colour and type property is token-bound; the bubble's five
 gradient fills are the only exception, because a gradient cannot bind to a
 single colour token.
+
+### §F1.37 — Found by flying it: the browser that accepts everything and does nothing
+
+**Status: fixed (2026-09-12).** Everything above was reasoned about, drawn and
+tested. This one was only ever going to be found by driving the deployed server
+against the real Grid, and it is the worst-shaped defect this repo has had.
+
+**The symptom.** After `run_flow` ran a login, every later call kept succeeding
+and nothing happened. `interact` found its element, reported the action, and
+returned the page state; the page had not moved. `write` reported
+`value: ""` — it had typed nothing — and nobody was checking. Clicking a
+download link produced no download. `execute_script` worked perfectly
+throughout, which is what made it look like a page problem rather than a
+browser one.
+
+**The cause.** Submitting a password makes Chrome offer to save it. That offer
+is *browser furniture*, not anything in the document: it takes the input focus
+and does not give it back, so every synthesised click and keystroke afterwards
+is delivered to the bubble. WebDriver has no idea. It finds elements through
+the DOM, and dispatching input is fire-and-forget — there is no acknowledgement
+that says "the page received this".
+
+**Why it is the worst shape.** A failure that raises is a failure someone fixes.
+This one reports `status: ok, steps_run: 5, steps_total: 5` on the flow that
+broke the browser, and then reports success on everything that follows. It is
+silent, it is permanent for the life of that browser, and it is triggered by the
+**flagship** use case — the login flow, the thing the whole secrets system in
+Part III exists to serve.
+
+**The fix** is three Chrome prefs and one Firefox pref: never make the offer.
+Bounded by the same rule as the automatic-downloads pref two lines above it —
+*nobody is here to answer a browser prompt, so no browser prompt may be raised.*
+That rule now has two instances and should be the first question asked of any
+new capability: what does the browser ask the user, and who answers it?
+
+**Method note.** The proof is a two-arm probe run in the pod against the live
+Grid — same script, one variable, four runs. Baseline typed `''` twice;
+suppressed typed the string twice. Neither the unit suite nor any amount of
+reading would have produced it, because both halves of the mechanism are outside
+the code: Chrome's UI policy and the Grid's node.
+
+**Also found the same way:** `screenshot(save=true)` returned the image and
+threw away the file record. The name is the one thing a caller has to have —
+`keep_file` takes it, and Chrome deduplicates, so `shot.png` can land as
+`shot (1).png` and nobody can derive it. The HTTP endpoint had been returning it
+since the beginning; only the MCP tool lost it, to its own `-> Image` return
+type. Two surfaces, one action, different answers — which is exactly what
+`test_surfaces.py` exists to prevent, and could not see here because it compares
+*which* actions exist rather than what they return.
 
 ## Part III — Sealed orders: the secrets system
 
@@ -1853,12 +1945,15 @@ The backend is **done**; the UI that reads it is the next PR.
       where the file is *made*, which for a download is inside the Grid's store,
       where we can write nothing. It needs a sidecar of our own keyed by name,
       so it is its own change rather than a line in this one
-- [ ] Admin UI: the marks are a bubble (download), a pin (kept) and a trash on
-      hover for kept files only — designed in §F1.36, and the payload it needs
-      now exists: every entry carries `kept`, and each session row carries
-      `kept_count` and `flows_count`
-- [ ] `Clear downloads`' confirm **lists the names** it will remove — UI, so it
-      goes with the row above
+- [x] Admin UI: the marks are a bubble (download), a pin (kept) and a trash on
+      hover for kept files only — designed in §F1.36. The marks are rendered as
+      data attributes rather than buttons, and are inert unless the surface
+      opts in, because the same tiles are drawn inside an MCP app holding no
+      credential
+- [x] `Clear downloads`' confirm **lists the names** it will remove, which is
+      what forced the page to grow a modal: a native `confirm()` cannot show a
+      list, and a count without the names is an assertion rather than a
+      disclosure
 - [ ] **Cluster repo:** `FLOW_DATA_DIR` is a 64Mi emptyDir today — right for
       YAML, far too small once files land beside it. **This is now load-bearing
       rather than theoretical:** kept files land there as of this epic
@@ -1937,13 +2032,30 @@ Independent of everything above.
 - [ ] Admin UI: every session directory listed, with its flows and its kept-file
       size, and a **delete** for a directory whose session is finished with
       (question #5)
-- [ ] Admin UI: a **simple YAML editor** for one flow, and the move button —
+- [x] Admin UI: a **simple YAML editor** for one flow, and the move button —
       **To global** / **To this session**, which is one verb rather than a
-      promote (§F1.2, §F1.14). A richer editor is a later chapter.
-- [ ] Admin UI: a **Delete** for one flow, beside the move. `delete_flow`
-      already exists; the UI never offered it.
-- [ ] **All of the above is now designed** (§F1.36) and none of it is built.
-      The drawing is the Penpot file **Admin UI**.
+      promote (§F1.2, §F1.14). A richer editor is a later chapter. The editor
+      carries the **file from the store**, not a re-dump of the parsed document:
+      a person writes comments in these, and a round trip through a dict throws
+      them away invisibly the first time anybody presses Save. That is why the
+      store grew `read_text`/`write_text`
+- [x] Admin UI: a **Delete** for one flow, beside the move, and it confirms
+- [x] **The admin needed a flow API of its own**, which the plan did not name:
+      `/flows/*` is scoped to whoever is calling and refuses the shared library,
+      while this surface addresses **any** session and is allowed into `global`.
+      It deliberately does not go through `flowapi.writable` — that gate keeps
+      *agents* out of a live shared library, and this is the surface where a
+      person is present and allowed in. The move is write-then-delete, so a
+      failure between the two leaves the flow in both places, which an operator
+      can see and fix; the other order loses it
+- [x] **All of the above was designed first** (§F1.36) and is now built. The
+      drawing is the Penpot file **Admin UI**
+- [x] **Then it was flown**, against the deployed image and the real Grid, which
+      is the only thing that could have found §F1.37 — a login leaving a browser
+      that accepts every command and performs none of them. Two fixes came out
+      of one session of actually using the thing, and neither was reachable from
+      the unit suite. Do this at the end of every feature epic, not at the end
+      of the chapter
 - [x] `skills/selenium-flow/references/FLOWS.md` + its row in `SKILL.md` (§F1.16)
 - [x] Say in the skill that **`global` is shared and readable by every session**
       — not guessable from a tool schema (§F1.2). Writing it down found that
@@ -1966,6 +2078,15 @@ Independent of everything above.
       `/browser/*` — its page template is shaped around a browser action and
       a `curl` to `/browser/{path}`. Split out of the skill PR so neither
       becomes the other's review
+- [ ] **Separate PR: the admin page is keyboard-operable as a whole.** Review
+      found this one layer at a time — round one named the accordion headers
+      and the file marks, round two named the flow list items, the step rows
+      and the modal — and taking a layer per round is how the page ends up
+      *less* consistent than it started, because only the named controls get
+      fixed. The fixed two are done; what is left is one decision applied
+      everywhere: how a list-like control on this page takes focus, plus a
+      modal with `role="dialog"`, `aria-modal`, an accessible name, and focus
+      moved in and restored on close. Do it as a pass, not as a patch
 - [ ] `CHANGELOG.md` `[Unreleased]` — one short line per user-visible thing, per
       PR, or `pr.yml` fails the gate
 - [ ] **Separate, last PR:** the `AGENTS.md` thinning (§F1.15)

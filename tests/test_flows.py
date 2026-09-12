@@ -6,6 +6,8 @@ session a caller's flows belong to, and that a name from a URL cannot become a
 path outside the data directory.
 """
 
+import logging
+
 import pytest
 import yaml
 
@@ -424,3 +426,44 @@ def test_the_name_written_into_the_file_is_the_one_lookups_use(store, tmp_path):
     store.save("bot", " login ", {"steps": []})
     on_disk = yaml.safe_load((tmp_path / "bot" / "flows" / "login.yaml").read_text())
     assert on_disk["name"] == "login"
+
+
+# ---- what a broken document is allowed to say about itself -------------------
+
+BAD_YAML = """
+name: login
+steps:
+  - tool: write
+    params: {text: hunter2-the-actual-password
+"""
+
+
+def test_a_yaml_complaint_never_quotes_the_line_it_choked_on():
+    """PyYAML's own message embeds the offending source verbatim, and this text
+    reaches the HTTP response and the server log — which outlives the request
+    and is read by people who were never shown the document. Position and the
+    parser's short problem locate the mistake and carry none of the line."""
+    with pytest.raises(yaml.YAMLError) as exc:
+        yaml.safe_load(BAD_YAML)
+    said = flows.yaml_complaint(exc.value)
+    assert "hunter2" not in said
+    assert "hunter2" in str(exc.value), "otherwise this test proves nothing"
+    assert "line 6" in said and "column" in said
+
+
+def test_a_yaml_complaint_survives_an_error_carrying_no_position():
+    """`yaml.YAMLError` is a base class and not every subclass marks a spot."""
+    assert flows.yaml_complaint(yaml.YAMLError("boom")) == "it could not be parsed"
+
+
+def test_a_file_that_will_not_parse_is_logged_without_its_contents(
+    store, tmp_path, caplog
+):
+    """The store reads hand-edited files, so it hits the same disclosure the
+    editor does — one rule, applied in both places."""
+    (tmp_path / "bot" / "flows").mkdir(parents=True)
+    (tmp_path / "bot" / "flows" / "broken.yaml").write_text(BAD_YAML)
+    with caplog.at_level(logging.WARNING):
+        assert store.get("bot", "broken") is None
+    assert "hunter2" not in caplog.text
+    assert "broken" in caplog.text
