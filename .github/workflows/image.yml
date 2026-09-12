@@ -127,12 +127,27 @@ jobs:
     # That is why the cache-to/cache-from in docker-compose.yaml had never once
     # produced a CACHED layer, measured across two identical builds in a row.
     #
-    # This exports them for the steps that follow, which includes the composite
-    # action's. The durable fix is in kubed-io/actions — `docker/bake-action`
-    # injects this itself — and would fix every repo that calls it; this is the
-    # one-line version that fixes ours now.
+    # A JS action can read them, so one exports them for the steps that follow —
+    # which includes the composite action's. `crazy-max/ghaction-github-runtime`
+    # is the usual way to do this; it is not used here because it would add a
+    # publisher to a trusted set that .github/zizmor.yml deliberately keeps
+    # short, and `actions/` is already in it for eight lines of script.
+    #
+    # The durable fix is in kubed-io/actions: `docker/bake-action` injects this
+    # itself, and would fix every repo that calls the action rather than ours.
     - name: Expose the Actions runtime to buildx
-      uses: crazy-max/ghaction-github-runtime@v3
+      uses: actions/github-script@v8
+      with:
+        script: |
+          for (const name of ['ACTIONS_RUNTIME_TOKEN', 'ACTIONS_RESULTS_URL',
+                              'ACTIONS_CACHE_URL']) {
+            const value = process.env[name];
+            if (!value) continue;
+            // Masked before it is exported: it is a bearer token, and a later
+            // step echoing its environment must not print it.
+            if (name.endsWith('TOKEN')) core.setSecret(value);
+            core.exportVariable(name, value);
+          }
 
     - name: Build and Push
       uses: kubed-io/actions/build-image@main
