@@ -233,3 +233,19 @@ def test_the_project_is_installed_with_its_extra():
     install = next(ln for ln in builder if ln.startswith("pip install --no-cache-dir ."))
     assert "[redis]" in install
     assert "--no-deps" not in install
+
+
+def test_the_toml_reader_works_on_the_oldest_python_the_image_can_build():
+    """PY_VERSION is an ARG and the project's requires-python is >=3.10, but
+    tomllib is 3.11+. Reading pyproject.toml with a 3.11-only parser quietly
+    made `PY_VERSION=3.10 docker compose build` impossible. The backport
+    tomllib was adopted from covers it, under the same marker pyproject.toml's
+    own [test] extra already uses — and it has to be installed BEFORE the
+    reader runs, which is the part an ordering change would break silently."""
+    source = (REPO / "scripts" / "requirements.py").read_text()
+    assert "import tomli as tomllib" in source
+    builder = dockerfile_stages()["builder"]
+    backport = next(i for i, ln in enumerate(builder) if "tomli" in ln)
+    reader = next(i for i, ln in enumerate(builder) if "requirements.py runtime" in ln)
+    assert backport < reader, "the parser must exist before the script runs"
+    assert "python_version < '3.11'" in builder[backport]

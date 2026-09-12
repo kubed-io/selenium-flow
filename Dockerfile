@@ -58,8 +58,13 @@ set -eu
 # second thing to keep in step, and the way that fails is an image built
 # against dependencies nobody declared. [redis] is baked in so that turning on
 # shared saved sessions is a matter of setting REDIS_URL, not a different image.
-python scripts/requirements.py runtime --extra redis > /tmp/requirements.txt
 pip install --no-cache-dir --upgrade pip
+# The reader needs a TOML parser, and tomllib is 3.11+. PY_VERSION is an ARG
+# and the project supports 3.10, so the marker supplies the backport there and
+# installs nothing anywhere else — the same marker pyproject.toml's own [test]
+# extra uses.
+pip install --no-cache-dir "tomli; python_version < '3.11'"
+python scripts/requirements.py runtime --extra redis > /tmp/requirements.txt
 pip install --no-cache-dir -r /tmp/requirements.txt
 SHELL
 

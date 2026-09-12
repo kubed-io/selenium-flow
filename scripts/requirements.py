@@ -22,12 +22,17 @@ import argparse
 import pathlib
 import sys
 
-# tomllib is 3.11+. Nothing builds the image on 3.10 — but saying so plainly
-# beats an ImportError from inside a Docker layer, which is where this runs.
+# tomllib is 3.11+, and the image can be built on 3.10: PY_VERSION is an ARG
+# and the project supports it. The backport tomllib was adopted from is the
+# same parser, and it is how tests/test_packaging.py already reads this file —
+# the Dockerfile installs it under the same marker before running this.
 try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - 3.10 only
-    tomllib = None  # type: ignore[assignment]
+    try:
+        import tomli as tomllib
+    except ModuleNotFoundError:
+        tomllib = None  # type: ignore[assignment]
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -36,8 +41,8 @@ def read(path: pathlib.Path) -> dict:
     """pyproject.toml, parsed."""
     if tomllib is None:
         raise SystemExit(
-            "reading pyproject.toml needs Python 3.11 or newer for tomllib. "
-            "The image builds on 3.14; check PY_VERSION if you changed it."
+            "no TOML parser: this is Python 3.10 or older and tomli is not "
+            "installed. `pip install tomli`, or build on 3.11+."
         )
     return tomllib.loads(path.read_text(encoding="utf-8"))
 
