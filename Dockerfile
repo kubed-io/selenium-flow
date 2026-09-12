@@ -83,6 +83,13 @@ FROM python:${PY_VERSION}-slim AS runner
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
 
+# Copied to the SAME path it was created at, which is the one rule. A venv is
+# this project's node_modules — one self-contained directory you move across
+# and call it done — except that node_modules is relocatable and a venv is not:
+# it records its own absolute path in pyvenv.cfg and in every console script's
+# shebang. Land it anywhere else and it points at an interpreter that is not
+# there.
+#
 # The venv is built against python:${PY_VERSION} and run on its -slim variant:
 # same Debian, same interpreter at the same path, so the symlinks and
 # pyvenv.cfg still resolve. That is an assumption worth failing the BUILD over
