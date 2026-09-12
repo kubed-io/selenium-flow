@@ -14,6 +14,7 @@ The Grid is never dialled. What is asserted is the part this server decides.
 """
 
 from unittest.mock import patch
+from urllib.parse import quote
 
 import pytest
 import requests
@@ -503,6 +504,34 @@ def test_a_grid_that_says_no_is_not_a_500(client, live):
     assert response.status_code == 404
 
 
+def test_a_grid_refusal_does_not_echo_the_grid_url():
+    """`raise_for_status` formats its message with the full request URL, and
+    GRID_URL may carry credentials in its userinfo — so returning that string
+    hands the Grid's credential to whoever made the request, and logs it."""
+    response = requests.Response()
+    response.status_code = 404
+    response.url = "http://user:hunter2@grid.internal:4444/session/abc/se/files"
+    exc = requests.HTTPError(
+        f"404 Client Error: Not Found for url: {response.url}", response=response
+    )
+    text = errors.message(exc)
+    assert "hunter2" not in text and "grid.internal" not in text
+    assert "404" in text, "the useful half survived"
+
+
+async def test_the_file_listing_tool_enforces_the_session_mode(
+    kept_server, named_caller
+):
+    """Every other tool enforces this through `sessions.resolve`, which this one
+    cannot call: resolve opens a browser when the record has none, and a listing
+    that opened one would be the leak the status resource refuses to be. A
+    browser id is the whole credential for driving that browser, so being handed
+    another caller's downloads — with a signed URL each — is not nothing."""
+    tool = await kept_server.mcp.get_tool(files.FILES_TOOL)
+    with pytest.raises(ValueError, match="do not pass session_id"):
+        tool.fn(session_id="somebody-elses-browser")
+
+
 @pytest.mark.parametrize(
     "status,expected",
     [(404, 404), (400, 400), (422, 400), (500, 503), (502, 503), (None, 503)],
@@ -621,6 +650,40 @@ def test_a_grid_outage_is_an_error_not_an_empty_download_list(client, live):
     ):
         response = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH)
     assert response.status_code == 502
+
+
+BAD_KEY = "named:my bot"
+
+
+def test_a_session_whose_name_is_not_a_directory_keeps_nothing(client, kept_server):
+    """`session_for` hands such a caller `global`, which is right for a browser
+    — the key is opaque there — and catastrophic for storage: this session's
+    private file would land in the shared library, where every unnamed caller
+    can list it and fetch it through a signed URL. It is the same mistake E6
+    fixed for flows, arriving on the file side through the admin surface."""
+    kept_server.sessions.store.set(BAD_KEY, SessionRecord(session_id="abc"))
+    with patch.object(browser.Grid, "read_file", return_value=b"PDF"):
+        response = client.post(
+            f"/admin/sessions/{quote(BAD_KEY, safe='')}/files/report.pdf/keep",
+            headers=AUTH,
+        )
+    assert response.status_code == 400
+    assert "not usable" in response.json()["error"]
+    assert kept_server.flows.files(flows.GLOBAL_SESSION) == [], "it leaked to global"
+
+
+def test_such_a_session_shows_unknown_counts_not_the_shared_librarys(
+    client, kept_server
+):
+    """Borrowing `global`'s numbers would tell an operator this session has a
+    file and a flow it has no way to reach."""
+    kept_server.flows.write_file(flows.GLOBAL_SESSION, "shared.pdf", b"x")
+    kept_server.flows.save(flows.GLOBAL_SESSION, "shared", {"steps": []})
+    kept_server.sessions.store.set(BAD_KEY, SessionRecord(session_id=""))
+    with patch.object(browser.Grid, "sessions", return_value=[]):
+        body = client.get("/admin/sessions", headers=AUTH).json()
+    row = next(r for r in body["sessions"] if r["key"] == BAD_KEY)
+    assert row["kept_count"] is None and row["flows_count"] is None
 
 
 def test_the_session_list_counts_flows_and_kept_files(client, live):

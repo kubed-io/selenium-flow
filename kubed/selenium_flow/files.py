@@ -316,6 +316,19 @@ def register(
         annotations=reads("Files this session has"),
     )
     def session_files(session_id: str | None = None) -> dict:
+        # The mode rule every other tool enforces through `sessions.resolve`,
+        # applied directly because this must not call it: `resolve` OPENS a
+        # browser when the record has none, and a listing that opened one would
+        # be the leak the status resource already refuses to be.
+        #
+        # `ShapeSessionId` hides this argument in saved mode, but that is
+        # presentation: a crafted call could still name another caller's browser
+        # and be handed its downloads, with signed URLs for each.
+        if session_id and sessions.mode() == sessions.SAVED:
+            raise ValueError(
+                "do not pass session_id: this server is holding a browser for "
+                "you, and its files are the ones you get. Omit it."
+            )
         return listing(
             actions, sessions, store, token, session_id=session_id, base=base
         )
@@ -385,8 +398,14 @@ def _routes(mcp, actions, sessions, store, token, base, prefix) -> None:
         except Exception as exc:  # errors.py decides what it means
             status = errors.status_for(exc)
             text = errors.message(exc)
-            if status >= 500:
+            if status == 500:
+                # Only the status we do not understand earns a traceback. A 503
+                # is a known condition — the Grid is unreachable or refusing —
+                # and its frames carry the exception text, which for a Grid
+                # refusal is where the Grid URL lives.
                 log.exception("files/%s failed", what)
+            elif status > 500:
+                log.warning("files/%s unavailable (%s): %s", what, status, text)
             else:
                 log.info("files/%s refused (%s): %s", what, status, text)
             return JSONResponse({"error": text}, status_code=status)

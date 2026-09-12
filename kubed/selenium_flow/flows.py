@@ -220,6 +220,36 @@ def session_of(sessions, explicit: str | None = None) -> str:
     return GLOBAL_SESSION
 
 
+def library_of(key) -> str | None:
+    """The session directory a store key owns, or None if it cannot have one.
+
+    The strict counterpart to :func:`session_for`, and they differ on exactly
+    one input: a caller that named itself something no directory can be called.
+
+    :func:`session_for` hands that caller ``global``. That is right for a
+    *browser* — the key is an opaque string there, and refusing it would break a
+    working session over a feature they are not using — and it is wrong for
+    anything **stored**, because the caller's private flows and files would land
+    in the shared library, where every unnamed caller can read them. That is the
+    bug E6 fixed for flows; this function exists so it cannot come back for
+    files.
+
+    :func:`session_of` refuses such a name out loud, which is right on a surface
+    where one caller is waiting for one answer. The admin surface cannot refuse:
+    it lists **every** session there is, unusable names included, and one bad row
+    must not take the listing down. So it gets a third answer — None, meaning
+    "this session has nowhere to keep anything" — and shows it as unknown rather
+    than borrowing the shared library's.
+    """
+    named = named_session(key)
+    if named is None:
+        return GLOBAL_SESSION
+    try:
+        return valid_name(named, "session name")
+    except InvalidName:
+        return None
+
+
 def _step_count(document: dict) -> int:
     """How many steps a document has, for a listing.
 

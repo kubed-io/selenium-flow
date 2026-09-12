@@ -129,7 +129,18 @@ def message(exc: BaseException) -> str:
 
     Never returns an empty string: an error with no text at all is worse than a
     class name, which at least says what kind of thing went wrong.
+
+    A Grid refusal is cut short deliberately. ``raise_for_status`` formats its
+    message as ``"404 Client Error: Not Found for url: <the full URL>"``, and
+    ``GRID_URL`` may carry credentials in its userinfo — so that string would
+    hand the Grid's credential to whoever made the request, and write it to the
+    log besides. The status and reason are the whole of the useful part. Done
+    here rather than in each of the three handlers, for the reason this module
+    exists: one place decides what a failure says.
     """
+    if isinstance(exc, requests.HTTPError):
+        text = str(exc).split(" for url:", 1)[0].strip()
+        return text or "the grid refused the request"
     text = str(getattr(exc, "msg", None) or exc)
     text = text.split("Stacktrace:", 1)[0].strip()
     if text.lower().startswith("message:"):

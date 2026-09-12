@@ -254,10 +254,14 @@ def register(
             # So a detached session still reports a number, which is the whole
             # reason keeping exists — a count that emptied when the Grid reaped
             # a browser would make the durable half look lost.
-            session = flows.session_for(key)
-            kept = counted(flow_store.files, session) if flow_store is not None else 0
+            # None when the session named itself something no directory can be
+            # called. Such a session keeps nothing, and must not be shown the
+            # shared library's counts as though they were its own.
+            session = flows.library_of(key)
+            stores = flow_store is not None and session is not None
+            kept = counted(flow_store.files, session) if stores else 0
             count = None
-            if live or flow_store is not None:
+            if live or stores:
                 count = (downloads or 0) + kept
             rows.append(
                 {
@@ -280,11 +284,9 @@ def register(
                     # what this session has accumulated, and the other reason to
                     # click into it. None when flows are off, which is not zero.
                     "flows_count": (
-                        counted(flow_store.names, session)
-                        if flow_store is not None
-                        else None
+                        counted(flow_store.names, session) if stores else None
                     ),
-                    "kept_count": kept if flow_store is not None else None,
+                    "kept_count": kept if stores else None,
                     **_grid_facts(running.get(sid, {})),
                 }
             )
@@ -362,6 +364,22 @@ def register(
             },
         )
 
+    def library(key: str) -> str:
+        """The session directory this key owns, or refuse.
+
+        The write paths cannot fall back to ``global`` the way a browser lookup
+        does: that would put one session's file in the shared library. An
+        ``InvalidName`` is a ValueError, so ``errors.py`` already answers 400.
+        """
+        session = flows.library_of(key)
+        if session is None:
+            raise flows.InvalidName(
+                f"session {key!r} cannot keep files: its name is not usable as "
+                "a directory. Use letters, digits, dots, dashes and "
+                "underscores, starting with a letter or digit."
+            )
+        return session
+
     def attached_id(key: str) -> str:
         """The browser a flow session currently holds, or "" if none."""
         store = getattr(sessions, "store", None)
@@ -430,7 +448,9 @@ def register(
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         key = request.path_params["key"]
-        session = flows.session_for(key)
+        # A session whose name cannot be a directory keeps nothing, so it has no
+        # kept files to merge — and must not be shown the shared library's.
+        session = flows.library_of(key) or ""
         try:
             if request.method == "DELETE":
                 session_id = attached_id(key)
@@ -491,7 +511,7 @@ def register(
                 files.keep_one,
                 actions,
                 flow_store,
-                flows.session_for(key),
+                library(key),
                 attached_id(key),
                 name,
             )
@@ -515,7 +535,7 @@ def register(
         name = request.path_params["name"]
         try:
             removed = await run_in_threadpool(
-                files.delete_one, flow_store, flows.session_for(key), name
+                files.delete_one, flow_store, library(key), name
             )
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             status = errors.status_for(exc)

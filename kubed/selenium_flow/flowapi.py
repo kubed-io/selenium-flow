@@ -542,8 +542,12 @@ def _routes(
         except Exception as exc:  # errors.py decides what it means
             status = errors.status_for(exc)
             text = errors.message(exc)
-            if status >= 500:
+            if status == 500:
+                # See files.py: a traceback only for the status we cannot
+                # explain, since a Grid refusal's text carries its URL.
                 log.exception("flows/%s failed", what)
+            elif status > 500:
+                log.warning("flows/%s unavailable (%s): %s", what, status, text)
             else:
                 log.info("flows/%s refused (%s): %s", what, status, text)
             return JSONResponse({"error": text}, status_code=status)

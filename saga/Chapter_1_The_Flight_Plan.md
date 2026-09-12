@@ -1818,7 +1818,23 @@ capabilities and neither has an MCP tool, so an endpoint alone would be
 precisely the half-a-capability this project forbids. The admin routes reach
 both, which is the operator surface they belong on.
 
-Two things review caught that the design had got wrong, both worth keeping:
+**There are now three resolvers, and which one to use is a real decision.**
+Review caught the third being missing. `session_for` is *lenient* — an unusable
+session name falls back to `global`, which is right for a **browser**, where the
+key is opaque and refusing it would break a working session over a feature the
+caller is not using. `session_of` is *strict* and refuses out loud, which is
+right wherever one caller waits for one answer. The admin surface needs a third
+answer, because it lists **every** session including the unusable ones and one
+bad row must not take the listing down: `library_of` returns None, meaning "this
+session has nowhere to keep anything", and the UI shows unknown rather than
+borrowing `global`'s counts.
+
+Using the lenient one for storage is how a session's private file would have
+landed in the shared library — the same bug E6 fixed for flows, arriving on the
+file side through the admin surface. Any new stored noun picks `library_of` or
+`session_of`, never `session_for`.
+
+Three things review caught that the design had got wrong, all worth keeping:
 
 - **A file name must not be trimmed.** `valid_name` trims a *session* name
   because a caller typed it and a trailing space is a typo. Nobody types a file
@@ -1831,6 +1847,12 @@ Two things review caught that the design had got wrong, both worth keeping:
   instead: a folded printable-ASCII `filename`, plus the real name in
   `filename*`. Folding also closes the header-injection route a raw CR or LF
   would open.
+- **A hidden argument is not an enforced one.** `session_files` accepted an
+  explicit `session_id` while `ShapeSessionId` hid that argument in saved mode,
+  so the published schema and the behaviour disagreed. It cannot reach for
+  `sessions.resolve` to fix that — resolve *opens* a browser, and a listing that
+  opened one would be the leak the status resource already refuses to be — so it
+  applies the mode rule directly instead.
 
 One bug worth recording, because it was invisible in review and loud in a test:
 `admin.py` already bound a local named `store` — the *session record* store —
