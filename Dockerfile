@@ -1,40 +1,54 @@
 # The image is a wrapper around the wheel. No browser here — the browser lives
 # on the Grid, which is the whole point; this only speaks WebDriver to it.
 #
-# Three stages, and `runner` is the whole point of the shape: it is `FROM
-# deps`, so it carries the runtime dependencies and NOTHING else — no git,
-# no build backend, no source. Those live in `wheel`, which is also FROM
-# deps and which nothing inherits from.
+# Two stages, and the thing that passes between them is a VIRTUALENV.
 #
-# The split exists because installing the third-party dependency set IS this
-# build, and it used to be done TWICE: the build stage installed the runtime
-# dependencies (and twine) in order to build a wheel that needs neither, and
-# the runner then installed them all again. Removing that duplication is what
-# takes the build from ~9m30 to ~4m15.
+# A venv inside a container looks like ceremony — the container is already an
+# isolated box with one Python and one project in it. It is not here for
+# isolation. It is here for RELOCATION: it makes the whole installed program
+# one directory with a layout that does not depend on how the base image's
+# Python was packaged, so `COPY --from` can move it in a single instruction.
 #
-# What is left is linux/arm64 under emulation. The identical dependency install
-# measures 21s on amd64 and 222s on arm64; native arm64 runners, not this file,
-# are what would close that.
+# The alternative is `pip install --prefix=/install` and copying that onto
+# /usr/local, which needs no venv and no PATH. It works on these images, but
+# where it lands is decided by the interpreter's sysconfig scheme: a
+# Debian-packaged Python writes <prefix>/local/lib/pythonX/dist-packages, and a
+# python.org one writes <prefix>/lib/pythonX/site-packages. The official
+# python:X images are the second, so it would work — until a base image change
+# makes it the first, silently. The venv has no such variance. It also keeps
+# pip able to SEE the dependency layer, which is what lets the project install
+# below be an ordinary one instead of `--no-deps`.
 #
-# The split is also what a layer cache needs in order to be useful, since the
-# install no longer sits behind `COPY . .` — which every commit invalidated,
-# .git being in the context for setuptools_scm. That half is done. It buys
-# nothing across runs YET: `docker buildx bake` is invoked from a plain shell
-# step with no ACTIONS_RUNTIME_TOKEN in its environment, so the `type=gha`
-# cache configured in docker-compose.yaml is silently a no-op — measured, not
-# assumed: two identical builds in a row, zero CACHED layers, no cache manifest
-# imported or exported. Wiring it up is a change to kubed-io/actions.
+# That is the part this used to get wrong. The builder installed the runtime
+# dependencies to build a wheel that does not need them, and then the runner
+# installed them ALL OVER AGAIN from that wheel. Two full dependency installs,
+# and arm64 runs under emulation where the same install costs 222s instead of
+# 21s. Copying the venv is what removes the second one.
+#
+# Dependencies are installed before the source, so that layer is keyed on
+# pyproject.toml rather than on every commit — .git is in the build context for
+# setuptools_scm, so `COPY . .` in front of the install invalidated it even for
+# a docs-only push. That only pays off with a layer cache, and the `type=gha`
+# one configured in docker-compose.yaml had never worked: buildx was run from a
+# shell step, which does not get ACTIONS_RUNTIME_TOKEN. image.yml now exports
+# it.
 ARG PY_VERSION=3.14
 
-# ---- deps: the third-party install, and NOTHING that changes with the source.
-#      Everything below is FROM this, so anything added here ships.
-FROM python:${PY_VERSION}-slim AS deps
+# ---- builder: the FAT image, because nothing in it ships.
+#      python:${PY_VERSION} already carries git — which setuptools_scm needs to
+#      resolve the version — and a toolchain for any dependency that has no
+#      wheel for the target architecture. Using -slim here would mean an
+#      apt-get to put git back.
+FROM python:${PY_VERSION} AS builder
 
 WORKDIR /app
 
-# The only two files that decide the dependency set, so this layer's cache key
-# is their digest and a source edit cannot invalidate it. See the note above
-# about what still has to happen for that to mean a cache HIT.
+# Everything installs in here, and this is what the runner receives.
+RUN python -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+
+# The only two files that decide the dependency set. Keeping the source out of
+# this layer is what keeps a UI edit from reinstalling selenium.
 COPY pyproject.toml ./
 COPY scripts/requirements.py ./scripts/
 
@@ -43,61 +57,39 @@ set -eu
 # Read out of pyproject.toml rather than restated here: a second copy is a
 # second thing to keep in step, and the way that fails is an image built
 # against dependencies nobody declared. [redis] is baked in so that turning on
-# shared saved sessions is a matter of setting REDIS_URL, not of building a
-# different image — and so the runner's install below finds it already there.
+# shared saved sessions is a matter of setting REDIS_URL, not a different image.
 python scripts/requirements.py runtime --extra redis > /tmp/requirements.txt
 pip install --no-cache-dir --upgrade pip
 pip install --no-cache-dir -r /tmp/requirements.txt
-# This stage IS the runtime image, so the source it was configured from does
-# not stay in it. The wheel stage copies back what it needs.
-rm -rf scripts pyproject.toml /tmp/requirements.txt
 SHELL
 
-# ---- wheel: our own code, built with tools that must not reach the runner.
-#      git is installed HERE and only here. Putting it in `deps` would ship it.
-FROM deps AS wheel
-
-# Before the source, so the backend install is cached on these two alone.
-COPY pyproject.toml ./
-COPY scripts/requirements.py ./scripts/
-
-RUN <<'SHELL'
-set -eu
-# setuptools_scm resolves the version from git history, so git has to be here
-# and .git has to survive .dockerignore.
-apt-get update
-apt-get install -y --no-install-recommends git
-rm -rf /var/lib/apt/lists/*
-# `build` is the frontend; what it needs to run is [build-system].requires,
-# which pyproject.toml already names and pins.
-python scripts/requirements.py build > /tmp/build-requirements.txt
-pip install --no-cache-dir build -r /tmp/build-requirements.txt
-SHELL
-
+# Then our own code, which changes on every commit and installs in seconds.
 COPY . .
 
 RUN <<'SHELL'
 set -eu
 git config --global --add safe.directory /app
-# --wheel only: the runner installs the wheel, and the sdist beside it was
-# built and thrown away on every build.
-python -m build --wheel --no-isolation
+# An ordinary install, extra and all: pip reports every dependency already
+# satisfied by the layer above and installs only this project. It self-heals if
+# the two ever drift, which `--no-deps` would instead ship as an ImportError —
+# and `--no-deps` silently ignores [redis] as well.
+pip install --no-cache-dir .[redis]
 SHELL
 
-# ---- runner: the dependency layer, plus our wheel. No git, no build backend.
-FROM deps AS runner
+# ---- runner: slim, and it receives one directory.
+#      No git, no toolchain, no source, and no second dependency install.
+FROM python:${PY_VERSION}-slim AS runner
 
-COPY --from=wheel /app/dist ./dist/
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
 
-RUN <<'SHELL'
-set -eu
-# An ordinary install, not `--no-deps`. Everything it needs is already in the
-# layer underneath, so pip reports each one already satisfied and installs only
-# our wheel — and if the two ever drift it fixes that rather than shipping an
-# ImportError. `--no-deps` would also silently ignore the [redis] extra.
-pip install --no-cache-dir "$(echo ./dist/*.whl)[redis]"
-rm -rf ./dist
-SHELL
+# The venv is built against python:${PY_VERSION} and run on its -slim variant:
+# same Debian, same interpreter at the same path, so the symlinks and
+# pyvenv.cfg still resolve. That is an assumption worth failing the BUILD over
+# rather than a running pod, so it is checked here — this imports the whole
+# dependency tree, which is what would break if a wheel needed a shared library
+# that only the fat image has.
+RUN python -c "from kubed.selenium_flow.server import SeleniumMCP"
 
 ENV TRANSPORT=http \
     HOST=0.0.0.0 \

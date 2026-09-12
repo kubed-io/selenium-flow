@@ -164,7 +164,7 @@ def dockerfile_stages() -> dict[str, list[str]]:
 
     Parsed rather than split on the word FROM, which also appears in the prose
     at the top of the file — a split found the comment and silently returned an
-    empty stage, so the test below passed by testing nothing.
+    empty stage, so a test passed by testing nothing.
     """
     stages: dict[str, list[str]] = {}
     current = None
@@ -178,38 +178,58 @@ def dockerfile_stages() -> dict[str, list[str]]:
     return stages
 
 
-def test_the_dependency_stage_cannot_see_the_source():
-    """The whole point of the split. A `COPY . .` here would put the install
-    back behind every source edit — which is where it was, and why the build
-    was more than twice as long."""
-    copies = [ln for ln in dockerfile_stages()["deps"] if ln.startswith("COPY ")]
-    assert copies == [
-        "COPY pyproject.toml ./",
-        "COPY scripts/requirements.py ./scripts/",
-    ]
+def test_the_dependencies_are_installed_before_the_source():
+    """The whole point of the ordering. `COPY . .` brings .git with it, because
+    setuptools_scm needs it — so putting it in front of the install meant every
+    commit reinstalled selenium, docs-only ones included."""
+    builder = dockerfile_stages()["builder"]
+    deps_copy = builder.index("COPY pyproject.toml ./")
+    install = next(i for i, ln in enumerate(builder) if "requirements.txt" in ln)
+    source_copy = builder.index("COPY . .")
+    assert deps_copy < install < source_copy
 
 
-def test_nothing_the_wheel_is_built_with_reaches_the_runner():
-    """`runner` is FROM deps, so anything installed in `deps` ships. git is
-    there to let setuptools_scm read the version and has no business in a
-    running pod, so it goes in `wheel` — which nothing is FROM."""
-    stages = dockerfile_stages()
-    assert "git" not in " ".join(stages["deps"]), "deps ships; keep git out of it"
-    assert "apt-get install -y --no-install-recommends git" in stages["wheel"]
-    # And the shape that makes that true: the runner inherits the dependency
-    # layer, not the stage that built the wheel.
-    body = DOCKERFILE.read_text()
-    assert "FROM deps AS runner" in body
-    assert "FROM deps AS wheel" in body
-
-
-def test_the_runner_installs_the_wheel_the_ordinary_way():
-    """Not `--no-deps`. Everything is already in the layer underneath, so pip
-    reports each requirement satisfied and installs only our wheel — and if the
-    two ever drift it fixes that rather than shipping an ImportError. `--no-deps`
-    would also silently ignore the [redis] extra, which is the whole reason the
-    image can turn on shared sessions with an env var."""
+def test_the_runner_receives_a_venv_and_installs_nothing():
+    """A venv is one directory holding the libraries and the console script, so
+    `COPY --from` moves the whole installed program in one instruction. That is
+    what lets the builder be fat and the runner be slim WITHOUT the runner
+    resolving and downloading every dependency a second time — which is what it
+    used to do, and what made the build twice as long."""
     runner = dockerfile_stages()["runner"]
-    install = next(ln for ln in runner if ln.startswith("pip install"))
-    assert "--no-deps" not in install
+    assert "COPY --from=builder /opt/venv /opt/venv" in runner
+    assert not [ln for ln in runner if ln.startswith("pip install")]
+    assert "COPY . ." not in runner, "the source has no business in the runner"
+
+
+def test_the_build_tooling_never_reaches_the_runner():
+    """git is in the builder because setuptools_scm reads the version from it,
+    and it has no business in a running pod. Nothing is FROM the builder, so it
+    cannot leak — and the fat image already HAS git, which is why there is no
+    apt-get to audit in the first place."""
+    stages = dockerfile_stages()
+    instructions = [ln for lines in stages.values() for ln in lines]
+    assert not [ln for ln in instructions if "apt-get" in ln], (
+        "python:X ships git; only -slim needed an apt-get to put it back"
+    )
+    body = DOCKERFILE.read_text()
+    assert "FROM python:${PY_VERSION} AS builder" in body
+    assert "FROM python:${PY_VERSION}-slim AS runner" in body
+    assert "FROM builder" not in body, "nothing inherits the build tooling"
+
+
+def test_the_copied_venv_is_proved_to_work_at_build_time():
+    """Copying a venv across image variants assumes the interpreter is at the
+    same path and every wheel is self-contained. True here, and worth failing
+    the BUILD over rather than a pod: the import pulls the whole dependency
+    tree."""
+    runner = dockerfile_stages()["runner"]
+    assert any("kubed.selenium_flow.server" in ln for ln in runner)
+
+
+def test_the_project_is_installed_with_its_extra():
+    """`[redis]` is what lets shared saved sessions be an env var rather than a
+    different image. `--no-deps` would silently drop it."""
+    builder = dockerfile_stages()["builder"]
+    install = next(ln for ln in builder if ln.startswith("pip install --no-cache-dir ."))
     assert "[redis]" in install
+    assert "--no-deps" not in install
