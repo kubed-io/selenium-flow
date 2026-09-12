@@ -1262,13 +1262,17 @@ here is what stops the drawing and the code drifting apart.
 - **Files: one grid.** A blue bubble marks a download, a pin marks a kept file,
   and a trash appears on hover **only on kept files** — the only per-file delete
   the Grid permits (§F1.10). `Clear downloads` sits in the section header.
+  *Superseded by §F1.40*: the pin was both the kept mark and the delete button,
+  and it is now only the mark.
 - **Flows: a list on the left, the chosen flow on the right.** A step is its
   number, tool and id — no selectors, no URLs — and clicking one opens its
   parameters. A 🔒 marks a step that binds a secret. Ownership is shown only on
   shared flows (🌐); a session's own flows carry no badge, because a badge on
-  everything says nothing.
+  everything says nothing. *Superseded by §F1.40*: the detail moved to the right
+  of the outline, the parameters got a section of their own, and the row lost
+  its number and its tool word.
 - **Flow actions:** `Edit YAML`, the move button (§F1.2), and `Delete`, which
-  confirms.
+  confirms. *Superseded by §F1.40*: three icons in the panel's corner.
 - **A YAML editor overlay**, carrying the real file from the running pod.
 
 **What it deliberately is not:** no dark mode (the tokens exist; a second set
@@ -1288,7 +1292,10 @@ drawing could not settle and the build did:
   rendered by the MCP app too, which holds no credential, and a control there
   is a button that cannot work — there is a test pinning that. So the file
   tiles render their marks as **spans with data attributes**, inert until the
-  page opts in with `actions: true`, and the page wires the clicks. Flow
+  page opts in with `actions: true`, and the page wires the clicks. (§F1.40
+  keeps the rule and corrects the reading of it: the library may render a
+  `<button>` — rendering a control and *wiring* one are different things, and
+  it is the wiring that cannot travel.) Flow
   rendering did not go in that library at all: flows are admin-only, so putting
   them in the *shared* one would have been filing them by convenience.
 - **`Clear downloads` could not use `confirm()`.** §F1.10 says its confirm
@@ -1415,6 +1422,123 @@ ordinary distinction anyway: a parameter is declared, an argument is passed.
 **Free exactly now.** Flows are unreleased and `FLOW_DATA_DIR` is an
 `emptyDir`, so no stored document anywhere is affected. After 0.0.3 every one of
 these is a migration with a compatibility shim.
+
+### §F1.40 — Decision (locked): the flows panel, redrawn — status is not an action, and a row is not a sentence
+
+Designed in Penpot on 2026-09-12 and built the same day, **in that order**,
+because the first attempt went the other way round and Dr K stopped it: *"i
+wanted you to design in penpot first so i can see the changes."* The rule that
+came out of it is worth more than the panel: **the design follows the app,
+except where Dr K deliberately decides otherwise.** Both halves matter. A
+drawing that has quietly drifted ahead of the code is not a design, it is a
+second opinion; a drawing that may never lead is not worth making.
+
+**The panel is three columns now.** Flows, then the chosen flow's *outline*,
+then whatever you picked out of it. The detail used to render *underneath* the
+steps, which put the answer below the question and left the right half of a wide
+panel empty. Same information, moved to where there was already room.
+
+- **Parameters get a section of their own, above the steps**, built from the
+  same row. That is what "make the params look like the steps" means
+  structurally: a flow's parameters and its steps are the two halves of reading
+  it and they are read the same way — a row identifies the thing, the pane
+  beside it holds what the thing contains. Params come first because they are
+  the flow's interface and the steps are its body. A flow that takes nothing
+  still shows the heading, so the reader learns the section exists.
+- **One selection across both sections**, because the pane can only show one
+  thing. Clicking the picked row unpicks it.
+- **A parameter's pane says which steps read it**, and those citations are rows
+  too, so clicking one jumps from the parameter to the step that reads it. A
+  parameter nothing reads is almost always a typo in a step, and it is called
+  out rather than left as an empty section someone has to interpret.
+
+**A row is an icon and a name.** The grammar is **icon = kind, pill = name,
+position = when**, and the *words* live in the pane:
+
+- The step's **`id`** is the pill, because that is the name a person chose and
+  the one a run report prints. The **tool** is the glyph. A step with no id
+  falls back to its tool, since a row with no name is not a row.
+- A parameter's glyph is its **type**, as punctuation rather than emoji — `"`
+  `#` `?` `{}` `[]`. These are JSON types and anyone who writes JSON already
+  reads them; at 12px an emoji is a coloured smudge and `{}` is still `{}`.
+- **No 1-2-3 index.** The list is already in order, so numbering it restated
+  what the list said and cost the column the width it needed to sit *beside* the
+  detail rather than above it. The number survives exactly where it is the
+  point: the pane, and the "used by" citations — because a run report says
+  *"step 3 stopped the flow"*.
+- **Required is a red star inside the pill**, on parameters only. It qualifies
+  the name, so it sits against the name; the word `required` at the far end of a
+  200px column does not fit and does not belong to anything. Steps carry no such
+  mark — every step runs, so "required" there would mean nothing.
+- Dropping the tool's *word* takes it from anyone who cannot see the picture,
+  and from anyone who has not learnt which emoji means `extract`. It moves to
+  `title` and `aria-label`. Moved, not dropped — and every tool in
+  `flowrun.RUNNABLE` has a glyph, with the question mark reserved for a flow
+  naming an action that does not exist, where looking wrong is the point.
+
+**The flow's actions are three icons in the panel's corner** — ✏️ edit, 🌐/🏠
+move, 🗑️ delete — not a row of labelled buttons under the steps. Down there a
+long flow pushed them off the screen, and a `Delete` at the bottom of a list of
+steps read as though it deleted a step. The move icon shows the **destination**
+rather than the current state (a globe sends it to global, a house brings it
+home), because an icon of the current state is a badge, not a button.
+
+**Nothing inside the panel scrolls.** A long flow makes the panel taller. An
+inner scroll region would hide the end of a list inside a box that is already
+inside a box, and leave the page's own scrollbar pointing at nothing.
+
+**And the file tiles: status is not an action.** The pin used to be both — the
+kept mark *and*, on hover, the delete button. That is wrong for a reason
+particular to this server rather than to taste: **keeping is a copy and there is
+no unpin** (§F1.10), so the pin is not a toggle. Every pin, star and heart a
+person has met elsewhere undoes itself on a second click; ours cannot, and the
+only operation behind it was an irreversible delete wearing the icon of a
+reversible one. It also announced every kept tile to a screen reader as "Delete
+kept file x", with nothing anywhere saying *kept*.
+
+So: **right is status and is inert** (🔵 download, 📌 kept); **left is the
+action and is a real button** (➕ keep, 🗑️ delete). One glyph, one meaning, one
+corner — which is why keeping is a **plus** rather than a pin: the pin is what
+the action *produces*, and the same glyph in both corners looked like one mark
+that jumped sides when you clicked it. A real `<button>` also answers Enter and
+Space for free, so the page's hand-rolled keydown handler — and the
+`preventDefault` that stopped Space scrolling the page — simply went away.
+
+**The server answers `uses`.** `GET /admin/sessions/{key}/flows/{name}` now
+carries `{name: [step indices]}` for every declared parameter. Working that out
+means applying the `${name}` rule, which is a parser and not a substring search,
+and which already exists exactly once in `flowdoc.references()`. Doing it in the
+browser would have been a second implementation of the rule that could disagree
+with the one that actually substitutes at run time. An undeclared reference is
+never invented as a parameter: saving refuses it, and a file edited on disk is
+guarded against.
+
+**Method: the design was copy-paste, and that was the real finding.** Dr K asked
+whether Penpot's component features were being used *"or is that not a thing and
+it's all copy paste"*. It was all copy paste — 45 step rows, 30 flow items, 14
+file tiles, **zero** component instances — which is why some screens carried a
+change and others did not, and why "make the params look like the steps" had
+been answered on one board out of nine. Rebuilt on four real components (`row`,
+`flow-item`, `file`, `icon-btn`), after which each of Dr K's next several
+changes took one edit instead of fifty.
+
+Three traps, and they are all the same trap:
+
+- **A component's main instance must never carry a screen-specific
+  interaction** — every instance inherits it. This bit three times, once so
+  badly that *every* file tile's keep button opened the delete confirm.
+- **Componentising destroys the interactions on the shapes it replaces.** Found
+  first on the file tiles, fixed *there*, and not swept — so 29 of 30 flow items
+  stayed dead and seven screens were unreachable in the prototype. Fixing the
+  instance instead of the class is how you fix one bug twice.
+- **Only a mechanical check catches either**, never clicking around: a
+  reachability walk from `screen-login` across every interaction on the page. It
+  found the dead flow items, a component main acting as a link, and a tab
+  pointing at a shape called `row`.
+
+**Not done here:** the rows are still click-only, as they were before — no
+keyboard navigation between them. That belongs with the accessibility pass
+§F1.39 already parks, not smuggled into a redesign.
 
 ## Part III — Sealed orders: the secrets system
 
@@ -2021,11 +2145,13 @@ The backend is **done**; the UI that reads it is the next PR.
       where the file is *made*, which for a download is inside the Grid's store,
       where we can write nothing. It needs a sidecar of our own keyed by name,
       so it is its own change rather than a line in this one
-- [x] Admin UI: the marks are a bubble (download), a pin (kept) and a trash on
-      hover for kept files only — designed in §F1.36. The marks are rendered as
-      data attributes rather than buttons, and are inert unless the surface
-      opts in, because the same tiles are drawn inside an MCP app holding no
-      credential
+- [x] Admin UI: the marks are a bubble (download) and a pin (kept), on the
+      right, and they never act. The action is the OTHER corner — ➕ to keep, 🗑️
+      to delete a kept file — and it is a real button, omitted entirely unless
+      the surface opts in, because the same tiles are drawn inside an MCP app
+      holding no credential. Designed in §F1.36, corrected in §F1.40: the pin
+      used to be the delete button too, which put an irreversible action behind
+      the icon of a reversible one
 - [x] `Clear downloads`' confirm **lists the names** it will remove, which is
       what forced the page to grow a modal: a native `confirm()` cannot show a
       list, and a count without the names is an assertion rather than a
@@ -2109,8 +2235,8 @@ Independent of everything above.
       size, and a **delete** for a directory whose session is finished with
       (question #5)
 - [x] Admin UI: a **simple YAML editor** for one flow, and the move button —
-      **To global** / **To this session**, which is one verb rather than a
-      promote (§F1.2, §F1.14). A richer editor is a later chapter. The editor
+      one verb rather than a promote (§F1.2, §F1.14), now the 🌐/🏠 icon of
+      §F1.40, which names the destination rather than the current state. A richer editor is a later chapter. The editor
       carries the **file from the store**, not a re-dump of the parsed document:
       a person writes comments in these, and a round trip through a dict throws
       them away invisibly the first time anybody presses Save. That is why the
@@ -2126,6 +2252,10 @@ Independent of everything above.
       can see and fix; the other order loses it
 - [x] **All of the above was designed first** (§F1.36) and is now built. The
       drawing is the Penpot file **Admin UI**
+- [x] Admin UI: a flow shows **what it takes** as well as what it does, and
+      picking a parameter or a step shows what it holds, beside the outline
+      rather than under it (§F1.40). Redesigned in Penpot first and built from
+      the drawing, which is the order Dr K asked for and the order that works
 - [x] **Then it was flown**, against the deployed image and the real Grid, which
       is the only thing that could have found §F1.37 — a login leaving a browser
       that accepts every command and performs none of them. Two fixes came out

@@ -120,6 +120,37 @@ def _grid_facts(session: dict) -> dict:
     return {"version": session.get("version"), "node": session.get("node")}
 
 
+def _uses(document: dict) -> dict[str, list[int]]:
+    """Which steps each declared parameter reaches, by index.
+
+    The admin panel answers "what does this parameter actually do" by listing
+    the steps a `${name}` lands in, and that question has to be answered the
+    same way the validator answers it — an escaped `$${name}` is not a
+    reference, and a reference can be nested arbitrarily deep in an argument.
+    So it is `flowdoc.references` rather than a regex in the page, which is how
+    the two would come to disagree about what counts (§F1.40).
+
+    Declared-but-unused parameters are present with an empty list. That is a
+    fact worth showing rather than one to hide: a parameter nothing reads is
+    almost always a typo in a step, and the panel can only say so if it is
+    told about the parameter at all.
+    """
+    declared = (document.get("parameters") or {}).get("properties") or {}
+    if not isinstance(declared, dict):
+        return {}
+    uses: dict[str, list[int]] = {str(name): [] for name in declared}
+    for index, step in enumerate(document.get("steps") or []):
+        if not isinstance(step, dict):
+            continue
+        for name in flowdoc.references(step.get("args")):
+            # Only the declared ones. An undeclared `${name}` cannot be saved
+            # through any surface, but these documents are hand-editable files
+            # (§F1.6) and the panel must render whatever is on disk.
+            if name in uses and index not in uses[name]:
+                uses[name].append(index)
+    return uses
+
+
 def _basename(name: str) -> str:
     """The last path segment of ``name``, whichever separator was used.
 
@@ -744,7 +775,9 @@ def register(
                     text = await run_in_threadpool(
                         flow_store.read_text, where, name
                     )
-                    return JSONResponse({**found, "yaml": text or ""})
+                    return JSONResponse(
+                        {**found, "yaml": text or "", "uses": _uses(found)}
+                    )
                 # Deleted from the folder it lives in, which may be the shared
                 # one. That is the operator's call to make, and the UI says so.
                 removed = await run_in_threadpool(flow_store.delete, where, name)

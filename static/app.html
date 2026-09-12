@@ -7,6 +7,13 @@
 
      Rendered by apps.py with __CSS__ and __COMPONENTS__ substituted, so the
      markup and styling are literally the same source the dashboard uses. -->
+<!-- In the document, not only in the Content-Type header. The charset because
+     the UI is largely glyphs and a host that re-serves or inlines this loses
+     the header; the viewport because without it a phone lays the page out at
+     980px, so the stylesheet's narrow breakpoints never fire on the only
+     device they exist for. -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>selenium-flow</title>
 <style>__CSS__</style>
 <style>

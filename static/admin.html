@@ -9,6 +9,13 @@
      Everything is addressed relative to BASE, worked out by stripping this
      page's own /admin off the URL, so the same document works whether the
      server is reached directly or mounted under a path by an ingress. -->
+<!-- In the document, not only in the Content-Type header. The charset because
+     the UI is largely glyphs and a host that re-serves or inlines this loses
+     the header; the viewport because without it a phone lays the page out at
+     980px, so the stylesheet's narrow breakpoints never fire on the only
+     device they exist for. -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>selenium-flow</title>
 <style>__CSS__</style>
 
@@ -364,10 +371,12 @@ async function loadFiles(key) {
   }
 }
 
-/* The corner mark on a tile. A bubble keeps the file; a pin reveals the only
-   per-file delete the Grid permits, which is why a download has no trash. */
+/* The action button on a tile — the top-left corner. The top-right mark is the
+   file's status and is deliberately not a control, so nothing here listens to
+   it. A download's button keeps it; a kept file's is the only per-file delete
+   the Grid permits, and it confirms first. */
 $('files').addEventListener('click', async (e) => {
-  const mark = e.target.closest('.mark');
+  const mark = e.target.closest('.act');
   if (!mark || !current) return;
 
   const keep = mark.getAttribute('data-keep');
@@ -399,23 +408,27 @@ $('files').addEventListener('click', async (e) => {
   });
 });
 
-/* The marks carry role=button and a tab stop, so they must answer the keys a
-   button answers. Space is preventDefault-ed or the page scrolls underneath. */
-$('files').addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter' && e.key !== ' ') return;
-  const mark = e.target.closest('.mark[role=button]');
-  if (!mark) return;
-  e.preventDefault();
-  mark.click();
-});
-
 /* ---- flows ---------------------------------------------------------------
-   A list on the left, the chosen flow on the right: the list is what you
-   navigate between, the panel is what you read. A step shows its number, tool
-   and id — never a selector or a URL, which are parameters and belong in the
-   pane once you pick one. */
+   Three panes, and you move left to right through them: the flows, then the
+   chosen flow's OUTLINE, then whatever you picked out of it.
 
-let flowsData = null, flowDoc = null, flowName = null, stepIndex = null;
+   The outline is one list with two sections — the parameters a flow takes,
+   then the steps it runs — because those are the two halves of reading a
+   flow and they are read the same way: a row identifies the thing, the pane
+   beside it holds what the thing contains. Params come first because they are
+   the flow's interface and the steps are its body.
+
+   The detail used to sit UNDERNEATH the steps, which put the answer below the
+   question and left the right half of a wide panel empty. Same information,
+   moved to where there was already room for it. */
+
+// What is picked out of the outline: {kind: 'param'|'step', key} — a name for
+// a param, an index for a step. One selection across both sections, because
+// the pane beside them can only show one thing.
+let flowsData = null, flowDoc = null, flowName = null, picked = null;
+
+const isPicked = (kind, key) =>
+  !!picked && picked.kind === kind && picked.key === key;
 
 async function loadFlows(key) {
   const mine = ++flowsSeq;
@@ -451,12 +464,22 @@ function renderFlows() {
     const item = document.createElement('div');
     item.className = 'item';
     item.setAttribute('aria-selected', String(f.name === flowName));
-    // The globe marks only the shared ones. A badge on everything says nothing,
-    // and a session's own flows are the unremarkable case.
+    // Name, size, and — only where it is true — the globe. A badge on
+    // everything says nothing, and a session's own flows are the unremarkable
+    // case. It sits at the far end rather than in front of the name so the
+    // names line up down the column and stay the thing you scan.
+    //
+    // What a flow TAKES is not said here: the panel beside it now opens on a
+    // Params section whether or not there is anything in it, so a count in the
+    // list would be a summary of something already on screen.
     item.innerHTML =
-      '<div class="nm">' + (f.shared ? '&#127760; ' : '') + SF.esc(f.name) + '</div>'
-      + '<div class="small muted">' + f.step_count + ' step'
-      + (f.step_count === 1 ? '' : 's') + '</div>';
+      '<div class="grow"><div class="nm">' + SF.esc(f.name) + '</div>'
+      + '<div class="ct">' + f.step_count + ' step'
+      + (f.step_count === 1 ? '' : 's') + '</div></div>'
+      + (f.shared
+          ? '<span class="globe" role="img" aria-label="global"'
+            + ' title="In the shared global library">&#127760;</span>'
+          : '');
     item.onclick = () => openFlow(f.name);
     $('flowlist').appendChild(item);
   }
@@ -466,7 +489,7 @@ function renderFlows() {
 async function openFlow(name) {
   const key = current;
   flowName = name;
-  stepIndex = null;
+  picked = null;
   flowDoc = null;
   renderFlows();
   let doc;
@@ -491,28 +514,180 @@ async function openFlow(name) {
 const bindsSecret = (step) =>
   !!(step && step.args && step.args.secret);
 
-function paramsOf(step) {
-  if (!step) {
-    return '<div class="params small muted">Pick a step to see what it passes.</div>';
-  }
-  const params = step.args || {};
-  const keys = Object.keys(params);
-  if (!keys.length) {
-    return '<div class="params small muted">This step takes nothing.</div>';
-  }
-  return '<div class="params">' + keys.map((k) => {
-    const v = params[k];
-    // A secret is shown as the reference it is. There is no value here to show
-    // — the server never sends one — and naming the secret says more than an
-    // empty cell would. Everything else is printed as written, `${name}`
-    // references included: seeing which arguments a parameter reaches is the
-    // point of reading the step at all.
-    const text = k === 'secret'
+/* One glyph per tool, and no word beside it. The word is in the pane — picking
+   a row is what asks for it — and losing it is what lets the outline be a
+   narrow column next to the detail instead of a wide list above it.
+
+   Keyed by the action names a step may dispatch to (`flowrun.RUNNABLE`).
+   Anything else is a flow naming an action that does not exist, which the
+   runner will refuse; the question mark is meant to look wrong. */
+const TOOL_ICON = {
+  navigate: '&#129517;',                 // compass
+  interact: '&#128070;',                 // pointing finger
+  write: '&#9997;&#65039;',              // writing hand
+  press_key: '&#9000;&#65039;',          // keyboard
+  extract: '&#128269;',                  // magnifier
+  execute_script: '&#128220;',           // scroll
+  screenshot: '&#128247;',               // camera
+  frame: '&#129695;',                    // window
+  resize: '&#128208;',                   // set square
+  dialog: '&#128172;',                   // speech bubble
+  upload_file: '&#128228;',              // outbox tray
+  save_pdf: '&#128424;&#65039;',         // printer
+};
+
+/* The same idea for a parameter, where the thing worth knowing at a glance is
+   its type. Punctuation rather than emoji: these are JSON types and they
+   already have glyphs everyone who writes JSON reads without being taught —
+   and at 12px an emoji is a coloured smudge while `{}` is still `{}`. */
+const TYPE_ICON = {
+  string: '&quot;',
+  number: '#',
+  integer: '#',
+  boolean: '?',
+  object: '{}',
+  array: '[]',
+};
+
+/* A step, as a row. The pill is the step's `id`, because that is the name a
+   person chose and the one a run report prints; the tool is the machinery
+   behind it and gets the glyph. A step with no id falls back to its tool,
+   since a row with no name is not a row.
+   `cite` is for the rows inside a parameter's "used by" list, which number
+   themselves — there the step's position is the whole point of showing it. */
+function stepRow(s, i, cite) {
+  const tool = s.tool || '?';
+  return '<div class="row" data-step="' + i + '" aria-selected="'
+    + isPicked('step', i) + '">'
+    + (cite ? '<span class="n">' + (i + 1) + '</span>' : '')
+    // The tool name is gone from the row, so it has to be somewhere a screen
+    // reader and a hovering mouse can still find it.
+    + '<span class="icon" role="img" aria-label="' + SF.esc(tool)
+    + '" title="' + SF.esc(tool) + '">'
+    + (TOOL_ICON[tool] || '&#10067;') + '</span>'
+    + '<span class="chip">' + SF.esc(s.id || tool) + '</span>'
+    + (bindsSecret(s)
+        ? '<span class="grow"></span><span class="lock" role="img"'
+          + ' aria-label="types a secret"'
+          + ' title="This step types a secret">&#128274;</span>'
+        : '')
+    + '</div>';
+}
+
+/* A parameter, as the same row. Required is a red star against the name rather
+   than the word at the far end: it qualifies the name, so it belongs beside
+   it, and it costs no width in a 200px column. Steps carry no such mark —
+   every step runs, so "required" there would mean nothing. */
+function paramRow(name, spec, required) {
+  const ty = (spec && spec.type) || '';
+  const said = ty || 'any type';
+  return '<div class="row" data-param="' + SF.esc(name) + '" aria-selected="'
+    + isPicked('param', name) + '">'
+    + '<span class="icon" role="img" aria-label="' + SF.esc(said)
+    + '" title="' + SF.esc(said) + '">'
+    + (TYPE_ICON[ty] || '&#183;') + '</span>'
+    + '<span class="chip">' + SF.esc(name)
+    + (required
+        ? '<span class="req" role="img" aria-label="required"'
+          + ' title="required">*</span>'
+        : '')
+    + '</span></div>';
+}
+
+/* One key/value row, the unit both detail panes are built from. */
+const pair = (k, v) =>
+  '<div class="pair"><span class="pk">' + SF.esc(k) + '</span>'
+  + '<span class="pv">' + SF.esc(v) + '</span></div>';
+
+/* What a step passes. A secret is shown as the reference it is: there is no
+   value here to show — the server never sends one — and naming the secret says
+   more than an empty cell would. Everything else is printed exactly as
+   written, `${name}` references included, because seeing which arguments a
+   parameter reaches is the point of reading the step at all. */
+function argsOf(step) {
+  const args = step.args || {};
+  const keys = Object.keys(args);
+  if (!keys.length) return '<div class="hint">This step takes nothing.</div>';
+  return '<div class="pairs">' + keys.map((k) => {
+    const v = args[k];
+    return pair(k, k === 'secret'
       ? (v && v.name ? v.name + ' / ' + v.key : 'a secret')
-      : (v !== null && typeof v === 'object' ? JSON.stringify(v) : String(v));
-    return '<div class="pair"><span class="pk">' + SF.esc(k) + '</span>'
-         + '<span class="pv">' + SF.esc(text) + '</span></div>';
+      : (v !== null && typeof v === 'object' ? JSON.stringify(v) : String(v)));
   }).join('') + '</div>';
+}
+
+/* One step, in the pane. The heading repeats what the outline row says and
+   adds the two things the row dropped — the step's number and its tool — so
+   the pane stands on its own and so the row never has to carry them. */
+function stepDetail(f, i) {
+  const s = (f.steps || [])[i];
+  if (!s) return '<div class="hint">That step is gone.</div>';
+  const tool = s.tool || '?';
+  return '<div class="dhead"><span class="n">' + (i + 1) + '</span>'
+    + '<span class="chip">' + SF.esc(s.id || tool) + '</span>'
+    // Omitted where the chip already IS the tool, which is what a step with no
+    // id falls back to. "navigate navigate" says nothing twice.
+    + (s.id ? '<span class="ty">' + SF.esc(tool) + '</span>' : '')
+    + '</div>'
+    + (s.note ? '<div class="hint">' + SF.esc(s.note) + '</div>' : '')
+    + '<div class="dlabel">Arguments</div>'
+    + argsOf(s)
+    // Only when they are set. Printing `onError: abort` on every step would
+    // bury the one step that says `continue`, which is the whole reason the
+    // field is worth showing.
+    + (s.onError || s.return
+        ? '<div class="dlabel">Behaviour</div><div class="pairs">'
+          + (s.onError ? pair('onError', s.onError) : '')
+          + (s.return ? pair('return', 'this step’s full result') : '')
+          + '</div>'
+        : '');
+}
+
+/* One parameter, in the pane — including the thing only the server can tell us
+   cheaply: which steps it actually reaches. A parameter nothing reads is
+   almost always a typo in a step, so it is called out rather than left as an
+   empty section someone has to interpret. */
+function paramDetail(f, name) {
+  const spec = ((f.parameters || {}).properties || {})[name];
+  if (!spec) return '<div class="hint">That parameter is gone.</div>';
+  const required = ((f.parameters || {}).required || []).indexOf(name) !== -1;
+  const steps = f.steps || [];
+  const used = ((f.uses || {})[name]) || [];
+  return '<div class="dhead"><span class="chip">' + SF.esc(name) + '</span>'
+    + (spec.type ? '<span class="ty">' + SF.esc(spec.type) + '</span>' : '')
+    + '<span class="grow"></span>'
+    // Spelled out here, where there is room for a word. The row says the same
+    // thing with a star.
+    + '<span class="pill">' + (required ? 'required' : 'optional') + '</span>'
+    + '</div>'
+    + (spec.description
+        ? '<div class="hint">' + SF.esc(spec.description) + '</div>' : '')
+    + (spec.default !== undefined
+        ? '<div class="dlabel">Default</div><div class="pairs">'
+          + pair('default', typeof spec.default === 'object'
+              ? JSON.stringify(spec.default) : String(spec.default))
+          + '</div>'
+        : '')
+    + '<div class="dlabel">Used by</div>'
+    + (used.length
+        // Rows, not prose: clicking one JUMPS to the step that reads this
+        // parameter, which is the whole reason to cite them at all.
+        ? '<div class="rows">'
+          + used.map((i) => stepRow(steps[i] || {}, i, true)).join('')
+          + '</div>'
+        : '<div class="hint">No step reads <code>${' + SF.esc(name)
+          + '}</code>. Supplying it would change nothing.</div>');
+}
+
+/* The pane beside the outline. */
+function detailOf(f) {
+  if (!picked) {
+    return '<div class="hint">Pick a parameter or a step to see what '
+         + 'it holds.</div>';
+  }
+  return picked.kind === 'param'
+    ? paramDetail(f, picked.key)
+    : stepDetail(f, picked.key);
 }
 
 function renderFlowPanel() {
@@ -525,44 +700,68 @@ function renderFlowPanel() {
     return;
   }
   const steps = f.steps || [];
+  const declared = (f.parameters || {}).properties || {};
+  const required = (f.parameters || {}).required || [];
+  const names = Object.keys(declared);
+  // One verb, not two. `global` is a folder like any other, so the only action
+  // is which folder it lives in, and the ICON is the destination rather than
+  // the current state: a globe means "send it to global", a house means "bring
+  // it back here". Offered only when there are two folders to choose between:
+  // a session literally named `global` *is* the shared library, so both ends
+  // of the move are the same place and the button would be a no-op.
+  const move = !flowsData || flowsData.session !== 'global';
+  const moveSaid = f.shared ? 'Move to this session' : 'Move to global';
   el.innerHTML =
     '<div class="panel">' +
-    '<div class="row"><strong class="grow">' + SF.esc(f.name) + '</strong>' +
-    (f.shared ? '<span class="pill">&#127760; global</span>' : '') + '</div>' +
-    (f.description
-      ? '<div class="small muted" style="margin-top:4px">' + SF.esc(f.description) + '</div>'
+    // The flow's identity and the actions ON the flow, in the panel's own
+    // corner. They used to be a row of labelled buttons under the steps, where
+    // a long flow pushed them off the screen and where a Delete sitting under
+    // a list of steps read as if it deleted a step.
+    '<div class="head"><span class="nm">' + SF.esc(f.name) + '</span>' +
+    (f.shared ? '<span class="pill">&#127760; global</span>' : '') +
+    '<span class="grow"></span><div class="acts">' +
+    '<button type="button" data-edit title="Edit YAML"' +
+    ' aria-label="Edit YAML">&#9999;&#65039;</button>' +
+    (move
+      ? '<button type="button" data-move title="' + moveSaid + '"' +
+        ' aria-label="' + moveSaid + '">' +
+        (f.shared ? '&#127968;' : '&#127760;') + '</button>'
       : '') +
-    '<div class="steps">' + steps.map((s, i) =>
-      '<div class="step" data-step="' + i + '" aria-selected="' + (i === stepIndex) + '">'
-      + '<span class="n">' + (i + 1) + '</span>'
-      + '<span class="tool">' + SF.esc(s.tool) + '</span>'
-      + (s.id ? '<span class="small muted">' + SF.esc(s.id) + '</span>' : '')
-      + '<span class="grow"></span>'
-      + (bindsSecret(s) ? '<span title="types a secret">&#128274;</span>' : '')
-      + '</div>').join('') + '</div>' +
-    paramsOf(steps[stepIndex]) +
-    '<div class="row" style="margin-top:12px">' +
-    '<button type="button" data-edit>Edit YAML</button>' +
-    // One verb, not two. `global` is a folder like any other, so the only
-    // action is which folder it lives in, and the label flips with the answer.
-    // Offered only when there are two folders to choose between: a session
-    // literally named `global` *is* the shared library, so both ends of the
-    // move are the same place and the button would be a no-op wearing the
-    // label of a real action.
-    (flowsData && flowsData.session === 'global' ? '' :
-      '<button type="button" data-move>' +
-      (f.shared ? 'To this session' : 'To global') + '</button>') +
-    '<span class="grow"></span>' +
-    '<button type="button" class="danger" data-drop>Delete</button>' +
-    '</div></div>';
+    '<button type="button" class="danger" data-drop title="Delete this flow"' +
+    ' aria-label="Delete this flow">&#128465;&#65039;</button>' +
+    '</div></div>' +
+    (f.description ? '<div class="desc">' + SF.esc(f.description) + '</div>' : '') +
+    '<div class="panes"><div class="outline">' +
+    // Params first: they are what the flow asks of you, and the steps are what
+    // it does with the answer. A flow that takes nothing says so rather than
+    // dropping the heading, so the reader learns the section exists.
+    '<div class="olabel">Params</div>' +
+    (names.length
+      ? '<div class="rows">' + names.map((n) =>
+          paramRow(n, declared[n], required.indexOf(n) !== -1)).join('') + '</div>'
+      : '<div class="none">This flow takes nothing.</div>') +
+    '<div class="olabel">Steps</div>' +
+    '<div class="rows">' + steps.map((s, i) => stepRow(s, i)).join('') + '</div>' +
+    '</div><div class="rule"></div>' +
+    '<div class="pane">' + detailOf(f) + '</div></div>' +
+    '</div>';
 }
 
 $('flows').addEventListener('click', (e) => {
-  const step = e.target.closest('.step');
-  if (step) {
-    // Clicking the open one closes it: the params pane is a detail, not a mode.
-    const n = Number(step.dataset.step);
-    stepIndex = stepIndex === n ? null : n;
+  const row = e.target.closest('.rows .row');
+  if (row) {
+    // A param row and a step row are the same control in two sections, so one
+    // branch reads whichever attribute is there. Clicking the picked one
+    // unpicks it: the pane is a detail, not a mode you have to leave.
+    //
+    // The "used by" rows inside the pane are step rows too, so clicking one
+    // JUMPS from a param to the step that reads it, which is the whole reason
+    // to render them as rows rather than as text.
+    const name = row.dataset.param;
+    const next = name !== undefined
+      ? {kind: 'param', key: name}
+      : {kind: 'step', key: Number(row.dataset.step)};
+    picked = isPicked(next.kind, next.key) ? null : next;
     renderFlowPanel();
     return;
   }
@@ -570,7 +769,7 @@ $('flows').addEventListener('click', (e) => {
   if (!doc || !current) return;
   const path = sessionPath(current, '/flows/' + encodeURIComponent(doc.name));
 
-  if (e.target.hasAttribute('data-edit')) {
+  if (e.target.closest('[data-edit]')) {
     const box = modal({
       title: 'Edit ' + doc.name,
       body: '<textarea class="yaml" spellcheck="false"></textarea>',
@@ -588,7 +787,7 @@ $('flows').addEventListener('click', (e) => {
     return;
   }
 
-  if (e.target.hasAttribute('data-move')) {
+  if (e.target.closest('[data-move]')) {
     const to = doc.shared ? flowsData.session : 'global';
     modal({
       title: doc.shared ? 'Move to this session' : 'Move to global',
@@ -608,7 +807,7 @@ $('flows').addEventListener('click', (e) => {
     return;
   }
 
-  if (e.target.hasAttribute('data-drop')) {
+  if (e.target.closest('[data-drop]')) {
     modal({
       title: 'Delete this flow?',
       body: '<p>It is removed from the folder it lives in. A flow in the '
@@ -634,7 +833,7 @@ async function openSession(key) {
   $('detailHeader').innerHTML = '';
   shownFiles = shownBrowser = shownFlows = null;
   flowsData = flowDoc = flowName = null;
-  stepIndex = null;
+  picked = null;
   await loadFiles(key);
   await loadFlows(key);
 }
