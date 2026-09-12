@@ -22,8 +22,12 @@ ignored:
 # the `deps` stage installs `[project].dependencies` plus the `redis` extra,
 # and the `wheel` stage installs `[build-system].requires`. Naming versions
 # here as well would create a second place to update and a new way for the two
-# to disagree silently. The two unpinned names left are `pip` itself and the
-# `build` frontend, neither of which ships in the image.
+# to disagree silently.
+#
+# The one unpinned name left is `pip` itself, and it does not ship: the venv it
+# installs into is copied into the runner whole, so pip is uninstalled from it
+# on the last line of the builder. That is load-bearing for this waiver rather
+# than tidiness, and there is a test on it.
 - DL3013
 
 failure-threshold: warning

@@ -36,6 +36,10 @@ on:
     # old one — which happened. tests/test_packaging.py guards the pairing.
     - static/**
     - skills/**
+    # Not in the wheel, but the Dockerfile copies it and it decides which
+    # dependencies get installed — so a change here changes the image without
+    # changing anything the rules above watch. test_packaging.py now derives
+    # this from the Dockerfile's own COPY lines rather than trusting the list.
   workflow_dispatch:
     inputs:
       push:

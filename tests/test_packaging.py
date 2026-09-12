@@ -249,3 +249,48 @@ def test_the_toml_reader_works_on_the_oldest_python_the_image_can_build():
     reader = next(i for i, ln in enumerate(builder) if "requirements.py runtime" in ln)
     assert backport < reader, "the parser must exist before the script runs"
     assert "python_version < '3.11'" in builder[backport]
+
+
+def test_everything_the_dockerfile_copies_by_name_rebuilds_the_image():
+    """The same failure as the wheel/trigger pairing above, by another route.
+
+    `scripts/requirements.py` is not in the wheel, so the packaged-directory
+    rule never covered it — but the Dockerfile copies it and it decides which
+    dependencies get installed. A change to it would have changed the image
+    while triggering no build, leaving the deployed image on the old
+    dependency-selection logic.
+
+    Derived from the Dockerfile's own COPY lines rather than from a list
+    someone has to remember to extend. `COPY . .` is excluded: it is the whole
+    context, and what matters in it is the wheel, which the test above covers.
+    """
+    named = []
+    for lines in dockerfile_stages().values():
+        for line in lines:
+            if not line.startswith("COPY ") or "--from=" in line:
+                continue
+            source = line.split()[1]
+            if source != ".":
+                named.append(source)
+    assert named, "no named COPY found — has the Dockerfile changed shape?"
+
+    watched = {path for paths in image_trigger_paths() for path in paths}
+    for source in named:
+        covered = source in watched or any(
+            pattern.endswith("/**") and source.startswith(pattern[:-2])
+            for pattern in watched
+        )
+        assert covered, f"{source} is copied into the image but triggers no build"
+
+
+def test_pip_does_not_ship_inside_the_copied_venv():
+    """`python -m venv` seeds pip, and /opt/venv is copied into the runner
+    WHOLE — so pip ships unless it is removed, at whatever version was latest
+    on the day. .hadolint.yaml waives the pin-your-pip rule on the grounds that
+    pip never reaches the image, so this line is what makes that waiver true.
+    """
+    builder = dockerfile_stages()["builder"]
+    assert "pip uninstall --yes pip" in builder
+    # Last, or the steps after it have no pip to run with.
+    removal = builder.index("pip uninstall --yes pip")
+    assert not [ln for ln in builder[removal + 1:] if ln.startswith("pip ")]

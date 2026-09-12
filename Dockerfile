@@ -79,6 +79,11 @@ git config --global --add safe.directory /app
 # the two ever drift, which `--no-deps` would instead ship as an ImportError —
 # and `--no-deps` silently ignores [redis] as well.
 pip install --no-cache-dir .[redis]
+# pip is a build tool, and /opt/venv is copied into the runner WHOLE — so
+# leaving it here ships it, at whatever version happened to be latest on the
+# day, into a production image that has no use for it. Removing it is also what
+# keeps .hadolint.yaml's waiver true: the unpinned pip never reaches the image.
+pip uninstall --yes pip
 SHELL
 
 # ---- runner: slim, and it receives one directory.
