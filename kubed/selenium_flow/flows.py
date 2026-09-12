@@ -174,9 +174,14 @@ def session_for(key) -> str:
     at all — shares :data:`GLOBAL_SESSION` (§F1.2).
 
     Note what falls out rather than being special-cased: an unnamed caller *is*
-    the global session, so it writes there directly, while a named session's
-    flows reach the shared library only by an admin promoting one. That
-    asymmetry is real and is documented in §F1.2 — it is not an accident here.
+    the global session. It reads and runs the shared library like everyone
+    else, and writes nowhere at all — `global` is read-only to every agent
+    (§F1.2), so naming yourself is how you get somewhere to write. That closes
+    the asymmetry this docstring used to have to describe, where the anonymous
+    callers were the only ones who *could* change the shared library.
+
+    Enforcing it is `flowapi.writable`'s job, not this function's: here we only
+    decide which directory a key maps to.
     """
     named = named_session(key)
     if named is None:

@@ -336,18 +336,30 @@ This makes `global` what this section already called it — a *curated* library
 rather than a shared scratchpad — and removes the one paragraph in this chapter
 that had to apologise for itself.
 
-**To build, in its own PR** (deliberately not the kept-files one, which is about
-a different noun):
+**Built (2026-09-12).** `flowapi.writable` is the single gate, called by
+`save_one` and `delete_one`. The operator path deliberately does **not** come
+through it: the admin UI's move button writes to the store directly, because a
+person is present who can see what a change affects. Anything added later that
+writes a flow has to choose one of those two doors on purpose.
 
-- `flowapi.save_one` and `delete_one` refuse `global`, with an error that says
-  to name the session rather than only saying no.
-- The skill's `references/FLOWS.md` carries a table teaching the *old* rule —
-  "unnamed → you save into the shared `global` library" — which is wrong the
-  moment this lands. It is prose an agent acts on, so it changes in that PR,
-  and `test_every_flow_the_skill_teaches_would_save` is what will catch the
-  examples.
-- `delete_flow`'s description carries a warning about deleting a flow every
-  session can see. That becomes impossible, so the warning goes with it.
+What building it settled:
+
+- **Naming yourself `global` is still legal and still lands in the same
+  directory** — that consistency was worth keeping — but it no longer buys write
+  access. The rule is about the library being live, not about how a caller
+  arrived at it, so the obvious way round it is closed and tested.
+- **The refusal has to say what to do instead.** It is reachable by a caller
+  that did nothing wrong except not name itself, so it names both remedies: set
+  a session name, or ask an operator to move the flow. A test asserts the
+  message carries both, because a refusal that only says no moves the problem
+  rather than solving it.
+- **Reads had to be proved untouched.** Read-only has to mean read, and the
+  shared library is most of what an unnamed caller is *for*; a change that
+  quietly cost them listing and running would be a regression wearing a fix's
+  clothes. Three tests hold that line.
+- The skill's `references/FLOWS.md` table teaches the new rule, and
+  `delete_flow`'s description no longer warns about deleting a flow every
+  session can see — which has become impossible.
 
 ### §F1.3 — Decision (locked): one directory, two subdirectories, one per session
 

@@ -165,10 +165,41 @@ async def test_a_delete_never_touches_the_shared_library(flow_server, store):
     assert store.get(GLOBAL_SESSION, "login") is not None
 
 
-async def test_an_unnamed_caller_is_the_global_session(flow_server, monkeypatch, store):
+async def test_an_unnamed_caller_cannot_save_into_the_shared_library(
+    flow_server, monkeypatch, store
+):
+    """This was the exception that swallowed the rule. A caller with no session
+    name *is* `global`, so the only kind of caller that could rewrite the shared
+    library was the anonymous one — the chapter wrote that down and apologised
+    for it. The library is live, so it is now refused like any other write."""
     monkeypatch.setattr(flow_server.sessions, "key", lambda: None)
-    await call(flow_server, flowapi.SAVE_TOOL, name="shared", steps=GOOD)
-    assert store.names(GLOBAL_SESSION) == ["shared"]
+    with pytest.raises(ValueError, match="read-only"):
+        await call(flow_server, flowapi.SAVE_TOOL, name="shared", steps=GOOD)
+    assert store.names(GLOBAL_SESSION) == []
+
+
+async def test_an_unnamed_caller_still_reads_and_runs_the_shared_library(
+    flow_server, monkeypatch, store
+):
+    """Read-only has to mean read. The shared library is most of what an unnamed
+    caller is for, and losing it would make this a regression, not a fix."""
+    store.save(GLOBAL_SESSION, "login", {"steps": GOOD, "description": "shared"})
+    monkeypatch.setattr(flow_server.sessions, "key", lambda: None)
+    listing = await call(flow_server, flowapi.LIST_TOOL)
+    assert [f["name"] for f in listing["flows"]] == ["login"]
+    assert (await call(flow_server, flowapi.GET_TOOL, name="login"))["steps"] == GOOD
+
+
+async def test_an_unnamed_caller_cannot_delete_from_it_either(
+    flow_server, monkeypatch, store
+):
+    """Deleting is the worse half: a flow that vanishes mid-run leaves nothing
+    behind saying it ever existed, or who removed it."""
+    store.save(GLOBAL_SESSION, "login", {"steps": GOOD})
+    monkeypatch.setattr(flow_server.sessions, "key", lambda: None)
+    with pytest.raises(ValueError, match="read-only"):
+        await call(flow_server, flowapi.DELETE_TOOL, name="login")
+    assert store.get(GLOBAL_SESSION, "login") is not None
 
 
 async def test_a_name_that_cannot_be_a_library_is_refused_not_redirected(
@@ -189,19 +220,21 @@ async def test_a_name_that_cannot_be_a_library_is_refused_not_redirected(
     assert store.names(GLOBAL_SESSION) == []
 
 
-async def test_a_session_named_global_is_the_shared_library(
+async def test_naming_yourself_global_does_not_buy_write_access(
     flow_server, monkeypatch, store
 ):
-    """Not a loophole: `global` is the shared library's name, and the HTTP
-    surface reaches that library by naming it. A caller that names itself
-    `global` has chosen the shared library, and the skill says so."""
+    """`global` stays a legal session name landing in the same directory, which
+    is consistent rather than a special case. What it no longer does is make
+    that directory writable: the rule is about the library being live, not about
+    how a caller arrived at it — so the obvious way round it is closed."""
     from kubed.selenium_flow.sessions import CallerKey
 
     monkeypatch.setattr(
         flow_server.sessions, "key", lambda: CallerKey("named:global", "named")
     )
-    await call(flow_server, flowapi.SAVE_TOOL, name="shared", steps=GOOD)
-    assert store.names(GLOBAL_SESSION) == ["shared"]
+    with pytest.raises(ValueError, match="read-only"):
+        await call(flow_server, flowapi.SAVE_TOOL, name="shared", steps=GOOD)
+    assert store.names(GLOBAL_SESSION) == []
 
 
 # ---- the published schema ---------------------------------------------------
@@ -241,7 +274,8 @@ def client(flow_server):
 @pytest.fixture
 def unkeyed_client(tmp_path, monkeypatch):
     """A client the server cannot identify, which is the ordinary case for an
-    n8n HTTP node: no session name anywhere, so everything is `global`."""
+    n8n HTTP node: no session name anywhere, so it reads and runs the shared
+    `global` library and has no library of its own to write to."""
     monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
     server = SeleniumMCP(
         grid_url="http://grid.invalid:4444",
@@ -286,12 +320,45 @@ def test_an_http_caller_may_name_the_session_in_the_body(client):
     assert listing.json()["session"] == "workflow"
 
 
-def test_an_http_caller_that_names_nothing_gets_global(unkeyed_client):
-    unkeyed_client.post("/flows/save", json={"name": "shared", "steps": GOOD},
-                        headers=AUTH)
+def test_an_http_caller_that_names_nothing_reads_global_but_cannot_write_it(
+    unkeyed_client,
+):
+    """The ordinary case for an n8n HTTP node. It still reaches the shared
+    library to list and run; saving into it is a 400 rather than a silent write
+    to somewhere every other session can overwrite."""
+    saved = unkeyed_client.post(
+        "/flows/save", json={"name": "shared", "steps": GOOD}, headers=AUTH
+    )
+    assert saved.status_code == 400
+    assert "read-only" in saved.json()["error"]
     listing = unkeyed_client.post("/flows/list", json={}, headers=AUTH)
     assert listing.json()["session"] == GLOBAL_SESSION
-    assert [f["name"] for f in listing.json()["flows"]] == ["shared"]
+    assert listing.json()["flows"] == []
+
+
+def test_naming_global_in_the_body_is_refused_too(client):
+    """This surface is always explicit, so it can ask for the shared library by
+    name — and that is the same write, refused the same way."""
+    response = client.post(
+        "/flows/save",
+        json={"session": GLOBAL_SESSION, "name": "x", "steps": GOOD},
+        headers=AUTH,
+    )
+    assert response.status_code == 400
+    assert "read-only" in response.json()["error"]
+
+
+def test_the_refusal_says_how_to_get_a_library_of_your_own(client):
+    """A refusal that does not say what to do instead only moves the problem —
+    and this one is reachable by a caller that did nothing wrong except not name
+    itself."""
+    error = client.post(
+        "/flows/delete",
+        json={"session": GLOBAL_SESSION, "name": "x"},
+        headers=AUTH,
+    ).json()["error"]
+    assert "session=" in error, "it does not say how to get a library"
+    assert "admin" in error, "it does not say who can change global"
 
 
 def test_a_broken_flow_is_a_400_over_http_too(client):

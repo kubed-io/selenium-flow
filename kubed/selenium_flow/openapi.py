@@ -657,7 +657,9 @@ _FLOW_OPERATIONS = {
         "saveFlow",
         "Create or replace a flow.",
         "The same name updates, a new one creates. Always writes to this "
-        "session's own library, never the shared one. The document is validated "
+        "session's own library, never the shared one — so `session` is required "
+        "in practice: the shared `global` library is read-only, because every "
+        "session lists and runs what is in it. The document is validated "
         "against the live tools and a refusal lists every problem at once.",
         {
             "type": "object",
@@ -680,7 +682,9 @@ _FLOW_OPERATIONS = {
         "deleteFlow",
         "Delete one of this session's flows.",
         "Deleting one that is not there is not an error. A flow in the shared "
-        "library is not yours to delete and is untouched.",
+        "`global` library is not yours to delete — every session runs those, so "
+        "one vanishing mid-run would break somebody else's work — and asking is "
+        "refused rather than silently ignored.",
         {
             "type": "object",
             "required": ["name"],
@@ -755,8 +759,9 @@ def _flow_paths(prefix: str = "/flows") -> dict:
                     },
                     "400": _error(
                         "The request cannot succeed as sent — an unusable name, "
-                        "a flow that does not exist, or a document that would "
-                        "not run. Do not retry it unchanged."
+                        "a flow that does not exist, a document that would not "
+                        "run, or a write aimed at the read-only shared library. "
+                        "Do not retry it unchanged."
                     ),
                     "401": _error("Missing or wrong bearer token."),
                     "500": _error("Something failed that this server did not expect."),

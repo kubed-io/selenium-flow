@@ -27,7 +27,10 @@ Two rules from the chapter show up here as code:
 
 - **Reads merge your session with `global`, writes never do** (§F1.2). Your own
   flow wins a name collision, so a session can shadow a shared one without
-  disturbing it, and nothing an agent does can publish to the shared library.
+  disturbing it, and nothing an agent does can publish to the shared library —
+  including a caller that has no name of its own, which used to be the one
+  exception and is now refused like any other. `writable` is where that is
+  enforced, and the admin UI deliberately does not come through it.
 - **A flow is validated when it is saved** (§F1.6), against the real tool
   schemas, so a broken one is refused while its author is still looking at it.
 """
@@ -131,13 +134,44 @@ def read_one(store, session: str, name: str) -> dict:
     }
 
 
+def writable(session: str) -> str:
+    """``session`` if an agent may write to it, else refuse (§F1.2).
+
+    **`global` is read-and-run only on this surface**, and the argument is
+    concurrency rather than tidiness: the shared library is *live*. Every
+    session lists and runs what is in it, so a flow rewritten or deleted by one
+    agent changes or vanishes underneath another that is part-way through using
+    it — a race with no error message and nothing recording who did it.
+
+    This used to have an exception that swallowed the rule: a caller with no
+    session name *is* `global`, so unnamed callers could write to the shared
+    library while named ones could not. That was written down and apologised
+    for; now it is simply closed.
+
+    **The operator path must not come through here.** Moving a flow into
+    `global` from the admin UI is a person doing it deliberately, on a surface
+    that can show what a change affects. That writes to the store directly.
+    """
+    if session == flows.GLOBAL_SESSION:
+        raise ValueError(
+            "the shared 'global' library is read-only: every session can list "
+            "and run what is in it, so a flow you changed or deleted would "
+            "change or vanish under another session mid-run. Name your session "
+            "and save into your own library — ?session=<name> on the MCP URL or "
+            "the X-Session-Key header, or \"session\" in the body over HTTP. An "
+            "operator moves a flow into global from the admin UI."
+        )
+    return session
+
+
 def save_one(store, session: str, name: str, document: dict, schemas: dict) -> dict:
     """Create or replace one of *this session's* flows.
 
     Never the shared library, even when a flow of that name was read from it:
     a save is a copy into your own, which is the copy-on-write half of §F1.2.
-    Promotion to `global` is an admin action, deliberately not a tool.
+    Moving a flow into `global` is an operator action in the admin UI.
     """
+    session = writable(session)
     store = _require(store)
     document = dict(document or {})
     document.pop("session", None)
@@ -150,6 +184,8 @@ def save_one(store, session: str, name: str, document: dict, schemas: dict) -> d
 
 
 def delete_one(store, session: str, name: str) -> dict:
+    """Remove one of *this session's* flows. Never the shared library."""
+    session = writable(session)
     store = _require(store)
     removed = store.delete(session, name)
     return {"deleted": removed, "session": session, "name": name}
@@ -292,7 +328,11 @@ def register(
             "browser you already have, which is what lets one flow run on "
             "Chrome and then on Firefox unchanged.\n\n"
             "The whole document is checked now, against the real tools, and a "
-            "refusal lists every problem at once."
+            "refusal lists every problem at once.\n\n"
+            "Saves into your own library, which means you need a session name: "
+            "add ?session=<name> to the MCP URL, or send X-Session-Key. Without "
+            "one you can list and run the shared 'global' flows but not save, "
+            "because that library is live for every session at once."
         ),
         annotations=hints("Save a flow", idempotent=True),
     )
@@ -379,10 +419,11 @@ def register(
         description=(
             "Delete one of this session's saved flows. Deleting one that is not "
             "there is not an error.\n\n"
-            "It deletes from the library you save into. For a named session that "
-            "is your own, and the shared library is untouched. An unnamed caller "
-            "saves into the shared library itself — so for one, this deletes a "
-            "flow every session can see."
+            "It deletes from your own library only. A flow in the shared "
+            "'global' library is not yours to remove — every session runs those, "
+            "so one vanishing mid-run would break somebody else's work — and "
+            "trying is refused. If you have no session name you have no library "
+            "of your own, and there is nothing here you may delete."
         ),
         annotations=hints("Delete a flow", destructive=True, idempotent=True),
     )
