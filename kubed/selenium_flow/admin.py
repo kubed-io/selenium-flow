@@ -334,10 +334,20 @@ def register(
                 # grid switches from the kept entry to the download — different
                 # marks, different URL, different lifetime. So the state of each
                 # name goes in, not just how many there are (§F1.39).
-                files_rev = ";".join(
+                #
+                # JSON rather than joining on a delimiter, because a FILE name
+                # is not ours to choose — `valid_file_name` permits `:` and `;`
+                # deliberately, since the site's Content-Disposition picked it.
+                # A kept file called `a:d;b` and the pair (download `a`, kept
+                # `b`) both flatten to `a:d;b:k`, so two different grids shared
+                # one token and the later one would not repaint. Flow names
+                # cannot do this — `NAME` has no punctuation to collide with —
+                # which is why `revision` may join and this may not.
+                kept_names = set(kept)
+                files_rev = json.dumps(
                     sorted(
-                        f"{name}:{'k' if name in set(kept) else 'd'}"
-                        for name in set(downloads or []) | set(kept)
+                        [name, name in kept_names]
+                        for name in set(downloads or []) | kept_names
                     )
                 )
             rows.append(

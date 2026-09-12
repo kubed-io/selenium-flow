@@ -916,3 +916,40 @@ def test_the_file_stamp_notices_a_kept_copy_being_deleted(client, live):
 
     assert before["files_count"] == after["files_count"], "the count is why it is not enough"
     assert before["files_rev"] != after["files_rev"]
+
+
+def test_the_file_stamp_cannot_be_forged_by_a_files_own_name(client, live):
+    """`valid_file_name` permits `:` and `;` on purpose — the site's
+    Content-Disposition chose the name, not us — so a delimiter-joined token is
+    not injective. A kept file called `a:d;b` and the pair (download `a`, kept
+    `b`) both flatten to `a:d;b:k`: two different grids, one token, and the
+    second one never repaints."""
+    live.flows.write_file(SESSION, "a:d;b", b"x")
+    with (
+        patch.object(browser.Grid, "sessions", return_value=[{"session_id": "abc"}]),
+        patch.object(browser.Grid, "files", return_value=[]),
+    ):
+        forged = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
+
+    live.flows.delete_file(SESSION, "a:d;b")
+    live.flows.write_file(SESSION, "b", b"x")
+    with (
+        patch.object(browser.Grid, "sessions", return_value=[{"session_id": "abc"}]),
+        patch.object(
+            browser.Grid, "files",
+            return_value=[{"name": "a", "size": 1, "creationTime": 1}],
+        ),
+    ):
+        real = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
+
+    # The delimiter-joined form these replaced: same token for both grids.
+    def joined(row_kept, row_downloads):
+        return ";".join(
+            sorted(f"{n}:{'k' if k else 'd'}" for n, k in row_kept + row_downloads)
+        )
+
+    assert joined([("a:d;b", True)], []) == joined([("b", True)], [("a", False)])
+    # And the tokens actually served, which do not. `filesStamp` is built from
+    # this alone — the count is not in it — so a collision here is a panel that
+    # never repaints, whatever the counts happen to be.
+    assert forged["files_rev"] != real["files_rev"]
