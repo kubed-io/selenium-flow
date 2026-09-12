@@ -75,12 +75,25 @@ BINDABLE_TOOLS = {"write"}
 # and `valueFrom` as mutually exclusive siblings; here the action is the named
 # thing, so nothing repeats a name.
 #
-# Only `write` offers it today (§F1.28). Giving another action one is a
-# parameter on that action plus an entry here — deliberately a small change,
+# Giving another action one is an entry here — deliberately a small change,
 # because the cost of this shape is that a value can only reach an argument an
-# action has chosen to open.
+# action has *chosen* to open. The argument is the one the step is about: what
+# `navigate` is for is the URL, what `write` is for is the text.
+#
+# **Opening an argument here does not open it to a secret.** That is
+# `BINDABLE_TOOLS`, above, and it stays `{"write"}`: a secret in a URL is in
+# the browser history, the referer header of every request the page makes, and
+# the Grid's logs — none of which this server can scrub. A parameter is merely
+# a value that varies; the two are not the same permission (§F1.28).
 VALUE_FROM = "value_from"
-FILLS = {"write": "text"}
+FILLS = {
+    "write": "text",
+    "navigate": "url",
+    # Which file to attach. `upload_file` takes its content four ways and this
+    # opens only `path` — the one that names something already on the server,
+    # so a bound value selects a file rather than becoming one.
+    "upload_file": "path",
+}
 
 # `write` accepts its value as `text` or through a binding, so the tool schema
 # marks neither required and this says what it actually needs.

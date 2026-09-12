@@ -82,7 +82,19 @@ run_flow(name="sign-up", params={"email": "a@example.com"})
 
 There is **no templating** — nothing like `{{email}}` is ever substituted into a
 string. A value arrives through `value_from` or not at all, and `value_from`
-names exactly one source. Only `write` takes one today.
+names exactly one source.
+
+An action opens exactly one argument to a binding — the one the step is *about*
+— and only these do:
+
+| Action | Fills |
+|---|---|
+| `write` | `text` |
+| `navigate` | `url` |
+| `upload_file` | `path` |
+
+A binding satisfies that argument, so do not also give it literally: naming it
+twice is refused rather than one of them silently winning.
 
 Mark a parameter `"writeOnly": true` when the caller supplies it but it must not
 come back out — it is typed as usual and hidden from the report. For a password,
@@ -133,8 +145,13 @@ It stops at the first failing step unless that step says `onError: continue`.
 A failed run says which step stopped it, the error, and the page it was on — so
 check that page with `extract` before deciding the selector is wrong.
 
-Pass `verbose=true` for every step's full result, or mark the one step you care
-about with `return: true` rather than reading them all.
+**A run answers with the steps that said they were the answer.** Mark each one
+`return: true`; any number may, and nothing else carries a result. A flow whose
+point is its final `extract` needs that flag on the extract — without it the
+step is reported as having run and its result is thrown away.
+
+Running somebody else's flow that marks none — one from the shared library, say,
+which you cannot edit — pass `verbose=true` and read every step instead.
 
 `url_redacted: true` means the page it ended on carried a guarded value, so the
 URL shown is scrubbed and is not a real address. Do not navigate back to it.

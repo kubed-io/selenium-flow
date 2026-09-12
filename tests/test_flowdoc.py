@@ -378,14 +378,52 @@ async def test_only_the_actions_that_offer_it_take_value_from(step_schema_map):
     with pytest.raises(InvalidFlow, match="does not take value_from") as caught:
         validate(
             flow(
-                parameters={"type": "object", "properties": {"site": {}}},
+                parameters={"type": "object", "properties": {"wanted": {}}},
                 steps=[
-                    {"tool": "navigate", "params": {"value_from": {"param": "site"}}}
+                    {"tool": "extract", "params": {"value_from": {"param": "wanted"}}}
                 ],
             ),
             step_schema_map,
         )
     assert "write" in str(caught.value)
+
+
+async def test_a_parameter_can_supply_the_url_to_navigate_to(step_schema_map):
+    """The argument the step is *about*. `url` is also `required` in navigate's
+    schema, and a bound argument satisfies that — otherwise opening an argument
+    to a binding would refuse every step that used one."""
+    validate(
+        flow(
+            parameters={"type": "object", "properties": {"site": {}}},
+            steps=[{"tool": "navigate", "params": {"value_from": {"param": "site"}}}],
+        ),
+        step_schema_map,
+    )
+
+
+async def test_opening_an_argument_to_a_parameter_does_not_open_it_to_a_secret(
+    step_schema_map,
+):
+    """The two are not the same permission. A secret in a URL is in the browser
+    history, in the referer of every request the page then makes, and in the
+    Grid's logs — none of which this server can scrub. `write` types a value
+    into a field and does nothing else with it, which is why it is alone."""
+    with pytest.raises(InvalidFlow, match="secret cannot be bound into navigate"):
+        validate(
+            flow(
+                steps=[
+                    {
+                        "tool": "navigate",
+                        "params": {
+                            "value_from": {
+                                "secret": {"name": "login", "key": "url"}
+                            }
+                        },
+                    }
+                ]
+            ),
+            step_schema_map,
+        )
 
 
 # ---- the step's own keys ----------------------------------------------------

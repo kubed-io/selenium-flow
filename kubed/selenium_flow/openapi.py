@@ -601,7 +601,10 @@ FLOW_SCHEMAS = {
                             "type": "object",
                             "description": (
                                 "Present for a step marked return: true, or "
-                                "every step when verbose was set."
+                                "every step when verbose was set. This is the "
+                                "only place a result appears: a run answers "
+                                "with the steps that said they were the "
+                                "answer, and any number of them may."
                             ),
                         },
                     },
@@ -609,10 +612,6 @@ FLOW_SCHEMAS = {
             },
             "url": {"type": "string"},
             "title": {"type": "string"},
-            "result": {
-                "type": "object",
-                "description": "The last step's result.",
-            },
         },
     },
     "FlowDeleted": {

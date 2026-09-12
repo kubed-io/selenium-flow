@@ -555,6 +555,15 @@ def run(
         # Says the reported page is not the page: a caller must not store it as
         # somewhere to navigate back to.
         report["url_redacted"] = True
-    if last:
-        report["result"] = last
+    # No top-level `result`. It used to carry the last step's, which meant a
+    # flow ending in `extract` with `return: true` — the shape every example
+    # taught — reported the same object twice, once under its step and once
+    # here. Worse, it was a second way to say what a run answers with: `return`
+    # is the explicit one, and two mechanisms for one job is how they drift.
+    #
+    # A step now says whether its result is part of the flow's answer, any
+    # number of steps may say so, and a caller running somebody else's flow
+    # that marks none can still pass `verbose`. `url` and `title` stay, because
+    # where the browser ended up is a fact about the *run* rather than a step's
+    # output — and it is the thing a caller needs to carry on from.
     return report

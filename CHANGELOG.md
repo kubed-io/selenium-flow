@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `screenshot(save=true)` now tells you what the file was called, which is the name `keep_file` takes.
 
+- **A flow parameter can supply a URL.** `navigate` and `upload_file` now take a `value_from` naming a parameter, so one saved flow serves every page — secrets stay `write`-only.
+
 - **The wiki documents flows, secrets and kept files.** A reference page for each of the eight endpoints they added, plus guides for all three — and the two environment variables that switch them on.
 
 ### Fixed
@@ -52,6 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A browser stays usable after logging in.** Chrome's "Save password?" prompt took the keyboard and mouse for itself, so every click and keystroke after a login silently did nothing — while every call still reported success.
 
 ### Changed
+
+- **BREAKING:** a flow run answers with the steps marked `return: true`, and nothing else. The report no longer carries a top-level `result` copying the last step — mark the step whose result is the flow's answer, or pass `verbose`.
 
 - **BREAKING:** the shared `global` flow library is read-only. Every session can list and run its flows; none can change them — including a caller with no session name, which used to save straight into it. Name your session with `?session=<name>` to get a library of your own; a stdio client gets one automatically.
 

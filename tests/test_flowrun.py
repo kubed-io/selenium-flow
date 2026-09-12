@@ -95,10 +95,35 @@ def test_a_step_is_summarised_without_its_content():
 # ---- what comes back ---------------------------------------------------------
 
 
-def test_only_the_last_result_comes_back_by_default():
+def test_no_result_comes_back_unless_a_step_asked():
+    """A run answers with the steps that said they were the answer, and with
+    nothing otherwise.
+
+    There used to be a top-level `result` carrying the last step's. It made the
+    shape every example taught — a flow ending in `extract` with `return: true`
+    — report the same object twice, and it was a second way of saying what a
+    run answers with while `return` was the explicit one. Two mechanisms for
+    one job is how the two drift.
+    """
     report = run(FakeActions(), flow(SIMPLE), "b")
-    assert "result" in report
+    assert "result" not in report
     assert all("result" not in step for step in report["steps"])
+    # Where the browser ended up is a fact about the run, not a step's output,
+    # and it is what a caller needs in order to carry on.
+    assert report["url"]
+
+
+def test_every_step_that_asks_gets_its_result():
+    """`return` was documented as if one step could use it. Nothing stopped
+    more, and now nothing else reports a result, so it has to carry a flow
+    whose answer is in two places."""
+    steps = [
+        {"tool": "extract", "params": {"css": "h1"}, "return": True},
+        {"tool": "navigate", "params": {"url": "https://example.test/next"}},
+        {"tool": "extract", "params": {"css": "h2"}, "return": True},
+    ]
+    report = run(FakeActions(), flow(steps), "b")
+    assert [("result" in s) for s in report["steps"]] == [True, False, True]
 
 
 def test_a_step_can_ask_for_its_own_result():
@@ -123,7 +148,6 @@ def test_a_screenshot_does_not_put_a_megabyte_in_the_report():
     steps = [{"tool": "screenshot", "params": {}, "return": True}]
     report = run(FakeActions(), flow(steps), "b")
     assert "image" not in report["steps"][0]["result"]
-    assert "image" not in report["result"]
 
 
 # ---- failure -----------------------------------------------------------------
