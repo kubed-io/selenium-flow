@@ -42,7 +42,9 @@ import yaml
 
 log = logging.getLogger(__name__)
 
-# The session every caller that did not name itself shares. A caller keyed on an
+# The session an unnamed caller shares — with the one exception of stdio, which
+# gets STDIO_SESSION below because it cannot name itself and would otherwise
+# have nowhere writable. A caller keyed on an
 # MCP transport id gets a new key on every reconnect, so a directory per key
 # would bury the disk in folders whose flows nobody could ever reach again.
 # Routing all of them here instead makes the unnamed case one stable, shared,
@@ -51,6 +53,17 @@ log = logging.getLogger(__name__)
 # It is a legal session name like any other: ?session=global lands in the same
 # directory, which is consistent rather than a special case.
 GLOBAL_SESSION = "global"
+
+# The library a stdio caller owns. Stdio is one process serving one client, so
+# a constant is exactly right — the same reasoning that makes `stdio` a usable
+# caller key makes it a usable directory name.
+#
+# It has to be its own library rather than `global`, and that is not a
+# preference: a stdio client has no URL and no headers, so it cannot name
+# itself. Resolving it to the read-only shared library would leave it with no
+# writable library at all and no way to obtain one, which is a refusal whose
+# remedy cannot be performed (§F1.2).
+STDIO_SESSION = "stdio"
 
 # Flows are YAML on disk and dicts in the API. YAML because a person edits these
 # by hand and in the admin UI, and because PyYAML is already a dependency for
@@ -117,6 +130,34 @@ def valid_name(name, kind: str = "name") -> str:
     return text
 
 
+# Session names a caller may not claim. `stdio` is here because the stdio
+# transport owns that library and cannot name itself anything else: a caller
+# that claimed the name would be reading, overwriting and deleting another
+# client's flows and kept files — the one guarantee naming a session buys.
+#
+# `global` is deliberately NOT reserved. It is the *shared* library, so naming
+# it is how a caller asks for it on purpose, and a collision there is the
+# intended behaviour rather than a leak.
+RESERVED_SESSIONS = frozenset({STDIO_SESSION})
+
+
+def valid_session_name(name) -> str:
+    """A session name a caller is allowed to choose, else raise.
+
+    Everything :func:`valid_name` requires, plus the reserved set. Kept apart
+    from ``valid_name`` because that one also validates *flow* names, and a flow
+    called ``stdio`` is perfectly reasonable — it is only the library name that
+    is spoken for.
+    """
+    session = valid_name(name, "session name")
+    if session in RESERVED_SESSIONS:
+        raise InvalidName(
+            f"{session!r} is reserved for the stdio transport's own library, "
+            "which no other caller may write to: choose another session name"
+        )
+    return session
+
+
 def valid_file_name(name) -> str:
     """``name`` if it can be a file inside a session directory, else raise.
 
@@ -155,44 +196,59 @@ def named_session(key) -> str | None:
     caller — and giving it a second way to unpack one is how the two would come
     to disagree about which session owns a file.
     """
-    if key is None:
-        value = ""
-    elif isinstance(key, str):
-        value = key
-    else:
-        value = getattr(key, "value", "") or ""
+    value = key_value(key)
     if not value.startswith("named:"):
         return None
     return value[len("named:") :]
 
 
+def key_value(key) -> str:
+    """The store-key string behind a ``CallerKey``, a bare string, or nothing.
+
+    One unpacking, because the admin surface holds keys as strings while the
+    live path holds them as objects, and two ways to read one is how the two
+    come to disagree about which session owns a file.
+    """
+    if key is None:
+        return ""
+    return key if isinstance(key, str) else (getattr(key, "value", "") or "")
+
+
 def session_for(key) -> str:
     """The session whose flows this caller owns.
 
-    A caller that named itself gets its own library. Everything else — an MCP
-    transport key that changes on every reconnect, stdio, a caller with no key
-    at all — shares :data:`GLOBAL_SESSION` (§F1.2).
+    A caller that named itself gets its own library, and **stdio gets
+    :data:`STDIO_SESSION`** — it cannot name itself, so it is given one. What is
+    left — an MCP transport key that changes on every reconnect, a caller with
+    no key at all — shares :data:`GLOBAL_SESSION` (§F1.2).
 
     Note what falls out rather than being special-cased: an unnamed caller *is*
-    the global session, so it writes there directly, while a named session's
-    flows reach the shared library only by an admin promoting one. That
-    asymmetry is real and is documented in §F1.2 — it is not an accident here.
+    the global session. It reads and runs the shared library like everyone
+    else, and writes nowhere at all — `global` is read-only to every agent
+    (§F1.2), so naming yourself is how you get somewhere to write. That closes
+    the asymmetry this docstring used to have to describe, where the anonymous
+    callers were the only ones who *could* change the shared library.
+
+    Enforcing it is `flowapi.writable`'s job, not this function's: here we only
+    decide which directory a key maps to.
+
+    The lenient one of the three resolvers: it shares :func:`library_of`'s rules
+    and differs only in what it does with a name no directory can be called.
     """
-    named = named_session(key)
-    if named is None:
-        return GLOBAL_SESSION
-    try:
-        return valid_name(named, "session name")
-    except InvalidName:
+    session = library_of(key)
+    if session is None:
         # A caller may put anything in ?session=. It still keys their *browser*
         # perfectly well — that is an opaque string in a store, not a path — so
         # refusing the browser over it would break a working session to protect
         # a feature they are not using. They get the shared library instead, and
         # the flow tools are where the name is refused out loud.
         log.info(
-            "session key %r cannot name a directory; using %s", named, GLOBAL_SESSION
+            "session key %r cannot name a directory; using %s",
+            named_session(key),
+            GLOBAL_SESSION,
         )
         return GLOBAL_SESSION
+    return session
 
 
 def session_of(sessions, explicit: str | None = None) -> str:
@@ -213,11 +269,17 @@ def session_of(sessions, explicit: str | None = None) -> str:
     lives here rather than beside the flow tools that first needed it.
     """
     if explicit:
-        return valid_name(explicit, "session name")
-    named = named_session(sessions.key())
-    if named is not None:
-        return valid_name(named, "session name")
-    return GLOBAL_SESSION
+        return valid_session_name(explicit)
+    # `library_key`, not `key`: which library a caller owns does not depend on
+    # whether this server is remembering browsers. See `sessions.library_key`.
+    key = sessions.library_key()
+    session = library_of(key)
+    if session is None:
+        # Raised rather than returned, and by the same validator, so the message
+        # names the offending value — and says *which* rule it broke, an
+        # unusable name and a reserved one being different problems.
+        return valid_session_name(named_session(key))
+    return session
 
 
 def library_of(key) -> str | None:
@@ -241,11 +303,16 @@ def library_of(key) -> str | None:
     "this session has nowhere to keep anything" — and shows it as unknown rather
     than borrowing the shared library's.
     """
+    if key_value(key) == STDIO_SESSION:
+        return STDIO_SESSION
     named = named_session(key)
     if named is None:
         return GLOBAL_SESSION
     try:
-        return valid_name(named, "session name")
+        # `valid_session_name`, so a caller cannot claim `stdio` and land in the
+        # transport's private library. The check has to be here rather than only
+        # at the write gate: reading another client's flows is the same leak.
+        return valid_session_name(named)
     except InvalidName:
         return None
 

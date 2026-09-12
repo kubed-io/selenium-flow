@@ -15,7 +15,7 @@ from starlette.testclient import TestClient
 
 from kubed.selenium_flow import flowapi
 from kubed.selenium_flow import resources as resources_module
-from kubed.selenium_flow.flows import GLOBAL_SESSION
+from kubed.selenium_flow.flows import GLOBAL_SESSION, STDIO_SESSION
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import NAMED, TOKEN
@@ -33,7 +33,7 @@ def flow_server(tmp_path, monkeypatch):
         auth_token=TOKEN,
         flow_data_dir=str(tmp_path),
     )
-    monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
+    acting_as(monkeypatch, server, NAMED)
     return server
 
 
@@ -50,6 +50,19 @@ async def call(server, tool_name, /, **kwargs):
     if hasattr(result, "__await__"):
         result = await result
     return result
+
+
+def acting_as(monkeypatch, server, key):
+    """Make every surface agree about who is calling.
+
+    Two seams, deliberately. `key` is the *browser* identity and is None when
+    SAVED_SESSIONS is off; `library_key` is the *storage* identity and is not,
+    because naming a flow library has nothing to do with whether this server
+    remembers browsers. A test that patched only one would quietly exercise a
+    caller who is two different people.
+    """
+    monkeypatch.setattr(server.sessions, "key", lambda: key)
+    monkeypatch.setattr(server.sessions, "library_key", lambda: key)
 
 
 # ---- the surface itself -----------------------------------------------------
@@ -165,10 +178,41 @@ async def test_a_delete_never_touches_the_shared_library(flow_server, store):
     assert store.get(GLOBAL_SESSION, "login") is not None
 
 
-async def test_an_unnamed_caller_is_the_global_session(flow_server, monkeypatch, store):
-    monkeypatch.setattr(flow_server.sessions, "key", lambda: None)
-    await call(flow_server, flowapi.SAVE_TOOL, name="shared", steps=GOOD)
-    assert store.names(GLOBAL_SESSION) == ["shared"]
+async def test_an_unnamed_caller_cannot_save_into_the_shared_library(
+    flow_server, monkeypatch, store
+):
+    """This was the exception that swallowed the rule. A caller with no session
+    name *is* `global`, so the only kind of caller that could rewrite the shared
+    library was the anonymous one — the chapter wrote that down and apologised
+    for it. The library is live, so it is now refused like any other write."""
+    acting_as(monkeypatch, flow_server, None)
+    with pytest.raises(ValueError, match="read-only"):
+        await call(flow_server, flowapi.SAVE_TOOL, name="shared", steps=GOOD)
+    assert store.names(GLOBAL_SESSION) == []
+
+
+async def test_an_unnamed_caller_still_reads_and_runs_the_shared_library(
+    flow_server, monkeypatch, store
+):
+    """Read-only has to mean read. The shared library is most of what an unnamed
+    caller is for, and losing it would make this a regression, not a fix."""
+    store.save(GLOBAL_SESSION, "login", {"steps": GOOD, "description": "shared"})
+    acting_as(monkeypatch, flow_server, None)
+    listing = await call(flow_server, flowapi.LIST_TOOL)
+    assert [f["name"] for f in listing["flows"]] == ["login"]
+    assert (await call(flow_server, flowapi.GET_TOOL, name="login"))["steps"] == GOOD
+
+
+async def test_an_unnamed_caller_cannot_delete_from_it_either(
+    flow_server, monkeypatch, store
+):
+    """Deleting is the worse half: a flow that vanishes mid-run leaves nothing
+    behind saying it ever existed, or who removed it."""
+    store.save(GLOBAL_SESSION, "login", {"steps": GOOD})
+    acting_as(monkeypatch, flow_server, None)
+    with pytest.raises(ValueError, match="read-only"):
+        await call(flow_server, flowapi.DELETE_TOOL, name="login")
+    assert store.get(GLOBAL_SESSION, "login") is not None
 
 
 async def test_a_name_that_cannot_be_a_library_is_refused_not_redirected(
@@ -181,27 +225,130 @@ async def test_a_name_that_cannot_be_a_library_is_refused_not_redirected(
     from kubed.selenium_flow.flows import InvalidName
     from kubed.selenium_flow.sessions import CallerKey
 
-    monkeypatch.setattr(
-        flow_server.sessions, "key", lambda: CallerKey("named:my bot", "named")
-    )
+    acting_as(monkeypatch, flow_server, CallerKey("named:my bot", "named"))
     with pytest.raises(InvalidName, match="not a usable session name"):
         await call(flow_server, flowapi.SAVE_TOOL, name="login", steps=GOOD)
     assert store.names(GLOBAL_SESSION) == []
 
 
-async def test_a_session_named_global_is_the_shared_library(
+async def test_naming_yourself_global_does_not_buy_write_access(
     flow_server, monkeypatch, store
 ):
-    """Not a loophole: `global` is the shared library's name, and the HTTP
-    surface reaches that library by naming it. A caller that names itself
-    `global` has chosen the shared library, and the skill says so."""
+    """`global` stays a legal session name landing in the same directory, which
+    is consistent rather than a special case. What it no longer does is make
+    that directory writable: the rule is about the library being live, not about
+    how a caller arrived at it — so the obvious way round it is closed."""
     from kubed.selenium_flow.sessions import CallerKey
 
+    acting_as(monkeypatch, flow_server, CallerKey("named:global", "named"))
+    with pytest.raises(ValueError, match="read-only"):
+        await call(flow_server, flowapi.SAVE_TOOL, name="shared", steps=GOOD)
+    assert store.names(GLOBAL_SESSION) == []
+
+
+async def test_a_stdio_caller_has_a_writable_library(flow_server, monkeypatch, store):
+    """The regression the read-only rule nearly shipped. Stdio cannot send a
+    query parameter or a header, so it cannot name itself — if it resolved to
+    the shared library it would be permanently unable to save a flow, and the
+    refusal would tell it to do something it has no way of doing."""
+    from kubed.selenium_flow.sessions import CallerKey
+
+    acting_as(monkeypatch, flow_server, CallerKey("stdio", "stdio"))
+    await call(flow_server, flowapi.SAVE_TOOL, name="login", steps=GOOD)
+    assert store.names(STDIO_SESSION) == ["login"]
+    assert store.names(GLOBAL_SESSION) == [], "it wrote into the shared library"
+
+
+async def test_a_stdio_caller_still_reads_the_shared_library(
+    flow_server, monkeypatch, store
+):
+    """Its own library is additional to `global`, not instead of it."""
+    from kubed.selenium_flow.sessions import CallerKey
+
+    store.save(GLOBAL_SESSION, "shared", {"steps": GOOD})
+    acting_as(monkeypatch, flow_server, CallerKey("stdio", "stdio"))
+    listing = await call(flow_server, flowapi.LIST_TOOL)
+    assert [f["name"] for f in listing["flows"]] == ["shared"]
+    assert listing["flows"][0]["shared"] is True
+
+
+async def test_with_flows_off_an_unnamed_caller_is_told_that_not_to_rename_itself(
+    monkeypatch, tmp_path
+):
+    """Two refusals could apply and only one is true. With no FLOW_DATA_DIR
+    there is nowhere to keep a flow for anybody, so sending an unnamed caller
+    off to name its session would point it at the wrong problem entirely — and
+    a *named* caller already got the right answer, so the two disagreed."""
+    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    server = SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token=TOKEN)
+    acting_as(monkeypatch, server, None)
+    with pytest.raises(ValueError, match="FLOW_DATA_DIR"):
+        await call(server, flowapi.SAVE_TOOL, name="x", steps=GOOD)
+    with pytest.raises(ValueError, match="FLOW_DATA_DIR"):
+        await call(server, flowapi.DELETE_TOOL, name="x")
+
+
+async def test_turning_off_saved_sessions_does_not_take_away_the_library(
+    monkeypatch, tmp_path
+):
+    """SAVED_SESSIONS decides whether this server remembers a *browser* for a
+    caller. A flow library is not a browser: a caller that put ?session= in its
+    URL has named itself whatever that switch says.
+
+    Deriving one from the other meant switching off browser memory silently
+    removed every caller's ability to save a flow — and told the ones that HAD
+    named themselves to go and do the thing they had already done."""
+    from kubed.selenium_flow import sessions as sessions_module
+
+    from .conftest import http
+
+    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
     monkeypatch.setattr(
-        flow_server.sessions, "key", lambda: CallerKey("named:global", "named")
+        sessions_module, "http_request", lambda: http({"session": "research-bot"})
     )
-    await call(flow_server, flowapi.SAVE_TOOL, name="shared", steps=GOOD)
-    assert store.names(GLOBAL_SESSION) == ["shared"]
+    server = SeleniumMCP(
+        grid_url="http://grid.invalid:4444",
+        auth_token=TOKEN,
+        flow_data_dir=str(tmp_path),
+        saved_sessions=False,
+    )
+    assert server.sessions.key() is None, "the browser half is not actually off"
+    await call(server, flowapi.SAVE_TOOL, name="login", steps=GOOD)
+    assert server.flows.names("research-bot") == ["login"]
+    assert server.flows.names(GLOBAL_SESSION) == []
+
+
+async def test_the_write_tool_prompts_do_not_lie_to_a_stdio_caller(flow_server):
+    """These descriptions are prompt, not documentation: a stdio client reads
+    one and acts on it. They told it to set a URL parameter it has no way to
+    send, in order to obtain a library it already has."""
+    for name in (flowapi.SAVE_TOOL, flowapi.DELETE_TOOL):
+        description = (await flow_server.mcp.get_tool(name)).description
+        assert "stdio" in description, f"{name} still tells stdio it cannot save"
+
+
+async def test_a_caller_cannot_claim_the_stdio_library(flow_server, monkeypatch, store):
+    """`stdio` is an ordinary session name, which is exactly the problem: the
+    stdio transport owns that library and cannot name itself anything else, so a
+    caller claiming the name would read, overwrite and delete another client's
+    flows and kept files — the one guarantee naming a session is meant to buy.
+
+    Reading is refused as well as writing, because reading somebody else's
+    private library is the same leak wearing a quieter verb.
+    """
+    from kubed.selenium_flow.flows import InvalidName
+    from kubed.selenium_flow.sessions import CallerKey
+
+    store.save(STDIO_SESSION, "private", {"steps": GOOD, "description": "theirs"})
+    acting_as(monkeypatch, flow_server, CallerKey("named:stdio", "named"))
+    for tool, kwargs in (
+        (flowapi.SAVE_TOOL, {"name": "private", "steps": GOOD}),
+        (flowapi.DELETE_TOOL, {"name": "private"}),
+        (flowapi.LIST_TOOL, {}),
+    ):
+        with pytest.raises(InvalidName, match="reserved"):
+            await call(flow_server, tool, **kwargs)
+    assert store.get(STDIO_SESSION, "private")["description"] == "theirs"
 
 
 # ---- the published schema ---------------------------------------------------
@@ -241,14 +388,15 @@ def client(flow_server):
 @pytest.fixture
 def unkeyed_client(tmp_path, monkeypatch):
     """A client the server cannot identify, which is the ordinary case for an
-    n8n HTTP node: no session name anywhere, so everything is `global`."""
+    n8n HTTP node: no session name anywhere, so it reads and runs the shared
+    `global` library and has no library of its own to write to."""
     monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
     server = SeleniumMCP(
         grid_url="http://grid.invalid:4444",
         auth_token=TOKEN,
         flow_data_dir=str(tmp_path),
     )
-    monkeypatch.setattr(server.sessions, "key", lambda: None)
+    acting_as(monkeypatch, server, None)
     return TestClient(server.mcp.http_app())
 
 
@@ -286,12 +434,45 @@ def test_an_http_caller_may_name_the_session_in_the_body(client):
     assert listing.json()["session"] == "workflow"
 
 
-def test_an_http_caller_that_names_nothing_gets_global(unkeyed_client):
-    unkeyed_client.post("/flows/save", json={"name": "shared", "steps": GOOD},
-                        headers=AUTH)
+def test_an_http_caller_that_names_nothing_reads_global_but_cannot_write_it(
+    unkeyed_client,
+):
+    """The ordinary case for an n8n HTTP node. It still reaches the shared
+    library to list and run; saving into it is a 400 rather than a silent write
+    to somewhere every other session can overwrite."""
+    saved = unkeyed_client.post(
+        "/flows/save", json={"name": "shared", "steps": GOOD}, headers=AUTH
+    )
+    assert saved.status_code == 400
+    assert "read-only" in saved.json()["error"]
     listing = unkeyed_client.post("/flows/list", json={}, headers=AUTH)
     assert listing.json()["session"] == GLOBAL_SESSION
-    assert [f["name"] for f in listing.json()["flows"]] == ["shared"]
+    assert listing.json()["flows"] == []
+
+
+def test_naming_global_in_the_body_is_refused_too(client):
+    """This surface is always explicit, so it can ask for the shared library by
+    name — and that is the same write, refused the same way."""
+    response = client.post(
+        "/flows/save",
+        json={"session": GLOBAL_SESSION, "name": "x", "steps": GOOD},
+        headers=AUTH,
+    )
+    assert response.status_code == 400
+    assert "read-only" in response.json()["error"]
+
+
+def test_the_refusal_says_how_to_get_a_library_of_your_own(client):
+    """A refusal that does not say what to do instead only moves the problem —
+    and this one is reachable by a caller that did nothing wrong except not name
+    itself."""
+    error = client.post(
+        "/flows/delete",
+        json={"session": GLOBAL_SESSION, "name": "x"},
+        headers=AUTH,
+    ).json()["error"]
+    assert "session=" in error, "it does not say how to get a library"
+    assert "admin" in error, "it does not say who can change global"
 
 
 def test_a_broken_flow_is_a_400_over_http_too(client):
@@ -331,6 +512,29 @@ def test_delete_is_idempotent_over_http(client):
     assert not client.post("/flows/delete", json={"name": "gone"}, headers=AUTH).json()[
         "deleted"
     ]
+
+
+def test_naming_the_stdio_library_over_http_is_refused(client):
+    """The explicit surface asks for a library by name, so it is the other door
+    onto the same collision."""
+    saved = client.post(
+        "/flows/save",
+        json={"session": STDIO_SESSION, "name": "x", "steps": GOOD},
+        headers=AUTH,
+    )
+    assert saved.status_code == 400
+    assert "reserved" in saved.json()["error"]
+    listing = client.post("/flows/list", json={"session": STDIO_SESSION}, headers=AUTH)
+    assert listing.status_code == 400, "reading it is the same leak"
+
+
+def test_global_stays_namable_because_it_is_meant_to_be_shared(client):
+    """The reservation is about a PRIVATE library being claimed by someone else.
+    `global` is the shared one, so naming it is how a caller asks for it on
+    purpose — this stops the reservation being widened by reflex."""
+    listing = client.post("/flows/list", json={"session": GLOBAL_SESSION}, headers=AUTH)
+    assert listing.status_code == 200
+    assert listing.json()["session"] == GLOBAL_SESSION
 
 
 # ---- running one ------------------------------------------------------------

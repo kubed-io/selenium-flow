@@ -12,6 +12,7 @@ import yaml
 from kubed.selenium_flow import flows
 from kubed.selenium_flow.flows import (
     GLOBAL_SESSION,
+    STDIO_SESSION,
     InvalidName,
     LocalFlowStore,
     session_for,
@@ -85,13 +86,41 @@ def test_a_named_caller_gets_its_own_library():
     [
         None,  # stateless: no key at all
         CallerKey("mcp:8f21c0aa-1b2c", "transport"),
-        CallerKey("stdio", "stdio"),
     ],
 )
 def test_everything_unnamed_shares_the_global_session(key):
     """A transport key is new on every reconnect, so a directory per key would
-    bury the disk in folders whose flows nobody could reach again."""
+    bury the disk in folders whose flows nobody could reach again.
+
+    Both of these can name themselves — `?session=` on the URL, or the
+    `X-Session-Key` header — which is what makes the read-only shared library a
+    reasonable place to land them. Stdio cannot, and is below.
+    """
     assert session_for(key) == GLOBAL_SESSION
+
+
+def test_stdio_gets_a_library_of_its_own():
+    """Stdio is one process serving one client, so a constant is right — and it
+    has to be its *own* constant rather than `global`.
+
+    A stdio client has no URL and no headers, so it cannot name itself. Landing
+    it in the read-only shared library would leave it with no writable library
+    at all and no way to obtain one: a refusal whose remedy cannot be performed.
+    """
+    assert session_for(CallerKey("stdio", "stdio")) == STDIO_SESSION
+    assert STDIO_SESSION != GLOBAL_SESSION
+
+
+def test_stdio_is_reserved_as_a_session_name_but_not_as_a_flow_name():
+    """The reservation is about who may own that *library*. A flow called
+    `stdio` is nobody's business but its author's, and `valid_name` still takes
+    it — which is why the session rule is a separate function rather than a
+    line inside that one."""
+    from kubed.selenium_flow.flows import valid_session_name
+
+    with pytest.raises(InvalidName, match="reserved"):
+        valid_session_name(STDIO_SESSION)
+    assert valid_name(STDIO_SESSION, "flow name") == STDIO_SESSION
 
 
 def test_naming_yourself_global_is_legal_and_lands_in_the_same_place():

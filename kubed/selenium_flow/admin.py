@@ -374,9 +374,10 @@ def register(
         session = flows.library_of(key)
         if session is None:
             raise flows.InvalidName(
-                f"session {key!r} cannot keep files: its name is not usable as "
-                "a directory. Use letters, digits, dots, dashes and "
-                "underscores, starting with a letter or digit."
+                f"session {key!r} cannot keep files: its name is not one it may "
+                "own a library under — either not a usable directory name, or "
+                "reserved. Use letters, digits, dots, dashes and underscores, "
+                "starting with a letter or digit."
             )
         return session
 

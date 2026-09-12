@@ -249,12 +249,12 @@ was there:
 |---|---|---|
 | `named:<name>` — header or `?session=` | yes, the client chose it | `<name>/` |
 | `mcp:<transport id>` | **no** — new on every reconnect | `global/` |
-| `stdio` | constant, but shared by every stdio caller | `global/` |
+| `stdio` | constant, and one process serves one client | `stdio/` — **revised 2026-09-12**, see the addendum at the end of this section; it read `global/` until then |
 | none (stateless) | there is no key at all | `global/` |
 
 A directory per *transport* key would have filled the disk with folders keyed on
 ids that never come back — the flows inside them unreachable forever. Routing
-all three unnamed cases to one shared `global` gets rid of that entirely: there
+the unnamed cases to one shared `global` gets rid of that entirely: there
 is exactly one directory for everyone who has not named themselves, it is stable,
 and it is useful rather than merely harmless. Flows always work, and there is no
 error path to explain.
@@ -336,18 +336,75 @@ This makes `global` what this section already called it — a *curated* library
 rather than a shared scratchpad — and removes the one paragraph in this chapter
 that had to apologise for itself.
 
-**To build, in its own PR** (deliberately not the kept-files one, which is about
-a different noun):
+**Built (2026-09-12).** `flowapi.writable` is the single gate, called by
+`save_one` and `delete_one`. The operator path deliberately does **not** come
+through it: the admin UI's move button writes to the store directly, because a
+person is present who can see what a change affects. Anything added later that
+writes a flow has to choose one of those two doors on purpose.
 
-- `flowapi.save_one` and `delete_one` refuse `global`, with an error that says
-  to name the session rather than only saying no.
-- The skill's `references/FLOWS.md` carries a table teaching the *old* rule —
-  "unnamed → you save into the shared `global` library" — which is wrong the
-  moment this lands. It is prose an agent acts on, so it changes in that PR,
-  and `test_every_flow_the_skill_teaches_would_save` is what will catch the
-  examples.
-- `delete_flow`'s description carries a warning about deleting a flow every
-  session can see. That becomes impossible, so the warning goes with it.
+What building it settled:
+
+- **Naming yourself `global` is still legal and still lands in the same
+  directory** — that consistency was worth keeping — but it no longer buys write
+  access. The rule is about the library being live, not about how a caller
+  arrived at it, so the obvious way round it is closed and tested.
+- **The refusal has to say what to do instead.** It is reachable by a caller
+  that did nothing wrong except not name itself, so it names both remedies: set
+  a session name, or ask an operator to move the flow. A test asserts the
+  message carries both, because a refusal that only says no moves the problem
+  rather than solving it.
+- **Reads had to be proved untouched.** Read-only has to mean read, and the
+  shared library is most of what an unnamed caller is *for*; a change that
+  quietly cost them listing and running would be a regression wearing a fix's
+  clothes. Three tests hold that line.
+- The skill's `references/FLOWS.md` table teaches the new rule, and
+  `delete_flow`'s description no longer warns about deleting a flow every
+  session can see — which has become impossible.
+- **Stdio needed a library of its own, and review caught that it had none.** A
+  stdio client has no URL and no headers, so it cannot name itself. Landing it
+  in the newly read-only `global` left an entire supported transport
+  permanently unable to save a flow — and the refusal told it to set
+  `?session=`, which over stdio is not a thing that exists. A refusal whose
+  remedy cannot be performed is worse than the rule it enforces.
+
+  So stdio gets `stdio/`, on exactly the reasoning that already makes `stdio` a
+  usable *caller key*: one process serves one client, so a constant is right.
+  Its old flows stay readable, because reads still merge `global`.
+
+  The general lesson is about the three resolvers again: this rule had to be
+  added to all of them, so they now share one core (`library_of`) instead of
+  three copies of the same branch. The previous round added the third resolver;
+  this one stopped them being able to disagree.
+- **Naming a library is not the same as remembering a browser.** Review caught
+  the two conflated. `SessionManager.key()` answers None when `SAVED_SESSIONS`
+  is off — correctly, because that switch decides whether this server holds a
+  *browser* for a caller — and the flow library was being derived from it. So
+  turning off browser memory silently removed **every** caller's ability to
+  save a flow, and told the ones that had named themselves to go and do the
+  thing they had already done.
+
+  There are now two seams: `key()` for the browser, `library_key()` for
+  storage. They differ only under that flag, which is precisely when it
+  matters. `secrets.py` still scopes its listing through `key()`, and that is
+  left alone deliberately: changing which secrets a session can see is a
+  security boundary and deserves its own change rather than arriving as a side
+  effect of this one.
+- **A private library has to own a name nobody else can claim**, and review
+  caught that `stdio` is also a perfectly ordinary session name. `?session=stdio`
+  landed a named caller in the transport's own directory, able to read,
+  overwrite and delete its flows and kept files. Note the shape of it: giving
+  stdio a *private* library is what created a name worth stealing — while stdio
+  shared `global`, the collision was harmless.
+
+  `stdio` is therefore reserved as a **session** name. Not as a flow name: a
+  flow called `stdio` is nobody's business but its author's, which is why the
+  rule is its own function rather than a line inside `valid_name`. And `global`
+  stays deliberately unreserved, because it is the *shared* library — naming it
+  is how a caller asks for it on purpose, and a test says so, so the
+  reservation is not widened by reflex later.
+
+  Reading is refused along with writing. Reading another client's private
+  library is the same leak wearing a quieter verb.
 
 ### §F1.3 — Decision (locked): one directory, two subdirectories, one per session
 

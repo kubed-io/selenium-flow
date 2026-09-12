@@ -632,6 +632,23 @@ _SESSION = {
     }
 }
 
+# The write endpoints need a different sentence. Falling back to `global` is
+# right for a read and is a *refusal* for a write, so advertising the same
+# default on both would hand a generated client a 400 it had no way to see
+# coming. It is still not `required`, because a caller naming itself through
+# the X-Session-Key header legitimately omits it.
+_WRITE_SESSION = {
+    "session": {
+        "type": "string",
+        "description": (
+            "Whose library to write to. Needed unless the request names a "
+            "session another way, with the X-Session-Key header: the shared "
+            "'global' library is read-only, so a write that resolves to it is "
+            "refused rather than defaulted."
+        ),
+    }
+}
+
 _FLOW_OPERATIONS = {
     "list": (
         "listFlows",
@@ -657,13 +674,15 @@ _FLOW_OPERATIONS = {
         "saveFlow",
         "Create or replace a flow.",
         "The same name updates, a new one creates. Always writes to this "
-        "session's own library, never the shared one. The document is validated "
+        "session's own library, never the shared one — so `session` is required "
+        "in practice: the shared `global` library is read-only, because every "
+        "session lists and runs what is in it. The document is validated "
         "against the live tools and a refusal lists every problem at once.",
         {
             "type": "object",
             "required": ["name", "steps"],
             "properties": {
-                **_SESSION,
+                **_WRITE_SESSION,
                 "name": {"type": "string"},
                 "description": {"type": "string"},
                 "parameters": {"type": "object"},
@@ -680,11 +699,13 @@ _FLOW_OPERATIONS = {
         "deleteFlow",
         "Delete one of this session's flows.",
         "Deleting one that is not there is not an error. A flow in the shared "
-        "library is not yours to delete and is untouched.",
+        "`global` library is not yours to delete — every session runs those, so "
+        "one vanishing mid-run would break somebody else's work — and asking is "
+        "refused rather than silently ignored.",
         {
             "type": "object",
             "required": ["name"],
-            "properties": {**_SESSION, "name": {"type": "string"}},
+            "properties": {**_WRITE_SESSION, "name": {"type": "string"}},
         },
         "FlowDeleted",
     ),
@@ -755,8 +776,9 @@ def _flow_paths(prefix: str = "/flows") -> dict:
                     },
                     "400": _error(
                         "The request cannot succeed as sent — an unusable name, "
-                        "a flow that does not exist, or a document that would "
-                        "not run. Do not retry it unchanged."
+                        "a flow that does not exist, a document that would not "
+                        "run, or a write aimed at the read-only shared library. "
+                        "Do not retry it unchanged."
                     ),
                     "401": _error("Missing or wrong bearer token."),
                     "500": _error("Something failed that this server did not expect."),
