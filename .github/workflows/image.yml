@@ -40,6 +40,7 @@ on:
     # dependencies get installed — so a change here changes the image without
     # changing anything the rules above watch. test_packaging.py now derives
     # this from the Dockerfile's own COPY lines rather than trusting the list.
+    - scripts/**
   workflow_dispatch:
     inputs:
       push:
