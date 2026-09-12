@@ -16,6 +16,7 @@ from __future__ import annotations
 import hmac
 
 from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 BEARER = "bearer"
 
@@ -52,3 +53,32 @@ def authorized(request: Request, token: str | None) -> bool:
     if not token:
         return True
     return hmac.compare_digest(presented(request), token)
+
+
+async def json_request(request: Request, token: str | None):
+    """The decoded body, or the response that refuses the request.
+
+    Returns ``(body, None)`` when the caller may proceed and ``(None, response)``
+    when it may not, so a route reads:
+
+        body, refused = await auth.json_request(request, token)
+        if refused:
+            return refused
+
+    Both `/flows` and `/files` had their own copy of this — the token check, the
+    tolerant decode, and the shape check — which is three decisions about what a
+    request *is* held in two places. An absent body decodes to ``{}`` on purpose:
+    every one of these surfaces has a `list` operation that takes nothing, and
+    demanding `{}` from it would be ceremony.
+    """
+    if not authorized(request, token):
+        return None, JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001 - an absent body is fine for a listing
+        body = {}
+    if not isinstance(body, dict):
+        return None, JSONResponse(
+            {"error": "body must be a JSON object"}, status_code=400
+        )
+    return body, None

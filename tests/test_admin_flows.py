@@ -296,3 +296,35 @@ def test_moving_a_flow_that_is_not_there_says_where_to_look(client):
     )
     assert response.status_code == 400
     assert "no flow called" in response.json()["error"]
+
+
+# ---- what the page watches ---------------------------------------------------
+
+
+def test_the_listing_carries_the_revision_it_was_built_from(client, server):
+    """The page records this and repaints only when it changes, so a failed
+    load records nothing and is retried on the next poll."""
+    client.put(url("login"), json={"yaml": YAML}, headers=AUTH)
+    body = client.get(url(), headers=AUTH).json()
+    assert body["rev"]
+
+
+def test_the_revision_changes_when_a_flow_is_edited_in_place(client, server):
+    """The case a count cannot see, and the one the panel is for. The name and
+    the step count are identical after an edit; only the document moved."""
+    client.put(url("login"), json={"yaml": YAML}, headers=AUTH)
+    before = client.get(url(), headers=AUTH).json()
+    edited = YAML.replace("https://example.test/login", "https://example.test/signin")
+    client.put(url("login"), json={"yaml": edited}, headers=AUTH)
+    after = client.get(url(), headers=AUTH).json()
+
+    assert after["count"] == before["count"], "the count is why a count is not enough"
+    assert after["rev"] != before["rev"]
+
+
+def test_the_revision_follows_the_shared_library_too(client, server):
+    """The panel lists this session's flows AND the shared ones, so a change an
+    operator makes to `global` in another tab has to reach this page."""
+    before = client.get(url(), headers=AUTH).json()["rev"]
+    server.flows.save(GLOBAL_SESSION, "cookie-banner", {"steps": []})
+    assert client.get(url(), headers=AUTH).json()["rev"] != before

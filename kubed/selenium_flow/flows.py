@@ -369,6 +369,8 @@ class FlowStore(Protocol):
 
     def names(self, session: str) -> list[str]: ...
 
+    def revision(self, session: str) -> str: ...
+
     def summaries(self, session: str) -> list[dict]: ...
 
     def get(self, session: str, name: str) -> dict | None: ...
@@ -436,22 +438,26 @@ class LocalFlowStore:
             )
         return path
 
-    def _session_dir(self, session: str) -> Path:
-        """The directory holding one session's things."""
-        return self._resolved(valid_name(session, "session name"))
+    def _session_dir(self, session: str, *parts: str) -> Path:
+        """Somewhere inside one session's directory, with the name validated.
+
+        Every path this store builds starts here. The three below each repeated
+        `valid_name(session, "session name")`, which is the kind of duplication
+        that survives until one copy is left out — and the one left out is a
+        path built from an unchecked name.
+        """
+        return self._resolved(valid_name(session, "session name"), *parts)
 
     def _flows_dir(self, session: str) -> Path:
-        return self._resolved(valid_name(session, "session name"), FLOWS_DIR)
+        return self._session_dir(session, FLOWS_DIR)
 
     def _path(self, session: str, name: str) -> Path:
-        return self._resolved(
-            valid_name(session, "session name"),
-            FLOWS_DIR,
-            f"{valid_name(name, 'flow name')}{SUFFIX}",
+        return self._session_dir(
+            session, FLOWS_DIR, f"{valid_name(name, 'flow name')}{SUFFIX}"
         )
 
     def _files_dir(self, session: str) -> Path:
-        return self._resolved(valid_name(session, "session name"), FILES_DIR)
+        return self._session_dir(session, FILES_DIR)
 
     def _file_path(self, session: str, name: str) -> Path:
         return self._resolved(
@@ -489,6 +495,31 @@ class LocalFlowStore:
                 continue
             found.append(path.stem)
         return sorted(found)
+
+    def revision(self, session: str) -> str:
+        """A token that changes whenever this session's flows do.
+
+        Names *and* modification times, because the two answer different
+        questions and the admin page needs both: a name appearing or leaving is
+        a flow saved, deleted or moved, and an mtime moving is a flow edited in
+        place — which a count cannot see and which is precisely what the YAML
+        editor does.
+
+        Cheap on purpose. It stats the files a listing already walks, and it is
+        asked on a poll, so it must never open one.
+        """
+        directory = self._flows_dir(session)
+        if not directory.is_dir():
+            return "0"
+        stamps = []
+        for name in self.names(session):
+            try:
+                stamps.append(f"{name}:{self._path(session, name).stat().st_mtime_ns}")
+            except OSError:
+                # Deleted between the listing and the stat. Its absence is
+                # itself a change, and the next poll will agree.
+                continue
+        return ";".join(stamps) or "0"
 
     def summaries(self, session: str) -> list[dict]:
         """Name, description and parameters for each flow — never the steps.

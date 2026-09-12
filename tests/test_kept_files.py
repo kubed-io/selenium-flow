@@ -877,3 +877,23 @@ async def test_every_file_operation_declares_the_grids_failure_modes(spec):
     for path in files.FILE_ENDPOINTS:
         responses = spec["paths"][f"/files/{path}"]["post"]["responses"]
         assert set(responses) == {"200", "400", "401", "404", "500", "503"}, path
+
+
+def test_the_session_row_counts_distinct_files_not_both_lists(client, live):
+    """Keeping is a copy, so a kept file and its download share a name. Adding
+    the two lengths counted it twice — the list said 5 where the grid below it
+    showed 3 — and the page keys its refresh off this number, so a wrong count
+    was a wrong change signal as well as a wrong label."""
+    live.flows.write_file(SESSION, "report.pdf", b"kept copy")
+    with (
+        patch.object(browser.Grid, "sessions", return_value=[{"session_id": "abc"}]),
+        patch.object(browser.Grid, "is_alive", return_value=True),
+        patch.object(browser.Grid, "files", return_value=DOWNLOADS),
+    ):
+        row = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
+        body = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH).json()
+
+    # Two downloads, one of them kept under the same name: two files, not three.
+    assert row["files_count"] == 2
+    assert row["kept_count"] == 1
+    assert row["files_count"] == len(body["files"]), "the row and the grid disagree"

@@ -156,7 +156,7 @@ def test_only_a_kept_file_offers_a_delete(page):
 def test_clearing_downloads_lists_the_names_it_will_remove(page):
     """"Delete 12 files?" without saying which twelve is an assertion rather
     than a disclosure. The scope is shown."""
-    assert "downloads.map((n) => '<li>' + SF.esc(n) + '</li>')" in page
+    assert "downloads.map((n) => '<li>' + SF.esc(n)" in page
 
 
 def test_the_clear_confirm_does_not_build_its_list_from_the_merged_files(page):
@@ -168,10 +168,23 @@ def test_the_clear_confirm_does_not_build_its_list_from_the_merged_files(page):
     assert "filter((f) => !f.kept)" not in page
 
 
-def test_clearing_says_kept_files_are_untouched(page):
-    """The objection that condemned the old button. It cannot happen once
-    keeping is a copy, and the confirm is where that gets said."""
-    assert "not</strong> touched" in page
+def test_clearing_says_what_happens_to_each_name(page):
+    """Listing every download and then saying kept files are untouched put a
+    sentence and a list in contradiction on one screen: a kept file's NAME is
+    in the deletion list, because its download really is deleted — and the file
+    really does survive. Omitting those names would under-report what the
+    button does, so the fate is said per row instead."""
+    assert "keptNames.indexOf(n) === -1" in page
+    assert "— gone" in page
+    assert "kept copy stays" in page
+    # And the list is still every download, because every download is deleted.
+    assert "filter((f) => !f.kept)" not in page
+
+
+def test_the_kept_names_come_from_the_merged_listing(page):
+    """`data.downloads` is what the Grid holds; which of those also survive is
+    only knowable from the merged list's `kept` flag."""
+    assert "(data.files || []).filter((f) => f.kept).map((f) => f.name)" in page
 
 
 # ---- flows ------------------------------------------------------------------
@@ -248,3 +261,31 @@ def test_the_page_surfaces_the_servers_own_message(page):
     says none of that."""
     assert "said = (await res.json()).error" in page
     assert "said || 'request failed ('" in page
+
+
+# ---- the panel that never repainted -----------------------------------------
+
+
+def test_the_flows_panel_repaints_when_the_flows_change(page):
+    """The bug a live server showed and no test could: sessions and files were
+    pushed and applied, flows were pushed and *ignored*. `flows_count` had been
+    in every heartbeat since the panel shipped and nothing read it — so a flow
+    appearing or vanishing was invisible until you left the session and came
+    back."""
+    body = page.split("function refreshDetail")[1].split("\n}\n")[0]
+    assert "loadFiles(current)" in body, "the file half is the pattern to match"
+    assert "loadFlows(current)" in body
+
+
+def test_the_flows_stamp_is_not_a_count(page):
+    """A flow edited in place keeps its name and its step count, and editing is
+    what the panel is for — so a page watching the number would sit showing a
+    document the server had already replaced."""
+    assert "const flowsStamp = (row) => row.flows_rev;" in page
+    assert "shownFlows = data.rev || null;" in page
+
+
+def test_opening_a_session_forgets_what_the_last_one_showed(page):
+    """Every stamp resets together, or the new session inherits the old one's
+    and the first repaint is skipped."""
+    assert "shownFiles = shownBrowser = shownFlows = null;" in page

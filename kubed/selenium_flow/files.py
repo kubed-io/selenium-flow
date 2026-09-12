@@ -375,16 +375,9 @@ def _routes(mcp, actions, sessions, store, token, base, prefix) -> None:
     """
 
     async def handle(request: Request, what: str) -> JSONResponse:
-        if not auth.authorized(request, token):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
-        try:
-            body = await request.json()
-        except Exception:  # noqa: BLE001 - an empty body is fine for list
-            body = {}
-        if not isinstance(body, dict):
-            return JSONResponse(
-                {"error": "body must be a JSON object"}, status_code=400
-            )
+        body, refused = await auth.json_request(request, token)
+        if refused:
+            return refused
         try:
             session_id = body.get("session_id") or ""
             session = owner(sessions, store, body.get("session"))

@@ -218,7 +218,7 @@ async def test_a_boolean_does_not_pass_as_an_integer(step_schema_map):
 # ---- structural references, because there is no templating ------------------
 
 
-async def test_a_step_may_take_a_value_from_a_declared_parameter(step_schema_map):
+async def test_a_step_may_take_its_value_from_a_declared_parameter(step_schema_map):
     assert validate(
         flow(
             parameters={"type": "object", "properties": {"email": {"type": "string"}}},
@@ -233,7 +233,7 @@ async def test_a_step_may_take_a_value_from_a_declared_parameter(step_schema_map
     )
 
 
-async def test_a_step_may_take_a_value_from_a_secret(step_schema_map):
+async def test_a_step_may_take_its_value_from_a_secret(step_schema_map):
     assert validate(
         flow(
             steps=[
@@ -377,11 +377,13 @@ async def test_a_reference_satisfies_a_required_parameter(step_schema_map):
     )
 
 
-async def test_value_from_is_a_parameter_like_any_other(step_schema_map):
-    """A step's params ARE the call's arguments, with no exception — so a step
-    and a direct tool call are the same thing written twice. Which argument
-    value_from fills is the action's own business, the way Kubernetes never
-    repeats an env var's name inside its valueFrom."""
+async def test_a_steps_args_are_the_calls_arguments_with_no_exception(
+    step_schema_map,
+):
+    """A step and a direct tool call are the same thing written twice: there is
+    no step-level key for a value, so nothing has to be kept in step with the
+    tool schemas. A parameter goes in the argument itself, and a secret is an
+    argument `write` declares."""
     assert validate(
         flow(
             parameters={"type": "object", "properties": {"email": {}}},
@@ -536,7 +538,7 @@ async def test_leaving_a_frame_needs_nothing(step_schema_map, action):
 
 
 async def test_a_null_text_is_not_a_supplied_value(step_schema_map):
-    """The schema permits null so value_from can supply it instead, so
+    """The schema permits null so a secret can supply the value instead, so
     "present" is not the question — `Actions.write` would type the string
     "None" into the field."""
     with pytest.raises(InvalidFlow, match="write needs 'text'"):

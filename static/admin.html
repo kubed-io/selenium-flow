@@ -306,9 +306,15 @@ function unwatch() {
 // What the file grid was last drawn for. A pushed update carries the session
 // row but not its files, so this is how an update decides whether the grid is
 // stale enough to be worth refetching and redrawing under someone's cursor.
-let shownFiles = null, shownBrowser = null, downloads = [];
+let shownFiles = null, shownBrowser = null, shownFlows = null;
+let downloads = [], keptNames = [];
 
 const filesStamp = (row) => (row.session_id || '-') + ':' + row.files_count;
+/* Not a count. A flow edited in place keeps its name and its step count, and
+   editing is what this panel is for — so a page watching the number would sit
+   showing a document the server had already replaced. The server sends names
+   and modification times, for this session's library and the shared one. */
+const flowsStamp = (row) => row.flows_rev;
 
 function showDetail(row) {
   SF.sessionSummary($('detailHeader'), row);
@@ -333,6 +339,10 @@ async function loadFiles(key) {
     // from it — and Clear downloads would still delete it. The confirm has to
     // name everything it takes.
     downloads = data.downloads || [];
+    // Which of those the session also has a copy of. A download whose name is
+    // kept is deleted from the Grid like any other and the file still exists
+    // afterwards, which is the distinction the confirm below has to draw.
+    keptNames = (data.files || []).filter((f) => f.kept).map((f) => f.name);
     $('filesCount').textContent = (data.files || []).length;
     SF.fileGrid(box, data, {base: BASE, actions: true});
   } catch (e) {
@@ -405,6 +415,7 @@ async function loadFlows(key) {
   }
   if (gone(key)) return;
   flowsData = data;
+  shownFlows = data.rev || null;
   $('flowsCount').textContent =
     flowsData.enabled ? (flowsData.flows || []).length : 'off';
   renderFlows();
@@ -607,7 +618,7 @@ async function openSession(key) {
   $('files').innerHTML = '<div class="empty">Loading…</div>';
   $('flows').innerHTML = '<div class="empty">Loading…</div>';
   $('detailHeader').innerHTML = '';
-  shownFiles = shownBrowser = null;
+  shownFiles = shownBrowser = shownFlows = null;
   flowsData = flowDoc = flowName = null;
   stepIndex = null;
   await loadFiles(key);
@@ -633,6 +644,10 @@ function refreshDetail(data) {
   // Only when the files actually changed — redrawing the grid on every
   // heartbeat would close a lightbox and lose a scroll position for nothing.
   if (filesStamp(row) !== shownFiles) loadFiles(current);
+  // Flows were the one thing on this page that never repainted: the count and
+  // now the revision have always been in the pushed row, and nothing read
+  // them. You had to leave the session and come back to see a flow appear.
+  if (flowsStamp(row) !== shownFlows) loadFlows(current);
 }
 
 $('back').onclick = () => {
@@ -647,11 +662,19 @@ $('clearFiles').onclick = () => {
   if (!current) return;
   modal({
     title: 'Clear downloads',
-    body: '<p>Deletes what this browser downloaded. Files you kept are held '
-        + 'separately and are <strong>not</strong> touched.</p>'
+    // Every name, with what happens to it. Listing them all and then saying
+    // kept files are untouched put a sentence and a list in contradiction on
+    // the same screen — a kept file's NAME is in the deletion list, because its
+    // download really is deleted, and the file really does survive. Saying it
+    // per row is the only version that is both complete and true.
+    body: '<p>Deletes what this browser downloaded. The Grid has no per-file '
+        + 'delete, so this clears all of them.</p>'
         + (downloads.length
-            ? '<ul class="names">'
-              + downloads.map((n) => '<li>' + SF.esc(n) + '</li>').join('') + '</ul>'
+            ? '<ul class="names">' + downloads.map((n) => '<li>' + SF.esc(n)
+                + (keptNames.indexOf(n) === -1
+                    ? '<span class="fate gone"> — gone</span>'
+                    : '<span class="fate stays"> — kept copy stays</span>')
+                + '</li>').join('') + '</ul>'
             : '<p class="small muted">There is nothing downloaded to clear.</p>'),
     confirm: downloads.length
       ? 'Clear ' + downloads.length + ' file' + (downloads.length === 1 ? '' : 's')

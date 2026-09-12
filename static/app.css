@@ -351,3 +351,10 @@ textarea.yaml {
   color: var(--ink);
   resize: vertical;
 }
+
+/* What happens to each name in the Clear downloads confirm. The list is every
+   download, because every download is deleted; the difference is whether a kept
+   copy outlives it. */
+.names .fate { font-size: 12px; }
+.names .fate.gone { color: var(--warn); }
+.names .fate.stays { color: var(--muted); }
