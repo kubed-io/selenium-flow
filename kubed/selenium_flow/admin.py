@@ -26,6 +26,7 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import quote
 
 import anyio
+import yaml
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import (
@@ -35,7 +36,7 @@ from starlette.responses import (
     StreamingResponse,
 )
 
-from . import auth, errors, files, flows, links
+from . import auth, errors, files, flowapi, flowdoc, flows, links
 from .browser import DEFAULT_BROWSER, is_partial
 
 log = logging.getLogger(__name__)
@@ -178,6 +179,7 @@ def register(
     console_url: str | None = None,
     sessions=None,
     flow_store=None,
+    schemas=None,
 ) -> None:
     """Mount the admin pages, their JSON API, and the two signed file routes.
 
@@ -543,6 +545,171 @@ def register(
             log.info("deleting %s for %s refused (%s)", name, key, status)
             return JSONResponse({"error": errors.message(exc)}, status_code=status)
         return JSONResponse(removed)
+
+    # ---- flows, for a person rather than an agent --------------------------
+    #
+    # The agent-facing `/flows/*` surface is scoped to whoever is calling. This
+    # one addresses any session, and it is the **operator** path §F1.2 reserves:
+    # it deliberately does not go through `flowapi.writable`, because that gate
+    # exists to keep agents out of the live shared library and this is the
+    # surface where a person is present and allowed in.
+
+    def refused(exc: Exception, what: str) -> JSONResponse:
+        status = errors.status_for(exc)
+        log.info("%s refused (%s): %s", what, status, errors.message(exc))
+        return JSONResponse({"error": errors.message(exc)}, status_code=status)
+
+    async def body_of(request: Request) -> dict:
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001 - an absent body is a missing field
+            return {}
+        return body if isinstance(body, dict) else {}
+
+    def enabled() -> None:
+        if flow_store is None:
+            raise ValueError(flowapi.OFF)
+
+    @mcp.custom_route(
+        "/admin/sessions/{key}/flows", methods=["GET"], name="admin_flows"
+    )
+    async def admin_flows(request: Request) -> JSONResponse:
+        """What this session can run: its own flows, plus the shared library.
+
+        The same merge the agent sees, so the admin cannot show a different
+        library from the one a run would actually use — each entry says which
+        it came from, which is what the UI marks with a globe.
+        """
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        key = request.path_params["key"]
+        session = flows.library_of(key)
+        # Flows off, or a session whose name cannot be a directory: an empty
+        # list with a reason, rather than an error that blanks the whole panel.
+        if flow_store is None or session is None:
+            return JSONResponse(
+                {"key": key, "session": session, "enabled": False, "flows": []}
+            )
+        try:
+            payload = await run_in_threadpool(flowapi.catalogue, flow_store, session)
+        except Exception as exc:  # noqa: BLE001 - errors.py says what it means
+            return refused(exc, f"flows for {key}")
+        return JSONResponse({"key": key, "enabled": True, **payload})
+
+    @mcp.custom_route(
+        "/admin/sessions/{key}/flows/{name}",
+        methods=["GET", "PUT", "DELETE"],
+        name="admin_flow",
+    )
+    async def admin_flow(request: Request) -> JSONResponse:
+        """Read, rewrite or remove one flow.
+
+        Rewriting takes **YAML**, not JSON, and stores it verbatim (§F1.14): a
+        person wrote these, comments and ordering included, and a save that
+        round-tripped through a parsed dict would quietly discard both. It is
+        validated against the live step schemas first, exactly as `save_flow`
+        is, so the editor cannot store something that would not run.
+        """
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        key = request.path_params["key"]
+        name = request.path_params["name"]
+        try:
+            session = library(key)
+            enabled()
+            if request.method in ("GET", "DELETE"):
+                # Both act on the flow *as resolved* — this session's if it has
+                # one, else the shared library's — so the panel and the buttons
+                # address the same document the reader is looking at.
+                found = await run_in_threadpool(
+                    flowapi.read_one, flow_store, session, name
+                )
+                where = found["session"]
+                if request.method == "GET":
+                    text = await run_in_threadpool(
+                        flow_store.read_text, where, name
+                    )
+                    return JSONResponse({**found, "yaml": text or ""})
+                # Deleted from the folder it lives in, which may be the shared
+                # one. That is the operator's call to make, and the UI says so.
+                removed = await run_in_threadpool(flow_store.delete, where, name)
+                return JSONResponse(
+                    {"deleted": removed, "session": where, "name": name}
+                )
+
+            text = (await body_of(request)).get("yaml")
+            if not isinstance(text, str) or not text.strip():
+                raise ValueError("yaml is required")
+            try:
+                document = yaml.safe_load(text)
+            except yaml.YAMLError as exc:
+                raise ValueError(f"that is not valid YAML: {exc}") from None
+            if not isinstance(document, dict):
+                raise ValueError("a flow document must be a YAML mapping")
+            flowdoc.validate(document, await schemas.get())
+            # Written back where it already lives, so editing a shared flow
+            # edits the shared one rather than silently forking a copy into
+            # this session. A flow that does not exist yet is created here.
+            existing = await run_in_threadpool(flow_store.get, session, name)
+            where = session
+            if existing is None:
+                shared = await run_in_threadpool(
+                    flow_store.get, flows.GLOBAL_SESSION, name
+                )
+                if shared is not None:
+                    where = flows.GLOBAL_SESSION
+            await run_in_threadpool(flow_store.write_text, where, name, text)
+            return JSONResponse({"saved": True, "session": where, "name": name})
+        except Exception as exc:  # noqa: BLE001 - errors.py says what it means
+            return refused(exc, f"flow {name} for {key}")
+
+    @mcp.custom_route(
+        "/admin/sessions/{key}/flows/{name}/move",
+        methods=["POST"],
+        name="admin_move_flow",
+    )
+    async def admin_move_flow(request: Request) -> JSONResponse:
+        """Move one flow into another library.
+
+        There is no separate "promote" (§F1.2): a flow lives in exactly one
+        directory, so the only action is *which one*. `global` is a folder like
+        any other here — promoting is this verb with `global` as the target, and
+        claiming a shared flow is the same verb with a session's name. Moving a
+        flow between two sessions therefore needs no new mechanism: push it to
+        `global` from one and claim it from the other.
+        """
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        key = request.path_params["key"]
+        name = request.path_params["name"]
+        try:
+            session = library(key)
+            enabled()
+            target = flows.valid_name(
+                (await body_of(request)).get("to"), "session name"
+            )
+            found = await run_in_threadpool(
+                flowapi.read_one, flow_store, session, name
+            )
+            source = found["session"]
+            if source == target:
+                return JSONResponse(
+                    {"moved": False, "session": target, "name": name}
+                )
+            text = await run_in_threadpool(flow_store.read_text, source, name)
+            if text is None:  # pragma: no cover - read_one just found it
+                raise ValueError(f"no flow called {name!r} in {source}")
+            # Write first, then delete. A failure between the two leaves the
+            # flow in both places, which an operator can see and fix; the other
+            # order loses it outright.
+            await run_in_threadpool(flow_store.write_text, target, name, text)
+            await run_in_threadpool(flow_store.delete, source, name)
+            log.info("flow %s moved from %s to %s", name, source, target)
+            return JSONResponse(
+                {"moved": True, "from": source, "session": target, "name": name}
+            )
+        except Exception as exc:  # noqa: BLE001 - errors.py says what it means
+            return refused(exc, f"moving {name} for {key}")
 
     @mcp.custom_route("/files/{session_id}/{name}", methods=["GET"], name="file")
     async def file(request: Request) -> Response:

@@ -357,6 +357,10 @@ class FlowStore(Protocol):
 
     def delete(self, session: str, name: str) -> bool: ...
 
+    def read_text(self, session: str, name: str) -> str | None: ...
+
+    def write_text(self, session: str, name: str, text: str) -> None: ...
+
     def files(self, session: str) -> list[dict]: ...
 
     def read_file(self, session: str, name: str) -> bytes: ...
@@ -548,6 +552,33 @@ class LocalFlowStore:
         except FileNotFoundError:
             return False
         return True
+
+    # -- the document as text, for the editor --------------------------------
+
+    def read_text(self, session: str, name: str) -> str | None:
+        """One flow exactly as it sits on disk, or None if it is not there.
+
+        The editor edits **YAML**, not a re-dump of a parsed dict (§F1.14). A
+        person writes comments in these, and ordering they chose; round-tripping
+        through ``get`` and ``safe_dump`` would silently throw both away the
+        first time anybody opened the editor and saved.
+        """
+        try:
+            return self._path(session, name).read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return None
+
+    def write_text(self, session: str, name: str, text: str) -> None:
+        """Store one flow's YAML verbatim.
+
+        Verbatim for the same reason ``read_text`` exists: what a person typed
+        is what is kept. **The caller validates first** — this writes whatever
+        it is handed, and an invalid document reaching disk is how a listing
+        starts skipping a flow nobody can see is broken.
+        """
+        path = self._path(session, name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
 
     # -- kept files ----------------------------------------------------------
 

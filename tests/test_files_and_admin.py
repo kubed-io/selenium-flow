@@ -134,21 +134,32 @@ def test_the_admin_page_carries_the_shared_components(client):
     assert "--accent" in page, "the shared stylesheet is missing"
 
 
-def test_the_two_toolbar_actions_are_wired_the_same_way(client):
-    """A button wired to nothing fails silently, which is the worst kind — and
-    two buttons wired separately is how one of them ends up without the confirm
-    or the error alert the other has, which is what happened here.
+def test_both_destructive_actions_ask_first_and_report_a_failure(client):
+    """They no longer share one helper, and that is deliberate: Clear downloads
+    has to **list** the files it will remove (§F1.36), which a native confirm()
+    cannot do, so it goes through the modal instead.
 
-    Both now go through one `destructive` helper that owns the confirmation, the
-    DELETE and the failure message, and both wear the same class, so they read
-    as one control with two verbs rather than two unrelated ones.
+    What was worth keeping is what is asserted here. A button wired to nothing
+    fails silently, which is the worst kind, and two buttons wired separately is
+    how one ends up without the confirm or the error the other has — they had
+    drifted into a red button and a plain one, where only one of them told you
+    anything had gone wrong. So: both read as destructive, both ask first, and
+    both say something when they fail.
     """
     page = client.get("/admin").text
-    assert "function destructive(id," in page
-    assert "'/admin/sessions/' + encodeURIComponent(key) + path, 'DELETE'" in page
     for button in ("clearFiles", "endBrowser"):
         assert f'id="{button}" class="danger"' in page, button
-        assert f"destructive('{button}'" in page, button
+
+    # Ending the browser keeps the shared helper, which owns its confirm,
+    # its DELETE and its failure alert.
+    assert "function destructive(id," in page
+    assert "destructive('endBrowser'" in page
+    assert "'/admin/sessions/' + encodeURIComponent(key) + path, 'DELETE'" in page
+
+    # Clearing goes through the modal, which asks and reports the same way.
+    assert "$('clearFiles').onclick" in page
+    assert "title: 'Clear downloads'" in page
+    assert "alert(err.message)" in page, "the modal swallows failures"
 
 
 def test_neither_toolbar_action_is_offered_without_a_browser(client):

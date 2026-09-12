@@ -375,6 +375,23 @@ What building it settled:
   added to all of them, so they now share one core (`library_of`) instead of
   three copies of the same branch. The previous round added the third resolver;
   this one stopped them being able to disagree.
+
+**Still open: `stdio` is a name a caller could have chosen.** Review caught the
+rest of that thought after #17 merged. Reserving the name (which the merge does)
+closes the theft, but two things remain. A directory created *before* the
+upgrade by a legitimate `?session=stdio` caller becomes the stdio transport's
+library, so stdio inherits another caller's flows and kept files while the
+original owner is locked out of them. And `?session=stdio`, previously legal,
+now fails — a breaking change for a name nobody was told was special.
+
+**The fix is to name the internal library something a caller cannot produce.**
+`valid_name` requires a leading letter or digit, so `_stdio` is structurally
+unreachable: no pre-existing directory can collide with it, `?session=stdio`
+goes back to being an ordinary private library, and the reserved-name concept —
+along with the exception the skill would otherwise have to teach — disappears
+entirely. The store's path builders would take an internal-name escape hatch;
+nothing else changes. Deferred rather than dropped: it bites only where someone
+already used that one name.
 - **Naming a library is not the same as remembering a browser.** Review caught
   the two conflated. `SessionManager.key()` answers None when `SAVED_SESSIONS`
   is off — correctly, because that switch decides whether this server holds a
@@ -1241,6 +1258,26 @@ here is what stops the drawing and the code drifting apart.
 would do it), no confirm on `End browser`, and — the significant gap — **no
 detached-browser state**, which is what a session looks like most of the time.
 
+**Built (2026-09-12).** The page now matches the drawing. Three things the
+drawing could not settle and the build did:
+
+- **The shared component library may not grow buttons.** `components.js` is
+  rendered by the MCP app too, which holds no credential, and a control there
+  is a button that cannot work — there is a test pinning that. So the file
+  tiles render their marks as **spans with data attributes**, inert until the
+  page opts in with `actions: true`, and the page wires the clicks. Flow
+  rendering did not go in that library at all: flows are admin-only, so putting
+  them in the *shared* one would have been filing them by convenience.
+- **`Clear downloads` could not use `confirm()`.** §F1.10 says its confirm
+  lists the names it will remove, and a native dialog cannot show a list — so
+  the page grew one small modal, which the flow delete and the YAML editor then
+  reused. The two toolbar buttons consequently stopped sharing one helper,
+  which a test had been asserting; it now asserts the thing that actually
+  mattered, which is that both ask first and both report a failure.
+- **The last page is a link, so it had to stop being trusted.** Escaping makes
+  a URL safe to *display*; `javascript:` is a URL too. `safeHref` is why only
+  `http(s)` becomes an anchor.
+
 **Method worth keeping.** The design tokens are transcribed from `app.css`'s own
 custom properties (`--accent`, `--line`, `--radius`…) rather than invented, so
 the design cannot drift from the stylesheet without one of them being wrong on
@@ -1853,12 +1890,15 @@ The backend is **done**; the UI that reads it is the next PR.
       where the file is *made*, which for a download is inside the Grid's store,
       where we can write nothing. It needs a sidecar of our own keyed by name,
       so it is its own change rather than a line in this one
-- [ ] Admin UI: the marks are a bubble (download), a pin (kept) and a trash on
-      hover for kept files only — designed in §F1.36, and the payload it needs
-      now exists: every entry carries `kept`, and each session row carries
-      `kept_count` and `flows_count`
-- [ ] `Clear downloads`' confirm **lists the names** it will remove — UI, so it
-      goes with the row above
+- [x] Admin UI: the marks are a bubble (download), a pin (kept) and a trash on
+      hover for kept files only — designed in §F1.36. The marks are rendered as
+      data attributes rather than buttons, and are inert unless the surface
+      opts in, because the same tiles are drawn inside an MCP app holding no
+      credential
+- [x] `Clear downloads`' confirm **lists the names** it will remove, which is
+      what forced the page to grow a modal: a native `confirm()` cannot show a
+      list, and a count without the names is an assertion rather than a
+      disclosure
 - [ ] **Cluster repo:** `FLOW_DATA_DIR` is a 64Mi emptyDir today — right for
       YAML, far too small once files land beside it. **This is now load-bearing
       rather than theoretical:** kept files land there as of this epic
@@ -1937,13 +1977,24 @@ Independent of everything above.
 - [ ] Admin UI: every session directory listed, with its flows and its kept-file
       size, and a **delete** for a directory whose session is finished with
       (question #5)
-- [ ] Admin UI: a **simple YAML editor** for one flow, and the move button —
+- [x] Admin UI: a **simple YAML editor** for one flow, and the move button —
       **To global** / **To this session**, which is one verb rather than a
-      promote (§F1.2, §F1.14). A richer editor is a later chapter.
-- [ ] Admin UI: a **Delete** for one flow, beside the move. `delete_flow`
-      already exists; the UI never offered it.
-- [ ] **All of the above is now designed** (§F1.36) and none of it is built.
-      The drawing is the Penpot file **Admin UI**.
+      promote (§F1.2, §F1.14). A richer editor is a later chapter. The editor
+      carries the **file from the store**, not a re-dump of the parsed document:
+      a person writes comments in these, and a round trip through a dict throws
+      them away invisibly the first time anybody presses Save. That is why the
+      store grew `read_text`/`write_text`
+- [x] Admin UI: a **Delete** for one flow, beside the move, and it confirms
+- [x] **The admin needed a flow API of its own**, which the plan did not name:
+      `/flows/*` is scoped to whoever is calling and refuses the shared library,
+      while this surface addresses **any** session and is allowed into `global`.
+      It deliberately does not go through `flowapi.writable` — that gate keeps
+      *agents* out of a live shared library, and this is the surface where a
+      person is present and allowed in. The move is write-then-delete, so a
+      failure between the two leaves the flow in both places, which an operator
+      can see and fix; the other order loses it
+- [x] **All of the above was designed first** (§F1.36) and is now built. The
+      drawing is the Penpot file **Admin UI**
 - [x] `skills/selenium-flow/references/FLOWS.md` + its row in `SKILL.md` (§F1.16)
 - [x] Say in the skill that **`global` is shared and readable by every session**
       — not guessable from a tool schema (§F1.2). Writing it down found that

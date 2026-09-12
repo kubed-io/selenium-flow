@@ -135,6 +135,10 @@ class SeleniumMCP:
         # that asks is told flows are not enabled here rather than finding the
         # tool absent — a missing capability and a disabled one look identical
         # from the outside, and only one of them is fixable.
+        # One step-schema cache, shared by both flow surfaces. The admin's YAML
+        # editor validates a document against exactly what `save_flow` does,
+        # rather than against a second copy that could drift from it.
+        schemas = flowapi.Schemas(self.mcp)
         mirrors |= flowapi.register(
             self.mcp,
             self.flows,
@@ -142,6 +146,7 @@ class SeleniumMCP:
             self.actions,
             auth_token,
             secrets_catalogue=self.secrets,
+            schemas=schemas,
         )
         mirrors |= secrets.register(self.mcp, self.secrets, self.sessions, auth_token)
         self.mcp.add_middleware(
@@ -170,6 +175,7 @@ class SeleniumMCP:
             auth_token,
             sessions=self.sessions,
             flow_store=self.flows,
+            schemas=schemas,
         )
 
     def run(

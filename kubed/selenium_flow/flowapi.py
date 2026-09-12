@@ -246,10 +246,14 @@ def run_one(
 
 def register(
     mcp, store, sessions, actions, token: str | None, prefix: str = "/flows",
-    secrets_catalogue=None,
+    secrets_catalogue=None, schemas=None,
 ) -> set[str]:
     """Register the flow resources, tools and endpoints. Returns mirror names."""
-    schemas = Schemas(mcp)
+    # Shared with the admin surface when the server hands one in, so the editor
+    # there validates against the same step schemas these tools do. Two
+    # instances would only mean building the same thing twice, but two
+    # *sources* of truth is the failure this package keeps finding.
+    schemas = schemas or Schemas(mcp)
 
     # ---- resources ---------------------------------------------------------
 

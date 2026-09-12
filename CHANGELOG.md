@@ -40,6 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The built-in skill now teaches flows and secrets, so an agent finds and uses them without being told how.
 
+- **The admin UI shows flows.** Every session's flows beside its files: read the steps, edit the YAML, move one to or from the shared `global` library, or delete it.
+- **Files are one grid with a mark each.** A bubble is a download and a pin is a file kept beyond the browser — click the bubble to keep it, hover the pin to delete it. `Clear downloads` now lists exactly what it will remove and leaves kept files alone.
+
 ### Changed
 
 - **BREAKING:** the shared `global` flow library is read-only. Every session can list and run its flows; none can change them — including a caller with no session name, which used to save straight into it. Name your session with `?session=<name>` to get a library of your own; a stdio client gets one automatically.
