@@ -50,24 +50,56 @@ BANNER = (
     "     prose belongs in wiki/notes/{name}.notes.md, which is included below. -->"
 )
 
-# The one place the two surfaces are named together, in the order a reader meets
-# them: open a browser, do something, read the result, put it back.
-ORDER = [
-    "open_session",
-    "navigate",
-    "interact",
-    "write",
-    "press_key",
-    "extract",
-    "screenshot",
-    "save_pdf",
-    "execute_script",
-    "frame",
-    "dialog",
-    "resize",
-    "upload_file",
-    "end_browser",
+# The one place the surfaces are named together, in the order a reader meets
+# them: open a browser, do something, read the result, put it back — then the
+# two layers that sit above a browser action and have their own route tables.
+#
+# Grouped rather than flat because the groups are real: a flow is not a
+# fifteenth thing to do to a browser, it is a saved list of the first fourteen,
+# and a reader who cannot see that from the index has to infer it.
+GROUPS = [
+    (
+        "Browser actions",
+        "Everything you can do to a page.",
+        [
+            "open_session",
+            "navigate",
+            "interact",
+            "write",
+            "press_key",
+            "extract",
+            "screenshot",
+            "save_pdf",
+            "execute_script",
+            "frame",
+            "dialog",
+            "resize",
+            "upload_file",
+            "end_browser",
+        ],
+    ),
+    (
+        "Flows",
+        "A sequence of the actions above, saved under a name and run in one "
+        "call. See [Flows](Flows) for what a flow document looks like.",
+        [
+            "list_flows",
+            "get_flow",
+            "flow_schema",
+            "save_flow",
+            "run_flow",
+            "delete_flow",
+        ],
+    ),
+    (
+        "Files",
+        "What a session has produced, and how to keep one past the browser "
+        "that made it. See [Files](Files).",
+        ["session_files", "keep_file"],
+    ),
 ]
+
+ORDER = [tool for _, _, tools in GROUPS for tool in tools]
 
 
 async def _build() -> dict:
@@ -210,10 +242,32 @@ def example(tool: str, path: str, schema: dict) -> str:
     ).replace("'", '"')
     return (
         f"**MCP**\n\n```\n{tool}({mcp_args})\n```\n\n"
-        f"**HTTP**\n\n```bash\ncurl -X POST $SELENIUM_FLOW/browser/{path} \\\n"
+        f"**HTTP**\n\n```bash\ncurl -X POST $SELENIUM_FLOW{path} \\\n"
         f'  -H "Authorization: Bearer $TOKEN" \\\n'
         f"  -H 'Content-Type: application/json' \\\n"
         f"  -d '{{\n    {payload}\n  }}'\n```"
+    )
+
+
+def failures(op: dict) -> str:
+    """The error codes this endpoint actually declares, and what each means.
+
+    Read from the operation rather than written once for every page. The three
+    surfaces do not fail alike — a flow cannot 404 and a file very much can, and
+    only the file routes 503 when the Grid is unreachable — so the sentence that
+    was true of a browser action was a guess on any other page.
+    """
+    rows = [
+        [f"`{code}`", clean(body.get("description"))]
+        for code, body in sorted(op.get("responses", {}).items())
+        if code != "200"
+    ]
+    if not rows:
+        return ""
+    return (
+        "\n## Errors\n\n"
+        + table(rows, ["Status", "Means"])
+        + "\n\nOver MCP the same failures arrive as a tool error.\n"
     )
 
 
@@ -240,7 +294,7 @@ def render(spec: dict, tool: str, path: str, op: dict) -> str:
 |  |  |
 |---|---|
 | **MCP tool** | `{tool}` |
-| **HTTP** | `POST /browser/{path}` |
+| **HTTP** | `POST {path}` |
 
 {description}
 
@@ -251,10 +305,7 @@ def render(spec: dict, tool: str, path: str, op: dict) -> str:
 ## Returns
 
 {returns(spec, response)}
-
-Errors are `400` for a bad argument, `401` without a token, `500` when the Grid
-refuses. Over MCP the same failures arrive as a tool error.
-
+{failures(op)}
 ## Example
 
 {example(tool, path, request)}
@@ -268,16 +319,21 @@ refuses. Over MCP the same failures arrive as a tool error.
 def pages(spec: dict) -> dict[str, str]:
     by_tool = {}
     for path, item in spec["paths"].items():
-        op = item.get("post")
-        if not op or not path.startswith("/browser/"):
-            continue
-        tool = op["operationId"]
-        by_tool[tool] = (path.removeprefix("/browser/"), op)
+        for op in item.values():
+            # `x-mcp-tool` is the filter, not the path prefix. An operation
+            # carries it when it is one half of an action a caller can also
+            # reach over MCP, which is exactly the set worth a page — and it
+            # leaves /health out without naming it. Filtering on `/browser/`
+            # was what kept flows and kept files out of the wiki entirely
+            # while every other page went on referring to them.
+            tool = op.get("x-mcp-tool")
+            if tool:
+                by_tool[tool] = (path, op)
 
     missing = set(by_tool) - set(ORDER)
     if missing:
         raise SystemExit(
-            f"add these to ORDER in {__file__}: {', '.join(sorted(missing))}"
+            f"add these to GROUPS in {__file__}: {', '.join(sorted(missing))}"
         )
 
     out = {}
@@ -287,15 +343,23 @@ def pages(spec: dict) -> dict[str, str]:
         endpoint, op = by_tool[tool]
         out[f"{tool}.md"] = render(spec, tool, endpoint, op)
 
-    rows = [
-        [
-            f"[`{tool}`]({tool})",
-            f"`POST /browser/{by_tool[tool][0]}`",
-            clean(by_tool[tool][1].get("summary")),
+    sections = []
+    for title, blurb, tools in GROUPS:
+        rows = [
+            [
+                f"[`{tool}`]({tool})",
+                f"`POST {by_tool[tool][0]}`",
+                clean(by_tool[tool][1].get("summary")),
+            ]
+            for tool in tools
+            if tool in by_tool
         ]
-        for tool in ORDER
-        if tool in by_tool
-    ]
+        if rows:
+            sections.append(
+                f"## {title}\n\n{blurb}\n\n{table(rows, ['Tool', 'Endpoint', 'Does'])}"
+            )
+
+    body = "\n\n".join(sections)
     out["Actions.md"] = f"""{BANNER.format(name="Actions")}
 
 # Actions
@@ -303,7 +367,7 @@ def pages(spec: dict) -> dict[str, str]:
 Every action is an MCP tool **and** an HTTP endpoint with the same parameters. A
 test fails the build if one exists without the other.
 
-{table(rows, ["Tool", "Endpoint", "Does"])}
+{body}
 
 Over HTTP `session_id` is always required. Over MCP it depends on whether the
 server can identify you — see [Sessions](Sessions).

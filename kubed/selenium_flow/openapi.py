@@ -243,6 +243,12 @@ async def build_spec(
         paths[f"{prefix}/{path}"] = {
             "post": {
                 "operationId": action,
+                # The MCP tool this endpoint is the other half of. Redundant for
+                # a browser action, where the two names are the same by
+                # construction — and stated anyway, so a reader of the document
+                # never has to know which surface a name came from. See
+                # `_mcp_tools` for why the other two surfaces need it.
+                "x-mcp-tool": action,
                 "summary": _summary(tool.description),
                 "description": tool.description or "",
                 "tags": ["browser"],
@@ -750,8 +756,36 @@ _FLOW_OPERATIONS = {
 }
 
 
+def _mcp_tools() -> tuple[dict, dict]:
+    """The MCP tool behind each ``/flows`` and ``/files`` endpoint.
+
+    Imported here rather than at module scope because the import runs the other
+    way at load time: ``routes`` imports ``build_spec`` from this module and
+    ``flowapi`` imports ``ENDPOINTS`` from ``routes``, so naming either one up
+    top closes the loop. Reading the constants is still the point — an endpoint
+    and its tool are one action, and a second hand-written copy of these six
+    names is how the wiki ends up generating a page called ``saveFlow`` for a
+    tool nobody can call.
+    """
+    from . import files as files_module
+    from . import flowapi
+
+    return (
+        {
+            "list": flowapi.LIST_TOOL,
+            "get": flowapi.GET_TOOL,
+            "save": flowapi.SAVE_TOOL,
+            "delete": flowapi.DELETE_TOOL,
+            "run": flowapi.RUN_TOOL,
+            "schema": flowapi.SCHEMA_TOOL,
+        },
+        {"list": files_module.FILES_TOOL, "keep": files_module.KEEP_TOOL},
+    )
+
+
 def _flow_paths(prefix: str = "/flows") -> dict:
     """The five /flows endpoints."""
+    tools, _ = _mcp_tools()
     paths = {}
     for path, (op, summary, description, request, response) in _FLOW_OPERATIONS.items():
         schema = (
@@ -762,6 +796,7 @@ def _flow_paths(prefix: str = "/flows") -> dict:
         paths[f"{prefix}/{path}"] = {
             "post": {
                 "operationId": op,
+                "x-mcp-tool": tools[path],
                 "summary": summary,
                 "description": description,
                 "tags": ["flows"],
@@ -917,6 +952,7 @@ _FILE_OPERATIONS = {
 
 def _file_paths(prefix: str = "/files") -> dict:
     """The four /files endpoints."""
+    _, tools = _mcp_tools()
     paths = {}
     for path, (op, summary, description, request, response) in (
         _FILE_OPERATIONS.items()
@@ -949,6 +985,7 @@ def _file_paths(prefix: str = "/files") -> dict:
         paths[f"{prefix}/{path}"] = {
             "post": {
                 "operationId": op,
+                "x-mcp-tool": tools[path],
                 "summary": summary,
                 "description": description,
                 "tags": ["files"],
