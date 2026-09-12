@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Saved flows.** Save a sequence of steps under a name, then run the whole thing in one call with `run_flow` — a twelve-step form becomes one call instead of twelve. Set `FLOW_DATA_DIR` to turn them on.
-- **Kept files.** `keep_file` copies a download out of the browser so it survives being reaped, switched or ended; `session_files` lists both kinds together and keeps working after the browser has gone. `delete_file` removes one you kept.
+- **Kept files.** `keep_file` copies a download out of the browser so it survives being reaped, switched or ended; `session_files` lists both kinds together and keeps working after the browser has gone. Deleting a kept file is an operator action in the admin UI.
 
 - Flows take parameters, so one saved login serves every account.
 

@@ -21,7 +21,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from pathlib import Path, PurePosixPath
+from urllib.parse import quote
 
 import anyio
 from starlette.concurrency import run_in_threadpool
@@ -126,6 +128,27 @@ def _basename(name: str) -> str:
     return PurePosixPath(str(name).replace("\\", "/")).name
 
 
+def disposition(name: str) -> str:
+    """A ``Content-Disposition`` that survives whatever a site named its file.
+
+    A header is encoded as latin-1, and a file name is not ours to choose — the
+    site's ``Content-Disposition`` or Chrome picked it. So ``emoji😊.txt``
+    raised while the response was being built, and a name containing a quote
+    produced a malformed header. Neither name is invalid; both were unfetchable.
+
+    RFC 6266 is the answer, and it is why the field is written twice: a
+    printable-ASCII ``filename`` that any client can parse, with every other
+    character folded to ``_``, and the real name percent-encoded in
+    ``filename*``, which every current browser prefers. Folding rather than
+    dropping also closes the header-injection route a raw CR or LF would open.
+    """
+    base = _basename(name)
+    # Quotes and backslashes are printable but would end or escape the quoted
+    # string, so they are folded too rather than left to be parsed as syntax.
+    ascii_name = re.sub(r'[^\x20-\x7e]|["\\]', "_", base) or "file"
+    return f"inline; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(base, safe='')}"
+
+
 def served(name: str, data: bytes) -> Response:
     """One stored file's bytes, however it was stored.
 
@@ -140,10 +163,7 @@ def served(name: str, data: bytes) -> Response:
         headers={
             # Named for download, but shown inline when the browser can: the
             # common case is looking at a screenshot, not saving it.
-            # Backslashes folded first, exactly as actions._safe_name does:
-            # PurePosixPath does not treat one as a separator, so a
-            # Windows-style name would otherwise reach the header verbatim.
-            "Content-Disposition": f'inline; filename="{_basename(name)}"',
+            "Content-Disposition": disposition(name),
             # Safe to cache hard — the signature already bounds the lifetime,
             # and a stored file never changes under its own name.
             "Cache-Control": "private, max-age=3600",
@@ -410,13 +430,10 @@ def register(
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         key = request.path_params["key"]
-        # The browser the session currently holds, which it may not have. A
-        # detached session still has its kept files, so this is no longer the
-        # end of the answer — it only decides whether there are downloads too.
-        session_id = attached_id(key)
         session = flows.session_for(key)
         try:
             if request.method == "DELETE":
+                session_id = attached_id(key)
                 # Clears the DOWNLOADS, which is all the Grid offers: its store
                 # has no per-file delete. Kept files are ours and elsewhere, so
                 # they are untouched — which is exactly what makes this safe to
@@ -426,13 +443,30 @@ def register(
                 return JSONResponse(
                     {"success": True, "key": key, "session_id": session_id or None}
                 )
+            # Whether there are downloads to list depends on whether the browser
+            # is still on the Grid. The record can name one the Grid already
+            # reaped — an ordinary state, not a broken one — and handing that
+            # dead id to `merged` would fail the whole view in exactly the case
+            # kept files exist to survive.
+            #
+            # `is_alive` is the right question, and the header's `live` is not:
+            # that comes from a best-effort bulk listing which reports
+            # `live: false` when the Grid could not be read *at all*, so an
+            # outage would quietly render an empty download list instead of an
+            # error. `is_alive` assumes alive when it cannot tell, so a Grid
+            # that is down still surfaces from the call below.
+            attached = attached_id(key)
+            alive = attached and await run_in_threadpool(
+                actions.grid.is_alive, attached
+            )
             listing = await run_in_threadpool(
-                files.merged, actions, flow_store, session, session_id, token
+                files.merged, actions, flow_store, session, attached if alive else "",
+                token,
             )
             return JSONResponse(
                 {
                     "key": key,
-                    "session": await header(key, session_id),
+                    "session": await header(key, attached),
                     "files": listing,
                 }
             )

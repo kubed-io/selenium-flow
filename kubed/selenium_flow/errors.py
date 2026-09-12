@@ -93,6 +93,21 @@ def status_for(exc: BaseException) -> int:
     """The HTTP status that tells the truth about ``exc``."""
     if isinstance(exc, GONE):
         return 404
+    if isinstance(exc, requests.HTTPError):
+        # The Grid answered, and its answer was no. Every plain HTTP call to it
+        # — `files`, `read_file`, `status` — reports that through
+        # `raise_for_status`, and this is NOT a connection failure: it must not
+        # fall into UNAVAILABLE below and be called a 503.
+        #
+        # A 404 from the Grid means the browser or the file is gone, which is
+        # the same diagnosis `GONE` carries and has the same fix. Its own 5xx is
+        # worth retrying. Anything else it refuses is the request's problem.
+        # Without this branch a reaped browser answered 500 while the published
+        # /files contract promised 404.
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if status is None or status >= 500:
+            return 503
+        return 404 if status == 404 else 400
     if isinstance(exc, UNAVAILABLE):
         return 503
     if isinstance(exc, CALLER):

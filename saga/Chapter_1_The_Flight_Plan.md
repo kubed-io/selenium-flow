@@ -284,7 +284,9 @@ question #3).** The resolution rules:
   the difference between a shared login flow you can trust and one anybody
   overwrote last Tuesday.
 
-**One asymmetry to be aware of rather than fix:** a caller with no session name
+**One asymmetry to be aware of rather than fix** — *superseded on 2026-09-12;
+see the addendum at the end of this section, which fixes it after all:* a caller
+with no session name
 *is* `global`, so it writes there directly, while a named session needs an admin
 to promote. That is not inconsistent so much as unavoidable — the unnamed caller
 has no other folder to write to — but it does mean **anonymous callers can write
@@ -308,6 +310,44 @@ session** when it is global.
 That changes the shape of promotion, not the policy. The agent-facing tools
 still never write to `global`: `save_flow` and `delete_flow` touch only your own
 session (§F1.5). The move lives in the admin UI, where a person is present.
+
+**`global` is read-only to every agent (Dr K, 2026-09-12).** This *supersedes*
+the asymmetry above rather than merely noting it, and the argument is
+concurrency rather than tidiness: the shared library is **live**. A flow in it is
+being listed and run by other sessions right now, and an agent rewriting or
+deleting one underneath them is a race nobody can debug — the login that worked
+this morning is simply gone, and nothing records who removed it. One agent
+editing while another is mid-run is the chaotic case, and it is reachable today
+by any caller that simply did not name itself.
+
+So the rule loses its exception:
+
+- **`save_flow` and `delete_flow` refuse when the target library is `global`** —
+  for every caller, including the unnamed ones that *are* `global`.
+- **Reading and running are untouched.** Every session still lists and runs the
+  shared library. That is the whole point of it.
+- **An unnamed caller can run flows but not save them.** Naming your session is
+  how you get somewhere to write, which is what `?session=` was always for; it
+  is now enforced rather than merely recommended.
+- **Writes to `global` are an operator action** in the admin UI, where a person
+  is present and can see what a change affects — the move button of §F1.36.
+
+This makes `global` what this section already called it — a *curated* library
+rather than a shared scratchpad — and removes the one paragraph in this chapter
+that had to apologise for itself.
+
+**To build, in its own PR** (deliberately not the kept-files one, which is about
+a different noun):
+
+- `flowapi.save_one` and `delete_one` refuse `global`, with an error that says
+  to name the session rather than only saying no.
+- The skill's `references/FLOWS.md` carries a table teaching the *old* rule —
+  "unnamed → you save into the shared `global` library" — which is wrong the
+  moment this lands. It is prose an agent acts on, so it changes in that PR,
+  and `test_every_flow_the_skill_teaches_would_save` is what will catch the
+  examples.
+- `delete_flow`'s description carries a warning about deleting a flow every
+  session can see. That becomes impossible, so the warning goes with it.
 
 ### §F1.3 — Decision (locked): one directory, two subdirectories, one per session
 
@@ -1740,8 +1780,14 @@ The backend is **done**; the UI that reads it is the next PR.
       a route of its own rather than a flag on `/files/{browser}/{name}`, because
       the two are keyed by different things and a signature is bound to its path
 - [x] Keeping is a **copy**: the Grid has no per-file delete and no write (§F1.10)
-- [x] Per-file delete for **kept files only**; no unpin, because Delete is it.
-      Deleting a *download* answers `deleted: false` rather than pretending
+- [x] Per-file delete for **kept files only**, and **operator-only** (Dr K,
+      2026-09-12): there is no `delete_file` tool. An agent is not the thing
+      that runs out of disk, and keeping stays a one-way verb rather than a
+      reversible one whose meaning depends on whether a browser still exists.
+      So there is no unpin *and* no agent delete — keeping is simply a decision.
+      Deleting a *download* answers `deleted: false` rather than pretending.
+      **The admin button is therefore the only thing that reclaims the space**,
+      since nothing collects kept files (§F1.10, open question #5)
 - [x] `Clear downloads` is `grid.clear_files()` and provably leaves kept files
       alone — `test_clearing_downloads_leaves_kept_files_alone` is the proof
       that the objection which condemned the old button cannot happen now
@@ -1760,17 +1806,31 @@ The backend is **done**; the UI that reads it is the next PR.
       YAML, far too small once files land beside it. **This is now load-bearing
       rather than theoretical:** kept files land there as of this epic
 
-**What building it added that the plan did not name.** A `delete_file` tool, so
-the per-file delete is a capability rather than an admin-only button; a `/files`
-route table beside `/flows`, for the same reason that one exists; and
-`session_of` moved into `flows.py`, because a file and a flow must land in the
-same session directory and two functions deciding that is how they come to
-disagree.
+**What building it added that the plan did not name.** A `/files` route table
+beside `/flows`, for the same reason that one exists; `session_of` moved into
+`flows.py`, because a file and a flow must land in the same session directory
+and two functions deciding that is how they come to disagree; and a
+classification for `requests.HTTPError` in `errors.py`, without which a reaped
+browser answered 500 while the published contract promised 404.
 
-Deliberately **not** added: a `/files/clear` endpoint. Clearing is real, but it
-has no MCP tool, and an endpoint without one is precisely the half-a-capability
-this project forbids. The admin route already reaches it, which is the operator
-surface it belongs on.
+Deliberately **not** added: `/files/clear` and `/files/delete`. Both are real
+capabilities and neither has an MCP tool, so an endpoint alone would be
+precisely the half-a-capability this project forbids. The admin routes reach
+both, which is the operator surface they belong on.
+
+Two things review caught that the design had got wrong, both worth keeping:
+
+- **A file name must not be trimmed.** `valid_name` trims a *session* name
+  because a caller typed it and a trailing space is a typo. Nobody types a file
+  name — the site's `Content-Disposition` or Chrome chose it — so `" report.pdf "`
+  is a different file, and trimming made `keep_one` ask the Grid for a name it
+  did not have.
+- **A `Content-Disposition` header is latin-1.** Since the name is not ours to
+  choose, an emoji raised while the response was built and a quote produced a
+  malformed header — both for names this store accepts. RFC 6266 says it twice
+  instead: a folded printable-ASCII `filename`, plus the real name in
+  `filename*`. Folding also closes the header-injection route a raw CR or LF
+  would open.
 
 One bug worth recording, because it was invisible in review and loud in a test:
 `admin.py` already bound a local named `store` — the *session record* store —

@@ -125,8 +125,20 @@ def valid_file_name(name) -> str:
     must be a single, ordinary path segment. Traversal is refused here, and
     refused again by ``_resolved``, because this value reaches the store from a
     URL path parameter as well as from the Grid's own listing.
+
+    **Not trimmed, unlike :func:`valid_name`**, and the difference is the same
+    one that motivates this function at all. Trimming a session name is ordinary
+    boundary coercion because a caller typed it and a trailing space is a typo.
+    Nobody typed a file name: it is whatever the site's ``Content-Disposition``
+    or Chrome called the thing. So ``" report.pdf "`` is a *different file* from
+    ``"report.pdf"``, and silently trimming it made ``keep_one`` ask the Grid for
+    a name it does not have — the copy then could not round-trip through read or
+    delete either. A name that is nothing but whitespace names nothing and is
+    still refused.
     """
-    text = "" if name is None else str(name).strip()
+    text = "" if name is None else str(name)
+    if not text.strip():
+        raise InvalidName("a file name cannot be blank")
     if not FILE_NAME.match(text) or text.startswith("."):
         raise InvalidName(
             f"{text!r} is not a usable file name: it must be a single name "

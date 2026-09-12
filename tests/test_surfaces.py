@@ -46,7 +46,7 @@ FLOW_TOOLS = {
 # holds them to it against `files.FILE_ENDPOINTS`, exactly as this file does for
 # the browser actions. What the subtraction does is keep the assertions below
 # about the set they name.
-FILE_TOOLS = {files_module.KEEP_TOOL, files_module.DELETE_TOOL}
+FILE_TOOLS = {files_module.KEEP_TOOL}
 
 
 def browser_tools(tools) -> set[str]:

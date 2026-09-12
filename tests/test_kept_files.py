@@ -16,16 +16,17 @@ The Grid is never dialled. What is asserted is the part this server decides.
 from unittest.mock import patch
 
 import pytest
+import requests
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow import browser, files, flows, links
+from kubed.selenium_flow import admin, browser, errors, files, flows, links
 from kubed.selenium_flow import resources as resources_module
 from kubed.selenium_flow.openapi import build_spec
 from kubed.selenium_flow.routes import ENDPOINTS
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.store import SessionRecord
 
-from .conftest import TOKEN
+from .conftest import NAMED, TOKEN
 
 pytestmark = pytest.mark.unit
 
@@ -89,6 +90,19 @@ class FakeGrid:
 class FakeActions:
     def __init__(self, grid):
         self.grid = grid
+
+
+class Sessions:
+    """A session manager double: only what `listing` actually reads."""
+
+    def __init__(self, **status):
+        self.status = status
+
+    def describe(self):
+        return dict(self.status)
+
+    def key(self):
+        return NAMED
 
 
 # ---- the store ---------------------------------------------------------------
@@ -168,6 +182,25 @@ def test_a_file_name_that_is_not_one_segment_is_refused(store, name):
         store.write_file(SESSION, name, b"x")
 
 
+def test_a_file_name_is_not_trimmed(store):
+    """Nobody typed this name — the site's Content-Disposition or Chrome chose
+    it — so a surrounding space is part of the name rather than a typo. Trimming
+    it (as a *session* name is trimmed, correctly) made `keep_one` ask the Grid
+    for a name it does not have, and the stored copy could then round-trip
+    through neither read nor delete."""
+    name = " report.pdf "
+    store.write_file(SESSION, name, b"x")
+    assert [f["name"] for f in store.files(SESSION)] == [name]
+    assert store.read_file(SESSION, name) == b"x"
+    assert store.delete_file(SESSION, name) is True
+
+
+def test_keeping_asks_the_grid_for_the_name_it_was_given(store):
+    grid = FakeGrid([], b"x")
+    files.keep_one(FakeActions(grid), store, SESSION, "abc", " report.pdf ")
+    assert grid.reads == [("abc", " report.pdf ")]
+
+
 def test_a_kept_file_cannot_escape_the_data_directory(store, tmp_path):
     """The name arrives from a URL path parameter as well as from the Grid, so
     traversal is refused by the name rule and again by `_resolved`."""
@@ -243,6 +276,46 @@ def test_a_grid_failure_is_not_hidden(store):
         files.merged(FakeActions(Broken()), store, SESSION, "abc", TOKEN)
 
 
+def test_the_listing_ignores_a_browser_the_grid_has_reaped(store):
+    """A reaped browser stays in the session record until something refreshes
+    it, and `describe` reports that id beside `live: false`. Trusting it dials
+    the Grid for a browser that is gone and fails the whole listing — in exactly
+    the state kept files exist to survive."""
+    store.write_file(SESSION, "kept.pdf", b"x")
+
+    class Reaped(FakeGrid):
+        def files(self, session_id):
+            raise AssertionError(f"dialled the Grid for reaped {session_id!r}")
+
+    listed = files.listing(
+        FakeActions(Reaped()), Sessions(session_id="dead", live=False), store, TOKEN
+    )
+    assert [f["name"] for f in listed["files"]] == ["kept.pdf"]
+
+
+def test_the_listing_still_uses_a_browser_that_is_live(store):
+    listed = files.listing(
+        FakeActions(FakeGrid(DOWNLOADS)),
+        Sessions(session_id="abc", live=True),
+        store,
+        TOKEN,
+    )
+    assert [f["name"] for f in listed["files"]] == ["report.pdf", "shot.png"]
+
+
+def test_an_explicitly_passed_browser_is_trusted(store):
+    """The caller owns that id and may well have opened it elsewhere, so it is
+    not second-guessed against a status this server holds."""
+    listed = files.listing(
+        FakeActions(FakeGrid(DOWNLOADS)),
+        Sessions(session_id=None, live=False),
+        store,
+        TOKEN,
+        session_id="abc",
+    )
+    assert len(listed["files"]) == 2
+
+
 def test_with_no_store_only_downloads_are_listed():
     actions = FakeActions(FakeGrid(DOWNLOADS))
     listed = files.merged(actions, None, "", "abc", TOKEN)
@@ -306,7 +379,6 @@ def test_deleting_refuses_when_keeping_is_off():
 TOOL_FOR = {
     "list": files.FILES_TOOL,
     "keep": files.KEEP_TOOL,
-    "delete": files.DELETE_TOOL,
 }
 
 
@@ -339,19 +411,31 @@ async def test_the_file_actions_are_not_counted_as_browser_actions(kept_server):
     """They are a layer above /browser, like flows: about a session's files
     rather than about driving a page. The browser route table must not grow."""
     assert files.KEEP_TOOL not in ENDPOINTS.values()
-    assert files.DELETE_TOOL not in ENDPOINTS.values()
 
 
-async def test_the_file_tools_declare_honest_annotations(kept_server):
-    """An unannotated tool is advertised as destructive, and neither of these
-    is. Keeping copies a file; deleting removes one the caller asked to keep."""
+async def test_the_keep_tool_declares_honest_annotations(kept_server):
+    """An unannotated tool is advertised as destructive, and this one is not.
+    Keeping copies a file and destroys nothing."""
     tools = {t.name: t for t in await kept_server.mcp.list_tools()}
     keep = tools[files.KEEP_TOOL].annotations
     assert keep.title and keep.read_only_hint is False
     assert keep.destructive_hint is False, "keeping a file destroys nothing"
     assert keep.idempotent_hint is True
-    remove = tools[files.DELETE_TOOL].annotations
-    assert remove.destructive_hint is True and remove.idempotent_hint is True
+
+
+async def test_deleting_a_kept_file_is_not_offered_to_an_agent(
+    kept_server, monkeypatch
+):
+    """Keeping is one-way on purpose. An agent is not the thing that runs out of
+    disk, and a one-way verb is a simpler promise than a reversible one whose
+    meaning depends on whether a browser still exists. Removing a kept file is
+    an operator action on the admin surface — which is also why there is no
+    endpoint: one without a tool is the half-a-capability this project forbids.
+    """
+    monkeypatch.setattr(resources_module, "_http", lambda: ({"resources": "off"}, {}))
+    names = {t.name for t in await kept_server.mcp.list_tools()}
+    assert "delete_file" not in names
+    assert "delete" not in files.FILE_ENDPOINTS
 
 
 def test_the_endpoints_need_the_token(client):
@@ -390,25 +474,47 @@ def test_keep_then_list_over_http(client, live):
     assert body["session"] == SESSION
 
 
-def test_delete_over_http_removes_only_what_was_kept(client, live):
-    live.flows.write_file(SESSION, "report.pdf", b"PDF")
-    body = client.post(
-        "/files/delete",
-        json={"name": "report.pdf", "session": SESSION},
-        headers=AUTH,
-    ).json()
-    assert body["deleted"] is True
-    assert live.flows.files(SESSION) == []
-
-
 def test_an_unusable_name_is_a_400_over_http(client, live):
     response = client.post(
-        "/files/delete",
-        json={"name": "../passwd", "session": SESSION},
+        "/files/keep",
+        json={"session_id": "abc", "name": "../passwd", "session": SESSION},
         headers=AUTH,
     )
     assert response.status_code == 400
     assert "file name" in response.json()["error"]
+
+
+def test_a_grid_that_says_no_is_not_a_500(client, live):
+    """`Grid.files` and `read_file` report a refusal through
+    `raise_for_status`, which raises `requests.HTTPError` — not a connection
+    failure, and not previously classified. A reaped browser therefore answered
+    500 while the published /files contract promised 404, which tells a client
+    to stop retrying something it could have fixed by opening a browser."""
+    gone = requests.Response()
+    gone.status_code = 404
+    with patch.object(
+        browser.Grid, "read_file", side_effect=requests.HTTPError(response=gone)
+    ):
+        response = client.post(
+            "/files/keep",
+            json={"session_id": "abc", "name": "report.pdf", "session": SESSION},
+            headers=AUTH,
+        )
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "status,expected",
+    [(404, 404), (400, 400), (422, 400), (500, 503), (502, 503), (None, 503)],
+)
+def test_the_grids_own_status_decides_what_its_refusal_means(status, expected):
+    """Its 404 has the same diagnosis and the same fix as a dead session; its
+    5xx is worth retrying; anything else it refuses is the request's problem."""
+    response = None
+    if status is not None:
+        response = requests.Response()
+        response.status_code = status
+    assert errors.status_for(requests.HTTPError(response=response)) == expected
 
 
 # ---- the admin surface -------------------------------------------------------
@@ -478,6 +584,45 @@ def test_a_detached_session_still_lists_its_kept_files(client, kept_server):
     assert body["session"]["attached"] is False
 
 
+def test_the_admin_listing_survives_a_reaped_browser(client, live):
+    """The record still names a browser; the Grid no longer has it. That is an
+    ordinary state — the Grid reaps idle browsers — and the session header is
+    the thing that actually checked, so the listing follows its verdict rather
+    than the record's optimism. Dialling the dead id would 502 the whole view
+    in the exact case kept files exist for."""
+    live.flows.write_file(SESSION, "kept.pdf", b"x")
+    with (
+        patch.object(browser.Grid, "is_alive", return_value=False),
+        patch.object(browser.Grid, "sessions", return_value=[]),
+        patch.object(
+            browser.Grid,
+            "files",
+            side_effect=AssertionError("dialled a browser the Grid had reaped"),
+        ),
+    ):
+        body = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH).json()
+    assert [f["name"] for f in body["files"]] == ["kept.pdf"]
+    assert body["session"]["live"] is False
+
+
+def test_a_grid_outage_is_an_error_not_an_empty_download_list(client, live):
+    """The other half of the rule above, and the reason it asks `is_alive`
+    rather than reading the header's `live`: that flag is false both when the
+    Grid says the browser is gone AND when the Grid could not be read at all.
+    Treating an outage as "detached" would render a confident empty list for a
+    session that may have had twenty downloads."""
+    live.flows.write_file(SESSION, "kept.pdf", b"x")
+    with (
+        patch.object(browser.Grid, "is_alive", return_value=True),
+        patch.object(browser.Grid, "sessions", return_value=[]),
+        patch.object(
+            browser.Grid, "files", side_effect=requests.ConnectionError("grid down")
+        ),
+    ):
+        response = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH)
+    assert response.status_code == 502
+
+
 def test_the_session_list_counts_flows_and_kept_files(client, live):
     """The count is the reason to click into a session, and a detached one still
     has things worth counting."""
@@ -513,6 +658,35 @@ def test_the_kept_route_serves_a_signed_file(client, live):
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/png")
     assert "inline" in response.headers["content-disposition"]
+
+
+def test_the_disposition_folds_what_a_header_cannot_carry():
+    """A header is encoded as latin-1 and a file name is not ours to choose, so
+    `emoji😊.txt` raised while the response was being built and a name with a
+    quote produced a malformed header. Neither name is invalid; both were
+    unfetchable. RFC 6266 says it twice instead."""
+    value = admin.disposition('rapport été "x".pdf')
+    value.encode("latin-1")  # raised before the fix
+    assert value.count('"') == 2, "the quoted filename ends early"
+    assert "filename*=UTF-8''" in value, "the real name is lost"
+
+
+def test_a_name_no_header_could_carry_is_still_fetchable(client, live):
+    name = 'emoji😊 "q".txt'
+    live.flows.write_file(SESSION, name, b"x")
+    response = client.get(links.kept_url(SESSION, name, TOKEN))
+    assert response.status_code == 200
+    value = response.headers["content-disposition"]
+    assert "filename*=UTF-8''" in value
+    quoted = value.split(";")[1]
+    assert "😊" not in quoted and '"q"' not in quoted
+
+
+def test_a_control_character_cannot_reach_the_header(client, live):
+    """Folding rather than dropping also closes the header-injection route a
+    raw CR or LF would open, since the name reaches this from a URL path."""
+    assert "\r" not in admin.disposition("a\r\nX-Evil: 1.txt")
+    assert "\n" not in admin.disposition("a\r\nX-Evil: 1.txt")
 
 
 def test_the_kept_route_refuses_without_a_signature(client):
@@ -561,11 +735,10 @@ async def test_every_file_response_schema_it_references_exists(spec):
                 assert ref.split("/")[-1] in defined, f"{path} -> {ref}"
 
 
-async def test_an_operation_that_never_dials_the_grid_does_not_promise_grid_errors(spec):
-    """Deleting a kept file never leaves this server, so 404 and 503 cannot
-    happen to it. Publishing them would describe two outcomes a client would
-    write handling for and never see."""
-    delete = spec["paths"]["/files/delete"]["post"]["responses"]
-    assert set(delete) == {"200", "400", "401", "500"}
-    keep = spec["paths"]["/files/keep"]["post"]["responses"]
-    assert "503" in keep and "404" in keep
+async def test_every_file_operation_declares_the_grids_failure_modes(spec):
+    """Both remaining operations dial the Grid, so both can fail its way — and
+    the contract has to say so, or a generated client writes no handling for the
+    reaped browser it will certainly meet."""
+    for path in files.FILE_ENDPOINTS:
+        responses = spec["paths"][f"/files/{path}"]["post"]["responses"]
+        assert set(responses) == {"200", "400", "401", "404", "500", "503"}, path

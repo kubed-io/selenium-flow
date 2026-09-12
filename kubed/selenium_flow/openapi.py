@@ -840,19 +840,6 @@ FILE_SCHEMAS = {
             "creationTime": {"type": "integer"},
         },
     },
-    "FileDeleted": {
-        "type": "object",
-        "properties": {
-            "deleted": {
-                "type": "boolean",
-                "description": (
-                    "False when there was no such kept file, which is not an error."
-                ),
-            },
-            "session": {"type": "string"},
-            "name": {"type": "string"},
-        },
-    },
 }
 
 _FILE_SESSION = {
@@ -865,7 +852,10 @@ _FILE_SESSION = {
     }
 }
 
-# path -> (operationId, summary, description, request, response, touches the Grid)
+# path -> (operationId, summary, description, request, response). Every one of
+# these dials the Grid, so they all carry its failure modes; deleting a kept
+# file never leaves this server, and is deliberately not here — it is an
+# operator action on the admin surface, with no tool and so no endpoint.
 _FILE_OPERATIONS = {
     "list": (
         "listFiles",
@@ -879,7 +869,6 @@ _FILE_OPERATIONS = {
             "properties": {**_FILE_SESSION, "session_id": {"type": "string"}},
         },
         "FileList",
-        True,
     ),
     "keep": (
         "keepFile",
@@ -900,21 +889,6 @@ _FILE_OPERATIONS = {
             },
         },
         "FileKept",
-        True,
-    ),
-    "delete": (
-        "deleteFile",
-        "Delete one kept file.",
-        "Only a kept file can be deleted. A download belongs to the browser and "
-        "the Grid has no per-file delete — clear removes all of them at once. "
-        "Deleting one that is not there is not an error.",
-        {
-            "type": "object",
-            "required": ["name"],
-            "properties": {**_FILE_SESSION, "name": {"type": "string"}},
-        },
-        "FileDeleted",
-        False,
     ),
 }
 
@@ -922,7 +896,7 @@ _FILE_OPERATIONS = {
 def _file_paths(prefix: str = "/files") -> dict:
     """The four /files endpoints."""
     paths = {}
-    for path, (op, summary, description, request, response, grid) in (
+    for path, (op, summary, description, request, response) in (
         _FILE_OPERATIONS.items()
     ):
         responses = {
@@ -940,20 +914,16 @@ def _file_paths(prefix: str = "/files") -> dict:
                 "unchanged."
             ),
             "401": _error("Missing or wrong bearer token."),
+            "404": _error(
+                "No such browser session, or no such file in it. It ended, the "
+                "Grid reaped it, or the id was never real."
+            ),
             "500": _error("Something failed that this server did not expect."),
-        }
-        if grid:
-            # Only the operations that actually dial the Grid can fail its way.
-            # Declaring 404 and 503 on `delete`, which never leaves this server,
-            # would publish two outcomes that cannot happen.
-            responses["404"] = _error(
-                "No such browser session. It ended, the Grid reaped it, or the "
-                "id was never real."
-            )
-            responses["503"] = _error(
-                "The Grid could not serve this — unreachable, or gone. Worth "
+            "503": _error(
+                "The Grid could not serve this — unreachable, or failing. Worth "
                 "retrying after a wait."
-            )
+            ),
+        }
         paths[f"{prefix}/{path}"] = {
             "post": {
                 "operationId": op,

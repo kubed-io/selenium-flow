@@ -22,7 +22,16 @@ because one file cannot be removed from the Grid's store. Which in turn makes
 condemn such a button, that it takes the kept files with it, cannot happen when
 kept files are somewhere else by definition. And there is **no unpin**: it would
 only be coherent while the browser still held the original, and after that it is
-indistinguishable from a delete. Delete is the escape hatch for a mistaken keep.
+indistinguishable from a delete.
+
+**Keeping is one-way for an agent, deliberately.** There is no `delete_file`
+tool. An agent has no real need to reclaim disk — it is not the thing that runs
+out of it — and a one-way verb is a simpler promise than a reversible one whose
+meaning depends on whether a browser still exists. Removing a kept file is an
+*operator* action, through the admin UI, where a person can see what they are
+deleting. Nothing collects kept files on their own (§F1.10), so that button is
+the only thing that reclaims the space, which is a decision rather than an
+oversight.
 
 The listing is offered three ways, because clients differ in what they accept:
 
@@ -61,17 +70,16 @@ LIST_URI = "session://files"
 FILE_URI = "session://files/{name}"
 FILES_TOOL = "session_files"
 KEEP_TOOL = "keep_file"
-DELETE_TOOL = "delete_file"
 
 # Path -> what it does. Its own table, like flowapi's: these are not browser
 # actions and must not be counted as though they were.
 #
-# There is deliberately no `clear` here. Clearing a browser's downloads is a
-# real capability, but it has no MCP tool — so adding the endpoint alone would
-# be exactly the one-sided capability this project forbids. The admin UI reaches
-# it through DELETE /admin/sessions/{key}/files, which is an operator surface
-# rather than a caller's.
-FILE_ENDPOINTS = ("list", "keep", "delete")
+# There is deliberately no `clear` or `delete` here. Both are real capabilities
+# and neither has an MCP tool, so the endpoint alone would be exactly the
+# one-sided capability this project forbids. The admin UI reaches both —
+# DELETE /admin/sessions/{key}/files and .../files/{name} — which is an operator
+# surface rather than a caller's, and is where deleting anything belongs.
+FILE_ENDPOINTS = ("list", "keep")
 
 IMAGE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml")
 
@@ -194,7 +202,14 @@ def listing(
     alone. That is the point of keeping one: a listing that emptied when the
     Grid reaped a browser would make the durable half look lost.
     """
-    target = session_id or sessions.describe().get("session_id") or ""
+    status = sessions.describe()
+    # A reaped browser keeps its id in the session record until something
+    # refreshes it, and `describe` reports that id alongside `live: false`.
+    # Trusting it would dial the Grid for a browser that is gone and fail the
+    # whole listing — in precisely the state kept files exist to survive. An
+    # explicitly passed id is still trusted: that caller owns it.
+    remembered = status.get("session_id") if status.get("live") else None
+    target = session_id or remembered or ""
     owned = owner(sessions, store, session)
     if not target and store is None:
         raise ValueError(
@@ -231,10 +246,10 @@ def keep_one(actions, store, session: str, session_id: str, name: str) -> dict:
 
 
 def delete_one(store, session: str, name: str) -> dict:
-    """Remove one kept file.
+    """Remove one kept file. **Operator-only** — there is no tool for this.
 
     Only a kept file: a download belongs to the browser, and the Grid's store
-    has no per-file delete to offer. ``clear`` empties that store wholesale,
+    has no per-file delete to offer. Clearing empties that store wholesale,
     which is safe precisely because keeping is a copy.
     """
     if store is None:
@@ -325,21 +340,6 @@ def register(
         resolved = sessions.resolve(sessions.key(), session_id)
         return keep_one(actions, store, owner(sessions, store), resolved, name)
 
-    @mcp.tool(
-        name=DELETE_TOOL,
-        description=(
-            "Delete one file this session kept. Deleting one that is not there "
-            "is not an error.\n\n"
-            "Only a kept file can be deleted. A download belongs to the "
-            "browser, and the Grid has no per-file delete — it ends with the "
-            "browser, or goes with all the others when the downloads are "
-            "cleared."
-        ),
-        annotations=hints("Delete a kept file", destructive=True, idempotent=True),
-    )
-    def delete_file(name: str) -> dict:
-        return delete_one(store, owner(sessions, store), name)
-
     _routes(mcp, actions, sessions, store, token, base, prefix)
     return {FILES_TOOL}
 
@@ -381,11 +381,7 @@ def _routes(mcp, actions, sessions, store, token, base, prefix) -> None:
             name = body.get("name")
             if not name:
                 raise ValueError("name is required")
-            if what == "keep":
-                return JSONResponse(
-                    keep_one(actions, store, session, session_id, name)
-                )
-            return JSONResponse(delete_one(store, session, name))
+            return JSONResponse(keep_one(actions, store, session, session_id, name))
         except Exception as exc:  # errors.py decides what it means
             status = errors.status_for(exc)
             text = errors.message(exc)
