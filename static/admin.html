@@ -309,7 +309,11 @@ function unwatch() {
 let shownFiles = null, shownBrowser = null, shownFlows = null;
 let downloads = [], keptNames = [];
 
-const filesStamp = (row) => (row.session_id || '-') + ':' + row.files_count;
+/* Not a count either, for the same reason the flows stamp is not: delete the
+   kept copy of a name that is also a download and the count is unchanged while
+   the tile switches from a pin to a bubble. The browser id stays in it because
+   a different browser is a different file store entirely. */
+const filesStamp = (row) => (row.session_id || '-') + ':' + row.files_rev;
 /* Not a count. A flow edited in place keeps its name and its step count, and
    editing is what this panel is for — so a page watching the number would sit
    showing a document the server had already replaced. The server sends names

@@ -353,3 +353,35 @@ def test_a_store_with_no_revision_falls_back_to_its_count(client, server):
     server.flows.save(SESSION, "two", {"steps": []})
     after = client.get(url(), headers=AUTH).json()["rev"]
     assert before and after and before != after
+
+
+def test_the_shared_revision_is_read_once_per_payload(client, server, monkeypatch):
+    """It is the same answer for every row, and inside the loop each heartbeat
+    walked and stat-ed the whole shared library once per session — O(sessions x
+    shared flows) on a two-second poll."""
+    for n in range(3):
+        server.sessions.store.set(f"named:s{n}", SessionRecord(session_id=""))
+    seen = []
+    real = server.flows.revision
+    monkeypatch.setattr(
+        server.flows, "revision", lambda s: (seen.append(s), real(s))[1], raising=False
+    )
+    client.get("/admin/sessions", headers=AUTH)
+    assert seen.count(GLOBAL_SESSION) == 1, seen
+
+
+def test_the_revision_is_read_before_the_listing(client, server, monkeypatch):
+    """An edit landing between the two would otherwise pair the old summaries
+    with the new revision — the page records that token, sees no change next
+    poll, and keeps showing what it already had. This order costs one redundant
+    refresh instead of suppressing a real one."""
+    order = []
+    real_rev, real_cat = server.flows.revision, server.flows.summaries
+    monkeypatch.setattr(
+        server.flows, "revision", lambda s: (order.append("rev"), real_rev(s))[1]
+    )
+    monkeypatch.setattr(
+        server.flows, "summaries", lambda s: (order.append("list"), real_cat(s))[1]
+    )
+    client.get(url(), headers=AUTH)
+    assert order and order[0] == "rev", order

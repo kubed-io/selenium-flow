@@ -51,11 +51,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **The admin UI shows flows as they change.** Saving, editing, moving or deleting a flow now appears without leaving the session and coming back — including an edit, which leaves the name and the step count untouched.
+- **The admin UI shows flows as they change**, instead of only when you reopen the session.
 
-- **The session list counts each file once.** A kept file and the download it was copied from share a name and were counted twice, so the list said five where the session showed three.
+- **The session list counts each file once**, where a kept file and its download were counted twice.
 
-- **`Clear downloads` says what happens to each file.** Every download is deleted, and the ones you kept survive as kept copies — the list now says which is which instead of contradicting the sentence above it.
+- **`Clear downloads` says what happens to each file**: which are gone and which survive as kept copies.
 
 - **A browser stays usable after logging in.** Chrome's "Save password?" prompt took the keyboard and mouse for itself, so every click and keystroke after a login silently did nothing — while every call still reported success.
 

@@ -897,3 +897,22 @@ def test_the_session_row_counts_distinct_files_not_both_lists(client, live):
     assert row["files_count"] == 2
     assert row["kept_count"] == 1
     assert row["files_count"] == len(body["files"]), "the row and the grid disagree"
+
+
+def test_the_file_stamp_notices_a_kept_copy_being_deleted(client, live):
+    """A count cannot tell these apart. `report.pdf` exists as a download and
+    as a kept copy; deleting the kept one leaves the union at two files while
+    the grid switches that tile from a pin to a bubble — different marks, a
+    different URL, a different lifetime. The page would have gone on showing a
+    kept file that no longer existed."""
+    live.flows.write_file(SESSION, "report.pdf", b"kept copy")
+    with (
+        patch.object(browser.Grid, "sessions", return_value=[{"session_id": "abc"}]),
+        patch.object(browser.Grid, "files", return_value=DOWNLOADS),
+    ):
+        before = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
+        live.flows.delete_file(SESSION, "report.pdf")
+        after = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
+
+    assert before["files_count"] == after["files_count"], "the count is why it is not enough"
+    assert before["files_rev"] != after["files_rev"]

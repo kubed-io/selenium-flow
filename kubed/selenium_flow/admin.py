@@ -287,6 +287,12 @@ def register(
         except Exception as exc:  # noqa: BLE001 - the rows are still worth showing
             log.info("could not read the grid: %s", exc)
 
+        # Once per payload, not once per row: it is the same answer for every
+        # session, and inside the loop it made each heartbeat walk and stat the
+        # whole shared library once per session — O(sessions x shared flows) on
+        # a two-second poll.
+        shared_rev = revision(flows.GLOBAL_SESSION) if flow_store is not None else ""
+
         rows = []
         for key, record in sorted(records.items(), key=_recency, reverse=True):
             sid = record.session_id
@@ -312,6 +318,7 @@ def register(
             flow_names = named(flow_store.names, session) if stores else []
             kept = named(flow_store.files, session) if stores else []
             count = None
+            files_rev = ""
             if live or stores:
                 # Distinct NAMES, not the two lengths added. Keeping a file is a
                 # copy, so a kept file whose download still exists is one file
@@ -321,6 +328,18 @@ def register(
                 # wrong count was a wrong change signal as well as a wrong
                 # label.
                 count = len(set(downloads or []) | set(kept))
+                # And the stamp the page actually watches. A count cannot tell
+                # two of these apart: delete the kept copy of a name that is
+                # also a download and the union is still one file, while the
+                # grid switches from the kept entry to the download — different
+                # marks, different URL, different lifetime. So the state of each
+                # name goes in, not just how many there are (§F1.39).
+                files_rev = ";".join(
+                    sorted(
+                        f"{name}:{'k' if name in set(kept) else 'd'}"
+                        for name in set(downloads or []) | set(kept)
+                    )
+                )
             rows.append(
                 {
                     # The store key addresses the session on this API. It is not
@@ -338,6 +357,7 @@ def register(
                     "window": record.window,
                     "started": record.opened_at or None,
                     "files_count": count,
+                    "files_rev": files_rev,
                     # Beside the file count because it is the same kind of fact:
                     # what this session has accumulated, and the other reason to
                     # click into it. None when flows are off, which is not zero.
@@ -349,9 +369,7 @@ def register(
                     # covers this session's library and the shared one, because
                     # the panel lists both.
                     "flows_rev": (
-                        revision(session) + "+" + revision(flows.GLOBAL_SESSION)
-                        if stores
-                        else None
+                        revision(session) + "+" + shared_rev if stores else None
                     ),
                     "kept_count": len(kept) if stores else None,
                     **_grid_facts(running.get(sid, {})),
@@ -659,6 +677,14 @@ def register(
             return JSONResponse(
                 {"key": key, "session": session, "enabled": False, "flows": []}
             )
+        # Read BEFORE the listing, deliberately. An edit landing between the two
+        # would otherwise pair the old summaries with the new revision — the
+        # page records that token, sees no change on the next poll, and keeps
+        # showing what it was already showing. This order errs the other way: a
+        # token older than the listing costs one redundant refresh.
+        rev = await run_in_threadpool(
+            lambda: revision(session) + "+" + revision(flows.GLOBAL_SESSION)
+        )
         try:
             payload = await run_in_threadpool(flowapi.catalogue, flow_store, session)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
@@ -671,7 +697,7 @@ def register(
             {
                 "key": key,
                 "enabled": True,
-                "rev": revision(session) + "+" + revision(flows.GLOBAL_SESSION),
+                "rev": rev,
                 **payload,
             }
         )

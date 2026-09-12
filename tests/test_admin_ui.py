@@ -277,6 +277,14 @@ def test_the_flows_panel_repaints_when_the_flows_change(page):
     assert "loadFlows(current)" in body
 
 
+def test_neither_stamp_is_a_count(page):
+    """Both panels watch a state token. A count cannot see a flow edited in
+    place, and it cannot see a kept copy deleted while its download remains —
+    in each case the number holds still while what is on screen changes."""
+    assert "row.files_rev" in page
+    assert "row.flows_rev" in page
+
+
 def test_the_flows_stamp_is_not_a_count(page):
     """A flow edited in place keeps its name and its step count, and editing is
     what the panel is for — so a page watching the number would sit showing a
