@@ -630,3 +630,24 @@ def test_the_session_a_flow_fetch_is_for_is_passed_not_read(page):
     saved = page.split("await api(path, 'PUT', {yaml:")[1].split("},")[0]
     assert "openFlow(" not in saved
     assert "await loadFlows(key);" in saved
+
+
+def test_acting_on_one_session_does_not_disturb_another(page):
+    """`flowsSeq` is one counter for the page. Saving a flow in session A after
+    the operator has moved to B takes a number ABOVE the listing load already
+    in flight for B — B's answer then fails `mine !== flowsSeq` and A's fails
+    `gone(key)`, so NEITHER renders and B sits on "Loading…" with nothing left
+    to fetch again.
+
+    And `flowName`/`flowDoc` describe what is on screen, so clearing them after
+    acting on A would close B's open flow, not A's.
+    """
+    handler = page.split("$('flows').addEventListener")[1].split("async function openSession")[0]
+    # The editor's save: refresh only if that session is still on screen.
+    assert "if (current === key) await loadFlows(key);" in handler
+    # Move and delete: bail entirely, before touching the shared selection.
+    assert handler.count("if (current !== key) return;") == 2
+    cleared = handler.split("if (current !== key) return;")
+    for after in cleared[1:]:
+        selection = after.split("await loadFlows(key);")[0]
+        assert "flowName = flowDoc" in selection, "the guard has to come first"

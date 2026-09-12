@@ -877,7 +877,14 @@ $('flows').addEventListener('click', async (e) => {
         // session this save was FOR. `openFlow` would have read `current`
         // again and, if the operator had moved to another session while the
         // editor sat open, loaded that one's same-named flow instead.
-        await loadFlows(key);
+        //
+        // And only when that session is still the one on screen. `flowsSeq` is
+        // one counter for the page, so refreshing A here would take a number
+        // ABOVE the load already in flight for B — B's answer then fails
+        // `mine !== flowsSeq` and A's fails `gone(key)`, so neither renders and
+        // B sits on "Loading…" forever. A is not on screen and does not need
+        // repainting; opening it again reloads it.
+        if (current === key) await loadFlows(key);
       },
     });
     // The real file from the store, comments and all — not a re-dump of the
@@ -900,7 +907,12 @@ $('flows').addEventListener('click', async (e) => {
       confirm: 'Move',
       onconfirm: async () => {
         await api(path + '/move', 'POST', {to: to});
-        flowName = flowDoc = null;
+        // Guarded for the reason the editor's save is, and for one more:
+        // `flowName` and `flowDoc` describe whatever is ON SCREEN. Clearing
+        // them after acting on A while the operator is looking at B would
+        // close B's open flow, not A's.
+        if (current !== key) return;
+        flowName = flowDoc = picked = null;
         await loadFlows(key);
       },
     });
@@ -918,7 +930,12 @@ $('flows').addEventListener('click', async (e) => {
       danger: true,
       onconfirm: async () => {
         await api(path, 'DELETE');
-        flowName = flowDoc = null;
+        // Guarded for the reason the editor's save is, and for one more:
+        // `flowName` and `flowDoc` describe whatever is ON SCREEN. Clearing
+        // them after acting on A while the operator is looking at B would
+        // close B's open flow, not A's.
+        if (current !== key) return;
+        flowName = flowDoc = picked = null;
         await loadFlows(key);
       },
     });

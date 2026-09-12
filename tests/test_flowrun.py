@@ -1139,3 +1139,42 @@ def test_a_required_parameter_is_not_satisfied_by_its_own_default():
 def test_a_malformed_parameters_block_defaults_nothing(parameters):
     """It reads a stored file, so every shape a hand edit produces arrives."""
     assert flowrun.with_defaults({"parameters": parameters}, {"a": 1}) == {"a": 1}
+
+
+# The three above test the helper. These test the PROPERTY, through `run`, and
+# they are the ones that matter: a change that deleted the call, or moved it
+# before `check_params`, would leave every helper test passing while flows went
+# back to sending `${lang}` to the browser as text.
+
+
+def test_a_run_substitutes_a_default_the_caller_omitted():
+    document = flow(
+        [{"tool": "navigate", "args": {"url": "https://${lang}.example.test/"}}],
+        parameters={"properties": {"lang": {"type": "string", "default": "en"}}},
+    )
+    actions = FakeActions()
+    run(actions, document, "b")
+    assert actions.calls[0][2]["url"] == "https://en.example.test/"
+
+
+def test_a_run_still_prefers_what_the_caller_passed():
+    document = flow(
+        [{"tool": "navigate", "args": {"url": "https://${lang}.example.test/"}}],
+        parameters={"properties": {"lang": {"default": "en"}}},
+    )
+    actions = FakeActions()
+    run(actions, document, "b", params={"lang": "de"})
+    assert actions.calls[0][2]["url"] == "https://de.example.test/"
+
+
+def test_a_run_will_not_let_a_default_stand_in_for_a_required_parameter():
+    """The order of the two calls in `run`, asserted where it is observable."""
+    document = flow(
+        SIMPLE,
+        parameters={
+            "properties": {"email": {"default": "a@b.c"}},
+            "required": ["email"],
+        },
+    )
+    with pytest.raises(FlowError, match="needs email"):
+        run(FakeActions(), document, "b")
