@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-12
+
 0.0.2 could drive a browser. This one lets an agent keep what it worked out.
 Save a sequence of steps as a named flow, give it parameters, and run the whole
 thing in one call — including steps that type a credential the model is never
