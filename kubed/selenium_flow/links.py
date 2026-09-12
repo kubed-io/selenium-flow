@@ -62,8 +62,32 @@ def valid(path: str, expires, provided, token: str, now: float | None = None) ->
 
 
 def file_path(session_id: str, name: str) -> str:
-    """The unsigned path of one file in one session's store."""
+    """The unsigned path of one file in one *browser's* store."""
     return f"/files/{quote(session_id, safe='')}/{quote(name, safe='')}"
+
+
+def kept_path(session: str, name: str) -> str:
+    """The unsigned path of one file kept beyond the browser that made it.
+
+    A separate route rather than a flag on the one above, because it is keyed by
+    a different thing: a download belongs to a *browser id*, and a kept file to
+    a *session name* that outlives it (§F1.10). One route taking either would
+    have to guess which it was handed, and the two namespaces can collide.
+    """
+    return f"/kept/{quote(session, safe='')}/{quote(name, safe='')}"
+
+
+def _url(path: str, token: str | None, base: str, ttl: int) -> str:
+    """One path, signed when the server has a token to sign with.
+
+    With authentication off there is nothing to sign and nothing to protect, so
+    the plain path is already the answer.
+
+    Both file routes come through here rather than each signing for itself: a
+    second signing implementation is how one of them ends up unsigned, or signed
+    over a path it does not serve.
+    """
+    return base.rstrip("/") + (sign(path, token, ttl) if token else path)
 
 
 def file_url(
@@ -73,10 +97,16 @@ def file_url(
     base: str = "",
     ttl: int = DEFAULT_TTL,
 ) -> str:
-    """A URL for one file, signed when the server has a token to sign with.
+    """A URL for one of a browser's downloads."""
+    return _url(file_path(session_id, name), token, base, ttl)
 
-    With authentication off there is nothing to sign and nothing to protect, so
-    the plain path is already the answer.
-    """
-    path = file_path(session_id, name)
-    return base.rstrip("/") + (sign(path, token, ttl) if token else path)
+
+def kept_url(
+    session: str,
+    name: str,
+    token: str | None,
+    base: str = "",
+    ttl: int = DEFAULT_TTL,
+) -> str:
+    """A URL for one file kept beyond its browser."""
+    return _url(kept_path(session, name), token, base, ttl)

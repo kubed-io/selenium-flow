@@ -7,6 +7,7 @@ other breaks that quietly, so it is asserted here rather than trusted.
 
 import pytest
 
+from kubed.selenium_flow import files as files_module
 from kubed.selenium_flow import flowapi
 from kubed.selenium_flow import resources as resources_module
 from kubed.selenium_flow.routes import ENDPOINTS
@@ -35,9 +36,22 @@ FLOW_TOOLS = {
 }
 
 
+# Kept files are the same kind of layer, for the same reasons: `keep_file` and
+# `delete_file` act on a session's files rather than on a browser, they live
+# under /files rather than /browser, and they have their own route table.
+#
+# Subtracting them is NOT excusing a tool without an endpoint — that is the one
+# thing this module exists to catch. Both are on both surfaces, and
+# `test_kept_files.py::test_every_file_action_is_reachable_from_both_surfaces`
+# holds them to it against `files.FILE_ENDPOINTS`, exactly as this file does for
+# the browser actions. What the subtraction does is keep the assertions below
+# about the set they name.
+FILE_TOOLS = {files_module.KEEP_TOOL}
+
+
 def browser_tools(tools) -> set[str]:
     """Just the browser actions, whatever else is registered beside them."""
-    return {t.name for t in tools} - FLOW_TOOLS
+    return {t.name for t in tools} - FLOW_TOOLS - FILE_TOOLS
 
 
 EXPECTED = {

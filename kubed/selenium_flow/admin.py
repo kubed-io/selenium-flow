@@ -20,9 +20,10 @@ from __future__ import annotations
 
 import json
 import logging
-import mimetypes
 import os
+import re
 from pathlib import Path, PurePosixPath
+from urllib.parse import quote
 
 import anyio
 from starlette.concurrency import run_in_threadpool
@@ -34,7 +35,7 @@ from starlette.responses import (
     StreamingResponse,
 )
 
-from . import auth, links
+from . import auth, errors, files, flows, links
 from .browser import DEFAULT_BROWSER, is_partial
 
 log = logging.getLogger(__name__)
@@ -44,8 +45,6 @@ STATIC_DIR = "static"
 # ingress both halves sit on one host, so the console is simply the root; the
 # default says so, and an env var covers any other arrangement.
 DEFAULT_CONSOLE_URL = "/"
-
-IMAGE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml")
 
 EVENTS_PATH = "/admin/events"
 # Fast enough that a session appears to show up instantly, slow enough that the
@@ -84,25 +83,6 @@ def page(name: str, **substitutions: str) -> str:
     for key, value in {**shared, **substitutions}.items():
         html = html.replace(f"__{key}__", value)
     return html
-
-
-def content_type(name: str) -> str:
-    """The type to serve a stored file as, guessed from its name."""
-    return mimetypes.guess_type(name)[0] or "application/octet-stream"
-
-
-def describe(session_id: str, entry: dict, token: str | None) -> dict:
-    """One stored file, as the UI needs it: named, sized, and fetchable."""
-    name = entry.get("name", "")
-    kind = content_type(name)
-    return {
-        "name": name,
-        "size": entry.get("size", 0),
-        "created": entry.get("creationTime"),
-        "content_type": kind,
-        "image": kind in IMAGE_TYPES,
-        "url": links.file_url(session_id, name, token),
-    }
 
 
 def owner_label(key: str) -> dict:
@@ -148,11 +128,74 @@ def _basename(name: str) -> str:
     return PurePosixPath(str(name).replace("\\", "/")).name
 
 
+def disposition(name: str) -> str:
+    """A ``Content-Disposition`` that survives whatever a site named its file.
+
+    A header is encoded as latin-1, and a file name is not ours to choose — the
+    site's ``Content-Disposition`` or Chrome picked it. So ``emoji😊.txt``
+    raised while the response was being built, and a name containing a quote
+    produced a malformed header. Neither name is invalid; both were unfetchable.
+
+    RFC 6266 is the answer, and it is why the field is written twice: a
+    printable-ASCII ``filename`` that any client can parse, with every other
+    character folded to ``_``, and the real name percent-encoded in
+    ``filename*``, which every current browser prefers. Folding rather than
+    dropping also closes the header-injection route a raw CR or LF would open.
+    """
+    base = _basename(name)
+    # Quotes and backslashes are printable but would end or escape the quoted
+    # string, so they are folded too rather than left to be parsed as syntax.
+    ascii_name = re.sub(r'[^\x20-\x7e]|["\\]', "_", base) or "file"
+    return f"inline; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(base, safe='')}"
+
+
+def served(name: str, data: bytes) -> Response:
+    """One stored file's bytes, however it was stored.
+
+    Shared by the two signed routes — a browser's download and a kept file —
+    because the only thing that differs between them is where the bytes came
+    from. Two copies of this is how one of them ends up without the
+    ``Content-Disposition`` and downloads as ``shot.png`` called ``name``.
+    """
+    return Response(
+        data,
+        media_type=files.content_type(name),
+        headers={
+            # Named for download, but shown inline when the browser can: the
+            # common case is looking at a screenshot, not saving it.
+            "Content-Disposition": disposition(name),
+            # Safe to cache hard — the signature already bounds the lifetime,
+            # and a stored file never changes under its own name.
+            "Cache-Control": "private, max-age=3600",
+        },
+    )
+
+
 def register(
-    mcp, actions, token: str | None, console_url: str | None = None, sessions=None
+    mcp,
+    actions,
+    token: str | None,
+    console_url: str | None = None,
+    sessions=None,
+    flow_store=None,
 ) -> None:
-    """Mount the admin pages, their JSON API, and the signed file route."""
+    """Mount the admin pages, their JSON API, and the two signed file routes.
+
+    ``flow_store`` is the *documents and kept files* store — what
+    ``FLOW_DATA_DIR`` points at — and is deliberately not spelled ``store``:
+    ``sessions.store`` is a different thing entirely, holding session records,
+    and the two sat one scope apart with the same name until one shadowed the
+    other and a listing died on ``MemoryStore.files``.
+    """
     console = console_url or os.environ.get("GRID_CONSOLE_URL", DEFAULT_CONSOLE_URL)
+
+    def counted(call, session: str) -> int:
+        """How many of something a session has, or 0 if the store cannot say."""
+        try:
+            return len(call(session))
+        except Exception:  # noqa: BLE001 - a count is not worth failing a listing
+            log.info("could not count %s for %s", call.__name__, session)
+            return 0
 
     def authorized(request: Request) -> bool:
         return auth.authorized(request, token)
@@ -175,13 +218,13 @@ def register(
         Blocking — it talks to the Grid for liveness and file counts — so
         callers on the event loop must run it in a worker thread.
         """
-        store = getattr(sessions, "store", None)
-        if store is None or not hasattr(store, "records"):
+        sessions_store = getattr(sessions, "store", None)
+        if sessions_store is None or not hasattr(sessions_store, "records"):
             # A store that cannot enumerate is not an error: sessions still
             # work, there is simply no history to show.
             return {"sessions": []}
         try:
-            records = store.records()
+            records = sessions_store.records()
         except Exception as exc:  # noqa: BLE001 - a Redis blip is not an outage
             log.info("could not read the session store: %s", exc)
             return {"sessions": []}
@@ -198,14 +241,28 @@ def register(
         for key, record in sorted(records.items(), key=_recency, reverse=True):
             sid = record.session_id
             live = bool(sid) and sid in running
-            count = None
+            downloads = None
             if live:
                 # A file count per row is worth one call each: it is the reason
                 # to click into a session, so a list without it is guesswork.
                 try:
-                    count = len(actions.grid.files(sid))
+                    downloads = len(actions.grid.files(sid))
                 except Exception:  # noqa: BLE001 - a session can end mid-call
-                    count = 0
+                    downloads = 0
+            # Downloads are countable only while a browser is attached; kept
+            # files and flows belong to the session and are countable always.
+            # So a detached session still reports a number, which is the whole
+            # reason keeping exists — a count that emptied when the Grid reaped
+            # a browser would make the durable half look lost.
+            # None when the session named itself something no directory can be
+            # called. Such a session keeps nothing, and must not be shown the
+            # shared library's counts as though they were its own.
+            session = flows.library_of(key)
+            stores = flow_store is not None and session is not None
+            kept = counted(flow_store.files, session) if stores else 0
+            count = None
+            if live or stores:
+                count = (downloads or 0) + kept
             rows.append(
                 {
                     # The store key addresses the session on this API. It is not
@@ -223,6 +280,13 @@ def register(
                     "window": record.window,
                     "started": record.opened_at or None,
                     "files_count": count,
+                    # Beside the file count because it is the same kind of fact:
+                    # what this session has accumulated, and the other reason to
+                    # click into it. None when flows are off, which is not zero.
+                    "flows_count": (
+                        counted(flow_store.names, session) if stores else None
+                    ),
+                    "kept_count": kept if stores else None,
                     **_grid_facts(running.get(sid, {})),
                 }
             )
@@ -300,6 +364,22 @@ def register(
             },
         )
 
+    def library(key: str) -> str:
+        """The session directory this key owns, or refuse.
+
+        The write paths cannot fall back to ``global`` the way a browser lookup
+        does: that would put one session's file in the shared library. An
+        ``InvalidName`` is a ValueError, so ``errors.py`` already answers 400.
+        """
+        session = flows.library_of(key)
+        if session is None:
+            raise flows.InvalidName(
+                f"session {key!r} cannot keep files: its name is not usable as "
+                "a directory. Use letters, digits, dots, dashes and "
+                "underscores, starting with a letter or digit."
+            )
+        return session
+
     def attached_id(key: str) -> str:
         """The browser a flow session currently holds, or "" if none."""
         store = getattr(sessions, "store", None)
@@ -340,6 +420,25 @@ def register(
         await run_in_threadpool(sessions.end_browser, key)
         return JSONResponse({"success": True, "key": key, "session_id": session_id})
 
+    async def header(key: str, session_id: str) -> dict:
+        """The session facts the detail view leads with.
+
+        Sent alongside the files rather than fetched separately, and
+        best-effort: the files are what was asked for, and losing the header is
+        a worse answer than no answer only if it takes the files down with it.
+        """
+        detail = {
+            "key": key,
+            "session_id": session_id or None,
+            "attached": bool(session_id),
+        }
+        try:
+            listing = await run_in_threadpool(sessions_payload)
+            return next((s for s in listing["sessions"] if s["key"] == key), detail)
+        except Exception as exc:  # noqa: BLE001 - a Grid blip, not a failure
+            log.info("session header for %s unavailable: %s", key, exc)
+            return detail
+
     @mcp.custom_route(
         "/admin/sessions/{key}/files",
         methods=["GET", "DELETE"],
@@ -349,45 +448,100 @@ def register(
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         key = request.path_params["key"]
-        # Files belong to the browser, which the flow session may not have. A
-        # detached session has none rather than an error — it had them, and the
-        # Grid deleted them with the browser.
-        session_id = attached_id(key)
-        if not session_id:
-            detail = {"key": key, "session_id": None, "attached": False}
-            try:
-                listing = await run_in_threadpool(sessions_payload)
-                detail = next(
-                    (s for s in listing["sessions"] if s["key"] == key), detail
-                )
-            except Exception as exc:  # noqa: BLE001 - a Grid blip, not a failure
-                log.info("session header for %s unavailable: %s", key, exc)
-            return JSONResponse({"key": key, "session": detail, "files": []})
+        # A session whose name cannot be a directory keeps nothing, so it has no
+        # kept files to merge — and must not be shown the shared library's.
+        session = flows.library_of(key) or ""
         try:
             if request.method == "DELETE":
-                actions.grid.clear_files(session_id)
-                return JSONResponse({"success": True})
-            files = [
-                describe(session_id, entry, token)
-                for entry in actions.grid.files(session_id)
-            ]
-            # The detail view leads with a header about the session itself, so
-            # it is sent alongside rather than fetched separately. Best-effort:
-            # the files are what was asked for, and losing the header is a worse
-            # answer than no answer only if it takes the files down with it.
-            detail = {"key": key, "session_id": session_id}
-            try:
-                listing = await run_in_threadpool(sessions_payload)
-                detail = next(
-                    (s for s in listing["sessions"] if s["key"] == key),
-                    {"key": key, "session_id": session_id, "live": False},
+                session_id = attached_id(key)
+                # Clears the DOWNLOADS, which is all the Grid offers: its store
+                # has no per-file delete. Kept files are ours and elsewhere, so
+                # they are untouched — which is exactly what makes this safe to
+                # put behind a button (§F1.10).
+                if session_id:
+                    await run_in_threadpool(actions.grid.clear_files, session_id)
+                return JSONResponse(
+                    {"success": True, "key": key, "session_id": session_id or None}
                 )
-            except Exception as exc:  # noqa: BLE001 - a Grid blip, not a failure
-                log.info("session header for %s unavailable: %s", key, exc)
-            return JSONResponse({"key": key, "session": detail, "files": files})
+            # Whether there are downloads to list depends on whether the browser
+            # is still on the Grid. The record can name one the Grid already
+            # reaped — an ordinary state, not a broken one — and handing that
+            # dead id to `merged` would fail the whole view in exactly the case
+            # kept files exist to survive.
+            #
+            # `is_alive` is the right question, and the header's `live` is not:
+            # that comes from a best-effort bulk listing which reports
+            # `live: false` when the Grid could not be read *at all*, so an
+            # outage would quietly render an empty download list instead of an
+            # error. `is_alive` assumes alive when it cannot tell, so a Grid
+            # that is down still surfaces from the call below.
+            attached = attached_id(key)
+            alive = attached and await run_in_threadpool(
+                actions.grid.is_alive, attached
+            )
+            listing = await run_in_threadpool(
+                files.merged, actions, flow_store, session, attached if alive else "",
+                token,
+            )
+            return JSONResponse(
+                {
+                    "key": key,
+                    "session": await header(key, attached),
+                    "files": listing,
+                }
+            )
         except Exception as exc:  # noqa: BLE001 - usually a session that ended
             log.info("files for %s failed: %s", key, exc)
             return JSONResponse({"error": str(exc)}, status_code=502)
+
+    @mcp.custom_route(
+        "/admin/sessions/{key}/files/{name}/keep",
+        methods=["POST"],
+        name="admin_keep_file",
+    )
+    async def admin_keep_file(request: Request) -> JSONResponse:
+        """Copy one download into the session's own store, so it outlives the
+        browser. There is no matching unkeep: see ``files.py``."""
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        key = request.path_params["key"]
+        name = request.path_params["name"]
+        try:
+            kept = await run_in_threadpool(
+                files.keep_one,
+                actions,
+                flow_store,
+                library(key),
+                attached_id(key),
+                name,
+            )
+        except Exception as exc:  # noqa: BLE001 - errors.py says what it means
+            status = errors.status_for(exc)
+            log.info("keeping %s for %s refused (%s)", name, key, status)
+            return JSONResponse({"error": errors.message(exc)}, status_code=status)
+        return JSONResponse(kept)
+
+    @mcp.custom_route(
+        "/admin/sessions/{key}/files/{name}",
+        methods=["DELETE"],
+        name="admin_delete_file",
+    )
+    async def admin_delete_file(request: Request) -> JSONResponse:
+        """Delete one KEPT file. A download cannot be deleted singly — the Grid
+        offers no such operation — so this refuses rather than pretending."""
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        key = request.path_params["key"]
+        name = request.path_params["name"]
+        try:
+            removed = await run_in_threadpool(
+                files.delete_one, flow_store, library(key), name
+            )
+        except Exception as exc:  # noqa: BLE001 - errors.py says what it means
+            status = errors.status_for(exc)
+            log.info("deleting %s for %s refused (%s)", name, key, status)
+            return JSONResponse({"error": errors.message(exc)}, status_code=status)
+        return JSONResponse(removed)
 
     @mcp.custom_route("/files/{session_id}/{name}", methods=["GET"], name="file")
     async def file(request: Request) -> Response:
@@ -409,22 +563,35 @@ def register(
         if is_partial(name):
             return JSONResponse({"error": "not found"}, status_code=404)
         try:
-            data = actions.grid.read_file(session_id, name)
+            data = await run_in_threadpool(actions.grid.read_file, session_id, name)
         except Exception as exc:  # noqa: BLE001 - gone, or never existed
             log.info("read %s/%s failed: %s", session_id, name, exc)
             return JSONResponse({"error": "not found"}, status_code=404)
-        return Response(
-            data,
-            media_type=content_type(name),
-            headers={
-                # Named for download, but shown inline when the browser can:
-                # the common case is looking at a screenshot, not saving it.
-                # Backslashes folded first, exactly as actions._safe_name does:
-                # PurePosixPath does not treat one as a separator, so a
-                # Windows-style name would otherwise reach the header verbatim.
-                "Content-Disposition": f'inline; filename="{_basename(name)}"',
-                # Safe to cache hard — the signature already bounds the lifetime,
-                # and a stored file never changes under its own name.
-                "Cache-Control": "private, max-age=3600",
-            },
-        )
+        return served(name, data)
+
+    @mcp.custom_route("/kept/{session}/{name}", methods=["GET"], name="kept_file")
+    async def kept_file(request: Request) -> Response:
+        """One kept file, authorised by the signature in its own URL.
+
+        A route of its own rather than a flag on the one above, because it is
+        keyed by a different thing: a download belongs to a browser id, a kept
+        file to a session name that outlives it. The signature covers whichever
+        path it was minted for, so a link to one is not a link to the other.
+        """
+        session = request.path_params["session"]
+        name = request.path_params["name"]
+        if token and not links.valid(
+            links.kept_path(session, name),
+            request.query_params.get("exp"),
+            request.query_params.get("sig"),
+            token,
+        ):
+            return JSONResponse({"error": "invalid or expired link"}, status_code=403)
+        if flow_store is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        try:
+            data = await run_in_threadpool(flow_store.read_file, session, name)
+        except Exception as exc:  # noqa: BLE001 - gone, or never existed
+            log.info("read kept %s/%s failed: %s", session, name, exc)
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return served(name, data)

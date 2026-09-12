@@ -93,6 +93,21 @@ def status_for(exc: BaseException) -> int:
     """The HTTP status that tells the truth about ``exc``."""
     if isinstance(exc, GONE):
         return 404
+    if isinstance(exc, requests.HTTPError):
+        # The Grid answered, and its answer was no. Every plain HTTP call to it
+        # — `files`, `read_file`, `status` — reports that through
+        # `raise_for_status`, and this is NOT a connection failure: it must not
+        # fall into UNAVAILABLE below and be called a 503.
+        #
+        # A 404 from the Grid means the browser or the file is gone, which is
+        # the same diagnosis `GONE` carries and has the same fix. Its own 5xx is
+        # worth retrying. Anything else it refuses is the request's problem.
+        # Without this branch a reaped browser answered 500 while the published
+        # /files contract promised 404.
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if status is None or status >= 500:
+            return 503
+        return 404 if status == 404 else 400
     if isinstance(exc, UNAVAILABLE):
         return 503
     if isinstance(exc, CALLER):
@@ -114,7 +129,18 @@ def message(exc: BaseException) -> str:
 
     Never returns an empty string: an error with no text at all is worse than a
     class name, which at least says what kind of thing went wrong.
+
+    A Grid refusal is cut short deliberately. ``raise_for_status`` formats its
+    message as ``"404 Client Error: Not Found for url: <the full URL>"``, and
+    ``GRID_URL`` may carry credentials in its userinfo — so that string would
+    hand the Grid's credential to whoever made the request, and write it to the
+    log besides. The status and reason are the whole of the useful part. Done
+    here rather than in each of the three handlers, for the reason this module
+    exists: one place decides what a failure says.
     """
+    if isinstance(exc, requests.HTTPError):
+        text = str(exc).split(" for url:", 1)[0].strip()
+        return text or "the grid refused the request"
     text = str(getattr(exc, "msg", None) or exc)
     text = text.split("Stacktrace:", 1)[0].strip()
     if text.lower().startswith("message:"):

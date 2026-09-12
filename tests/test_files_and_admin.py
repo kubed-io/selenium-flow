@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow import admin, apps, browser, links
+from kubed.selenium_flow import apps, browser, files, links
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.store import SessionRecord
 
@@ -109,11 +109,12 @@ def test_downloads_in_flight_are_not_files():
 
 
 def test_describe_marks_images_and_types():
-    described = admin.describe("abc", ENTRIES[0], TOKEN)
+    described = files.describe("abc", ENTRIES[0], TOKEN)
     assert described["content_type"] == "image/png"
     assert described["image"] is True
     assert described["url"].startswith("/files/abc/shot.png?exp=")
-    assert admin.describe("abc", ENTRIES[1], TOKEN)["image"] is False
+    assert described["kept"] is False, "a download belongs to the browser"
+    assert files.describe("abc", ENTRIES[1], TOKEN)["image"] is False
 
 
 # --- the admin surface ----------------------------------------------------
@@ -307,7 +308,11 @@ def test_the_admin_api_lists_files_with_signed_urls(client, flow_session):
             f"/admin/sessions/{KEY}/files",
             headers={"Authorization": f"Bearer {TOKEN}"},
         ).json()
-    assert [f["name"] for f in body["files"]] == ["shot.png", "report.pdf"]
+    # Newest first. The listing merges the browser's downloads with the session's
+    # kept files, and a merged list needs a total order of its own rather than
+    # inheriting either source's — so it sorts on creation time, and report.pdf
+    # is the later of the two fixtures.
+    assert [f["name"] for f in body["files"]] == ["report.pdf", "shot.png"]
     assert all("sig=" in f["url"] for f in body["files"])
 
 

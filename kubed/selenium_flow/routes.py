@@ -197,11 +197,13 @@ def _add(mcp, actions, token, prefix, path, method_name, catalogue=None) -> None
                     text, flowrun.hidden_forms(kwargs.get(n) for n in guarded)
                 )
             if status >= 500:
-                if guarded:
-                    # No traceback: the exception and its frames can hold the
-                    # bound value, and this is the one path where that is worth
-                    # losing a stack trace over.
-                    log.error("%s failed: %s", path, text)
+                if guarded or status != 500:
+                    # No traceback, for two different reasons that want the same
+                    # thing. A guarded call's exception and frames can hold the
+                    # bound value. And anything above 500 is a condition we DO
+                    # recognise — a Grid that is unreachable or refusing — whose
+                    # text is where the Grid URL, credentials included, lives.
+                    log.error("%s failed (%s): %s", path, status, text)
                 else:
                     log.exception("%s failed", path)
             else:
