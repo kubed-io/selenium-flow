@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import pathlib
 import sys
 
@@ -225,27 +226,70 @@ def returns(spec: dict, schema: dict) -> str:
     return table(rows, ["Field", "Type", "Notes"])
 
 
-def example(tool: str, path: str, schema: dict) -> str:
+def sample_of(spec: dict, field: dict, depth: int = 0) -> object:
+    """One value of the right *shape* for ``field``.
+
+    Every required argument used to be sampled as a scalar, so `save_flow` —
+    whose `steps` is an array of objects — rendered `steps="…"` in both the MCP
+    and the curl example. A reader copying either got a 400. An example that
+    cannot be sent is worse than no example, because it looks like one.
+
+    A schema carrying its own ``example`` wins: that is how `steps` gets a step
+    naming a tool that exists, which no amount of sampling the properties could
+    produce.
+    """
+    field = resolve(spec, field)
+    if "example" in field:
+        return field["example"]
+    if "enum" in field:
+        return field["enum"][0]
+
+    declared = field.get("type")
+    if isinstance(declared, list):
+        declared = next((d for d in declared if d != "null"), None)
+    if declared is None:
+        for branch in field.get("anyOf") or []:
+            if branch.get("type") != "null":
+                return sample_of(spec, branch, depth)
+
+    # Two levels is enough for every shape this surface has, and it is what
+    # stops a self-referential schema from rendering forever.
+    if declared == "array":
+        if depth >= 2:
+            return []
+        return [sample_of(spec, field.get("items") or {}, depth + 1)]
+    if declared == "object":
+        props = field.get("properties") or {}
+        if depth >= 2 or not props:
+            return {}
+        wanted = field.get("required") or list(props)[:1]
+        return {n: sample_of(spec, props[n], depth + 1) for n in wanted if n in props}
+    return {"string": "…", "integer": 0, "number": 0, "boolean": True}.get(
+        declared, "…"
+    )
+
+
+def example(spec: dict, tool: str, path: str, schema: dict) -> str:
     """A call in both shapes, using only the parameters that are required."""
     required = [n for n in (schema.get("required") or []) if n != "session_id"]
     props = schema.get("properties") or {}
-    sample = {}
-    for name in required:
-        kind = type_of(props.get(name, {}))
-        sample[name] = {"string": "…", "integer": 0, "boolean": True}.get(kind, "…")
+    sample = {name: sample_of(spec, props.get(name, {})) for name in required}
     mcp_args = ", ".join(
-        f'{k}="{v}"' if isinstance(v, str) else f"{k}={v}" for k, v in sample.items()
+        f'{k}="{v}"' if isinstance(v, str) else f"{k}={json.dumps(v)}"
+        for k, v in sample.items()
     )
-    body = {"session_id": "…", **sample}
-    payload = ",\n    ".join(
-        f'"{k}": {"null" if v is None else repr(v)}' for k, v in body.items()
-    ).replace("'", '"')
+    # json.dumps rather than repr: a sample is no longer always a scalar, and
+    # `repr` then emitted Python — True, single quotes — into a JSON body.
+    # ensure_ascii=False or the placeholder renders as `"…"`, which is a
+    # perfectly valid JSON string and reads like a mistake.
+    encoded = json.dumps({"session_id": "…", **sample}, indent=2, ensure_ascii=False)
+    payload = "\n  ".join(encoded.splitlines())
     return (
         f"**MCP**\n\n```\n{tool}({mcp_args})\n```\n\n"
         f"**HTTP**\n\n```bash\ncurl -X POST $SELENIUM_FLOW{path} \\\n"
         f'  -H "Authorization: Bearer $TOKEN" \\\n'
         f"  -H 'Content-Type: application/json' \\\n"
-        f"  -d '{{\n    {payload}\n  }}'\n```"
+        f"  -d '{payload}'\n```"
     )
 
 
@@ -308,7 +352,7 @@ def render(spec: dict, tool: str, path: str, op: dict) -> str:
 {failures(op)}
 ## Example
 
-{example(tool, path, request)}
+{example(spec, tool, path, request)}
 {extra}
 ---
 

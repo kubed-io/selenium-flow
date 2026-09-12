@@ -503,6 +503,10 @@ FLOW_STEP = {
     "type": "object",
     "required": ["tool"],
     "description": "One tool call. See GET /flows/schema for what each tool takes.",
+    # A real step, so anything generating an example from this document produces
+    # something that would actually run. Sampling the properties instead yields
+    # `{"tool": "…"}`, which is the right shape and names no tool that exists.
+    "example": {"tool": "navigate", "params": {"url": "https://example.com"}},
     "properties": {
         "tool": {"type": "string", "description": "Which action this step runs."},
         "params": {"type": "object", "description": "That action's arguments."},

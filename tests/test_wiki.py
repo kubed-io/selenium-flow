@@ -110,16 +110,46 @@ def test_every_action_with_an_endpoint_has_a_page():
     the live spec rather than against the generator, so adding a surface with a
     route table of its own fails here rather than going undocumented.
     """
+    from kubed.selenium_flow import files as files_module
+    from kubed.selenium_flow import flowapi
+    from kubed.selenium_flow.routes import ENDPOINTS
+
     spec = _spec()
-    expected = {
-        op["x-mcp-tool"]
-        for item in spec["paths"].values()
-        for op in item.values()
-        if "x-mcp-tool" in op
-    }
-    assert {"run_flow", "keep_file"} <= expected, "the spec lost a surface"
-    missing = {t for t in expected if not (WIKI / f"{t}.md").is_file()}
+    tagged = {}
+    for path, item in spec["paths"].items():
+        for op in item.values():
+            if "x-mcp-tool" in op:
+                tagged[path] = op["x-mcp-tool"]
+
+    # Counted against the route tables, not against a list of names written out
+    # here. Naming a couple of tools as sentinels looked like a check and was
+    # not: drop `x-mcp-tool` from an operation and it simply leaves the set, so
+    # the page stops being generated, stops being checked for staleness, and
+    # nothing fails. Counting catches that AND a seventh flow endpoint added
+    # without a tool behind it.
+    for prefix, endpoints in (
+        ("/browser/", set(ENDPOINTS.values())),
+        ("/flows/", flowapi.FLOW_ENDPOINTS),
+        ("/files/", files_module.FILE_ENDPOINTS),
+    ):
+        found = {t for p, t in tagged.items() if p.startswith(prefix)}
+        assert len(found) == len(set(endpoints)), (
+            f"{prefix} has {len(found)} operations carrying x-mcp-tool, "
+            f"but {len(set(endpoints))} endpoints"
+        )
+
+    missing = {t for t in tagged.values() if not (WIKI / f"{t}.md").is_file()}
     assert not missing, "no wiki page for: " + ", ".join(sorted(missing))
+
+    # And no page for a tool that no longer has one. `--check` compares only
+    # the pages it renders, so an action that was removed leaves its page
+    # behind describing a call that cannot be made.
+    orphans = {
+        p.stem
+        for p in WIKI.glob("*.md")
+        if p.read_text().startswith("<!-- Generated") and p.stem != "Actions"
+    } - set(tagged.values())
+    assert not orphans, "generated page with no endpoint: " + ", ".join(sorted(orphans))
 
 
 @needs_wiki
