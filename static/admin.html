@@ -378,17 +378,23 @@ async function loadFiles(key) {
 $('files').addEventListener('click', async (e) => {
   const mark = e.target.closest('.act');
   if (!mark || !current) return;
+  // The session this click was FOR, read once. `current` is mutable and the
+  // confirm below resolves later: the modal is not a focus trap, so a keyboard
+  // user can tab past it to the back button, open another session, and then
+  // confirm — at which point an unchanged `current` would aim A's filename at
+  // B's store. Nothing warns, because both requests are perfectly valid.
+  const key = current;
 
   const keep = mark.getAttribute('data-keep');
   if (keep !== null) {
     try {
-      await api(sessionPath(current, '/files/' + encodeURIComponent(keep) + '/keep'),
+      await api(sessionPath(key, '/files/' + encodeURIComponent(keep) + '/keep'),
                 'POST');
     } catch (err) {
       alert('Could not keep that file: ' + err.message);
       return;
     }
-    loadFiles(current);
+    loadFiles(key);
     return;
   }
 
@@ -402,8 +408,8 @@ $('files').addEventListener('click', async (e) => {
     confirm: 'Delete',
     danger: true,
     onconfirm: async () => {
-      await api(sessionPath(current, '/files/' + encodeURIComponent(drop)), 'DELETE');
-      loadFiles(current);
+      await api(sessionPath(key, '/files/' + encodeURIComponent(drop)), 'DELETE');
+      loadFiles(key);
     },
   });
 });
@@ -601,7 +607,12 @@ const TYPE_ICON = {
    since a row with no name is not a row.
    `cite` is for the rows inside a parameter's "used by" list, which number
    themselves — there the step's position is the whole point of showing it. */
-function stepRow(s, i, cite) {
+function stepRow(entry, i, cite) {
+  // `listed()` protects the container; it says nothing about what is IN it.
+  // `steps:` with an empty item parses to [null], and reading `.tool` off that
+  // threw while rendering — killing the panel, which is the screen you open in
+  // order to reach the YAML editor and fix it.
+  const s = mapping(entry);
   const tool = s.tool || '?';
   return '<div class="row" data-step="' + i + '" aria-selected="'
     + isPicked('step', i) + '">'
@@ -666,8 +677,11 @@ function argsOf(step) {
    adds the two things the row dropped — the step's number and its tool — so
    the pane stands on its own and so the row never has to carry them. */
 function stepDetail(f, i) {
-  const s = listed(f.steps)[i];
-  if (!s) return '<div class="hint">That step is gone.</div>';
+  const steps = listed(f.steps);
+  if (i < 0 || i >= steps.length) {
+    return '<div class="hint">That step is gone.</div>';
+  }
+  const s = mapping(steps[i]);
   const tool = s.tool || '?';
   return '<div class="dhead"><span class="n">' + (i + 1) + '</span>'
     + '<span class="chip">' + SF.esc(s.id || tool) + '</span>'
@@ -694,8 +708,13 @@ function stepDetail(f, i) {
    almost always a typo in a step, so it is called out rather than left as an
    empty section someone has to interpret. */
 function paramDetail(f, name) {
-  const spec = own(mapping(mapping(f.parameters).properties), name);
-  if (!spec) return '<div class="hint">That parameter is gone.</div>';
+  const declared = mapping(mapping(f.parameters).properties);
+  if (!Object.prototype.hasOwnProperty.call(declared, name)) {
+    return '<div class="hint">That parameter is gone.</div>';
+  }
+  // `term:` with nothing after it parses to null. The parameter IS declared,
+  // so it is not gone — it simply says nothing about itself.
+  const spec = mapping(own(declared, name));
   const required = listed(mapping(f.parameters).required).indexOf(name) !== -1;
   const steps = listed(f.steps);
   const used = listed(own(mapping(f.uses), name));
@@ -793,7 +812,8 @@ function renderFlowPanel() {
     '</div>';
 }
 
-$('flows').addEventListener('click', (e) => {
+// `async` because the editor re-reads the flow before it opens; see there.
+$('flows').addEventListener('click', async (e) => {
   const row = e.target.closest('.rows .row');
   if (row) {
     // A param row and a step row are the same control in two sections, so one
@@ -813,23 +833,44 @@ $('flows').addEventListener('click', (e) => {
   }
   const doc = flowDoc;
   if (!doc || !current) return;
-  const path = sessionPath(current, '/flows/' + encodeURIComponent(doc.name));
+  // `path` was already pinned here, so the WRITE always went to the right
+  // library. The reloads after it were not, and would have repainted whichever
+  // session the operator had moved to. Same rule, applied to both.
+  const key = current;
+  const path = sessionPath(key, '/flows/' + encodeURIComponent(doc.name));
 
   if (e.target.closest('[data-edit]')) {
+    // Read again, rather than editing the copy fetched whenever this flow was
+    // opened. That copy can be minutes old — or seconds old and already stale,
+    // if a revision refresh is in flight right now — and the editor's Save is
+    // a blind PUT, so opening it on an old copy is how you overwrite someone
+    // else's edit without ever seeing it.
+    //
+    // This makes the editor OPEN on what is on disk. It does not close the
+    // window while the editor is sitting open; that needs the PUT to carry a
+    // revision the server can refuse, which is a change to the API and is
+    // recorded in §F1.40 rather than half-done here.
+    let fresh;
+    try {
+      fresh = await api(path);
+    } catch (err) {
+      alert('Could not read that flow: ' + err.message);
+      return;
+    }
     const box = modal({
       title: 'Edit ' + doc.name,
       body: '<textarea class="yaml" spellcheck="false"></textarea>',
       confirm: 'Save',
       onconfirm: async (sheet) => {
         await api(path, 'PUT', {yaml: sheet.querySelector('textarea').value});
-        await loadFlows(current);
+        await loadFlows(key);
         await openFlow(doc.name);
       },
     });
     // The real file from the store, comments and all — not a re-dump of the
     // parsed document, which would quietly lose them the first time anyone
     // pressed Save.
-    box.querySelector('textarea').value = doc.yaml || '';
+    box.querySelector('textarea').value = fresh.yaml || '';
     return;
   }
 
@@ -847,7 +888,7 @@ $('flows').addEventListener('click', (e) => {
       onconfirm: async () => {
         await api(path + '/move', 'POST', {to: to});
         flowName = flowDoc = null;
-        await loadFlows(current);
+        await loadFlows(key);
       },
     });
     return;
@@ -865,7 +906,7 @@ $('flows').addEventListener('click', (e) => {
       onconfirm: async () => {
         await api(path, 'DELETE');
         flowName = flowDoc = null;
-        await loadFlows(current);
+        await loadFlows(key);
       },
     });
   }
@@ -919,6 +960,8 @@ $('signout').onclick = signOut;
    own store, so emptying the Grid's cannot reach them (§F1.10). */
 $('clearFiles').onclick = () => {
   if (!current) return;
+  // Same reason as the per-file delete: read once, act on that. See there.
+  const key = current;
   modal({
     title: 'Clear downloads',
     // Every name, with what happens to it. Listing them all and then saying
@@ -940,8 +983,8 @@ $('clearFiles').onclick = () => {
       : 'Clear',
     danger: true,
     onconfirm: async () => {
-      await api(sessionPath(current, '/files'), 'DELETE');
-      loadFiles(current);
+      await api(sessionPath(key, '/files'), 'DELETE');
+      loadFiles(key);
     },
   });
 };

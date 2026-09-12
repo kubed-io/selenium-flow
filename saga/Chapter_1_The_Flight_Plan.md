@@ -1540,6 +1540,18 @@ Three traps, and they are all the same trap:
 keyboard navigation between them. That belongs with the accessibility pass
 §F1.39 already parks, not smuggled into a redesign.
 
+**Also parked: the YAML editor's Save is a blind PUT.** It writes whatever is
+in the textarea over whatever is on disk, so two operators editing one flow
+means the second Save silently wins and the first person's work is gone with no
+message. The editor now READS the file again when it opens, which closes the
+half of this that is about starting from a stale copy — including the case a
+reviewer found, where a revision refresh is in flight and the document on
+screen is already a version behind. What it cannot close is the window while
+the editor sits open, and that needs the PUT to carry a revision the server can
+refuse: an `If-Match` against `flows.revision`, answering 409 when it has
+moved. That is an API change with a server half, so it is its own piece of work
+rather than a fifth of one bolted onto a UI change.
+
 ## Part III — Sealed orders: the secrets system
 
 Every pilot flies with a locked pouch. They carry it, they hand it to the right

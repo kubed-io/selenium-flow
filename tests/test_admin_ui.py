@@ -9,6 +9,9 @@ looks like a button on a surface holding no credential.
 The design decisions each one pins are in §F1.36 and §F1.10.
 """
 
+import shutil
+import subprocess
+
 import pytest
 from starlette.testclient import TestClient
 
@@ -345,7 +348,8 @@ def test_a_document_lookup_cannot_find_what_object_gave_it(page):
     for lookup in ("own(TOOL_ICON, tool)", "own(TYPE_ICON, ty)",
                    "own(mapping(f.uses), name)"):
         assert lookup in page, lookup
-    assert "own(mapping(mapping(f.parameters).properties), name)" in page
+    assert "const declared = mapping(mapping(f.parameters).properties);" in page
+    assert "own(declared, name)" in page
 
 
 def test_a_listing_refresh_carries_the_open_flow_with_it(page):
@@ -385,6 +389,33 @@ def test_a_document_fetch_has_its_own_generation(page):
     assert fetcher.count("mine !== flowDocSeq") == 2
 
 
+def test_a_malformed_ENTRY_does_not_take_the_panel_with_it(page):
+    """`listed()` protects the container and says nothing about what is IN it.
+    A `steps:` item left empty parses to null, and reading `.tool` off it threw
+    while rendering — which killed the panel, the screen you open in order to
+    reach the YAML editor and fix exactly that.
+
+    Normalised inside `stepRow` rather than at each call site, so the outline
+    and the "used by" citations are both covered by construction instead of
+    each remembering to guard."""
+    row = page.split("function stepRow(entry, i, cite)")[1].split("\n}\n")[0]
+    assert "const s = mapping(entry);" in row
+    assert "const tool = s.tool" in row
+
+
+def test_a_thing_that_is_present_but_empty_is_not_reported_as_gone(page):
+    """`term:` with nothing after it parses to null. The parameter IS declared
+    — the outline draws a row for it — so answering "That parameter is gone"
+    when you click that row describes the wrong problem. Absent and empty are
+    different questions, so they are asked separately."""
+    detail = page.split("function paramDetail(f, name)")[1].split("\n}\n")[0]
+    assert "hasOwnProperty.call(declared, name)" in detail, "absent"
+    assert "const spec = mapping(own(declared, name));" in detail, "empty"
+    step = page.split("function stepDetail(f, i)")[1].split("\n}\n")[0]
+    assert "i < 0 || i >= steps.length" in step, "absent"
+    assert "const s = mapping(steps[i]);" in step, "empty"
+
+
 def test_a_malformed_document_does_not_take_the_panel_with_it(page):
     """`steps: {}` and `required: 1` are what a hand-edited file can hold, and
     `.map`/`.indexOf` on them throw. The panel dying is the worst case: it is
@@ -397,7 +428,7 @@ def test_a_malformed_document_does_not_take_the_panel_with_it(page):
     assert "const required = listed(mapping(f.parameters).required);" in panel
     # And the panes, which read the same document.
     assert "const used = listed(own(mapping(f.uses), name));" in page
-    assert "const s = listed(f.steps)[i];" in page
+    assert "const steps = listed(f.steps);" in page
 
 
 def test_a_step_that_binds_a_secret_is_marked(page):
@@ -457,8 +488,23 @@ def test_deleting_a_flow_warns_when_it_is_the_shared_one(page):
 def test_the_editor_is_handed_the_stored_yaml(page):
     """Not a re-dump of the parsed document — that loses the comments and the
     ordering a person chose, invisibly, the first time they press Save."""
-    assert "box.querySelector('textarea').value = doc.yaml" in page
+    assert "box.querySelector('textarea').value = fresh.yaml" in page
     assert "{yaml: sheet.querySelector('textarea').value}" in page
+
+
+def test_the_editor_reads_the_file_again_when_it_opens(page):
+    """The copy fetched when the flow was opened can be minutes old — or
+    seconds old and already stale, with a revision refresh in flight. Save is a
+    blind PUT, so opening the editor on that copy is how you overwrite someone
+    else's edit without ever seeing it. Reading again costs one GET and makes
+    the editor open on what is actually on disk."""
+    editor = (page.split("if (e.target.closest('[data-edit]'))")[1]
+                  .split("if (e.target.closest('[data-move]'))")[0])
+    assert "fresh = await api(path);" in editor
+    # Read BEFORE the modal exists, so a failure is an alert rather than an
+    # editor sitting open on nothing.
+    assert editor.index("await api(path)") < editor.index("modal({")
+    assert "doc.yaml" not in editor
 
 
 def test_flows_being_off_reads_as_off_rather_than_broken(page):
@@ -525,3 +571,28 @@ def test_two_loads_of_the_same_panel_cannot_race_each_other(page):
         # Both halves, as with `gone`: a late error must not paint over a
         # newer success either.
         assert body.count(f"mine !== {seq}") == 2, loader
+
+
+# ---- the page has to PARSE ---------------------------------------------------
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node to parse JS")
+def test_the_page_script_is_valid_javascript(page, tmp_path):
+    """Every other test in this file is a substring assertion, which is what the
+    module docstring admits to and what makes them cheap. They share one blind
+    spot: a page that does not PARSE still contains every string they look for.
+
+    An `await` added inside a handler that was not `async` made the whole script
+    a SyntaxError — so `renderFlowPanel`, `SF` and every other binding simply
+    never existed, and the admin page was blank. All of these passed. It was
+    caught by opening the page in a browser and finding nothing defined.
+
+    One parse is a cheap floor under the rest.
+    """
+    script = page.split("<script>")[-1].split("</script>")[0]
+    js = tmp_path / "page.js"
+    js.write_text(script, encoding="utf-8")
+    done = subprocess.run(
+        ["node", "--check", str(js)], capture_output=True, text=True
+    )
+    assert done.returncode == 0, done.stderr
