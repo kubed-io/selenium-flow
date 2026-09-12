@@ -32,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Flows take parameters.** Declare them and write `${name}` in any argument of any step — `url: ${site}/orders/${id}` — so one saved flow serves every account and every environment.
 
-- **Type a secret you never see.** Give `write` a `secret` naming one instead of text, and the server reads it and types it — in a flow step or a single call. A secret is never part of a string, which is why it cannot end up in a URL.
+- **Type a secret you never see.** Give `write` a `secret` naming one instead of text, and the server reads it and types it — in a flow step or a single call. It is never passed as an argument string, so it cannot be assembled into one by mistake.
 
 - **A secrets catalogue.** Point `SECRETS_DIRS` at a directory per secret and a file per key — the shape Kubernetes already mounts — and `list_secrets` shows an agent what it can use. Values are never returned by anything.
 

@@ -489,6 +489,9 @@ def validate(document, schemas: dict) -> dict:
         problems.append("parameters must be a JSON Schema object")
         parameters = {}
     properties = parameters.get("properties") or {}
+    if not isinstance(properties, dict):
+        problems.append("parameters.properties must be an object")
+        properties = {}
     declared = set(properties)
     # `writeOnly` is standard JSON Schema for "supplied but not returned", and
     # it used to mean exactly that here. Accepting it now that nothing redacts
@@ -496,7 +499,14 @@ def validate(document, schemas: dict) -> dict:
     # it is hidden, and reads it back out of the report. A familiar marker that
     # silently does nothing is a leak with a reassuring name on it, so it is
     # refused and the refusal says what to use instead (§F1.38).
-    for name, schema in sorted(properties.items()):
+    # Sorted by the *string* of each key, and every value type-checked before
+    # it is read. A flow is YAML anyone may have written by hand: `properties:
+    # []` has no `.items()`, `1:` is an integer key so sorting it beside a
+    # string raises TypeError, and a scalar schema has no `.get`. Each of those
+    # turned a document this function exists to refuse into a 500 about our own
+    # code — the same trap `listed()` was written for.
+    for name in sorted(properties, key=str):
+        schema = properties[name]
         if isinstance(schema, dict) and schema.get("writeOnly"):
             problems.append(
                 f"parameters: {name!r} is writeOnly, which no longer hides "

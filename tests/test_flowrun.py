@@ -362,7 +362,7 @@ def test_a_script_containing_a_javascript_template_is_left_alone():
 # ---- values that must not come back ------------------------------------------
 
 
-def test_a_write_only_parameter_is_not_echoed_by_the_step_that_used_it():
+def test_a_secret_is_not_echoed_by_the_step_that_used_it():
     """`write` reads the field back and returns it, which for a guarded value
     would hand it straight back on the very call meant to protect it."""
     steps = [
@@ -372,14 +372,7 @@ def test_a_write_only_parameter_is_not_echoed_by_the_step_that_used_it():
             "return": True,
         }
     ]
-    document = flow(
-        steps,
-        parameters={
-            "type": "object",
-            "properties": {"password": {"type": "string", "writeOnly": True}},
-        },
-    )
-    report = run(FakeActions(), document, "b", catalogue=Vault())
+    report = run(FakeActions(), flow(steps), "b", catalogue=Vault())
     assert report["steps"][0]["result"]["value"] is None
     assert "hunter2" not in str(report)
 
@@ -570,7 +563,6 @@ def test_a_guarded_value_does_not_come_back_in_the_result():
     ]
     document = flow(
         steps,
-        parameters={"type": "object", "properties": {"magic_link": {"writeOnly": True}}},
     )
 
     class Echoing(FakeActions):
@@ -597,7 +589,6 @@ def test_a_guarded_value_never_reaches_the_top_level_report():
     ]
     document = flow(
         steps,
-        parameters={"type": "object", "properties": {"magic_link": {"writeOnly": True}}},
     )
 
     class Echoing(FakeActions):
@@ -687,7 +678,7 @@ def test_a_guarded_value_does_not_come_back_under_an_unmapped_name():
         }
     ]
     document = flow(
-        steps, parameters={"type": "object", "properties": {"snippet": {"writeOnly": True}}}
+        steps
     )
 
     class Echoing(FakeActions):
@@ -712,7 +703,7 @@ def test_a_guarded_value_is_swept_out_of_any_field_at_all():
         }
     ]
     document = flow(
-        steps, parameters={"type": "object", "properties": {"magic": {"writeOnly": True}}}
+        steps
     )
 
     class Nested(FakeActions):
@@ -783,7 +774,6 @@ def test_a_bound_write_in_a_flow_does_not_read_the_field_back():
     ]
     document = flow(
         steps,
-        parameters={"type": "object", "properties": {"password": {"writeOnly": True}}},
     )
     run(Recording(), document, "b", catalogue=Vault())
     assert seen["read_back"] is False
@@ -1044,3 +1034,52 @@ def test_a_hand_edited_flow_with_an_integer_key_is_refused_not_a_crash(reference
 def test_listed_names_any_key_a_document_can_hold():
     assert flowrun.listed({"b", 1, "a"}) == "1, a, b"
     assert flowrun.listed([]) == ""
+
+
+def test_a_stored_flow_that_still_marks_a_parameter_write_only_is_refused():
+    """Saving refuses it, and `LocalFlowStore` reads YAML that may never have
+    been saved through the validator — which is exactly where a marker survives
+    a migration. `writeOnly` used to hide a parameter from the report and now
+    hides nothing, so an author who trusted it would have the value echoed back
+    by any `return: true` step (§F1.38)."""
+    steps = [
+        {"tool": "write", "args": {"css": "#p", "text": "${password}"}, "return": True}
+    ]
+    document = flow(
+        steps,
+        parameters={
+            "type": "object",
+            "properties": {"password": {"type": "string", "writeOnly": True}},
+        },
+    )
+    actions = FakeActions()
+    report = run(actions, document, "b", params={"password": "hunter2"})
+    assert report["status"] == "failed"
+    assert report["steps_run"] == 0
+    assert "writeOnly" in report["steps"][0]["error"]
+    assert "secret" in report["steps"][0]["error"]
+    # Refused before anything was typed, so the value never reached a page.
+    assert actions.calls == []
+    assert "hunter2" not in str(report)
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        {"type": "object", "properties": []},
+        {"type": "object", "properties": "nonsense"},
+        {"type": "object", "properties": {1: {"writeOnly": True}}},
+        {"type": "object", "properties": {"a": "scalar"}},
+        "not an object at all",
+    ],
+)
+def test_a_malformed_parameters_block_does_not_crash_the_preflight(parameters):
+    """The preflight reads a stored file, so every shape a hand edit produces
+    has to reach an outcome rather than an AttributeError — a 500 about our own
+    code instead of a verdict on the document."""
+    document = flow(
+        [{"tool": "navigate", "args": {"url": "https://example.test/"}}],
+        parameters=parameters,
+    )
+    report = run(FakeActions(), document, "b")
+    assert report["status"] in {"ok", "failed"}

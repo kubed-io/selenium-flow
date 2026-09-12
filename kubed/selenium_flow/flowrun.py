@@ -198,8 +198,44 @@ class FlowError(ValueError):
     """
 
 
+def _properties(document: dict) -> dict:
+    """A flow's declared parameters, or nothing if the document is malformed.
+
+    Defensive because this reads a stored file: `parameters: []` and a scalar
+    `properties` are both things a hand edit produces, and neither may become a
+    crash in a preflight whose job is to refuse documents cleanly.
+    """
+    parameters = document.get("parameters")
+    if not isinstance(parameters, dict):
+        return {}
+    properties = parameters.get("properties")
+    return properties if isinstance(properties, dict) else {}
+
+
+def _refused(document: dict, name: str, why: str) -> dict:
+    """A run that was stopped before step one, reported as a run.
+
+    Preflighted rather than caught mid-loop: a bad document found at step nine
+    would otherwise have run the first eight and then reported `steps_run: 0`,
+    which both half-runs a flow the message says was refused and misstates what
+    happened.
+    """
+    total = len(document.get("steps") or [])
+    return {
+        "flow": name,
+        "status": "failed",
+        "steps_run": 0,
+        "steps_total": total,
+        "steps": [{"n": 1, "ok": False, "error": why}] if total else [],
+    }
+
+
 def required_params(document: dict) -> list[str]:
-    return list((document.get("parameters") or {}).get("required") or [])
+    parameters = document.get("parameters")
+    if not isinstance(parameters, dict):
+        return []
+    required = parameters.get("required")
+    return list(required) if isinstance(required, list) else []
 
 
 def check_params(document: dict, params: dict) -> None:
@@ -210,7 +246,7 @@ def check_params(document: dict, params: dict) -> None:
             f"{document.get('name', 'this flow')} needs "
             f"{listed(missing)}: pass them in params"
         )
-    declared = set((document.get("parameters") or {}).get("properties") or {})
+    declared = set(_properties(document))
     unknown = set(params or {}) - declared
     if unknown:
         known = listed(declared) or "it takes none"
@@ -420,6 +456,31 @@ def run(
     # as "unset" and silently given the full five minutes.
     budget = RUN_TIMEOUT if timeout is None else max(int(timeout), 0)
     deadline = time.monotonic() + budget
+
+    # A document the validator would refuse, reaching here anyway because
+    # `LocalFlowStore` reads YAML that may never have been saved through it.
+    # `writeOnly` is the one that matters: it used to hide a parameter from the
+    # report and now hides nothing, so an author who trusted it — and a
+    # hand-edited file is exactly where that marker survives a migration —
+    # would have the value echoed back by any `return: true` step. Refusing the
+    # run is the same answer saving gives, in the only other place a document
+    # can arrive (§F1.38).
+    marked = sorted(
+        (
+            str(param)
+            for param, schema in _properties(document).items()
+            if isinstance(schema, dict) and schema.get("writeOnly")
+        ),
+    )
+    if marked:
+        return _refused(
+            document,
+            name,
+            f"this flow marks {listed(marked)} writeOnly, which no longer "
+            "hides anything — a parameter is text and may appear in the "
+            "report. A value nobody may see is a secret: give write an "
+            "args.secret instead.",
+        )
 
     stale = [
         number
