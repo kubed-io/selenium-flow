@@ -672,7 +672,7 @@ def test_a_session_whose_name_is_not_a_directory_keeps_nothing(client, kept_serv
             headers=AUTH,
         )
     assert response.status_code == 400
-    assert "not usable" in response.json()["error"]
+    assert "cannot keep files" in response.json()["error"]
     assert kept_server.flows.files(flows.GLOBAL_SESSION) == [], "it leaked to global"
 
 

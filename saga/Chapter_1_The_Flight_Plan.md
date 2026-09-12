@@ -389,6 +389,22 @@ What building it settled:
   left alone deliberately: changing which secrets a session can see is a
   security boundary and deserves its own change rather than arriving as a side
   effect of this one.
+- **A private library has to own a name nobody else can claim**, and review
+  caught that `stdio` is also a perfectly ordinary session name. `?session=stdio`
+  landed a named caller in the transport's own directory, able to read,
+  overwrite and delete its flows and kept files. Note the shape of it: giving
+  stdio a *private* library is what created a name worth stealing — while stdio
+  shared `global`, the collision was harmless.
+
+  `stdio` is therefore reserved as a **session** name. Not as a flow name: a
+  flow called `stdio` is nobody's business but its author's, which is why the
+  rule is its own function rather than a line inside `valid_name`. And `global`
+  stays deliberately unreserved, because it is the *shared* library — naming it
+  is how a caller asks for it on purpose, and a test says so, so the
+  reservation is not widened by reflex later.
+
+  Reading is refused along with writing. Reading another client's private
+  library is the same leak wearing a quieter verb.
 
 ### §F1.3 — Decision (locked): one directory, two subdirectories, one per session
 

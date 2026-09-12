@@ -130,6 +130,34 @@ def valid_name(name, kind: str = "name") -> str:
     return text
 
 
+# Session names a caller may not claim. `stdio` is here because the stdio
+# transport owns that library and cannot name itself anything else: a caller
+# that claimed the name would be reading, overwriting and deleting another
+# client's flows and kept files — the one guarantee naming a session buys.
+#
+# `global` is deliberately NOT reserved. It is the *shared* library, so naming
+# it is how a caller asks for it on purpose, and a collision there is the
+# intended behaviour rather than a leak.
+RESERVED_SESSIONS = frozenset({STDIO_SESSION})
+
+
+def valid_session_name(name) -> str:
+    """A session name a caller is allowed to choose, else raise.
+
+    Everything :func:`valid_name` requires, plus the reserved set. Kept apart
+    from ``valid_name`` because that one also validates *flow* names, and a flow
+    called ``stdio`` is perfectly reasonable — it is only the library name that
+    is spoken for.
+    """
+    session = valid_name(name, "session name")
+    if session in RESERVED_SESSIONS:
+        raise InvalidName(
+            f"{session!r} is reserved for the stdio transport's own library, "
+            "which no other caller may write to: choose another session name"
+        )
+    return session
+
+
 def valid_file_name(name) -> str:
     """``name`` if it can be a file inside a session directory, else raise.
 
@@ -241,15 +269,16 @@ def session_of(sessions, explicit: str | None = None) -> str:
     lives here rather than beside the flow tools that first needed it.
     """
     if explicit:
-        return valid_name(explicit, "session name")
+        return valid_session_name(explicit)
     # `library_key`, not `key`: which library a caller owns does not depend on
     # whether this server is remembering browsers. See `sessions.library_key`.
     key = sessions.library_key()
     session = library_of(key)
     if session is None:
-        # Raised rather than returned, and raised by the same validator, so the
-        # message names the offending value instead of inventing wording here.
-        return valid_name(named_session(key), "session name")
+        # Raised rather than returned, and by the same validator, so the message
+        # names the offending value — and says *which* rule it broke, an
+        # unusable name and a reserved one being different problems.
+        return valid_session_name(named_session(key))
     return session
 
 
@@ -280,7 +309,10 @@ def library_of(key) -> str | None:
     if named is None:
         return GLOBAL_SESSION
     try:
-        return valid_name(named, "session name")
+        # `valid_session_name`, so a caller cannot claim `stdio` and land in the
+        # transport's private library. The check has to be here rather than only
+        # at the write gate: reading another client's flows is the same leak.
+        return valid_session_name(named)
     except InvalidName:
         return None
 

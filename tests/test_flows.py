@@ -111,6 +111,18 @@ def test_stdio_gets_a_library_of_its_own():
     assert STDIO_SESSION != GLOBAL_SESSION
 
 
+def test_stdio_is_reserved_as_a_session_name_but_not_as_a_flow_name():
+    """The reservation is about who may own that *library*. A flow called
+    `stdio` is nobody's business but its author's, and `valid_name` still takes
+    it — which is why the session rule is a separate function rather than a
+    line inside that one."""
+    from kubed.selenium_flow.flows import valid_session_name
+
+    with pytest.raises(InvalidName, match="reserved"):
+        valid_session_name(STDIO_SESSION)
+    assert valid_name(STDIO_SESSION, "flow name") == STDIO_SESSION
+
+
 def test_naming_yourself_global_is_legal_and_lands_in_the_same_place():
     assert session_for(CallerKey(f"named:{GLOBAL_SESSION}", "named")) == GLOBAL_SESSION
 

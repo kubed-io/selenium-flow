@@ -327,6 +327,30 @@ async def test_the_write_tool_prompts_do_not_lie_to_a_stdio_caller(flow_server):
         assert "stdio" in description, f"{name} still tells stdio it cannot save"
 
 
+async def test_a_caller_cannot_claim_the_stdio_library(flow_server, monkeypatch, store):
+    """`stdio` is an ordinary session name, which is exactly the problem: the
+    stdio transport owns that library and cannot name itself anything else, so a
+    caller claiming the name would read, overwrite and delete another client's
+    flows and kept files — the one guarantee naming a session is meant to buy.
+
+    Reading is refused as well as writing, because reading somebody else's
+    private library is the same leak wearing a quieter verb.
+    """
+    from kubed.selenium_flow.flows import InvalidName
+    from kubed.selenium_flow.sessions import CallerKey
+
+    store.save(STDIO_SESSION, "private", {"steps": GOOD, "description": "theirs"})
+    acting_as(monkeypatch, flow_server, CallerKey("named:stdio", "named"))
+    for tool, kwargs in (
+        (flowapi.SAVE_TOOL, {"name": "private", "steps": GOOD}),
+        (flowapi.DELETE_TOOL, {"name": "private"}),
+        (flowapi.LIST_TOOL, {}),
+    ):
+        with pytest.raises(InvalidName, match="reserved"):
+            await call(flow_server, tool, **kwargs)
+    assert store.get(STDIO_SESSION, "private")["description"] == "theirs"
+
+
 # ---- the published schema ---------------------------------------------------
 
 
@@ -488,6 +512,29 @@ def test_delete_is_idempotent_over_http(client):
     assert not client.post("/flows/delete", json={"name": "gone"}, headers=AUTH).json()[
         "deleted"
     ]
+
+
+def test_naming_the_stdio_library_over_http_is_refused(client):
+    """The explicit surface asks for a library by name, so it is the other door
+    onto the same collision."""
+    saved = client.post(
+        "/flows/save",
+        json={"session": STDIO_SESSION, "name": "x", "steps": GOOD},
+        headers=AUTH,
+    )
+    assert saved.status_code == 400
+    assert "reserved" in saved.json()["error"]
+    listing = client.post("/flows/list", json={"session": STDIO_SESSION}, headers=AUTH)
+    assert listing.status_code == 400, "reading it is the same leak"
+
+
+def test_global_stays_namable_because_it_is_meant_to_be_shared(client):
+    """The reservation is about a PRIVATE library being claimed by someone else.
+    `global` is the shared one, so naming it is how a caller asks for it on
+    purpose — this stops the reservation being widened by reflex."""
+    listing = client.post("/flows/list", json={"session": GLOBAL_SESSION}, headers=AUTH)
+    assert listing.status_code == 200
+    assert listing.json()["session"] == GLOBAL_SESSION
 
 
 # ---- running one ------------------------------------------------------------
