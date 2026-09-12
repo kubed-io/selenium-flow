@@ -1083,3 +1083,59 @@ def test_a_malformed_parameters_block_does_not_crash_the_preflight(parameters):
     )
     report = run(FakeActions(), document, "b")
     assert report["status"] in {"ok", "failed"}
+
+
+# ---- declared defaults -------------------------------------------------------
+
+
+def test_a_declared_default_is_supplied_when_the_caller_omits_it():
+    """It was accepted at save, shown in the admin panel as "Default", and then
+    ignored — so `lang: {default: en}` run without `lang` sent the browser to
+    `https://${lang}.wikipedia.org` LITERALLY and died on a DNS error naming
+    nothing to do with the cause."""
+    document = {
+        "name": "wiki",
+        "parameters": {"properties": {"lang": {"type": "string", "default": "en"}}},
+    }
+    assert flowrun.with_defaults(document, {}) == {"lang": "en"}
+
+
+def test_a_value_the_caller_passed_beats_the_default():
+    document = {"parameters": {"properties": {"lang": {"default": "en"}}}}
+    assert flowrun.with_defaults(document, {"lang": "de"}) == {"lang": "de"}
+
+
+def test_an_explicit_none_is_a_value_the_caller_chose():
+    """Overriding it would make `lang: null` mean something different from
+    every other value the caller can pass."""
+    document = {"parameters": {"properties": {"lang": {"default": "en"}}}}
+    assert flowrun.with_defaults(document, {"lang": None}) == {"lang": None}
+
+
+def test_a_parameter_with_no_default_is_left_absent():
+    """Absent and `None` are different answers, and `substitute` leaves an
+    unsupplied reference as written on purpose."""
+    document = {"parameters": {"properties": {"term": {"type": "string"}}}}
+    assert flowrun.with_defaults(document, {}) == {}
+
+
+def test_a_required_parameter_is_not_satisfied_by_its_own_default():
+    """The two together are a contradiction in the document. Letting the
+    default stand in would empty `required` of meaning, and the error names
+    something the caller can actually act on."""
+    document = {
+        "name": "wiki",
+        "parameters": {
+            "properties": {"term": {"default": "selenium"}},
+            "required": ["term"],
+        },
+    }
+    with pytest.raises(flowrun.FlowError) as raised:
+        flowrun.check_params(document, {})
+    assert "needs term" in str(raised.value)
+
+
+@pytest.mark.parametrize("parameters", [[], "term", {"properties": "term"}, {}])
+def test_a_malformed_parameters_block_defaults_nothing(parameters):
+    """It reads a stored file, so every shape a hand edit produces arrives."""
+    assert flowrun.with_defaults({"parameters": parameters}, {"a": 1}) == {"a": 1}

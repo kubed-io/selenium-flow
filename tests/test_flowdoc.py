@@ -696,3 +696,29 @@ async def test_a_reference_inside_a_longer_string_is_still_type_checked(
             ),
             step_schema_map,
         )
+
+
+async def test_a_template_literal_in_a_script_says_how_to_write_it(step_schema_map):
+    """The commonest way to reach this message is to have meant no reference at
+    all. A `script` carrying a JavaScript template literal is refused here, and
+    told only "is not a parameter of this flow" the author goes hunting for a
+    parameter they never wanted — `substitute` already treats such a payload as
+    ordinary text, so this is the one place that can say how to write it."""
+    document = flow(steps=[
+        {"tool": "execute_script", "id": "measure",
+         "args": {"script": "return `${Math.round(n)} KB`"}},
+    ])
+    with pytest.raises(InvalidFlow) as raised:
+        validate(document, step_schema_map)
+    said = str(raised.value)
+    assert "is not a parameter of this flow" in said
+    assert "$${Math.round(n)}" in said, "it has to show the escape"
+
+
+async def test_the_escape_it_suggests_actually_saves(step_schema_map):
+    """The advice has to work, or it is worse than none."""
+    document = flow(steps=[
+        {"tool": "execute_script", "id": "measure",
+         "args": {"script": "return `$${Math.round(n)} KB`"}},
+    ])
+    assert validate(document, step_schema_map)

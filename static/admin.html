@@ -462,7 +462,7 @@ async function loadFlows(key) {
   }
   renderFlows();
   // The listing says a flow exists, not what is in it.
-  if (flowName) loadFlow(flowName);
+  if (flowName) loadFlow(key, flowName);
 }
 
 function renderFlows() {
@@ -510,7 +510,7 @@ async function openFlow(name) {
   picked = null;
   flowDoc = null;
   renderFlows();
-  return loadFlow(name);
+  return loadFlow(current, name);
 }
 
 /* Fetch the open flow's document. Separate from `openFlow` because a refresh
@@ -518,8 +518,7 @@ async function openFlow(name) {
    lands — no flicker on every heartbeat — and it keeps the selection, which
    the reader did not ask to lose. A step or parameter that the edit removed is
    handled where it shows: the pane says it is gone. */
-async function loadFlow(name) {
-  const key = current;
+async function loadFlow(key, name) {
   // Its OWN generation, not the listing's. Every accepted listing starts one of
   // these for the same flow, so two can be in flight at once — and guarding
   // only on the name lets the older answer land last and sit there, because
@@ -651,10 +650,21 @@ function paramRow(name, spec, required) {
     + '</span></div>';
 }
 
-/* One key/value row, the unit both detail panes are built from. */
+/* One key/value row, the unit both detail panes are built from.
+
+   A value that spans lines is CODE — `script` is the one that does it — and a
+   table cell is the wrong shape for it: the newlines collapse, so the whole
+   program reads as one run-on line, and `word-break: break-all` then splits it
+   mid-identifier (`doc ument`, `qu erySelectorAll`). So it gets the full width
+   and keeps its own whitespace. The test is the value, not the key: an
+   argument nobody has thought of yet that happens to be multi-line wants the
+   same treatment. */
 const pair = (k, v) =>
-  '<div class="pair"><span class="pk">' + SF.esc(k) + '</span>'
-  + '<span class="pv">' + SF.esc(v) + '</span></div>';
+  (String(v).indexOf('\n') === -1
+    ? '<div class="pair"><span class="pk">' + SF.esc(k) + '</span>'
+      + '<span class="pv">' + SF.esc(v) + '</span></div>'
+    : '<div class="pair block"><span class="pk">' + SF.esc(k) + '</span>'
+      + '<pre class="pv code">' + SF.esc(v) + '</pre></div>');
 
 /* What a step passes. A secret is shown as the reference it is: there is no
    value here to show — the server never sends one — and naming the secret says
@@ -863,8 +873,11 @@ $('flows').addEventListener('click', async (e) => {
       confirm: 'Save',
       onconfirm: async (sheet) => {
         await api(path, 'PUT', {yaml: sheet.querySelector('textarea').value});
+        // No reopen: `loadFlows` refreshes whatever is still open, against the
+        // session this save was FOR. `openFlow` would have read `current`
+        // again and, if the operator had moved to another session while the
+        // editor sat open, loaded that one's same-named flow instead.
         await loadFlows(key);
-        await openFlow(doc.name);
       },
     });
     // The real file from the store, comments and all — not a re-dump of the

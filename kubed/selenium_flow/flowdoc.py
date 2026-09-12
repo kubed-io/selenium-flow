@@ -275,7 +275,15 @@ def references(value) -> list[str]:
 
 
 def _check_references(where: str, args: dict, declared: set[str]) -> list[str]:
-    """Every parameter an argument names must be one the flow declares."""
+    """Every parameter an argument names must be one the flow declares.
+
+    Both messages name the escape, because the commonest way to reach either is
+    to have meant no reference at all. A `script` argument carrying a JavaScript
+    template literal — ``return `${Math.round(n)} KB` `` — is refused here, and
+    told only "is not a parameter of this flow" it sends the author hunting for
+    a parameter they never wanted. `substitute` already treats such a payload as
+    ordinary text; this is the one place that has to say how to write it.
+    """
     problems = []
     for name in dict.fromkeys(references(args)):
         if not name:
@@ -287,7 +295,8 @@ def _check_references(where: str, args: dict, declared: set[str]) -> list[str]:
             known = listed(declared) or "this flow declares none"
             problems.append(
                 f"{where}: ${{{name}}} is not a parameter of this flow. "
-                f"Declared: {known}"
+                f"Declared: {known}. If it was never meant to be one — a "
+                f"JavaScript template literal, say — write $${{{name}}}"
             )
     return problems
 
