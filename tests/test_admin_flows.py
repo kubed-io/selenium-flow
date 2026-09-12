@@ -190,6 +190,39 @@ def test_an_undeclared_reference_is_not_invented_as_a_parameter(client, server):
     assert client.get(url("stray"), headers=AUTH).json()["uses"] == {}
 
 
+@pytest.mark.parametrize(
+    "parameters",
+    ["term", "[a, b]", "{properties: term}", "{properties: [a]}"],
+)
+def test_a_malformed_parameters_block_still_opens(client, server, parameters):
+    """Saving refuses these, so they arrive as a file someone edited — which is
+    exactly when an operator opens the panel to go and fix it. A `.get` on a
+    list is an AttributeError and the route turns that into a 500, so the one
+    flow you need to see is the one that will not open."""
+    server.flows.write_text(
+        SESSION,
+        "wonky",
+        f"name: wonky\nparameters: {parameters}\nsteps:\n- tool: navigate\n  args: {{url: x}}\n",
+    )
+    response = client.get(url("wonky"), headers=AUTH)
+    assert response.status_code == 200, response.text
+    assert response.json()["uses"] == {}
+
+
+def test_a_step_that_is_not_a_mapping_does_not_stop_the_others(client, server):
+    """Same reason, one level down: a hand-edited `steps:` can hold a bare
+    string, and losing the whole document to it would hide the rest of the
+    flow that says where the mistake is."""
+    server.flows.write_text(
+        SESSION,
+        "wonky",
+        "name: wonky\nparameters:\n  properties:\n    term: {type: string}\n"
+        "steps:\n- oops\n- tool: navigate\n  args: {url: 'https://x/${term}'}\n",
+    )
+    body = client.get(url("wonky"), headers=AUTH).json()
+    assert body["uses"] == {"term": [1]}
+
+
 def test_a_save_keeps_the_comment_and_the_ordering(client, server):
     """The reason `read_text`/`write_text` exist. Round-tripping through a dict
     is invisible until someone opens the editor, saves, and finds the note they

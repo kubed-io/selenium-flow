@@ -221,7 +221,7 @@ def test_an_outline_row_is_an_icon_and_a_name(page):
     assert "function argsOf(step)" in page
     assert "Pick a parameter or a step to see what " in page
     row = page.split("function stepRow(")[1].split("\n}\n")[0]
-    assert "TOOL_ICON[tool]" in row
+    assert "own(TOOL_ICON, tool)" in row
     assert "SF.esc(s.id || tool)" in row
     assert "s.args" not in row
 
@@ -329,6 +329,43 @@ def test_an_action_icon_still_carries_its_word(page):
     head = page.split("'<div class=\"panel\">' +")[1].split("'</div></div>' +")[0]
     assert head.count("aria-label=") == 3
     assert head.count("title=") == 3
+
+
+def test_a_document_lookup_cannot_find_what_object_gave_it(page):
+    """A stored flow is a file a person edits, so `tool: constructor` and a
+    parameter named `toString` are both reachable — and `TOOL_ICON`'s prototype
+    answers for both. A function concatenated into `innerHTML` renders as its
+    own source text; `uses['constructor'].map` is a TypeError. Every lookup
+    keyed by something out of the document goes through `own`."""
+    assert "Object.prototype.hasOwnProperty.call(map, key)" in page
+    for lookup in ("own(TOOL_ICON, tool)", "own(TYPE_ICON, ty)",
+                   "own(f.uses || {}, name)"):
+        assert lookup in page, lookup
+    assert "own((f.parameters || {}).properties || {}, name)" in page
+
+
+def test_a_listing_refresh_carries_the_open_flow_with_it(page):
+    """The heartbeat only refetches the listing because the revision moved, so
+    the open document is the one most likely to be stale. Left alone, the panel
+    showed steps and `uses` from a version that no longer existed, with an Edit
+    pointing at YAML someone had already rewritten."""
+    body = page.split("async function loadFlows(key)")[1].split("\n}\n")[0]
+    # Gone from the listing: drop it rather than render a flow that is not there.
+    assert "flowName = flowDoc = picked = null;" in body
+    # Still there: the listing says it exists, not what is in it.
+    assert "if (flowName) loadFlow(flowName);" in body
+
+
+def test_a_refresh_is_not_a_click(page):
+    """`openFlow` blanks the panel and drops the selection because you asked
+    for a different document. A heartbeat asked for nothing, so it reuses the
+    fetch alone — otherwise every refresh flashed `Loading…` and threw away the
+    step the reader was looking at."""
+    opener = page.split("async function openFlow(name)")[1].split("\n}\n")[0]
+    assert "picked = null;" in opener and "flowDoc = null;" in opener
+    assert "return loadFlow(name);" in opener
+    fetcher = page.split("async function loadFlow(name)")[1].split("\n}\n")[0]
+    assert "picked" not in fetcher and "renderFlows()" not in fetcher
 
 
 def test_a_step_that_binds_a_secret_is_marked(page):

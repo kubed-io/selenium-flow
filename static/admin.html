@@ -445,7 +445,18 @@ async function loadFlows(key) {
   shownFlows = data.rev || null;
   $('flowsCount').textContent =
     flowsData.enabled ? (flowsData.flows || []).length : 'off';
+  // The open flow is PART of the library this listing just replaced, and a
+  // heartbeat only arrives here because the revision moved — so the document
+  // on screen is the one most likely to be out of date. Left alone, the panel
+  // kept showing steps, params and `uses` from a version that no longer
+  // exists, with a live Edit pointing at YAML someone else had already
+  // rewritten and a Delete pointing at a flow that might be gone.
+  if (flowName && !(data.flows || []).some((f) => f.name === flowName)) {
+    flowName = flowDoc = picked = null;
+  }
   renderFlows();
+  // The listing says a flow exists, not what is in it.
+  if (flowName) loadFlow(flowName);
 }
 
 function renderFlows() {
@@ -486,12 +497,23 @@ function renderFlows() {
   renderFlowPanel();
 }
 
+/* Pick a flow: a click. Clears the selection inside the old one and blanks the
+   panel, because you asked for a different document. */
 async function openFlow(name) {
-  const key = current;
   flowName = name;
   picked = null;
   flowDoc = null;
   renderFlows();
+  return loadFlow(name);
+}
+
+/* Fetch the open flow's document. Separate from `openFlow` because a refresh
+   is not a click: it leaves what is on screen alone until the new document
+   lands — no flicker on every heartbeat — and it keeps the selection, which
+   the reader did not ask to lose. A step or parameter that the edit removed is
+   handled where it shows: the pane says it is gone. */
+async function loadFlow(name) {
+  const key = current;
   let doc;
   try {
     doc = await api(sessionPath(key, '/flows/' + encodeURIComponent(name)));
@@ -513,6 +535,14 @@ async function openFlow(name) {
    types a credential nobody can see. Only `write` has that argument. */
 const bindsSecret = (step) =>
   !!(step && step.args && step.args.secret);
+
+/* Look a name up in a plain object without finding what Object gave it. These
+   keys come out of a YAML file a person edits (§F1.6), so `tool: constructor`
+   or a parameter named `toString` is reachable — and `TOOL_ICON['constructor']`
+   is a function, which would be concatenated into the page as its own source
+   text. Every lookup keyed by something from the document goes through here. */
+const own = (map, key) =>
+  Object.prototype.hasOwnProperty.call(map, key) ? map[key] : undefined;
 
 /* One glyph per tool, and no word beside it. The word is in the pane — picking
    a row is what asks for it — and losing it is what lets the outline be a
@@ -564,7 +594,7 @@ function stepRow(s, i, cite) {
     // reader and a hovering mouse can still find it.
     + '<span class="icon" role="img" aria-label="' + SF.esc(tool)
     + '" title="' + SF.esc(tool) + '">'
-    + (TOOL_ICON[tool] || '&#10067;') + '</span>'
+    + (own(TOOL_ICON, tool) || '&#10067;') + '</span>'
     + '<span class="chip">' + SF.esc(s.id || tool) + '</span>'
     + (bindsSecret(s)
         ? '<span class="grow"></span><span class="lock" role="img"'
@@ -585,7 +615,7 @@ function paramRow(name, spec, required) {
     + isPicked('param', name) + '">'
     + '<span class="icon" role="img" aria-label="' + SF.esc(said)
     + '" title="' + SF.esc(said) + '">'
-    + (TYPE_ICON[ty] || '&#183;') + '</span>'
+    + (own(TYPE_ICON, ty) || '&#183;') + '</span>'
     + '<span class="chip">' + SF.esc(name)
     + (required
         ? '<span class="req" role="img" aria-label="required"'
@@ -648,11 +678,11 @@ function stepDetail(f, i) {
    almost always a typo in a step, so it is called out rather than left as an
    empty section someone has to interpret. */
 function paramDetail(f, name) {
-  const spec = ((f.parameters || {}).properties || {})[name];
+  const spec = own((f.parameters || {}).properties || {}, name);
   if (!spec) return '<div class="hint">That parameter is gone.</div>';
   const required = ((f.parameters || {}).required || []).indexOf(name) !== -1;
   const steps = f.steps || [];
-  const used = ((f.uses || {})[name]) || [];
+  const used = own(f.uses || {}, name) || [];
   return '<div class="dhead"><span class="chip">' + SF.esc(name) + '</span>'
     + (spec.type ? '<span class="ty">' + SF.esc(spec.type) + '</span>' : '')
     + '<span class="grow"></span>'

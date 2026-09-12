@@ -134,8 +134,15 @@ def _uses(document: dict) -> dict[str, list[int]]:
     fact worth showing rather than one to hide: a parameter nothing reads is
     almost always a typo in a step, and the panel can only say so if it is
     told about the parameter at all.
+
+    Every shape is checked before it is walked. A stored flow is a file a
+    person edits (§F1.6) and `LocalFlowStore.get` hands back any YAML mapping,
+    so `parameters: []` or `properties: "term"` reaches here — and a `.get` on
+    a list is an AttributeError, which the route turns into a 500 on a flow the
+    operator opened it to go and fix.
     """
-    declared = (document.get("parameters") or {}).get("properties") or {}
+    parameters = document.get("parameters")
+    declared = parameters.get("properties") if isinstance(parameters, dict) else None
     if not isinstance(declared, dict):
         return {}
     uses: dict[str, list[int]] = {str(name): [] for name in declared}
