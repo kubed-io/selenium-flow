@@ -130,42 +130,6 @@ jobs:
           echo "GIT_TAG=latest" >> "$GITHUB_ENV"
         fi
 
-    # `docker buildx bake` is run from a plain shell step inside build-image, and
-    # a shell step does not get ACTIONS_RUNTIME_TOKEN or ACTIONS_RESULTS_URL —
-    # those reach JS actions only. Without them buildx's `type=gha` backend is a
-    # silent no-op: it neither imports nor exports and says nothing about it.
-    # That is why the cache-to/cache-from in docker-compose.yaml had never once
-    # produced a CACHED layer, measured across two identical builds in a row.
-    #
-    # ACTIONS_CACHE_SERVICE_V2 is not optional and is the whole reason this is a
-    # list rather than one token. GitHub retired the v1 cache API; without the
-    # flag buildx talks v1 anyway and the export dies on an HTML error page it
-    # cannot parse — which fails the BUILD, not just the cache. So the v1
-    # ACTIONS_CACHE_URL is deliberately not exported at all: there is nothing to
-    # fall back to.
-    #
-    # And if that flag ever disappears, nothing is exported and the build runs
-    # uncached, the way it did for months. A cache is an optimisation and must
-    # never be able to fail an image build.
-    #
-    # `crazy-max/ghaction-github-runtime` is the maintained version of this and
-    # knows the list; it is not used because it would add a publisher to a set
-    # .github/zizmor.yml deliberately keeps short. The trade is that this list
-    # is ours to keep correct across GitHub's migrations.
-    - name: Expose the Actions runtime to buildx
-      uses: actions/github-script@v8
-      with:
-        script: |
-          const v2 = process.env.ACTIONS_CACHE_SERVICE_V2;
-          if (!v2) {
-            core.warning('No ACTIONS_CACHE_SERVICE_V2: building without a layer cache.');
-            return;
-          }
-          core.setSecret(process.env.ACTIONS_RUNTIME_TOKEN);
-          core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN);
-          core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL);
-          core.exportVariable('ACTIONS_CACHE_SERVICE_V2', v2);
-
     - name: Build and Push
       uses: kubed-io/actions/build-image@main
       with:

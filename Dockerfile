@@ -29,9 +29,10 @@
 # pyproject.toml rather than on every commit — .git is in the build context for
 # setuptools_scm, so `COPY . .` in front of the install invalidated it even for
 # a docs-only push. That only pays off with a layer cache, and the `type=gha`
-# one configured in docker-compose.yaml had never worked: buildx was run from a
-# shell step, which does not get ACTIONS_RUNTIME_TOKEN. image.yml now exports
-# it.
+# one configured in docker-compose.yaml had never worked: buildx is run from a
+# shell step, which the runner does not give ACTIONS_RUNTIME_TOKEN. Fixed in
+# kubed-io/actions' build-image, so every repo calling it got the cache it had
+# been configuring all along.
 #
 # Measured end to end, multi-arch: 9m30 before, 4m15 once the duplicate install
 # was gone, and ~2m20 once the cache actually hit — 139s and 145s over two
