@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import pathlib
 import sys
 
@@ -50,24 +51,56 @@ BANNER = (
     "     prose belongs in wiki/notes/{name}.notes.md, which is included below. -->"
 )
 
-# The one place the two surfaces are named together, in the order a reader meets
-# them: open a browser, do something, read the result, put it back.
-ORDER = [
-    "open_session",
-    "navigate",
-    "interact",
-    "write",
-    "press_key",
-    "extract",
-    "screenshot",
-    "save_pdf",
-    "execute_script",
-    "frame",
-    "dialog",
-    "resize",
-    "upload_file",
-    "end_browser",
+# The one place the surfaces are named together, in the order a reader meets
+# them: open a browser, do something, read the result, put it back — then the
+# two layers that sit above a browser action and have their own route tables.
+#
+# Grouped rather than flat because the groups are real: a flow is not a
+# fifteenth thing to do to a browser, it is a saved list of the first fourteen,
+# and a reader who cannot see that from the index has to infer it.
+GROUPS = [
+    (
+        "Browser actions",
+        "Everything you can do to a page.",
+        [
+            "open_session",
+            "navigate",
+            "interact",
+            "write",
+            "press_key",
+            "extract",
+            "screenshot",
+            "save_pdf",
+            "execute_script",
+            "frame",
+            "dialog",
+            "resize",
+            "upload_file",
+            "end_browser",
+        ],
+    ),
+    (
+        "Flows",
+        "A sequence of the actions above, saved under a name and run in one "
+        "call. See [Flows](Flows) for what a flow document looks like.",
+        [
+            "list_flows",
+            "get_flow",
+            "flow_schema",
+            "save_flow",
+            "run_flow",
+            "delete_flow",
+        ],
+    ),
+    (
+        "Files",
+        "What a session has produced, and how to keep one past the browser "
+        "that made it. See [Files](Files).",
+        ["session_files", "keep_file"],
+    ),
 ]
+
+ORDER = [tool for _, _, tools in GROUPS for tool in tools]
 
 
 async def _build() -> dict:
@@ -193,27 +226,92 @@ def returns(spec: dict, schema: dict) -> str:
     return table(rows, ["Field", "Type", "Notes"])
 
 
-def example(tool: str, path: str, schema: dict) -> str:
+def sample_of(spec: dict, field: dict, depth: int = 0) -> object:
+    """One value of the right *shape* for ``field``.
+
+    Every required argument used to be sampled as a scalar, so `save_flow` —
+    whose `steps` is an array of objects — rendered `steps="…"` in both the MCP
+    and the curl example. A reader copying either got a 400. An example that
+    cannot be sent is worse than no example, because it looks like one.
+
+    A schema carrying its own ``example`` wins: that is how `steps` gets a step
+    naming a tool that exists, which no amount of sampling the properties could
+    produce.
+    """
+    field = resolve(spec, field)
+    if "example" in field:
+        return field["example"]
+    if "enum" in field:
+        return field["enum"][0]
+
+    declared = field.get("type")
+    if isinstance(declared, list):
+        declared = next((d for d in declared if d != "null"), None)
+    if declared is None:
+        for branch in field.get("anyOf") or []:
+            if branch.get("type") != "null":
+                return sample_of(spec, branch, depth)
+
+    # Two levels is enough for every shape this surface has, and it is what
+    # stops a self-referential schema from rendering forever.
+    if declared == "array":
+        if depth >= 2:
+            return []
+        return [sample_of(spec, field.get("items") or {}, depth + 1)]
+    if declared == "object":
+        props = field.get("properties") or {}
+        if depth >= 2 or not props:
+            return {}
+        wanted = field.get("required") or list(props)[:1]
+        return {n: sample_of(spec, props[n], depth + 1) for n in wanted if n in props}
+    return {"string": "…", "integer": 0, "number": 0, "boolean": True}.get(
+        declared, "…"
+    )
+
+
+def example(spec: dict, tool: str, path: str, schema: dict) -> str:
     """A call in both shapes, using only the parameters that are required."""
     required = [n for n in (schema.get("required") or []) if n != "session_id"]
     props = schema.get("properties") or {}
-    sample = {}
-    for name in required:
-        kind = type_of(props.get(name, {}))
-        sample[name] = {"string": "…", "integer": 0, "boolean": True}.get(kind, "…")
+    sample = {name: sample_of(spec, props.get(name, {})) for name in required}
     mcp_args = ", ".join(
-        f'{k}="{v}"' if isinstance(v, str) else f"{k}={v}" for k, v in sample.items()
+        f'{k}="{v}"' if isinstance(v, str) else f"{k}={json.dumps(v)}"
+        for k, v in sample.items()
     )
-    body = {"session_id": "…", **sample}
-    payload = ",\n    ".join(
-        f'"{k}": {"null" if v is None else repr(v)}' for k, v in body.items()
-    ).replace("'", '"')
+    # json.dumps rather than repr: a sample is no longer always a scalar, and
+    # `repr` then emitted Python — True, single quotes — into a JSON body.
+    # ensure_ascii=False or the placeholder renders as `"…"`, which is a
+    # perfectly valid JSON string and reads like a mistake.
+    encoded = json.dumps({"session_id": "…", **sample}, indent=2, ensure_ascii=False)
+    payload = "\n  ".join(encoded.splitlines())
     return (
         f"**MCP**\n\n```\n{tool}({mcp_args})\n```\n\n"
-        f"**HTTP**\n\n```bash\ncurl -X POST $SELENIUM_FLOW/browser/{path} \\\n"
+        f"**HTTP**\n\n```bash\ncurl -X POST $SELENIUM_FLOW{path} \\\n"
         f'  -H "Authorization: Bearer $TOKEN" \\\n'
         f"  -H 'Content-Type: application/json' \\\n"
-        f"  -d '{{\n    {payload}\n  }}'\n```"
+        f"  -d '{payload}'\n```"
+    )
+
+
+def failures(op: dict) -> str:
+    """The error codes this endpoint actually declares, and what each means.
+
+    Read from the operation rather than written once for every page. The three
+    surfaces do not fail alike — a flow cannot 404 and a file very much can, and
+    only the file routes 503 when the Grid is unreachable — so the sentence that
+    was true of a browser action was a guess on any other page.
+    """
+    rows = [
+        [f"`{code}`", clean(body.get("description"))]
+        for code, body in sorted(op.get("responses", {}).items())
+        if code != "200"
+    ]
+    if not rows:
+        return ""
+    return (
+        "\n## Errors\n\n"
+        + table(rows, ["Status", "Means"])
+        + "\n\nOver MCP the same failures arrive as a tool error.\n"
     )
 
 
@@ -240,7 +338,7 @@ def render(spec: dict, tool: str, path: str, op: dict) -> str:
 |  |  |
 |---|---|
 | **MCP tool** | `{tool}` |
-| **HTTP** | `POST /browser/{path}` |
+| **HTTP** | `POST {path}` |
 
 {description}
 
@@ -251,13 +349,10 @@ def render(spec: dict, tool: str, path: str, op: dict) -> str:
 ## Returns
 
 {returns(spec, response)}
-
-Errors are `400` for a bad argument, `401` without a token, `500` when the Grid
-refuses. Over MCP the same failures arrive as a tool error.
-
+{failures(op)}
 ## Example
 
-{example(tool, path, request)}
+{example(spec, tool, path, request)}
 {extra}
 ---
 
@@ -268,16 +363,21 @@ refuses. Over MCP the same failures arrive as a tool error.
 def pages(spec: dict) -> dict[str, str]:
     by_tool = {}
     for path, item in spec["paths"].items():
-        op = item.get("post")
-        if not op or not path.startswith("/browser/"):
-            continue
-        tool = op["operationId"]
-        by_tool[tool] = (path.removeprefix("/browser/"), op)
+        for op in item.values():
+            # `x-mcp-tool` is the filter, not the path prefix. An operation
+            # carries it when it is one half of an action a caller can also
+            # reach over MCP, which is exactly the set worth a page — and it
+            # leaves /health out without naming it. Filtering on `/browser/`
+            # was what kept flows and kept files out of the wiki entirely
+            # while every other page went on referring to them.
+            tool = op.get("x-mcp-tool")
+            if tool:
+                by_tool[tool] = (path, op)
 
     missing = set(by_tool) - set(ORDER)
     if missing:
         raise SystemExit(
-            f"add these to ORDER in {__file__}: {', '.join(sorted(missing))}"
+            f"add these to GROUPS in {__file__}: {', '.join(sorted(missing))}"
         )
 
     out = {}
@@ -287,15 +387,23 @@ def pages(spec: dict) -> dict[str, str]:
         endpoint, op = by_tool[tool]
         out[f"{tool}.md"] = render(spec, tool, endpoint, op)
 
-    rows = [
-        [
-            f"[`{tool}`]({tool})",
-            f"`POST /browser/{by_tool[tool][0]}`",
-            clean(by_tool[tool][1].get("summary")),
+    sections = []
+    for title, blurb, tools in GROUPS:
+        rows = [
+            [
+                f"[`{tool}`]({tool})",
+                f"`POST {by_tool[tool][0]}`",
+                clean(by_tool[tool][1].get("summary")),
+            ]
+            for tool in tools
+            if tool in by_tool
         ]
-        for tool in ORDER
-        if tool in by_tool
-    ]
+        if rows:
+            sections.append(
+                f"## {title}\n\n{blurb}\n\n{table(rows, ['Tool', 'Endpoint', 'Does'])}"
+            )
+
+    body = "\n\n".join(sections)
     out["Actions.md"] = f"""{BANNER.format(name="Actions")}
 
 # Actions
@@ -303,7 +411,7 @@ def pages(spec: dict) -> dict[str, str]:
 Every action is an MCP tool **and** an HTTP endpoint with the same parameters. A
 test fails the build if one exists without the other.
 
-{table(rows, ["Tool", "Endpoint", "Does"])}
+{body}
 
 Over HTTP `session_id` is always required. Over MCP it depends on whether the
 server can identify you — see [Sessions](Sessions).

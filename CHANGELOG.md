@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `screenshot(save=true)` now tells you what the file was called, which is the name `keep_file` takes.
 
+- **The wiki documents flows, secrets and kept files.** A reference page for each of the eight endpoints they added, plus guides for all three — and the two environment variables that switch them on.
+
 ### Fixed
 
 - **A browser stays usable after logging in.** Chrome's "Save password?" prompt took the keyboard and mouse for itself, so every click and keystroke after a login silently did nothing — while every call still reported success.

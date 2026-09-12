@@ -2071,13 +2071,32 @@ Independent of everything above.
       schemas by `test_every_flow_the_skill_teaches_would_save`. Nearly every
       review finding on E2–E9 was prose teaching a shape the code refused; a
       skill is prose an agent *acts on*, so its examples are tested, not trusted
-- [ ] `wiki/` regenerates from the spec; hand-written guidance goes in
-      `wiki/notes/run_flow.notes.md` (the `.notes.md` suffix is load-bearing)
-      **Not yet, and it is generator work rather than prose:** the spec
-      already carries `/flows`, but `generate_wiki.py` renders only
-      `/browser/*` — its page template is shaped around a browser action and
-      a `curl` to `/browser/{path}`. Split out of the skill PR so neither
-      becomes the other's review
+- [x] `wiki/` regenerates from the spec; hand-written guidance lives beside it.
+      **Done (2026-09-12), and the diagnosis in this box was half wrong.** The
+      generator did select on `/browser/*`, but the page template needed almost
+      nothing: every `/flows` and `/files` operation is modelled as POST like
+      the browser ones, so only the hardcoded prefix had to go.
+      What the fix turned on was **naming the tool in the spec**. The page is
+      titled for the MCP tool, and for a browser action the operationId already
+      is that name — but a flow's is `saveFlow` against a tool called
+      `save_flow`. A second mapping in the generator would have been the
+      write-it-twice defect again, and `openapi.py` cannot import the constants
+      (`openapi` ← `routes` ← `flowapi` is a cycle). So every operation now
+      carries **`x-mcp-tool`**, read from the constants through a
+      function-local import, and the generator's rule became "a page per
+      operation that has one" — which excludes `/health` without naming it.
+      Two things fell out that were not the job. Generating the error table
+      from each operation's own `responses` corrected **all fourteen existing
+      pages**: they claimed `500` for a Grid refusal, which has been `503`
+      since the errors change, and never mentioned `404` at all. And the wiki
+      had been *internally* inconsistent for two releases — `screenshot.md`
+      named `keep_file` and `session_files`, correctly, because it is rendered
+      from a docstring that was updated; the pages for those tools were never
+      generated. **It got that way by working.**
+      `wiki/notes/<tool>.notes.md` remains the seam for prose regeneration
+      will not flatten; the three guides (Flows, Secrets, Files) are ordinary
+      hand-written pages, because they describe a *feature* rather than an
+      endpoint and no generator will ever produce them
 - [ ] **Separate PR: the admin page is keyboard-operable as a whole.** Review
       found this one layer at a time — round one named the accordion headers
       and the file marks, round two named the flow list items, the step rows
