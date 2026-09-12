@@ -74,8 +74,10 @@ def test_a_late_reply_cannot_render_one_session_under_another(page):
     for loader in ("loadFiles", "loadFlows"):
         body = page.split(f"async function {loader}(key)")[1].split("\n}\n")[0]
         # Twice each: the success path and the catch. An error from A must not
-        # blank B's panel any more than A's data may fill it.
-        assert body.count("if (gone(key)) return;") == 2, loader
+        # blank B's panel any more than A's data may fill it. The guard also
+        # carries the sequence check — see the overlap test below — so it is
+        # `gone(key)` that is asserted rather than the whole condition.
+        assert body.count("gone(key)") == 2, loader
 
 
 def test_a_late_flow_cannot_overwrite_the_one_you_just_picked(page):
@@ -297,3 +299,18 @@ def test_opening_a_session_forgets_what_the_last_one_showed(page):
     """Every stamp resets together, or the new session inherits the old one's
     and the first repaint is skipped."""
     assert "shownFiles = shownBrowser = shownFlows = null;" in page
+
+
+def test_two_loads_of_the_same_panel_cannot_race_each_other(page):
+    """`gone` does not catch this: both requests are for the *current* session,
+    so a slow one for revision A can land after a fast one for B and render A's
+    data while recording A's token. The heartbeat does correct it — the row
+    still carries B — but only after showing the wrong thing and spending an
+    extra fetch. The last request issued is the only one allowed to render."""
+    assert "let filesSeq = 0, flowsSeq = 0;" in page
+    for loader, seq in (("loadFiles", "filesSeq"), ("loadFlows", "flowsSeq")):
+        body = page.split(f"async function {loader}(key)")[1].split("\n}\n")[0]
+        assert f"const mine = ++{seq};" in body, loader
+        # Both halves, as with `gone`: a late error must not paint over a
+        # newer success either.
+        assert body.count(f"mine !== {seq}") == 2, loader

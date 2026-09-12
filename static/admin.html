@@ -121,6 +121,14 @@ let current = null;
    B's panel either. */
 const gone = (key) => key !== current;
 
+/* Two loads of the same panel can also overlap, which `gone` does not catch:
+   both are for the current session, so a slow request for revision A can land
+   after a fast one for B and render A's data while recording A's token. The
+   next heartbeat does correct it — the row still carries B — but only after
+   showing the wrong thing and spending an extra fetch. A sequence number makes
+   the last request issued the only one allowed to render. */
+let filesSeq = 0, flowsSeq = 0;
+
 // sessionStorage, not localStorage: this is the server's full-privilege token,
 // so it should not outlive the tab someone typed it into.
 async function api(path, method = 'GET', body) {
@@ -331,9 +339,10 @@ function showDetail(row) {
 
 async function loadFiles(key) {
   const box = $('files');
+  const mine = ++filesSeq;
   try {
     const data = await api(sessionPath(key, '/files'));
-    if (gone(key)) return;
+    if (gone(key) || mine !== filesSeq) return;
     const row = data.session || {key: key};
     showDetail(row);
     shownFiles = filesStamp(row);
@@ -350,7 +359,7 @@ async function loadFiles(key) {
     $('filesCount').textContent = (data.files || []).length;
     SF.fileGrid(box, data, {base: BASE, actions: true});
   } catch (e) {
-    if (gone(key)) return;
+    if (gone(key) || mine !== filesSeq) return;
     box.innerHTML = '<div class="empty error">' + SF.esc(e.message) + '</div>';
   }
 }
@@ -409,15 +418,16 @@ $('files').addEventListener('keydown', (e) => {
 let flowsData = null, flowDoc = null, flowName = null, stepIndex = null;
 
 async function loadFlows(key) {
+  const mine = ++flowsSeq;
   let data;
   try {
     data = await api(sessionPath(key, '/flows'));
   } catch (e) {
-    if (gone(key)) return;
+    if (gone(key) || mine !== flowsSeq) return;
     $('flows').innerHTML = '<div class="empty error">' + SF.esc(e.message) + '</div>';
     return;
   }
-  if (gone(key)) return;
+  if (gone(key) || mine !== flowsSeq) return;
   flowsData = data;
   shownFlows = data.rev || null;
   $('flowsCount').textContent =
