@@ -334,10 +334,12 @@ def register(
             "Chrome and then on Firefox unchanged.\n\n"
             "The whole document is checked now, against the real tools, and a "
             "refusal lists every problem at once.\n\n"
-            "Saves into your own library, which means you need a session name: "
-            "add ?session=<name> to the MCP URL, or send X-Session-Key. Without "
-            "one you can list and run the shared 'global' flows but not save, "
-            "because that library is live for every session at once."
+            "Saves into your own library. Over HTTP that means naming your "
+            "session — add ?session=<name> to the MCP URL, or send "
+            "X-Session-Key — because without a name you land in the shared "
+            "'global' library, which every session runs and none may change. "
+            "Over stdio you already have a library of your own and need no "
+            "name for it."
         ),
         annotations=hints("Save a flow", idempotent=True),
     )
@@ -427,8 +429,9 @@ def register(
             "It deletes from your own library only. A flow in the shared "
             "'global' library is not yours to remove — every session runs those, "
             "so one vanishing mid-run would break somebody else's work — and "
-            "trying is refused. If you have no session name you have no library "
-            "of your own, and there is nothing here you may delete."
+            "trying is refused. Over HTTP with no session name you have no "
+            "library of your own and so nothing here to delete; over stdio you "
+            "have one automatically."
         ),
         annotations=hints("Delete a flow", destructive=True, idempotent=True),
     )

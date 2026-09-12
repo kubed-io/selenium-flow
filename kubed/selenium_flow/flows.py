@@ -42,7 +42,9 @@ import yaml
 
 log = logging.getLogger(__name__)
 
-# The session every caller that did not name itself shares. A caller keyed on an
+# The session an unnamed caller shares — with the one exception of stdio, which
+# gets STDIO_SESSION below because it cannot name itself and would otherwise
+# have nowhere writable. A caller keyed on an
 # MCP transport id gets a new key on every reconnect, so a directory per key
 # would bury the disk in folders whose flows nobody could ever reach again.
 # Routing all of them here instead makes the unnamed case one stable, shared,
@@ -187,9 +189,10 @@ def key_value(key) -> str:
 def session_for(key) -> str:
     """The session whose flows this caller owns.
 
-    A caller that named itself gets its own library. Everything else — an MCP
-    transport key that changes on every reconnect, stdio, a caller with no key
-    at all — shares :data:`GLOBAL_SESSION` (§F1.2).
+    A caller that named itself gets its own library, and **stdio gets
+    :data:`STDIO_SESSION`** — it cannot name itself, so it is given one. What is
+    left — an MCP transport key that changes on every reconnect, a caller with
+    no key at all — shares :data:`GLOBAL_SESSION` (§F1.2).
 
     Note what falls out rather than being special-cased: an unnamed caller *is*
     the global session. It reads and runs the shared library like everyone
@@ -239,7 +242,9 @@ def session_of(sessions, explicit: str | None = None) -> str:
     """
     if explicit:
         return valid_name(explicit, "session name")
-    key = sessions.key()
+    # `library_key`, not `key`: which library a caller owns does not depend on
+    # whether this server is remembering browsers. See `sessions.library_key`.
+    key = sessions.library_key()
     session = library_of(key)
     if session is None:
         # Raised rather than returned, and raised by the same validator, so the

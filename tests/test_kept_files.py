@@ -105,6 +105,10 @@ class Sessions:
     def key(self):
         return NAMED
 
+    def library_key(self):
+        # Which library a caller owns does not depend on browser persistence.
+        return NAMED
+
 
 # ---- the store ---------------------------------------------------------------
 

@@ -249,12 +249,12 @@ was there:
 |---|---|---|
 | `named:<name>` — header or `?session=` | yes, the client chose it | `<name>/` |
 | `mcp:<transport id>` | **no** — new on every reconnect | `global/` |
-| `stdio` | constant, but shared by every stdio caller | `global/` |
+| `stdio` | constant, and one process serves one client | `stdio/` — **revised 2026-09-12**, see the addendum at the end of this section; it read `global/` until then |
 | none (stateless) | there is no key at all | `global/` |
 
 A directory per *transport* key would have filled the disk with folders keyed on
 ids that never come back — the flows inside them unreachable forever. Routing
-all three unnamed cases to one shared `global` gets rid of that entirely: there
+the unnamed cases to one shared `global` gets rid of that entirely: there
 is exactly one directory for everyone who has not named themselves, it is stable,
 and it is useful rather than merely harmless. Flows always work, and there is no
 error path to explain.
@@ -375,6 +375,20 @@ What building it settled:
   added to all of them, so they now share one core (`library_of`) instead of
   three copies of the same branch. The previous round added the third resolver;
   this one stopped them being able to disagree.
+- **Naming a library is not the same as remembering a browser.** Review caught
+  the two conflated. `SessionManager.key()` answers None when `SAVED_SESSIONS`
+  is off — correctly, because that switch decides whether this server holds a
+  *browser* for a caller — and the flow library was being derived from it. So
+  turning off browser memory silently removed **every** caller's ability to
+  save a flow, and told the ones that had named themselves to go and do the
+  thing they had already done.
+
+  There are now two seams: `key()` for the browser, `library_key()` for
+  storage. They differ only under that flag, which is precisely when it
+  matters. `secrets.py` still scopes its listing through `key()`, and that is
+  left alone deliberately: changing which secrets a session can see is a
+  security boundary and deserves its own change rather than arriving as a side
+  effect of this one.
 
 ### §F1.3 — Decision (locked): one directory, two subdirectories, one per session
 

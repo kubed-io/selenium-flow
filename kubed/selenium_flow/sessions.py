@@ -191,6 +191,22 @@ class SessionManager:
             return None
         return caller_key()
 
+    def library_key(self) -> CallerKey | None:
+        """Who is calling, for the things that are not a browser.
+
+        ``key()`` answers None when ``SAVED_SESSIONS`` is off, and rightly so:
+        that switch decides whether this server remembers a *browser* for a
+        caller. **A flow library is not a browser.** It is named storage, and a
+        caller that put ``?session=research-bot`` in its URL has named itself
+        whatever that switch says.
+
+        Deriving the second from the first meant turning off browser memory
+        silently took away every caller's ability to save a flow — including the
+        ones that had named themselves, who were then told to go and do the
+        thing they had already done.
+        """
+        return caller_key()
+
     def describe(self) -> dict:
         """What this caller's session is, and which contract it is under.
 
