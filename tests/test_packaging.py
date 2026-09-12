@@ -8,6 +8,7 @@ deployed image silently kept the old one.
 """
 
 import pathlib
+import sys
 
 # tomllib is 3.11+. The package supports 3.10, so on that leg the reader is
 # tomli — the same parser tomllib was adopted from, pulled in by the `test`
@@ -27,6 +28,10 @@ pytestmark = pytest.mark.unit
 REPO = pathlib.Path(__file__).resolve().parent.parent
 PYPROJECT = REPO / "pyproject.toml"
 IMAGE_WORKFLOW = REPO / ".github" / "workflows" / "image.yml"
+DOCKERFILE = REPO / "Dockerfile"
+
+sys.path.insert(0, str(REPO / "scripts"))
+import requirements  # noqa: E402 - needs the path above
 
 
 def packaged_directories() -> set[str]:
@@ -111,3 +116,181 @@ def test_a_release_build_can_never_be_cancelled_by_a_push():
     assert concurrency["cancel-in-progress"] == "${{ !inputs.tag }}", (
         "cancel-in-progress must be off whenever inputs.tag is set"
     )
+
+
+# ---- the requirement list the image installs ---------------------------------
+#
+# The Dockerfile installs dependencies in a stage that sees pyproject.toml and
+# the script that reads it, and nothing else — that is what keeps a source edit
+# from invalidating the install. These hold the script to pyproject.toml, and
+# the Dockerfile to the split.
+
+
+def test_the_runtime_list_is_what_pyproject_declares():
+    """Read, never restated. A second copy of this list is a second thing to
+    keep in step, and the way it fails is an image built against dependencies
+    nobody declared."""
+    data = tomllib.loads(PYPROJECT.read_text())
+    assert requirements.runtime(data, []) == data["project"]["dependencies"]
+
+
+def test_an_extra_is_appended_whole():
+    """`[redis]` is baked into the image so that turning on shared saved
+    sessions is a config change rather than a different build."""
+    data = tomllib.loads(PYPROJECT.read_text())
+    extra = data["project"]["optional-dependencies"]["redis"]
+    assert requirements.runtime(data, ["redis"])[-len(extra):] == extra
+
+
+def test_an_extra_that_does_not_exist_says_which_do():
+    """It runs inside a Docker layer, where a KeyError is a traceback with no
+    context and the fix is in a file the reader is not looking at."""
+    data = tomllib.loads(PYPROJECT.read_text())
+    with pytest.raises(SystemExit) as raised:
+        requirements.runtime(data, ["nope"])
+    assert "no [nope] extra" in str(raised.value)
+    assert "redis" in str(raised.value), "it has to name what there is"
+
+
+def test_the_build_list_is_the_pep_518_one():
+    """`[build-system].requires` already names and pins the backend — it is the
+    one list that has to be right for `pip install .` to work anywhere."""
+    data = tomllib.loads(PYPROJECT.read_text())
+    assert requirements.build(data, []) == data["build-system"]["requires"]
+
+
+def dockerfile_stages() -> dict[str, list[str]]:
+    """Each `FROM ... AS <name>` stage, as its list of instruction lines.
+
+    Parsed rather than split on the word FROM, which also appears in the prose
+    at the top of the file — a split found the comment and silently returned an
+    empty stage, so a test passed by testing nothing.
+    """
+    stages: dict[str, list[str]] = {}
+    current = None
+    for raw in DOCKERFILE.read_text().splitlines():
+        line = raw.strip()
+        if line.startswith("FROM ") and " AS " in line:
+            current = line.rsplit(" AS ", 1)[1]
+            stages[current] = []
+        elif current is not None and line and not line.startswith("#"):
+            stages[current].append(line)
+    return stages
+
+
+def test_the_dependencies_are_installed_before_the_source():
+    """The whole point of the ordering. `COPY . .` brings .git with it, because
+    setuptools_scm needs it — so putting it in front of the install meant every
+    commit reinstalled selenium, docs-only ones included."""
+    builder = dockerfile_stages()["builder"]
+    deps_copy = builder.index("COPY pyproject.toml ./")
+    install = next(i for i, ln in enumerate(builder) if "requirements.txt" in ln)
+    source_copy = builder.index("COPY . .")
+    assert deps_copy < install < source_copy
+
+
+def test_the_runner_receives_a_venv_and_installs_nothing():
+    """A venv is one directory holding the libraries and the console script, so
+    `COPY --from` moves the whole installed program in one instruction. That is
+    what lets the builder be fat and the runner be slim WITHOUT the runner
+    resolving and downloading every dependency a second time — which is what it
+    used to do, and what made the build twice as long."""
+    runner = dockerfile_stages()["runner"]
+    assert "COPY --from=builder /opt/venv /opt/venv" in runner
+    assert not [ln for ln in runner if ln.startswith("pip install")]
+    assert "COPY . ." not in runner, "the source has no business in the runner"
+
+
+def test_the_build_tooling_never_reaches_the_runner():
+    """git is in the builder because setuptools_scm reads the version from it,
+    and it has no business in a running pod. Nothing is FROM the builder, so it
+    cannot leak — and the fat image already HAS git, which is why there is no
+    apt-get to audit in the first place."""
+    stages = dockerfile_stages()
+    instructions = [ln for lines in stages.values() for ln in lines]
+    assert not [ln for ln in instructions if "apt-get" in ln], (
+        "python:X ships git; only -slim needed an apt-get to put it back"
+    )
+    body = DOCKERFILE.read_text()
+    assert "FROM python:${PY_VERSION} AS builder" in body
+    assert "FROM python:${PY_VERSION}-slim AS runner" in body
+    assert "FROM builder" not in body, "nothing inherits the build tooling"
+
+
+def test_the_copied_venv_is_proved_to_work_at_build_time():
+    """Copying a venv across image variants assumes the interpreter is at the
+    same path and every wheel is self-contained. True here, and worth failing
+    the BUILD over rather than a pod: the import pulls the whole dependency
+    tree."""
+    runner = dockerfile_stages()["runner"]
+    assert any("kubed.selenium_flow.server" in ln for ln in runner)
+
+
+def test_the_project_is_installed_with_its_extra():
+    """`[redis]` is what lets shared saved sessions be an env var rather than a
+    different image. `--no-deps` would silently drop it."""
+    builder = dockerfile_stages()["builder"]
+    install = next(ln for ln in builder if ln.startswith("pip install --no-cache-dir ."))
+    assert "[redis]" in install
+    assert "--no-deps" not in install
+
+
+def test_the_toml_reader_works_on_the_oldest_python_the_image_can_build():
+    """PY_VERSION is an ARG and the project's requires-python is >=3.10, but
+    tomllib is 3.11+. Reading pyproject.toml with a 3.11-only parser quietly
+    made `PY_VERSION=3.10 docker compose build` impossible. The backport
+    tomllib was adopted from covers it, under the same marker pyproject.toml's
+    own [test] extra already uses — and it has to be installed BEFORE the
+    reader runs, which is the part an ordering change would break silently."""
+    source = (REPO / "scripts" / "requirements.py").read_text()
+    assert "import tomli as tomllib" in source
+    builder = dockerfile_stages()["builder"]
+    backport = next(i for i, ln in enumerate(builder) if "tomli" in ln)
+    reader = next(i for i, ln in enumerate(builder) if "requirements.py runtime" in ln)
+    assert backport < reader, "the parser must exist before the script runs"
+    assert "python_version < '3.11'" in builder[backport]
+
+
+def test_everything_the_dockerfile_copies_by_name_rebuilds_the_image():
+    """The same failure as the wheel/trigger pairing above, by another route.
+
+    `scripts/requirements.py` is not in the wheel, so the packaged-directory
+    rule never covered it — but the Dockerfile copies it and it decides which
+    dependencies get installed. A change to it would have changed the image
+    while triggering no build, leaving the deployed image on the old
+    dependency-selection logic.
+
+    Derived from the Dockerfile's own COPY lines rather than from a list
+    someone has to remember to extend. `COPY . .` is excluded: it is the whole
+    context, and what matters in it is the wheel, which the test above covers.
+    """
+    named = []
+    for lines in dockerfile_stages().values():
+        for line in lines:
+            if not line.startswith("COPY ") or "--from=" in line:
+                continue
+            source = line.split()[1]
+            if source != ".":
+                named.append(source)
+    assert named, "no named COPY found — has the Dockerfile changed shape?"
+
+    watched = {path for paths in image_trigger_paths() for path in paths}
+    for source in named:
+        covered = source in watched or any(
+            pattern.endswith("/**") and source.startswith(pattern[:-2])
+            for pattern in watched
+        )
+        assert covered, f"{source} is copied into the image but triggers no build"
+
+
+def test_pip_does_not_ship_inside_the_copied_venv():
+    """`python -m venv` seeds pip, and /opt/venv is copied into the runner
+    WHOLE — so pip ships unless it is removed, at whatever version was latest
+    on the day. .hadolint.yaml waives the pin-your-pip rule on the grounds that
+    pip never reaches the image, so this line is what makes that waiver true.
+    """
+    builder = dockerfile_stages()["builder"]
+    assert "pip uninstall --yes pip" in builder
+    # Last, or the steps after it have no pip to run with.
+    removal = builder.index("pip uninstall --yes pip")
+    assert not [ln for ln in builder[removal + 1:] if ln.startswith("pip ")]

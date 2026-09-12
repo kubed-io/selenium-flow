@@ -101,42 +101,62 @@ const SF = (() => {
      Each entry needs {name, size, url, image, kept}. `url` is already signed by
      the server, so this component never sees a token.
 
-     The corner mark says which kind it is, and doubles as the control for
-     changing that: a bubble is a download (click to keep), a pin is a kept file
-     (hover for the trash). It is rendered as data attributes rather than
-     buttons, and is inert unless `opts.actions` is set — these same tiles are
-     drawn inside an MCP app that holds no credential, where a live control
-     would be a button that cannot work. The page that can act wires the clicks;
-     this library stays rendering-only. */
+     A tile carries two corner marks, and they are deliberately NOT the same
+     thing:
+
+     - **top right is status, and is never a control.** A bubble is a download
+       and goes when the browser does; a pin is kept and outlives it.
+     - **top left is the action**, and is always a real button: keep a
+       download, delete a kept file.
+
+     They used to be one overloaded mark — a pin you clicked to delete, with
+     the trash revealed on hover. That was wrong for a reason particular to
+     this server rather than to taste: **keeping is a copy and there is no
+     unpin** (§F1.10), so a pin is not a toggle. Every pin, star and heart a
+     person has met elsewhere undoes itself on a second click; ours cannot, and
+     the only operation behind it was an irreversible delete wearing the icon
+     of a reversible one. It also announced every kept tile to a screen reader
+     as "Delete kept file x" with nothing anywhere saying *kept*, and buried
+     the only per-file delete the Grid permits in a hover state.
+
+     The action is omitted entirely unless `opts.actions` is set — these same
+     tiles are drawn inside an MCP app that holds no credential, where a
+     control would be a button that cannot work. The status mark is always
+     drawn, because what a file *is* is true on every surface. The page that
+     can act wires the clicks; this library stays rendering-only. */
   function fileGrid(el, data, opts = {}) {
     const files = (data && data.files) || [];
     if (!files.length) return empty(el, 'No files in this session yet.');
     const base = opts.base || '';
     el.innerHTML = '';
     const grid = document.createElement('div');
-    grid.className = 'files' + (opts.actions ? ' can-act' : '');
-    /* On a surface that can act, a mark is the only control for keeping or
-       deleting — so it has to be operable without a mouse. It is still a span:
-       this library renders and never wires, and the host that turned actions on
-       owns the handler. Off, the mark is decoration and must NOT be focusable:
-       a tab stop that does nothing is worse than no tab stop. */
-    const act = (label) => (opts.actions
-      ? ' role="button" tabindex="0" aria-label="' + esc(label) + '"'
-      : '');
+    grid.className = 'files';
     for (const f of files) {
       const ext = (f.name.split('.').pop() || '').toLowerCase();
       const href = base + f.url;
       const item = document.createElement('div');
       item.className = 'file';
       item.innerHTML =
+        // role=img with a label, so the state is announced rather than being
+        // available only to someone who can see a pin.
         (f.kept
-          ? '<span class="mark pin" data-delete="' + esc(f.name) + '"' +
-            act('Delete kept file ' + f.name) + ' title="' +
-            'Kept: it outlives this browser. Hover to delete it.">' +
-            '<span class="icon">📌</span><span class="trash">🗑</span></span>'
-          : '<span class="mark bubble" data-keep="' + esc(f.name) + '"' +
-            act('Keep ' + f.name + ' beyond this browser') + ' title="' +
-            'A download: it goes when this browser does. Click to keep it."></span>') +
+          ? '<span class="mark pin" role="img" aria-label="Kept" title="' +
+            'Kept: it outlives this browser.">📌</span>'
+          : '<span class="mark bubble" role="img" aria-label="Download" title="' +
+            'A download: it goes when this browser does."></span>') +
+        (opts.actions
+          ? (f.kept
+              ? '<button type="button" class="act drop" data-delete="' +
+                esc(f.name) + '" aria-label="Delete kept file ' + esc(f.name) +
+                '" title="Delete this kept file">&#128465;</button>'
+              // A plus, not a pin: the pin on the right is what this
+              // action PRODUCES, and the same glyph in both corners looks
+              // like one mark that jumped sides when you clicked it.
+              : '<button type="button" class="act keep" data-keep="' +
+                esc(f.name) + '" aria-label="Keep ' + esc(f.name) +
+                ' beyond this browser" title="' +
+                'Keep it beyond this browser">&#10133;</button>')
+          : '') +
         '<a class="thumb" href="' + esc(href) + '" target="_blank" rel="noopener">' +
         (f.image
           ? '<img loading="lazy" alt="' + esc(f.name) + '" src="' + esc(href) + '">'

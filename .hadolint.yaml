@@ -8,7 +8,7 @@ ignored:
 
 # DL3008 — "pin versions in apt-get install".
 #
-# The one apt package is `git`, installed in the BUILD stage only, because
+# The one apt package is `git`, installed in the `wheel` stage only, because
 # setuptools_scm reads .git to resolve a version. It never reaches the runner
 # stage and so is not in the shipped image at all. Pinning it to a Debian point
 # release would mean a build that breaks the day that exact version leaves the
@@ -18,10 +18,16 @@ ignored:
 
 # DL3013 — "pin versions in pip install".
 #
-# The pins are in pyproject.toml, which is the whole point of `pip install
-# .[build]` and of installing the built wheel rather than a package list. Naming
-# versions in the Dockerfile too would create a second place to update and a new
-# way for the two to disagree silently.
+# The pins are in pyproject.toml, and the Dockerfile *reads them out of it*:
+# the `deps` stage installs `[project].dependencies` plus the `redis` extra,
+# and the `wheel` stage installs `[build-system].requires`. Naming versions
+# here as well would create a second place to update and a new way for the two
+# to disagree silently.
+#
+# The one unpinned name left is `pip` itself, and it does not ship: the venv it
+# installs into is copied into the runner whole, so pip is uninstalled from it
+# on the last line of the builder. That is load-bearing for this waiver rather
+# than tidiness, and there is a test on it.
 - DL3013
 
 failure-threshold: warning

@@ -129,6 +129,116 @@ def test_a_flow_comes_back_as_the_yaml_on_disk(client):
     assert body["steps"][0]["tool"] == "navigate"
 
 
+TAKES = """\
+name: search
+parameters:
+  properties:
+    term: {type: string, description: what to look for}
+    lang: {type: string}
+    unread: {type: string}
+  required: [term]
+steps:
+- tool: navigate
+  args:
+    url: https://${lang}.example.test/
+- tool: write
+  id: search
+  args:
+    css: input
+    text: ${term}
+- tool: extract
+  id: heading
+  args:
+    xpath: //h1[contains(., '${term}')]
+"""
+
+
+def test_a_flow_says_which_steps_read_each_parameter(client):
+    """The panel shows a parameter's `used by` list, and working that out means
+    applying the `${name}` rule — which is a parser, not a substring search, and
+    which already exists exactly once in `flowdoc.references`. Doing it in the
+    browser would be a second implementation of the rule that could disagree
+    with the one that actually substitutes at run time."""
+    client.put(url("search"), json={"yaml": TAKES}, headers=AUTH)
+    uses = client.get(url("search"), headers=AUTH).json()["uses"]
+    assert uses["term"] == [1, 2], "every step that reads it, in order"
+    assert uses["lang"] == [0]
+
+
+def test_a_parameter_nothing_reads_is_listed_as_reading_nothing(client):
+    """Almost always a typo in a step, so the panel can say so. It has to be an
+    empty list rather than a missing key: absent would be indistinguishable
+    from a parameter the server failed to look at."""
+    client.put(url("search"), json={"yaml": TAKES}, headers=AUTH)
+    uses = client.get(url("search"), headers=AUTH).json()["uses"]
+    assert uses["unread"] == []
+
+
+def test_a_flow_that_takes_nothing_uses_nothing(client):
+    client.put(url("login"), json={"yaml": YAML}, headers=AUTH)
+    assert client.get(url("login"), headers=AUTH).json()["uses"] == {}
+
+
+def test_an_undeclared_reference_is_not_invented_as_a_parameter(client, server):
+    """Saving refuses `${nowhere}`, so this can only arrive as a file someone
+    edited on disk — which is exactly the case the panel has to survive. The
+    reference must not appear in Params as though it had been declared: that
+    section lists the flow's interface, and a typo is not part of it."""
+    server.flows.write_text(
+        SESSION, "stray", "name: stray\nsteps:\n- tool: navigate\n  args:\n    url: ${nowhere}\n"
+    )
+    assert client.get(url("stray"), headers=AUTH).json()["uses"] == {}
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    ["term", "[a, b]", "{properties: term}", "{properties: [a]}"],
+)
+def test_a_malformed_parameters_block_still_opens(client, server, parameters):
+    """Saving refuses these, so they arrive as a file someone edited — which is
+    exactly when an operator opens the panel to go and fix it. A `.get` on a
+    list is an AttributeError and the route turns that into a 500, so the one
+    flow you need to see is the one that will not open."""
+    server.flows.write_text(
+        SESSION,
+        "wonky",
+        f"name: wonky\nparameters: {parameters}\nsteps:\n- tool: navigate\n  args: {{url: x}}\n",
+    )
+    response = client.get(url("wonky"), headers=AUTH)
+    assert response.status_code == 200, response.text
+    assert response.json()["uses"] == {}
+
+
+@pytest.mark.parametrize("steps", ["1", "{}", "a string"])
+def test_a_steps_block_that_is_not_a_list_still_opens(client, server, steps):
+    """`enumerate` raises on a non-list, which is the same 500 as the
+    `parameters` case one level down. `_step_count` already keeps such a flow in
+    the catalogue with a count of 0 rather than dropping it, so the listing
+    offers a flow the detail route could not open."""
+    server.flows.write_text(
+        SESSION,
+        "wonky",
+        f"name: wonky\nparameters:\n  properties:\n    term: {{type: string}}\nsteps: {steps}\n",
+    )
+    response = client.get(url("wonky"), headers=AUTH)
+    assert response.status_code == 200, response.text
+    assert response.json()["uses"] == {"term": []}
+
+
+def test_a_step_that_is_not_a_mapping_does_not_stop_the_others(client, server):
+    """Same reason, one level down: a hand-edited `steps:` can hold a bare
+    string, and losing the whole document to it would hide the rest of the
+    flow that says where the mistake is."""
+    server.flows.write_text(
+        SESSION,
+        "wonky",
+        "name: wonky\nparameters:\n  properties:\n    term: {type: string}\n"
+        "steps:\n- oops\n- tool: navigate\n  args: {url: 'https://x/${term}'}\n",
+    )
+    body = client.get(url("wonky"), headers=AUTH).json()
+    assert body["uses"] == {"term": [1]}
+
+
 def test_a_save_keeps_the_comment_and_the_ordering(client, server):
     """The reason `read_text`/`write_text` exist. Round-tripping through a dict
     is invisible until someone opens the editor, saves, and finds the note they

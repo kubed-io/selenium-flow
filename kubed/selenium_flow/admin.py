@@ -120,6 +120,50 @@ def _grid_facts(session: dict) -> dict:
     return {"version": session.get("version"), "node": session.get("node")}
 
 
+def _uses(document: dict) -> dict[str, list[int]]:
+    """Which steps each declared parameter reaches, by index.
+
+    The admin panel answers "what does this parameter actually do" by listing
+    the steps a `${name}` lands in, and that question has to be answered the
+    same way the validator answers it — an escaped `$${name}` is not a
+    reference, and a reference can be nested arbitrarily deep in an argument.
+    So it is `flowdoc.references` rather than a regex in the page, which is how
+    the two would come to disagree about what counts (§F1.40).
+
+    Declared-but-unused parameters are present with an empty list. That is a
+    fact worth showing rather than one to hide: a parameter nothing reads is
+    almost always a typo in a step, and the panel can only say so if it is
+    told about the parameter at all.
+
+    Every shape is checked before it is walked. A stored flow is a file a
+    person edits (§F1.6) and `LocalFlowStore.get` hands back any YAML mapping,
+    so `parameters: []` or `properties: "term"` reaches here — and a `.get` on
+    a list is an AttributeError, which the route turns into a 500 on a flow the
+    operator opened it to go and fix.
+    """
+    parameters = document.get("parameters")
+    declared = parameters.get("properties") if isinstance(parameters, dict) else None
+    if not isinstance(declared, dict):
+        return {}
+    uses: dict[str, list[int]] = {str(name): [] for name in declared}
+    # `steps: 1` is not a list and `enumerate` raises on it — the same 500, one
+    # level down from `parameters`, and `_step_count` already keeps such a flow
+    # in the catalogue with a count of 0 rather than dropping it. The panel is
+    # where an operator goes to open the editor and fix exactly this, so it has
+    # to render.
+    steps = document.get("steps")
+    for index, step in enumerate(steps if isinstance(steps, list) else []):
+        if not isinstance(step, dict):
+            continue
+        for name in flowdoc.references(step.get("args")):
+            # Only the declared ones. An undeclared `${name}` cannot be saved
+            # through any surface, but these documents are hand-editable files
+            # (§F1.6) and the panel must render whatever is on disk.
+            if name in uses and index not in uses[name]:
+                uses[name].append(index)
+    return uses
+
+
 def _basename(name: str) -> str:
     """The last path segment of ``name``, whichever separator was used.
 
@@ -744,7 +788,9 @@ def register(
                     text = await run_in_threadpool(
                         flow_store.read_text, where, name
                     )
-                    return JSONResponse({**found, "yaml": text or ""})
+                    return JSONResponse(
+                        {**found, "yaml": text or "", "uses": _uses(found)}
+                    )
                 # Deleted from the folder it lives in, which may be the shared
                 # one. That is the operator's call to make, and the UI says so.
                 removed = await run_in_threadpool(flow_store.delete, where, name)

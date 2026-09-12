@@ -9,6 +9,9 @@ looks like a button on a surface holding no credential.
 The design decisions each one pins are in §F1.36 and §F1.10.
 """
 
+import shutil
+import subprocess
+
 import pytest
 from starlette.testclient import TestClient
 
@@ -52,14 +55,16 @@ def test_an_accordion_can_be_opened_without_a_mouse(page):
     assert "tab.setAttribute('aria-expanded', String(!open));" in page
 
 
-def test_the_file_marks_answer_the_keys_a_button_answers(page):
-    """The marks carry role=button and a tab stop on this surface, so they have
-    to behave like buttons. Space is preventDefault-ed or the page scrolls out
-    from under the thing you were aiming at."""
-    assert "$('files').addEventListener('keydown'" in page
-    assert "e.key !== 'Enter' && e.key !== ' '" in page
-    assert ".mark[role=button]" in page
-    assert "e.preventDefault();\n  mark.click();" in page
+def test_the_file_action_is_a_button_rather_than_a_span_that_acts(page):
+    """It used to be a span wearing role=button and tabindex, which meant the
+    page had to re-implement Enter and Space by hand — including the
+    preventDefault that stops Space scrolling the page out from under the thing
+    you were aiming at. A real button answers both keys, is in the tab order,
+    and is announced as a button, for free. The hand-rolled keydown is gone
+    because there is nothing left for it to do."""
+    assert "$('files').addEventListener('keydown'" not in page
+    assert '<button type="button" class="act keep"' in page
+    assert '<button type="button" class="act drop"' in page
 
 
 # ---- a reply that arrives after you have moved on ---------------------------
@@ -82,9 +87,13 @@ def test_a_late_reply_cannot_render_one_session_under_another(page):
 
 def test_a_late_flow_cannot_overwrite_the_one_you_just_picked(page):
     """Picking A then B, with A slow, resolved A last and left B's name beside
-    A's document — or, on the error path, B's panel stuck loading forever."""
-    assert "if (gone(key) || flowName !== name) return;" in page
-    assert page.count("if (gone(key) || flowName !== name) return;") == 2
+    A's document — or, on the error path, B's panel stuck loading forever.
+
+    The name is still checked as well as the generation, because they answer
+    different questions: the generation says "a newer fetch exists", the name
+    says "this is not the flow on screen"."""
+    guard = "if (gone(key) || mine !== flowDocSeq || flowName !== name) return;"
+    assert page.count(guard) == 2
 
 
 def test_the_last_page_gets_a_row_of_its_own_and_is_a_link(components):
@@ -120,39 +129,58 @@ def test_the_header_groups_the_two_lifetimes(components):
 
 def test_a_download_and_a_kept_file_carry_different_marks(components):
     """One list with a property saying which (§F1.10): a bubble for a download,
-    a pin for a kept file."""
-    assert 'class="mark bubble" data-keep=' in components
-    assert 'class="mark pin" data-delete=' in components
+    a pin for a kept file. The mark says what the file IS and never acts, so it
+    carries no data attribute for the page to wire — and it is labelled, so the
+    state reaches someone who cannot see a pin."""
+    assert 'class="mark bubble" role="img" aria-label="Download"' in components
+    assert 'class="mark pin" role="img" aria-label="Kept"' in components
+    assert 'class="mark bubble" data-keep=' not in components
+    assert 'class="mark pin" data-delete=' not in components
 
 
-def test_the_marks_are_inert_without_a_surface_that_can_act(components):
+def test_the_action_is_omitted_without_a_surface_that_can_act(components):
     """These tiles also render inside an MCP app holding no credential, where a
     live control would be a button that cannot work. The page that *can* act
-    opts in; the library never assumes it."""
-    assert "'files' + (opts.actions ? ' can-act' : '')" in components
+    opts in; the library never assumes it. The STATUS mark is drawn either way,
+    because what a file is stays true on every surface."""
+    grid = components.split("function fileGrid")[1].split("function ")[0]
+    assert "(opts.actions\n" in grid, "the action is gated"
+    assert "grid.className = 'files';" in grid, "the status mark is not"
 
 
-def test_a_mark_is_only_focusable_where_it_actually_does_something(components):
-    """Button semantics belong on the surface that wired a handler. Off, the
-    mark is decoration, and a tab stop that does nothing when you press Enter is
-    worse than no tab stop at all — so the attributes are gated on the same flag
-    the styling is."""
-    assert "const act = (label) => (opts.actions" in components
-    assert "role=\"button\" tabindex=\"0\" aria-label=" in components
+def test_each_glyph_has_one_meaning_and_one_corner(components):
+    """Status right, action left — and never the same glyph in both. A pin was
+    the kept mark on the right AND the keep button on the left, so clicking it
+    looked like one mark jumping sides. The keep action is a plus: it is what
+    produces the pin rather than another copy of it."""
+    grid = components.split("function fileGrid")[1].split("function ")[0]
+    assert "&#10133;" in grid, "keep is a plus"
+    assert "&#128465;" in grid, "delete is a trash"
+    assert grid.count("\U0001f4cc") == 1, "the pin appears once, as status"
 
 
-def test_the_shared_library_still_renders_no_action_buttons(components):
-    """The marks are spans with data attributes, and the page wires the clicks.
-    That is what keeps this library rendering-only — see sessionList's onpick
-    for the same pattern."""
-    assert "createElement('button')" not in components
+def test_the_shared_library_renders_the_action_but_never_wires_it(components):
+    """It emits a button with a data attribute; the page that turned actions on
+    owns the click. That split is what lets the same tiles render inside an MCP
+    app where the handler would have no credential to call with — see
+    sessionList's onpick for the same pattern."""
+    grid = components.split("function fileGrid")[1].split("function ")[0]
+    assert "data-keep=" in grid and "data-delete=" in grid
+    # The one listener here is the thumbnail's, which only opens a link.
+    assert grid.count("addEventListener") == 1
+    assert "item.querySelector('.thumb').addEventListener" in grid
 
 
 def test_only_a_kept_file_offers_a_delete(page):
     """The Grid's store has no per-file delete, so a trash on a download would
-    be a control with nothing behind it. Only the pin reveals one."""
-    assert ".can-act .mark.pin:hover .trash { display: block; }" in page
-    assert "data-delete" in page
+    be a control with nothing behind it. A download's action keeps it; a kept
+    file's is the delete."""
+    grid = page.split("function fileGrid")[1].split("function ")[0]
+    # `f.kept ? <delete> : <keep>` — one branch each, and neither borrows the
+    # other's verb.
+    kept, download = grid.split("? '<button")[1].split(": '<button")
+    assert "data-delete" in kept and "data-keep" not in kept
+    assert "data-keep" in download and "data-delete" not in download
 
 
 def test_clearing_downloads_lists_the_names_it_will_remove(page):
@@ -192,12 +220,215 @@ def test_the_kept_names_come_from_the_merged_listing(page):
 # ---- flows ------------------------------------------------------------------
 
 
-def test_a_flow_shows_its_steps_without_selectors_or_urls(page):
-    """A step is its number, its tool and its id. Selectors and URLs are
-    parameters, and they belong in the pane once a step is picked."""
-    assert "'<span class=\"n\">' + (i + 1) + '</span>'" in page
-    assert "function paramsOf(step)" in page
-    assert "Pick a step to see what it passes." in page
+def test_an_outline_row_is_an_icon_and_a_name(page):
+    """A row names the thing and nothing else: the tool a step calls is a
+    glyph, and the WORD for it is in the pane, which is what picking the row is
+    for. Arguments never appear here at all — selectors and URLs are what you
+    picked the step to read."""
+    assert "function argsOf(step)" in page
+    assert "Pick a parameter or a step to see what " in page
+    row = page.split("function stepRow(")[1].split("\n}\n")[0]
+    assert "own(TOOL_ICON, tool)" in row
+    assert "SF.esc(s.id || tool)" in row
+    assert "s.args" not in row
+
+
+def test_the_outline_does_not_number_its_rows(page):
+    """The list is already in order, so 1-2-3 down the left restated what the
+    list said and cost the column the width it needed to sit BESIDE the detail
+    rather than above it. A number is kept only where it is the point: the
+    pane, and a parameter's `used by` citations, because a run report says
+    "step 3 stopped the flow"."""
+    row = page.split("function stepRow(")[1].split("\n}\n")[0]
+    # `cite` is the "used by" case, and it is the only one that numbers.
+    assert "(cite ? '<span class=\"n\">' + (i + 1) + '</span>' : '')" in row
+    assert "stepRow(steps[i] || {}, i, true)" in page, "citations number"
+    assert "steps.map((s, i) => stepRow(s, i))" in page, "the outline does not"
+
+
+def test_required_is_a_star_on_a_parameter_and_nowhere_else(page):
+    """A red star sits against the name it qualifies instead of as the word
+    `required` at the far end of a 200px column. Steps carry no such mark:
+    every step runs, so `required` on one would mean nothing."""
+    param = page.split("function paramRow(")[1].split("\n}\n")[0]
+    step = page.split("function stepRow(")[1].split("\n}\n")[0]
+    assert 'class="req"' in param and 'aria-label="required"' in param
+    assert "req" not in step
+
+
+def test_a_parameters_glyph_is_its_type(page):
+    """The one thing worth knowing about a parameter at a glance. Punctuation
+    rather than emoji: these are JSON types, and at 12px `{}` is still `{}`
+    while an emoji is a coloured smudge."""
+    assert '"string": ' not in page
+    icons = page.split("const TYPE_ICON = {")[1].split("};")[0]
+    for ty in ("string", "number", "integer", "boolean", "object", "array"):
+        assert ty in icons, ty
+
+
+def test_every_runnable_action_has_a_glyph(page):
+    """The row drops the tool's name, so a tool with no icon would be a step
+    with no identity at all. The unknown glyph is reserved for a flow naming an
+    action that does not exist — which the runner refuses, and which is meant
+    to look wrong."""
+    from kubed.selenium_flow.flowrun import RUNNABLE
+
+    icons = page.split("const TOOL_ICON = {")[1].split("};")[0]
+    for tool in RUNNABLE:
+        assert f"{tool}:" in icons, tool
+
+
+def test_a_row_still_says_its_tool_to_a_screen_reader(page):
+    """Replacing the word with a picture takes the word away from anyone who
+    cannot see the picture — and from anyone who has not learnt which emoji
+    means `extract`. It moves to the label and the tooltip, not out of the
+    page."""
+    row = page.split("function stepRow(")[1].split("\n}\n")[0]
+    assert """role="img" aria-label="' + SF.esc(tool)""" in row
+    assert """title="' + SF.esc(tool) + '">""" in row
+
+
+def test_the_detail_sits_beside_the_outline_rather_than_under_it(page):
+    """It used to render under the steps, which put the answer below the
+    question and left the right half of a wide panel empty. Three columns:
+    what the flow is, and what the thing you picked out of it holds."""
+    assert '<div class="panes"><div class="outline">' in page
+    assert "'</div><div class=\"rule\"></div>'" in page
+    assert "'<div class=\"pane\">' + detailOf(f) + '</div></div>'" in page
+    assert ".panes { display: grid; grid-template-columns: 200px 1px" in page
+
+
+def test_the_outline_grows_the_panel_instead_of_scrolling_inside_it(page):
+    """A scroll region here would hide the end of a long flow inside a box that
+    is already inside a box, and leave the page's own scrollbar pointing at
+    nothing. A long flow makes the panel taller; that is what the page scrolls
+    for."""
+    flows = page.split("/* ---- flows ---")[1].split("/* ---- modals")[0]
+    assert "overflow" not in flows
+    assert "max-height" not in flows
+
+
+def test_the_params_section_is_there_even_when_there_are_none(page):
+    """Dropping the heading would teach the reader that flows have no
+    parameters. Saying "this flow takes nothing" teaches them the section
+    exists and that this one is empty."""
+    assert "'<div class=\"olabel\">Params</div>'" in page
+    assert "This flow takes nothing." in page
+
+
+def test_the_flow_actions_are_in_the_panel_head_not_under_the_steps(page):
+    """They act on the DOCUMENT, so they belong beside its name. Under the
+    steps, a long flow pushed them off the screen and a Delete sitting at the
+    bottom of a list of steps read as though it deleted a step."""
+    head = page.split("'<div class=\"panel\">' +")[1].split("'</div></div>' +")[0]
+    for attr in ("data-edit", "data-move", "data-drop"):
+        assert attr in head, attr
+    assert '<div class="acts">' in head
+    # And nothing is left behind at the bottom.
+    body = page.split("'<div class=\"panes\">")[1].split("function ")[0]
+    assert "<button" not in body
+
+
+def test_an_action_icon_still_carries_its_word(page):
+    """A pencil, a globe and a trash with no labels are three mysteries. The
+    word each one lost goes into `title` for a mouse and `aria-label` for a
+    screen reader — it is not dropped, it is moved."""
+    head = page.split("'<div class=\"panel\">' +")[1].split("'</div></div>' +")[0]
+    assert head.count("aria-label=") == 3
+    assert head.count("title=") == 3
+
+
+def test_a_document_lookup_cannot_find_what_object_gave_it(page):
+    """A stored flow is a file a person edits, so `tool: constructor` and a
+    parameter named `toString` are both reachable — and `TOOL_ICON`'s prototype
+    answers for both. A function concatenated into `innerHTML` renders as its
+    own source text; `uses['constructor'].map` is a TypeError. Every lookup
+    keyed by something out of the document goes through `own`."""
+    assert "Object.prototype.hasOwnProperty.call(map, key)" in page
+    for lookup in ("own(TOOL_ICON, tool)", "own(TYPE_ICON, ty)",
+                   "own(mapping(f.uses), name)"):
+        assert lookup in page, lookup
+    assert "const declared = mapping(mapping(f.parameters).properties);" in page
+    assert "own(declared, name)" in page
+
+
+def test_a_listing_refresh_carries_the_open_flow_with_it(page):
+    """The heartbeat only refetches the listing because the revision moved, so
+    the open document is the one most likely to be stale. Left alone, the panel
+    showed steps and `uses` from a version that no longer existed, with an Edit
+    pointing at YAML someone had already rewritten."""
+    body = page.split("async function loadFlows(key)")[1].split("\n}\n")[0]
+    # Gone from the listing: drop it rather than render a flow that is not there.
+    assert "flowName = flowDoc = picked = null;" in body
+    # Still there: the listing says it exists, not what is in it.
+    assert "if (flowName) loadFlow(flowName);" in body
+
+
+def test_a_refresh_is_not_a_click(page):
+    """`openFlow` blanks the panel and drops the selection because you asked
+    for a different document. A heartbeat asked for nothing, so it reuses the
+    fetch alone — otherwise every refresh flashed `Loading…` and threw away the
+    step the reader was looking at."""
+    opener = page.split("async function openFlow(name)")[1].split("\n}\n")[0]
+    assert "picked = null;" in opener and "flowDoc = null;" in opener
+    assert "return loadFlow(name);" in opener
+    fetcher = page.split("async function loadFlow(name)")[1].split("\n}\n")[0]
+    assert "picked" not in fetcher and "renderFlows()" not in fetcher
+
+
+def test_a_document_fetch_has_its_own_generation(page):
+    """Every accepted listing starts a document fetch for the same flow, so two
+    can be in flight at once. Guarded only on the name, the older answer can
+    land last and then STAY — `shownFlows` has already moved on, so nothing
+    fetches again. That is an Edit button handing back YAML older than the file,
+    which a save would then write back over the newer one."""
+    assert "let filesSeq = 0, flowsSeq = 0, flowDocSeq = 0;" in page
+    fetcher = page.split("async function loadFlow(name)")[1].split("\n}\n")[0]
+    assert "const mine = ++flowDocSeq;" in fetcher
+    # Both paths, or an error from the stale one blanks the fresh panel.
+    assert fetcher.count("mine !== flowDocSeq") == 2
+
+
+def test_a_malformed_ENTRY_does_not_take_the_panel_with_it(page):
+    """`listed()` protects the container and says nothing about what is IN it.
+    A `steps:` item left empty parses to null, and reading `.tool` off it threw
+    while rendering — which killed the panel, the screen you open in order to
+    reach the YAML editor and fix exactly that.
+
+    Normalised inside `stepRow` rather than at each call site, so the outline
+    and the "used by" citations are both covered by construction instead of
+    each remembering to guard."""
+    row = page.split("function stepRow(entry, i, cite)")[1].split("\n}\n")[0]
+    assert "const s = mapping(entry);" in row
+    assert "const tool = s.tool" in row
+
+
+def test_a_thing_that_is_present_but_empty_is_not_reported_as_gone(page):
+    """`term:` with nothing after it parses to null. The parameter IS declared
+    — the outline draws a row for it — so answering "That parameter is gone"
+    when you click that row describes the wrong problem. Absent and empty are
+    different questions, so they are asked separately."""
+    detail = page.split("function paramDetail(f, name)")[1].split("\n}\n")[0]
+    assert "hasOwnProperty.call(declared, name)" in detail, "absent"
+    assert "const spec = mapping(own(declared, name));" in detail, "empty"
+    step = page.split("function stepDetail(f, i)")[1].split("\n}\n")[0]
+    assert "i < 0 || i >= steps.length" in step, "absent"
+    assert "const s = mapping(steps[i]);" in step, "empty"
+
+
+def test_a_malformed_document_does_not_take_the_panel_with_it(page):
+    """`steps: {}` and `required: 1` are what a hand-edited file can hold, and
+    `.map`/`.indexOf` on them throw. The panel dying is the worst case: it is
+    where the operator goes to open the YAML editor and fix exactly that."""
+    assert "const listed = (v) => (Array.isArray(v) ? v : []);" in page
+    assert "const mapping = (v) =>" in page
+    panel = page.split("function renderFlowPanel()")[1].split("\n}\n")[0]
+    assert "const steps = listed(f.steps);" in panel
+    assert "const declared = mapping(mapping(f.parameters).properties);" in panel
+    assert "const required = listed(mapping(f.parameters).required);" in panel
+    # And the panes, which read the same document.
+    assert "const used = listed(own(mapping(f.uses), name));" in page
+    assert "const steps = listed(f.steps);" in page
 
 
 def test_a_step_that_binds_a_secret_is_marked(page):
@@ -211,13 +442,16 @@ def test_a_parameter_reference_is_shown_as_written(page):
     """`${site}/login` is the argument. Seeing which arguments a parameter
     reaches is the point of reading a step, and unlike a secret there is
     nothing to hide — a parameter is non-secret by definition."""
-    assert "const params = step.args || {};" in page
+    assert "const args = mapping(step.args);" in page
     assert "v.name + ' / ' + v.key" in page, "a secret still shows only its name"
 
 
 def test_only_shared_flows_are_badged(page):
-    """A badge on everything says nothing, so a session's own flows carry none."""
-    assert "(f.shared ? '&#127760; ' : '')" in page
+    """A badge on everything says nothing, so a session's own flows carry none.
+    It sits at the END of the row rather than in front of the name, so the
+    names line up down the column and stay the thing you scan."""
+    assert "f.shared\n          ? '<span class=\"globe\" role=\"img\"" in page
+    assert "'&#127760; ' + SF.esc(f.name)" not in page
 
 
 def test_there_is_no_move_button_when_both_ends_are_the_same_folder(page):
@@ -225,13 +459,21 @@ def test_there_is_no_move_button_when_both_ends_are_the_same_folder(page):
     library *is* the shared one — so the move's source and target are the same
     place. The server answers `moved: false`, correctly; offering the button at
     all dresses a no-op as an action."""
-    assert "flowsData && flowsData.session === 'global' ? '' :" in page
+    assert "const move = !flowsData || flowsData.session !== 'global';" in page
+    assert "(move\n      ? '<button type=\"button\" data-move" in page
 
 
-def test_the_move_button_is_one_verb_whose_label_flips(page):
+def test_the_move_button_is_one_verb_whose_icon_is_the_destination(page):
     """There is no separate promote: a flow lives in exactly one directory, so
-    the only action is which one (§F1.2)."""
-    assert "(f.shared ? 'To this session' : 'To global')" in page
+    the only action is which one (§F1.2). As an icon it has to show where the
+    flow is GOING — a globe on a session flow sends it to global, a house on a
+    shared one brings it back — because an icon of the current state would look
+    like a badge rather than a button."""
+    assert "const moveSaid = f.shared ? 'Move to this session' : 'Move to global';" in page
+    assert "(f.shared ? '&#127968;' : '&#127760;')" in page
+    # The word it no longer shows has to still be readable and announceable.
+    assert "title=\"' + moveSaid + '\"" in page
+    assert "aria-label=\"' + moveSaid + '\"" in page
     assert "const to = doc.shared ? flowsData.session : 'global';" in page
     assert "'/move', 'POST', {to: to}" in page
 
@@ -246,8 +488,23 @@ def test_deleting_a_flow_warns_when_it_is_the_shared_one(page):
 def test_the_editor_is_handed_the_stored_yaml(page):
     """Not a re-dump of the parsed document — that loses the comments and the
     ordering a person chose, invisibly, the first time they press Save."""
-    assert "box.querySelector('textarea').value = doc.yaml" in page
+    assert "box.querySelector('textarea').value = fresh.yaml" in page
     assert "{yaml: sheet.querySelector('textarea').value}" in page
+
+
+def test_the_editor_reads_the_file_again_when_it_opens(page):
+    """The copy fetched when the flow was opened can be minutes old — or
+    seconds old and already stale, with a revision refresh in flight. Save is a
+    blind PUT, so opening the editor on that copy is how you overwrite someone
+    else's edit without ever seeing it. Reading again costs one GET and makes
+    the editor open on what is actually on disk."""
+    editor = (page.split("if (e.target.closest('[data-edit]'))")[1]
+                  .split("if (e.target.closest('[data-move]'))")[0])
+    assert "fresh = await api(path);" in editor
+    # Read BEFORE the modal exists, so a failure is an alert rather than an
+    # editor sitting open on nothing.
+    assert editor.index("await api(path)") < editor.index("modal({")
+    assert "doc.yaml" not in editor
 
 
 def test_flows_being_off_reads_as_off_rather_than_broken(page):
@@ -307,10 +564,35 @@ def test_two_loads_of_the_same_panel_cannot_race_each_other(page):
     data while recording A's token. The heartbeat does correct it — the row
     still carries B — but only after showing the wrong thing and spending an
     extra fetch. The last request issued is the only one allowed to render."""
-    assert "let filesSeq = 0, flowsSeq = 0;" in page
+    assert "let filesSeq = 0, flowsSeq = 0, flowDocSeq = 0;" in page
     for loader, seq in (("loadFiles", "filesSeq"), ("loadFlows", "flowsSeq")):
         body = page.split(f"async function {loader}(key)")[1].split("\n}\n")[0]
         assert f"const mine = ++{seq};" in body, loader
         # Both halves, as with `gone`: a late error must not paint over a
         # newer success either.
         assert body.count(f"mine !== {seq}") == 2, loader
+
+
+# ---- the page has to PARSE ---------------------------------------------------
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node to parse JS")
+def test_the_page_script_is_valid_javascript(page, tmp_path):
+    """Every other test in this file is a substring assertion, which is what the
+    module docstring admits to and what makes them cheap. They share one blind
+    spot: a page that does not PARSE still contains every string they look for.
+
+    An `await` added inside a handler that was not `async` made the whole script
+    a SyntaxError — so `renderFlowPanel`, `SF` and every other binding simply
+    never existed, and the admin page was blank. All of these passed. It was
+    caught by opening the page in a browser and finding nothing defined.
+
+    One parse is a cheap floor under the rest.
+    """
+    script = page.split("<script>")[-1].split("</script>")[0]
+    js = tmp_path / "page.js"
+    js.write_text(script, encoding="utf-8")
+    done = subprocess.run(
+        ["node", "--check", str(js)], capture_output=True, text=True
+    )
+    assert done.returncode == 0, done.stderr

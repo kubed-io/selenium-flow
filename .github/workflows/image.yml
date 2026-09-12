@@ -6,10 +6,13 @@ name: 📸 Image Builder
 #   workflow_call       called by publish.yml with a version tag — checks out
 #                       that tag and pushes :vX.Y.Z (stable, pin this to deploy)
 #
-# There is deliberately NO `pull_request` trigger. A multi-arch build is ~9
-# minutes, which is most of a pull request's total wait for a signal that almost
-# never differs from what the merge build gives — and the merge build is the one
-# whose output anyone actually pulls. The Dockerfile is not unguarded on a PR:
+# There is deliberately NO `pull_request` trigger. That reasoning was written
+# when a multi-arch build was ~9 minutes; it is ~2m20 now for a source-only
+# change, so the cost side of it has largely gone and the trigger is worth
+# reconsidering on its own merits. What has not changed is the other half: the
+# signal almost never differs from what the merge build gives, and the merge
+# build is the one whose output anyone actually pulls. The Dockerfile is not
+# unguarded on a PR either:
 # quality.yml lints it with hadolint, and package.yml builds and installs the
 # wheel the image is a wrapper around, so a break in the part that is ours is
 # caught in seconds instead of minutes.
@@ -36,6 +39,11 @@ on:
     # old one — which happened. tests/test_packaging.py guards the pairing.
     - static/**
     - skills/**
+    # Not in the wheel, but the Dockerfile copies it and it decides which
+    # dependencies get installed — so a change here changes the image without
+    # changing anything the rules above watch. test_packaging.py now derives
+    # this from the Dockerfile's own COPY lines rather than trusting the list.
+    - scripts/**
   workflow_dispatch:
     inputs:
       push:
@@ -67,9 +75,11 @@ on:
         description: Docker Hub token for the push
         required: false
 
-# One build at a time per group, and the newest branch build wins. A build takes
-# ~9 minutes, so queueing meant waiting out an image for a commit that had
-# already been superseded before the one you wanted even started.
+# One build at a time per group, and the newest branch build wins. A build used
+# to take ~9 minutes, so queueing meant waiting out an image for a commit that
+# had already been superseded before the one you wanted even started. It is
+# ~2m20 warm now, which makes this cheaper rather than unnecessary — a
+# superseded build is still wasted, and a cold one still costs minutes.
 #
 # Releases are exempt, and that exemption is the point of keying on `tag`.
 # publish.yml cuts the version tag BEFORE calling this workflow, so a release
