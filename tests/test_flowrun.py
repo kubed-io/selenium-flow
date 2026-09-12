@@ -891,6 +891,32 @@ def test_an_empty_binding_is_malformed_rather_than_absent():
     actions = FakeActions()
     report = run(actions, flow(steps), "b", catalogue=Vault())
     assert report["status"] == "failed"
+    assert "one value, one place" in report["steps"][0]["error"]
+    assert actions.calls == []
+
+
+def test_a_literal_beside_a_secret_is_refused_at_run_time_too():
+    """Saving refuses it, and saving is not the only way a document gets here.
+    Without this the literal was silently discarded and the credential typed in
+    its place — a step saying two things quietly becoming a step saying one."""
+    steps = [
+        {
+            "tool": "write",
+            "args": {"css": "#p", "text": "literal", "secret": SECRET_STEP},
+        }
+    ]
+    actions = FakeActions()
+    report = run(actions, flow(steps), "b", catalogue=Vault())
+    assert report["status"] == "failed"
+    assert "one value, one place" in report["steps"][0]["error"]
+    assert actions.calls == []
+
+
+def test_a_malformed_secret_on_its_own_says_what_is_missing():
+    steps = [{"tool": "write", "args": {"css": "#p", "secret": {}}}]
+    actions = FakeActions()
+    report = run(actions, flow(steps), "b", catalogue=Vault())
+    assert report["status"] == "failed"
     assert "needs a name" in report["steps"][0]["error"]
     assert actions.calls == []
 

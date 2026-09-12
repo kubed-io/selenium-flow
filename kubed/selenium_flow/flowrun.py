@@ -18,10 +18,19 @@ methods in a loop. It deliberately does *not* thread one driver through them:
 that would be a micro-optimisation on the one cost that is already near zero,
 paid for by making every action take a driver it does not otherwise need.
 
-**There is no templating.** A step that needs a value it was not given names a
-source in `valueFrom`, and this module puts the resolved value straight into the
-call's keyword arguments. Nothing scans a payload, so a script containing
-``${...}`` or a password containing ``{{`` is just a string (§F1.7).
+**A parameter is text; a secret is structural** (§F1.38). `${name}` is
+substituted into any argument, anywhere, and `args.secret` is not — a secret
+goes straight into the keyword arguments and never through a string.
+
+Three rules make the text half safe, and `substitute` below is where they live:
+
+- **single pass**, so a value a caller supplied is never rescanned and passing
+  ``${admin_token}`` as a value yields that text;
+- **only names the caller supplied** are replaced, so a script holding a
+  JavaScript template literal — ``return `${window.scrollY}px` `` — survives
+  rather than being silently blanked;
+- **`$${` is a literal `${`**, matched by the same expression as a reference so
+  an escape can never be read as one.
 
 **A run is not a program.** Steps execute in order, once each. No branching, no
 loops, no step reading another's output — that last one is Chapter 2. A flow is
@@ -124,9 +133,9 @@ def hidden_forms(values) -> set:
     for value in values:
         if value is None:
             continue
-        # Coerced, not skipped: `Actions.write` does `str(text)`, so a numeric
-        # or boolean writeOnly parameter really is typed into the page — and
-        # skipping non-strings here meant it came back unscrubbed.
+        # Coerced, not skipped: `Actions.write` does `str(text)`, so a secret
+        # whose stored value is not a string really is typed into the page —
+        # and skipping non-strings here meant it came back unscrubbed.
         text = value if isinstance(value, str) else str(value)
         if not text:
             continue
@@ -290,6 +299,16 @@ def resolve_step(
 
     tool = step.get("tool", "")
     label = step.get("id") or tool
+    # Saving refuses this, and saving is not the only way a document gets here:
+    # `LocalFlowStore` reads YAML somebody may have written by hand. Without
+    # the check the literal was silently discarded and the credential typed in
+    # its place — a step saying two things quietly becoming a step saying one,
+    # which is the shape every other surface refuses by name.
+    if kwargs.get("text") is not None:
+        raise FlowError(
+            f"step {label}: text is given literally and by a secret — one "
+            "value, one place"
+        )
     if kwargs.get("url"):
         raise FlowError(
             f"step {label}: a step that types a secret may not also navigate — "

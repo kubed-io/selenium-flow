@@ -89,9 +89,11 @@ if you see one, check where the browser actually is before anything else.
 **A parameter is for what varies between runs. A secret is for what must not be
 seen.** An email address is a parameter. Its password is a secret.
 
-If a caller has to supply a sensitive value itself, declare the parameter
-`"writeOnly": true`: it is typed as usual and hidden from the report. But the
-caller still held it — only a secret keeps it out of everyone's hands.
+There is no middle option. A parameter marked `"writeOnly": true` used to be
+typed and hidden from the report; it hides nothing now and `save_flow` refuses
+it, because a familiar marker that silently does nothing is a leak with a
+reassuring name on it. If a caller has to supply a sensitive value itself, it
+already holds the value — only a secret keeps it out of everyone's hands.
 
 ## What this does not protect
 

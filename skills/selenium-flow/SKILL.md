@@ -116,7 +116,7 @@ In saved mode — `open_session` once, then no `session_id` anywhere:
 open_session(width=1400, height=900)
 write(url="https://example.com/login", xpath="//input[@name='email']", text="a@example.com")
 write(xpath="//input[@name='password']",
-      value_from={"secret": {"name": "example", "key": "password"}})
+      secret={"name": "example", "key": "password"})
 interact(action="click", xpath="//button[@type='submit']")
 extract(xpath="//h1")            # confirm you landed
 end_browser()

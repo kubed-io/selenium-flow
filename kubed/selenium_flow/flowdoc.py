@@ -297,6 +297,19 @@ def _check_secret(where: str, reference) -> list[str]:
     return [f"{where}: {problem}" for problem in reference_problems(reference)]
 
 
+def _is_whole_reference(value) -> bool:
+    """Whether ``value`` is one reference and nothing else.
+
+    `"${secs}"` is; `"page ${n}"` is not, and neither is `"$${secs}"` — an
+    escape matches the same expression, so the group has to be checked rather
+    than the match alone.
+    """
+    if not isinstance(value, str):
+        return False
+    whole = PARAM_REFERENCE.fullmatch(value)
+    return whole is not None and whole.group(1) is not None
+
+
 def _check_params(where: str, tool: str, params: dict, bound: set[str], schema: dict):
     """A step's literal arguments, against the tool's own published schema."""
     problems = []
@@ -315,6 +328,14 @@ def _check_params(where: str, tool: str, params: dict, bound: set[str], schema: 
             problems.append(
                 f"{where}: {tool} has no parameter {name!r}. Takes: {close}"
             )
+            continue
+        # An argument that is *exactly* one reference carries the parameter's
+        # value with its type intact — `substitute` is deliberate about that —
+        # so checking the placeholder against the tool's schema would refuse
+        # `wait_timeout: "${secs}"` for being a string, when at run time it is
+        # the integer the caller passed. The reference is checked instead:
+        # `_check_references` has already required the name to be declared.
+        if _is_whole_reference(value):
             continue
         if not _type_fits(value, _types(properties[name])):
             accepted = " or ".join(sorted(_types(properties[name])))
@@ -467,7 +488,22 @@ def validate(document, schemas: dict) -> dict:
     if not isinstance(parameters, dict):
         problems.append("parameters must be a JSON Schema object")
         parameters = {}
-    declared = set(parameters.get("properties") or {})
+    properties = parameters.get("properties") or {}
+    declared = set(properties)
+    # `writeOnly` is standard JSON Schema for "supplied but not returned", and
+    # it used to mean exactly that here. Accepting it now that nothing redacts
+    # it is the worst of both: an author marks a password `writeOnly`, believes
+    # it is hidden, and reads it back out of the report. A familiar marker that
+    # silently does nothing is a leak with a reassuring name on it, so it is
+    # refused and the refusal says what to use instead (§F1.38).
+    for name, schema in sorted(properties.items()):
+        if isinstance(schema, dict) and schema.get("writeOnly"):
+            problems.append(
+                f"parameters: {name!r} is writeOnly, which no longer hides "
+                "anything — a parameter is text and may appear in the report. "
+                "A value nobody may see is a secret: give write an args.secret "
+                "instead"
+            )
     for name in parameters.get("required") or []:
         if name not in declared:
             problems.append(

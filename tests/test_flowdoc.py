@@ -637,3 +637,60 @@ async def test_a_document_with_integer_keys_is_refused_with_every_problem(step_s
     text = str(caught.value)
     assert "unknown step key 7" in text
     assert "does not take 1" in text
+
+
+async def test_a_write_only_parameter_is_refused_rather_than_ignored(
+    step_schema_map,
+):
+    """It used to mean "supplied but not returned" and nothing implements that
+    now. Accepting a familiar JSON-Schema marker that silently does nothing is
+    worse than not having it: an author marks a password `writeOnly`, believes
+    it is hidden, and reads it back out of the report (§F1.38)."""
+    with pytest.raises(InvalidFlow, match="writeOnly") as caught:
+        validate(
+            flow(
+                parameters={
+                    "type": "object",
+                    "properties": {"password": {"type": "string", "writeOnly": True}},
+                },
+                steps=[{"tool": "write", "args": {"css": "#p", "text": "${password}"}}],
+            ),
+            step_schema_map,
+        )
+    assert "secret" in str(caught.value), "it should say what to use instead"
+
+
+async def test_a_whole_reference_is_not_type_checked_against_the_schema(
+    step_schema_map,
+):
+    """`wait_timeout` wants an integer and `"${secs}"` is a string, but at run
+    time it is whatever the caller passed — `substitute` preserves the type of a
+    value whose argument is exactly one reference. Checking the placeholder
+    refused a flow that would have run perfectly."""
+    assert validate(
+        flow(
+            parameters={
+                "type": "object",
+                "properties": {"secs": {"type": "integer"}},
+            },
+            steps=[{"tool": "extract", "args": {"css": "#a", "wait_timeout": "${secs}"}}],
+        ),
+        step_schema_map,
+    )
+
+
+async def test_a_reference_inside_a_longer_string_is_still_type_checked(
+    step_schema_map,
+):
+    """Interpolation always produces a string, so the exemption is only for an
+    argument that is *exactly* one reference."""
+    with pytest.raises(InvalidFlow, match="wait_timeout should be integer"):
+        validate(
+            flow(
+                parameters={"type": "object", "properties": {"secs": {}}},
+                steps=[
+                    {"tool": "extract", "args": {"css": "#a", "wait_timeout": "${secs}s"}}
+                ],
+            ),
+            step_schema_map,
+        )

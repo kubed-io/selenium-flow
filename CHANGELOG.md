@@ -30,9 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Saved flows.** Save a sequence of steps under a name, then run the whole thing in one call with `run_flow` — a twelve-step form becomes one call instead of twelve. Set `FLOW_DATA_DIR` to turn them on.
 - **Kept files.** `keep_file` copies a download out of the browser so it survives being reaped, switched or ended; `session_files` lists both kinds together and keeps working after the browser has gone. Deleting a kept file is an operator action in the admin UI.
 
-- Flows take parameters, so one saved login serves every account.
+- **Flows take parameters.** Declare them and write `${name}` in any argument of any step — `url: ${site}/orders/${id}` — so one saved flow serves every account and every environment.
 
-- **Type a secret you never see.** Give `write` a `value_from` naming one instead of text, and the server reads it and types it — in a flow step or a single call.
+- **Type a secret you never see.** Give `write` a `secret` naming one instead of text, and the server reads it and types it — in a flow step or a single call. A secret is never part of a string, which is why it cannot end up in a URL.
 
 - **A secrets catalogue.** Point `SECRETS_DIRS` at a directory per secret and a file per key — the shape Kubernetes already mounts — and `list_secrets` shows an agent what it can use. Values are never returned by anything.
 
@@ -45,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `screenshot(save=true)` now tells you what the file was called, which is the name `keep_file` takes.
 
-- **A flow parameter goes anywhere.** Write `${name}` in any argument of any step — `url: ${site}/orders/${id}` — instead of binding one argument per action.
+- **A flow run answers with the steps you marked `return: true`** — any number of them, and nothing else.
 
 - **The wiki documents flows, secrets and kept files.** A reference page for each of the eight endpoints they added, plus guides for all three — and the two environment variables that switch them on.
 
@@ -54,12 +54,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A browser stays usable after logging in.** Chrome's "Save password?" prompt took the keyboard and mouse for itself, so every click and keystroke after a login silently did nothing — while every call still reported success.
 
 ### Changed
-
-- **BREAKING:** a step's arguments are `args`, not `params`, and a secret is `write`'s own `secret` argument rather than a `value_from`. The flow has `parameters`, a run supplies `params`, a step passes `args`.
-
-- **BREAKING:** a flow parameter is text, written `${name}`. `value_from: {param: ...}` is gone, and so is `writeOnly` — a parameter is non-secret by definition, which is what lets it reach anywhere. Anything that must not be seen is a secret.
-
-- **BREAKING:** a flow run answers with the steps marked `return: true`, and nothing else. The report no longer carries a top-level `result` copying the last step — mark the step whose result is the flow's answer, or pass `verbose`.
 
 - **BREAKING:** the shared `global` flow library is read-only. Every session can list and run its flows; none can change them — including a caller with no session name, which used to save straight into it. Name your session with `?session=<name>` to get a library of your own; a stdio client gets one automatically.
 
