@@ -45,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `screenshot(save=true)` now tells you what the file was called, which is the name `keep_file` takes.
 
-- **A flow parameter can supply a URL.** `navigate` and `upload_file` now take a `value_from` naming a parameter, so one saved flow serves every page — secrets stay `write`-only.
+- **A flow parameter goes anywhere.** Write `${name}` in any argument of any step — `url: ${site}/orders/${id}` — instead of binding one argument per action.
 
 - **The wiki documents flows, secrets and kept files.** A reference page for each of the eight endpoints they added, plus guides for all three — and the two environment variables that switch them on.
 
@@ -54,6 +54,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A browser stays usable after logging in.** Chrome's "Save password?" prompt took the keyboard and mouse for itself, so every click and keystroke after a login silently did nothing — while every call still reported success.
 
 ### Changed
+
+- **BREAKING:** a step's arguments are `args`, not `params`, and a secret is `write`'s own `secret` argument rather than a `value_from`. The flow has `parameters`, a run supplies `params`, a step passes `args`.
+
+- **BREAKING:** a flow parameter is text, written `${name}`. `value_from: {param: ...}` is gone, and so is `writeOnly` — a parameter is non-secret by definition, which is what lets it reach anywhere. Anything that must not be seen is a secret.
 
 - **BREAKING:** a flow run answers with the steps marked `return: true`, and nothing else. The report no longer carries a top-level `result` copying the last step — mark the step whose result is the flow's answer, or pass `verbose`.
 

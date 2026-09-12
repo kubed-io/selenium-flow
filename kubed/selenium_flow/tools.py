@@ -61,32 +61,6 @@ class SecretRef(BaseModel):
     key: str = Field(min_length=1)
 
 
-class ValueFrom(BaseModel):
-    """Where a value comes from, instead of being given literally.
-
-    A real model rather than a bare dict so the shape is **published**: a caller
-    is told it needs `secret.name` and `secret.key` rather than being handed an
-    unconstrained object and left to guess.
-
-    ``secret`` is required, not optional. This surface supports exactly one
-    source — a flow's own parameters mean nothing outside a flow — so an
-    optional field would have published `value_from: {}` as legal and turned a
-    shape error into a run-time one.
-
-    **Extra fields are refused**, which on this model is a security property
-    rather than tidiness. Pydantic ignores unknown fields by default, so
-    `{"secret": ..., "config": ...}` arrived at the binder already reduced to
-    the `secret` branch — `sole_source` never saw the second one, and this
-    surface quietly picked one of two sources while the HTTP endpoint and the
-    flow validator refused the same request. The check has to be in front of the
-    model, not behind it.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    secret: SecretRef
-
-
 INSTRUCTIONS = f"""\
 Drives a real Chrome or Firefox browser on Selenium Grid. The browser is \
 persistent: it stays alive between tool calls and keeps its page, cookies and \
@@ -414,7 +388,7 @@ def register(
         clear: bool = True,
         submit: bool = False,
         wait_timeout: int = WAIT_TIMEOUT,
-        value_from: ValueFrom | None = None,
+        secret: SecretRef | None = None,
     ) -> dict:
         """Type text into an input, textarea or contenteditable.
 
@@ -425,15 +399,15 @@ def register(
         Address the field with EITHER xpath OR css, never both and never
         neither.
 
-        To type a secret, pass value_from={"secret": {"name": ..., "key": ...}}
-        instead of text. list_secrets shows what there is. You never see the
-        value: the server reads it and types it, and the result comes back with
+        To type a secret, pass secret={"name": ..., "key": ...} instead of
+        text. list_secrets shows what there is. You never see the value: the
+        server reads it and types it, and the result comes back with
         value: null. A secret may only be used on the sites its owner allowed,
         checked against the page you are on, so navigate there first.
         """
-        if value_from is None and text is None:
-            raise ValueError("write needs text, or value_from to supply it")
-        if value_from is None:
+        if secret is None and text is None:
+            raise ValueError("write needs text, or a secret to supply it")
+        if secret is None:
             return run(
                 session_id,
                 lambda s: actions.write(
@@ -459,7 +433,7 @@ def register(
             catalogue,
             actions,
             resolved,
-            {"text": text, "url": url, "value_from": value_from},
+            {"text": text, "url": url, "secret": secret},
         )
         hidden = flowrun.hidden_forms([given["text"]])
         try:
@@ -477,7 +451,7 @@ def register(
         except Exception as exc:  # noqa: BLE001 - rewrapped, never swallowed
             # An action puts its arguments in its error text.
             raise ValueError(flowrun.scrub(str(exc), hidden)) from None
-        shown = flowrun.scrub_values({**result, "value_from": "secret"}, hidden)
+        shown = flowrun.scrub_values({**result, "text_from": "secret"}, hidden)
         # Only remember a page the value never reached. A submitting write can
         # land on `?q=<what was typed>`; storing the scrubbed form would persist
         # a URL that does not exist, and a later reattach would navigate to it.

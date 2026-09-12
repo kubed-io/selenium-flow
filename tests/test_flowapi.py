@@ -22,7 +22,7 @@ from .conftest import NAMED, TOKEN
 
 pytestmark = pytest.mark.unit
 
-GOOD = [{"tool": "navigate", "params": {"url": "https://example.test/"}}]
+GOOD = [{"tool": "navigate", "args": {"url": "https://example.test/"}}]
 
 
 @pytest.fixture
@@ -124,7 +124,7 @@ async def test_a_broken_flow_is_refused_at_save_with_every_reason(flow_server, s
             flow_server,
             flowapi.SAVE_TOOL,
             name="broken",
-            steps=[{"tool": "nope", "params": {}}, {"tool": "write", "params": {}}],
+            steps=[{"tool": "nope", "args": {}}, {"tool": "write", "args": {}}],
         )
     assert "no tool called 'nope'" in str(caught.value)
     assert "write needs 'text'" in str(caught.value)
@@ -495,7 +495,7 @@ def test_the_refusal_says_how_to_get_a_library_of_your_own(client):
 def test_a_broken_flow_is_a_400_over_http_too(client):
     response = client.post(
         "/flows/save",
-        json={"name": "bad", "steps": [{"tool": "nope", "params": {}}]},
+        json={"name": "bad", "steps": [{"tool": "nope", "args": {}}]},
         headers=AUTH,
     )
     assert response.status_code == 400
@@ -582,9 +582,9 @@ async def test_a_saved_flow_runs_end_to_end(ran):
         flowapi.SAVE_TOOL,
         name="login",
         steps=[
-            {"tool": "navigate", "params": {"url": "https://example.test/login"}},
-            {"tool": "write", "params": {"css": "#email", "text": "a@b.c"}},
-            {"tool": "interact", "params": {"action": "click", "css": "button"}},
+            {"tool": "navigate", "args": {"url": "https://example.test/login"}},
+            {"tool": "write", "args": {"css": "#email", "text": "a@b.c"}},
+            {"tool": "interact", "args": {"action": "click", "css": "button"}},
         ],
     )
     report = await call(server, flowapi.RUN_TOOL, name="login")
@@ -600,7 +600,7 @@ async def test_running_a_shared_flow_works_and_says_it_was_shared(ran):
     server.flows.save(
         GLOBAL_SESSION,
         "banner",
-        {"steps": [{"tool": "navigate", "params": {"url": "x"}}]},
+        {"steps": [{"tool": "navigate", "args": {"url": "x"}}]},
     )
     report = await call(server, flowapi.RUN_TOOL, name="banner")
     assert report["status"] == "ok"
@@ -623,7 +623,7 @@ async def test_parameters_reach_the_step_that_names_them(ran):
         steps=[
             {
                 "tool": "write",
-                "params": {"css": "#email", "value_from": {"param": "email"}},
+                "args": {"css": "#email", "text": "${email}"},
             }
         ],
     )
@@ -680,7 +680,7 @@ async def test_a_resize_step_is_written_back_to_the_session(flow_server, monkeyp
         flow_server,
         flowapi.SAVE_TOOL,
         name="widen",
-        steps=[{"tool": "resize", "params": {"width": 1400, "height": 900}}],
+        steps=[{"tool": "resize", "args": {"width": 1400, "height": 900}}],
     )
     await call(flow_server, flowapi.RUN_TOOL, name="widen")
     record = flow_server.sessions.store.get(NAMED.value)
@@ -689,59 +689,24 @@ async def test_a_resize_step_is_written_back_to_the_session(flow_server, monkeyp
     assert record.settings["browser"] == "firefox"
 
 
-async def test_the_published_schema_describes_the_flow_side_sources(flow_server):
-    """`x-step-params` comes from the direct tool schemas, where value_from can
-    only name a secret — a flow's own parameters mean nothing to a direct
-    caller. Inside a flow they do, and a caller following only the tool schema
-    would have thought `param` was invalid."""
+async def test_the_schema_says_how_a_parameter_reaches_an_argument(flow_server):
+    """Not guessable from any tool schema: a parameter is written into a string,
+    and nothing in `write`'s signature says so."""
     schema = await call(flow_server, flowapi.SCHEMA_TOOL)
-    sources = schema["x-value-from"]["oneOf"]
-    required = {tuple(branch["required"]) for branch in sources}
-    assert required == {("secret",), ("param",)}
-    # And the tool half still describes the secret shape properly.
-    assert "value_from" in schema["x-step-params"]["write"]["properties"]
+    described = schema["x-parameters"]["description"]
+    assert "${name}" in described
+    assert "single-pass" in described
+    assert schema["x-parameters"]["pattern"]
 
 
-def _objects(node):
-    """Every JSON-Schema object node under `node`, however deep."""
-    if isinstance(node, dict):
-        if node.get("type") == "object":
-            yield node
-        for value in node.values():
-            yield from _objects(value)
-    elif isinstance(node, list):
-        for value in node:
-            yield from _objects(value)
-
-
-async def test_every_object_in_the_published_sources_is_closed(flow_server):
-    """JSON Schema allows any extra property by default, so an open branch
-    published `{secret, config}` and a misspelt reference as valid while
-    `save_flow` refused both. Walked rather than listed, so a branch added later
-    cannot be left open without this noticing."""
+async def test_the_schema_publishes_the_secret_shape_from_the_model(flow_server):
+    """The MCP tool's own model rather than a copy of it, and closed — JSON
+    Schema allows extra properties by default, so a consumer building from this
+    could produce a misspelt reference that it accepts and save_flow refuses."""
     schema = await call(flow_server, flowapi.SCHEMA_TOOL)
-    objects = list(_objects(schema["x-value-from"]))
-    # Both branches and the nested secret reference, at least.
-    assert len(objects) >= 3
-    for node in objects:
-        assert node.get("additionalProperties") is False, node
-
-
-async def test_the_published_secret_reference_is_the_tool_model(flow_server):
-    """Derived, not copied: the flow schema and the direct tool must describe a
-    secret reference identically, or one of them is wrong."""
-    from kubed.selenium_flow.tools import SecretRef
-
-    schema = await call(flow_server, flowapi.SCHEMA_TOOL)
-    branch = next(b for b in schema["x-value-from"]["oneOf"] if "secret" in b["required"])
-    assert branch["properties"]["secret"] == SecretRef.model_json_schema()
-
-
-async def test_the_published_secret_reference_refuses_empty_values(flow_server):
-    """`save_flow` refuses an empty name or key, so the schema a client builds
-    from must say so too — a bare `string` told it `""` was fine."""
-    schema = await call(flow_server, flowapi.SCHEMA_TOOL)
-    branch = next(b for b in schema["x-value-from"]["oneOf"] if "secret" in b["required"])
-    fields = branch["properties"]["secret"]["properties"]
+    secret = schema["x-secret"]["schema"]
+    assert set(secret["required"]) == {"name", "key"}
+    assert secret.get("additionalProperties") is False
+    fields = secret["properties"]
     assert fields["name"]["minLength"] == 1
     assert fields["key"]["minLength"] == 1

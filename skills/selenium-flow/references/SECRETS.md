@@ -39,27 +39,27 @@ there is nothing to find, and asking again will not change it.
 
 ## Binding one
 
-Give `write` a `value_from` **instead of** `text`:
+Give `write` a `secret` **instead of** `text`:
 
 ```
-write(css="#password", value_from={"secret": {"name": "nextcloud", "key": "password"}})
+write(css="#password", secret={"name": "nextcloud", "key": "password"})
 ```
 
-It comes back with `"value_from": "secret"` and no value. In a flow, the same
-`value_from` goes in the step's `params`:
+It comes back with `"text_from": "secret"` and no value. In a flow, the same
+`secret` goes in the step's `args`:
 
 ```json
 {
   "name": "nextcloud-login",
   "description": "Log in to Nextcloud as the admin",
   "steps": [
-    {"tool": "navigate", "params": {"url": "https://nextcloud.example.com/login"}},
-    {"tool": "write", "params": {"css": "#user",
-      "value_from": {"secret": {"name": "nextcloud", "key": "username"}}}},
-    {"tool": "write", "params": {"css": "#password",
-      "value_from": {"secret": {"name": "nextcloud", "key": "password"}}}},
-    {"tool": "interact", "params": {"action": "click", "css": "button[type=submit]"}},
-    {"tool": "extract", "params": {"css": "h1"}, "return": true}
+    {"tool": "navigate", "args": {"url": "https://nextcloud.example.com/login"}},
+    {"tool": "write", "args": {"css": "#user",
+      "secret": {"name": "nextcloud", "key": "username"}}},
+    {"tool": "write", "args": {"css": "#password",
+      "secret": {"name": "nextcloud", "key": "password"}}},
+    {"tool": "interact", "args": {"action": "click", "css": "button[type=submit]"}},
+    {"tool": "extract", "args": {"css": "h1"}, "return": true}
   ]
 }
 ```

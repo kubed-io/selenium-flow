@@ -454,10 +454,9 @@ LIST_DESCRIPTION = (
     "secret's name, the keys inside it, what it is for, and the sites it may "
     "be used on.\n\n"
     "To use one, do NOT ask for it: name it where the value would go. Pass "
-    "write a value_from instead of text — value_from={'secret': {'name': ..., "
-    "'key': ...}} — or in a saved flow put the same thing in that step's "
-    "params. The server reads it and types it; it never passes through you, "
-    "which is the point.\n\n"
+    "write a secret instead of text — secret={'name': ..., 'key': ...} — or "
+    "in a saved flow put the same thing in that step's args. The server reads "
+    "it and types it; it never passes through you, which is the point.\n\n"
     "A secret listing allowed_urls may only be used on those sites. One that "
     "is not restricted may be used anywhere. If an entry carries "
     "allowed_urls_rejected, its leash is broken and it cannot be used at all "
@@ -533,8 +532,8 @@ class Refused(ValueError):
     """
 
 
-def bind(catalogue, source: dict, url: str, tool: str = "write") -> str:
-    """The value a `value_from.secret` reference names, or refuse.
+def bind(catalogue, reference, url: str, tool: str = "write") -> str:
+    """The value a `secret` reference names, or refuse.
 
     **The only function in this package that returns a secret value**, and it
     returns it to exactly one caller: whichever surface is about to type it into
@@ -545,20 +544,15 @@ def bind(catalogue, source: dict, url: str, tool: str = "write") -> str:
     other than the one receiving the keystroke.
     """
     # Shape-checked here, not only in the typed MCP parameter: the HTTP surface
-    # passes raw JSON straight in, so `value_from: "secret"` reached `.get` and
+    # passes raw JSON straight in, so a bare string reached `.get` and
     # raised AttributeError, which `errors.status_for` could only read as a 500
     # — our failure, for a caller's malformed request.
     from .flowdoc import reference_problems
 
-    if not isinstance(source, dict):
-        raise Refused("value_from must be an object naming a source")
-    reference = source.get("secret")
-    if reference is None:
-        raise Refused("value_from must name a secret: {'secret': {'name', 'key'}}")
     # The validator's rule, not a copy of it: a reference with a field this
     # reads nothing from is a request for a different binding than the one that
     # would run.
-    problems = reference_problems("secret", reference)
+    problems = reference_problems(reference)
     if problems:
         raise Refused("; ".join(problems))
     name, key = reference["name"], reference["key"]
@@ -590,7 +584,7 @@ def bind(catalogue, source: dict, url: str, tool: str = "write") -> str:
         )
 
     # What the audit lines below name the secret by. Taken from the catalogue's
-    # own record rather than from the caller's `value_from`, which is both safer
+    # own record rather than from the caller's reference, which is both safer
     # and more accurate: it is the secret that was *resolved*, spelled as the
     # source spells it, instead of the string a request asked with.
     #
@@ -633,7 +627,7 @@ def bind(catalogue, source: dict, url: str, tool: str = "write") -> str:
 def prepare_write(
     catalogue, actions, session_id: str, kwargs: dict
 ) -> tuple[dict, set]:
-    """Turn a `value_from` on a write into the text it stands for.
+    """Turn a `secret` on a write into the text it stands for.
 
     Shared by the MCP tool and the HTTP endpoint, because the alternative is two
     implementations of a security check and one of them being the older.
@@ -645,36 +639,19 @@ def prepare_write(
     call.
     """
     kwargs = dict(kwargs)
-    source = kwargs.pop("value_from", None)
-    if source is None:
+    reference = kwargs.pop("secret", None)
+    if reference is None:
         return kwargs, set()
-    if hasattr(source, "model_dump"):
-        source = source.model_dump(exclude_none=True)
+    if hasattr(reference, "model_dump"):
+        reference = reference.model_dump(exclude_none=True)
     if kwargs.get("text") is not None:
-        raise Refused("pass text or value_from, not both")
+        raise Refused("pass text or secret, not both")
     if kwargs.get("url"):
         raise Refused(
             "a write that takes its value from a secret may not also navigate: "
             "go to the page first, so the secret's allowed sites are checked "
             "against the page that receives it"
         )
-    # The same exactly-one-source rule the flow validator applies, applied to a
-    # body that never went through it. Without it `{"secret": ..., "config": ...}`
-    # was accepted and `bind` picked the secret — a request saying two things
-    # quietly became a request saying one.
-    from .flowdoc import NoSoleSource, sole_source
-
-    try:
-        kind = sole_source(source)
-    except NoSoleSource as exc:
-        raise Refused(str(exc)) from exc
-    if kind == "param":
-        raise Refused(
-            "value_from.param names one of a flow's own parameters and means "
-            "nothing outside a flow; pass text, or name a secret"
-        )
-    if kind != "secret":
-        raise Refused(f"a write cannot take its value from a {kind} on this server")
     here = actions.page(session_id).get("url", "")
-    kwargs["text"] = bind(catalogue, source, here, tool="write")
+    kwargs["text"] = bind(catalogue, reference, here, tool="write")
     return kwargs, {"text"}

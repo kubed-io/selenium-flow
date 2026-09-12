@@ -103,7 +103,7 @@ RESPONSES = {
             "came from a secret — that read is not performed at all, so the "
             "credential is never returned.",
         },
-        value_from={
+        text_from={
             "type": "string",
             "description": "Present only when the value came from somewhere "
             "rather than being given: the kind of source it came from, never "
@@ -506,13 +506,13 @@ FLOW_STEP = {
     # A real step, so anything generating an example from this document produces
     # something that would actually run. Sampling the properties instead yields
     # `{"tool": "…"}`, which is the right shape and names no tool that exists.
-    "example": {"tool": "navigate", "params": {"url": "https://example.com"}},
+    "example": {"tool": "navigate", "args": {"url": "https://example.com"}},
     "properties": {
         "tool": {"type": "string", "description": "Which action this step runs."},
-        "params": {"type": "object", "description": "That action's arguments."},
-        # `value_from` is not here: it is a parameter of the action, so it
-        # lives in `params` and is described by that action's own schema. A step
-        # key would have been a second place to say it, and the two would drift.
+        "args": {"type": "object", "description": "That action's arguments."},
+        # `secret` is not here: it is a parameter of `write`, so it lives in
+        # `args` and is described by that action's own schema. A step key would
+        # have been a second place to say it, and the two would drift.
         "id": {"type": "string"},
         "note": {"type": "string"},
         "onError": {"type": "string", "enum": ["abort", "continue"]},

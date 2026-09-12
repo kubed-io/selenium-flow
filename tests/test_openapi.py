@@ -70,13 +70,13 @@ async def test_request_schemas_are_the_tool_schemas(server, spec):
 
 
 async def test_a_nested_model_is_published_as_its_own_schema(spec):
-    """`value_from` is a typed model, not a bare object, so a client is told it
-    needs `secret.name` and `secret.key` instead of guessing at a blob."""
+    """`secret` is a typed model, not a bare object, so a client is told it
+    needs `name` and `key` instead of guessing at a blob."""
     defined = spec["components"]["schemas"]
-    assert "ValueFrom" in defined and "SecretRef" in defined
+    assert "SecretRef" in defined
     assert set(defined["SecretRef"]["required"]) == {"name", "key"}
     # And every reference to it resolves inside the document.
-    ref = defined["WriteRequest"]["properties"]["value_from"]
+    ref = defined["WriteRequest"]["properties"]["secret"]
     assert "$defs" not in defined["WriteRequest"]
     assert "#/$defs/" not in str(ref)
 

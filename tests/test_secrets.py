@@ -8,7 +8,6 @@ plain tree it looks like from outside.
 """
 
 import pytest
-from pydantic import ValidationError
 
 from kubed.selenium_flow import secrets
 from kubed.selenium_flow.secrets import (
@@ -356,7 +355,7 @@ async def test_no_tool_on_this_server_returns_a_secret_value(secret_server,
         steps=[
             {
                 "tool": "write",
-                "params": {"css": "#password", "value_from": {"secret": {"name": "nextcloud-admin", "key": "password"}}},
+                "args": {"css": "#password", "secret": {"name": "nextcloud-admin", "key": "password"}},
             }
         ],
     )
@@ -520,7 +519,7 @@ def bindable(tmp_path):
 
 def test_a_bind_returns_the_value_to_exactly_one_caller(bindable):
     value = secrets.bind(
-        bindable, {"secret": {"name": "nextcloud", "key": "password"}},
+        bindable, {"name": "nextcloud", "key": "password"},
         "https://nc.example.com/login",
     )
     assert value == "hunter2"
@@ -529,7 +528,7 @@ def test_a_bind_returns_the_value_to_exactly_one_caller(bindable):
 def test_a_bind_on_a_page_the_secret_does_not_allow_is_refused(bindable):
     with pytest.raises(secrets.Refused, match="may not be used"):
         secrets.bind(
-            bindable, {"secret": {"name": "nextcloud", "key": "password"}},
+            bindable, {"name": "nextcloud", "key": "password"},
             "https://evil.test/login",
         )
 
@@ -537,14 +536,14 @@ def test_a_bind_on_a_page_the_secret_does_not_allow_is_refused(bindable):
 def test_the_origin_suffix_attack_is_refused_at_bind_time(bindable):
     with pytest.raises(secrets.Refused):
         secrets.bind(
-            bindable, {"secret": {"name": "nextcloud", "key": "password"}},
+            bindable, {"name": "nextcloud", "key": "password"},
             "https://nc.example.com.evil.test/login",
         )
 
 
 def test_an_unrestricted_secret_binds_anywhere(bindable):
     assert secrets.bind(
-        bindable, {"secret": {"name": "anywhere", "key": "token"}},
+        bindable, {"name": "anywhere", "key": "token"},
         "https://wherever.test/",
     ) == "free"
 
@@ -555,7 +554,7 @@ def test_only_write_may_receive_a_secret(bindable, tool):
     own session record. Neither may carry a credential (§F1.28)."""
     with pytest.raises(secrets.Refused, match="cannot be bound into"):
         secrets.bind(
-            bindable, {"secret": {"name": "anywhere", "key": "token"}},
+            bindable, {"name": "anywhere", "key": "token"},
             "https://x.test/", tool=tool,
         )
 
@@ -565,25 +564,25 @@ def test_upload_file_says_not_yet_rather_than_never(bindable):
     which kind of no it is."""
     with pytest.raises(secrets.Refused, match="cannot take a secret yet"):
         secrets.bind(
-            bindable, {"secret": {"name": "anywhere", "key": "token"}},
+            bindable, {"name": "anywhere", "key": "token"},
             "https://x.test/", tool="upload_file",
         )
 
 
 def test_a_missing_secret_or_key_says_what_there_is(bindable):
     with pytest.raises(secrets.Refused, match="list_secrets"):
-        secrets.bind(bindable, {"secret": {"name": "nope", "key": "k"}},
+        secrets.bind(bindable, {"name": "nope", "key": "k"},
                      "https://x.test/")
     with pytest.raises(secrets.Refused, match="has no key") as caught:
-        secrets.bind(bindable, {"secret": {"name": "nextcloud", "key": "nope"}},
+        secrets.bind(bindable, {"name": "nextcloud", "key": "nope"},
                      "https://nc.example.com/")
     assert "password" in str(caught.value)
 
 
 def test_a_refusal_never_carries_the_value(bindable):
     for source, url in (
-        ({"secret": {"name": "nextcloud", "key": "password"}}, "https://evil.test/"),
-        ({"secret": {"name": "nextcloud", "key": "nope"}}, "https://nc.example.com/"),
+        ({"name": "nextcloud", "key": "password"}, "https://evil.test/"),
+        ({"name": "nextcloud", "key": "nope"}, "https://nc.example.com/"),
     ):
         try:
             secrets.bind(bindable, source, url)
@@ -591,66 +590,16 @@ def test_a_refusal_never_carries_the_value(bindable):
             assert "hunter2" not in str(exc)
 
 
-def test_the_bindable_set_matches_what_the_validator_enforces():
-    """Two modules name this, and they must not drift: flowdoc refuses at save,
-    secrets refuses at bind."""
-    from kubed.selenium_flow.flowdoc import BINDABLE_TOOLS
+def test_the_binder_still_refuses_a_tool_that_has_no_secret_parameter():
+    """Defence in depth, and the reason `secrets.BINDABLE` survives the removal
+    of the validator's copy of it.
 
-    assert BINDABLE_TOOLS == secrets.BINDABLE
-
-
-async def test_a_login_flow_types_a_secret_it_never_shows(tmp_path, monkeypatch):
-    """The whole arsenal, end to end: a saved flow, a bound secret, one call."""
-    from kubed.selenium_flow import flowapi
-    from kubed.selenium_flow.server import SeleniumMCP
-
-    from .conftest import NAMED, TOKEN
-
-    monkeypatch.delenv("SECRETS_DIRS", raising=False)
-    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
-    make_secret(
-        tmp_path / "secrets", "nextcloud", username="admin", password="hunter2",
-        **{ALLOWED_URLS: "https://nc.example.com"},
-    )
-    server = SeleniumMCP(
-        grid_url="http://grid.invalid:4444",
-        auth_token=TOKEN,
-        secrets_dirs=str(tmp_path / "secrets"),
-        flow_data_dir=str(tmp_path / "flows"),
-    )
-    monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
-    monkeypatch.setattr(server.sessions, "resolve", lambda key, sid: "browser-1")
-    typed = []
-    monkeypatch.setattr(
-        server.actions, "page",
-        lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
-    )
-    monkeypatch.setattr(
-        server.actions, "write",
-        lambda sid, text, **kw: typed.append(text)
-        or {"value": text, "url": "https://nc.example.com/", "title": "Home"},
-    )
-
-    save = await server.mcp.get_tool("save_flow")
-    await save.fn(
-        name="login",
-        steps=[
-            {
-                "tool": "write",
-                "params": {"css": "#password", "value_from": {"secret": {"name": "nextcloud", "key": "password"}}},
-            }
-        ],
-    )
-    run_flow = await server.mcp.get_tool(flowapi.RUN_TOOL)
-    report = run_flow.fn(name="login")
-
-    assert report["status"] == "ok"
-    # It reached the browser...
-    assert typed == ["hunter2"]
-    # ...and nothing anywhere in the report says so.
-    assert "hunter2" not in str(report)
-    assert report["steps"][0]["summary"].endswith("text=<hidden>")
-
+    `write` is now the only action with a `secret` argument, so the tool schemas
+    refuse one anywhere else and the flow validator needs no list. But `bind` is
+    reached from a stored YAML document that may never have been validated, and
+    every rule that protects a secret is checked again at the moment it is used.
+    """
+    assert set(secrets.BINDABLE) == {"write"}
 
 def test_the_audit_trail_never_contains_a_value(bindable, caplog):
     """The audit line names the secret and the key it was looked up by, which
@@ -663,7 +612,7 @@ def test_the_audit_trail_never_contains_a_value(bindable, caplog):
 
     with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.secrets"):
         secrets.bind(
-            bindable, {"secret": {"name": "nextcloud", "key": "password"}},
+            bindable, {"name": "nextcloud", "key": "password"},
             "https://nc.example.com/login",
         )
     logged = "\n".join(r.getMessage() for r in caplog.records)
@@ -685,7 +634,7 @@ def test_a_refused_bind_is_logged_loudly_and_still_without_the_value(bindable, c
         pytest.raises(secrets.Refused),
     ):
         secrets.bind(
-            bindable, {"secret": {"name": "nextcloud", "key": "password"}},
+            bindable, {"name": "nextcloud", "key": "password"},
             "https://evil.test/login",
         )
     refusals = [r for r in caplog.records if r.levelno >= logging.WARNING]
@@ -819,7 +768,7 @@ def test_an_http_caller_can_bind_a_secret_it_never_sees(bound_http):
         json={
             "session_id": "b1",
             "css": "#password",
-            "value_from": {"secret": {"name": "nextcloud", "key": "password"}},
+            "secret": {"name": "nextcloud", "key": "password"},
         },
         headers=AUTH,
     )
@@ -830,7 +779,7 @@ def test_an_http_caller_can_bind_a_secret_it_never_sees(bound_http):
     # ...and nothing came back.
     assert "hunter2" not in response.text
     assert response.json()["value"] is None
-    assert response.json()["value_from"] == "secret"
+    assert response.json()["text_from"] == "secret"
 
 
 def test_an_http_bind_on_a_disallowed_page_is_refused(bound_http, monkeypatch):
@@ -840,7 +789,7 @@ def test_an_http_bind_on_a_disallowed_page_is_refused(bound_http, monkeypatch):
         json={
             "session_id": "b1",
             "css": "#password",
-            "value_from": {"secret": {"name": "nextcloud", "key": "nope"}},
+            "secret": {"name": "nextcloud", "key": "nope"},
         },
         headers=AUTH,
     )
@@ -859,7 +808,7 @@ def test_an_http_bind_may_not_also_navigate(bound_http):
             "session_id": "b1",
             "css": "#password",
             "url": "https://evil.test/",
-            "value_from": {"secret": {"name": "nextcloud", "key": "password"}},
+            "secret": {"name": "nextcloud", "key": "password"},
         },
         headers=AUTH,
     )
@@ -869,16 +818,16 @@ def test_an_http_bind_may_not_also_navigate(bound_http):
 
 
 @pytest.mark.parametrize(
-    "value_from", ["secret", {"secret": "x"}, {}, {"param": "email"}, 7]
+    "reference", ["secret", {"name": "x"}, {}, {"param": "email"}, 7]
 )
-def test_a_malformed_binding_over_http_is_a_400_not_a_500(bound_http, value_from):
+def test_a_malformed_binding_over_http_is_a_400_not_a_500(bound_http, reference):
     """The HTTP surface hands raw JSON to the shared binder, without the typed
     model the MCP parameter has — so the binder has to check the shape itself
     or a caller's mistake reads as our outage."""
     client, _ = bound_http
     response = client.post(
         "/browser/write",
-        json={"session_id": "b1", "css": "#p", "value_from": value_from},
+        json={"session_id": "b1", "css": "#p", "secret": reference},
         headers=AUTH,
     )
     assert response.status_code == 400, response.text
@@ -958,7 +907,7 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
     write = await server.mcp.get_tool("write")
     result = write.fn(
         css="#password",
-        value_from={"secret": {"name": "nextcloud", "key": "password"}},
+        secret={"name": "nextcloud", "key": "password"},
     )
     # The page the value reached is never remembered, whatever the value is —
     # but the session is still touched, because withholding the page must not
@@ -1008,7 +957,7 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
     write = await server.mcp.get_tool("write")
     write.fn(
         css="#password",
-        value_from={"secret": {"name": "nextcloud", "key": "password"}},
+        secret={"name": "nextcloud", "key": "password"},
     )
     assert touched == ["https://nc.example.com/home"]
 
@@ -1024,14 +973,12 @@ def test_an_http_binding_naming_two_sources_is_refused(bound_http, monkeypatch):
         json={
             "session_id": "browser-1",
             "css": "#password",
-            "value_from": {
-                "secret": {"name": "nextcloud", "key": "password"},
-                "config": {"name": "other", "key": "thing"},
-            },
+            "secret": {"name": "nextcloud", "key": "password"},
+            "text": "typed as well",
         },
     )
     assert response.status_code == 400
-    assert "exactly one source" in response.json()["error"]
+    assert "not both" in response.json()["error"]
     # Refused before anything was typed.
     assert typed == []
 
@@ -1069,41 +1016,24 @@ def test_a_session_in_use_is_kept_alive_even_when_its_page_is_withheld():
     assert kept.url == "https://nc.test/home"
 
 
-async def test_the_mcp_surface_refuses_two_sources_like_the_other_two(server):
-    """Pydantic drops unknown fields by default, so `{secret, config}` reached
-    the binder already reduced to `secret` and `sole_source` never saw the
-    second one. The MCP tool picked one while HTTP and the flow validator
-    refused — the surface divergence the repo's first rule forbids.
-
-    Asserted on the **published schema and the model**, not by calling `fn`:
-    `fn` is the undecorated function, so a test driving it skips the very
-    validation this is about and would pass either way.
-    """
-    from kubed.selenium_flow.tools import ValueFrom
-
-    write = await server.mcp.get_tool("write")
-    published = write.parameters["$defs"]["ValueFrom"]
-    assert published["additionalProperties"] is False
-
-    with pytest.raises(ValidationError):
-        ValueFrom.model_validate(
-            {
-                "secret": {"name": "nextcloud", "key": "password"},
-                "config": {"name": "other", "key": "thing"},
-            }
-        )
-
-
-async def test_the_mcp_surface_refuses_an_unknown_field_in_a_secret_reference(server):
-    """Same rule one level down, where the flow validator already refused it."""
-    from kubed.selenium_flow.tools import SecretRef
-
-    write = await server.mcp.get_tool("write")
-    assert write.parameters["$defs"]["SecretRef"]["additionalProperties"] is False
-
-    with pytest.raises(ValidationError):
-        SecretRef.model_validate({"name": "nextcloud", "key": "password", "kye": "x"})
-
+async def test_every_surface_refuses_a_value_given_twice(bound_http):
+    """There is no "two sources" any more — a secret is one argument. What is
+    still refusable, and still refused on every surface, is naming the value
+    twice: `text` beside `secret` says two things that cannot both be true."""
+    client, typed = bound_http
+    response = client.post(
+        "/browser/write",
+        headers=AUTH,
+        json={
+            "session_id": "browser-1",
+            "css": "#password",
+            "text": "typed as well",
+            "secret": {"name": "nextcloud", "key": "password"},
+        },
+    )
+    assert response.status_code == 400
+    assert "not both" in response.json()["error"]
+    assert typed == []
 
 def test_a_leash_and_a_value_always_describe_the_same_secret(tmp_path):
     """The policy was read from a cached listing while the owner was resolved by
@@ -1164,9 +1094,7 @@ def test_an_http_reference_with_an_unknown_field_is_a_400(bound_http):
         json={
             "session_id": "browser-1",
             "css": "#password",
-            "value_from": {
-                "secret": {"name": "nextcloud", "key": "password", "namespace": "x"}
-            },
+            "secret": {"name": "nextcloud", "key": "password", "namespace": "x"},
         },
     )
     assert response.status_code == 400
