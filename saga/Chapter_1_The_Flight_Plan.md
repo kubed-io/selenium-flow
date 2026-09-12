@@ -2078,6 +2078,15 @@ Independent of everything above.
       `/browser/*` — its page template is shaped around a browser action and
       a `curl` to `/browser/{path}`. Split out of the skill PR so neither
       becomes the other's review
+- [ ] **Separate PR: the admin page is keyboard-operable as a whole.** Review
+      found this one layer at a time — round one named the accordion headers
+      and the file marks, round two named the flow list items, the step rows
+      and the modal — and taking a layer per round is how the page ends up
+      *less* consistent than it started, because only the named controls get
+      fixed. The fixed two are done; what is left is one decision applied
+      everywhere: how a list-like control on this page takes focus, plus a
+      modal with `role="dialog"`, `aria-modal`, an accessible name, and focus
+      moved in and restored on close. Do it as a pass, not as a patch
 - [ ] `CHANGELOG.md` `[Unreleased]` — one short line per user-visible thing, per
       PR, or `pr.yml` fails the gate
 - [ ] **Separate, last PR:** the `AGENTS.md` thinning (§F1.15)

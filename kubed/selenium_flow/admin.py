@@ -658,6 +658,23 @@ def register(
                 ) from None
             if not isinstance(document, dict):
                 raise ValueError("a flow document must be a YAML mapping")
+            # The file name is the flow's identity — `LocalFlowStore.get` says
+            # so, and overwrites whatever the document claims. So an edited
+            # `name:` cannot rename anything: without this the save reports
+            # success, the flow keeps its old name, and the file is left saying
+            # otherwise. Refusing is not a smaller feature than renaming, it is
+            # an honest one; a rename is a move to a new name and belongs with
+            # the move verb whenever someone wants it.
+            claimed = document.get("name")
+            if claimed is not None and flows.valid_name(
+                claimed, "flow name"
+            ) != flows.valid_name(name, "flow name"):
+                raise ValueError(
+                    f"this flow is called {name!r} and the file name is what "
+                    "names it, so the document cannot rename it. Put "
+                    f"{name!r} back, or delete this one and save a new flow "
+                    "under the name you want."
+                )
             flowdoc.validate(document, await schemas.get())
             # Written back where it already lives, so editing a shared flow
             # edits the shared one rather than silently forking a copy into

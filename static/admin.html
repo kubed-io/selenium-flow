@@ -520,8 +520,13 @@ function renderFlowPanel() {
     '<button type="button" data-edit>Edit YAML</button>' +
     // One verb, not two. `global` is a folder like any other, so the only
     // action is which folder it lives in, and the label flips with the answer.
-    '<button type="button" data-move>' +
-    (f.shared ? 'To this session' : 'To global') + '</button>' +
+    // Offered only when there are two folders to choose between: a session
+    // literally named `global` *is* the shared library, so both ends of the
+    // move are the same place and the button would be a no-op wearing the
+    // label of a real action.
+    (flowsData && flowsData.session === 'global' ? '' :
+      '<button type="button" data-move>' +
+      (f.shared ? 'To this session' : 'To global') + '</button>') +
     '<span class="grow"></span>' +
     '<button type="button" class="danger" data-drop>Delete</button>' +
     '</div></div>';

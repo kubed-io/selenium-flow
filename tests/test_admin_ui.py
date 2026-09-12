@@ -195,6 +195,14 @@ def test_only_shared_flows_are_badged(page):
     assert "(f.shared ? '&#127760; ' : '')" in page
 
 
+def test_there_is_no_move_button_when_both_ends_are_the_same_folder(page):
+    """`global` is a name a caller may legitimately choose, and such a session's
+    library *is* the shared one — so the move's source and target are the same
+    place. The server answers `moved: false`, correctly; offering the button at
+    all dresses a no-op as an action."""
+    assert "flowsData && flowsData.session === 'global' ? '' :" in page
+
+
 def test_the_move_button_is_one_verb_whose_label_flips(page):
     """There is no separate promote: a flow lives in exactly one directory, so
     the only action is which one (§F1.2)."""

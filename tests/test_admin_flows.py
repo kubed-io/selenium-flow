@@ -162,6 +162,43 @@ def test_an_empty_body_says_what_is_missing(client):
     assert "yaml is required" in response.json()["error"]
 
 
+def test_the_document_cannot_rename_the_flow(client, server):
+    """The file name is the identity — `LocalFlowStore.get` overwrites whatever
+    the document claims, so an edited `name:` renames nothing.
+
+    Without this the save reports success, the flow keeps the name it had, and
+    the file is left asserting a different one: a lie told twice. Refusing is
+    not a smaller feature than renaming, it is an honest one.
+    """
+    client.put(url("login"), json={"yaml": YAML}, headers=AUTH)
+    renamed = YAML.replace("name: login", "name: something-else")
+    response = client.put(url("login"), json={"yaml": renamed}, headers=AUTH)
+    assert response.status_code == 400
+    assert "cannot rename" in response.json()["error"]
+    assert "login" in response.json()["error"], "it should say which name to put back"
+    # And nothing was written: a refusal that half-applied would be worse than
+    # the silent rename it replaced.
+    assert "name: login" in server.flows.read_text(SESSION, "login")
+    assert server.flows.get(SESSION, "something-else") is None
+
+
+def test_a_document_that_does_not_name_itself_is_still_saveable(client, server):
+    """`name` is not required — the file supplies it. Only a *contradicting*
+    one is refused, or hand-writing a flow would mean repeating its name."""
+    body = "steps:\n- tool: navigate\n  params: {url: https://example.test/}\n"
+    assert client.put(url("login"), json={"yaml": body}, headers=AUTH).status_code == 200
+    assert server.flows.get(SESSION, "login")["name"] == "login"
+
+
+def test_saving_an_untouched_document_is_not_a_rename(client, server):
+    """The overwhelmingly common edit: open, change a selector, save. The
+    document still carries its own name and that must not read as a rename."""
+    client.put(url("login"), json={"yaml": YAML}, headers=AUTH)
+    edited = YAML.replace("https://example.test/login", "https://example.test/signin")
+    assert client.put(url("login"), json={"yaml": edited}, headers=AUTH).status_code == 200
+    assert "signin" in server.flows.read_text(SESSION, "login")
+
+
 def test_editing_a_shared_flow_edits_the_shared_one(client, server):
     """Not a fork. An operator opening a global flow, changing a selector and
     saving means "fix the shared login" — silently writing a private copy would
