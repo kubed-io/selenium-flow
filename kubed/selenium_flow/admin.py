@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import re
+from functools import wraps
 from pathlib import Path, PurePosixPath
 from urllib.parse import quote
 
@@ -191,16 +192,63 @@ def register(
     """
     console = console_url or os.environ.get("GRID_CONSOLE_URL", DEFAULT_CONSOLE_URL)
 
-    def counted(call, session: str) -> int:
-        """How many of something a session has, or 0 if the store cannot say."""
+    def named(call, session: str) -> list[str]:
+        """What a session has, by name, or nothing if the store cannot say.
+
+        Names rather than a count, because two of these lists overlap: keeping a
+        file copies it, so a kept file and its download share a name and adding
+        the two lengths counted it twice.
+        """
         try:
-            return len(call(session))
+            return [str(item.get("name", item)) if isinstance(item, dict) else str(item)
+                    for item in call(session)]
         except Exception:  # noqa: BLE001 - a count is not worth failing a listing
-            log.info("could not count %s for %s", call.__name__, session)
-            return 0
+            log.info("could not list %s for %s", call.__name__, session)
+            return []
+
+    def revision(session: str) -> str:
+        """A token that changes whenever this session's flows do.
+
+        A *count* cannot see an edit — the YAML changes and the number does not
+        — and editing is what the flows panel is for, so a page watching the
+        count would sit there showing a document that had already been replaced.
+        The store answers this; a backend that cannot is free to return its
+        count, and the panel degrades to what the file list already does.
+        """
+        if flow_store is None or session is None:
+            return ""
+        try:
+            return str(flow_store.revision(session))
+        except AttributeError:
+            # A backend that does not implement one. Falling back to the count
+            # is what makes the sentence above true: a constant here would make
+            # the page's stamp constant too, and it would never repaint again —
+            # which is the very bug this helper exists to fix, reintroduced
+            # silently for anyone whose store is not the local one.
+            return str(len(named(flow_store.names, session)))
+        except Exception:  # noqa: BLE001 - never worth failing a listing
+            log.info("could not read the flow revision for %s", session)
+            return ""
 
     def authorized(request: Request) -> bool:
         return auth.authorized(request, token)
+
+    def guarded(handler):
+        """Refuse a request with no token before the handler sees it.
+
+        A decorator rather than two lines at the top of each route, and the
+        reason is not the fourteen lines: every one of these returns data only
+        a token-holder may see, so the check has to be impossible to leave out
+        of the next one. Written per-route it was seven chances to forget.
+        """
+
+        @wraps(handler)
+        async def wrapper(request: Request):
+            if not authorized(request):
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
+            return await handler(request)
+
+        return wrapper
 
     @mcp.custom_route("/admin", methods=["GET"], name="admin_ui")
     async def admin_ui(_request: Request) -> HTMLResponse:
@@ -239,6 +287,12 @@ def register(
         except Exception as exc:  # noqa: BLE001 - the rows are still worth showing
             log.info("could not read the grid: %s", exc)
 
+        # Once per payload, not once per row: it is the same answer for every
+        # session, and inside the loop it made each heartbeat walk and stat the
+        # whole shared library once per session — O(sessions x shared flows) on
+        # a two-second poll.
+        shared_rev = revision(flows.GLOBAL_SESSION) if flow_store is not None else ""
+
         rows = []
         for key, record in sorted(records.items(), key=_recency, reverse=True):
             sid = record.session_id
@@ -248,9 +302,9 @@ def register(
                 # A file count per row is worth one call each: it is the reason
                 # to click into a session, so a list without it is guesswork.
                 try:
-                    downloads = len(actions.grid.files(sid))
+                    downloads = [f.get("name", "") for f in actions.grid.files(sid)]
                 except Exception:  # noqa: BLE001 - a session can end mid-call
-                    downloads = 0
+                    downloads = []
             # Downloads are countable only while a browser is attached; kept
             # files and flows belong to the session and are countable always.
             # So a detached session still reports a number, which is the whole
@@ -261,10 +315,41 @@ def register(
             # shared library's counts as though they were its own.
             session = flows.library_of(key)
             stores = flow_store is not None and session is not None
-            kept = counted(flow_store.files, session) if stores else 0
+            flow_names = named(flow_store.names, session) if stores else []
+            kept = named(flow_store.files, session) if stores else []
             count = None
+            files_rev = ""
             if live or stores:
-                count = (downloads or 0) + kept
+                # Distinct NAMES, not the two lengths added. Keeping a file is a
+                # copy, so a kept file whose download still exists is one file
+                # that was being counted twice — the list said 5 where the grid
+                # below it showed 3, and `files.merged` de-duplicates exactly
+                # this way. The page also keys its refresh off this number, so a
+                # wrong count was a wrong change signal as well as a wrong
+                # label.
+                count = len(set(downloads or []) | set(kept))
+                # And the stamp the page actually watches. A count cannot tell
+                # two of these apart: delete the kept copy of a name that is
+                # also a download and the union is still one file, while the
+                # grid switches from the kept entry to the download — different
+                # marks, different URL, different lifetime. So the state of each
+                # name goes in, not just how many there are (§F1.39).
+                #
+                # JSON rather than joining on a delimiter, because a FILE name
+                # is not ours to choose — `valid_file_name` permits `:` and `;`
+                # deliberately, since the site's Content-Disposition picked it.
+                # A kept file called `a:d;b` and the pair (download `a`, kept
+                # `b`) both flatten to `a:d;b:k`, so two different grids shared
+                # one token and the later one would not repaint. Flow names
+                # cannot do this — `NAME` has no punctuation to collide with —
+                # which is why `revision` may join and this may not.
+                kept_names = set(kept)
+                files_rev = json.dumps(
+                    sorted(
+                        [name, name in kept_names]
+                        for name in set(downloads or []) | kept_names
+                    )
+                )
             rows.append(
                 {
                     # The store key addresses the session on this API. It is not
@@ -282,22 +367,29 @@ def register(
                     "window": record.window,
                     "started": record.opened_at or None,
                     "files_count": count,
+                    "files_rev": files_rev,
                     # Beside the file count because it is the same kind of fact:
                     # what this session has accumulated, and the other reason to
                     # click into it. None when flows are off, which is not zero.
-                    "flows_count": (
-                        counted(flow_store.names, session) if stores else None
+                    "flows_count": (len(flow_names) if stores else None),
+                    # What the flows panel watches. A count cannot see an edit —
+                    # the YAML changes and the number does not — and editing is
+                    # the thing the panel is for, so a page keyed off the count
+                    # would sit there showing the old document. The revision
+                    # covers this session's library and the shared one, because
+                    # the panel lists both.
+                    "flows_rev": (
+                        revision(session) + "+" + shared_rev if stores else None
                     ),
-                    "kept_count": kept if stores else None,
+                    "kept_count": len(kept) if stores else None,
                     **_grid_facts(running.get(sid, {})),
                 }
             )
         return {"sessions": rows}
 
     @mcp.custom_route("/admin/sessions", methods=["GET"], name="admin_sessions")
+    @guarded
     async def admin_sessions(request: Request) -> JSONResponse:
-        if not authorized(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         payload = await run_in_threadpool(sessions_payload)
         # A signed URL for the event stream, because EventSource cannot send an
         # Authorization header — the same reason the file route is signed. It is
@@ -396,6 +488,7 @@ def register(
         methods=["DELETE"],
         name="admin_end_session",
     )
+    @guarded
     async def admin_end_session(request: Request) -> JSONResponse:
         """End the browser a flow session holds, keeping the session itself.
 
@@ -409,8 +502,6 @@ def register(
         only way one ends. It is the way that does not cost minutes of a scarce
         Grid slot while somebody waits.
         """
-        if not authorized(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         key = request.path_params["key"]
         session_id = attached_id(key)
         if not session_id:
@@ -447,9 +538,8 @@ def register(
         methods=["GET", "DELETE"],
         name="admin_files",
     )
+    @guarded
     async def admin_files(request: Request) -> JSONResponse:
-        if not authorized(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         key = request.path_params["key"]
         # A session whose name cannot be a directory keeps nothing, so it has no
         # kept files to merge — and must not be shown the shared library's.
@@ -512,11 +602,10 @@ def register(
         methods=["POST"],
         name="admin_keep_file",
     )
+    @guarded
     async def admin_keep_file(request: Request) -> JSONResponse:
         """Copy one download into the session's own store, so it outlives the
         browser. There is no matching unkeep: see ``files.py``."""
-        if not authorized(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         key = request.path_params["key"]
         name = request.path_params["name"]
         try:
@@ -539,11 +628,10 @@ def register(
         methods=["DELETE"],
         name="admin_delete_file",
     )
+    @guarded
     async def admin_delete_file(request: Request) -> JSONResponse:
         """Delete one KEPT file. A download cannot be deleted singly — the Grid
         offers no such operation — so this refuses rather than pretending."""
-        if not authorized(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         key = request.path_params["key"]
         name = request.path_params["name"]
         try:
@@ -583,6 +671,7 @@ def register(
     @mcp.custom_route(
         "/admin/sessions/{key}/flows", methods=["GET"], name="admin_flows"
     )
+    @guarded
     async def admin_flows(request: Request) -> JSONResponse:
         """What this session can run: its own flows, plus the shared library.
 
@@ -590,8 +679,6 @@ def register(
         library from the one a run would actually use — each entry says which
         it came from, which is what the UI marks with a globe.
         """
-        if not authorized(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         key = request.path_params["key"]
         session = flows.library_of(key)
         # Flows off, or a session whose name cannot be a directory: an empty
@@ -600,17 +687,37 @@ def register(
             return JSONResponse(
                 {"key": key, "session": session, "enabled": False, "flows": []}
             )
+        # Read BEFORE the listing, deliberately. An edit landing between the two
+        # would otherwise pair the old summaries with the new revision — the
+        # page records that token, sees no change on the next poll, and keeps
+        # showing what it was already showing. This order errs the other way: a
+        # token older than the listing costs one redundant refresh.
+        rev = await run_in_threadpool(
+            lambda: revision(session) + "+" + revision(flows.GLOBAL_SESSION)
+        )
         try:
             payload = await run_in_threadpool(flowapi.catalogue, flow_store, session)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return refused(exc, f"flows for {key}")
-        return JSONResponse({"key": key, "enabled": True, **payload})
+        # The revision this listing was built from, so the page can record what
+        # it is showing and repaint only when that changes — the same shape the
+        # file listing uses, and self-correcting: a failed load records nothing
+        # and is retried on the next poll.
+        return JSONResponse(
+            {
+                "key": key,
+                "enabled": True,
+                "rev": rev,
+                **payload,
+            }
+        )
 
     @mcp.custom_route(
         "/admin/sessions/{key}/flows/{name}",
         methods=["GET", "PUT", "DELETE"],
         name="admin_flow",
     )
+    @guarded
     async def admin_flow(request: Request) -> JSONResponse:
         """Read, rewrite or remove one flow.
 
@@ -620,8 +727,6 @@ def register(
         validated against the live step schemas first, exactly as `save_flow`
         is, so the editor cannot store something that would not run.
         """
-        if not authorized(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         key = request.path_params["key"]
         name = request.path_params["name"]
         try:
@@ -697,6 +802,7 @@ def register(
         methods=["POST"],
         name="admin_move_flow",
     )
+    @guarded
     async def admin_move_flow(request: Request) -> JSONResponse:
         """Move one flow into another library.
 
@@ -707,8 +813,6 @@ def register(
         flow between two sessions therefore needs no new mechanism: push it to
         `global` from one and claim it from the other.
         """
-        if not authorized(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         key = request.path_params["key"]
         name = request.path_params["name"]
         try:

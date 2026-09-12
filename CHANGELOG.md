@@ -51,6 +51,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The admin UI shows flows as they change**, instead of only when you reopen the session.
+
+- **The session list counts each file once**, where a kept file and its download were counted twice.
+
+- **`Clear downloads` says what happens to each file**: which are gone and which survive as kept copies.
+
 - **A browser stays usable after logging in.** Chrome's "Save password?" prompt took the keyboard and mouse for itself, so every click and keystroke after a login silently did nothing — while every call still reported success.
 
 ### Changed

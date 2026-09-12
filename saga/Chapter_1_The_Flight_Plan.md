@@ -33,9 +33,26 @@
 
 ---
 
-## Status: **OPEN** — 2026-09-10
+## Status: **OPEN — building, not finished** — updated 2026-09-12
 
-Design and planning only. No code has been written for this feature.
+This chapter began as design only and is now mostly built and deployed. The
+planning passes below are kept as written, because the reasoning is the point
+and a plan edited to match what shipped teaches nothing. Where the build
+overruled the plan, the section says so rather than being rewritten — §F1.37
+and §F1.38 are both of those.
+
+**What is flying** (E0, E2, E3, E4, E7, E9, E10, and E6's UI and wiki): saved
+flows with parameters and secrets, kept files, the admin UI, the secrets
+catalogue and binding, the skill, and the documentation. Everything in this list
+has been driven against the live Grid, not only tested.
+
+**What is left** is listed under *Open questions* and in the epics that still
+carry unticked boxes — E5 (`ROUTE_PREFIX`), E8 (Kubernetes secrets), E11
+(URL-scoped flows), the detached-browser state in §F1.36, and an accessibility
+pass over the admin page. None of them blocks the others.
+
+**Not closed**, and deliberately: E5 has a deployment attached, and a chapter
+closed while a rollout is outstanding is a chapter that gets reopened.
 
 **Second pass, same day.** Dr K answered the four blocking forks and added the
 `global` session; the sections below carry the answers and say where they
@@ -2378,11 +2395,12 @@ Named so nobody has to ask:
   have used `execute_script`.
 - **No scheduling.** Nothing here runs a flow on a timer. That is n8n's job, and
   n8n can already POST to `/flows/run`.
-- **No templating, in anything, ever.** §F1.7 is structural references only. A
-  flow cannot compose a string from parts; if a value needs composing, the
-  caller composes it and passes it as a parameter.
-- **No flow calling another flow.** Closed as question #4: a flow is a wizard,
-  not a program. Compose them in something built to compose.
+- ~~**No templating, in anything, ever.**~~ **Overturned by §F1.38**, and worth
+  leaving visible rather than deleting: the rule was right about *secrets* and
+  wrong about *parameters*, and holding both to it cost a real capability — one
+  bindable argument per action, so a flow could vary what it typed and never
+  where it went. A parameter is now `${name}` in any argument. A **secret** is
+  still never part of a string, which is the half the rule was protecting.
 - **No secret writing, and no ConfigMaps.** Part III is a read-only catalogue
   and one binding. Creating a secret is question #10; ConfigMaps are designed in
   §F1.31 and deliberately deferred.
@@ -2393,9 +2411,48 @@ Named so nobody has to ask:
   not a program. Compose them in something built to compose — n8n can POST to
   `/flows/run`.
 
+### §F1.39 — What flying it taught, and what Chapter 2 inherits
+
+Not a conclusion — the chapter is still open — but the findings are worth
+collecting while they are fresh, because they are about *method* rather than
+about flows.
+
+**Four defects reached production-shaped code and were found by driving it, not
+by reading it.** The password bubble (§F1.37), the screenshot that would not say
+what it saved, the admin panel that never repainted its flows, and a file count
+that said five where the grid showed three. Every one needed a real browser, a
+real Grid or a real operator watching a real page. None was reachable from the
+unit suite, and the suite was green throughout.
+
+So: **a feature epic is not done when the tests pass. It is done when somebody
+has used it.** That is now the last item of every epic rather than the last item
+of the chapter.
+
+**The recurring defect class did not change all chapter: a rule written more
+than once drifts.** Three session resolvers needing one stdio rule; two
+surfaces describing `screenshot`; the wiki naming `keep_file` on a page that did
+not exist; `writeOnly` accepted in one place and implemented in none; a count
+computed two ways. The cure each time was to make the second copy impossible,
+not to correct it — one `library_of`, one `x-mcp-tool`, one `json_request`, one
+`@guarded`.
+
+**And its twin, found late: a rule enforced at save time is not enforced.**
+`LocalFlowStore` reads YAML nobody validated, so every rule that protects a
+secret is checked again at the moment it is used. Three separate findings were
+this same shape.
+
+**What Chapter 2 inherits.** The two things this chapter deliberately would not
+build: a step reading another step's output, and anything resembling control
+flow. Both were refused for the same reason — *a flow is a wizard, not a
+program* — and both will be asked for again the moment somebody wants a flow to
+branch on what it found. The answer is not "add an `if`"; it is that n8n already
+composes, and `/flows/run` is a POST.
+
+
 ---
 
-> **Next:** §F1.11 is the last fork with a deployment attached — confirm the
-> `ROUTE_PREFIX` rollout order — and E1 starts. Everything else is written down.
+> **Next:** §F1.11 is still the last fork with a deployment attached — confirm
+> the `ROUTE_PREFIX` rollout order — and it is the reason this chapter stays
+> open. Everything else either shipped or is written down.
 >
 > The aircraft are fine. It is the paperwork we are fixing. 🛫

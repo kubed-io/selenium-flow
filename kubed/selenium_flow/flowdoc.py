@@ -349,8 +349,7 @@ def _check_params(where: str, tool: str, params: dict, bound: set[str], schema: 
         if name in params:
             problems.append(
                 f"{where}: {name} is given literally and by a secret — one "
-                "value, one place. Kubernetes spells this the same way: value "
-                "and valueFrom are mutually exclusive"
+                "value, one place. Give the text or the secret, not both"
             )
 
     # Arguments a tool needs but its JSON schema cannot demand, because they

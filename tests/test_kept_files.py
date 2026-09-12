@@ -877,3 +877,79 @@ async def test_every_file_operation_declares_the_grids_failure_modes(spec):
     for path in files.FILE_ENDPOINTS:
         responses = spec["paths"][f"/files/{path}"]["post"]["responses"]
         assert set(responses) == {"200", "400", "401", "404", "500", "503"}, path
+
+
+def test_the_session_row_counts_distinct_files_not_both_lists(client, live):
+    """Keeping is a copy, so a kept file and its download share a name. Adding
+    the two lengths counted it twice — the list said 5 where the grid below it
+    showed 3 — and the page keys its refresh off this number, so a wrong count
+    was a wrong change signal as well as a wrong label."""
+    live.flows.write_file(SESSION, "report.pdf", b"kept copy")
+    with (
+        patch.object(browser.Grid, "sessions", return_value=[{"session_id": "abc"}]),
+        patch.object(browser.Grid, "is_alive", return_value=True),
+        patch.object(browser.Grid, "files", return_value=DOWNLOADS),
+    ):
+        row = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
+        body = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH).json()
+
+    # Two downloads, one of them kept under the same name: two files, not three.
+    assert row["files_count"] == 2
+    assert row["kept_count"] == 1
+    assert row["files_count"] == len(body["files"]), "the row and the grid disagree"
+
+
+def test_the_file_stamp_notices_a_kept_copy_being_deleted(client, live):
+    """A count cannot tell these apart. `report.pdf` exists as a download and
+    as a kept copy; deleting the kept one leaves the union at two files while
+    the grid switches that tile from a pin to a bubble — different marks, a
+    different URL, a different lifetime. The page would have gone on showing a
+    kept file that no longer existed."""
+    live.flows.write_file(SESSION, "report.pdf", b"kept copy")
+    with (
+        patch.object(browser.Grid, "sessions", return_value=[{"session_id": "abc"}]),
+        patch.object(browser.Grid, "files", return_value=DOWNLOADS),
+    ):
+        before = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
+        live.flows.delete_file(SESSION, "report.pdf")
+        after = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
+
+    assert before["files_count"] == after["files_count"], "the count is why it is not enough"
+    assert before["files_rev"] != after["files_rev"]
+
+
+def test_the_file_stamp_cannot_be_forged_by_a_files_own_name(client, live):
+    """`valid_file_name` permits `:` and `;` on purpose — the site's
+    Content-Disposition chose the name, not us — so a delimiter-joined token is
+    not injective. A kept file called `a:d;b` and the pair (download `a`, kept
+    `b`) both flatten to `a:d;b:k`: two different grids, one token, and the
+    second one never repaints."""
+    live.flows.write_file(SESSION, "a:d;b", b"x")
+    with (
+        patch.object(browser.Grid, "sessions", return_value=[{"session_id": "abc"}]),
+        patch.object(browser.Grid, "files", return_value=[]),
+    ):
+        forged = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
+
+    live.flows.delete_file(SESSION, "a:d;b")
+    live.flows.write_file(SESSION, "b", b"x")
+    with (
+        patch.object(browser.Grid, "sessions", return_value=[{"session_id": "abc"}]),
+        patch.object(
+            browser.Grid, "files",
+            return_value=[{"name": "a", "size": 1, "creationTime": 1}],
+        ),
+    ):
+        real = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
+
+    # The delimiter-joined form these replaced: same token for both grids.
+    def joined(row_kept, row_downloads):
+        return ";".join(
+            sorted(f"{n}:{'k' if k else 'd'}" for n, k in row_kept + row_downloads)
+        )
+
+    assert joined([("a:d;b", True)], []) == joined([("b", True)], [("a", False)])
+    # And the tokens actually served, which do not. `filesStamp` is built from
+    # this alone — the count is not in it — so a collision here is a panel that
+    # never repaints, whatever the counts happen to be.
+    assert forged["files_rev"] != real["files_rev"]

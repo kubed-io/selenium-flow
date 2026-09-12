@@ -74,8 +74,10 @@ def test_a_late_reply_cannot_render_one_session_under_another(page):
     for loader in ("loadFiles", "loadFlows"):
         body = page.split(f"async function {loader}(key)")[1].split("\n}\n")[0]
         # Twice each: the success path and the catch. An error from A must not
-        # blank B's panel any more than A's data may fill it.
-        assert body.count("if (gone(key)) return;") == 2, loader
+        # blank B's panel any more than A's data may fill it. The guard also
+        # carries the sequence check — see the overlap test below — so it is
+        # `gone(key)` that is asserted rather than the whole condition.
+        assert body.count("gone(key)") == 2, loader
 
 
 def test_a_late_flow_cannot_overwrite_the_one_you_just_picked(page):
@@ -156,7 +158,7 @@ def test_only_a_kept_file_offers_a_delete(page):
 def test_clearing_downloads_lists_the_names_it_will_remove(page):
     """"Delete 12 files?" without saying which twelve is an assertion rather
     than a disclosure. The scope is shown."""
-    assert "downloads.map((n) => '<li>' + SF.esc(n) + '</li>')" in page
+    assert "downloads.map((n) => '<li>' + SF.esc(n)" in page
 
 
 def test_the_clear_confirm_does_not_build_its_list_from_the_merged_files(page):
@@ -168,10 +170,23 @@ def test_the_clear_confirm_does_not_build_its_list_from_the_merged_files(page):
     assert "filter((f) => !f.kept)" not in page
 
 
-def test_clearing_says_kept_files_are_untouched(page):
-    """The objection that condemned the old button. It cannot happen once
-    keeping is a copy, and the confirm is where that gets said."""
-    assert "not</strong> touched" in page
+def test_clearing_says_what_happens_to_each_name(page):
+    """Listing every download and then saying kept files are untouched put a
+    sentence and a list in contradiction on one screen: a kept file's NAME is
+    in the deletion list, because its download really is deleted — and the file
+    really does survive. Omitting those names would under-report what the
+    button does, so the fate is said per row instead."""
+    assert "keptNames.indexOf(n) === -1" in page
+    assert "— gone" in page
+    assert "kept copy stays" in page
+    # And the list is still every download, because every download is deleted.
+    assert "filter((f) => !f.kept)" not in page
+
+
+def test_the_kept_names_come_from_the_merged_listing(page):
+    """`data.downloads` is what the Grid holds; which of those also survive is
+    only knowable from the merged list's `kept` flag."""
+    assert "(data.files || []).filter((f) => f.kept).map((f) => f.name)" in page
 
 
 # ---- flows ------------------------------------------------------------------
@@ -248,3 +263,54 @@ def test_the_page_surfaces_the_servers_own_message(page):
     says none of that."""
     assert "said = (await res.json()).error" in page
     assert "said || 'request failed ('" in page
+
+
+# ---- the panel that never repainted -----------------------------------------
+
+
+def test_the_flows_panel_repaints_when_the_flows_change(page):
+    """The bug a live server showed and no test could: sessions and files were
+    pushed and applied, flows were pushed and *ignored*. `flows_count` had been
+    in every heartbeat since the panel shipped and nothing read it — so a flow
+    appearing or vanishing was invisible until you left the session and came
+    back."""
+    body = page.split("function refreshDetail")[1].split("\n}\n")[0]
+    assert "loadFiles(current)" in body, "the file half is the pattern to match"
+    assert "loadFlows(current)" in body
+
+
+def test_neither_stamp_is_a_count(page):
+    """Both panels watch a state token. A count cannot see a flow edited in
+    place, and it cannot see a kept copy deleted while its download remains —
+    in each case the number holds still while what is on screen changes."""
+    assert "row.files_rev" in page
+    assert "row.flows_rev" in page
+
+
+def test_the_flows_stamp_is_not_a_count(page):
+    """A flow edited in place keeps its name and its step count, and editing is
+    what the panel is for — so a page watching the number would sit showing a
+    document the server had already replaced."""
+    assert "const flowsStamp = (row) => row.flows_rev;" in page
+    assert "shownFlows = data.rev || null;" in page
+
+
+def test_opening_a_session_forgets_what_the_last_one_showed(page):
+    """Every stamp resets together, or the new session inherits the old one's
+    and the first repaint is skipped."""
+    assert "shownFiles = shownBrowser = shownFlows = null;" in page
+
+
+def test_two_loads_of_the_same_panel_cannot_race_each_other(page):
+    """`gone` does not catch this: both requests are for the *current* session,
+    so a slow one for revision A can land after a fast one for B and render A's
+    data while recording A's token. The heartbeat does correct it — the row
+    still carries B — but only after showing the wrong thing and spending an
+    extra fetch. The last request issued is the only one allowed to render."""
+    assert "let filesSeq = 0, flowsSeq = 0;" in page
+    for loader, seq in (("loadFiles", "filesSeq"), ("loadFlows", "flowsSeq")):
+        body = page.split(f"async function {loader}(key)")[1].split("\n}\n")[0]
+        assert f"const mine = ++{seq};" in body, loader
+        # Both halves, as with `gone`: a late error must not paint over a
+        # newer success either.
+        assert body.count(f"mine !== {seq}") == 2, loader

@@ -10,11 +10,13 @@ wrote these documents, comments included, and a save that round-tripped through
 a parsed dict would quietly throw their comments and ordering away.
 """
 
+from unittest.mock import patch
 from urllib.parse import quote
 
 import pytest
 from starlette.testclient import TestClient
 
+from kubed.selenium_flow import flows
 from kubed.selenium_flow.flows import GLOBAL_SESSION
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.store import SessionRecord
@@ -296,3 +298,92 @@ def test_moving_a_flow_that_is_not_there_says_where_to_look(client):
     )
     assert response.status_code == 400
     assert "no flow called" in response.json()["error"]
+
+
+# ---- what the page watches ---------------------------------------------------
+
+
+def test_the_listing_carries_the_revision_it_was_built_from(client, server):
+    """The page records this and repaints only when it changes, so a failed
+    load records nothing and is retried on the next poll."""
+    client.put(url("login"), json={"yaml": YAML}, headers=AUTH)
+    body = client.get(url(), headers=AUTH).json()
+    assert body["rev"]
+
+
+def test_the_revision_changes_when_a_flow_is_edited_in_place(client, server):
+    """The case a count cannot see, and the one the panel is for. The name and
+    the step count are identical after an edit; only the document moved."""
+    client.put(url("login"), json={"yaml": YAML}, headers=AUTH)
+    before = client.get(url(), headers=AUTH).json()
+    edited = YAML.replace("https://example.test/login", "https://example.test/signin")
+    client.put(url("login"), json={"yaml": edited}, headers=AUTH)
+    after = client.get(url(), headers=AUTH).json()
+
+    assert after["count"] == before["count"], "the count is why a count is not enough"
+    assert after["rev"] != before["rev"]
+
+
+def test_the_revision_follows_the_shared_library_too(client, server):
+    """The panel lists this session's flows AND the shared ones, so a change an
+    operator makes to `global` in another tab has to reach this page."""
+    before = client.get(url(), headers=AUTH).json()["rev"]
+    server.flows.save(GLOBAL_SESSION, "cookie-banner", {"steps": []})
+    assert client.get(url(), headers=AUTH).json()["rev"] != before
+
+
+def test_a_store_with_no_revision_falls_back_to_its_count(client, server):
+    """The docstring promises the panel "degrades to what the file list already
+    does". Returning a constant instead would make the page's stamp constant and
+    it would never repaint — the bug this mechanism exists to fix, reintroduced
+    silently for any store that is not the local one.
+
+    Patched on the CLASS, not by reassigning `server.flows`: `admin.register`
+    captured the store object at construction, so swapping the attribute
+    afterwards left the route using the real one and the test passed without
+    ever reaching the branch it names.
+    """
+    server.flows.save(SESSION, "one", {"steps": []})
+    with patch.object(
+        flows.LocalFlowStore, "revision", side_effect=AttributeError("revision")
+    ):
+        one = client.get(url(), headers=AUTH).json()["rev"]
+        server.flows.save(SESSION, "two", {"steps": []})
+        two = client.get(url(), headers=AUTH).json()["rev"]
+
+    # The count, twice — this session's and the shared library's — which is what
+    # the fallback returns, and proof the branch was taken rather than the real
+    # revision being read.
+    assert one == "1+0"
+    assert two == "2+0"
+
+def test_the_shared_revision_is_read_once_per_payload(client, server, monkeypatch):
+    """It is the same answer for every row, and inside the loop each heartbeat
+    walked and stat-ed the whole shared library once per session — O(sessions x
+    shared flows) on a two-second poll."""
+    for n in range(3):
+        server.sessions.store.set(f"named:s{n}", SessionRecord(session_id=""))
+    seen = []
+    real = server.flows.revision
+    monkeypatch.setattr(
+        server.flows, "revision", lambda s: (seen.append(s), real(s))[1], raising=False
+    )
+    client.get("/admin/sessions", headers=AUTH)
+    assert seen.count(GLOBAL_SESSION) == 1, seen
+
+
+def test_the_revision_is_read_before_the_listing(client, server, monkeypatch):
+    """An edit landing between the two would otherwise pair the old summaries
+    with the new revision — the page records that token, sees no change next
+    poll, and keeps showing what it already had. This order costs one redundant
+    refresh instead of suppressing a real one."""
+    order = []
+    real_rev, real_cat = server.flows.revision, server.flows.summaries
+    monkeypatch.setattr(
+        server.flows, "revision", lambda s: (order.append("rev"), real_rev(s))[1]
+    )
+    monkeypatch.setattr(
+        server.flows, "summaries", lambda s: (order.append("list"), real_cat(s))[1]
+    )
+    client.get(url(), headers=AUTH)
+    assert order and order[0] == "rev", order

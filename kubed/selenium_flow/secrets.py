@@ -473,10 +473,7 @@ def register(mcp, catalogue, sessions, token: str | None, prefix: str = "") -> s
 
     def listing() -> dict:
         if catalogue is None:
-            raise ValueError(
-                "secrets are not enabled on this server: it was started with no "
-                "SECRETS_DIRS, so there is nowhere to read them from"
-            )
+            raise ValueError(OFF)
         from .flows import session_for
 
         return catalogue.listing(session_for(sessions.key()))
@@ -520,6 +517,14 @@ def register(mcp, catalogue, sessions, token: str | None, prefix: str = "") -> s
 # session record, which is stored in Redis. Not `press_key`, which has no value
 # to carry. `upload_file` says "not yet" rather than "never" — a credentials
 # file is a plausible later case.
+# Said by both surfaces that can meet a server with no catalogue — the listing
+# and the bind — and raised as two different exception types, which is why it
+# was written twice and why the two could drift.
+OFF = (
+    "secrets are not enabled on this server: it was started with no "
+    "SECRETS_DIRS, so there is nowhere to read them from"
+)
+
 BINDABLE = {"write"}
 NOT_YET = {"upload_file"}
 
@@ -568,10 +573,7 @@ def bind(catalogue, reference, url: str, tool: str = "write") -> str:
             "only action that types a value into a field and nothing else"
         )
     if catalogue is None:
-        raise Refused(
-            "secrets are not enabled on this server: it was started with no "
-            "SECRETS_DIRS, so there is nowhere to read them from"
-        )
+        raise Refused(OFF)
     entry = catalogue.entry(name)
     if entry is None:
         raise Refused(

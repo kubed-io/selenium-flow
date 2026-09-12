@@ -480,11 +480,11 @@ async def _document_schema(schemas: Schemas) -> dict:
                     "required": ["tool"],
                     "properties": {
                         "tool": {"type": "string", "enum": sorted(steps)},
-                        # No `valueFrom` here: it is a parameter, so it lives
-                        # in `params` and the per-action schemas below describe
-                        # it. A step key would be a second place to say it, and
-                        # a caller following this resource would have built a
-                        # document save_flow rejects.
+                        # No `secret` here: it is an argument of `write`, so
+                        # it lives in `args` and the per-action schemas below
+                        # describe it. A step key would be a second place to
+                        # say it, and a caller following this resource would
+                        # have built a document save_flow rejects.
                         "args": {"type": "object"},
                         "id": {"type": "string"},
                         "note": {"type": "string"},
@@ -532,16 +532,9 @@ def _routes(
     """The same five operations as plain JSON, for callers that are not MCP."""
 
     async def handle(request: Request, what: str) -> JSONResponse:
-        if not auth.authorized(request, token):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
-        try:
-            body = await request.json()
-        except Exception:  # noqa: BLE001 - an empty body is fine for list
-            body = {}
-        if not isinstance(body, dict):
-            return JSONResponse(
-                {"error": "body must be a JSON object"}, status_code=400
-            )
+        body, refused = await auth.json_request(request, token)
+        if refused:
+            return refused
         try:
             session = session_of(sessions, body.get("session"))
             if what == "list":
