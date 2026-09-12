@@ -35,10 +35,10 @@
 # been configuring all along.
 #
 # Measured end to end, multi-arch: 9m30 before, 4m15 once the duplicate install
-# was gone, and ~2m20 once the cache actually hit — 139s and 145s over two
-# runs, both with 9 CACHED layers and nothing reinstalled. The two effects are
-# independent, and the first needs no cache at all, which is why they are
-# described separately.
+# was gone, and ~2m10 once the cache actually hit — 128s, 139s and 145s over
+# three runs, each with 9 CACHED layers and nothing reinstalled. The two
+# effects are independent, and the first needs no cache at all, which is why
+# they are described separately.
 ARG PY_VERSION=3.14
 
 # ---- builder: the FAT image, because nothing in it ships.
