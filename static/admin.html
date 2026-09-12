@@ -134,7 +134,7 @@ const gone = (key) => key !== current;
    next heartbeat does correct it — the row still carries B — but only after
    showing the wrong thing and spending an extra fetch. A sequence number makes
    the last request issued the only one allowed to render. */
-let filesSeq = 0, flowsSeq = 0;
+let filesSeq = 0, flowsSeq = 0, flowDocSeq = 0;
 
 // sessionStorage, not localStorage: this is the server's full-privilege token,
 // so it should not outlive the tab someone typed it into.
@@ -514,18 +514,24 @@ async function openFlow(name) {
    handled where it shows: the pane says it is gone. */
 async function loadFlow(name) {
   const key = current;
+  // Its OWN generation, not the listing's. Every accepted listing starts one of
+  // these for the same flow, so two can be in flight at once — and guarding
+  // only on the name lets the older answer land last and sit there, because
+  // `shownFlows` has already moved on and nothing will fetch again. That is an
+  // Edit button handing back YAML older than the file.
+  const mine = ++flowDocSeq;
   let doc;
   try {
     doc = await api(sessionPath(key, '/flows/' + encodeURIComponent(name)));
   } catch (e) {
     // Also guarded on `flowName`: picking B while A is in flight must not leave
     // A's error sitting in B's panel.
-    if (gone(key) || flowName !== name) return;
+    if (gone(key) || mine !== flowDocSeq || flowName !== name) return;
     const panel = $('flowpanel');
     if (panel) panel.innerHTML = '<div class="empty error">' + SF.esc(e.message) + '</div>';
     return;
   }
-  if (gone(key) || flowName !== name) return;
+  if (gone(key) || mine !== flowDocSeq || flowName !== name) return;
   flowDoc = doc;
   renderFlowPanel();
 }
@@ -535,6 +541,16 @@ async function loadFlow(name) {
    types a credential nobody can see. Only `write` has that argument. */
 const bindsSecret = (step) =>
   !!(step && step.args && step.args.secret);
+
+/* A stored flow is a file a person edits (§F1.6), and nothing validates its
+   shape on the way out — so `steps: {}`, `parameters: 1` and `required: 1` all
+   reach the panel. Read as arrays they throw, and the panel dies: which is the
+   worst possible moment for it, because the panel is where you go to open the
+   YAML editor and FIX them. These two say what a thing has to be to be used as
+   one. */
+const mapping = (v) =>
+  v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+const listed = (v) => (Array.isArray(v) ? v : []);
 
 /* Look a name up in a plain object without finding what Object gave it. These
    keys come out of a YAML file a person edits (§F1.6), so `tool: constructor`
@@ -635,7 +651,7 @@ const pair = (k, v) =>
    written, `${name}` references included, because seeing which arguments a
    parameter reaches is the point of reading the step at all. */
 function argsOf(step) {
-  const args = step.args || {};
+  const args = mapping(step.args);
   const keys = Object.keys(args);
   if (!keys.length) return '<div class="hint">This step takes nothing.</div>';
   return '<div class="pairs">' + keys.map((k) => {
@@ -650,7 +666,7 @@ function argsOf(step) {
    adds the two things the row dropped — the step's number and its tool — so
    the pane stands on its own and so the row never has to carry them. */
 function stepDetail(f, i) {
-  const s = (f.steps || [])[i];
+  const s = listed(f.steps)[i];
   if (!s) return '<div class="hint">That step is gone.</div>';
   const tool = s.tool || '?';
   return '<div class="dhead"><span class="n">' + (i + 1) + '</span>'
@@ -678,11 +694,11 @@ function stepDetail(f, i) {
    almost always a typo in a step, so it is called out rather than left as an
    empty section someone has to interpret. */
 function paramDetail(f, name) {
-  const spec = own((f.parameters || {}).properties || {}, name);
+  const spec = own(mapping(mapping(f.parameters).properties), name);
   if (!spec) return '<div class="hint">That parameter is gone.</div>';
-  const required = ((f.parameters || {}).required || []).indexOf(name) !== -1;
-  const steps = f.steps || [];
-  const used = own(f.uses || {}, name) || [];
+  const required = listed(mapping(f.parameters).required).indexOf(name) !== -1;
+  const steps = listed(f.steps);
+  const used = listed(own(mapping(f.uses), name));
   return '<div class="dhead"><span class="chip">' + SF.esc(name) + '</span>'
     + (spec.type ? '<span class="ty">' + SF.esc(spec.type) + '</span>' : '')
     + '<span class="grow"></span>'
@@ -729,9 +745,9 @@ function renderFlowPanel() {
     el.innerHTML = '<div class="empty">Loading…</div>';
     return;
   }
-  const steps = f.steps || [];
-  const declared = (f.parameters || {}).properties || {};
-  const required = (f.parameters || {}).required || [];
+  const steps = listed(f.steps);
+  const declared = mapping(mapping(f.parameters).properties);
+  const required = listed(mapping(f.parameters).required);
   const names = Object.keys(declared);
   // One verb, not two. `global` is a folder like any other, so the only action
   // is which folder it lives in, and the ICON is the destination rather than

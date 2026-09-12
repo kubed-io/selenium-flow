@@ -209,6 +209,22 @@ def test_a_malformed_parameters_block_still_opens(client, server, parameters):
     assert response.json()["uses"] == {}
 
 
+@pytest.mark.parametrize("steps", ["1", "{}", "a string"])
+def test_a_steps_block_that_is_not_a_list_still_opens(client, server, steps):
+    """`enumerate` raises on a non-list, which is the same 500 as the
+    `parameters` case one level down. `_step_count` already keeps such a flow in
+    the catalogue with a count of 0 rather than dropping it, so the listing
+    offers a flow the detail route could not open."""
+    server.flows.write_text(
+        SESSION,
+        "wonky",
+        f"name: wonky\nparameters:\n  properties:\n    term: {{type: string}}\nsteps: {steps}\n",
+    )
+    response = client.get(url("wonky"), headers=AUTH)
+    assert response.status_code == 200, response.text
+    assert response.json()["uses"] == {"term": []}
+
+
 def test_a_step_that_is_not_a_mapping_does_not_stop_the_others(client, server):
     """Same reason, one level down: a hand-edited `steps:` can hold a bare
     string, and losing the whole document to it would hide the rest of the

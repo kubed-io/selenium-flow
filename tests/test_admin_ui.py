@@ -84,9 +84,13 @@ def test_a_late_reply_cannot_render_one_session_under_another(page):
 
 def test_a_late_flow_cannot_overwrite_the_one_you_just_picked(page):
     """Picking A then B, with A slow, resolved A last and left B's name beside
-    A's document — or, on the error path, B's panel stuck loading forever."""
-    assert "if (gone(key) || flowName !== name) return;" in page
-    assert page.count("if (gone(key) || flowName !== name) return;") == 2
+    A's document — or, on the error path, B's panel stuck loading forever.
+
+    The name is still checked as well as the generation, because they answer
+    different questions: the generation says "a newer fetch exists", the name
+    says "this is not the flow on screen"."""
+    guard = "if (gone(key) || mine !== flowDocSeq || flowName !== name) return;"
+    assert page.count(guard) == 2
 
 
 def test_the_last_page_gets_a_row_of_its_own_and_is_a_link(components):
@@ -339,9 +343,9 @@ def test_a_document_lookup_cannot_find_what_object_gave_it(page):
     keyed by something out of the document goes through `own`."""
     assert "Object.prototype.hasOwnProperty.call(map, key)" in page
     for lookup in ("own(TOOL_ICON, tool)", "own(TYPE_ICON, ty)",
-                   "own(f.uses || {}, name)"):
+                   "own(mapping(f.uses), name)"):
         assert lookup in page, lookup
-    assert "own((f.parameters || {}).properties || {}, name)" in page
+    assert "own(mapping(mapping(f.parameters).properties), name)" in page
 
 
 def test_a_listing_refresh_carries_the_open_flow_with_it(page):
@@ -368,6 +372,34 @@ def test_a_refresh_is_not_a_click(page):
     assert "picked" not in fetcher and "renderFlows()" not in fetcher
 
 
+def test_a_document_fetch_has_its_own_generation(page):
+    """Every accepted listing starts a document fetch for the same flow, so two
+    can be in flight at once. Guarded only on the name, the older answer can
+    land last and then STAY — `shownFlows` has already moved on, so nothing
+    fetches again. That is an Edit button handing back YAML older than the file,
+    which a save would then write back over the newer one."""
+    assert "let filesSeq = 0, flowsSeq = 0, flowDocSeq = 0;" in page
+    fetcher = page.split("async function loadFlow(name)")[1].split("\n}\n")[0]
+    assert "const mine = ++flowDocSeq;" in fetcher
+    # Both paths, or an error from the stale one blanks the fresh panel.
+    assert fetcher.count("mine !== flowDocSeq") == 2
+
+
+def test_a_malformed_document_does_not_take_the_panel_with_it(page):
+    """`steps: {}` and `required: 1` are what a hand-edited file can hold, and
+    `.map`/`.indexOf` on them throw. The panel dying is the worst case: it is
+    where the operator goes to open the YAML editor and fix exactly that."""
+    assert "const listed = (v) => (Array.isArray(v) ? v : []);" in page
+    assert "const mapping = (v) =>" in page
+    panel = page.split("function renderFlowPanel()")[1].split("\n}\n")[0]
+    assert "const steps = listed(f.steps);" in panel
+    assert "const declared = mapping(mapping(f.parameters).properties);" in panel
+    assert "const required = listed(mapping(f.parameters).required);" in panel
+    # And the panes, which read the same document.
+    assert "const used = listed(own(mapping(f.uses), name));" in page
+    assert "const s = listed(f.steps)[i];" in page
+
+
 def test_a_step_that_binds_a_secret_is_marked(page):
     """One argument, on one action. The mark keys off the argument existing
     rather than off a source name inside it (§F1.38)."""
@@ -379,7 +411,7 @@ def test_a_parameter_reference_is_shown_as_written(page):
     """`${site}/login` is the argument. Seeing which arguments a parameter
     reaches is the point of reading a step, and unlike a secret there is
     nothing to hide — a parameter is non-secret by definition."""
-    assert "const args = step.args || {};" in page
+    assert "const args = mapping(step.args);" in page
     assert "v.name + ' / ' + v.key" in page, "a secret still shows only its name"
 
 
@@ -486,7 +518,7 @@ def test_two_loads_of_the_same_panel_cannot_race_each_other(page):
     data while recording A's token. The heartbeat does correct it — the row
     still carries B — but only after showing the wrong thing and spending an
     extra fetch. The last request issued is the only one allowed to render."""
-    assert "let filesSeq = 0, flowsSeq = 0;" in page
+    assert "let filesSeq = 0, flowsSeq = 0, flowDocSeq = 0;" in page
     for loader, seq in (("loadFiles", "filesSeq"), ("loadFlows", "flowsSeq")):
         body = page.split(f"async function {loader}(key)")[1].split("\n}\n")[0]
         assert f"const mine = ++{seq};" in body, loader

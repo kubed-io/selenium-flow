@@ -146,7 +146,13 @@ def _uses(document: dict) -> dict[str, list[int]]:
     if not isinstance(declared, dict):
         return {}
     uses: dict[str, list[int]] = {str(name): [] for name in declared}
-    for index, step in enumerate(document.get("steps") or []):
+    # `steps: 1` is not a list and `enumerate` raises on it — the same 500, one
+    # level down from `parameters`, and `_step_count` already keeps such a flow
+    # in the catalogue with a count of 0 rather than dropping it. The panel is
+    # where an operator goes to open the editor and fix exactly this, so it has
+    # to render.
+    steps = document.get("steps")
+    for index, step in enumerate(steps if isinstance(steps, list) else []):
         if not isinstance(step, dict):
             continue
         for name in flowdoc.references(step.get("args")):
