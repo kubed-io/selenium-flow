@@ -219,6 +219,13 @@ def register(
             return ""
         try:
             return str(flow_store.revision(session))
+        except AttributeError:
+            # A backend that does not implement one. Falling back to the count
+            # is what makes the sentence above true: a constant here would make
+            # the page's stamp constant too, and it would never repaint again —
+            # which is the very bug this helper exists to fix, reintroduced
+            # silently for anyone whose store is not the local one.
+            return str(len(named(flow_store.names, session)))
         except Exception:  # noqa: BLE001 - never worth failing a listing
             log.info("could not read the flow revision for %s", session)
             return ""

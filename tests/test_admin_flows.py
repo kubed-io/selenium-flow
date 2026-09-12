@@ -328,3 +328,28 @@ def test_the_revision_follows_the_shared_library_too(client, server):
     before = client.get(url(), headers=AUTH).json()["rev"]
     server.flows.save(GLOBAL_SESSION, "cookie-banner", {"steps": []})
     assert client.get(url(), headers=AUTH).json()["rev"] != before
+
+
+def test_a_store_with_no_revision_falls_back_to_its_count(client, server):
+    """The docstring promises the panel "degrades to what the file list already
+    does". Returning a constant instead would make the page's stamp constant
+    and it would never repaint — the bug this whole mechanism exists to fix,
+    reintroduced silently for any store that is not the local one."""
+    server.flows.save(SESSION, "one", {"steps": []})
+
+    class Older:
+        """A FlowStore from before `revision` existed."""
+
+        def __init__(self, real):
+            self._real = real
+
+        def __getattr__(self, name):
+            if name == "revision":
+                raise AttributeError(name)
+            return getattr(self._real, name)
+
+    server.flows = Older(server.flows)
+    before = client.get(url(), headers=AUTH).json()["rev"]
+    server.flows.save(SESSION, "two", {"steps": []})
+    after = client.get(url(), headers=AUTH).json()["rev"]
+    assert before and after and before != after
