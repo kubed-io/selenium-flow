@@ -15,7 +15,7 @@ from starlette.testclient import TestClient
 
 from kubed.selenium_flow import flowapi
 from kubed.selenium_flow import resources as resources_module
-from kubed.selenium_flow.flows import GLOBAL_SESSION
+from kubed.selenium_flow.flows import GLOBAL_SESSION, STDIO_SESSION
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import NAMED, TOKEN
@@ -235,6 +235,52 @@ async def test_naming_yourself_global_does_not_buy_write_access(
     with pytest.raises(ValueError, match="read-only"):
         await call(flow_server, flowapi.SAVE_TOOL, name="shared", steps=GOOD)
     assert store.names(GLOBAL_SESSION) == []
+
+
+async def test_a_stdio_caller_has_a_writable_library(flow_server, monkeypatch, store):
+    """The regression the read-only rule nearly shipped. Stdio cannot send a
+    query parameter or a header, so it cannot name itself — if it resolved to
+    the shared library it would be permanently unable to save a flow, and the
+    refusal would tell it to do something it has no way of doing."""
+    from kubed.selenium_flow.sessions import CallerKey
+
+    monkeypatch.setattr(
+        flow_server.sessions, "key", lambda: CallerKey("stdio", "stdio")
+    )
+    await call(flow_server, flowapi.SAVE_TOOL, name="login", steps=GOOD)
+    assert store.names(STDIO_SESSION) == ["login"]
+    assert store.names(GLOBAL_SESSION) == [], "it wrote into the shared library"
+
+
+async def test_a_stdio_caller_still_reads_the_shared_library(
+    flow_server, monkeypatch, store
+):
+    """Its own library is additional to `global`, not instead of it."""
+    from kubed.selenium_flow.sessions import CallerKey
+
+    store.save(GLOBAL_SESSION, "shared", {"steps": GOOD})
+    monkeypatch.setattr(
+        flow_server.sessions, "key", lambda: CallerKey("stdio", "stdio")
+    )
+    listing = await call(flow_server, flowapi.LIST_TOOL)
+    assert [f["name"] for f in listing["flows"]] == ["shared"]
+    assert listing["flows"][0]["shared"] is True
+
+
+async def test_with_flows_off_an_unnamed_caller_is_told_that_not_to_rename_itself(
+    monkeypatch, tmp_path
+):
+    """Two refusals could apply and only one is true. With no FLOW_DATA_DIR
+    there is nowhere to keep a flow for anybody, so sending an unnamed caller
+    off to name its session would point it at the wrong problem entirely — and
+    a *named* caller already got the right answer, so the two disagreed."""
+    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    server = SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token=TOKEN)
+    monkeypatch.setattr(server.sessions, "key", lambda: None)
+    with pytest.raises(ValueError, match="FLOW_DATA_DIR"):
+        await call(server, flowapi.SAVE_TOOL, name="x", steps=GOOD)
+    with pytest.raises(ValueError, match="FLOW_DATA_DIR"):
+        await call(server, flowapi.DELETE_TOOL, name="x")
 
 
 # ---- the published schema ---------------------------------------------------

@@ -95,6 +95,7 @@ This depends on your session name, and it is not guessable from any schema.
 | You are | You save into | You can run |
 |---|---|---|
 | **named** (`?session=` / `X-Session-Key`) | your own library | yours, plus the shared library |
+| **stdio** | its own `stdio` library | its own, plus the shared library |
 | **unnamed**, or named `global` | nowhere — you cannot save | the shared library |
 
 A name must be usable as a folder name — letters, digits, `.`, `-` and `_`,
@@ -108,8 +109,9 @@ change or vanish underneath another agent part-way through running it.
 
 **So name your session before you save anything.** Without a name you have no
 library of your own, and `save_flow` says so rather than writing somewhere you
-would never look again. Only an operator moves a flow into `global`, from the
-admin UI.
+would never look again. Over stdio you already have one — a stdio server is one
+process serving one client, so it gets its own library without asking. Only an
+operator moves a flow into `global`, from the admin UI.
 
 Where a name exists in both, yours wins, and `list_flows` marks each entry
 `shared: true` or `false` so you can tell which one will run.

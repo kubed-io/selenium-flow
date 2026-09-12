@@ -632,6 +632,23 @@ _SESSION = {
     }
 }
 
+# The write endpoints need a different sentence. Falling back to `global` is
+# right for a read and is a *refusal* for a write, so advertising the same
+# default on both would hand a generated client a 400 it had no way to see
+# coming. It is still not `required`, because a caller naming itself through
+# the X-Session-Key header legitimately omits it.
+_WRITE_SESSION = {
+    "session": {
+        "type": "string",
+        "description": (
+            "Whose library to write to. Needed unless the request names a "
+            "session another way, with the X-Session-Key header: the shared "
+            "'global' library is read-only, so a write that resolves to it is "
+            "refused rather than defaulted."
+        ),
+    }
+}
+
 _FLOW_OPERATIONS = {
     "list": (
         "listFlows",
@@ -665,7 +682,7 @@ _FLOW_OPERATIONS = {
             "type": "object",
             "required": ["name", "steps"],
             "properties": {
-                **_SESSION,
+                **_WRITE_SESSION,
                 "name": {"type": "string"},
                 "description": {"type": "string"},
                 "parameters": {"type": "object"},
@@ -688,7 +705,7 @@ _FLOW_OPERATIONS = {
         {
             "type": "object",
             "required": ["name"],
-            "properties": {**_SESSION, "name": {"type": "string"}},
+            "properties": {**_WRITE_SESSION, "name": {"type": "string"}},
         },
         "FlowDeleted",
     ),

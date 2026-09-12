@@ -171,8 +171,13 @@ def save_one(store, session: str, name: str, document: dict, schemas: dict) -> d
     a save is a copy into your own, which is the copy-on-write half of §F1.2.
     Moving a flow into `global` is an operator action in the admin UI.
     """
-    session = writable(session)
+    # `_require` first, deliberately. With flows switched off there is nowhere
+    # to keep one, and that is the true answer for every caller; telling an
+    # unnamed one to go and name its session would send it to fix the wrong
+    # thing entirely. A named caller already got OFF here, so this ordering is
+    # also what makes the two consistent.
     store = _require(store)
+    session = writable(session)
     document = dict(document or {})
     document.pop("session", None)
     document.pop("shared", None)
@@ -185,8 +190,8 @@ def save_one(store, session: str, name: str, document: dict, schemas: dict) -> d
 
 def delete_one(store, session: str, name: str) -> dict:
     """Remove one of *this session's* flows. Never the shared library."""
+    store = _require(store)  # see save_one: the disabled answer comes first
     session = writable(session)
-    store = _require(store)
     removed = store.delete(session, name)
     return {"deleted": removed, "session": session, "name": name}
 

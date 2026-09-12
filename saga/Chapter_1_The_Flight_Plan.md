@@ -360,6 +360,21 @@ What building it settled:
 - The skill's `references/FLOWS.md` table teaches the new rule, and
   `delete_flow`'s description no longer warns about deleting a flow every
   session can see — which has become impossible.
+- **Stdio needed a library of its own, and review caught that it had none.** A
+  stdio client has no URL and no headers, so it cannot name itself. Landing it
+  in the newly read-only `global` left an entire supported transport
+  permanently unable to save a flow — and the refusal told it to set
+  `?session=`, which over stdio is not a thing that exists. A refusal whose
+  remedy cannot be performed is worse than the rule it enforces.
+
+  So stdio gets `stdio/`, on exactly the reasoning that already makes `stdio` a
+  usable *caller key*: one process serves one client, so a constant is right.
+  Its old flows stay readable, because reads still merge `global`.
+
+  The general lesson is about the three resolvers again: this rule had to be
+  added to all of them, so they now share one core (`library_of`) instead of
+  three copies of the same branch. The previous round added the third resolver;
+  this one stopped them being able to disagree.
 
 ### §F1.3 — Decision (locked): one directory, two subdirectories, one per session
 
