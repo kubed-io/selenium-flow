@@ -550,6 +550,45 @@ def test_the_grids_own_status_decides_what_its_refusal_means(status, expected):
     assert errors.status_for(requests.HTTPError(response=response)) == expected
 
 
+# ---- the name a caller needs in order to keep anything ----------------------
+
+
+async def test_a_saved_screenshot_tells_the_caller_what_it_was_called(
+    live, named_caller
+):
+    """`keep_file` takes a name, and this is the tool that most often makes one.
+
+    Chrome deduplicates, so `shot.png` can land as `shot (1).png` and no caller
+    can derive it. Returning the image alone left the one thing you have to know
+    obtainable only by listing the files and guessing which entry was yours —
+    while the HTTP endpoint had been returning it all along (§F1.37).
+    """
+    entry = {"name": "shot (1).png", "size": 3, "creationTime": 1}
+    tool = await live.mcp.get_tool("screenshot")
+    with patch.object(
+        live.actions,
+        "screenshot",
+        return_value={"image": "", "url": "https://x/", "file": entry},
+    ):
+        result = tool.fn(save=True)
+    assert result.structured_content == {"file": entry}
+    # And still an image: the point is to add the name, not to stop showing it.
+    assert result.content and result.content[0].type == "image"
+
+
+async def test_an_unsaved_screenshot_is_still_just_an_image(live, named_caller):
+    """Nothing was stored, so there is no name to carry and no reason to wrap
+    the result in anything."""
+    tool = await live.mcp.get_tool("screenshot")
+    with patch.object(
+        live.actions,
+        "screenshot",
+        return_value={"image": "", "url": "https://x/"},
+    ):
+        result = tool.fn()
+    assert not hasattr(result, "structured_content")
+
+
 # ---- the admin surface -------------------------------------------------------
 
 
@@ -605,6 +644,35 @@ def test_clearing_downloads_leaves_kept_files_alone(client, live):
     clear.assert_called_once_with("abc")
     assert [f["name"] for f in body["files"]] == ["report.pdf"]
     assert body["files"][0]["kept"] is True
+
+
+def test_the_download_names_are_reported_unmerged(client, live):
+    """What Clear downloads removes is the Grid's whole store, and the merged
+    listing cannot describe it: a download loses to a kept file of the same
+    name and disappears from `files` while staying very much on the Grid. A
+    confirmation built from the merge would name one of the two files it takes,
+    so the response carries the Grid's own list beside the merged one."""
+    live.flows.write_file(SESSION, "report.pdf", b"kept copy")
+    with (
+        patch.object(browser.Grid, "is_alive", return_value=True),
+        patch.object(browser.Grid, "files", return_value=DOWNLOADS),
+    ):
+        body = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH).json()
+
+    # The merge hides the shadowed download, correctly — one tile per name.
+    assert [f["name"] for f in body["files"]] == ["report.pdf", "shot.png"]
+    assert [f["kept"] for f in body["files"]] == [True, False]
+    # The clear list does not.
+    assert body["downloads"] == ["report.pdf", "shot.png"]
+
+
+def test_a_session_with_no_browser_has_nothing_to_clear(client, kept_server):
+    """No browser, no Grid store — and the kept files are not downloads, so the
+    list stays empty rather than offering to clear something it cannot."""
+    kept_server.sessions.store.set("named:idle", SessionRecord(session_id=""))
+    kept_server.flows.write_file("idle", "report.pdf", b"PDF")
+    body = client.get("/admin/sessions/named:idle/files", headers=AUTH).json()
+    assert body["downloads"] == []
 
 
 def test_a_detached_session_still_lists_its_kept_files(client, kept_server):

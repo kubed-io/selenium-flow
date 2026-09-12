@@ -317,6 +317,26 @@ def library_of(key) -> str | None:
         return None
 
 
+def yaml_complaint(exc: Exception) -> str:
+    """Say where a flow document broke, without quoting what was there.
+
+    PyYAML's own message embeds the offending source line verbatim. That text
+    is a person's document, typed into an editor that accepts anything, and it
+    travels further than the person expects: into the HTTP response and into
+    the server log, which outlives the request and is read by people who were
+    never shown the flow. Position plus the parser's short ``problem`` is
+    enough to find the mistake and carries none of the line.
+
+    Every YAML failure in this server goes through here — the store reading a
+    hand-edited file and the admin editor saving one are the same disclosure.
+    """
+    problem = getattr(exc, "problem", None) or "it could not be parsed"
+    mark = getattr(exc, "problem_mark", None)
+    if mark is None:
+        return str(problem).strip()
+    return f"{str(problem).strip()} (line {mark.line + 1}, column {mark.column + 1})"
+
+
 def _step_count(document: dict) -> int:
     """How many steps a document has, for a listing.
 
@@ -512,7 +532,14 @@ class LocalFlowStore:
         # naming here: a hand-edited file with one bad byte — or a binary file
         # dropped in the directory — would otherwise take out every listing that
         # walked past it, which is exactly what this branch exists to prevent.
-        except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        except yaml.YAMLError as exc:
+            # Sanitised, because the parser's own message quotes the line it
+            # choked on and this goes to the log. See `yaml_complaint`.
+            log.warning(
+                "flow %s/%s could not be read: %s", session, name, yaml_complaint(exc)
+            )
+            return None
+        except (OSError, UnicodeDecodeError) as exc:
             log.warning("flow %s/%s could not be read: %s", session, name, exc)
             return None
         if not isinstance(loaded, dict):

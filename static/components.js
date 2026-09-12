@@ -115,6 +115,14 @@ const SF = (() => {
     el.innerHTML = '';
     const grid = document.createElement('div');
     grid.className = 'files' + (opts.actions ? ' can-act' : '');
+    /* On a surface that can act, a mark is the only control for keeping or
+       deleting — so it has to be operable without a mouse. It is still a span:
+       this library renders and never wires, and the host that turned actions on
+       owns the handler. Off, the mark is decoration and must NOT be focusable:
+       a tab stop that does nothing is worse than no tab stop. */
+    const act = (label) => (opts.actions
+      ? ' role="button" tabindex="0" aria-label="' + esc(label) + '"'
+      : '');
     for (const f of files) {
       const ext = (f.name.split('.').pop() || '').toLowerCase();
       const href = base + f.url;
@@ -122,10 +130,12 @@ const SF = (() => {
       item.className = 'file';
       item.innerHTML =
         (f.kept
-          ? '<span class="mark pin" data-delete="' + esc(f.name) + '" title="' +
+          ? '<span class="mark pin" data-delete="' + esc(f.name) + '"' +
+            act('Delete kept file ' + f.name) + ' title="' +
             'Kept: it outlives this browser. Hover to delete it.">' +
             '<span class="icon">📌</span><span class="trash">🗑</span></span>'
-          : '<span class="mark bubble" data-keep="' + esc(f.name) + '" title="' +
+          : '<span class="mark bubble" data-keep="' + esc(f.name) + '"' +
+            act('Keep ' + f.name + ' beyond this browser') + ' title="' +
             'A download: it goes when this browser does. Click to keep it."></span>') +
         '<a class="thumb" href="' + esc(href) + '" target="_blank" rel="noopener">' +
         (f.image

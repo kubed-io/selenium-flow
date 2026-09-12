@@ -236,7 +236,15 @@ iframe.console { width: 100%; height: 72vh; border: 1px solid var(--line); borde
 
 .section { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); margin-bottom: 12px; }
 .section > .head { display: flex; align-items: center; gap: var(--gap); padding: 11px 14px; }
-.section > .head .title { font-weight: 600; cursor: pointer; user-select: none; }
+/* A real <button>, stripped back to looking like a heading. Keeping the element
+   semantic is what gives it keyboard focus and an announced expanded state; the
+   styling is the part that was ever in question. */
+.section > .head .title {
+  font: inherit; font-weight: 600; color: inherit;
+  background: none; border: 0; padding: 0;
+  cursor: pointer; user-select: none;
+}
+.section > .head .title:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .section > .head .title .caret { display: inline-block; width: 12px; color: var(--muted); }
 .section > .body { padding: 0 14px 14px; }
 .section[data-open=false] > .body { display: none; }
@@ -277,6 +285,11 @@ iframe.console { width: 100%; height: 72vh; border: 1px solid var(--line); borde
 .mark.pin { background: var(--panel); border: 1px solid var(--line); }
 
 .can-act .mark { cursor: pointer; }
+.can-act .mark:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* A keyboard user cannot hover, so focus has to reveal the trash that hover does. */
+.can-act .mark.pin:focus-visible { border-color: var(--warn); color: var(--warn); }
+.can-act .mark.pin:focus-visible .trash { display: block; }
+.can-act .mark.pin:focus-visible .icon { display: none; }
 .can-act .mark.bubble:hover { transform: scale(1.12); }
 /* Hovering a kept file's pin offers the only per-file delete the Grid allows.
    Downloads have no trash because there is no operation behind one. */

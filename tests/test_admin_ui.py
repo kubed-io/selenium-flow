@@ -40,6 +40,51 @@ def test_the_detail_view_is_two_accordions(page):
     assert "box.setAttribute('data-open', String(!open));" in page
 
 
+def test_an_accordion_can_be_opened_without_a_mouse(page):
+    """It is the only way to open or close the section, so a styled span was a
+    control keyboard and screen-reader users could not reach at all. A real
+    button gets focus and Enter/Space for free; the state has to be announced
+    rather than left to a caret nobody hears."""
+    for section in ("filesSection", "flowsSection"):
+        assert f'<button type="button" class="title" data-toggle="{section}"' in page
+    assert 'aria-expanded="true" aria-controls="filesBody"' in page
+    assert 'aria-expanded="true" aria-controls="flowsBody"' in page
+    assert "tab.setAttribute('aria-expanded', String(!open));" in page
+
+
+def test_the_file_marks_answer_the_keys_a_button_answers(page):
+    """The marks carry role=button and a tab stop on this surface, so they have
+    to behave like buttons. Space is preventDefault-ed or the page scrolls out
+    from under the thing you were aiming at."""
+    assert "$('files').addEventListener('keydown'" in page
+    assert "e.key !== 'Enter' && e.key !== ' '" in page
+    assert ".mark[role=button]" in page
+    assert "e.preventDefault();\n  mark.click();" in page
+
+
+# ---- a reply that arrives after you have moved on ---------------------------
+
+
+def test_a_late_reply_cannot_render_one_session_under_another(page):
+    """Every load is an await against a session the operator can navigate away
+    from. This is not only a stale render: the action paths are built from
+    `current`, so B's panel showing A's flows would let an edit, a move or a
+    delete land on the wrong library."""
+    assert "const gone = (key) => key !== current;" in page
+    for loader in ("loadFiles", "loadFlows"):
+        body = page.split(f"async function {loader}(key)")[1].split("\n}\n")[0]
+        # Twice each: the success path and the catch. An error from A must not
+        # blank B's panel any more than A's data may fill it.
+        assert body.count("if (gone(key)) return;") == 2, loader
+
+
+def test_a_late_flow_cannot_overwrite_the_one_you_just_picked(page):
+    """Picking A then B, with A slow, resolved A last and left B's name beside
+    A's document — or, on the error path, B's panel stuck loading forever."""
+    assert "if (gone(key) || flowName !== name) return;" in page
+    assert page.count("if (gone(key) || flowName !== name) return;") == 2
+
+
 def test_the_last_page_gets_a_row_of_its_own_and_is_a_link(components):
     """A URL is twenty characters or two hundred, and it is the thing you came
     to read. The old header buried it in a seven-column grid."""
@@ -85,6 +130,15 @@ def test_the_marks_are_inert_without_a_surface_that_can_act(components):
     assert "'files' + (opts.actions ? ' can-act' : '')" in components
 
 
+def test_a_mark_is_only_focusable_where_it_actually_does_something(components):
+    """Button semantics belong on the surface that wired a handler. Off, the
+    mark is decoration, and a tab stop that does nothing when you press Enter is
+    worse than no tab stop at all — so the attributes are gated on the same flag
+    the styling is."""
+    assert "const act = (label) => (opts.actions" in components
+    assert "role=\"button\" tabindex=\"0\" aria-label=" in components
+
+
 def test_the_shared_library_still_renders_no_action_buttons(components):
     """The marks are spans with data attributes, and the page wires the clicks.
     That is what keeps this library rendering-only — see sessionList's onpick
@@ -103,7 +157,15 @@ def test_clearing_downloads_lists_the_names_it_will_remove(page):
     """"Delete 12 files?" without saying which twelve is an assertion rather
     than a disclosure. The scope is shown."""
     assert "downloads.map((n) => '<li>' + SF.esc(n) + '</li>')" in page
-    assert "filter((f) => !f.kept)" in page, "it would offer to clear kept files too"
+
+
+def test_the_clear_confirm_does_not_build_its_list_from_the_merged_files(page):
+    """`data.files` is de-duplicated: a download sharing a name with a kept file
+    loses to it and vanishes from that list. The DELETE clears it regardless, so
+    filtering the merge would name eleven of the twelve files it takes. The
+    server sends the Grid's own listing for this."""
+    assert "downloads = data.downloads || [];" in page
+    assert "filter((f) => !f.kept)" not in page
 
 
 def test_clearing_says_kept_files_are_untouched(page):

@@ -102,11 +102,17 @@ def catalogue(store, session: str) -> dict:
     """
     store = _require(store)
     entries = {}
-    if session != flows.GLOBAL_SESSION:
+    # `shared` says which directory the flow is in, never who is asking. A
+    # caller whose own library *is* the shared one still has to be told so: the
+    # admin decides from this flag whether to show the globe and which way the
+    # move button points, and "not shared" on a flow sitting in `global` offers
+    # a move that would be a no-op.
+    own_are_shared = session == flows.GLOBAL_SESSION
+    if not own_are_shared:
         for summary in store.summaries(flows.GLOBAL_SESSION):
             entries[summary["name"]] = {**summary, "shared": True}
     for summary in store.summaries(session):
-        entries[summary["name"]] = {**summary, "shared": False}
+        entries[summary["name"]] = {**summary, "shared": own_are_shared}
     return {
         "session": session,
         "count": len(entries),
@@ -118,7 +124,9 @@ def read_one(store, session: str, name: str) -> dict:
     """One flow: this session's if it has one, else the shared library's."""
     store = _require(store)
     flow = store.get(session, name)
-    shared = False
+    # A caller whose library is the shared one reads a shared flow. See
+    # `catalogue`: the flag describes the directory, not the reader.
+    shared = session == flows.GLOBAL_SESSION
     if flow is None and session != flows.GLOBAL_SESSION:
         flow = store.get(flows.GLOBAL_SESSION, name)
         shared = flow is not None

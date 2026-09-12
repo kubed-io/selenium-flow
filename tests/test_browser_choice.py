@@ -83,6 +83,36 @@ def test_firefox_is_told_to_save_downloads_without_asking():
     assert "application/pdf" in prefs["browser.helperApps.neverAsk.saveToDisk"]
 
 
+def test_chrome_is_never_offered_the_chance_to_save_a_password():
+    """The worst-shaped failure this server has had (§F1.37).
+
+    Submitting a password makes Chrome offer to remember it, and that offer is
+    browser furniture rather than anything in the page: it takes the input focus
+    and keeps it. Every later click and keystroke is then delivered to the
+    bubble, while WebDriver still finds elements and still reports success — so
+    a flow that logs in leaves a browser that looks fine and does nothing.
+    Nobody is here to answer the offer, so it must never be made.
+    """
+    prefs = (
+        Grid("http://grid.invalid:4444")
+        ._options("chrome")
+        .to_capabilities()["goog:chromeOptions"]["prefs"]
+    )
+    assert prefs["credentials_enable_service"] is False
+    assert prefs["profile.password_manager_enabled"] is False
+    # Same popup, reached by a different route.
+    assert prefs["profile.password_manager_leak_detection"] is False
+
+
+def test_firefox_is_never_offered_the_chance_to_save_a_password():
+    prefs = (
+        Grid("http://grid.invalid:4444")
+        ._options("firefox")
+        .to_capabilities()["moz:firefoxOptions"]["prefs"]
+    )
+    assert prefs["signon.rememberSignons"] is False
+
+
 @pytest.mark.parametrize(
     "name,partial",
     [

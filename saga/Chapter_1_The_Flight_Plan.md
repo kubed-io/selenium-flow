@@ -1255,8 +1255,14 @@ here is what stops the drawing and the code drifting apart.
 - **A YAML editor overlay**, carrying the real file from the running pod.
 
 **What it deliberately is not:** no dark mode (the tokens exist; a second set
-would do it), no confirm on `End browser`, and — the significant gap — **no
-detached-browser state**, which is what a session looks like most of the time.
+would do it) and — the significant gap — **no detached-browser state**, which is
+what a session looks like most of the time.
+
+*Corrected 2026-09-12:* this list also said "no confirm on `End browser`". That
+was never true of the built page — `End browser` has always gone through
+`destructive()`, which confirms. A reviewer caught the prose disagreeing with a
+test that pins the confirm, which is the right way round: the test described the
+code and the sentence described nothing.
 
 **Built (2026-09-12).** The page now matches the drawing. Three things the
 drawing could not settle and the build did:
@@ -1284,6 +1290,55 @@ the design cannot drift from the stylesheet without one of them being wrong on
 purpose. Every colour and type property is token-bound; the bubble's five
 gradient fills are the only exception, because a gradient cannot bind to a
 single colour token.
+
+### §F1.37 — Found by flying it: the browser that accepts everything and does nothing
+
+**Status: fixed (2026-09-12).** Everything above was reasoned about, drawn and
+tested. This one was only ever going to be found by driving the deployed server
+against the real Grid, and it is the worst-shaped defect this repo has had.
+
+**The symptom.** After `run_flow` ran a login, every later call kept succeeding
+and nothing happened. `interact` found its element, reported the action, and
+returned the page state; the page had not moved. `write` reported
+`value: ""` — it had typed nothing — and nobody was checking. Clicking a
+download link produced no download. `execute_script` worked perfectly
+throughout, which is what made it look like a page problem rather than a
+browser one.
+
+**The cause.** Submitting a password makes Chrome offer to save it. That offer
+is *browser furniture*, not anything in the document: it takes the input focus
+and does not give it back, so every synthesised click and keystroke afterwards
+is delivered to the bubble. WebDriver has no idea. It finds elements through
+the DOM, and dispatching input is fire-and-forget — there is no acknowledgement
+that says "the page received this".
+
+**Why it is the worst shape.** A failure that raises is a failure someone fixes.
+This one reports `status: ok, steps_run: 5, steps_total: 5` on the flow that
+broke the browser, and then reports success on everything that follows. It is
+silent, it is permanent for the life of that browser, and it is triggered by the
+**flagship** use case — the login flow, the thing the whole secrets system in
+Part III exists to serve.
+
+**The fix** is three Chrome prefs and one Firefox pref: never make the offer.
+Bounded by the same rule as the automatic-downloads pref two lines above it —
+*nobody is here to answer a browser prompt, so no browser prompt may be raised.*
+That rule now has two instances and should be the first question asked of any
+new capability: what does the browser ask the user, and who answers it?
+
+**Method note.** The proof is a two-arm probe run in the pod against the live
+Grid — same script, one variable, four runs. Baseline typed `''` twice;
+suppressed typed the string twice. Neither the unit suite nor any amount of
+reading would have produced it, because both halves of the mechanism are outside
+the code: Chrome's UI policy and the Grid's node.
+
+**Also found the same way:** `screenshot(save=true)` returned the image and
+threw away the file record. The name is the one thing a caller has to have —
+`keep_file` takes it, and Chrome deduplicates, so `shot.png` can land as
+`shot (1).png` and nobody can derive it. The HTTP endpoint had been returning it
+since the beginning; only the MCP tool lost it, to its own `-> Image` return
+type. Two surfaces, one action, different answers — which is exactly what
+`test_surfaces.py` exists to prevent, and could not see here because it compares
+*which* actions exist rather than what they return.
 
 ## Part III — Sealed orders: the secrets system
 
@@ -1995,6 +2050,12 @@ Independent of everything above.
       can see and fix; the other order loses it
 - [x] **All of the above was designed first** (§F1.36) and is now built. The
       drawing is the Penpot file **Admin UI**
+- [x] **Then it was flown**, against the deployed image and the real Grid, which
+      is the only thing that could have found §F1.37 — a login leaving a browser
+      that accepts every command and performs none of them. Two fixes came out
+      of one session of actually using the thing, and neither was reachable from
+      the unit suite. Do this at the end of every feature epic, not at the end
+      of the chapter
 - [x] `skills/selenium-flow/references/FLOWS.md` + its row in `SKILL.md` (§F1.16)
 - [x] Say in the skill that **`global` is shared and readable by every session**
       — not guessable from a tool schema (§F1.2). Writing it down found that

@@ -64,8 +64,12 @@
            collapsing when you came to look at the other. -->
       <section class="section" id="filesSection" data-open="true">
         <div class="head">
-          <span class="title" data-toggle="filesSection">
-            <span class="caret">&#9662;</span> Files</span>
+          <!-- A button, not a styled span: this is the only way to open or
+               close the section, so it has to be reachable by keyboard and to
+               announce its state. -->
+          <button type="button" class="title" data-toggle="filesSection"
+                  aria-expanded="true" aria-controls="filesBody">
+            <span class="caret">&#9662;</span> Files</button>
           <span id="filesCount" class="pill"></span>
           <span class="grow"></span>
           <!-- Clears what the BROWSER downloaded. Kept files are ours and live
@@ -75,17 +79,18 @@
                   title="Delete everything this browser downloaded. Kept files stay.">
             Clear downloads</button>
         </div>
-        <div class="body"><div id="files"></div></div>
+        <div class="body" id="filesBody"><div id="files"></div></div>
       </section>
 
       <section class="section" id="flowsSection" data-open="true">
         <div class="head">
-          <span class="title" data-toggle="flowsSection">
-            <span class="caret">&#9662;</span> Flows</span>
+          <button type="button" class="title" data-toggle="flowsSection"
+                  aria-expanded="true" aria-controls="flowsBody">
+            <span class="caret">&#9662;</span> Flows</button>
           <span id="flowsCount" class="pill"></span>
           <span class="grow"></span>
         </div>
-        <div class="body"><div id="flows"></div></div>
+        <div class="body" id="flowsBody"><div id="flows"></div></div>
       </section>
     </div>
   </section>
@@ -107,6 +112,14 @@ const $ = (id) => document.getElementById(id);
 const show = (el, on) => { el.hidden = !on; };
 let token = sessionStorage.getItem('sf-token') || '';
 let current = null;
+
+/* Every load below is an await against a session the operator can navigate away
+   from while it is in flight. A late reply is not merely a stale render: the
+   action buttons build their paths from `current`, so B's panel showing A's
+   flows would let an edit, a move or a delete land on the wrong library.
+   Checked on the success AND the error path — an error from A must not blank
+   B's panel either. */
+const gone = (key) => key !== current;
 
 // sessionStorage, not localStorage: this is the server's full-privilege token,
 // so it should not outlive the tab someone typed it into.
@@ -183,6 +196,9 @@ document.addEventListener('click', (e) => {
   const box = $(tab.dataset.toggle);
   const open = box.getAttribute('data-open') !== 'false';
   box.setAttribute('data-open', String(!open));
+  // Kept in step with data-open, which is what the CSS reads. A caret alone
+  // says nothing to anyone not looking at it.
+  tab.setAttribute('aria-expanded', String(!open));
   tab.querySelector('.caret').innerHTML = open ? '&#9656;' : '&#9662;';
 });
 
@@ -307,16 +323,20 @@ async function loadFiles(key) {
   const box = $('files');
   try {
     const data = await api(sessionPath(key, '/files'));
+    if (gone(key)) return;
     const row = data.session || {key: key};
     showDetail(row);
     shownFiles = filesStamp(row);
     shownBrowser = row.session_id || null;
-    // Just the ephemeral half: this is exactly what Clear downloads removes,
-    // and its confirm lists these names rather than claiming a number.
-    downloads = (data.files || []).filter((f) => !f.kept).map((f) => f.name);
+    // Straight from the server, NOT filtered out of data.files: that list is
+    // de-duplicated, so a download sharing a name with a kept file is missing
+    // from it — and Clear downloads would still delete it. The confirm has to
+    // name everything it takes.
+    downloads = data.downloads || [];
     $('filesCount').textContent = (data.files || []).length;
     SF.fileGrid(box, data, {base: BASE, actions: true});
   } catch (e) {
+    if (gone(key)) return;
     box.innerHTML = '<div class="empty error">' + SF.esc(e.message) + '</div>';
   }
 }
@@ -356,6 +376,16 @@ $('files').addEventListener('click', async (e) => {
   });
 });
 
+/* The marks carry role=button and a tab stop, so they must answer the keys a
+   button answers. Space is preventDefault-ed or the page scrolls underneath. */
+$('files').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const mark = e.target.closest('.mark[role=button]');
+  if (!mark) return;
+  e.preventDefault();
+  mark.click();
+});
+
 /* ---- flows ---------------------------------------------------------------
    A list on the left, the chosen flow on the right: the list is what you
    navigate between, the panel is what you read. A step shows its number, tool
@@ -365,12 +395,16 @@ $('files').addEventListener('click', async (e) => {
 let flowsData = null, flowDoc = null, flowName = null, stepIndex = null;
 
 async function loadFlows(key) {
+  let data;
   try {
-    flowsData = await api(sessionPath(key, '/flows'));
+    data = await api(sessionPath(key, '/flows'));
   } catch (e) {
+    if (gone(key)) return;
     $('flows').innerHTML = '<div class="empty error">' + SF.esc(e.message) + '</div>';
     return;
   }
+  if (gone(key)) return;
+  flowsData = data;
   $('flowsCount').textContent =
     flowsData.enabled ? (flowsData.flows || []).length : 'off';
   renderFlows();
@@ -405,17 +439,24 @@ function renderFlows() {
 }
 
 async function openFlow(name) {
+  const key = current;
   flowName = name;
   stepIndex = null;
   flowDoc = null;
   renderFlows();
+  let doc;
   try {
-    flowDoc = await api(sessionPath(current, '/flows/' + encodeURIComponent(name)));
+    doc = await api(sessionPath(key, '/flows/' + encodeURIComponent(name)));
   } catch (e) {
+    // Also guarded on `flowName`: picking B while A is in flight must not leave
+    // A's error sitting in B's panel.
+    if (gone(key) || flowName !== name) return;
     const panel = $('flowpanel');
     if (panel) panel.innerHTML = '<div class="empty error">' + SF.esc(e.message) + '</div>';
     return;
   }
+  if (gone(key) || flowName !== name) return;
+  flowDoc = doc;
   renderFlowPanel();
 }
 

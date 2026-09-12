@@ -203,6 +203,23 @@ async def test_an_unnamed_caller_still_reads_and_runs_the_shared_library(
     assert (await call(flow_server, flowapi.GET_TOOL, name="login"))["steps"] == GOOD
 
 
+async def test_a_flow_in_the_shared_library_is_marked_shared_to_everyone(
+    flow_server, monkeypatch, store
+):
+    """`shared` says which directory the flow is in, never who is asking.
+
+    A caller whose own library *is* `global` used to be told `shared: false`
+    about flows sitting in the shared one. The admin reads this flag to decide
+    whether to show the globe and which way the move button points, so it
+    offered "To global" on a flow already there — a move that does nothing.
+    """
+    store.save(GLOBAL_SESSION, "login", {"steps": GOOD})
+    acting_as(monkeypatch, flow_server, None)
+    listing = await call(flow_server, flowapi.LIST_TOOL)
+    assert listing["flows"][0]["shared"] is True
+    assert (await call(flow_server, flowapi.GET_TOOL, name="login"))["shared"] is True
+
+
 async def test_an_unnamed_caller_cannot_delete_from_it_either(
     flow_server, monkeypatch, store
 ):

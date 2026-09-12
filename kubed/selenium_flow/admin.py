@@ -482,15 +482,25 @@ def register(
             alive = attached and await run_in_threadpool(
                 actions.grid.is_alive, attached
             )
+            live_id = attached if alive else ""
+            # Fetched here rather than inside `merged` because the page needs
+            # this list *unmerged*: DELETE above clears the Grid's store whole,
+            # and a download whose name a kept file shadows is absent from the
+            # merge but still gets cleared. Telling the operator "these will go"
+            # from the merged list would omit exactly those.
+            downloads = (
+                await run_in_threadpool(actions.grid.files, live_id) if live_id else []
+            )
             listing = await run_in_threadpool(
-                files.merged, actions, flow_store, session, attached if alive else "",
-                token,
+                files.merged, actions, flow_store, session, live_id,
+                token, "", downloads,
             )
             return JSONResponse(
                 {
                     "key": key,
                     "session": await header(key, attached),
                     "files": listing,
+                    "downloads": [entry.get("name", "") for entry in downloads],
                 }
             )
         except Exception as exc:  # noqa: BLE001 - usually a session that ended
@@ -643,7 +653,9 @@ def register(
             try:
                 document = yaml.safe_load(text)
             except yaml.YAMLError as exc:
-                raise ValueError(f"that is not valid YAML: {exc}") from None
+                raise ValueError(
+                    f"that is not valid YAML: {flows.yaml_complaint(exc)}"
+                ) from None
             if not isinstance(document, dict):
                 raise ValueError("a flow document must be a YAML mapping")
             flowdoc.validate(document, await schemas.get())
