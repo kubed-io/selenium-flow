@@ -25,53 +25,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+0.0.2 could drive a browser. This one lets an agent keep what it worked out.
+Save a sequence of steps as a named flow, give it parameters, and run the whole
+thing in one call — including steps that type a credential the model is never
+shown. The admin UI grew a panel for reading and editing them.
+
 ### Added
 
-- **Saved flows.** Save a sequence of steps under a name, then run the whole thing in one call with `run_flow` — a twelve-step form becomes one call instead of twelve. Set `FLOW_DATA_DIR` to turn them on.
-- **Kept files.** `keep_file` copies a download out of the browser so it survives being reaped, switched or ended; `session_files` lists both kinds together and keeps working after the browser has gone. Deleting a kept file is an operator action in the admin UI.
+- **Saved flows.** Save a sequence of steps under a name and run the whole thing in one call with `run_flow` — a twelve-step form becomes one call instead of twelve. Set `FLOW_DATA_DIR` to turn them on.
 
-- **Flows take parameters.** Declare them and write `${name}` in any argument of any step — `url: ${site}/orders/${id}` — so one saved flow serves every account and every environment.
+- **Flows take parameters.** Declare them and write `${name}` in any argument of any step — `url: ${site}/orders/${id}` — so one flow serves every account and every environment.
 
-- **Type a secret you never see.** Give `write` a `secret` naming one instead of text, and the server reads it and types it — in a flow step or a single call. It is never passed as an argument string, so it cannot be assembled into one by mistake.
+- **Type a secret you never see.** Give `write` a `secret` naming one instead of `text`, and the server reads it and types it, in a flow step or a single call. It never becomes an argument string, so it cannot be assembled into one by mistake.
 
-- **A secrets catalogue.** Point `SECRETS_DIRS` at a directory per secret and a file per key — the shape Kubernetes already mounts — and `list_secrets` shows an agent what it can use. Values are never returned by anything.
+- **A secrets catalogue.** Point `SECRETS_DIRS` at a directory per secret and a file per key — the shape Kubernetes already mounts — and `list_secrets` shows an agent what it may use. A secret can be leashed to the sites it is allowed on. Values are never returned by anything.
+
+- **A shared `global` flow library** every session can list and run, which only an operator can change.
+
+- **Kept files.** `keep_file` copies a download out of the browser so it survives the browser being reaped, switched or ended, and `session_files` lists both kinds together.
+
+- **The admin UI reads and edits flows.** Every session's flows beside its files: what a flow takes, what it does, and what any step or parameter holds. Edit the YAML, move a flow to or from `global`, or delete it.
 
 - **CSS selectors.** Every tool that acts on an element now takes `css` as well as `xpath` — pass one or the other.
 
-- The built-in skill now teaches flows and secrets, so an agent finds and uses them without being told how.
-
-- **The admin UI shows flows.** Every session's flows beside its files: what a flow takes and what it does, and clicking a parameter or a step shows what it holds. Edit the YAML, move one to or from the shared `global` library, or delete it.
-- **Files are one grid with a mark each.** A bubble is a download and a pin is a file kept beyond the browser. Hover a tile for the one thing you can do to it: keep a download, or delete a kept file. `Clear downloads` now lists exactly what it will remove and leaves kept files alone.
+- **A flow run answers with the steps you marked `return: true`** — any number of them, and nothing else.
 
 - `screenshot(save=true)` now tells you what the file was called, which is the name `keep_file` takes.
 
-- **A flow run answers with the steps you marked `return: true`** — any number of them, and nothing else.
-
-- **The wiki documents flows, secrets and kept files.** A reference page for each of the eight endpoints they added, plus guides for all three — and the two environment variables that switch them on.
-
-### Fixed
-
-- **A parameter's `default` is used when you leave it out.** It was declared, accepted and shown in the admin UI, and then ignored — so a flow relying on one sent `${name}` to the browser as literal text.
-
-- **Saving a script that uses a JavaScript template literal tells you to escape it** (`$${...}`), instead of reporting a parameter you never meant to write.
-
-- **A step's script reads as code in the admin UI**, with its own line breaks, instead of one run-on line broken mid-word.
-
-- **The admin UI shows flows as they change**, instead of only when you reopen the session.
-
-- **The session list counts each file once**, where a kept file and its download were counted twice.
-
-- **`Clear downloads` says what happens to each file**: which are gone and which survive as kept copies.
-
-- **A browser stays usable after logging in.** Chrome's "Save password?" prompt took the keyboard and mouse for itself, so every click and keystroke after a login silently did nothing — while every call still reported success.
+- The built-in skill teaches flows and secrets, and the [wiki](https://github.com/kubed-io/selenium-flow/wiki) documents them with a page per endpoint.
 
 ### Changed
 
-- **BREAKING:** the shared `global` flow library is read-only. Every session can list and run its flows; none can change them — including a caller with no session name, which used to save straight into it. Name your session with `?session=<name>` to get a library of your own; a stdio client gets one automatically.
-
 - **HTTP errors now say whose fault they are**: `400` for a request you can fix, `404` for a browser that has ended, `503` for a Grid that is unreachable or full. They were all `500`.
 
+- **`Clear downloads` lists exactly what it will remove** before it removes it.
+
 - Error messages no longer carry the driver's stack trace.
+
+### Fixed
+
+- **A browser stays usable after logging in.** Chrome's "Save password?" prompt took the keyboard and mouse for itself, so every click and keystroke after a login silently did nothing — while every call still reported success.
 
 ## [0.0.2] - 2026-09-10
 

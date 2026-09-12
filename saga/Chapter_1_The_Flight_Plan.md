@@ -33,47 +33,36 @@
 
 ---
 
-## Status: **OPEN — building, not finished** — updated 2026-09-12
+## Status: **CLOSED — shipped as v0.1.0** — closed 2026-09-12
 
-This chapter began as design only and is now mostly built and deployed. The
-planning passes below are kept as written, because the reasoning is the point
-and a plan edited to match what shipped teaches nothing. Where the build
-overruled the plan, the section says so rather than being rewritten — §F1.37
-and §F1.38 are both of those.
+This chapter began as design only and ends with the thing flying. The planning
+passes below are kept exactly as written, because the reasoning is the point and
+a plan edited to match what shipped teaches nothing. Where the build overruled
+the plan, the section says so rather than being rewritten — §F1.37 and §F1.38
+are both of those.
 
-**What is flying** (E0, E2, E3, E4, E7, E9, E10, and E6's UI and wiki): saved
-flows with parameters and secrets, kept files, the admin UI, the secrets
-catalogue and binding, the skill, and the documentation. Everything in this list
-has been driven against the live Grid, not only tested.
+**What shipped** (E0, E2, E3, E4, E6, E7, E9, E10): saved flows with parameters
+and secrets, kept files, the redesigned admin UI, the secrets catalogue and
+binding, the skill, and the wiki. Every one has been driven against the live
+Grid, not only tested.
 
-**What is left** is listed under *Open questions* and in the epics that still
-carry unticked boxes — E5 (`ROUTE_PREFIX`), E8 (Kubernetes secrets), E11
-(URL-scoped flows), the detached-browser state in §F1.36, and an accessibility
-pass over the admin page. None of them blocks the others.
+**What is carried forward**, listed in full at the close: E5 (`ROUTE_PREFIX`),
+E8 (Kubernetes secrets), E11 (URL-scoped flows), the detached-browser state in
+§F1.36, an accessibility pass over the admin page, and two gaps the last flight
+found (§F1.41).
 
-**Not closed**, and deliberately: E5 has a deployment attached, and a chapter
-closed while a rollout is outstanding is a chapter that gets reopened.
+**Closed with E5 outstanding, deliberately, and against this chapter's own
+earlier reasoning.** The draft above says a chapter closed while a rollout is
+outstanding is one that gets reopened, and that was right while the release was
+the thing being waited for. It inverted once the release arrived: E5 changes a
+mount point in a server nobody had installed yet, and holding a chapter open for
+it would mean the first version ships inside a chapter that claims to be
+planning it. The version is the seam, not the rollout.
 
 **Second pass, same day.** Dr K answered the four blocking forks and added the
 `global` session; the sections below carry the answers and say where they
 overruled the first draft. §F1.6 and §F1.7 were also researched against prior art
 at his instruction rather than invented — see *Prior art* at the head of Part II.
-
-**Third pass, 2026-09-11.** Part III — the secrets system — added from Dr K's
-design, and §F1.7 **revised**: no templating anywhere, structural `valueFrom`
-references instead.
-
-Part III's two load-bearing claims were checked against a live cluster from
-inside a pod rather than reasoned about: token-only Kubernetes access works with
-no SDK, and there is **no way to list a Secret's key names without pulling its
-values** (§F1.20). A third finding came out of re-reading our own shipped code:
-`write` returns the value it just typed, which would have handed every bound
-secret straight back to the model (§F1.25).
-
-Everything in Parts II and III is **locked or recommended**; what remains open is
-listed under *Open questions*, and none of it blocks E2.
-
----
 
 ## Part I — Exposition: what is already flying
 
@@ -2555,9 +2544,10 @@ Named so nobody has to ask:
 
 ### §F1.39 — What flying it taught, and what Chapter 2 inherits
 
-Not a conclusion — the chapter is still open — but the findings are worth
-collecting while they are fresh, because they are about *method* rather than
-about flows.
+Not a conclusion — the chapter was still open when this was written — but the
+findings are worth collecting while they are fresh, because they are about
+*method* rather than about flows. §F1.41 carries the rest, and the close carries
+what Chapter 2 actually inherits.
 
 **Four defects reached production-shaped code and were found by driving it, not
 by reading it.** The password bubble (§F1.37), the screenshot that would not say
@@ -2591,10 +2581,108 @@ branch on what it found. The answer is not "add an `if`"; it is that n8n already
 composes, and `/flows/run` is a POST.
 
 
+### §F1.41 — Release day: the build, and what the last flight found
+
+**The image build was nine and a half minutes and is now two.** Two independent
+causes, and the obvious one was not the cause. The build installed the whole
+dependency set *twice* — once in a stage that needed it only to produce a wheel
+that does not, and again in the runner — and `linux/arm64` runs under emulation,
+where that same install costs 222s against 21s native. Removing the duplicate
+took it to 4m15 with no cache involved at all.
+
+The other half was a cache that had never once worked. `cache-to: type=gha` had
+been configured in `docker-compose.yaml` since the file was written; buildx runs
+from a shell step, and the runner hands `ACTIONS_RUNTIME_TOKEN` to JS actions
+only, so the backend was a silent no-op — it neither imported nor exported and
+said nothing about it. Nine builds were measured to establish that, because the
+configuration looked right and only a `CACHED` count could tell. Fixed in
+`kubed-io/actions`, so **every repo calling that action** got the cache it had
+been configuring all along.
+
+The shape worth keeping: a fat builder, one venv, and `COPY --from` into a slim
+runner. A venv inside a container looks like ceremony — the box already holds
+one Python — but it is not there for isolation. It is there for *relocation*: it
+makes the whole installed program one directory with a layout that does not
+depend on how the base image's Python was packaged. `pip install --prefix` is
+the alternative and was tried; where it lands is decided by the interpreter's
+sysconfig scheme, and a Debian-packaged Python writes somewhere a python.org one
+does not.
+
+**What the last flight found**, flying the released build against the live Grid
+with six flows covering every runnable tool:
+
+- **A declared `default` was never applied.** It passed validation, rendered in
+  the admin panel under *Default*, and was ignored — so the first real run of
+  the first real flow sent `https://${lang}.wikipedia.org` to the browser
+  *literally* and died on a DNS error naming nothing to do with the cause.
+  Fixed. The lesson is the same one §F1.39 recorded: three surfaces agreed a
+  feature existed and the one that had to implement it did not.
+- **A JavaScript template literal cannot be saved without escaping it**, and the
+  message did not say so. `substitute` explicitly protects such a payload as
+  ordinary text; save-time validation refuses it. Both are right; only the error
+  was wrong, and it now names `$${...}`.
+- **`upload_file(path=...)` has no handle on a kept file.** `keep_file` promises
+  the pairing and the file listing answers with a signed URL, so attaching one
+  means knowing `/data/flows/<session>/files/<name>` — an internal layout no
+  caller is told. The mechanism works; the affordance is missing. Carried.
+- And a defect of my own making, caught only by opening the page: an `await`
+  added inside a handler that was not `async` made the whole admin script a
+  `SyntaxError`. Every binding vanished, the page was blank, and **866 tests
+  passed** — they are substring assertions, and a page that does not parse still
+  contains every string they look for. There is now a `node --check` parse test
+  under them.
+
+**The recurring fault of the second half was not drift. It was stopping one
+level short.** Componentising the Penpot file destroyed the interactions on what
+it replaced; that was found on the file tiles, fixed there, and not swept — 29
+of 30 flow-items stayed dead. `_uses` type-checked `parameters` and not `steps`
+one line below. A modal callback was pinned to its session and the three beside
+it were not. A session key was threaded into `loadFlows` and not into the
+`loadFlow` beneath it. Four instances, one habit: fixing the case in front of me
+rather than asking what else shares the state.
+
 ---
 
-> **Next:** §F1.11 is still the last fork with a deployment attached — confirm
-> the `ROUTE_PREFIX` rollout order — and it is the reason this chapter stays
-> open. Everything else either shipped or is written down.
->
-> The aircraft are fine. It is the paperwork we are fixing. 🛫
+Dispatch closed the log at the threshold.
+
+> **Dr K, hand on the tower door, the field quiet behind him:** *"You started
+> this chapter with a very good radio and a pilot who had to say everything
+> twice. You're ending it with a filed plan, a sealed pouch, and a board anyone
+> can read. That's an airfield. What you haven't got yet is traffic — one
+> aircraft flying beautifully is a demo, and the second one is when you find out
+> what you actually built. Cut the version. Then we'll see who turns up."*
+
+---
+
+## Chapter 1 — closed
+
+**Shipped:** `v0.1.0` — saved flows with parameters, secrets a model never sees,
+kept files, the redesigned admin UI, the secrets catalogue, the skill and the
+wiki. Cut from `main`, image on Docker Hub, wheel on the release.
+
+**Carried forward** (Chapter 2 opens after the publish, not before):
+
+- **E5 — `ROUTE_PREFIX` goes global.** The last fork with a deployment attached,
+  and the reason this chapter nearly stayed open. Untouched, and now cheaper:
+  it lands before anyone is mounted under the old path.
+- **E8 — secrets from Kubernetes**, and **E11 — URL-scoped flows.**
+- **The detached-browser state** (§F1.36) — what a session looks like most of
+  the time, and still not drawn.
+- **An accessibility pass over the admin page.** The outline rows are
+  click-only; the keyboard reaches the panel's actions and not its list.
+- **The YAML editor's Save is a blind PUT** (§F1.40). It re-reads on open, which
+  closes staleness at the start; the window while the editor sits open needs an
+  `If-Match` against `flows.revision` answering 409, and that has a server half.
+- **`upload_file` has no handle on a kept file** (§F1.41).
+- And the two this chapter refused on purpose: a step reading another step's
+  output, and control flow. Both will be asked for again. The answer is still
+  that n8n already composes, and `/flows/run` is a POST.
+
+---
+
+Sources / cross-links:
+- [`kubed/selenium-flow` on Docker Hub](https://hub.docker.com/r/kubed/selenium-flow)
+- [The wiki](https://github.com/kubed-io/selenium-flow/wiki) — a page per endpoint, plus the flows, secrets and kept-files guides.
+- `kubed-io/actions` `build-image` — the buildx cache fix (§F1.41), which was this repo's bug and every caller's.
+- The Penpot file **Admin UI** — one page, the boards §F1.36 and §F1.40 describe.
+- This chapter's work, by PR: #9 through #23.
