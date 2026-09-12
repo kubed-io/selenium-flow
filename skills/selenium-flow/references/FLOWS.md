@@ -30,10 +30,10 @@ from the tools themselves, so it cannot describe a step that would not run.
 ## A step is a tool call
 
 ```json
-{"tool": "write", "params": {"css": "#email", "text": "a@example.com"}}
+{"tool": "write", "args": {"css": "#email", "text": "a@example.com"}}
 ```
 
-`params` is **exactly** the arguments you would pass the tool directly. Nothing
+`args` is **exactly** the arguments you would pass the tool directly. Nothing
 is renamed and nothing is added. A step may also carry:
 
 | Key | Does |
@@ -43,7 +43,7 @@ is renamed and nothing is added. A step may also carry:
 | `onError` | `abort` (default) or `continue` past a failure |
 | `return` | include this step's full result in the report |
 
-To bound one slow step, set `wait_timeout` in its `params` — the same argument
+To bound one slow step, set `wait_timeout` in its `args` — the same argument
 the tool takes directly.
 
 **Not steps:** `open_session` and `end_browser`. A flow runs in the browser the
@@ -52,7 +52,7 @@ Never put `session_id` in a step either; the run supplies it.
 
 ## Parameters: what varies between runs
 
-Declare them as JSON Schema, and point a step at one with `value_from`. These
+Declare them as JSON Schema and write `${name}` where the value goes. These
 four fields are `save_flow`'s arguments:
 
 ```json
@@ -65,11 +65,11 @@ four fields are `save_flow`'s arguments:
     "properties": {"email": {"type": "string"}}
   },
   "steps": [
-    {"tool": "navigate", "params": {"url": "https://demo.example.com/join"}},
-    {"tool": "write", "params": {"css": "#email", "value_from": {"param": "email"}}},
+    {"tool": "navigate", "args": {"url": "https://demo.example.com/join"}},
+    {"tool": "write", "args": {"css": "#email", "text": "${email}"}},
     {"tool": "interact", "id": "submit",
-     "params": {"action": "click", "css": "button[type=submit]"}},
-    {"tool": "extract", "params": {"css": "h1"}, "return": true}
+     "args": {"action": "click", "css": "button[type=submit]"}},
+    {"tool": "extract", "args": {"css": "h1"}, "return": true}
   ]
 }
 ```
@@ -80,13 +80,26 @@ Then, every time after:
 run_flow(name="sign-up", params={"email": "a@example.com"})
 ```
 
-There is **no templating** — nothing like `{{email}}` is ever substituted into a
-string. A value arrives through `value_from` or not at all, and `value_from`
-names exactly one source. Only `write` takes one today.
+A parameter is **text**. `${name}` may sit anywhere in any argument of any step,
+including in the middle of a longer string:
 
-Mark a parameter `"writeOnly": true` when the caller supplies it but it must not
-come back out — it is typed as usual and hidden from the report. For a password,
-do not use a parameter at all: bind a secret (`references/SECRETS.md`).
+```yaml
+- tool: navigate
+  args:
+    url: ${site}/orders/${id}
+```
+
+Substitution is **single pass**: a value you pass is never re-scanned, so
+`params={"note": "${admin}"}` types that text and resolves nothing. Write `$${`
+for a literal `${`.
+
+A `${name}` that is not a declared parameter is refused when the flow is
+**saved**, not at step nine with a form half filled.
+
+**A parameter is never secret.** There is no `writeOnly`: everything you pass
+may appear in the report. For a password, do not use a parameter at all — name a
+secret, which is a different mechanism on purpose
+(`references/SECRETS.md`).
 
 ## Whose flows you see
 
@@ -133,8 +146,13 @@ It stops at the first failing step unless that step says `onError: continue`.
 A failed run says which step stopped it, the error, and the page it was on — so
 check that page with `extract` before deciding the selector is wrong.
 
-Pass `verbose=true` for every step's full result, or mark the one step you care
-about with `return: true` rather than reading them all.
+**A run answers with the steps that said they were the answer.** Mark each one
+`return: true`; any number may, and nothing else carries a result. A flow whose
+point is its final `extract` needs that flag on the extract — without it the
+step is reported as having run and its result is thrown away.
+
+Running somebody else's flow that marks none — one from the shared library, say,
+which you cannot edit — pass `verbose=true` and read every step instead.
 
 `url_redacted: true` means the page it ended on carried a guarded value, so the
 URL shown is scrubbed and is not a real address. Do not navigate back to it.

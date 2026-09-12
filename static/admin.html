@@ -460,30 +460,30 @@ async function openFlow(name) {
   renderFlowPanel();
 }
 
-/* A step binds a secret when its params name one — worth its own mark, because
-   it is the difference between a flow anybody can read and one that types a
-   credential nobody can see. */
+/* A step types a secret when it has a `secret` argument — worth its own mark,
+   because it is the difference between a flow anybody can read and one that
+   types a credential nobody can see. Only `write` has that argument. */
 const bindsSecret = (step) =>
-  !!(step && step.params && step.params.value_from && step.params.value_from.secret);
+  !!(step && step.args && step.args.secret);
 
 function paramsOf(step) {
   if (!step) {
     return '<div class="params small muted">Pick a step to see what it passes.</div>';
   }
-  const params = step.params || {};
+  const params = step.args || {};
   const keys = Object.keys(params);
   if (!keys.length) {
     return '<div class="params small muted">This step takes nothing.</div>';
   }
   return '<div class="params">' + keys.map((k) => {
     const v = params[k];
-    // A binding is shown as the reference it is. There is no value here to
-    // show — the server never sends one — and naming the secret says more than
-    // an empty cell would.
-    const text = k === 'value_from'
-      ? (v && v.secret
-          ? 'secret ' + v.secret.name + ' / ' + v.secret.key
-          : 'parameter ' + (v && v.param))
+    // A secret is shown as the reference it is. There is no value here to show
+    // — the server never sends one — and naming the secret says more than an
+    // empty cell would. Everything else is printed as written, `${name}`
+    // references included: seeing which arguments a parameter reaches is the
+    // point of reading the step at all.
+    const text = k === 'secret'
+      ? (v && v.name ? v.name + ' / ' + v.key : 'a secret')
       : (v !== null && typeof v === 'object' ? JSON.stringify(v) : String(v));
     return '<div class="pair"><span class="pk">' + SF.esc(k) + '</span>'
          + '<span class="pv">' + SF.esc(text) + '</span></div>';

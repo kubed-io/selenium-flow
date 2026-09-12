@@ -39,27 +39,27 @@ there is nothing to find, and asking again will not change it.
 
 ## Binding one
 
-Give `write` a `value_from` **instead of** `text`:
+Give `write` a `secret` **instead of** `text`:
 
 ```
-write(css="#password", value_from={"secret": {"name": "nextcloud", "key": "password"}})
+write(css="#password", secret={"name": "nextcloud", "key": "password"})
 ```
 
-It comes back with `"value_from": "secret"` and no value. In a flow, the same
-`value_from` goes in the step's `params`:
+It comes back with `"text_from": "secret"` and no value. In a flow, the same
+`secret` goes in the step's `args`:
 
 ```json
 {
   "name": "nextcloud-login",
   "description": "Log in to Nextcloud as the admin",
   "steps": [
-    {"tool": "navigate", "params": {"url": "https://nextcloud.example.com/login"}},
-    {"tool": "write", "params": {"css": "#user",
-      "value_from": {"secret": {"name": "nextcloud", "key": "username"}}}},
-    {"tool": "write", "params": {"css": "#password",
-      "value_from": {"secret": {"name": "nextcloud", "key": "password"}}}},
-    {"tool": "interact", "params": {"action": "click", "css": "button[type=submit]"}},
-    {"tool": "extract", "params": {"css": "h1"}, "return": true}
+    {"tool": "navigate", "args": {"url": "https://nextcloud.example.com/login"}},
+    {"tool": "write", "args": {"css": "#user",
+      "secret": {"name": "nextcloud", "key": "username"}}},
+    {"tool": "write", "args": {"css": "#password",
+      "secret": {"name": "nextcloud", "key": "password"}}},
+    {"tool": "interact", "args": {"action": "click", "css": "button[type=submit]"}},
+    {"tool": "extract", "args": {"css": "h1"}, "return": true}
   ]
 }
 ```
@@ -89,9 +89,11 @@ if you see one, check where the browser actually is before anything else.
 **A parameter is for what varies between runs. A secret is for what must not be
 seen.** An email address is a parameter. Its password is a secret.
 
-If a caller has to supply a sensitive value itself, declare the parameter
-`"writeOnly": true`: it is typed as usual and hidden from the report. But the
-caller still held it — only a secret keeps it out of everyone's hands.
+There is no middle option. A parameter marked `"writeOnly": true` used to be
+typed and hidden from the report; it hides nothing now and `save_flow` refuses
+it, because a familiar marker that silently does nothing is a leak with a
+reassuring name on it. If a caller has to supply a sensitive value itself, it
+already holds the value — only a secret keeps it out of everyone's hands.
 
 ## What this does not protect
 

@@ -59,10 +59,42 @@ def flow(steps, **extra):
 
 
 SIMPLE = [
-    {"tool": "navigate", "params": {"url": "https://example.test/login"}},
-    {"tool": "write", "params": {"css": "#email", "text": "a@b.c"}},
-    {"tool": "interact", "params": {"action": "click", "css": "button"}},
+    {"tool": "navigate", "args": {"url": "https://example.test/login"}},
+    {"tool": "write", "args": {"css": "#email", "text": "a@b.c"}},
+    {"tool": "interact", "args": {"action": "click", "css": "button"}},
 ]
+
+
+class Vault:
+    """Just enough catalogue to hand `secrets.bind` one value.
+
+    The guarded-value tests below used to reach this state through a `writeOnly`
+    parameter. There is no such thing now — a parameter is text and non-secret
+    by definition (§F1.38) — so the thing that must not leak is a secret, which
+    is what these were always really about.
+    """
+
+    def __init__(self, value="hunter2"):
+        self.secret = value
+
+    def entry(self, name):
+        return {"name": name, "keys": ["password"], "allowed_urls": []}
+
+    def allows(self, name, url):
+        return True
+
+    def value(self, name, key):
+        return self.secret
+
+
+SECRET_STEP = {"name": "nextcloud", "key": "password"}
+
+
+def guarded(steps, value="hunter2", actions=None, **extra):
+    """Run `steps` with a catalogue that will bind `SECRET_STEP`."""
+    return run(
+        actions or FakeActions(), flow(steps, **extra), "b", catalogue=Vault(value)
+    )
 
 
 # ---- the ordinary run --------------------------------------------------------
@@ -95,17 +127,42 @@ def test_a_step_is_summarised_without_its_content():
 # ---- what comes back ---------------------------------------------------------
 
 
-def test_only_the_last_result_comes_back_by_default():
+def test_no_result_comes_back_unless_a_step_asked():
+    """A run answers with the steps that said they were the answer, and with
+    nothing otherwise.
+
+    There used to be a top-level `result` carrying the last step's. It made the
+    shape every example taught — a flow ending in `extract` with `return: true`
+    — report the same object twice, and it was a second way of saying what a
+    run answers with while `return` was the explicit one. Two mechanisms for
+    one job is how the two drift.
+    """
     report = run(FakeActions(), flow(SIMPLE), "b")
-    assert "result" in report
+    assert "result" not in report
     assert all("result" not in step for step in report["steps"])
+    # Where the browser ended up is a fact about the run, not a step's output,
+    # and it is what a caller needs in order to carry on.
+    assert report["url"]
+
+
+def test_every_step_that_asks_gets_its_result():
+    """`return` was documented as if one step could use it. Nothing stopped
+    more, and now nothing else reports a result, so it has to carry a flow
+    whose answer is in two places."""
+    steps = [
+        {"tool": "extract", "args": {"css": "h1"}, "return": True},
+        {"tool": "navigate", "args": {"url": "https://example.test/next"}},
+        {"tool": "extract", "args": {"css": "h2"}, "return": True},
+    ]
+    report = run(FakeActions(), flow(steps), "b")
+    assert [("result" in s) for s in report["steps"]] == [True, False, True]
 
 
 def test_a_step_can_ask_for_its_own_result():
     steps = [
-        {"tool": "navigate", "params": {"url": "x"}},
-        {"tool": "extract", "params": {"css": "h1"}, "return": True},
-        {"tool": "interact", "params": {"action": "click", "css": "b"}},
+        {"tool": "navigate", "args": {"url": "x"}},
+        {"tool": "extract", "args": {"css": "h1"}, "return": True},
+        {"tool": "interact", "args": {"action": "click", "css": "b"}},
     ]
     report = run(FakeActions(), flow(steps), "b")
     assert report["steps"][1]["result"]["text"] == "the heading"
@@ -120,10 +177,9 @@ def test_verbose_returns_every_step():
 def test_a_screenshot_does_not_put_a_megabyte_in_the_report():
     """A run returning three full-page images costs more than the twelve calls
     it replaced."""
-    steps = [{"tool": "screenshot", "params": {}, "return": True}]
+    steps = [{"tool": "screenshot", "args": {}, "return": True}]
     report = run(FakeActions(), flow(steps), "b")
     assert "image" not in report["steps"][0]["result"]
-    assert "image" not in report["result"]
 
 
 # ---- failure -----------------------------------------------------------------
@@ -139,8 +195,8 @@ def test_a_run_stops_at_the_first_failing_step():
 
 def test_a_failure_says_which_step_and_what_page():
     steps = [
-        {"tool": "navigate", "params": {"url": "x"}},
-        {"tool": "write", "params": {"css": "#a", "text": "b"}, "id": "fill-email"},
+        {"tool": "navigate", "args": {"url": "x"}},
+        {"tool": "write", "args": {"css": "#a", "text": "b"}, "id": "fill-email"},
     ]
     report = run(FakeActions(fail_on={"write"}, error="no element matched"), flow(steps), "b")
     failed = report["steps"][-1]
@@ -155,9 +211,9 @@ def test_a_failure_says_which_step_and_what_page():
 def test_a_step_may_be_allowed_to_fail():
     """The cookie banner that is only sometimes there — a real and common case."""
     steps = [
-        {"tool": "interact", "params": {"action": "click", "css": ".cookies"},
+        {"tool": "interact", "args": {"action": "click", "css": ".cookies"},
          "onError": "continue", "id": "dismiss-banner"},
-        {"tool": "navigate", "params": {"url": "x"}},
+        {"tool": "navigate", "args": {"url": "x"}},
     ]
     report = run(FakeActions(fail_on={1}), flow(steps), "b")
     assert report["status"] == "ok"
@@ -167,8 +223,8 @@ def test_a_step_may_be_allowed_to_fail():
 
 def test_the_run_status_and_a_step_status_are_different_questions():
     steps = [
-        {"tool": "navigate", "params": {"url": "x"}, "onError": "continue"},
-        {"tool": "navigate", "params": {"url": "y"}},
+        {"tool": "navigate", "args": {"url": "x"}, "onError": "continue"},
+        {"tool": "navigate", "args": {"url": "y"}},
     ]
     report = run(FakeActions(fail_on={1}), flow(steps), "b")
     assert report["status"] == "ok"
@@ -178,14 +234,14 @@ def test_the_run_status_and_a_step_status_are_different_questions():
 def test_a_tool_that_no_longer_exists_fails_loudly():
     """Saving validates this, so getting here means the document was written
     before a rename, or edited on disk by hand."""
-    report = run(FakeActions(), flow([{"tool": "teleport", "params": {}}]), "b")
+    report = run(FakeActions(), flow([{"tool": "teleport", "args": {}}]), "b")
     assert report["status"] == "failed"
     assert "no action called 'teleport'" in report["steps"][0]["error"]
 
 
 def test_a_flow_cannot_open_its_own_browser_even_if_the_document_says_so():
     actions = FakeActions()
-    report = run(actions, flow([{"tool": "open_session", "params": {}}]), "b")
+    report = run(actions, flow([{"tool": "open_session", "args": {}}]), "b")
     assert report["status"] == "failed"
     assert actions.calls == []
 
@@ -205,7 +261,7 @@ def test_a_run_stops_when_it_is_out_of_time(monkeypatch):
     """Checked between steps: a Selenium call blocks, so the honest bound is
     "we will not start another step"."""
     monkeypatch.setattr(flowrun, "time", FakeClock())
-    steps = [{"tool": "navigate", "params": {"url": str(n)}} for n in range(5)]
+    steps = [{"tool": "navigate", "args": {"url": str(n)}} for n in range(5)]
     actions = FakeActions()
     report = run(actions, flow(steps), "b", timeout=2)
     assert report["status"] == "failed"
@@ -231,7 +287,7 @@ def test_a_parameter_reaches_the_step_that_names_it():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#email", "value_from": {"param": "email"}},
+            "args": {"css": "#email", "text": "${email}"},
         }
     ]
     document = flow(
@@ -264,41 +320,59 @@ def test_a_parameter_the_flow_does_not_take_is_refused():
         run(FakeActions(), document, "b", params={"nonsense": 1})
 
 
-def test_nothing_scans_a_payload_for_placeholders():
-    """The whole reason references are structural. Both of these are ordinary
-    strings and must arrive at the action byte for byte."""
-    script = "return `${window.scrollY}px`"
-    steps = [
-        {"tool": "write", "params": {"css": "#a", "text": "{{not a reference}}"}},
-        {"tool": "navigate", "params": {"url": script}},
-    ]
+def test_a_callers_value_is_never_rescanned():
+    """Single pass, and the rule that keeps "a payload cannot collide with a
+    reference" true now that strings are scanned at all. A caller passing
+    something that looks like a reference gets that text typed, not resolved."""
+    steps = [{"tool": "write", "args": {"css": "#a", "text": "${note}"}}]
+    document = flow(
+        steps,
+        parameters={"type": "object", "properties": {"note": {}, "admin": {}}},
+    )
+    actions = FakeActions()
+    run(actions, document, "b", params={"note": "${admin}", "admin": "s3cret"})
+    assert actions.calls[0][2]["text"] == "${admin}"
+
+
+def test_an_escaped_sigil_arrives_as_one():
+    steps = [{"tool": "write", "args": {"css": "#a", "text": "cost: $${total}"}}]
     actions = FakeActions()
     run(actions, flow(steps), "b")
-    assert actions.calls[0][2]["text"] == "{{not a reference}}"
-    assert actions.calls[1][2]["url"] == script
+    assert actions.calls[0][2]["text"] == "cost: ${total}"
+
+
+def test_a_string_that_is_exactly_one_reference_keeps_the_value_s_type():
+    """`wait_timeout` wants an integer. Interpolating would hand it "30"."""
+    steps = [{"tool": "extract", "args": {"css": "#a", "wait_timeout": "${secs}"}}]
+    document = flow(steps, parameters={"type": "object", "properties": {"secs": {}}})
+    actions = FakeActions()
+    run(actions, document, "b", params={"secs": 30})
+    assert actions.calls[0][2]["wait_timeout"] == 30
+
+
+def test_a_script_containing_a_javascript_template_is_left_alone():
+    """`${window.scrollY}` is not a parameter name, and a flow that declares no
+    parameters cannot have one. It must arrive byte for byte."""
+    script = "return `${window.scrollY}px`"
+    actions = FakeActions()
+    run(actions, flow([{"tool": "navigate", "args": {"url": script}}]), "b")
+    assert actions.calls[0][2]["url"] == script
 
 
 # ---- values that must not come back ------------------------------------------
 
 
-def test_a_write_only_parameter_is_not_echoed_by_the_step_that_used_it():
+def test_a_secret_is_not_echoed_by_the_step_that_used_it():
     """`write` reads the field back and returns it, which for a guarded value
     would hand it straight back on the very call meant to protect it."""
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#password", "value_from": {"param": "password"}},
+            "args": {"css": "#password", "secret": SECRET_STEP},
             "return": True,
         }
     ]
-    document = flow(
-        steps,
-        parameters={
-            "type": "object",
-            "properties": {"password": {"type": "string", "writeOnly": True}},
-        },
-    )
-    report = run(FakeActions(), document, "b", params={"password": "hunter2"})
+    report = run(FakeActions(), flow(steps), "b", catalogue=Vault())
     assert report["steps"][0]["result"]["value"] is None
     assert "hunter2" not in str(report)
 
@@ -307,17 +381,11 @@ def test_a_guarded_value_is_hidden_in_the_summary_too():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#password", "value_from": {"param": "password"}},
+            "args": {"css": "#password", "secret": SECRET_STEP},
         }
     ]
-    document = flow(
-        steps,
-        parameters={
-            "type": "object",
-            "properties": {"password": {"writeOnly": True}},
-        },
-    )
-    report = run(FakeActions(), document, "b", params={"password": "hunter2"})
+    document = flow(steps)
+    report = run(FakeActions(), document, "b", catalogue=Vault())
     assert report["steps"][0]["summary"].endswith("text=<hidden>")
 
 
@@ -326,7 +394,7 @@ def test_an_ordinary_parameter_is_not_hidden():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#email", "value_from": {"param": "email"}},
+            "args": {"css": "#email", "text": "${email}"},
             "return": True,
         }
     ]
@@ -340,14 +408,12 @@ def test_the_value_still_reaches_the_browser():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#password", "value_from": {"param": "password"}},
+            "args": {"css": "#password", "secret": SECRET_STEP},
         }
     ]
-    document = flow(
-        steps, parameters={"type": "object", "properties": {"password": {"writeOnly": True}}}
-    )
+    document = flow(steps)
     actions = FakeActions()
-    run(actions, document, "b", params={"password": "hunter2"})
+    run(actions, document, "b", catalogue=Vault())
     assert actions.calls[0][2]["text"] == "hunter2"
 
 
@@ -360,7 +426,7 @@ def test_a_flow_binding_a_secret_refuses_rather_than_typing_nothing():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#password", "value_from": {"secret": {"name": "nextcloud", "key": "password"}}},
+            "args": {"css": "#password", "secret": {"name": "nextcloud", "key": "password"}},
             "id": "fill-password",
         }
     ]
@@ -386,15 +452,16 @@ def test_the_guard_keys_off_the_argument_not_a_flag():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#p", "value_from": {"param": "magic_link"}},
+            "args": {"css": "#p", "secret": SECRET_STEP},
         }
     ]
     document = flow(
         steps,
-        parameters={"type": "object", "properties": {"magic_link": {"writeOnly": True}}},
     )
-    secret = "https://example.test/login?token=abc123"
-    report = run(FakeActions(), document, "b", params={"magic_link": secret})
+    report = run(
+        FakeActions(), document, "b",
+        catalogue=Vault("https://example.test/login?token=abc123"),
+    )
     assert "text=<hidden>" in report["steps"][0]["summary"]
     assert "abc123" not in report["steps"][0]["summary"]
 
@@ -403,13 +470,11 @@ def test_an_unguarded_field_is_still_printed_beside_a_guarded_one():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#password", "value_from": {"param": "password"}},
+            "args": {"css": "#password", "secret": SECRET_STEP},
         }
     ]
-    document = flow(
-        steps, parameters={"type": "object", "properties": {"password": {"writeOnly": True}}}
-    )
-    summary = run(FakeActions(), document, "b", params={"password": "x"})["steps"][0][
+    document = flow(steps)
+    summary = run(FakeActions(), document, "b", catalogue=Vault())["steps"][0][
         "summary"
     ]
     assert "css='#password'" in summary
@@ -424,7 +489,7 @@ def test_a_step_cannot_dispatch_to_an_attribute_that_is_not_an_action(attribute)
     actions = FakeActions()
     called = []
     setattr(actions, attribute, lambda *a, **k: called.append(attribute))
-    report = run(actions, flow([{"tool": attribute, "params": {}}]), "b")
+    report = run(actions, flow([{"tool": attribute, "args": {}}]), "b")
     assert report["status"] == "failed"
     assert "no action called" in report["steps"][0]["error"]
     assert called == []
@@ -458,8 +523,8 @@ def test_a_failure_reports_the_page_the_browser_is_actually_on():
             raise RuntimeError("no element matched")
 
     steps = [
-        {"tool": "navigate", "params": {"url": "https://example.test/one"}},
-        {"tool": "write", "params": {"url": "https://example.test/two", "css": "#a",
+        {"tool": "navigate", "args": {"url": "https://example.test/one"}},
+        {"tool": "write", "args": {"url": "https://example.test/two", "css": "#a",
                                      "text": "x"}},
     ]
     report = run(Navigating(), flow(steps), "b")
@@ -492,13 +557,12 @@ def test_a_guarded_value_does_not_come_back_in_the_result():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#p", "value_from": {"param": "magic_link"}},
+            "args": {"css": "#p", "secret": SECRET_STEP},
             "return": True,
         }
     ]
     document = flow(
         steps,
-        parameters={"type": "object", "properties": {"magic_link": {"writeOnly": True}}},
     )
 
     class Echoing(FakeActions):
@@ -506,8 +570,10 @@ def test_a_guarded_value_does_not_come_back_in_the_result():
             self.calls.append(("write", session_id, kwargs))
             return {"value": kwargs["text"], "url": "u", "title": "Welcome"}
 
-    secret = "https://example.test/login?token=abc123"
-    report = run(Echoing(), document, "b", params={"magic_link": secret})
+    report = run(
+        Echoing(), document, "b",
+        catalogue=Vault("https://example.test/login?token=abc123"),
+    )
     assert report["steps"][0]["result"]["value"] is None
     assert "abc123" not in str(report)
 
@@ -518,12 +584,11 @@ def test_a_guarded_value_never_reaches_the_top_level_report():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#p", "value_from": {"param": "magic_link"}},
+            "args": {"css": "#p", "secret": SECRET_STEP},
         }
     ]
     document = flow(
         steps,
-        parameters={"type": "object", "properties": {"magic_link": {"writeOnly": True}}},
     )
 
     class Echoing(FakeActions):
@@ -531,7 +596,7 @@ def test_a_guarded_value_never_reaches_the_top_level_report():
             self.calls.append(("write", session_id, kwargs))
             return {"value": kwargs["text"], "url": "u", "title": "Welcome"}
 
-    report = run(Echoing(), document, "b", params={"magic_link": "zzz-secret"})
+    report = run(Echoing(), document, "b", catalogue=Vault())
     # The whole report, not one field: nothing anywhere may carry it.
     assert "zzz-secret" not in str(report)
 
@@ -542,18 +607,16 @@ def test_a_guarded_value_is_scrubbed_out_of_an_error():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#p", "value_from": {"param": "password"}},
+            "args": {"css": "#p", "secret": SECRET_STEP},
         }
     ]
-    document = flow(
-        steps, parameters={"type": "object", "properties": {"password": {"writeOnly": True}}}
-    )
+    document = flow(steps)
 
     class Leaky(FakeActions):
         def write(self, session_id, **kwargs):
             raise ValueError(f"could not type {kwargs['text']} into #p")
 
-    report = run(Leaky(), document, "b", params={"password": "hunter2"})
+    report = run(Leaky(), document, "b", catalogue=Vault())
     assert "hunter2" not in str(report)
     assert "<hidden>" in report["steps"][0]["error"]
     # And the rest of the message survives, so the failure is still diagnosable.
@@ -564,12 +627,11 @@ def test_a_failed_page_read_does_not_reintroduce_a_guarded_value():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#p", "value_from": {"param": "magic_link"}},
+            "args": {"css": "#p", "secret": SECRET_STEP},
         }
     ]
     document = flow(
         steps,
-        parameters={"type": "object", "properties": {"magic_link": {"writeOnly": True}}},
     )
     secret = "abc123"
 
@@ -582,7 +644,7 @@ def test_a_failed_page_read_does_not_reintroduce_a_guarded_value():
         def write(self, session_id, **kwargs):
             raise RuntimeError("timed out")
 
-    report = run(Failing(), document, "b", params={"magic_link": secret})
+    report = run(Failing(), document, "b", catalogue=Vault(secret))
     assert secret not in str(report)
     # And the rest of the page is still reported, so the failure is diagnosable.
     assert "example.test" in str(report)
@@ -611,12 +673,12 @@ def test_a_guarded_value_does_not_come_back_under_an_unmapped_name():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#p", "value_from": {"param": "snippet"}},
+            "args": {"css": "#p", "secret": SECRET_STEP},
             "return": True,
         }
     ]
     document = flow(
-        steps, parameters={"type": "object", "properties": {"snippet": {"writeOnly": True}}}
+        steps
     )
 
     class Echoing(FakeActions):
@@ -625,7 +687,7 @@ def test_a_guarded_value_does_not_come_back_under_an_unmapped_name():
             # An unmapped name, which is the case the sweep exists for.
             return {"echoed": kwargs["text"], "url": "u", "title": "t"}
 
-    report = run(Echoing(), document, "b", params={"snippet": "return 'sekrit'"})
+    report = run(Echoing(), document, "b", catalogue=Vault())
     assert "sekrit" not in str(report)
 
 
@@ -636,12 +698,12 @@ def test_a_guarded_value_is_swept_out_of_any_field_at_all():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#p", "value_from": {"param": "magic"}},
+            "args": {"css": "#p", "secret": SECRET_STEP},
             "return": True,
         }
     ]
     document = flow(
-        steps, parameters={"type": "object", "properties": {"magic": {"writeOnly": True}}}
+        steps
     )
 
     class Nested(FakeActions):
@@ -650,7 +712,7 @@ def test_a_guarded_value_is_swept_out_of_any_field_at_all():
             # A field nobody mapped, nested, carrying the value.
             return {"ok": True, "meta": {"seen": [kwargs["text"]]}, "title": "t"}
 
-    report = run(Nested(), document, "b", params={"magic": "https://x.test/?t=zzz"})
+    report = run(Nested(), document, "b", catalogue=Vault())
     assert "zzz" not in str(report)
 
 
@@ -661,7 +723,7 @@ def test_a_flow_saved_in_the_old_format_is_refused_with_the_fix():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#p"},
+            "args": {"css": "#p"},
             "valueFrom": {"secret": {"name": "n", "key": "password"}},
         }
     ]
@@ -679,10 +741,10 @@ def test_a_stored_step_binding_a_secret_and_a_url_is_refused_at_run_time():
     steps = [
         {
             "tool": "write",
-            "params": {
+            "args": {
                 "css": "#p",
                 "url": "https://evil.test/",
-                "value_from": {"secret": {"name": "n", "key": "password"}},
+                "secret": {"name": "n", "key": "password"},
             },
         }
     ]
@@ -707,14 +769,13 @@ def test_a_bound_write_in_a_flow_does_not_read_the_field_back():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#p", "value_from": {"param": "password"}},
+            "args": {"css": "#p", "secret": SECRET_STEP},
         }
     ]
     document = flow(
         steps,
-        parameters={"type": "object", "properties": {"password": {"writeOnly": True}}},
     )
-    run(Recording(), document, "b", params={"password": "hunter2"})
+    run(Recording(), document, "b", catalogue=Vault())
     assert seen["read_back"] is False
 
 
@@ -726,7 +787,7 @@ def test_an_unbound_write_still_reads_the_field_back():
             seen.update(kwargs)
             return {"value": text, "url": "u", "title": "t"}
 
-    run(Recording(), flow([{"tool": "write", "params": {"css": "#a", "text": "x"}}]), "b")
+    run(Recording(), flow([{"tool": "write", "args": {"css": "#a", "text": "x"}}]), "b")
     assert seen.get("read_back") is None
 
 
@@ -736,19 +797,17 @@ def test_a_percent_encoded_value_is_scrubbed_too():
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#q", "value_from": {"param": "secret"}},
+            "args": {"css": "#q", "secret": SECRET_STEP},
             "return": True,
         }
     ]
-    document = flow(
-        steps, parameters={"type": "object", "properties": {"secret": {"writeOnly": True}}}
-    )
+    document = flow(steps)
 
     class Submitting(FakeActions):
         def write(self, session_id, text, **kwargs):
             return {"url": "https://x.test/?q=a%2Fb+c", "title": "t"}
 
-    report = run(Submitting(), document, "b", params={"secret": "a/b c"})
+    report = run(Submitting(), document, "b", catalogue=Vault("a/b c"))
     assert "a%2Fb" not in str(report)
     assert "a/b c" not in str(report)
 
@@ -757,10 +816,10 @@ def test_an_old_format_step_stops_the_flow_before_anything_runs():
     """A stale key on step two would otherwise run step one and then report
     steps_run: 0 — half-running a flow the message says was refused."""
     steps = [
-        {"tool": "navigate", "params": {"url": "https://x.test/"}},
+        {"tool": "navigate", "args": {"url": "https://x.test/"}},
         {
             "tool": "write",
-            "params": {"css": "#p"},
+            "args": {"css": "#p"},
             "valueFrom": {"secret": {"name": "n", "key": "password"}},
         },
     ]
@@ -771,38 +830,34 @@ def test_an_old_format_step_stops_the_flow_before_anything_runs():
     assert report["steps"][0]["n"] == 2
 
 
-def test_a_non_string_guarded_value_is_still_scrubbed():
-    """`Actions.write` does `str(text)`, so a numeric writeOnly parameter really
-    is typed into the page — and a scrub that skipped non-strings missed it."""
+def test_a_non_string_secret_value_is_still_scrubbed():
+    """`Actions.write` does `str(text)`, so a numeric secret really is typed
+    into the page — and a scrub that skipped non-strings missed it. A file in a
+    secrets directory holds bytes; nothing guarantees they spell a string the
+    way Python means one."""
     steps = [
         {
             "tool": "write",
-            "params": {"css": "#pin", "value_from": {"param": "pin"}},
+            "args": {"css": "#pin", "secret": SECRET_STEP},
             "return": True,
         }
     ]
-    document = flow(
-        steps, parameters={"type": "object", "properties": {"pin": {"writeOnly": True}}}
-    )
 
     class Submitting(FakeActions):
         def write(self, session_id, text, **kwargs):
             return {"url": f"https://x.test/?pin={text}", "title": "t"}
 
-    report = run(Submitting(), document, "b", params={"pin": 123456})
+    report = run(Submitting(), flow(steps), "b", catalogue=Vault(123456))
     assert "123456" not in str(report)
-
 
 def test_a_value_typed_early_is_still_hidden_from_a_later_step():
     """A submitting bound write leaves the value in the browser's URL, and a
     later ordinary step's page state would carry it back out."""
     steps = [
-        {"tool": "write", "params": {"css": "#q", "value_from": {"param": "secret"}}},
-        {"tool": "navigate", "params": {"url": "https://x.test/next"}, "return": True},
+        {"tool": "write", "args": {"css": "#q", "secret": SECRET_STEP}},
+        {"tool": "navigate", "args": {"url": "https://x.test/next"}, "return": True},
     ]
-    document = flow(
-        steps, parameters={"type": "object", "properties": {"secret": {"writeOnly": True}}}
-    )
+    document = flow(steps)
 
     class Lingering(FakeActions):
         def write(self, session_id, text, **kwargs):
@@ -812,21 +867,47 @@ def test_a_value_typed_early_is_still_hidden_from_a_later_step():
             # The browser is still showing the submitted query.
             return {"url": "https://x.test/next?ref=zzz-secret", "title": "t"}
 
-    report = run(Lingering(), document, "b", params={"secret": "zzz-secret"})
+    report = run(Lingering(), document, "b", catalogue=Vault("zzz-secret"))
     assert "zzz-secret" not in str(report)
 
 
 def test_an_empty_binding_is_malformed_rather_than_absent():
-    """Save-time validation rejects `value_from: {}`, and the store reads YAML
+    """Save-time validation rejects `secret: {}`, and the store reads YAML
     that never passed through it — treating it as absent let a literal `text`
     beside it run instead, which is quietly doing the wrong thing."""
     steps = [
-        {"tool": "write", "params": {"css": "#p", "text": "literal", "value_from": {}}}
+        {"tool": "write", "args": {"css": "#p", "text": "literal", "secret": {}}}
     ]
     actions = FakeActions()
-    report = run(actions, flow(steps), "b")
+    report = run(actions, flow(steps), "b", catalogue=Vault())
     assert report["status"] == "failed"
-    assert "names no source" in report["steps"][0]["error"]
+    assert "one value, one place" in report["steps"][0]["error"]
+    assert actions.calls == []
+
+
+def test_a_literal_beside_a_secret_is_refused_at_run_time_too():
+    """Saving refuses it, and saving is not the only way a document gets here.
+    Without this the literal was silently discarded and the credential typed in
+    its place — a step saying two things quietly becoming a step saying one."""
+    steps = [
+        {
+            "tool": "write",
+            "args": {"css": "#p", "text": "literal", "secret": SECRET_STEP},
+        }
+    ]
+    actions = FakeActions()
+    report = run(actions, flow(steps), "b", catalogue=Vault())
+    assert report["status"] == "failed"
+    assert "one value, one place" in report["steps"][0]["error"]
+    assert actions.calls == []
+
+
+def test_a_malformed_secret_on_its_own_says_what_is_missing():
+    steps = [{"tool": "write", "args": {"css": "#p", "secret": {}}}]
+    actions = FakeActions()
+    report = run(actions, flow(steps), "b", catalogue=Vault())
+    assert report["status"] == "failed"
+    assert "needs a name" in report["steps"][0]["error"]
     assert actions.calls == []
 
 
@@ -835,17 +916,15 @@ def test_a_redacted_page_is_reported_as_a_fact_not_a_marker():
     secret whose value happens to be the marker makes searching for it
     useless."""
     steps = [
-        {"tool": "write", "params": {"css": "#q", "value_from": {"param": "secret"}}}
+        {"tool": "write", "args": {"css": "#q", "secret": SECRET_STEP}}
     ]
-    document = flow(
-        steps, parameters={"type": "object", "properties": {"secret": {"writeOnly": True}}}
-    )
+    document = flow(steps)
 
     class Submitting(FakeActions):
         def write(self, session_id, text, **kwargs):
             return {"url": f"https://x.test/?q={text}", "title": "t"}
 
-    report = run(Submitting(), document, "b", params={"secret": "zzz"})
+    report = run(Submitting(), document, "b", catalogue=Vault())
     assert report["url_redacted"] is True
 
 
@@ -859,17 +938,15 @@ def test_a_secret_that_is_the_marker_is_still_a_redacted_page():
     redacted while the credential was still in it. The question is whether the
     value is in the URL, so that is what is asked."""
     steps = [
-        {"tool": "write", "params": {"css": "#q", "value_from": {"param": "secret"}}}
+        {"tool": "write", "args": {"css": "#q", "secret": SECRET_STEP}}
     ]
-    document = flow(
-        steps, parameters={"type": "object", "properties": {"secret": {"writeOnly": True}}}
-    )
+    document = flow(steps)
 
     class Submitting(FakeActions):
         def write(self, session_id, text, **kwargs):
             return {"url": f"https://x.test/?q={text}", "title": "t"}
 
-    report = run(Submitting(), document, "b", params={"secret": flowrun.HIDDEN})
+    report = run(Submitting(), document, "b", catalogue=Vault())
     assert report["url_redacted"] is True
 
 
@@ -878,12 +955,10 @@ def test_a_step_that_fails_after_typing_reports_a_redacted_page():
     on is exactly as unsafe to store as one a step succeeded on. Only the
     success branch recorded it."""
     steps = [
-        {"tool": "write", "params": {"css": "#q", "value_from": {"param": "secret"}}},
-        {"tool": "navigate", "params": {"url": "https://x.test/next"}},
+        {"tool": "write", "args": {"css": "#q", "secret": SECRET_STEP}},
+        {"tool": "navigate", "args": {"url": "https://x.test/next"}},
     ]
-    document = flow(
-        steps, parameters={"type": "object", "properties": {"secret": {"writeOnly": True}}}
-    )
+    document = flow(steps)
 
     class FailsAfterTyping(FakeActions):
         def write(self, session_id, text, **kwargs):
@@ -898,7 +973,7 @@ def test_a_step_that_fails_after_typing_reports_a_redacted_page():
             # A redirect carried the value into the URL on the way.
             return {"url": "https://x.test/sso?token=zzz-secret", "title": "t"}
 
-    report = run(FailsAfterTyping(), document, "b", params={"secret": "zzz-secret"})
+    report = run(FailsAfterTyping(), document, "b", catalogue=Vault("zzz-secret"))
     assert report["status"] == "failed"
     assert report["url_redacted"] is True
     assert "zzz-secret" not in str(report)
@@ -917,12 +992,10 @@ def test_a_run_that_navigates_away_reports_the_clean_page_it_ended_on():
     it threw away a perfectly ordinary final page because an earlier step had
     briefly been somewhere unprintable."""
     steps = [
-        {"tool": "write", "params": {"css": "#q", "value_from": {"param": "secret"}}},
-        {"tool": "navigate", "params": {"url": "https://x.test/done"}},
+        {"tool": "write", "args": {"css": "#q", "secret": SECRET_STEP}},
+        {"tool": "navigate", "args": {"url": "https://x.test/done"}},
     ]
-    document = flow(
-        steps, parameters={"type": "object", "properties": {"secret": {"writeOnly": True}}}
-    )
+    document = flow(steps)
 
     class SubmitsThenLeaves(FakeActions):
         def write(self, session_id, text, **kwargs):
@@ -931,7 +1004,7 @@ def test_a_run_that_navigates_away_reports_the_clean_page_it_ended_on():
         def navigate(self, session_id, **kwargs):
             return {"url": "https://x.test/done", "title": "Done"}
 
-    report = run(SubmitsThenLeaves(), document, "b", params={"secret": "zzz"})
+    report = run(SubmitsThenLeaves(), document, "b", catalogue=Vault())
     assert report["status"] == "ok"
     assert report["url"] == "https://x.test/done"
     # The page it ended on is clean, so it is safe to remember.
@@ -939,43 +1012,20 @@ def test_a_run_that_navigates_away_reports_the_clean_page_it_ended_on():
     assert "zzz" not in str(report)
 
 
-def test_two_sources_are_refused_rather_than_one_of_them_chosen():
-    """A stored document never went through save-time validation. Testing the
-    sources in order took whichever the `if` reached first, so a step saying two
-    things ran as though it had said one."""
-    steps = [
-        {
-            "tool": "write",
-            "params": {
-                "css": "#p",
-                "value_from": {"param": "a", "secret": {"name": "n", "key": "k"}},
-            },
-        }
-    ]
-    document = flow(
-        steps, parameters={"type": "object", "properties": {"a": {"type": "string"}}}
-    )
-    actions = FakeActions()
-    report = run(actions, document, "b", params={"a": "plain"})
-    assert report["status"] == "failed"
-    assert "give exactly one source" in report["steps"][0]["error"]
-    assert actions.calls == []
-
-
 @pytest.mark.parametrize(
-    "value_from",
+    "reference",
     [
-        {"secret": {"name": "n", "key": "k", 1: "x"}},  # an extra key YAML made an int
-        {"secret": {"name": "n", "key": "k"}, 1: "x"},  # a stray source, likewise
+        {"name": "n", "key": "k", 1: "x"},  # an extra key YAML made an int
+        {"name": "n", 1: "x"},  # and one with a field missing as well
     ],
 )
-def test_a_hand_edited_flow_with_an_integer_key_is_refused_not_a_crash(value_from):
+def test_a_hand_edited_flow_with_an_integer_key_is_refused_not_a_crash(reference):
     """YAML turns `1:` into an integer key, and the stored flow never passed
     through save-time validation. Listing that key in the refusal raised
     TypeError — a 500 about our code instead of a refusal of the document."""
-    steps = [{"tool": "write", "params": {"css": "#p", "value_from": value_from}}]
+    steps = [{"tool": "write", "args": {"css": "#p", "secret": reference}}]
     actions = FakeActions()
-    report = run(actions, flow(steps), "b")
+    report = run(actions, flow(steps), "b", catalogue=Vault())
     assert report["status"] == "failed"
     assert "1" in report["steps"][0]["error"]
     assert actions.calls == []
@@ -984,3 +1034,52 @@ def test_a_hand_edited_flow_with_an_integer_key_is_refused_not_a_crash(value_fro
 def test_listed_names_any_key_a_document_can_hold():
     assert flowrun.listed({"b", 1, "a"}) == "1, a, b"
     assert flowrun.listed([]) == ""
+
+
+def test_a_stored_flow_that_still_marks_a_parameter_write_only_is_refused():
+    """Saving refuses it, and `LocalFlowStore` reads YAML that may never have
+    been saved through the validator — which is exactly where a marker survives
+    a migration. `writeOnly` used to hide a parameter from the report and now
+    hides nothing, so an author who trusted it would have the value echoed back
+    by any `return: true` step (§F1.38)."""
+    steps = [
+        {"tool": "write", "args": {"css": "#p", "text": "${password}"}, "return": True}
+    ]
+    document = flow(
+        steps,
+        parameters={
+            "type": "object",
+            "properties": {"password": {"type": "string", "writeOnly": True}},
+        },
+    )
+    actions = FakeActions()
+    report = run(actions, document, "b", params={"password": "hunter2"})
+    assert report["status"] == "failed"
+    assert report["steps_run"] == 0
+    assert "writeOnly" in report["steps"][0]["error"]
+    assert "secret" in report["steps"][0]["error"]
+    # Refused before anything was typed, so the value never reached a page.
+    assert actions.calls == []
+    assert "hunter2" not in str(report)
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        {"type": "object", "properties": []},
+        {"type": "object", "properties": "nonsense"},
+        {"type": "object", "properties": {1: {"writeOnly": True}}},
+        {"type": "object", "properties": {"a": "scalar"}},
+        "not an object at all",
+    ],
+)
+def test_a_malformed_parameters_block_does_not_crash_the_preflight(parameters):
+    """The preflight reads a stored file, so every shape a hand edit produces
+    has to reach an outcome rather than an AttributeError — a 500 about our own
+    code instead of a verdict on the document."""
+    document = flow(
+        [{"tool": "navigate", "args": {"url": "https://example.test/"}}],
+        parameters=parameters,
+    )
+    report = run(FakeActions(), document, "b")
+    assert report["status"] in {"ok", "failed"}

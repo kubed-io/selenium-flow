@@ -30,9 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Saved flows.** Save a sequence of steps under a name, then run the whole thing in one call with `run_flow` — a twelve-step form becomes one call instead of twelve. Set `FLOW_DATA_DIR` to turn them on.
 - **Kept files.** `keep_file` copies a download out of the browser so it survives being reaped, switched or ended; `session_files` lists both kinds together and keeps working after the browser has gone. Deleting a kept file is an operator action in the admin UI.
 
-- Flows take parameters, so one saved login serves every account.
+- **Flows take parameters.** Declare them and write `${name}` in any argument of any step — `url: ${site}/orders/${id}` — so one saved flow serves every account and every environment.
 
-- **Type a secret you never see.** Give `write` a `value_from` naming one instead of text, and the server reads it and types it — in a flow step or a single call.
+- **Type a secret you never see.** Give `write` a `secret` naming one instead of text, and the server reads it and types it — in a flow step or a single call. It is never passed as an argument string, so it cannot be assembled into one by mistake.
 
 - **A secrets catalogue.** Point `SECRETS_DIRS` at a directory per secret and a file per key — the shape Kubernetes already mounts — and `list_secrets` shows an agent what it can use. Values are never returned by anything.
 
@@ -44,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Files are one grid with a mark each.** A bubble is a download and a pin is a file kept beyond the browser — click the bubble to keep it, hover the pin to delete it. `Clear downloads` now lists exactly what it will remove and leaves kept files alone.
 
 - `screenshot(save=true)` now tells you what the file was called, which is the name `keep_file` takes.
+
+- **A flow run answers with the steps you marked `return: true`** — any number of them, and nothing else.
 
 - **The wiki documents flows, secrets and kept files.** A reference page for each of the eight endpoints they added, plus guides for all three — and the two environment variables that switch them on.
 

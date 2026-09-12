@@ -142,7 +142,7 @@ def test_a_session_key_that_cannot_be_a_directory_falls_back_rather_than_failing
 def test_save_then_get_round_trips(store):
     document = {
         "description": "Log in",
-        "steps": [{"tool": "write", "params": {"xpath": "//input", "text": "x"}}],
+        "steps": [{"tool": "write", "args": {"xpath": "//input", "text": "x"}}],
     }
     store.save("research-bot", "login", document)
     assert store.get("research-bot", "login") == {**document, "name": "login"}

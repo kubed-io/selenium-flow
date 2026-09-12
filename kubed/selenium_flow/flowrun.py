@@ -18,10 +18,19 @@ methods in a loop. It deliberately does *not* thread one driver through them:
 that would be a micro-optimisation on the one cost that is already near zero,
 paid for by making every action take a driver it does not otherwise need.
 
-**There is no templating.** A step that needs a value it was not given names a
-source in `valueFrom`, and this module puts the resolved value straight into the
-call's keyword arguments. Nothing scans a payload, so a script containing
-``${...}`` or a password containing ``{{`` is just a string (§F1.7).
+**A parameter is text; a secret is structural** (§F1.38). `${name}` is
+substituted into any argument, anywhere, and `args.secret` is not — a secret
+goes straight into the keyword arguments and never through a string.
+
+Three rules make the text half safe, and `substitute` below is where they live:
+
+- **single pass**, so a value a caller supplied is never rescanned and passing
+  ``${admin_token}`` as a value yields that text;
+- **only names the caller supplied** are replaced, so a script holding a
+  JavaScript template literal — ``return `${window.scrollY}px` `` — survives
+  rather than being silently blanked;
+- **`$${` is a literal `${`**, matched by the same expression as a reference so
+  an escape can never be read as one.
 
 **A run is not a program.** Steps execute in order, once each. No branching, no
 loops, no step reading another's output — that last one is Chapter 2. A flow is
@@ -35,7 +44,7 @@ import time
 from urllib.parse import quote, quote_plus
 
 from . import secrets
-from .flowdoc import FILLS, NOT_STEPS, VALUE_FROM, NoSoleSource, listed, sole_source
+from .flowdoc import ARGS, NOT_STEPS, PARAM_REFERENCE, SECRET_ARG, listed
 from .routes import ENDPOINTS
 
 # The only attributes a step may dispatch to. `getattr(actions, tool)` alone
@@ -124,9 +133,9 @@ def hidden_forms(values) -> set:
     for value in values:
         if value is None:
             continue
-        # Coerced, not skipped: `Actions.write` does `str(text)`, so a numeric
-        # or boolean writeOnly parameter really is typed into the page — and
-        # skipping non-strings here meant it came back unscrubbed.
+        # Coerced, not skipped: `Actions.write` does `str(text)`, so a secret
+        # whose stored value is not a string really is typed into the page —
+        # and skipping non-strings here meant it came back unscrubbed.
         text = value if isinstance(value, str) else str(value)
         if not text:
             continue
@@ -189,23 +198,44 @@ class FlowError(ValueError):
     """
 
 
-def required_params(document: dict) -> list[str]:
-    return list((document.get("parameters") or {}).get("required") or [])
+def _properties(document: dict) -> dict:
+    """A flow's declared parameters, or nothing if the document is malformed.
 
-
-def sensitive_params(document: dict) -> set[str]:
-    """Parameters marked `writeOnly` in the flow's own schema.
-
-    Standard JSON Schema for "supplied but not returned", so it is not a keyword
-    we invented. It is a marker and not encryption: the value still arrives in
-    the call. What it buys is that it does not go back out again.
+    Defensive because this reads a stored file: `parameters: []` and a scalar
+    `properties` are both things a hand edit produces, and neither may become a
+    crash in a preflight whose job is to refuse documents cleanly.
     """
-    properties = (document.get("parameters") or {}).get("properties") or {}
+    parameters = document.get("parameters")
+    if not isinstance(parameters, dict):
+        return {}
+    properties = parameters.get("properties")
+    return properties if isinstance(properties, dict) else {}
+
+
+def _refused(document: dict, name: str, why: str) -> dict:
+    """A run that was stopped before step one, reported as a run.
+
+    Preflighted rather than caught mid-loop: a bad document found at step nine
+    would otherwise have run the first eight and then reported `steps_run: 0`,
+    which both half-runs a flow the message says was refused and misstates what
+    happened.
+    """
+    total = len(document.get("steps") or [])
     return {
-        name
-        for name, schema in properties.items()
-        if isinstance(schema, dict) and schema.get("writeOnly")
+        "flow": name,
+        "status": "failed",
+        "steps_run": 0,
+        "steps_total": total,
+        "steps": [{"n": 1, "ok": False, "error": why}] if total else [],
     }
+
+
+def required_params(document: dict) -> list[str]:
+    parameters = document.get("parameters")
+    if not isinstance(parameters, dict):
+        return []
+    required = parameters.get("required")
+    return list(required) if isinstance(required, list) else []
 
 
 def check_params(document: dict, params: dict) -> None:
@@ -216,7 +246,7 @@ def check_params(document: dict, params: dict) -> None:
             f"{document.get('name', 'this flow')} needs "
             f"{listed(missing)}: pass them in params"
         )
-    declared = set((document.get("parameters") or {}).get("properties") or {})
+    declared = set(_properties(document))
     unknown = set(params or {}) - declared
     if unknown:
         known = listed(declared) or "it takes none"
@@ -226,84 +256,110 @@ def check_params(document: dict, params: dict) -> None:
         )
 
 
+def substitute(value, params: dict):
+    """``value`` with every ``${name}`` replaced by the parameter it names.
+
+    **Single pass.** `re.sub` never revisits what it wrote, and an escape is
+    matched by the same expression as a reference, so a parameter whose *value*
+    contains ``${admin_token}`` yields that text and resolves nothing. This is
+    the rule that keeps "a payload can never collide with a reference" true now
+    that strings are scanned at all (§F1.38).
+
+    A string that is **exactly** one reference takes the parameter's value with
+    its type intact, so an integer parameter stays an integer and reaches a
+    tool argument that wants one. Anywhere else the value is interpolated as
+    text, because the result is a string by construction.
+
+    Walks lists and mappings, because an argument is not always a flat string —
+    a selector inside a list is as good a place for a parameter as any.
+    """
+    if isinstance(value, str):
+        whole = PARAM_REFERENCE.fullmatch(value)
+        if whole is not None and whole.group(1) in params:
+            return params[whole.group(1)]
+
+        def one(match):
+            if match.group(1) is None:
+                return "${"
+            # **Only what the caller supplied.** Anything else is left exactly
+            # as written, because it is not ours to interpret: a script holding
+            # a JavaScript template literal — `return `${window.scrollY}px`` —
+            # is an ordinary payload, and blanking it would corrupt the step
+            # silently. Saving refuses an undeclared name, so a flow that went
+            # through validation cannot reach here with one; a hand-edited one
+            # keeps its text rather than losing it.
+            if match.group(1) not in params:
+                return match.group(0)
+            return str(params[match.group(1)])
+
+        return PARAM_REFERENCE.sub(one, value)
+    if isinstance(value, dict):
+        return {key: substitute(item, params) for key, item in value.items()}
+    if isinstance(value, list):
+        return [substitute(item, params) for item in value]
+    return value
+
+
 def resolve_step(
     step: dict,
     params: dict,
-    sensitive: set[str],
     catalogue=None,
     page: str = "",
 ) -> tuple[dict, set]:
     """A step's keyword arguments, and **which of them** must not be echoed.
 
-    Structural: `valueFrom` names a source and the value goes straight into the
-    kwargs. No string is inspected for placeholders, which is why a payload can
-    never collide with a reference.
+    Two mechanisms, deliberately unlike each other (§F1.38).
 
-    `value_from` is an ordinary parameter of the action, so a step's `params`
-    is exactly the arguments of the call and a step is literally the call a
-    caller would make directly. Which argument it fills is the action's own
-    business — `write` fills `text` — so nothing repeats a name, the way
-    Kubernetes never repeats an env var's name inside its `valueFrom`.
+    A **parameter** is text. It is substituted into the arguments wherever it
+    appears, and nothing is guarded: a parameter is non-secret by definition,
+    which is what makes substituting it anywhere safe. There is no `writeOnly`.
 
-    The guard is a set of argument names rather than one flag. It holds at most
-    one today, and stays a set because the *result* redaction keys off argument
-    names and a second bindable argument should not require rewriting that.
+    A **secret** is structural and never becomes part of a string. It arrives as
+    `args.secret`, an argument only `write` has, and the value goes straight
+    into `text` — so the credential exists only as one keyword argument, and the
+    guard set names that argument for the redaction that follows.
+
+    The guard is a set rather than a flag because the *result* redaction keys
+    off argument names, and a second guarded argument should not require
+    rewriting it.
     """
-    kwargs = dict(step.get("params") or {})
+    kwargs = dict(step.get(ARGS) or {})
     guarded: set[str] = set()
-    source = kwargs.pop(VALUE_FROM, None)
-    if source is None:
+    # Substituted first, and the secret lifted out before it — so a parameter
+    # can never reach the secret's name or key. Saving refuses that too; this
+    # is the same rule applied to a document that may never have been saved.
+    reference = kwargs.pop(SECRET_ARG, None)
+    kwargs = substitute(kwargs, params)
+    if reference is None:
         return kwargs, guarded
+
     tool = step.get("tool", "")
     label = step.get("id") or tool
-    # `is None` above, not truthiness: an empty mapping is a *malformed*
-    # binding, and save-time validation rejects it. Treating it as absent let a
-    # hand-edited stored flow fall through to a literal `text` sitting beside it
-    # — quietly running the step with the wrong value instead of refusing.
-    #
-    # The same rule the validator applies, applied again here: a stored document
-    # may never have been through it. Dispatching on `kind` rather than testing
-    # the sources in order is what stops two of them silently becoming one.
-    try:
-        kind = sole_source(source)
-    except NoSoleSource as exc:
-        raise FlowError(f"step {label}: {exc}") from exc
-    target = FILLS.get(tool)
-    if target is None:
-        raise FlowError(f"step {label}: {tool} does not take {VALUE_FROM}")
-
-    # Saving checks this, and saving is not the only way a document gets here:
-    # `LocalFlowStore` reads YAML somebody may have written by hand. Every rule
-    # that protects a secret is therefore checked again at the moment it is
-    # used, where the document's provenance no longer matters.
-    if kind == "secret" and kwargs.get("url"):
+    # Saving refuses this, and saving is not the only way a document gets here:
+    # `LocalFlowStore` reads YAML somebody may have written by hand. Without
+    # the check the literal was silently discarded and the credential typed in
+    # its place — a step saying two things quietly becoming a step saying one,
+    # which is the shape every other surface refuses by name.
+    if kwargs.get("text") is not None:
         raise FlowError(
-            f"step {label}: a step that binds a secret may not also navigate — "
+            f"step {label}: text is given literally and by a secret — one "
+            "value, one place"
+        )
+    if kwargs.get("url"):
+        raise FlowError(
+            f"step {label}: a step that types a secret may not also navigate — "
             "the secret's allowed sites are checked against the page the "
             "browser is on, and this would type it on a page that was never "
             "checked"
         )
-
-    if kind == "param":
-        reference = source["param"]
-        kwargs[target] = params.get(reference)
-        if reference in sensitive:
-            guarded.add(target)
-    elif kind == "secret":
-        # The one place a run reads a credential. `page` is where the browser
-        # actually is, so the secret's leash is checked against the page about
-        # to receive the keystroke rather than wherever the flow started.
-        try:
-            kwargs[target] = secrets.bind(catalogue, source, page, tool=tool)
-        except secrets.Refused as exc:
-            raise FlowError(f"step {label}: {exc}") from exc
-        guarded.add(target)
-    elif kind == "config":
-        raise FlowError(
-            f"step {label}: config values are not available on this server yet"
-        )
-    else:  # pragma: no cover - only reachable if SOURCES grows and this does not
-        raise FlowError(f"step {label}: this server cannot resolve a {kind}")
+    # The one place a run reads a credential. `page` is where the browser
+    # actually is, so the secret's leash is checked against the page about to
+    # receive the keystroke rather than wherever the flow started.
+    try:
+        kwargs["text"] = secrets.bind(catalogue, reference, page, tool=tool)
+    except secrets.Refused as exc:
+        raise FlowError(f"step {label}: {exc}") from exc
+    guarded.add("text")
     return kwargs, guarded
 
 
@@ -389,7 +445,6 @@ def run(
     """
     params = dict(params or {})
     check_params(document, params)
-    sensitive = sensitive_params(document)
     name = document.get("name", "flow")
 
     reports: list[dict] = []
@@ -402,10 +457,35 @@ def run(
     budget = RUN_TIMEOUT if timeout is None else max(int(timeout), 0)
     deadline = time.monotonic() + budget
 
+    # A document the validator would refuse, reaching here anyway because
+    # `LocalFlowStore` reads YAML that may never have been saved through it.
+    # `writeOnly` is the one that matters: it used to hide a parameter from the
+    # report and now hides nothing, so an author who trusted it — and a
+    # hand-edited file is exactly where that marker survives a migration —
+    # would have the value echoed back by any `return: true` step. Refusing the
+    # run is the same answer saving gives, in the only other place a document
+    # can arrive (§F1.38).
+    marked = sorted(
+        (
+            str(param)
+            for param, schema in _properties(document).items()
+            if isinstance(schema, dict) and schema.get("writeOnly")
+        ),
+    )
+    if marked:
+        return _refused(
+            document,
+            name,
+            f"this flow marks {listed(marked)} writeOnly, which no longer "
+            "hides anything — a parameter is text and may appear in the "
+            "report. A value nobody may see is a secret: give write an "
+            "args.secret instead.",
+        )
+
     stale = [
         number
         for number, step in enumerate(document.get("steps") or [], start=1)
-        if isinstance(step, dict) and "valueFrom" in step
+        if isinstance(step, dict) and ("valueFrom" in step or "params" in step)
     ]
     if stale:
         # Preflighted, not caught mid-loop: a stale key on step nine would
@@ -422,9 +502,11 @@ def run(
                     "n": number,
                     "ok": False,
                     "error": (
-                        "this flow was saved in an older format: valueFrom is a "
-                        "parameter now, so move it inside params as value_from "
-                        "and save it again"
+                        "this flow was saved in an older format: a step's "
+                        "arguments are 'args' now, not 'params', and a secret "
+                        "is 'args.secret' rather than 'value_from'. A flow "
+                        "parameter is written ${name} in any argument. Save it "
+                        "again in the new shape."
                     ),
                 }
                 for number in stale
@@ -464,9 +546,9 @@ def run(
             # Only read the page when a step actually binds a secret: it costs a
             # WebDriver round trip, and every other step has no leash to check.
             page = ""
-            if "secret" in ((step.get("params") or {}).get(VALUE_FROM) or {}):
+            if (step.get(ARGS) or {}).get(SECRET_ARG) is not None:
                 page = _page_state(actions, session_id).get("url", "")
-            kwargs, guarded = resolve_step(step, params, sensitive, catalogue, page)
+            kwargs, guarded = resolve_step(step, params, catalogue, page)
         except FlowError as exc:
             entry.update(ok=False, error=str(exc))
             reports.append(entry)
@@ -555,6 +637,15 @@ def run(
         # Says the reported page is not the page: a caller must not store it as
         # somewhere to navigate back to.
         report["url_redacted"] = True
-    if last:
-        report["result"] = last
+    # No top-level `result`. It used to carry the last step's, which meant a
+    # flow ending in `extract` with `return: true` — the shape every example
+    # taught — reported the same object twice, once under its step and once
+    # here. Worse, it was a second way to say what a run answers with: `return`
+    # is the explicit one, and two mechanisms for one job is how they drift.
+    #
+    # A step now says whether its result is part of the flow's answer, any
+    # number of steps may say so, and a caller running somebody else's flow
+    # that marks none can still pass `verbose`. `url` and `title` stay, because
+    # where the browser ended up is a fact about the *run* rather than a step's
+    # output — and it is the thing a caller needs to carry on from.
     return report

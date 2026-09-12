@@ -166,7 +166,7 @@ A step is just a tool call, validated against the live tool schemas when it is s
 Mount credentials as a directory per secret and a file per key — exactly how Kubernetes already mounts a `Secret` — and point `SECRETS_DIRS` at it. An agent sees the names and keys, never a value, and binds one where the value would go:
 
 ```
-write(css="#password", value_from={"secret": {"name": "nextcloud", "key": "password"}})
+write(css="#password", secret={"name": "nextcloud", "key": "password"})
 ```
 
 The server types it; it never passes through the model, the transcript or a log. A secret can be pinned to the sites it may be used on, and is refused anywhere else.

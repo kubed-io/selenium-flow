@@ -329,18 +329,17 @@ def register(
         name=SAVE_TOOL,
         description=(
             "Save a flow under a name, creating it or replacing it.\n\n"
-            "steps is a list of {tool, params} objects — one tool call each, in "
-            "order, where params is exactly the arguments of that call. A step "
+            "steps is a list of {tool, args} objects — one tool call each, in "
+            "order, where args is exactly the arguments of that call. A step "
             "may also carry id, note, onError ('abort' or 'continue') and "
             "return (include its full result in the run report). To bound one "
-            "step, set wait_timeout in its params.\n\n"
-            "To take a value from somewhere instead of writing it in, put "
-            "value_from in the params beside the others: "
-            "{'tool': 'write', 'params': {'css': '#p', 'value_from': "
-            "{'secret': {'name': 'x', 'key': 'password'}}}} types a secret you "
-            "never see, and {'value_from': {'param': 'email'}} takes the value "
-            "from this flow's own parameters. Exactly one source, and you may "
-            "not also give the value literally. There is no {{templating}}.\n\n"
+            "step, set wait_timeout in its args.\n\n"
+            "A value that varies between runs is a PARAMETER: declare it in "
+            "parameters and write ${name} in any argument, anywhere in the "
+            "string. A value nobody may see is a SECRET: give write an args."
+            "secret of {'name': 'x', 'key': 'password'} and the server types "
+            "it without showing you. Only write takes a secret, and a secret "
+            "is never written into a string.\n\n"
             "open_session and end_browser are not steps: a flow runs in the "
             "browser you already have, which is what lets one flow run on "
             "Chrome and then on Firefox unchanged.\n\n"
@@ -486,7 +485,7 @@ async def _document_schema(schemas: Schemas) -> dict:
                         # it. A step key would be a second place to say it, and
                         # a caller following this resource would have built a
                         # document save_flow rejects.
-                        "params": {"type": "object"},
+                        "args": {"type": "object"},
                         "id": {"type": "string"},
                         "note": {"type": "string"},
                         "onError": {"type": "string", "enum": list(flowdoc.ON_ERROR)},
@@ -497,43 +496,31 @@ async def _document_schema(schemas: Schemas) -> dict:
         },
         "required": ["name", "steps"],
         "x-step-params": steps,
-        # `x-step-params` comes from the direct tool schemas, where `value_from`
-        # can only name a secret — a flow's own parameters mean nothing to a
-        # caller outside a flow. Inside one they do, so the extra source is
-        # described here rather than left to be discovered by a rejection.
-        "x-value-from": {
+        # How a value that is not written literally reaches an argument. Two
+        # mechanisms, and the schema says so rather than leaving an author to
+        # discover the difference through a rejection (§F1.38).
+        "x-parameters": {
             "description": (
-                "In a flow step, params.value_from may also take its value from "
-                "one of the flow's own parameters. The tool schemas describe "
-                "only the secret source, which is all a direct call can use."
+                "A value that varies between runs is a parameter: declare it in "
+                "`parameters` and write ${name} inside any argument, anywhere "
+                "in the string. Substitution is single-pass, so a value "
+                "containing ${...} resolves nothing. Write $${ for a literal."
             ),
-            # Every object here is CLOSED, as the validator and the MCP model
-            # are. JSON Schema's default is to allow any extra property, so a
-            # consumer building from this schema could produce `{secret, config}`
-            # or a misspelt reference that it accepts and `save_flow` refuses.
-            #
-            # The secret reference is the MCP tool's own model rather than a
-            # copy of it — a hand-written one is how this repo keeps finding its
-            # bugs, and it had already drifted by not being closed.
-            "oneOf": [
-                {
-                    "type": "object",
-                    "required": ["secret"],
-                    "additionalProperties": False,
-                    "properties": {"secret": SecretRef.model_json_schema()},
-                },
-                {
-                    "type": "object",
-                    "required": ["param"],
-                    "additionalProperties": False,
-                    "properties": {
-                        "param": {
-                            "type": "string",
-                            "description": "A name from this flow's parameters.",
-                        }
-                    },
-                },
-            ],
+            "pattern": flowdoc.PARAM_REFERENCE.pattern,
+        },
+        # The secret reference is the MCP tool's own model rather than a copy of
+        # it — a hand-written one is how this repo keeps finding its bugs. It is
+        # CLOSED, as the validator is: JSON Schema allows extra properties by
+        # default, so a consumer building from this could produce a misspelt
+        # reference that it accepts and `save_flow` refuses.
+        "x-secret": {
+            "description": (
+                "A value nobody may see is a secret, and it is never part of a "
+                "string. Only `write` has a `secret` argument; the server reads "
+                "it, checks it against the page the browser is on, and types "
+                "it. Give `secret` or `text`, never both."
+            ),
+            "schema": SecretRef.model_json_schema(),
         },
     }
 

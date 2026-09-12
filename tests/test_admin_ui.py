@@ -186,8 +186,18 @@ def test_a_flow_shows_its_steps_without_selectors_or_urls(page):
 
 
 def test_a_step_that_binds_a_secret_is_marked(page):
+    """One argument, on one action. The mark keys off the argument existing
+    rather than off a source name inside it (§F1.38)."""
     assert "const bindsSecret" in page
-    assert "value_from && step.params.value_from.secret" in page
+    assert "step.args && step.args.secret" in page
+
+
+def test_a_parameter_reference_is_shown_as_written(page):
+    """`${site}/login` is the argument. Seeing which arguments a parameter
+    reaches is the point of reading a step, and unlike a secret there is
+    nothing to hide — a parameter is non-secret by definition."""
+    assert "const params = step.args || {};" in page
+    assert "v.name + ' / ' + v.key" in page, "a secret still shows only its name"
 
 
 def test_only_shared_flows_are_badged(page):

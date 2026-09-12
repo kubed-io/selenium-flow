@@ -35,7 +35,7 @@ name: login
 description: sign in to the demo site
 steps:
 - tool: navigate
-  params:
+  args:
     url: https://example.test/login
 """
 
@@ -137,7 +137,7 @@ def test_a_save_keeps_the_comment_and_the_ordering(client, server):
 
 
 def test_a_document_that_would_not_run_is_refused(client, server):
-    bad = "name: bad\nsteps:\n- tool: nope\n  params: {}\n"
+    bad = "name: bad\nsteps:\n- tool: nope\n  args: {}\n"
     response = client.put(url("bad"), json={"yaml": bad}, headers=AUTH)
     assert response.status_code == 400
     assert "no tool called" in response.json()["error"]
@@ -185,7 +185,7 @@ def test_the_document_cannot_rename_the_flow(client, server):
 def test_a_document_that_does_not_name_itself_is_still_saveable(client, server):
     """`name` is not required — the file supplies it. Only a *contradicting*
     one is refused, or hand-writing a flow would mean repeating its name."""
-    body = "steps:\n- tool: navigate\n  params: {url: https://example.test/}\n"
+    body = "steps:\n- tool: navigate\n  args: {url: https://example.test/}\n"
     assert client.put(url("login"), json={"yaml": body}, headers=AUTH).status_code == 200
     assert server.flows.get(SESSION, "login")["name"] == "login"
 

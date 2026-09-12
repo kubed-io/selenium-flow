@@ -1340,6 +1340,65 @@ type. Two surfaces, one action, different answers — which is exactly what
 `test_surfaces.py` exists to prevent, and could not see here because it compares
 *which* actions exist rather than what they return.
 
+### §F1.38 — Decision (locked): a parameter is text, a secret is structural
+
+**The two look alike and are opposites.** They were one mechanism — `value_from`
+naming one of `param`, `secret` or `config` — and that was the mistake. One
+mechanism means the stricter requirement constrains both, and the evidence was
+already in the repo: `FILLS` opened *one* argument per action to a binding, so a
+flow could vary what it typed and never where it went, and widening it was a
+code change per argument. A table that grows one entry at a time is a design
+that does not fit.
+
+| | parameter | secret |
+|---|---|---|
+| supplied by | the caller, per run | the operator, on the server |
+| may appear in | any argument, any string | exactly one sink |
+| visible to | the author, the report | **nothing, ever** |
+| checked against | the declared parameters, at save | the page about to receive it |
+
+So they split:
+
+- A **parameter** is written `${name}` and substituted into any argument
+  anywhere, including mid-string. Validated at save against the declared
+  parameters, so an undeclared name is refused while the author is looking at
+  it.
+- A **secret** is `write`'s `secret` argument. Structural, never part of a
+  string, and the rule is enforced by the tool schemas rather than by a list:
+  no other action *has* that argument, so `BINDABLE_TOOLS` and `FILLS` both
+  disappear.
+
+**Three rules make the text half safe, and all three are load-bearing.**
+
+1. **Substitution is single-pass.** `re.sub` never revisits what it wrote, and
+   an escape is matched by the same expression as a reference, so a caller
+   passing `${admin_token}` as a *value* gets that text. This is what preserves
+   the old doctrine's real claim — "a payload can never collide with a
+   reference" — now that strings are scanned at all.
+2. **Only names the caller supplied are substituted.** Found while writing the
+   tests: `${window.scrollY}` in a JavaScript template matches the pattern, and
+   blanking it would corrupt a script silently. An unsupplied reference is left
+   exactly as written. Saving still refuses an undeclared name, so this only
+   ever applies to a hand-edited document.
+3. **There is no `writeOnly`.** A parameter is non-secret *by definition*, which
+   is precisely what earns it the freedom to go anywhere. A half-secret riding
+   the text path would need every summary, result, error and URL string-scrubbed
+   to hide it again — fuzzier than the structural redaction a secret gets, for a
+   value that should have been a secret.
+
+**And a secret may not be named by a parameter.** `secret: {name: ${which}}` is
+refused. Nothing would leak — the reference names a parameter — but choosing
+*which* credential gets typed is not a decision a caller's parameters may make.
+
+**A step's arguments are `args`.** The flow has `parameters`, a run supplies
+`params`, a step passes `args`. One word for two of those made `${name}` inside
+a step's `params` read as if it referred to the step's own, and it is the
+ordinary distinction anyway: a parameter is declared, an argument is passed.
+
+**Free exactly now.** Flows are unreleased and `FLOW_DATA_DIR` is an
+`emptyDir`, so no stored document anywhere is affected. After 0.0.3 every one of
+these is a migration with a compatibility shim.
+
 ## Part III — Sealed orders: the secrets system
 
 Every pilot flies with a locked pouch. They carry it, they hand it to the right

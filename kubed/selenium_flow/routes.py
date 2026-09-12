@@ -121,7 +121,7 @@ def _add(mcp, actions, token, prefix, path, method_name, catalogue=None) -> None
     """Bind one action method to ``<prefix>/<path>``."""
     method = getattr(actions, method_name)
     accepted = set(inspect.signature(method).parameters)
-    # `value_from` is not an argument of the action — resolving it needs the
+    # `secret` is not an argument of the action — resolving it needs the
     # secret catalogue, which the behaviour layer deliberately cannot see. It is
     # still a parameter of the *capability*, so this surface has to accept it or
     # the two surfaces differ in what they can do, which is the one divergence
@@ -133,7 +133,7 @@ def _add(mcp, actions, token, prefix, path, method_name, catalogue=None) -> None
         # `read_back` is an internal switch for a bound write, not a request
         # field: accepting it would let a caller ask for `value: null` with no
         # binding, which neither MCP nor the published spec offers.
-        accepted = (accepted | {"value_from"}) - {"read_back"}
+        accepted = (accepted | {"secret"}) - {"read_back"}
 
     @mcp.custom_route(f"{prefix}/{path}", methods=["POST"], name=f"browser_{path}")
     async def handler(request: Request) -> JSONResponse:
@@ -154,7 +154,7 @@ def _add(mcp, actions, token, prefix, path, method_name, catalogue=None) -> None
         kwargs = {k: v for k, v in body.items() if k in accepted}
         guarded: set[str] = set()
         try:
-            if binds and kwargs.get("value_from") is not None:
+            if binds and kwargs.get("secret") is not None:
                 from . import secrets as secrets_module
 
                 session = kwargs.get("session_id") or ""
@@ -165,7 +165,7 @@ def _add(mcp, actions, token, prefix, path, method_name, catalogue=None) -> None
                 )
                 kwargs["read_back"] = False
             elif binds:
-                kwargs.pop("value_from", None)
+                kwargs.pop("secret", None)
             if method_name == "open_session":
                 # Same cascade as the tool: server default < client default <
                 # body. Inside the try because it VALIDATES as well as merges —
@@ -182,7 +182,7 @@ def _add(mcp, actions, token, prefix, path, method_name, catalogue=None) -> None
 
                 hidden = flowrun.hidden_forms(kwargs.get(n) for n in guarded)
                 result = flowrun.scrub_values(
-                    {**result, "value_from": "secret"}, hidden
+                    {**result, "text_from": "secret"}, hidden
                 )
             return JSONResponse(result)
         except Exception as exc:
