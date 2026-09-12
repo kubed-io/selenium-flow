@@ -32,6 +32,10 @@
 # one configured in docker-compose.yaml had never worked: buildx was run from a
 # shell step, which does not get ACTIONS_RUNTIME_TOKEN. image.yml now exports
 # it.
+#
+# Measured end to end, multi-arch: 9m30 before, 4m15 once the duplicate install
+# was gone, 2m19 once the cache actually hit. The two are independent — the
+# first needs no cache at all — which is why they are described separately.
 ARG PY_VERSION=3.14
 
 # ---- builder: the FAT image, because nothing in it ships.
