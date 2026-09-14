@@ -35,6 +35,7 @@ ENDPOINTS = {
     "press-key": "press_key",
     "extract": "extract",
     "script": "execute_script",
+    "assert": "assert",
     "screenshot": "screenshot",
     "frame": "frame",
     "resize": "resize",
@@ -42,6 +43,19 @@ ENDPOINTS = {
     "upload": "upload_file",
     "pdf": "save_pdf",
 }
+
+# `assert` is a Python keyword, so the one action whose tool name cannot also be
+# its method name. The tool, the route and a flow step all say `assert`; the
+# method is `assert_`. One alias, in one place, read by everything that
+# dispatches — `flowrun` and `tests/test_surfaces.py` included — because two
+# places that map a name to a method is how the two surfaces drift apart.
+METHOD_ALIASES = {"assert": "assert_"}
+
+
+def method_for(tool: str) -> str:
+    """The ``Actions`` method that serves ``tool``."""
+    return METHOD_ALIASES.get(tool, tool)
+
 
 # Paths that named an action before it was renamed, kept working because their
 # callers cannot be found: an n8n workflow lives in a database, not in this
@@ -119,7 +133,7 @@ def register(
 
 def _add(mcp, actions, token, prefix, path, method_name, catalogue=None) -> None:
     """Bind one action method to ``<prefix>/<path>``."""
-    method = getattr(actions, method_name)
+    method = getattr(actions, method_for(method_name))
     accepted = set(inspect.signature(method).parameters)
     # `secret` is not an argument of the action — resolving it needs the
     # secret catalogue, which the behaviour layer deliberately cannot see. It is

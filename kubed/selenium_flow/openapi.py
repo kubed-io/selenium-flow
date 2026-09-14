@@ -115,6 +115,13 @@ RESPONSES = {
         html={"type": "string", "description": "innerHTML of the matched element."},
         text={"type": "string", "description": "Visible text of the element."},
     ),
+    "assert": _page(
+        asserted={
+            "type": "boolean",
+            "description": "Always true: a false assertion is an error, not a result.",
+        },
+        script={"type": "string", "description": "The expression that was true."},
+    ),
     "execute_script": _page(
         result={"description": "Whatever the script returned. Any JSON type."}
     ),

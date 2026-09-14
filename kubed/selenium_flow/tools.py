@@ -575,6 +575,41 @@ def register(
         """
         return run(session_id, lambda s: actions.execute_script(s, script, url=url))
 
+    # Named through `name=` because `assert` is a Python keyword and cannot be a
+    # function name. `routes.METHOD_ALIASES` is the other half of that.
+    @mcp.tool(
+        name="assert",
+        description=(
+            "Assert that the page is what you expect, with JavaScript that must "
+            "return true.\n\nLike execute_script, except the answer has to be a "
+            "boolean: return a comparison, not the thing itself - "
+            "`return !!document.querySelector('#total')`, not the element. "
+            "Anything else is refused.\n\nIt asks again until the answer is "
+            "true or wait_timeout passes, so an assertion straight after a click "
+            "does not have to know how long a route change takes. "
+            "wait_timeout=0 asks once.\n\nGive message the sentence whoever "
+            "reads the failure should see - in a flow it becomes the failing "
+            "step's error. Without one the failure quotes the expression and the "
+            "page it was false on.\n\nUse it to make a flow say what must be "
+            "true: the page it landed on, that a form saved, or that it should "
+            "not run at all because you are already signed in."
+        ),
+        annotations=hints("Assert the page is what you expect", destructive=True),
+    )
+    def assert_page(
+        script: str,
+        message: str | None = None,
+        session_id: str | None = None,
+        url: str | None = None,
+        wait_timeout: int = WAIT_TIMEOUT,
+    ) -> dict:
+        return run(
+            session_id,
+            lambda s: actions.assert_(
+                s, script, message=message, url=url, wait_timeout=wait_timeout
+            ),
+        )
+
     @mcp.tool(annotations=hints("Capture a screenshot"))
     def screenshot(
         session_id: str | None = None,

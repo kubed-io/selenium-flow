@@ -10,7 +10,7 @@ import pytest
 from kubed.selenium_flow import files as files_module
 from kubed.selenium_flow import flowapi
 from kubed.selenium_flow import resources as resources_module
-from kubed.selenium_flow.routes import ENDPOINTS
+from kubed.selenium_flow.routes import ENDPOINTS, method_for
 
 pytestmark = pytest.mark.unit
 
@@ -69,13 +69,17 @@ EXPECTED = {
     "execute_script",
     "screenshot",
     "save_pdf",
+    "assert",
 }
 
 
 def test_every_route_maps_to_a_real_action(actions):
     for path, method_name in ENDPOINTS.items():
-        assert hasattr(actions, method_name), f"{path} points at a missing action"
-        assert callable(getattr(actions, method_name))
+        # Through `method_for`, because `assert` is a keyword and its method is
+        # `assert_`. Everything else maps to itself.
+        method = method_for(method_name)
+        assert hasattr(actions, method), f"{path} points at a missing action"
+        assert callable(getattr(actions, method))
 
 
 def test_route_table_covers_every_action():

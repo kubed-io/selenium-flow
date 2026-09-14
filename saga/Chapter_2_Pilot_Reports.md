@@ -345,74 +345,58 @@ If that is still true, the description says so in one sentence, because an agent
 that finds out by failing reaches for `execute_script`, which is worse at HTML5
 drag, not better.
 
-### §F2.5 — Decision (locked): `assert` — a step that stops the run, and says why
+### §F2.5 — Decision (locked): `assert` — JavaScript that must come back true
 
 The wrong-page green and the guarded login looked like two missing features.
-Dr K's reading is that they are one, and it is not a conditional: **a flow needs a way to say what must be true, and to stop with an
-explanation when it is not.** Every test framework calls that `assert`, and so
-does this one.
+Dr K's reading is that they are one, and it is not a conditional: **a flow needs
+a way to say what must be true, and to fail with an explanation when it is not.**
+Every test framework calls that `assert`, and so does this one.
+
+**Its shape is `execute_script` with one difference: the answer must be a
+boolean.** This section first proposed a vocabulary of condition keys — `url`,
+`exists`, `absent`, `text`. Dr K replaced it with an expression, which is both
+smaller and longer-reaching: cookies, query parameters, computed styles, counts,
+storage, anything the page can be asked. One thing to learn instead of four keys
+with their own semantics, and the advanced case is the same tool rather than a
+new one.
 
 ```yaml
 - tool: assert
   args:
-    url: "*/extensions/helpdesk-feature-requests*"
-    text: {css: ".content-header-title", contains: "Feature Requests"}
-    wait_timeout: 15
-    message: The sidebar link did not open Feature Requests — check the menu still has it.
+    script: return location.pathname.startsWith('/extensions/helpdesk-feature-requests')
+    message: The sidebar link did not open Feature Requests - check the menu still has it.
 ```
 
-**The condition** — one vocabulary, any one or more keys, all of which must hold:
-
-| Key | Holds when |
-|---|---|
-| `url` | the current URL matches a glob — the same matcher as E11's `urls` |
-| `exists` | an element matches `{xpath}` or `{css}` |
-| `absent` | none does |
-| `text` | an element matches and its text contains `contains` |
-
-**`wait_timeout`** — the same argument, default and meaning every other tool
-already has, and worth stating exactly because it is one of the reasons this
-server exists. **It is a ceiling, never a delay. Nothing here sleeps.** Every tool
-that names an element waits for it in the background with Selenium's explicit
-wait — polling until the element exists, or is clickable for the tools that act
-on it, and continuing the moment it does, whether that took a tenth of a second
-or twenty-nine. A caller causes an event, names the next element, and never
-thinks about time. `assert` inherits that unchanged: `exists` and `text` resolve
-through the same wait as `extract`, `absent` waits for the element to go, and
-`url` polls the address the same way. Nothing new about waiting is introduced.
-
-**`message`** — the author's words to whoever reads the failure. Optional, and
-the point of the tool: the author knows *why* the condition matters, and the
-server does not.
-
-**What a failed assertion does.** The run stops. `onError` is refused on an
-`assert` step at save time, because an assertion you continue past is not one.
-The report says it stopped deliberately rather than broke:
+A failed run then reads:
 
 ```json
-{"flow": "login", "status": "stopped", "steps_run": 2,
- "stopped": {"step": 2,
-             "message": "Already signed in — you don't need to run this flow.",
-             "failed": [{"exists": {"css": "#login-username"}, "found": "no match within 5s"}],
-             "url": "https://app.example.com/dashboard",
-             "hint": {"read": "skill://selenium-flow/references/FLOWS.md#when-a-flow-stops"}}}
+{"flow": "open-feature-requests", "status": "failed", "steps_run": 3,
+ "steps": [{"step": 3, "tool": "assert", "ok": false,
+            "error": "The sidebar link did not open Feature Requests - check the menu still has it.",
+            "url": "https://app.example.com/tickets/add"}]}
 ```
 
-Three run statuses, and the difference matters to anything reading them: `ok`;
-**`failed`** — a step broke, so the flow or the page is wrong; **`stopped`** — an
-assertion did its job, and `message` says what to do next. The already-signed-in
-login flow is `stopped`, and nothing about it is red.
-
-**It is also a tool.** Like every step, `assert` is an MCP tool and
-`POST /browser/assert`, so `flow://schema` derives it and a direct caller can try
-an assertion before saving it into a flow.
-
-**What it is not.** `assert` is not a wait. Waiting is already built into every
-tool that addresses an element, through `wait_timeout`, and it works — it is what
-the pilot's flow leaned on throughout. None of that changes: no `wait_for` tool,
-no `expect` key, nothing retrofitted onto the existing tools. `assert` is a test:
-it states a condition and, when the condition is false, **ends the run with the
-author's explanation**, which no tool can do today.
+- **Boolean only.** Anything else is refused as a mistake in the assertion,
+  naming what came back. Truthiness is how an assertion passes by accident:
+  `return document.querySelector('#x')` looks right and is right by luck — an
+  element is truthy, `null` is falsy — until the expression returns `0`, `""` or
+  `[]` and says the opposite of what its author meant.
+- **It waits the way everything else waits.** The expression is evaluated, and
+  if it is false it is evaluated again until it is true or `wait_timeout` passes
+  — the same explicit wait every element tool already uses, so an assertion after
+  a click needs no knowledge of how many frames a route change takes.
+  `wait_timeout: 0` checks once. **Nothing sleeps.**
+- **`message` is the author's sentence** to whoever reads the failure. The author
+  knows why the condition matters; the server does not.
+- **A failed assertion is an error, not a new status.** Dr K: it rides with the
+  error, as the message beside it. The step fails the way any step fails — the
+  run reports `failed`, the step's `error` is the author's message — and no third
+  run status is invented. The `stopped` status this chapter proposed is withdrawn.
+- **`${name}` substitution works**, and a JavaScript template literal still needs
+  `$${` — the escape §F1.41 added exists for exactly this argument.
+- **The keyword.** `assert` cannot name a Python method, so the tool and the
+  route say `assert` and the method is `assert_`, through one alias in
+  `routes.py` that `flowrun` and the surface test both read.
 
 ### §F2.6 — Decision (locked): no `when` — a flow owns where it starts, and stops when it is not there
 
@@ -449,7 +433,7 @@ steps:
   args: {url: "${site}/login"}
 - tool: assert
   args:
-    exists: {css: "#login-username"}
+    script: return !!document.querySelector('#login-username')
     wait_timeout: 5
     message: Already signed in — you don't need to run this flow.
 - tool: write
@@ -457,28 +441,29 @@ steps:
 ```
 
 Signed out, the assertion holds and the login runs. Signed in, the app redirects,
-the field never appears, and the run comes back `stopped` in five seconds with a
-sentence — instead of `ok` with three red steps after forty-five.
+the field never appears, and the run comes back in five seconds with one failed
+step whose error is that sentence — instead of `ok` with three red steps after
+forty-five.
 
-**The hint — telling an agent how to fix what stopped it.** Every run that ends
-`failed` or `stopped` carries a `hint` whose `read` is a `skill://` URI into the
-section of the skill that covers that way of ending. The server already does this once — a
+**The hint — telling an agent how to fix what failed.** Every run that fails
+carries a `hint` whose `read` is a `skill://` URI into the section of the skill
+that covers that way of failing. The server already does this once — a
 session error points at `SAVED_SESSIONS.md` or `STATELESS.md` — and a URI costs
 nothing until it is read. The kind is decided from what actually failed:
 
-| How the run ended | The hinted section says |
+| How the run failed | The hinted section says |
 |---|---|
-| `stopped` with the author's `message` | do what the message says; the flow is fine |
-| `stopped` on `url`, no message | the browser is on the wrong page — navigate first, or fix the flow's first step |
-| `stopped` on `exists` or `text`, or `failed` because an element is gone | the page changed under the flow — `outline` it, find the new selector, `save_flow` |
-| `failed` on anything else | the error text is the diagnosis; the usual troubleshooting |
+| an `assert`, with the author's `message` | do what the message says; the flow itself is fine |
+| an `assert`, with no message | the expression, and the page it was false on; write a message |
+| any other step, because an element is gone | the page changed under the flow — `outline` it, find the new selector, `save_flow` |
+| anything else | the error text is the diagnosis; the usual troubleshooting |
 
 **The hint names a prompt too — the half a person picks.** A `skill://`
 resource reaches the agent, which reads it when it decides to. An MCP **prompt**
 is the other primitive: a template a *person* picks in their client — Claude Code
 lists them as slash commands — and fills in before the model sees anything. An
 agent cannot invoke one, but it can tell a person to pick `repair_flow`, and a
-person who reads the stopped run in the admin UI can pick it directly. So the hint
+person who reads the failed run in the admin UI can pick it directly. So the hint
 carries both:
 
 ```json
@@ -516,9 +501,10 @@ what it must do (contracts, below).
 ordinary sense — it states what a page must be and fails when it is not. That
 makes a real way of working possible: one agent writes a flow against a design,
 with assertions, as the **acceptance contract** for a frontend; another agent
-builds the frontend; `run_flow` coming back `ok` is the handover, and a `stopped`
-carrying the author's message is exactly the part the builder has not done yet.
-The structured `stopped` block is what makes that readable by n8n or CI. Running a
+builds the frontend; `run_flow` coming back `ok` is the handover, and a failed
+`assert` carrying the author's message is exactly the part the builder has not
+done yet. The failing step's `error` is what makes that readable by n8n or CI.
+Running a
 *suite* of flows is not proposed — n8n can loop over `/flows/run` — but nothing
 here should make it harder later.
 
@@ -711,29 +697,29 @@ anywhere.
 - [x] The wiki regenerates from the new descriptions
 - [ ] Flown: a fresh agent, given only the tools, asked to open a hover menu
 
-### E14 — Cross-check: `assert`, and runs that stop honestly
+### E14 — Cross-check: `assert`, and failures that say what to do
 
-- [ ] The condition vocabulary — `url`, `exists`, `absent`, `text` — as one typed
-      model, validated at save time (§F2.5)
-- [ ] E11's glob matcher, extracted and shared, with E11's matcher tests brought
-      forward
-- [ ] `assert` tool + `POST /browser/assert`, with `wait_timeout` and `message`, in
-      `ENDPOINTS` and the OpenAPI
-- [ ] `onError` refused on an `assert` step
-- [ ] Run status `stopped`, with a `stopped` block: step, message, the failed
-      conditions and what was found, URL
-- [ ] A `hint` on every `failed` and `stopped` run, its `read` URI chosen from what
-      failed (§F2.6); E15 adds its `prompt`
-- [ ] `SKILL.md` and `FLOWS.md`: *a flow owns where it starts*; the section each
-      hint points at; the login flow rewritten with `assert`; flows as contracts
+- [x] `assert` tool + `POST /browser/assert`, taking `script`, `message` and the
+      ordinary `wait_timeout` (§F2.5)
+- [x] Boolean only — anything else refused, naming what came back
+- [x] Evaluated again until true or the timeout passes; nothing sleeps
+- [x] The keyword alias in one place — `assert` on both surfaces, `assert_` as the
+      method — read by `flowrun` and by the surface test
+- [x] A failed assertion is a 400, and the step's `error` is the author's message
+- [ ] A `hint` on every failed run, its `read` URI chosen from what failed (§F2.6)
+- [x] `SKILL.md` and `FLOWS.md`: *a flow owns where it starts*; `assert`, its
+      boolean rule and the `$${` escape; the login guard
+- [ ] `FLOWS.md`: flows as contracts, once someone has used one that way
 - [ ] `save_flow` warns when the first step neither navigates, carries a `url`,
       nor asserts
 - [ ] Per-step `url` in the non-verbose report when it changes (§F2.7)
-- [ ] Tests through `run()`, not the helper: the wrong-page flow now **stops**, the
-      signed-in login flow stops inside its `wait_timeout`, and breaking the assertion on
-      purpose turns both tests red
+- [x] Tests through `run()`, not the helper: the wrong-page flow now fails with
+      its message, the signed-in login flow fails inside its `wait_timeout`, and
+      breaking the assertion on purpose turns both red
 - [ ] Flown: a route-changing flow on a real single-page app, and the login flow
-      on both paths
+      on both paths. The action itself has been driven against the live Grid —
+      true, false with and without a message, a non-boolean, and an element that
+      appears 2.5s late, which it waited 2.4s for
 
 ### E16 — Ground handling: screenshots, and two file odds and ends
 
@@ -822,14 +808,16 @@ As written in Chapter 1. Independent.
 
 **Raised by the second pass:**
 
-7. **`assert` or `test`?** Recommend **`assert`**. In every test framework the
-   assertion is the statement and the test is the whole case — and here the whole
-   case is the flow. (`assert` is a Python keyword, so the function gets another
-   name and registers under this one.)
-8. **`stopped` as a third run status?** Recommend **yes**. An n8n node branching on
-   `status` needs to tell *the flow broke* from *the flow told me not to run it*.
-   Anything already checking `status != "ok"` treats both as not-ok, which is the
-   safe reading.
+7. ~~**`assert` or `test`?**~~ **Closed: `assert`**, taking a JavaScript
+   expression that must return a boolean (§F2.5). The keyword is why the tool and
+   the route say `assert` while the method is `assert_`, through one alias.
+8. ~~**A third run status?**~~ **Closed: no.** A failed assertion is an error
+   carrying the author's message. `failed` already says the run did not finish,
+   and the failing step's `error` says why.
+10. **Does `assert` also take `xpath`/`css` as shorthand for "this exists"?**
+   Recommend **not yet**: `return !!document.querySelector('#x')` covers it, and a
+   second way to say one thing is how two mechanisms start drifting. Revisit if
+   authors keep writing that line.
 9. **Which prompts ship first?** Recommend **`repair_flow` and `build_flow`**, with
    `flow_contract` held until the contract way of working has been tried once
    (§F2.6).

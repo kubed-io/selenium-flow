@@ -16,6 +16,7 @@ import mimetypes
 import re
 import shutil
 import tempfile
+import time
 from pathlib import Path, PurePosixPath
 
 from selenium.webdriver.common.action_chains import ActionChains
@@ -24,6 +25,7 @@ from selenium.webdriver.common.keys import Keys
 
 from . import browser
 from .browser import Grid, as_bool, as_int, normalize_browser
+from .errors import AssertionFailed
 
 # Named keys a caller can press. Selenium's Keys members are unicode private-use
 # characters, so a caller cannot reasonably type them into JSON by hand.
@@ -108,6 +110,11 @@ SUBMIT_KEYS = frozenset({Keys.RETURN, Keys.ENTER})
 # Mouse gestures ``interact`` understands. hover and scroll_to are here rather
 # than in their own tools because they take the same arguments as a click.
 MOUSE_ACTIONS = ("click", "double_click", "right_click", "hover", "scroll_to")
+
+# How often `assert_` asks the page again. Short enough to catch a route change
+# in the frame after it lands, long enough not to spin the Grid on a wait that
+# is going to take seconds.
+ASSERT_POLL = 0.2
 
 # What can be done with a native dialog. "read" deliberately leaves it open.
 DIALOG_ACTIONS = ("accept", "dismiss", "read", "send_text")
@@ -624,6 +631,60 @@ class Actions:
         driver = self._at(session_id, url)
         result = driver.execute_script(script)
         return {"result": result, **browser.page_state(driver)}
+
+    def assert_(
+        self,
+        session_id: str,
+        script: str,
+        message=None,
+        wait_timeout=WAIT_TIMEOUT,
+        url=None,
+    ) -> dict:
+        """Evaluate JavaScript that must come back true.
+
+        ``execute_script`` with one difference, and the difference is the point:
+        the answer has to be a **boolean**. A flow had no way to say what must be
+        true, so one reported eight passing steps while sitting on the page
+        before the one it meant to reach.
+
+        Truthiness is refused rather than accepted, because it is how an
+        assertion passes by accident: ``return document.querySelector('#x')``
+        reads correctly and is correct by luck, until the day the expression
+        answers ``0`` or ``[]``.
+
+        False is not final until the timeout. The expression is asked again,
+        the way every wait here works — a single-page app lands its route a few
+        frames after the click that caused it, and an assertion that looked
+        once would be that same race moved one step later. Nothing sleeps
+        waiting for a fixed duration; ``wait_timeout=0`` asks exactly once.
+        """
+        driver = self._at(session_id, url)
+        timeout = max(as_int(wait_timeout, WAIT_TIMEOUT), 0)
+        deadline = time.monotonic() + timeout
+        while True:
+            answer = driver.execute_script(script)
+            if not isinstance(answer, bool):
+                raise ValueError(
+                    f"assert must return true or false; this returned "
+                    f"{answer!r}. Compare, rather than returning the thing "
+                    "itself - return !!document.querySelector('#x')"
+                )
+            if answer:
+                return {
+                    "asserted": True,
+                    "script": script,
+                    **browser.page_state(driver),
+                }
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(ASSERT_POLL)
+
+        state = browser.page_state(driver)
+        raise AssertionFailed(
+            message
+            or f"assertion failed after {timeout}s: {script} was false on "
+            f"{state.get('url')!r}"
+        )
 
     # ---- reading -----------------------------------------------------------
 

@@ -153,6 +153,7 @@ check this table twice before reaching for it.
 | `dialog` | answer an alert, confirm or prompt | `action`: `accept` \| `dismiss` \| `read` \| `send_text` |
 | `resize` | change the window size | `width`, `height` |
 | `execute_script` | run JavaScript — only for what nothing above does | `script` |
+| `assert` | JavaScript that must return true, or the call fails | `script`, `message` |
 | `session_files` | what the browser downloaded and what you kept | — |
 | `keep_file` | keep a file past the browser | `name` |
 | `list_secrets` | the secrets you may type — never their values | — |

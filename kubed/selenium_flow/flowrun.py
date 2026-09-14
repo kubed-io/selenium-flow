@@ -45,7 +45,7 @@ from urllib.parse import quote, quote_plus
 
 from . import secrets
 from .flowdoc import ARGS, NOT_STEPS, PARAM_REFERENCE, SECRET_ARG, listed
-from .routes import ENDPOINTS
+from .routes import ENDPOINTS, method_for
 
 # The only attributes a step may dispatch to. `getattr(actions, tool)` alone
 # accepts any callable on the object — `clear_files` would wipe the session's
@@ -569,7 +569,7 @@ def run(
             status = "failed"
             break
 
-        method = getattr(actions, tool, None) if tool in RUNNABLE else None
+        method = getattr(actions, method_for(tool), None) if tool in RUNNABLE else None
         if method is None:
             # Saving validates the name, so reaching this means the document was
             # written before a tool was renamed — or edited on disk, which never
