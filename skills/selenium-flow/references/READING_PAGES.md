@@ -96,6 +96,22 @@ Over MCP you get an image block you can see. Over HTTP you get base64 plus real
 pixel dimensions and a `bytes` count — a `bytes` value near zero means a blank
 capture, which almost always means the page had not rendered yet.
 
+**Every screenshot is also saved** with the session's files, and the result
+carries that file's `absolute_url`.
+
+**Give a person the link, not the picture.** They cannot see a tool result, many
+clients cannot render an image block at all, and describing it is worse than
+both. Paste the URL, or `![](absolute_url)` — it opens in any browser and needs
+no token.
+
+```
+screenshot(xpath="//div[@class='chart']")
+→ file: {name: "screenshot.png", absolute_url: "https://…/files/…?exp=…&sig=…"}
+```
+
+Those files go when the browser goes. `keep_file(name)` makes one outlive it,
+and `save=false` skips saving for a capture nobody will ever reopen.
+
 ## XPath that keeps working
 
 - Prefer stable attributes: `//input[@name='q']` over `//div[3]/input`.

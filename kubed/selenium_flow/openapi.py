@@ -135,22 +135,43 @@ RESPONSES = {
         },
         file={
             "type": "object",
-            "description": "The stored file, as the Grid's download store lists it.",
+            "description": (
+                "The stored file. name is what keep_file takes; absolute_url is "
+                "the signed link to hand a person, present when the server knows "
+                "its public base."
+            ),
             "properties": {
                 "name": {"type": "string"},
                 "size": {"type": "integer"},
-                "creationTime": {"type": "integer"},
+                "content_type": {"type": "string"},
+                "kept": {"type": "boolean"},
+                "url": {"type": "string"},
+                "absolute_url": {"type": "string"},
             },
+        },
+        file_error={
+            "type": "string",
+            "description": (
+                "Present instead of file when the capture could not be stored. "
+                "The image is still returned."
+            ),
         },
     ),
     "save_pdf": _page(
         file={
             "type": "object",
-            "description": "The stored file, as the Grid's download store lists it.",
+            "description": (
+                "The stored file. name is what keep_file takes; absolute_url is "
+                "the signed link to hand a person, present when the server knows "
+                "its public base."
+            ),
             "properties": {
                 "name": {"type": "string"},
                 "size": {"type": "integer"},
-                "creationTime": {"type": "integer"},
+                "content_type": {"type": "string"},
+                "kept": {"type": "boolean"},
+                "url": {"type": "string"},
+                "absolute_url": {"type": "string"},
             },
         },
         bytes={"type": "integer", "description": "Size of the PDF in bytes."},

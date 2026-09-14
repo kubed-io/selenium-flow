@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Every screenshot is kept with the session's files**, and comes back with a signed link that opens in any browser — so a person can see what an agent saw, in the admin page or from the link, without the agent deciding in advance that it was worth keeping. `save=false` opts out; `save_pdf` returns its link too.
+
 - **Tools list their fixed choices in their schemas** — every `interact`, `dialog` and `frame` action, and `open_session`'s browsers — so a client can show them, and a flow naming one that does not exist is refused when it is saved instead of when it runs.
 
 ## [0.1.0] - 2026-09-12

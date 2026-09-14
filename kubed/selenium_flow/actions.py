@@ -220,8 +220,18 @@ def _safe_name(filename, mime_type=None, default_extension="") -> str:
 class Actions:
     """The browser operations, bound to one Grid."""
 
-    def __init__(self, grid: Grid):
+    def __init__(self, grid: Grid, describe_file=None):
         self.grid = grid
+        # How a stored file is described on the way out: the server injects a
+        # function that signs a URL for it. A function rather than the token,
+        # because this layer should be able to hand out a link without ever
+        # holding the key that makes one (§F2.9). Absent - an open server with
+        # no public base - a file is reported exactly as the Grid lists it.
+        self.describe_file = describe_file
+
+    def _stored(self, session_id: str, entry: dict) -> dict:
+        """One saved file, described the same way wherever it was saved."""
+        return self.describe_file(session_id, entry) if self.describe_file else entry
 
     # ---- session lifecycle -------------------------------------------------
 
@@ -743,7 +753,7 @@ class Actions:
         width=None,
         height=None,
         wait_timeout=WAIT_TIMEOUT,
-        save=False,
+        save=True,
         filename=None,
         css=None,
     ) -> dict:
@@ -785,14 +795,27 @@ class Actions:
             "bytes": len(raw),
             **browser.page_state(driver),
         }
-        # Saving is opt-in because most screenshots are looked at once and
-        # thrown away. The ones worth keeping are the ones a human will open
-        # later, and those need a URL rather than base64 in a tool result.
-        if as_bool(save, False):
+        # Saved by default. It used to be opt-in, which made the *agent* decide
+        # whether a person would ever want to look at this one — and the answer
+        # is usually no, so an operator watching the admin UI saw nothing and
+        # had nothing to open. A session's files die with the browser and cost
+        # nothing while it lives, so the cheap thing is to keep them all and let
+        # `keep_file` be the only decision anybody makes (§F2.9).
+        if as_bool(save, True):
             name = _safe_name(filename or "screenshot", "image/png", ".png")
-            result["file"] = browser.save_to_downloads(
-                self.grid, driver, name, raw, "image/png"
-            )
+            try:
+                result["file"] = self._stored(
+                    session_id,
+                    browser.save_to_downloads(
+                        self.grid, driver, name, raw, "image/png"
+                    ),
+                )
+            except Exception as exc:  # noqa: BLE001 - the picture outranks the file
+                # Saving happens on every screenshot now, so it must never be
+                # able to take one away. A page whose policy blocks a download,
+                # or a Grid that never lists the file, costs the file and not
+                # the capture — said out loud rather than silently.
+                result["file_error"] = str(exc)
         return result
 
     # ---- internals ---------------------------------------------------------
@@ -829,7 +852,11 @@ class Actions:
         entry = browser.save_to_downloads(
             self.grid, driver, name, data, "application/pdf"
         )
-        return {"file": entry, "bytes": len(data), **browser.page_state(driver)}
+        return {
+            "file": self._stored(session_id, entry),
+            "bytes": len(data),
+            **browser.page_state(driver),
+        }
 
     def page(self, session_id: str) -> dict:
         """Where the browser is, without touching it.
