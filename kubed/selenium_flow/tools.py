@@ -16,11 +16,12 @@ from __future__ import annotations
 
 import base64
 from collections.abc import Callable
+from typing import Annotated, Literal
 
 from fastmcp import FastMCP
 from fastmcp.tools import ToolResult
 from fastmcp.utilities.types import Image
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 from . import flowrun
 from . import secrets as secrets_module
@@ -29,13 +30,30 @@ from .actions import (
     DIALOG_ACTIONS,
     DIALOG_TIMEOUT,
     FRAME_ACTIONS,
-    KEYS,
+    KEY_NAMES,
     MOUSE_ACTIONS,
     WAIT_TIMEOUT,
     Actions,
 )
+from .browser import BROWSERS
 from .hints import hints
 from .sessions import NAME_PARAM, SessionManager
+
+
+def _lowered(value):
+    return value.strip().lower() if isinstance(value, str) else value
+
+
+# A closed set, published as an enum so a model planning against the schema can
+# see every choice — the first agent to fly a real app never found `hover`
+# because `action` read as an open string (saga §F2.1). Lowercased BEFORE the
+# check, because these were plain strings the action layer lowercased: `Hover`
+# worked over MCP and still works over HTTP and in a flow, and publishing the
+# list must not start refusing a caller for writing what used to be fine.
+MouseAction = Annotated[Literal[MOUSE_ACTIONS], BeforeValidator(_lowered)]
+DialogAction = Annotated[Literal[DIALOG_ACTIONS], BeforeValidator(_lowered)]
+FrameAction = Annotated[Literal[FRAME_ACTIONS], BeforeValidator(_lowered)]
+Browser = Annotated[Literal[BROWSERS], BeforeValidator(_lowered)]
 
 # Said the same way everywhere, because the one new way to get a call wrong is
 # to pass both selectors or neither, and the fix has to be in front of the model
@@ -126,7 +144,7 @@ def register(
     @mcp.tool(annotations=hints("Open browser session", destructive=True))
     def open_session(
         url: str | None = None,
-        browser: str | None = None,
+        browser: Browser | None = None,
         width: int | None = None,
         height: int | None = None,
         page_load_timeout: int | None = None,
@@ -226,7 +244,9 @@ def register(
             "Perform a mouse action on an element.\n\n"
             f"action is one of: {', '.join(MOUSE_ACTIONS)}.\n\n"
             "click is the common case. hover opens menus that only appear on "
-            "mouse-over. right_click opens context menus. scroll_to brings an "
+            "mouse-over, and leaves the pointer there, so such a menu stays open "
+            "for the next call: hover it, then click the item inside. right_click "
+            "opens context menus. scroll_to brings an "
             "off-screen element into view, which is often what a click on a "
             "long page needs first.\n\n"
             "Returns the URL and title *after* the action, so any navigation it "
@@ -235,7 +255,7 @@ def register(
         annotations=hints("Mouse action on an element", destructive=True),
     )
     def interact(
-        action: str,
+        action: MouseAction,
         xpath: str | None = None,
         css: str | None = None,
         session_id: str | None = None,
@@ -266,7 +286,7 @@ def register(
         annotations=hints("Switch into or out of an iframe", idempotent=True),
     )
     def frame(
-        action: str = "switch",
+        action: FrameAction = "switch",
         xpath: str | None = None,
         css: str | None = None,
         index: int | None = None,
@@ -320,7 +340,7 @@ def register(
         annotations=hints("Answer a native dialog", destructive=True),
     )
     def dialog(
-        action: str = "accept",
+        action: DialogAction = "accept",
         text: str | None = None,
         session_id: str | None = None,
         wait_timeout: int = DIALOG_TIMEOUT,
@@ -472,9 +492,13 @@ def register(
     # list cannot drift from the mapping it is generated from.
     @mcp.tool(
         description=(
-            "Press a named key, at an element or wherever focus currently is.\n\n"
-            "For Tab, Escape, Enter, arrows and similar. Known keys: "
-            f"{', '.join(sorted(KEYS))}.\n\n"
+            "Press a key, at an element or wherever focus currently is.\n\n"
+            "key is a name, one character, or a combination joined with +. "
+            "Names take the browser's spelling or Selenium's, in any case: "
+            "Enter, Tab, Escape, Backspace, ArrowLeft, PageDown, F5 - or enter, "
+            "arrow_left, page_down. A combination holds each modifier for the "
+            "keys after it: Control+a, Shift+Tab. Every name: "
+            f"{', '.join(KEY_NAMES)}.\n\n"
             "Not a reliable way to scroll - page_down only moves the page when "
             "focus happens to be on the scrollable container. Use execute_script "
             "to scroll.\n\nTo aim the key at an element, pass xpath or css; "
@@ -527,8 +551,14 @@ def register(
     ) -> dict:
         """Run JavaScript in the page and return its result.
 
-        The escape hatch for anything the other tools do not cover: scrolling
-        (window.scrollTo(0, 2000)), drag and drop, computed styles, direct DOM
+        Check the other tools first: reaching for a script usually means a
+        cheaper one exists. interact clicks, double-clicks, right-clicks, hovers
+        and scrolls to an element - and only its hover opens a menu that appears
+        on :hover, because a script's synthetic events never set :hover. Every
+        tool that names an element already waits for it.
+
+        What is left is this: scrolling the page (window.scrollTo(0, 2000)),
+        drag and drop, computed styles, reading many things at once, direct DOM
         access. Use `return` to send a value back.
         """
         return run(session_id, lambda s: actions.execute_script(s, script, url=url))

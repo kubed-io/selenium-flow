@@ -722,3 +722,37 @@ async def test_the_escape_it_suggests_actually_saves(step_schema_map):
          "args": {"script": "return `$${Math.round(n)} KB`"}},
     ])
     assert validate(document, step_schema_map)
+
+
+# ---- a closed set is checked at save time (§F2.1) ----------------------------
+
+
+async def test_an_action_outside_its_set_is_refused_at_save_time(step_schema_map):
+    """`mouseover` used to save cleanly and fail at run time — the one kind of
+    mistake this server otherwise catches before the browser sees it."""
+    with pytest.raises(InvalidFlow, match=r"interact\.action is 'mouseover'") as refused:
+        validate(
+            flow(steps=[{"tool": "interact", "args": {"action": "mouseover", "css": "a"}}]),
+            step_schema_map,
+        )
+    assert "hover" in str(refused.value), "the refusal should list what is valid"
+
+
+async def test_a_value_in_the_set_is_accepted_whatever_its_case(step_schema_map):
+    """The action layer lowercases, so a run accepts `Hover`. Refusing it at save
+    time would make validation stricter than execution, and the two must agree."""
+    assert validate(
+        flow(steps=[{"tool": "interact", "args": {"action": "Hover", "css": "a"}}]),
+        step_schema_map,
+    )
+
+
+async def test_a_whole_reference_is_not_checked_against_the_set(step_schema_map):
+    document = flow(
+        parameters={
+            "type": "object",
+            "properties": {"gesture": {"type": "string"}},
+        },
+        steps=[{"tool": "interact", "args": {"action": "${gesture}", "css": "a"}}],
+    )
+    assert validate(document, step_schema_map)

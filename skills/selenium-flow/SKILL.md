@@ -132,15 +132,41 @@ difference between the two modes.
 If you will do this again, save it as a flow and it becomes one `run_flow` call
 (`references/FLOWS.md`).
 
-## The rest of the surface
+## Every tool
 
-`interact` is every mouse gesture — click, double_click, right_click, hover,
-scroll_to. `frame` moves in and out of iframes, whose contents are otherwise
-invisible to every locator. `upload_file` attaches a file to a file input. `dialog` answers a
-native alert, confirm or prompt, which otherwise blocks everything. `resize`
-changes the window at any time, not just at open.
+One row per tool. If what you need is not here, it is `execute_script` — and
+check this table twice before reaching for it.
 
-`execute_script` is the escape hatch for anything left over — page-level
-scrolling above all, plus batch reads, computed styles and direct DOM access.
-`press_key` sends named keys (`tab`, `escape`, `enter`, arrows) but is **not** a
-reliable way to scroll. All of it is in `references/INTERACTION.md`.
+| Tool | Does | Key arguments |
+|---|---|---|
+| `open_session` | start a browser, or come back to the one you had | `browser`: `chrome` \| `firefox`, `width`, `height`, `url` |
+| `end_browser` | free the Grid slot; your session survives | — |
+| `navigate` | go to a URL | `url` |
+| `interact` | a mouse gesture on an element | `action`: `click` \| `double_click` \| `right_click` \| `hover` \| `scroll_to` |
+| `write` | type into a field, or type a secret you never see | `text` or `secret`, `clear`, `submit` |
+| `press_key` | a key or a combination | `key`: `Enter`, `Escape`, `a`, `Control+a` |
+| `extract` | read an element's text and HTML | `xpath` or `css` |
+| `screenshot` | the viewport, one element, or the whole page | `full_page`, `save`, `filename` |
+| `save_pdf` | print the page into your files | `filename` |
+| `upload_file` | attach a file to a file input | `text`, `content` or `path`, `filename` |
+| `frame` | move into or out of an iframe | `action`: `switch` \| `parent` \| `default` |
+| `dialog` | answer an alert, confirm or prompt | `action`: `accept` \| `dismiss` \| `read` \| `send_text` |
+| `resize` | change the window size | `width`, `height` |
+| `execute_script` | run JavaScript — only for what nothing above does | `script` |
+| `session_files` | what the browser downloaded and what you kept | — |
+| `keep_file` | keep a file past the browser | `name` |
+| `list_secrets` | the secrets you may type — never their values | — |
+| `list_flows` | the saved flows you can run | — |
+| `get_flow` | one flow's parameters and steps | `name` |
+| `flow_schema` | what a step may contain | — |
+| `save_flow` | save a sequence of steps under a name | `name`, `parameters`, `steps` |
+| `run_flow` | run a saved flow in one call | `name`, `params` |
+| `delete_flow` | delete one of your flows | `name` |
+
+Every tool that names an element waits for it in the background and carries on
+the moment it appears. `wait_timeout` is only how long it may take, never a
+pause.
+
+`hover` leaves the pointer where it put it, so a `:hover` menu stays open for the
+next call — and it is the only way to open one. `press_key` is **not** a reliable
+way to scroll; `execute_script` is. The detail is in `references/INTERACTION.md`.

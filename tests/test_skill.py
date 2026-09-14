@@ -283,3 +283,30 @@ async def test_the_status_mirror_still_works_with_the_skill_off():
         grid_url="http://grid.invalid:4444", auth_token="t", skill_enabled=False
     )
     assert await off.mcp.get_tool(STATUS_TOOL) is not None
+
+
+def test_every_tool_an_agent_can_call_has_a_row_in_the_capability_table():
+    """An agent that misreads its own task skips a router but scans a table.
+
+    The first agent to fly a real app read FLOWS.md and never opened
+    INTERACTION.md, because it thought it had a "this menu won't open" problem
+    rather than an interaction question — so it never learned `hover` existed.
+    One row per tool, on the page it always reads. See saga §F2.2.
+    """
+    from kubed.selenium_flow import files, flowapi, secrets
+    from kubed.selenium_flow.routes import ENDPOINTS
+
+    tools = set(ENDPOINTS.values()) | {
+        flowapi.LIST_TOOL,
+        flowapi.GET_TOOL,
+        flowapi.SCHEMA_TOOL,
+        flowapi.RUN_TOOL,
+        flowapi.SAVE_TOOL,
+        flowapi.DELETE_TOOL,
+        files.FILES_TOOL,
+        files.KEEP_TOOL,
+        secrets.LIST_TOOL,
+    }
+    body = (SKILL_DIR / ENTRY).read_text()
+    missing = sorted(t for t in tools if not re.search(rf"^\| `{t}` \|", body, re.M))
+    assert not missing, f"SKILL.md's capability table has no row for {missing}"
