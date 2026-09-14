@@ -31,6 +31,29 @@ PAGE_STATE = {
 }
 
 
+# One stored file, as `files.describe` builds it. Declared once because two
+# responses describe the same object and a second copy is how they start
+# disagreeing; `test_openapi.py` holds it to the keys that function returns.
+STORED_FILE = {
+    "type": "object",
+    "description": (
+        "The stored file. name is what keep_file takes; absolute_url is the "
+        "signed link to hand a person, present when the server knows its "
+        "public base."
+    ),
+    "properties": {
+        "name": {"type": "string"},
+        "size": {"type": "integer"},
+        "created": {"type": "integer"},
+        "content_type": {"type": "string"},
+        "image": {"type": "boolean"},
+        "kept": {"type": "boolean"},
+        "url": {"type": "string"},
+        "absolute_url": {"type": "string"},
+    },
+}
+
+
 def _page(**extra) -> dict:
     return {"type": "object", "properties": {**extra, **PAGE_STATE}}
 
@@ -133,22 +156,7 @@ RESPONSES = {
             "type": "integer",
             "description": "Decoded size. A value near zero means a blank capture.",
         },
-        file={
-            "type": "object",
-            "description": (
-                "The stored file. name is what keep_file takes; absolute_url is "
-                "the signed link to hand a person, present when the server knows "
-                "its public base."
-            ),
-            "properties": {
-                "name": {"type": "string"},
-                "size": {"type": "integer"},
-                "content_type": {"type": "string"},
-                "kept": {"type": "boolean"},
-                "url": {"type": "string"},
-                "absolute_url": {"type": "string"},
-            },
-        },
+        file=STORED_FILE,
         file_error={
             "type": "string",
             "description": (
@@ -158,22 +166,7 @@ RESPONSES = {
         },
     ),
     "save_pdf": _page(
-        file={
-            "type": "object",
-            "description": (
-                "The stored file. name is what keep_file takes; absolute_url is "
-                "the signed link to hand a person, present when the server knows "
-                "its public base."
-            ),
-            "properties": {
-                "name": {"type": "string"},
-                "size": {"type": "integer"},
-                "content_type": {"type": "string"},
-                "kept": {"type": "boolean"},
-                "url": {"type": "string"},
-                "absolute_url": {"type": "string"},
-            },
-        },
+        file=STORED_FILE,
         bytes={"type": "integer", "description": "Size of the PDF in bytes."},
     ),
 }

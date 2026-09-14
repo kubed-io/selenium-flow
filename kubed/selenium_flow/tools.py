@@ -643,6 +643,10 @@ def register(
         they can actually look at - do not paste the image back into your reply
         and do not describe it instead. Markdown works too: ![](absolute_url).
 
+        A server that has not been told its public address has no absolute_url
+        to give: the file carries a relative url instead, which needs the
+        address you reached this server on.
+
         Those files die with the browser. keep_file(name) is what makes one
         outlive it. Pass save=false for a capture nobody should even be able to
         look at later - a flow taking thirty frames it will never reopen.
@@ -664,8 +668,17 @@ def register(
         )
         image = Image(data=base64.b64decode(result["image"]), format="png")
         entry = result.get("file")
-        if entry is None:
+        unsaved = result.get("file_error")
+        if entry is None and unsaved is None:
             return image
+        if entry is None:
+            # The capture survived and the file did not. The HTTP surface says
+            # why; an MCP caller that got only the image would be told nothing
+            # and would look for a name that is never coming.
+            return ToolResult(
+                content=[image.to_image_content()],
+                structured_content={"file_error": unsaved},
+            )
         # A saved screenshot has a name, and the name is the whole point: it is
         # the argument keep_file takes. Chrome deduplicates, so `shot.png` can
         # land as `shot (1).png` and the caller cannot derive it — returning the
@@ -689,7 +702,8 @@ def register(
 
         Returns the stored file. **Give a person its absolute_url** - a signed
         link that opens in any browser and needs no token. That is how somebody
-        reads the PDF; nothing else in this result is any use to them.
+        reads the PDF; nothing else in this result is any use to them. Without a
+        public address configured the file carries a relative url instead.
         """
         return run(
             session_id,

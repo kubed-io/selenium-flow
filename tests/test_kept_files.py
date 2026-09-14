@@ -607,6 +607,20 @@ async def test_the_tool_saves_by_default_too(live, named_caller):
     assert result.content and result.content[0].type == "image"
 
 
+async def test_an_mcp_caller_is_told_why_the_file_is_missing(live, named_caller):
+    """The HTTP surface returns file_error; a tool caller used to get the image
+    and no explanation, and would wait for a name that is never coming."""
+    tool = await live.mcp.get_tool("screenshot")
+    with patch.object(
+        live.actions,
+        "screenshot",
+        return_value={"image": "", "url": "https://x/", "file_error": "blocked"},
+    ):
+        result = tool.fn()
+    assert result.structured_content == {"file_error": "blocked"}
+    assert result.content and result.content[0].type == "image"
+
+
 # ---- the admin surface -------------------------------------------------------
 
 

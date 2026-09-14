@@ -73,6 +73,20 @@ _BY_SPELLING = {_squash(name): value for name, value in KEYS.items()}
 _COMBINATION = re.compile(r"\+(?=.)")
 
 
+def _why_unsaved(exc: BaseException) -> str:
+    """Why a capture could not be stored, without quoting the Grid at it.
+
+    Storing goes through the Grid's HTTP API, and `requests` puts the whole URL
+    into its message - a URL this deployment is allowed to put credentials in
+    (`GRID_URL`). The one message worth repeating is ours, which names the file
+    and says it never arrived; everything else is reported by type, and the
+    detail stays in the log where it belongs.
+    """
+    if isinstance(exc, TimeoutError):
+        return str(exc)
+    return f"the capture could not be stored ({type(exc).__name__})"
+
+
 def _shape(value) -> str:
     """What came back, without saying what was in it.
 
@@ -822,7 +836,7 @@ class Actions:
                 # able to take one away. A page whose policy blocks a download,
                 # or a Grid that never lists the file, costs the file and not
                 # the capture — said out loud rather than silently.
-                result["file_error"] = str(exc)
+                result["file_error"] = _why_unsaved(exc)
         return result
 
     # ---- internals ---------------------------------------------------------

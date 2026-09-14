@@ -134,3 +134,49 @@ async def test_the_tools_tell_the_agent_to_hand_over_the_link(server):
     for name in ("screenshot", "save_pdf"):
         description = (await server.mcp.get_tool(name)).description or ""
         assert "absolute_url" in description, f"{name} does not mention the link"
+
+
+# ---- what a failed save is allowed to say (Copilot, #28) --------------------
+
+
+def test_the_reason_a_save_failed_never_quotes_the_grid(shooting):
+    """Storing goes through the Grid's HTTP API, and requests puts the whole URL
+    in its message — a URL this deployment may put credentials in."""
+    import requests
+
+    leaky = requests.HTTPError(
+        "500 Server Error for url: http://user:hunter2@grid.internal:4444/session"
+    )
+    with patch.object(
+        actions_module.browser, "save_to_downloads", side_effect=leaky
+    ):
+        result = shooting.screenshot("abc")
+    assert "hunter2" not in result["file_error"]
+    assert "grid.internal" not in result["file_error"]
+    assert "HTTPError" in result["file_error"], "it should still say what kind"
+
+
+def test_our_own_timeout_still_says_the_useful_thing(shooting):
+    """It names the file and says it never arrived, and contains no address."""
+    with patch.object(
+        actions_module.browser,
+        "save_to_downloads",
+        side_effect=TimeoutError("shot.png did not appear in the session's downloads"),
+    ):
+        result = shooting.screenshot("abc")
+    assert result["file_error"] == "shot.png did not appear in the session's downloads"
+
+
+def test_the_published_file_shape_matches_what_describe_returns():
+    """A generated client hides or rejects fields the document does not declare,
+    and the two drifted the moment this was written by hand (Copilot, #28)."""
+    from kubed.selenium_flow import files
+    from kubed.selenium_flow.openapi import STORED_FILE
+
+    described = files.describe(
+        "sess", {"name": "shot.png", "size": 3, "creationTime": 1}, "tok", "https://h"
+    )
+    assert set(described) <= set(STORED_FILE["properties"]), (
+        "the OpenAPI file schema is missing keys that are actually returned: "
+        f"{sorted(set(described) - set(STORED_FILE['properties']))}"
+    )
