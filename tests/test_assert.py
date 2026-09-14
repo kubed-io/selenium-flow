@@ -239,6 +239,10 @@ def test_it_never_waits_longer_than_it_was_told(actions, monkeypatch):
     slept = []
     driver = _Driver(False)
     monkeypatch.setattr(actions, "_at", lambda *a, **k: driver)
+    # A poll that does not divide the timeout evenly, which is the only way the
+    # overshoot shows: at 0.2 into 1s the old loop landed exactly on the
+    # deadline and looked correct.
+    monkeypatch.setattr(actions_module, "ASSERT_POLL", 0.3)
     monkeypatch.setattr(actions_module.time, "monotonic", lambda: now["t"])
 
     def fake_sleep(seconds):
@@ -251,6 +255,7 @@ def test_it_never_waits_longer_than_it_was_told(actions, monkeypatch):
         actions.assert_("abc", "return false", wait_timeout=1)
 
     assert sum(slept) == pytest.approx(1), "it waited past its own deadline"
-    assert all(nap <= actions_module.ASSERT_POLL for nap in slept)
-    # Six evaluations: at 0.0 through 1.0, and none after the deadline.
-    assert driver.calls == 6
+    assert all(nap <= 0.3 for nap in slept)
+    # Evaluated at 0.0, 0.3, 0.6, 0.9 and 1.0 — the last one exactly on the
+    # deadline, and none after it.
+    assert driver.calls == 5
