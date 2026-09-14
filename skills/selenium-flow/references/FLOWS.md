@@ -118,6 +118,50 @@ may appear in the report. For a password, do not use a parameter at all — name
 secret, which is a different mechanism on purpose
 (`references/SECRETS.md`).
 
+## Say what must be true
+
+A flow that carries on when the page is not what it expected reports a success it
+has not earned — eight green steps on the page *before* the one it meant to
+reach. `assert` runs JavaScript that must come back **true**:
+
+```yaml
+- tool: assert
+  args:
+    script: return location.pathname.startsWith('/orders')
+    message: The Orders link did not open the orders page.
+```
+
+- **Return a boolean.** `return !!document.querySelector('#total')`, never the
+  element itself — a truthy value that happens to be there is how an assertion
+  passes by accident.
+- **It asks again** until the answer is true or `wait_timeout` passes, so an
+  assertion straight after a click does not have to know how long a route change
+  takes. `wait_timeout: 0` asks once.
+- **`message` is what the reader sees.** In a flow it becomes the failing step's
+  error. Without one the failure names only the page it was false on — so write
+  one; the expression is not repeated back to you.
+- **A false assertion fails the step**, so the run stops there and reports
+  `failed`. `onError: continue` is refused on an assert, at save time and again
+  when a hand-edited flow runs: a run that carries on past a false assertion
+  would report success it did not earn.
+- `${name}` works inside the script. A JavaScript template literal needs `$${`.
+
+**A flow is responsible for being where it acts.** Start with `navigate`, or
+start with an `assert` that says where you must already be. And an `assert` can
+say a flow should not run at all:
+
+```yaml
+- tool: assert
+  args:
+    script: return !!document.querySelector('#login-username')
+    wait_timeout: 5
+    message: Already signed in - you don't need to run this flow.
+```
+
+Signed out, the login form is there and the flow runs. Signed in, the app has
+redirected, the field never appears, and the run fails in five seconds with that
+sentence instead of grinding through a login that cannot work.
+
 ## Whose flows you see
 
 This depends on your session name, and it is not guessable from any schema.

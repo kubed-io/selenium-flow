@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A flow can say what must be true.** `assert` runs JavaScript that has to come back `true` — the URL, an element, a cookie, anything the page knows — and fails with the message you wrote, so a flow stops on the wrong page instead of reporting steps it did not really pass.
+
 - **`press_key` takes the browser's key names, single characters and combinations** — `ArrowLeft`, `/`, `Control+a`, `Shift+Tab`.
 
 ### Changed

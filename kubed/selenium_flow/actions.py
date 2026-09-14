@@ -16,6 +16,7 @@ import mimetypes
 import re
 import shutil
 import tempfile
+import time
 from pathlib import Path, PurePosixPath
 
 from selenium.webdriver.common.action_chains import ActionChains
@@ -24,6 +25,7 @@ from selenium.webdriver.common.keys import Keys
 
 from . import browser
 from .browser import Grid, as_bool, as_int, normalize_browser
+from .errors import AssertionFailed
 
 # Named keys a caller can press. Selenium's Keys members are unicode private-use
 # characters, so a caller cannot reasonably type them into JSON by hand.
@@ -71,6 +73,27 @@ _BY_SPELLING = {_squash(name): value for name, value in KEYS.items()}
 _COMBINATION = re.compile(r"\+(?=.)")
 
 
+def _shape(value) -> str:
+    """What came back, without saying what was in it.
+
+    The refusal is returned to the caller and logged, and an assertion can
+    return anything the page holds — `document.cookie`, an innerHTML, a token
+    in a data attribute. The author needs to know their expression answered
+    with a string rather than a comparison; nobody needs the string.
+    """
+    if value is None:
+        return "null"
+    if isinstance(value, str):
+        return f"a string of {len(value)} characters"
+    if isinstance(value, list):
+        return f"an array of {len(value)} items"
+    if isinstance(value, dict):
+        return f"an object with {len(value)} keys"
+    if isinstance(value, (int, float)):
+        return f"a number ({type(value).__name__})"
+    return f"a {type(value).__name__}"
+
+
 def resolve_key(key) -> str:
     """What to send for ``key``: a name, one character, or a combination.
 
@@ -108,6 +131,11 @@ SUBMIT_KEYS = frozenset({Keys.RETURN, Keys.ENTER})
 # Mouse gestures ``interact`` understands. hover and scroll_to are here rather
 # than in their own tools because they take the same arguments as a click.
 MOUSE_ACTIONS = ("click", "double_click", "right_click", "hover", "scroll_to")
+
+# How often `assert_` asks the page again. Short enough to catch a route change
+# in the frame after it lands, long enough not to spin the Grid on a wait that
+# is going to take seconds.
+ASSERT_POLL = 0.2
 
 # What can be done with a native dialog. "read" deliberately leaves it open.
 DIALOG_ACTIONS = ("accept", "dismiss", "read", "send_text")
@@ -624,6 +652,72 @@ class Actions:
         driver = self._at(session_id, url)
         result = driver.execute_script(script)
         return {"result": result, **browser.page_state(driver)}
+
+    def assert_(
+        self,
+        session_id: str,
+        script: str,
+        message=None,
+        wait_timeout=WAIT_TIMEOUT,
+        url=None,
+    ) -> dict:
+        """Evaluate JavaScript that must come back true.
+
+        ``execute_script`` with one difference, and the difference is the point:
+        the answer has to be a **boolean**. A flow had no way to say what must be
+        true, so one reported eight passing steps while sitting on the page
+        before the one it meant to reach.
+
+        Truthiness is refused rather than accepted, because it is how an
+        assertion passes by accident: ``return document.querySelector('#x')``
+        reads correctly and is correct by luck, until the day the expression
+        answers ``0`` or ``[]``.
+
+        False is not final until the timeout. The expression is asked again,
+        the way every wait here works — a single-page app lands its route a few
+        frames after the click that caused it, and an assertion that looked
+        once would be that same race moved one step later. Nothing sleeps
+        waiting for a fixed duration; ``wait_timeout=0`` asks exactly once.
+        """
+        driver = self._at(session_id, url)
+        timeout = max(as_int(wait_timeout, WAIT_TIMEOUT), 0)
+        deadline = time.monotonic() + timeout
+        while True:
+            answer = driver.execute_script(script)
+            if not isinstance(answer, bool):
+                raise ValueError(
+                    f"assert must return true or false; this returned "
+                    f"{_shape(answer)}. Compare, rather than returning the "
+                    "thing itself - return !!document.querySelector('#x')"
+                )
+            if answer:
+                return {
+                    "asserted": True,
+                    "script": script,
+                    **browser.page_state(driver),
+                }
+            # Bounded by what is left, and re-checked before the next
+            # evaluation: a fixed pause here could carry the call past
+            # `wait_timeout` and then report an answer that arrived after the
+            # caller had stopped waiting for it.
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(ASSERT_POLL, remaining))
+
+        state = browser.page_state(driver)
+        # The script is not echoed. It is the author's text rather than the
+        # page's, but it can carry a literal a run report must not: a token
+        # compared inline, a serialised request body. This package already keeps
+        # `script` out of run summaries (`SAFE_IN_SUMMARY`) for that reason, and
+        # a failure message is read in more places than a summary is - the HTTP
+        # error, the flow report, the log. So: where it was false, and a nudge
+        # to write the sentence that would have said what should have been true.
+        raise AssertionFailed(
+            message
+            or f"assertion failed after {timeout}s on {state.get('url')!r}. "
+            "Give the step a message to say what should have been true"
+        )
 
     # ---- reading -----------------------------------------------------------
 

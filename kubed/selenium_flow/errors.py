@@ -41,6 +41,7 @@ from selenium.common.exceptions import (
     TimeoutException,
 )
 
+
 # The caller asked for something that cannot happen as asked. Retrying the
 # identical request is guaranteed to fail again, so say 400 and let a workflow
 # stop rather than burn its retries.
@@ -51,7 +52,18 @@ from selenium.common.exceptions import (
 # saying which locator and which URL. A page that never contained `//nope` will
 # still not contain it on the retry. A slow Grid surfaces as a connection error
 # instead, which is below.
+class AssertionFailed(Exception):
+    """An `assert` step's JavaScript came back false.
+
+    Its own type because it is not a browser fault and not a bad request: the
+    page is simply not what the flow said it must be. It carries the author's
+    message, which is the whole point of the tool — the flow's author knows why
+    the condition matters and this package does not.
+    """
+
+
 CALLER = (
+    AssertionFailed,
     TimeoutException,
     InvalidSelectorException,
     NoSuchElementException,
