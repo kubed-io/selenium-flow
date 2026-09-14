@@ -620,7 +620,7 @@ def register(
         width: int | None = None,
         height: int | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
-        save: bool = False,
+        save: bool = True,
         filename: str | None = None,
     ) -> Image | ToolResult:
         """Capture a PNG of the page and return it as an image you can see.
@@ -631,11 +631,20 @@ def register(
         Only reach for this when the *visual* result matters — layout, styling,
         a rendered chart. To read content, extract is far cheaper.
 
-        Set save to also keep it with the session's files, where it gets a URL
-        that opens in a browser. Worth doing whenever a person will look at it:
-        many clients cannot display an image returned by a tool, and every one
-        of them can follow a link. Saving also returns the file's name, which is
-        what keep_file and session_files take.
+        Every screenshot is also kept with the session's files, where it has a
+        URL that opens in a browser and shows up in the admin page - so a person
+        can see what you saw, whether or not your client can display an image.
+        The result carries the file's name, which is what keep_file and
+        session_files take.
+
+        **To show a person what you saw, give them the file's absolute_url.**
+        It opens in any browser, needs no token, and is the only form of this
+        they can actually look at - do not paste the image back into your reply
+        and do not describe it instead. Markdown works too: ![](absolute_url).
+
+        Those files die with the browser. keep_file(name) is what makes one
+        outlive it. Pass save=false for a capture nobody should even be able to
+        look at later - a flow taking thirty frames it will never reopen.
         """
         result = run(
             session_id,
@@ -675,8 +684,11 @@ def register(
         """Print the current page to PDF and keep it with the session's files.
 
         This is the browser's own print output, so text stays selectable and the
-        whole document is included rather than just the viewport. Returns the
-        stored file; session_files gives it a link.
+        whole document is included rather than just the viewport.
+
+        Returns the stored file. **Give a person its absolute_url** - a signed
+        link that opens in any browser and needs no token. That is how somebody
+        reads the PDF; nothing else in this result is any use to them.
         """
         return run(
             session_id,
