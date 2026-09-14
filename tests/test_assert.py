@@ -83,13 +83,26 @@ def test_false_fails_with_the_authors_message(actions, driving):
     assert "Already signed in." in str(failed.value)
 
 
-def test_false_without_a_message_says_what_was_false_and_where(actions, driving):
+def test_false_without_a_message_names_the_page_and_asks_for_one(actions, driving):
     driving(False)
     with pytest.raises(actions_module.AssertionFailed) as failed:
         actions.assert_("abc", "return 1 > 2", wait_timeout=0)
     message = str(failed.value)
-    assert "return 1 > 2" in message
     assert "https://example.test/dashboard" in message
+    assert "message" in message, "it should ask the author to write one"
+
+
+def test_the_failure_never_echoes_the_script(actions, driving):
+    """The script is the author's text, but it can carry a literal a report must
+    not: a token compared inline, a serialised body. `SAFE_IN_SUMMARY` already
+    keeps `script` out of run summaries, and a failure is read in more places
+    than a summary — the HTTP error, the flow report, the log (Copilot, #26)."""
+    driving(False)
+    script = "return document.cookie.includes('s3cret-token')"
+    with pytest.raises(actions_module.AssertionFailed) as failed:
+        actions.assert_("abc", script, wait_timeout=0)
+    assert "s3cret-token" not in str(failed.value)
+    assert script not in str(failed.value)
 
 
 def test_it_waits_for_the_page_to_catch_up(actions, driving):
@@ -186,6 +199,65 @@ def test_a_failing_assert_stops_the_run_and_carries_the_message():
     failed = report["steps"][-1]
     assert failed["tool"] == "assert"
     assert failed["error"] == "Already signed in - you don't need to run this flow."
+
+
+async def test_an_assert_cannot_be_continued_past(server):
+    """`onError: continue` on an assertion is the confident green again: the run
+    would carry on and report `ok` (Copilot, #26)."""
+    from kubed.selenium_flow.flowdoc import InvalidFlow, step_schemas, validate
+    from kubed.selenium_flow.routes import ENDPOINTS as ROUTES
+
+    tools = {}
+    for name in sorted(set(ROUTES.values())):
+        tools[name] = (await server.mcp.get_tool(name)).parameters or {}
+
+    document = {
+        "description": "Sign in",
+        "steps": [
+            {
+                "tool": "assert",
+                "onError": "continue",
+                "args": {"script": "return true"},
+            }
+        ],
+    }
+    with pytest.raises(InvalidFlow, match="cannot be continued past"):
+        validate(document, step_schemas(tools))
+
+
+def test_a_hand_edited_flow_cannot_continue_past_one_either():
+    """Saving refuses the pairing, and a document edited on disk never passed
+    through saving — so the runner refuses it too, rather than trusting it."""
+    from kubed.selenium_flow.flowrun import run
+
+    class _Acting:
+        def __init__(self):
+            self.wrote = False
+
+        def assert_(self, session_id, script, message=None, **kwargs):
+            raise actions_module.AssertionFailed(message or "false")
+
+        def write(self, session_id, **kwargs):
+            self.wrote = True
+            return {"url": "https://example.test/", "title": "t"}
+
+        def page(self, session_id):
+            return {"url": "https://example.test/", "title": "t"}
+
+    acting = _Acting()
+    document = {
+        "steps": [
+            {
+                "tool": "assert",
+                "onError": "continue",
+                "args": {"script": "return false"},
+            },
+            {"tool": "write", "args": {"css": "#a", "text": "x"}},
+        ]
+    }
+    report = run(acting, document, "b")
+    assert report["status"] == "failed"
+    assert acting.wrote is False, "the run carried on past a false assertion"
 
 
 async def test_a_flow_with_an_assert_step_saves(server):

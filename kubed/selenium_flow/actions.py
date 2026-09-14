@@ -706,10 +706,17 @@ class Actions:
             time.sleep(min(ASSERT_POLL, remaining))
 
         state = browser.page_state(driver)
+        # The script is not echoed. It is the author's text rather than the
+        # page's, but it can carry a literal a run report must not: a token
+        # compared inline, a serialised request body. This package already keeps
+        # `script` out of run summaries (`SAFE_IN_SUMMARY`) for that reason, and
+        # a failure message is read in more places than a summary is - the HTTP
+        # error, the flow report, the log. So: where it was false, and a nudge
+        # to write the sentence that would have said what should have been true.
         raise AssertionFailed(
             message
-            or f"assertion failed after {timeout}s: {script} was false on "
-            f"{state.get('url')!r}"
+            or f"assertion failed after {timeout}s on {state.get('url')!r}. "
+            "Give the step a message to say what should have been true"
         )
 
     # ---- reading -----------------------------------------------------------

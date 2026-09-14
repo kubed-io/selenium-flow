@@ -589,8 +589,9 @@ def register(
             "does not have to know how long a route change takes. "
             "wait_timeout=0 asks once.\n\nGive message the sentence whoever "
             "reads the failure should see - in a flow it becomes the failing "
-            "step's error. Without one the failure quotes the expression and the "
-            "page it was false on.\n\nUse it to make a flow say what must be "
+            "step's error, and a flow cannot continue past one. Without a "
+            "message the failure names only the page it was false on.\n\n"
+            "Use it to make a flow say what must be "
             "true: the page it landed on, that a form saved, or that it should "
             "not run at all because you are already signed in."
         ),

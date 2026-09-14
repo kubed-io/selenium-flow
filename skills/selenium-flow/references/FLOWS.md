@@ -138,10 +138,12 @@ reach. `assert` runs JavaScript that must come back **true**:
   assertion straight after a click does not have to know how long a route change
   takes. `wait_timeout: 0` asks once.
 - **`message` is what the reader sees.** In a flow it becomes the failing step's
-  error. Without one the failure quotes the expression and the page it was false
-  on.
+  error. Without one the failure names only the page it was false on — so write
+  one; the expression is not repeated back to you.
 - **A false assertion fails the step**, so the run stops there and reports
-  `failed` — the same as any other step failing.
+  `failed`. `onError: continue` is refused on an assert, at save time and again
+  when a hand-edited flow runs: a run that carries on past a false assertion
+  would report success it did not earn.
 - `${name}` works inside the script. A JavaScript template literal needs `$${`.
 
 **A flow is responsible for being where it acts.** Start with `navigate`, or

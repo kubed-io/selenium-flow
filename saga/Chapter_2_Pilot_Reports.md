@@ -387,7 +387,14 @@ A failed run then reads:
   a click needs no knowledge of how many frames a route change takes.
   `wait_timeout: 0` checks once. **Nothing sleeps.**
 - **`message` is the author's sentence** to whoever reads the failure. The author
-  knows why the condition matters; the server does not.
+  knows why the condition matters; the server does not. Without one the failure
+  names the page and asks for a message — **it does not quote the script**,
+  which is author text that can carry a literal a report must not repeat, and
+  which `SAFE_IN_SUMMARY` already keeps out of run summaries.
+- **An assertion cannot be continued past.** `onError: continue` on an `assert`
+  is refused when the flow is saved, and refused again when a hand-edited one
+  runs — a run that carries on after a false assertion reports a success it did
+  not earn, which is the whole failure this action exists to stop.
 - **A failed assertion is an error, not a new status.** Dr K: it rides with the
   error, as the message beside it. The step fails the way any step fails — the
   run reports `failed`, the step's `error` is the author's message — and no third

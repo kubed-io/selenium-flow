@@ -44,7 +44,14 @@ import time
 from urllib.parse import quote, quote_plus
 
 from . import secrets
-from .flowdoc import ARGS, NOT_STEPS, PARAM_REFERENCE, SECRET_ARG, listed
+from .flowdoc import (
+    ARGS,
+    ASSERTION,
+    NOT_STEPS,
+    PARAM_REFERENCE,
+    SECRET_ARG,
+    listed,
+)
 from .routes import ENDPOINTS, method_for
 
 # The only attributes a step may dispatch to. `getattr(actions, tool)` alone
@@ -652,7 +659,11 @@ def run(
                 "flow %s step %s (%s) failed: %s", name, number, label, entry["error"]
             )
             reports.append(entry)
-            if step.get("onError") == "continue":
+            # An assertion is never continued past, whatever the document
+            # says. Saving refuses the pairing; this is the second half, for a
+            # flow edited on disk - without it a false assertion could still
+            # end `ok`, which is the whole failure this action exists to stop.
+            if step.get("onError") == "continue" and tool != ASSERTION:
                 continue
             status = "failed"
             break

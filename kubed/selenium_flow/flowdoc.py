@@ -77,6 +77,10 @@ STEP_KEYS = {
 
 ON_ERROR = ("abort", "continue")
 
+# The one step `onError: continue` may never be paired with. Named here rather
+# than in `flowrun` so saving and running read the same constant.
+ASSERTION = "assert"
+
 # Lifecycle, not action. A flow runs against the browser the caller already has,
 # which is what lets one flow be run on Chrome and then on Firefox without being
 # edited — see §F1.9. A flow that opened its own browser would also end the
@@ -460,6 +464,16 @@ def _check_step(index: int, step, declared: set[str], schemas: dict) -> list[str
     if on_error not in ON_ERROR:
         problems.append(
             f"{where}: onError is {on_error!r}; use {' or '.join(ON_ERROR)}"
+        )
+    elif tool == ASSERTION and on_error == "continue":
+        # An assertion you continue past is not an assertion: the run would go
+        # on and report `ok`, which is the confident green `assert` exists to
+        # prevent. Refused here, and refused again at run time, because a
+        # document edited on disk never passed through saving.
+        problems.append(
+            f"{where}: an assert cannot be continued past - a run that carries "
+            "on after a false assertion reports success it did not earn. Drop "
+            "onError, or drop the assert"
         )
 
     for key, kind in (("id", str), ("note", str)):
