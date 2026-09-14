@@ -714,6 +714,13 @@ class Actions:
             if remaining <= 0:
                 break
             time.sleep(min(ASSERT_POLL, remaining))
+            if time.monotonic() > deadline:
+                # A sleep can wake late. Without this, the answer that arrived
+                # after the caller stopped waiting would still be accepted, so
+                # a slow page could pass an assertion it had already failed.
+                # The first evaluation is above the loop's exits, so
+                # wait_timeout=0 still asks exactly once.
+                break
 
         state = browser.page_state(driver)
         # The script is not echoed. It is the author's text rather than the
