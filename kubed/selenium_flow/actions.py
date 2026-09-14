@@ -73,6 +73,27 @@ _BY_SPELLING = {_squash(name): value for name, value in KEYS.items()}
 _COMBINATION = re.compile(r"\+(?=.)")
 
 
+def _shape(value) -> str:
+    """What came back, without saying what was in it.
+
+    The refusal is returned to the caller and logged, and an assertion can
+    return anything the page holds — `document.cookie`, an innerHTML, a token
+    in a data attribute. The author needs to know their expression answered
+    with a string rather than a comparison; nobody needs the string.
+    """
+    if value is None:
+        return "null"
+    if isinstance(value, str):
+        return f"a string of {len(value)} characters"
+    if isinstance(value, list):
+        return f"an array of {len(value)} items"
+    if isinstance(value, dict):
+        return f"an object with {len(value)} keys"
+    if isinstance(value, (int, float)):
+        return f"a number ({type(value).__name__})"
+    return f"a {type(value).__name__}"
+
+
 def resolve_key(key) -> str:
     """What to send for ``key``: a name, one character, or a combination.
 
@@ -666,8 +687,8 @@ class Actions:
             if not isinstance(answer, bool):
                 raise ValueError(
                     f"assert must return true or false; this returned "
-                    f"{answer!r}. Compare, rather than returning the thing "
-                    "itself - return !!document.querySelector('#x')"
+                    f"{_shape(answer)}. Compare, rather than returning the "
+                    "thing itself - return !!document.querySelector('#x')"
                 )
             if answer:
                 return {
@@ -675,9 +696,14 @@ class Actions:
                     "script": script,
                     **browser.page_state(driver),
                 }
-            if time.monotonic() >= deadline:
+            # Bounded by what is left, and re-checked before the next
+            # evaluation: a fixed pause here could carry the call past
+            # `wait_timeout` and then report an answer that arrived after the
+            # caller had stopped waiting for it.
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
                 break
-            time.sleep(ASSERT_POLL)
+            time.sleep(min(ASSERT_POLL, remaining))
 
         state = browser.page_state(driver)
         raise AssertionFailed(

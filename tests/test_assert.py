@@ -197,3 +197,60 @@ async def test_a_flow_with_an_assert_step_saves(server):
     for name in sorted(set(ROUTES.values())):
         tools[name] = (await server.mcp.get_tool(name)).parameters or {}
     assert validate(LOGIN_GUARD, step_schemas(tools))
+
+
+# ---- what the refusal is allowed to say (Copilot, #26) ----------------------
+
+
+def test_the_refusal_describes_the_shape_and_never_the_value(actions, driving):
+    """An assertion can return anything the page holds — a cookie, an innerHTML,
+    a token in a data attribute — and this text goes into a 400 and the log."""
+    driving("session=s3cret-token; csrf=abc123")
+    with pytest.raises(ValueError) as refused:
+        actions.assert_("abc", "return document.cookie", wait_timeout=0)
+    message = str(refused.value)
+    assert "s3cret-token" not in message
+    assert "a string of 33 characters" in message
+
+
+@pytest.mark.parametrize(
+    "answer,described",
+    [
+        (None, "null"),
+        (["a", "b"], "an array of 2 items"),
+        ({"a": 1}, "an object with 1 keys"),
+        (3, "a number (int)"),
+    ],
+)
+def test_every_refusal_says_what_kind_of_answer_it_got(
+    actions, driving, answer, described
+):
+    driving(answer)
+    with pytest.raises(ValueError, match=described.replace("(", r"\(").replace(")", r"\)")):
+        actions.assert_("abc", "return whatever", wait_timeout=0)
+
+
+def test_it_never_waits_longer_than_it_was_told(actions, monkeypatch):
+    """The deadline was checked before the sleep but not before the next
+    evaluation, so a fixed pause could carry the call past its timeout
+    (Copilot, #26). On a fake clock, so the assertion is about the arithmetic
+    rather than about how busy the machine running the test is."""
+    now = {"t": 1000.0}
+    slept = []
+    driver = _Driver(False)
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: driver)
+    monkeypatch.setattr(actions_module.time, "monotonic", lambda: now["t"])
+
+    def fake_sleep(seconds):
+        slept.append(seconds)
+        now["t"] += seconds
+
+    monkeypatch.setattr(actions_module.time, "sleep", fake_sleep)
+
+    with pytest.raises(actions_module.AssertionFailed):
+        actions.assert_("abc", "return false", wait_timeout=1)
+
+    assert sum(slept) == pytest.approx(1), "it waited past its own deadline"
+    assert all(nap <= actions_module.ASSERT_POLL for nap in slept)
+    # Six evaluations: at 0.0 through 1.0, and none after the deadline.
+    assert driver.calls == 6
