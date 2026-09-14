@@ -699,9 +699,9 @@ anywhere.
       MCP schema **and** `flow://schema` — with `press_key.key` its one named
       exemption
 - [x] `save_flow` refuses `action: mouseover` at save time, listing the valid ones
-- [ ] Python 3.10: `Literal[TUPLE]` subscripted with a tuple, and the emitted
-      schema asserted, not assumed — asserted on 3.13; 3.10 is the full CI
-      matrix's to prove, run on the branch
+- [x] Python 3.10: `Literal[TUPLE]` subscripted with a tuple, and the emitted
+      schema asserted, not assumed — green on 3.10 through 3.14, from a full
+      matrix dispatched on the branch, since a pull request only runs 3.14
 - [x] `press_key`: DOM key names, single characters, `Control+a` combinations; the
       error lists 60 canonical names
 - [x] `execute_script` points back; `interact` says hover persists (§F2.2)

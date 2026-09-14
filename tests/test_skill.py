@@ -296,7 +296,9 @@ def test_every_tool_an_agent_can_call_has_a_row_in_the_capability_table():
     from kubed.selenium_flow import files, flowapi, secrets
     from kubed.selenium_flow.routes import ENDPOINTS
 
-    tools = set(ENDPOINTS.values()) | {
+    # The resource mirrors count: a client that cannot read resources lists and
+    # calls them like any other tool (Copilot, #25).
+    tools = {STATUS_TOOL, skill_module.SKILL_TOOL} | set(ENDPOINTS.values()) | {
         flowapi.LIST_TOOL,
         flowapi.GET_TOOL,
         flowapi.SCHEMA_TOOL,

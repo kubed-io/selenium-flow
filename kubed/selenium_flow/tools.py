@@ -50,10 +50,22 @@ def _lowered(value):
 # check, because these were plain strings the action layer lowercased: `Hover`
 # worked over MCP and still works over HTTP and in a flow, and publishing the
 # list must not start refusing a caller for writing what used to be fine.
+def _blank_is_unset(value):
+    """A blank optional choice means "not given", as it did before the enum.
+
+    `normalize_browser` has always treated an empty or whitespace-only browser
+    as "carry on with the default", and a client that encodes an omitted
+    optional as "" relied on it. A bare enum refuses that before the tool runs,
+    so the blank is turned back into None here and the default decides.
+    """
+    resolved = _lowered(value)
+    return None if resolved == "" else resolved
+
+
 MouseAction = Annotated[Literal[MOUSE_ACTIONS], BeforeValidator(_lowered)]
 DialogAction = Annotated[Literal[DIALOG_ACTIONS], BeforeValidator(_lowered)]
 FrameAction = Annotated[Literal[FRAME_ACTIONS], BeforeValidator(_lowered)]
-Browser = Annotated[Literal[BROWSERS], BeforeValidator(_lowered)]
+Browser = Annotated[Literal[BROWSERS] | None, BeforeValidator(_blank_is_unset)]
 
 # Said the same way everywhere, because the one new way to get a call wrong is
 # to pass both selectors or neither, and the fix has to be in front of the model
@@ -144,7 +156,7 @@ def register(
     @mcp.tool(annotations=hints("Open browser session", destructive=True))
     def open_session(
         url: str | None = None,
-        browser: Browser | None = None,
+        browser: Browser = None,
         width: int | None = None,
         height: int | None = None,
         page_load_timeout: int | None = None,

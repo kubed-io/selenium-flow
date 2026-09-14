@@ -222,3 +222,38 @@ async def test_a_choice_outside_the_set_is_still_refused_over_mcp(server):
     async with Client(server.mcp) as client:
         with pytest.raises(ToolError):
             await client.call_tool("interact", {"action": "mouseover", "css": "a"})
+
+
+@pytest.mark.parametrize("given", ["", "   "])
+async def test_a_blank_browser_still_means_the_default(server, monkeypatch, given):
+    """`normalize_browser` has always read a blank browser as "not given", and a
+    client that encodes an omitted optional as "" relied on it. Publishing the
+    choices must not turn that into a validation error (Copilot, #25).
+
+    Asserted against what omitting it does, rather than against a name: the
+    default is settings' to decide, and this is only about the blank reaching it.
+    """
+    from fastmcp import Client
+
+    from .conftest import NAMED
+
+    async def opened_with(arguments):
+        seen = {}
+
+        def fake_open(**kwargs):
+            seen.update(kwargs)
+            return {"session_id": "abc", "url": "about:blank"}
+
+        monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
+        monkeypatch.setattr(server.actions, "open_session", fake_open)
+        async with Client(server.mcp) as client:
+            await client.call_tool("open_session", arguments)
+        return seen
+
+    # Only the browser: a second call inherits the first's remembered page, and
+    # that has nothing to do with what this is about.
+    blank = await opened_with({"browser": given})
+    omitted = await opened_with({})
+    assert blank.get("browser") == omitted.get("browser")
+    # And a browser that was actually named still arrives, in any case.
+    assert (await opened_with({"browser": "Firefox"})).get("browser") == "firefox"

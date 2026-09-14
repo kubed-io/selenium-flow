@@ -162,6 +162,11 @@ check this table twice before reaching for it.
 | `save_flow` | save a sequence of steps under a name | `name`, `parameters`, `steps` |
 | `run_flow` | run a saved flow in one call | `name`, `params` |
 | `delete_flow` | delete one of your flows | `name` |
+| `current_session` | what you are holding — the same as `session://current` | — |
+| `selenium_flow_skill` | this page and its references — the same as `skill://selenium-flow` | `file` |
+
+The last two are mirrors of resources, and your client only lists them if it
+cannot read resources. Everything else is always there.
 
 Every tool that names an element waits for it in the background and carries on
 the moment it appears. `wait_timeout` is only how long it may take, never a
