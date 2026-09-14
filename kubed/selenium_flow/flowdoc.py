@@ -216,6 +216,20 @@ def _types(schema: dict) -> set[str]:
     return found
 
 
+def _allowed(schema: dict) -> list | None:
+    """The closed set a property accepts, whether or not it may also be null.
+
+    A `Literal` argument arrives as `enum`; an optional one as an `enum` branch
+    beside `null` in `anyOf`, which is how `open_session.browser` is published.
+    """
+    if "enum" in schema:
+        return schema["enum"]
+    for branch in schema.get("anyOf", []):
+        if "enum" in branch:
+            return branch["enum"]
+    return None
+
+
 _JSON_TYPES = {
     "string": str,
     "integer": int,
@@ -351,6 +365,21 @@ def _check_params(where: str, tool: str, params: dict, bound: set[str], schema: 
             problems.append(
                 f"{where}: {tool}.{name} should be {accepted}, got "
                 f"{type(value).__name__}"
+            )
+        # A closed set is checked here too, or `action: mouseover` saves cleanly
+        # and fails at step nine. Compared without case because the action layer
+        # lowercases: validation must never be stricter than execution. A value
+        # carrying a reference is left alone, since only the run knows it.
+        allowed = _allowed(properties[name])
+        if (
+            allowed
+            and isinstance(value, str)
+            and not references(value)
+            and value.strip().lower() not in {str(a).lower() for a in allowed}
+        ):
+            problems.append(
+                f"{where}: {tool}.{name} is {value!r}; use one of "
+                f"{', '.join(map(str, allowed))}"
             )
 
     # `bound` is what a secret supplies: `write.text`, and nothing else has one.

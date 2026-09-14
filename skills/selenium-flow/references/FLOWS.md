@@ -96,6 +96,23 @@ for a literal `${`.
 A `${name}` that is not a declared parameter is refused when the flow is
 **saved**, not at step nine with a form half filled.
 
+**A `default` is applied.** Give a parameter one and a run that leaves it out gets
+it, which makes it optional to the caller:
+
+```json
+{
+  "type": "object",
+  "required": ["email"],
+  "properties": {
+    "email": {"type": "string"},
+    "site": {"type": "string", "default": "https://demo.example.com"}
+  }
+}
+```
+
+`run_flow(name="sign-up", params={"email": "a@example.com"})` then navigates to
+the demo site without being told to.
+
 **A parameter is never secret.** There is no `writeOnly`: everything you pass
 may appear in the report. For a password, do not use a parameter at all — name a
 secret, which is a different mechanism on purpose

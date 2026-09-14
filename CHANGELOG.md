@@ -25,6 +25,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`press_key` takes the browser's key names, single characters and combinations** — `ArrowLeft`, `/`, `Control+a`, `Shift+Tab`.
+
+### Changed
+
+- **Tools list their fixed choices in their schemas** — every `interact`, `dialog` and `frame` action, and `open_session`'s browsers — so a client can show them, and a flow naming one that does not exist is refused when it is saved instead of when it runs.
+
 ## [0.1.0] - 2026-09-12
 
 0.0.2 could drive a browser. This one lets an agent keep what it worked out.

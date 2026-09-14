@@ -19,6 +19,12 @@ interact(action="hover", xpath="//nav//li[contains(., 'Account')]")
 interact(action="scroll_to", xpath="//tr[last()]")
 ```
 
+**`hover` leaves the pointer there**, so a menu that opens on `:hover` stays open
+for the next call: hover the menu, then click the item inside it. It is also the
+only way to open one. A script's synthetic events do not set `:hover`, so an
+`execute_script` that "opens" such a menu opens it sometimes and lets it close
+again.
+
 `click` and the two double/right variants wait for the element to be
 *clickable*; `hover` and `scroll_to` only wait for it to *exist*, because
 requiring clickability would refuse exactly the off-screen element `scroll_to`
@@ -71,15 +77,25 @@ To empty a field: `write(xpath=..., text="", clear=true)`.
 
 ## Keys
 
-`press_key` sends a named key to an element or to wherever focus is. Names are
-lowercase: `tab`, `enter`, `escape`, `backspace`, `delete`, `space`, `home`,
-`end`, `page_up`, `page_down`, `arrow_up`, `arrow_down`, `arrow_left`,
-`arrow_right`, `f1`–`f12`, and the rest of Selenium's set.
+`press_key` sends a key to an element, or to wherever focus is. It takes the key
+three ways:
+
+- **A name**, in the browser's spelling or Selenium's — `Enter` or `enter`,
+  `ArrowDown` or `arrow_down`, `PageUp` or `page_up`, `Escape`, `Tab`,
+  `Backspace`, `F5`. Case, underscores and hyphens do not matter.
+- **One character** — `a`, `/`, `?`.
+- **A combination** joined with `+` — `Control+a` selects everything, `Shift+Tab`
+  moves focus back. Each modifier is held for the keys after it and released at
+  the end. `Control++` is Control and the plus key.
 
 ```
-press_key(key="escape")                        # dismiss a modal
-press_key(xpath="//input[@name='q']", key="tab")
+press_key(key="Escape")                        # dismiss a modal
+press_key(xpath="//input[@name='q']", key="Tab")
+press_key(css="textarea", key="Control+a")     # select all of it
 ```
+
+The browser runs on Linux on the Grid, so a site's shortcuts use `Control`, not
+the macOS Command key.
 
 ## Uploading a file
 

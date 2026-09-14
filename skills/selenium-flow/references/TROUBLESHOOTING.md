@@ -112,6 +112,13 @@ session waits for a slot. That is almost always abandoned sessions from earlier
 runs, not load. Close what you own, and remember that failure paths need to
 reach `end_browser` too.
 
+**`"ready": false` with no nodes is not a broken Grid** when the Grid scales
+itself — KEDA on Kubernetes, say. An idle autoscaled Grid runs no browsers at
+all, so its status says it is not ready and lists no nodes, and it starts a
+browser when a session is asked for. The first `open_session` after a quiet spell
+can take a minute while one boots. Only a failing `open_session` means something
+is wrong.
+
 ## Running out of slots
 
 The Grid's capacity is shared. An unclosed browser holds a slot until its idle

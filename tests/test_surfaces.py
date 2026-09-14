@@ -243,6 +243,12 @@ class _Driver:
         ("tab", False),
         ("escape", False),
         ("arrow_down", False),
+        # The browser's own spellings and combinations follow the same rule: it
+        # is the key that decides, not how it was written.
+        ("Enter", True),
+        ("Control+Enter", True),
+        ("ArrowDown", False),
+        ("Control+a", False),
     ],
 )
 def test_only_a_key_that_can_submit_waits_for_a_navigation(
