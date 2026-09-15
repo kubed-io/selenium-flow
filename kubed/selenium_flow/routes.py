@@ -33,7 +33,7 @@ from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from . import auth, errors, settings
+from . import auth, browser, errors, settings
 from . import secrets as secrets_module
 from . import sessions as sessions_module
 from .actions import Actions
@@ -84,6 +84,21 @@ METHOD_ALIASES = {"assert": "assert_"}
 RESHAPES = "resize"
 
 
+def mount(value: str | None) -> str:
+    """``ROUTE_PREFIX`` as a path segment every route hangs off, or "" for root.
+
+    **The whole server moves, not the browser endpoints** (§F1.11). It used to
+    rename `/browser` while `/mcp`, `/admin` and `/files` stayed fixed, which is
+    backwards: nobody wants the browser endpoints called something else, and
+    everybody eventually wants the server mounted under a path.
+
+    `/` and `""` both mean root, because `/` is what an operator types when they
+    mean "no prefix" and a literal `/` would make every path start `//`.
+    """
+    text = str(value or "").strip().strip("/")
+    return f"/{text}" if text else ""
+
+
 def method_for(tool: str) -> str:
     """The ``Actions`` method that serves ``tool``."""
     return METHOD_ALIASES.get(tool, tool)
@@ -94,35 +109,116 @@ def register(
     actions: Actions,
     sessions: SessionManager,
     token: str | None,
-    prefix: str,
+    prefix: str = "",
     catalogue=None,
 ) -> None:
-    """Register ``/health``, the spec, and the browser resource on ``mcp``."""
+    """Register ``/health``, the spec, and the browser resource on ``mcp``.
 
-    @mcp.custom_route("/health", methods=["GET"])
+    ``prefix`` is where the **whole server** is mounted, and every tree is fixed
+    beneath it (§F1.11) — the spec included, because a person reading it in a
+    browser should find it where everything else lives.
+
+    **`/health` is the one thing served twice**: under the prefix like the rest,
+    and at the root whatever the prefix is. A readiness probe that 404s after a
+    config change is the failure §F1.11 named, and it is the one path whose
+    reader — a kubelet — is not the one who chose the mount.
+    """
+    browser_root = f"{prefix}/browser"
+
+    # ---- the ops endpoints -------------------------------------------------
+    #
+    # One endpoint per question, rather than one endpoint answering several.
+    # `/openapi.json` was being used as a liveness probe in this cluster, which
+    # it is not: it happens to be unauthenticated and cheap, so it stood in for
+    # a probe that did not exist. These are that probe, and each says exactly
+    # one thing (Dr K).
+    #
+    # All four answer at the root AS WELL as under the mount, because their
+    # reader is a kubelet or a load balancer that did not choose the mount —
+    # and a probe that 404s after a config change is the failure §F1.11 named.
+
+    def ops_route(path: str, name: str):
+        """Bind one ops endpoint at the root and under the mount."""
+
+        def bind(handler):
+            mcp.custom_route(path, methods=["GET"], name=name)(handler)
+            if prefix:
+                mcp.custom_route(
+                    f"{prefix}{path}", methods=["GET"], name=f"{name}_at_mount"
+                )(handler)
+            return handler
+
+        return bind
+
+    @ops_route("/health", "health")
     async def health(_request: Request) -> JSONResponse:
-        """Readiness probe. Deliberately unauthenticated so a kubelet can call it.
+        """**Liveness**: is this process still working?
 
-        Reports the Grid as well as the process: this server is useless without
-        a reachable Grid, so a pod that cannot see one is not actually ready.
+        Deliberately says nothing about the Grid. A liveness probe that failed
+        on a Grid outage would restart every replica for a fault in another
+        service, which is the one thing a liveness probe must never do — and it
+        is why this cluster was probing `/openapi.json` instead.
         """
+        return JSONResponse({"status": "ok"})
+
+    @ops_route("/started", "started")
+    async def started(_request: Request) -> JSONResponse:
+        """**Startup**: has this process finished coming up?
+
+        It answers only once the routes are registered, which is the whole
+        question a startup probe asks. Separate from `/health` because they
+        differ in what a failure means: not yet, versus no longer.
+        """
+        return JSONResponse({"status": "started"})
+
+    @ops_route("/ready", "ready")
+    async def ready(_request: Request) -> JSONResponse:
+        """**Readiness**: can this process serve a request right now?
+
+        This is the one that depends on the Grid, because a server that cannot
+        reach one can accept a call and do nothing with it. A 503 here takes the
+        pod out of the Service and leaves it running, which is what a Grid
+        outage should cost.
+        """
+        grid = browser.public_url(actions.grid.url)
         try:
             ready = bool(actions.grid.status()["value"]["ready"])
             running = actions.grid.session_count()
         except Exception as exc:  # noqa: BLE001 - the probe must never raise
             return JSONResponse(
-                {"status": "degraded", "grid": actions.grid.url, "error": str(exc)},
+                {"status": "degraded", "grid": grid, "error": errors.message(exc)},
                 status_code=503,
             )
         return JSONResponse(
             {
                 "status": "ok" if ready else "degraded",
-                "grid": actions.grid.url,
+                "grid": grid,
                 "grid_ready": ready,
                 "browsers": running,
                 "sessions": sessions.kind,
             },
             status_code=200 if ready else 503,
+        )
+
+    @ops_route("/info", "info")
+    async def info(_request: Request) -> JSONResponse:
+        """What this process **is** — version, where it is mounted, what is on.
+
+        Not a probe: the question an operator asks when a call went somewhere
+        unexpected. The Grid is named without its credentials, which `GRID_URL`
+        may carry and which this answers to anyone (`browser.public_url`).
+        """
+        from .openapi import _version
+
+        return JSONResponse(
+            {
+                "name": "selenium-flow",
+                "version": _version(),
+                "mount": prefix or "/",
+                "mcp": f"{prefix}/mcp",
+                "grid": browser.public_url(actions.grid.url),
+                "sessions": sessions.kind,
+            }
         )
 
     # Built once on first request rather than at import: list_tools is async,
@@ -132,9 +228,10 @@ def register(
     async def spec() -> dict:
         if "spec" not in cache:
             cache["spec"] = await build_spec(mcp, ENDPOINTS, prefix, bool(token))
+
         return cache["spec"]
 
-    @mcp.custom_route("/openapi.yaml", methods=["GET"])
+    @mcp.custom_route(f"{prefix}/openapi.yaml", methods=["GET"], name="openapi_yaml")
     async def openapi_yaml(_request: Request) -> Response:
         """The HTTP surface as OpenAPI 3.1.
 
@@ -147,7 +244,7 @@ def register(
             media_type="application/yaml",
         )
 
-    @mcp.custom_route("/openapi.json", methods=["GET"])
+    @mcp.custom_route(f"{prefix}/openapi.json", methods=["GET"], name="openapi_json")
     async def openapi_json(_request: Request) -> JSONResponse:
         """The same document as JSON, for tools that will not read YAML."""
         return JSONResponse(await spec())
@@ -157,7 +254,7 @@ def register(
     # One resource, not one per browser id. Which browser is a question about
     # who is asking, and the answer is in the header or the query string.
 
-    @mcp.custom_route(prefix, methods=["POST"], name="browser_open")
+    @mcp.custom_route(browser_root, methods=["POST"], name="browser_open")
     async def open_browser(request: Request) -> JSONResponse:
         """Open this session's browser, or pick up the one it was using."""
         return await _answer(request, token, "open", lambda name, body: (
@@ -169,14 +266,20 @@ def register(
             )
         ))
 
-    @mcp.custom_route(prefix, methods=["DELETE"], name="browser_end")
+    @mcp.custom_route(browser_root, methods=["DELETE"], name="browser_end")
     async def end_browser(request: Request) -> JSONResponse:
         """Quit the browser, keeping the session and what it was doing."""
-        return await _answer(request, token, "end", lambda name, _body: (
-            {"success": True, "session": name, "ended": sessions.end_browser(name)}
-        ))
+        def ended(name, _body):
+            # The browser that was ended is NOT reported. `end_browser` answers
+            # with the Grid's id, which is how a browser is reached and not part
+            # of what a caller is told — returning it here would have been the
+            # one place E18's own contract leaked (Copilot, #34).
+            sessions.end_browser(name)
+            return {"success": True, "session": name}
 
-    @mcp.custom_route(prefix, methods=["GET"], name="browser_status")
+        return await _answer(request, token, "end", ended)
+
+    @mcp.custom_route(browser_root, methods=["GET"], name="browser_status")
     async def browser_status(request: Request) -> JSONResponse:
         """What this session is and whether it holds a browser. Opens nothing."""
         return await _answer(request, token, "status", lambda name, _body: (
@@ -184,7 +287,9 @@ def register(
         ))
 
     for path, method_name in ENDPOINTS.items():
-        _add(mcp, actions, sessions, token, prefix, path, method_name, catalogue)
+        _add(
+            mcp, actions, sessions, token, browser_root, path, method_name, catalogue
+        )
 
 
 async def _answer(request, token, what, call) -> JSONResponse:

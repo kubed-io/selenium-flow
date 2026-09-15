@@ -33,7 +33,7 @@ def _spec() -> dict:
 
     async def go():
         server = SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token="x")
-        return await build_spec(server.mcp, ENDPOINTS, "/browser", authenticated=True)
+        return await build_spec(server.mcp, ENDPOINTS, "", authenticated=True)
 
     return asyncio.run(go())
 

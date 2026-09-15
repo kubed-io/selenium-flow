@@ -30,7 +30,10 @@ from .browser import DEFAULT_GRID_URL, Grid
 from .sessions import SessionManager
 from .store import SessionStore, from_env
 
-DEFAULT_ROUTE_PREFIX = "/browser"
+# Root. `ROUTE_PREFIX` moves the WHOLE server, so the default is "no prefix"
+# rather than a name for one tree (§F1.11). `/` means the same thing and is what
+# an operator types when they mean it.
+DEFAULT_ROUTE_PREFIX = "/"
 
 
 class SeleniumMCP:
@@ -82,6 +85,9 @@ class SeleniumMCP:
         )
         self.auth_token = auth_token
         self.stateless = stateless
+        # Where this whole server hangs: "" for root. Every tree below is fixed
+        # relative to it, which is the inversion §F1.11 asked for.
+        self.prefix = routes.mount(route_prefix)
         self.sessions = SessionManager(self.actions, store=self.store)
 
         # Saved flows, or None when no data directory was named — which is the
@@ -132,7 +138,11 @@ class SeleniumMCP:
         # with a tool that mirrors it. Those tools also carry the app config,
         # which is why they are exempt from hiding for a client that can render
         # one — for that client the tool is the only route to a picture.
-        base = apps.public_base()
+        # What a URL this server hands out is built from. The prefix belongs in
+        # it rather than in each path, because a signed link is signed over the
+        # UNPREFIXED path — the route knows where it is mounted, and the
+        # signature must mean the same thing on both sides of the wire.
+        base = apps.public_base() + self.prefix
         app_config = apps.config_for(base) if apps_enabled else None
         app_tools = files.register(
             self.mcp,
@@ -142,6 +152,7 @@ class SeleniumMCP:
             auth_token,
             app_config,
             base,
+            prefix=self.prefix,
         )
         # What an action hands back when it stores a file. Wired here because
         # this is where the token and the public base both exist; the behaviour
@@ -174,13 +185,16 @@ class SeleniumMCP:
             self.sessions,
             self.actions,
             auth_token,
+            prefix=self.prefix,
             secrets_catalogue=self.secrets,
             schemas=schemas,
             # A failed run points at a skill reference, and with --no-skill
             # there is nothing registered to point at.
             skill_available=self.skill is not None,
         )
-        mirrors |= secrets.register(self.mcp, self.secrets, self.sessions, auth_token)
+        mirrors |= secrets.register(
+            self.mcp, self.secrets, self.sessions, auth_token, prefix=self.prefix
+        )
         self.mcp.add_middleware(
             resources.HideMirrorTools(mirrors, app_tools if apps_enabled else set())
         )
@@ -191,7 +205,7 @@ class SeleniumMCP:
             self.actions,
             self.sessions,
             auth_token,
-            route_prefix,
+            self.prefix,
             catalogue=self.secrets,
         )
 
@@ -202,6 +216,7 @@ class SeleniumMCP:
             self.mcp,
             self.actions,
             auth_token,
+            prefix=self.prefix,
             sessions=self.sessions,
             flow_store=self.flows,
             schemas=schemas,
@@ -219,4 +234,9 @@ class SeleniumMCP:
                 host=host,
                 port=port,
                 stateless_http=self.stateless,
+                # The MCP endpoint moves with everything else. `/health` and
+                # `/openapi.*` deliberately do not — a kubelet and a load
+                # balancer find this process through them, and a readiness probe
+                # that 404s after a config change is the failure this avoids.
+                path=f"{self.prefix}/mcp",
             )

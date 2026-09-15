@@ -82,6 +82,38 @@ RESPONSES = {
             "session": {"type": "string"},
         },
     },
+    # What `GET /browser` and `session://current` answer with. Hand-written like
+    # the rest of RESPONSES, and it was missing — so the published status
+    # operation was an empty object and a generated client could not read it
+    # (Copilot, #34).
+    "current_session": {
+        "type": "object",
+        "properties": {
+            "session": {"type": "string", "description": "The name you called with."},
+            "named_by": {
+                "type": "string",
+                "enum": ["header", "query", "stdio", "request"],
+                "description": "Which mechanism supplied the name.",
+            },
+            "browser": {"type": ["string", "null"]},
+            "url": {"type": ["string", "null"], "description": "The page it is on."},
+            "live": {
+                "type": "boolean",
+                "description": "Whether a browser is open for this session.",
+            },
+            "in_frame": {"type": ["boolean", "null"]},
+            "window": {
+                "type": ["string", "null"],
+                "description": "Window size as WxH, when one is known.",
+            },
+            "store": {"type": "string", "enum": ["memory", "redis"]},
+            "settings": {"type": "object"},
+            "guidance": {
+                "type": "string",
+                "description": "The skill reference that explains sessions.",
+            },
+        },
+    },
     "navigate": _page(),
     "interact": _page(
         action={"type": "string", "description": "The gesture that was performed."},
@@ -261,22 +293,43 @@ ERROR = {
     "required": ["error"],
 }
 
+# One schema per question, because the ops endpoints answer different ones.
 HEALTH = {
+    "type": "object",
+    "properties": {"status": {"type": "string", "enum": ["ok", "started"]}},
+}
+
+READY = {
     "type": "object",
     "properties": {
         "status": {"type": "string", "enum": ["ok", "degraded"]},
-        "grid": {"type": "string", "description": "Grid hub URL this server dials."},
-        "grid_ready": {"type": "boolean"},
-        "sessions": {"type": "integer", "description": "Sessions held Grid-wide."},
-        "saved_sessions": {
+        "grid": {
             "type": "string",
-            "enum": ["disabled", "memory", "redis"],
-            "description": (
-                "Backend remembering a browser per MCP session. Affects MCP "
-                "callers only — these endpoints are always explicit."
-            ),
+            "description": "Grid hub this server dials, without any credentials.",
+        },
+        "grid_ready": {"type": "boolean"},
+        "browsers": {"type": "integer", "description": "Browsers held Grid-wide."},
+        "sessions": {
+            "type": "string",
+            "enum": ["memory", "redis"],
+            "description": "Where session records are kept.",
         },
         "error": {"type": "string", "description": "Only present when degraded."},
+    },
+}
+
+INFO = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "version": {"type": "string"},
+        "mount": {
+            "type": "string",
+            "description": "Where this server is mounted — `/` at the root.",
+        },
+        "mcp": {"type": "string", "description": "Path of the MCP endpoint."},
+        "grid": {"type": "string"},
+        "sessions": {"type": "string", "enum": ["memory", "redis"]},
     },
 }
 
@@ -320,7 +373,12 @@ async def build_spec(
 
     3.1 rather than 3.0 on purpose: it is a strict superset of JSON Schema, so
     the tool schemas can be embedded verbatim instead of being down-converted.
+
+    ``prefix`` is where the whole server is mounted (§F1.11). Every tree hangs
+    off it and is otherwise fixed; `/health` and `/openapi.*` stay at the root,
+    which is why they are written out below rather than built from it.
     """
+    browser_root = f"{prefix}/browser"
     # get_tool, not list_tools. A listing is shaped for whoever is asking, and
     # this document describes the surface rather than one client's view of it —
     # building from a listing is how the spec once omitted a field every
@@ -348,7 +406,7 @@ async def build_spec(
         schemas[response_name] = RESPONSES.get(action, {"type": "object"})
 
         in_path = action == ACTION_IN_PATH
-        route = f"{prefix}/{path}" + ("/{action}" if in_path else "")
+        route = f"{browser_root}/{path}" + ("/{action}" if in_path else "")
         parameters = list(SESSION_PARAMETERS)
         if in_path:
             # The mouse action is the path, not a field: /browser/interact/click
@@ -442,7 +500,7 @@ async def build_spec(
         schemas.update(nested)
         schemas[request_name] = request
         schemas[response_name] = RESPONSES.get(action, {"type": "object"})
-        paths.setdefault(prefix, {})[method] = {
+        paths.setdefault(browser_root, {})[method] = {
             "operationId": action,
             "x-mcp-tool": action,
             "parameters": list(SESSION_PARAMETERS),
@@ -479,8 +537,8 @@ async def build_spec(
         }
 
     status_tool = await mcp.get_tool("current_session")
-    schemas["SessionStatus"] = RESPONSES.get("current_session", {"type": "object"})
-    paths.setdefault(prefix, {})["get"] = {
+    schemas["SessionStatus"] = RESPONSES["current_session"]
+    paths.setdefault(browser_root, {})["get"] = {
         "operationId": "currentSession",
         "x-mcp-tool": "current_session",
         "parameters": list(SESSION_PARAMETERS),
@@ -502,41 +560,83 @@ async def build_spec(
     }
 
     schemas.update(FLOW_SCHEMAS)
-    paths.update(_flow_paths())
+    paths.update(_flow_paths(prefix))
     schemas.update(FILE_SCHEMAS)
-    paths.update(_file_paths())
+    paths.update(_file_paths(prefix))
 
-    paths["/health"] = {
-        "get": {
-            "operationId": "health",
-            "summary": "Readiness probe.",
-            "description": (
-                "Reports Grid reachability, not just process liveness, so a "
-                "server that cannot see a Grid is correctly not ready. "
-                "Unauthenticated so a kubelet can call it."
-            ),
-            "tags": ["ops"],
-            "security": [],
-            "responses": {
-                "200": {
-                    "description": "Server and Grid are both up.",
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/Health"}
-                        }
-                    },
+    # The ops endpoints. One per question a probe asks — `/openapi.json` was
+    # standing in for a liveness probe in this cluster, which it is not (Dr K).
+    # Each answers at the root as well as here, for a reader that did not choose
+    # the mount; the document names the mounted one.
+    schemas["Ready"] = READY
+    schemas["Info"] = INFO
+    ops = (
+        (
+            "health",
+            "Liveness: is this process still working?",
+            "Says nothing about the Grid deliberately — a liveness probe that "
+            "failed on a Grid outage would restart every replica for a fault in "
+            "another service. Also answers at the root, whatever the mount.",
+            "Health",
+            False,
+        ),
+        (
+            "started",
+            "Startup: has this process finished coming up?",
+            "Answers once the routes are registered. Separate from liveness "
+            "because the two differ in what a failure means: not yet, versus no "
+            "longer.",
+            "Health",
+            False,
+        ),
+        (
+            "ready",
+            "Readiness: can this process serve a request right now?",
+            "The one that depends on the Grid: a server that cannot reach one "
+            "can accept a call and do nothing with it. A 503 takes the pod out "
+            "of the Service and leaves it running.",
+            "Ready",
+            True,
+        ),
+        (
+            "info",
+            "What this process is: version, mount, and what it is wired to.",
+            "Not a probe — the question an operator asks when a call went "
+            "somewhere unexpected. The Grid is named without its credentials.",
+            "Info",
+            False,
+        ),
+    )
+    for name, summary, description, schema_name, grid in ops:
+        answers = {
+            "200": {
+                "description": summary,
+                "content": {
+                    "application/json": {
+                        "schema": {"$ref": f"#/components/schemas/{schema_name}"}
+                    }
                 },
-                "503": {
-                    "description": "The Grid is unreachable or not ready.",
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/Health"}
-                        }
-                    },
-                },
-            },
+            }
         }
-    }
+        if grid:
+            answers["503"] = {
+                "description": "The Grid is unreachable or not ready.",
+                "content": {
+                    "application/json": {
+                        "schema": {"$ref": "#/components/schemas/Ready"}
+                    }
+                },
+            }
+        paths[f"{prefix}/{name}"] = {
+            "get": {
+                "operationId": name,
+                "summary": summary,
+                "description": description,
+                "tags": ["ops"],
+                "security": [],
+                "responses": answers,
+            }
+        }
 
     spec = {
         "openapi": "3.1.0",
@@ -550,6 +650,10 @@ async def build_spec(
         },
         # Declared because a spec without servers cannot be exercised from a
         # docs UI or a generated client, and redocly rejects an empty list.
+        # The prefix is in the paths rather than in these, deliberately: a
+        # server URL is where this process answers, and the mount point is part
+        # of every path it serves — including for a reader who pastes one into
+        # something that has never heard of `servers`.
         "servers": [
             {
                 "url": "http://selenium-flow.flow.svc.cluster.local:8000",
@@ -1079,7 +1183,7 @@ def _mcp_tools() -> tuple[dict, dict]:
     )
 
 
-def _flow_paths(prefix: str = "/flows") -> dict:
+def _flow_paths(prefix: str = "") -> dict:
     """The flow library as resources, from `flowapi.FLOW_ROUTES`."""
     from .flowapi import FLOW_ROUTES
 
@@ -1087,7 +1191,9 @@ def _flow_paths(prefix: str = "/flows") -> dict:
     paths: dict = {}
     for path, (op, summary, description, request, response) in _FLOW_OPERATIONS.items():
         method, template = FLOW_ROUTES[path]
-        route = template if template.startswith("/schemas") else f"{prefix}{template}"
+        route = f"{prefix}{template}" if template.startswith("/schemas") else (
+            f"{prefix}/flows{template}"
+        )
         schema = (
             {"$ref": f"#/components/schemas/{response}"}
             if response
@@ -1238,7 +1344,7 @@ _FILE_OPERATIONS = {
 }
 
 
-def _file_paths(prefix: str = "/files") -> dict:
+def _file_paths(prefix: str = "") -> dict:
     """A session's files as resources, from `files.FILE_ROUTES`."""
     from .files import FILE_ROUTES
 
@@ -1291,7 +1397,7 @@ def _file_paths(prefix: str = "/files") -> dict:
                     }
                 },
             }
-        paths.setdefault(f"{prefix}{template}", {})[method] = operation
+        paths.setdefault(f"{prefix}/files{template}", {})[method] = operation
     return paths
 
 

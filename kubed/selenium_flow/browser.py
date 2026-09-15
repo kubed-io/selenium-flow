@@ -113,6 +113,20 @@ def normalize_url(url: str) -> str:
     )
 
 
+def public_url(url: str) -> str:
+    """``url`` with any credentials removed, for anything that leaves this process.
+
+    ``GRID_URL`` may carry userinfo — ``http://user:pass@grid:4444`` — and the
+    probes and the admin page both name the Grid. Printing it whole puts the
+    Grid's credential in an unauthenticated response and in whatever scrapes it.
+    """
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    if parts.port:
+        host = f"{host}:{parts.port}"
+    return urlunsplit((parts.scheme, host, parts.path.rstrip("/"), "", ""))
+
+
 def is_partial(name: str) -> bool:
     """Whether a download-directory entry is a scratch copy, not a finished file.
 

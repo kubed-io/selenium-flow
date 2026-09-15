@@ -14,9 +14,9 @@ and differ only in what is sent:
 | `scroll_to` | bringing an off-screen element into view before acting on it |
 
 ```
-interact(action="click", selector={"selector": {"xpath": "//button[@type='submit']"}})
-interact(action="hover", selector={"selector": {"xpath": "//nav//li[contains(., 'Account')]"}})
-interact(action="scroll_to", selector={"selector": {"xpath": "//tr[last()]"}})
+interact(action="click", selector={"xpath": "//button[@type='submit']"})
+interact(action="hover", selector={"xpath": "//nav//li[contains(., 'Account')]"})
+interact(action="scroll_to", selector={"xpath": "//tr[last()]"})
 ```
 
 **`hover` leaves the pointer there**, so a menu that opens on `:hover` stays open
@@ -40,7 +40,7 @@ when it did.
 The move is an instant jump. `glide=true` sends many small moves instead:
 
 ```
-interact(action="hover", selector={"selector": {"css": ".slider-handle"}}, glide=true)
+interact(action="hover", selector={"css": ".slider-handle"}, glide=true)
 ```
 
 Ask for it when the interface watches *movement* rather than arrival — sliders,
@@ -58,8 +58,8 @@ on a glide has a line to walk.
 a destination:
 
 ```
-drag(selector={"selector": {"css": ".card:nth-child(2)"}}, to={"selector": {"css": ".column.done"}})   # onto another element
-drag(selector={"selector": {"css": "input[type=range]"}}, by_x=120)                 # by an offset in pixels
+drag(selector={"css": ".card:nth-child(2)"}, to={"css": ".column.done"})   # onto another element
+drag(selector={"css": "input[type=range]"}, by_x=120)                 # by an offset in pixels
 ```
 
 Say where it goes with **either** `to_xpath`/`to_css` **or** a `by_x`/`by_y`
@@ -90,7 +90,7 @@ and it is **not an assertion**. If the browser is elsewhere it navigates there
 first, then acts. If it is already there, nothing happens.
 
 ```
-click(url="https://example.com/settings", selector={"selector": {"xpath": "//button[@id='save']"}})
+click(url="https://example.com/settings", selector={"xpath": "//button[@id='save']"})
 ```
 
 That is one call instead of navigate-then-click. Use it whenever you know the
@@ -105,7 +105,7 @@ and `/x#top` are one page. Query strings count as different.
 element, so you can confirm the text landed instead of assuming.
 
 ```
-write(selector={"selector": {"xpath": "//input[@name='q']"}}, text="selenium grid", submit=true)
+write(selector={"xpath": "//input[@name='q']"}, text="selenium grid", submit=true)
 ```
 
 `submit` presses Enter afterwards — a search box in one call. The value is read
@@ -115,9 +115,9 @@ stale.
 A multi-field form is one `write` per field, then a `click` on the button:
 
 ```
-write(selector={"selector": {"xpath": "//input[@name='email']"}}, text="a@example.com")
-write(selector={"selector": {"xpath": "//input[@name='password']"}}, text="...")
-click(selector={"selector": {"xpath": "//button[@type='submit']"}})
+write(selector={"xpath": "//input[@name='email']"}, text="a@example.com")
+write(selector={"xpath": "//input[@name='password']"}, text="...")
+click(selector={"xpath": "//button[@type='submit']"})
 ```
 
 `click` returns `url` and `title` read *after* the click, so a changed URL is
@@ -140,8 +140,8 @@ three ways:
 
 ```
 press_key(key="Escape")                        # dismiss a modal
-press_key(selector={"selector": {"xpath": "//input[@name='q']"}}, key="Tab")
-press_key(selector={"selector": {"css": "textarea"}}, key="Control+a")     # select all of it
+press_key(selector={"xpath": "//input[@name='q']"}, key="Tab")
+press_key(selector={"css": "textarea"}, key="Control+a")     # select all of it
 ```
 
 The browser runs on Linux on the Grid, so a site's shortcuts use `Control`, not
@@ -152,7 +152,7 @@ the macOS Command key.
 **If you wrote the content yourself, just send it as text.** Do not encode it.
 
 ```
-upload_file(selector={"selector": {"xpath": "//input[@type='file']"}},
+upload_file(selector={"xpath": "//input[@type='file']"},
             text='{"rows": 3}', filename="data.json")
 ```
 
@@ -187,8 +187,8 @@ locator until the session is switched into it — which is the real cause of mos
 "this XPath is definitely right" timeouts.
 
 ```
-frame(action="switch", selector={"selector": {"xpath": "//iframe[@id='checkout']"}})
-write(selector={"selector": {"xpath": "//input[@name='card']"}}, text="4242...")     # inside the frame
+frame(action="switch", selector={"xpath": "//iframe[@id='checkout']"})
+write(selector={"xpath": "//input[@name='card']"}, text="4242...")     # inside the frame
 frame(action="default")                                   # back to the page
 ```
 
@@ -213,7 +213,7 @@ actions cannot read the URL or the title. So when an action opens one, it still
 succeeds and tells you:
 
 ```
-interact(action="click", selector={"selector": {"xpath": "//button[@id='delete']"}})
+interact(action="click", selector={"xpath": "//button[@id='delete']"})
   -> {"action": "click", "url": null, "title": null,
       "dialog": "Delete everything?", "hint": "a dialog is open ..."}
 ```
@@ -269,7 +269,7 @@ For something that has no element to wait on — an animation settling, a
 background fetch — wait for its *effect*:
 
 ```
-extract(selector={"selector": {"xpath": "//div[@class='results'][.//li]"}}, wait_timeout=60)
+extract(selector={"xpath": "//div[@class='results'][.//li]"}, wait_timeout=60)
 ```
 
 ## Anything else

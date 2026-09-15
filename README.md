@@ -163,7 +163,7 @@ A step is just a tool call, validated against the live tool schemas when it is s
 Mount credentials as a directory per secret and a file per key — exactly how Kubernetes already mounts a `Secret` — and point `SECRETS_DIRS` at it. An agent sees the names and keys, never a value, and binds one where the value would go:
 
 ```
-write(selector={"selector": {"css": "#password"}}, secret={"name": "nextcloud", "key": "password"})
+write(selector={"css": "#password"}, secret={"name": "nextcloud", "key": "password"})
 ```
 
 The server types it; it never passes through the model, the transcript or a log. A secret can be pinned to the sites it may be used on, and is refused anywhere else.
@@ -190,7 +190,7 @@ That last one travels: signed over path and expiry, because an `<img>` tag canno
 
 ## 🖥 Admin UI
 
-`GET /admin` — **your** sessions and what each downloaded, marked with the browser each is running. Click a file to view it in place; click a session for a header of its context. **End** quits a stale browser and gives its Grid slot back, rather than waiting out the Grid's idle timeout — the session itself is kept.
+`GET /` — **your** sessions and what each downloaded, marked with the browser each is running. Click a file to view it in place; click a session for a header of its context. **End** quits a stale browser and gives its Grid slot back, rather than waiting out the Grid's idle timeout — the session itself is kept.
 
 Flow sessions, not Grid sessions: browsers somebody else put on the Grid are not listed. Nothing on the MCP surface lists sessions at all — a client sees its own and nothing else. [More in the wiki](https://github.com/kubed-io/selenium-flow/wiki/Administration).
 
@@ -226,7 +226,7 @@ Every flag has an environment fallback: containers are configured with env vars,
 |---|---|---|---|
 | `GRID_URL` | `--grid-url` | the in-cluster Grid Service | Selenium Grid hub |
 | `MCP_AUTH_TOKEN` | `--auth-token` | unset | Bearer token for both surfaces. Unset disables auth |
-| `ROUTE_PREFIX` | `--route-prefix` | `/browser` | Path prefix for the HTTP endpoints |
+| `ROUTE_PREFIX` | `--route-prefix` | `/` | Where the **whole server** is mounted. Every tree is fixed beneath it; `/health`, `/started`, `/ready` and `/info` also answer at the root |
 | `SESSION_STORE` | — | `memory` | `memory` or `redis`. Any `REDIS_*` setting implies `redis` |
 | `SESSION_TTL` | — | `3600` | Seconds a caller's mapping is kept |
 | `REDIS_URL`, or `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_USERNAME` / `REDIS_PASSWORD` / `REDIS_SSL` | — | unset | Connection for `SESSION_STORE=redis`. `REDIS_DB` applies even with no `/<index>` in the URL |
@@ -284,7 +284,7 @@ curl -X POST localhost:8000/browser/open \
   -d '{"url":"https://example.com","width":1280,"height":800}'
 ```
 
-Point an MCP client at `http://localhost:8000/mcp`, open `localhost:8000/admin` — and watch the browser work live at **`localhost:7900`**, the Grid's noVNC view. 👀
+Point an MCP client at `http://localhost:8000/mcp`, open `localhost:8000` — and watch the browser work live at **`localhost:7900`**, the Grid's noVNC view. 👀
 
 ---
 

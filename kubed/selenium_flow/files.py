@@ -320,7 +320,7 @@ def register(
     token,
     app_config=None,
     base="",
-    prefix: str = "/files",
+    prefix: str = "",
 ) -> set[str]:
     """Register the resources, the mirroring tool, and the file actions.
 
@@ -409,6 +409,8 @@ def _routes(mcp, actions, sessions, store, token, base, prefix) -> None:
     else does — a header or ``?session=`` — and neither takes an id.
     """
 
+    files_root = f"{prefix}/files"
+
     async def answer(request: Request, what: str, call) -> JSONResponse:
         body, refused = await auth.json_request(request, token)
         if refused:
@@ -430,7 +432,7 @@ def _routes(mcp, actions, sessions, store, token, base, prefix) -> None:
                 log.info("files/%s refused (%s): %s", what, status, text)
             return JSONResponse({"error": text}, status_code=status)
 
-    @mcp.custom_route(prefix, methods=["GET"], name="files_list")
+    @mcp.custom_route(files_root, methods=["GET"], name="files_list")
     async def list_files(request: Request) -> JSONResponse:
         """Every file this session has: the browser's downloads and its kept
         files, still answering after the browser is gone."""
@@ -442,7 +444,7 @@ def _routes(mcp, actions, sessions, store, token, base, prefix) -> None:
             ),
         )
 
-    @mcp.custom_route(prefix + "/{name}/kept", methods=["PUT"], name="files_keep")
+    @mcp.custom_route(files_root + "/{name}/kept", methods=["PUT"], name="files_keep")
     async def keep(request: Request) -> JSONResponse:
         """Keep one download beyond the browser that made it. A PUT because
         keeping a name that is already kept replaces it."""

@@ -114,7 +114,11 @@
 <script>
 __COMPONENTS__
 
-const BASE = location.pathname.replace(/\/admin\/?$/, '');
+/* The page is served at the root of wherever this server is mounted, so its own
+   path IS the base every call hangs off: `/` at the root, `/flow` under a
+   prefix. The hash is not part of pathname, so a deep link does not disturb
+   it. */
+const BASE = location.pathname.replace(/\/+$/, '');
 const $ = (id) => document.getElementById(id);
 const show = (el, on) => { el.hidden = !on; };
 let token = sessionStorage.getItem('sf-token') || '';
@@ -226,7 +230,11 @@ function signOut() {
 }
 
 function paint(data) {
-  SF.sessionList($('sessions'), data, {onpick: openSession});
+  // Through the hash, so picking a session is a place you can link to and come
+  // back to rather than a state that only exists in this tab.
+  SF.sessionList($('sessions'), data, {
+    onpick: (key) => go('#/sessions/' + encodeURIComponent(key)),
+  });
 }
 
 /* Ending the browser: confirm, DELETE, repaint what changed, and say so when it
@@ -982,9 +990,7 @@ function refreshDetail(data) {
   if (flowsStamp(row) !== shownFlows) loadFlows(current);
 }
 
-$('back').onclick = () => {
-  show($('detailView'), false); show($('sessionsView'), true); loadSessions();
-};
+$('back').onclick = () => go('#/');
 $('signout').onclick = signOut;
 
 /* Clear downloads shows what it will take rather than asserting a number. It is
@@ -1039,8 +1045,34 @@ const selectTab = (sessions) => {
   $('tabConsole').setAttribute('aria-selected', !sessions);
   show($('paneSessions'), sessions); show($('paneConsole'), !sessions);
 };
-$('tabSessions').onclick = () => selectTab(true);
-$('tabConsole').onclick = () => selectTab(false);
+
+/* Views live after the hash — `#/`, `#/console`, `#/sessions/<name>`.
+
+   The hash rather than the history API, because every other path under this
+   mount is a real endpoint: a history route would need a catch-all serving this
+   page, which would then swallow a mistyped API call and answer it with HTML. A
+   hash never reaches the server, so a refresh or a pasted link lands exactly
+   where it says and nothing has to be rewritten to make it work. */
+const go = (hash) => { location.hash = hash; };
+
+function showList() {
+  show($('detailView'), false);
+  show($('sessionsView'), true);
+  current = null;
+  loadSessions();
+}
+
+function route() {
+  const [view, key] = location.hash.replace(/^#\/?/, '').split('/');
+  if (view === 'console') { selectTab(true); showList(); selectTab(false); return; }
+  selectTab(true);
+  if (view === 'sessions' && key) openSession(decodeURIComponent(key));
+  else showList();
+}
+
+window.addEventListener('hashchange', route);
+$('tabSessions').onclick = () => go('#/');
+$('tabConsole').onclick = () => go('#/console');
 
 $('loginForm').onsubmit = async (e) => {
   e.preventDefault();
@@ -1058,7 +1090,9 @@ $('loginForm').onsubmit = async (e) => {
 function start() {
   show($('login'), false); show($('app'), true);
   $('signout').hidden = false;
-  loadSessions();
+  // The hash decides what to show, so a reload or a pasted link comes back to
+  // the same view rather than always to the list.
+  route();
 }
 
 if (token) api('/admin/sessions').then(start).catch(() => show($('login'), true));

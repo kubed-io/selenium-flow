@@ -22,7 +22,7 @@ is not the page you expected, the selector was never the problem.
 Check where you are, cheaply:
 
 ```
-extract(selector={"selector": {"xpath": "//title"}})
+extract(selector={"xpath": "//title"})
 ```
 
 or read `session://current`, which reports the URL without touching the browser.
@@ -40,18 +40,18 @@ If the URL is right and the element still is not found, in order of likelihood:
 4. **The XPath is brittle** — positional paths break on any layout change; match
    on an attribute or on visible text instead.
 
-## "session_id is required" or "do not pass session_id"
+## "name your session"
 
-These are the two halves of the same thing: the modes are exclusive and you are
-using the wrong one. Read `session://current` — it reports `mode` and links the
-reference that applies.
+You called without naming one. Add `?session=<name>` to the server URL, or send
+an `X-Session-Key` header — whichever your client can set. Any name you choose
+is fine; the same name always comes back to the same browser.
 
-- **"session_id is required"** — you are stateless and own the session. Call
-  `open_session` first. See `references/SESSIONS.md`.
-- **"do not pass session_id"** — the server is holding a browser for you. Omit
-  the argument entirely. See `references/SESSIONS.md`.
+**"name your session once"** is the other half: the request carried *both*, and
+two names is two ideas about who is calling. Send whichever one you control and
+drop the other.
 
-Neither is transient; retrying unchanged will not help.
+Neither is transient; retrying unchanged will not help. There is no `session_id`
+to pass on any call — see `references/SESSIONS.md`.
 
 ## "no browser is open for you yet"
 
@@ -95,7 +95,7 @@ The page had not finished rendering. Force a wait by extracting something from
 it first, then capture:
 
 ```
-extract(selector={"selector": {"xpath": "//main"}})
+extract(selector={"xpath": "//main"})
 screenshot()
 ```
 
@@ -108,7 +108,7 @@ click either hit the wrong element or the page uses JavaScript that has not
 settled. Confirm what you actually clicked:
 
 ```
-extract(selector={"selector": {"xpath": "//button[contains(., 'Submit')]"}})
+extract(selector={"xpath": "//button[contains(., 'Submit')]"})
 ```
 
 If an overlay or cookie banner is intercepting the click, dismiss it first —

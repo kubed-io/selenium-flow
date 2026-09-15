@@ -15,7 +15,7 @@ parameters:
 steps:
 - tool: navigate
   args:
-    url: ${admin}/admin
+    url: ${admin}/
 - tool: write
   args:
     selector:
