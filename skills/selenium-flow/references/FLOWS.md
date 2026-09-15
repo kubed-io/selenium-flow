@@ -50,7 +50,8 @@ the tool takes directly.
 
 **Not steps:** `open_session` and `end_browser`. A flow runs in the browser the
 caller already holds, which is what lets the same flow run on Firefox unedited.
-Never put `session_id` in a step either; the run supplies it.
+There is no `session_id` to put in a step: a run happens in the browser your
+session already holds.
 
 ## Parameters: what varies between runs
 

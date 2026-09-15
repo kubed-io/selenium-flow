@@ -920,12 +920,17 @@ Proposed:
 | Browser endpoints | `$ROUTE_PREFIX/*` | `$ROUTE_PREFIX/browser/*` — fixed |
 | MCP | `/mcp` | `$ROUTE_PREFIX/mcp` |
 | Admin, files, flows | `/admin`, `/files` | `$ROUTE_PREFIX/admin`, `/files`, `/flows` |
-| `/health`, `/openapi.*` | root | **stays at root** — see below |
+| `/health`, `/openapi.*` | root | ~~stays at root~~ **built otherwise** — see E5 |
 
-`/health` and `/openapi.json` stay unprefixed on purpose. They are how a kubelet
-and a load balancer find out whether this process is alive, and making that
-depend on a configurable path is how a readiness probe silently 404s after a
-config change. The cluster's probes point at `/openapi.json` today.
+The plan was for `/health` and `/openapi.json` to stay unprefixed, because they
+are how a kubelet and a load balancer find out whether this process is alive,
+and making that depend on a configurable path is how a readiness probe silently
+404s after a config change. The cluster's probes pointed at `/openapi.json`.
+
+**Built otherwise (E5).** `/openapi.*` is mounted with everything else and
+nothing probes it. Four ops endpoints — `/health`, `/started`, `/ready`, `/info`
+— answer at the root **and** under the mount, and the cluster's probes move to
+`/started` and `/ready` with the release that carries it.
 
 **This is a breaking change with a live deployment attached, and the sequencing
 is the risk, not the code.** `mcp.env` currently sets `ROUTE_PREFIX=/browser`.
@@ -2218,14 +2223,19 @@ one scope above where the new flow store was used, so the listing called
 
 Independent of everything above.
 
-- [ ] `ROUTE_PREFIX` becomes the whole-server mount point; `/browser` fixed
+- [x] `ROUTE_PREFIX` becomes the whole-server mount point; `/browser` fixed
       (§F1.11)
-- [ ] `/health` and `/openapi.*` stay at root
-- [ ] **Verify in the pod first**, not in tests: that FastMCP's `path` moves the
+- [x] ~~`/health` and `/openapi.*` stay at root~~ **Changed when built.** Dr K
+      wanted `/openapi.yaml` under the mount, where a browser finds it, and no
+      probe on it at all: `/health`, `/started`, `/ready` and `/info` answer at
+      the root **and** under the mount
+- [x] **Verify in the pod first**, not in tests: that FastMCP's `path` moves the
       MCP endpoint cleanly, and that no admin asset or `fetch` uses an absolute
       path
-- [ ] `openapi.py`'s `servers:` block reflects the prefix
-- [ ] **Cluster repo, same change:** delete `ROUTE_PREFIX=/browser` from
+- [x] ~~`openapi.py`'s `servers:` block reflects the prefix~~ **Changed when
+      built:** the mount is in every path instead, so a path pasted somewhere
+      that has never heard of `servers` still works
+- [ ] **Not built — cluster repo, same change as the release:** delete `ROUTE_PREFIX=/browser` from
       `mcp.env`; decide whether to drop the ingress `StripPrefix` in favour of
       `ROUTE_PREFIX=/flow`, which would finally make the served paths and the
       public URL agree

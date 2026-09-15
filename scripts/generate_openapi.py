@@ -28,7 +28,7 @@ OUT = pathlib.Path(__file__).resolve().parent.parent / "openapi.yaml"
 async def main() -> None:
     # A token so the security scheme is described; the address is never dialled.
     server = SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token="generated")
-    spec = await build_spec(server.mcp, ENDPOINTS, "/browser", authenticated=True)
+    spec = await build_spec(server.mcp, ENDPOINTS, "", authenticated=True)
     # info.version is required by the spec, so it cannot simply be dropped —
     # but stamping the real one would churn this file on every commit, since
     # setuptools_scm derives it from git. The artifact is version-agnostic and

@@ -110,7 +110,7 @@ ORDER = [tool for _, _, tools in GROUPS for tool in tools]
 async def _build() -> dict:
     # A token so the security scheme is described; the address is never dialled.
     server = SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token="generated")
-    return await build_spec(server.mcp, ENDPOINTS, "/browser", authenticated=True)
+    return await build_spec(server.mcp, ENDPOINTS, "", authenticated=True)
 
 
 def load() -> dict:
@@ -268,11 +268,19 @@ def sample_of(spec: dict, field: dict, depth: int = 0) -> object:
     )
 
 
-def example(spec: dict, tool: str, method: str, path: str, schema: dict) -> str:
-    """A call in both shapes, using only the parameters that are required."""
+def example(
+    spec: dict, tool: str, method: str, path: str, schema: dict, in_path=()
+) -> str:
+    """A call in both shapes, using only the parameters that are required.
+
+    `in_path` names the parameters that travel in the URL. They are still
+    arguments of the *tool*, so the MCP line shows them; they are not body
+    fields, so the curl body must not repeat them (Copilot, #34).
+    """
     required = list(schema.get("required") or [])
     props = schema.get("properties") or {}
     sample = {name: sample_of(spec, props.get(name, {})) for name in required}
+    body = {k: v for k, v in sample.items() if k not in set(in_path)}
     mcp_args = ", ".join(
         f'{k}="{v}"' if isinstance(v, str) else f"{k}={json.dumps(v)}"
         for k, v in sample.items()
@@ -283,15 +291,16 @@ def example(spec: dict, tool: str, method: str, path: str, schema: dict) -> str:
     # perfectly valid JSON string and reads like a mistake.
     # The session is a header on both surfaces — never a body field and never a
     # path segment — so every example shows it (§F2.13).
-    session = '  -H "X-Session-Key: $SESSION" \\\n'
     url = path.replace("{name}", "my-flow").replace("{action}", "click")
     lines = [
         f"curl -X {method} $SELENIUM_FLOW{url} \\",
         '  -H "Authorization: Bearer $TOKEN" \\',
-        session.strip().rstrip(" \\"),
+        # The session is a header on both surfaces — never a body field and
+        # never a path segment — so every example shows it (§F2.13).
+        '  -H "X-Session-Key: $SESSION"',
     ]
-    if sample:
-        encoded = json.dumps(sample, indent=2, ensure_ascii=False)
+    if body:
+        encoded = json.dumps(body, indent=2, ensure_ascii=False)
         payload = "\n  ".join(encoded.splitlines())
         lines[-1] += " \\"
         lines += ["  -H 'Content-Type: application/json' \\", f"  -d '{payload}'"]
@@ -389,7 +398,7 @@ Sending both is refused. See [Sessions](Sessions).
 {failures(op)}
 ## Example
 
-{example(spec, tool, method, path, request)}
+{example(spec, tool, method, path, request, [p["name"] for p in in_path])}
 {extra}
 ---
 

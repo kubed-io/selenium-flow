@@ -135,9 +135,6 @@ def valid_name(name, kind: str = "name") -> str:
 # that claimed the name would be reading, overwriting and deleting another
 # client's flows and kept files — the one guarantee naming a session buys.
 #
-# `global` is deliberately NOT reserved. It is the *shared* library, so naming
-# it is how a caller asks for it on purpose, and a collision there is the
-# intended behaviour rather than a leak.
 # Neither can be claimed by a caller naming itself. `stdio` is the transport's
 # own library; `global` is the shared one every session reads and none may
 # write (§F1.2), so a caller that could claim it would own everyone's flows.

@@ -32,7 +32,7 @@ pytestmark = pytest.mark.unit
 
 @pytest.fixture
 async def spec(server):
-    return await build_spec(server.mcp, ENDPOINTS, "/browser", authenticated=True)
+    return await build_spec(server.mcp, ENDPOINTS, "", authenticated=True)
 
 
 async def test_it_is_openapi_31(spec):
@@ -60,8 +60,10 @@ async def test_every_operation_says_how_to_name_a_session(spec):
     """It is the one thing a caller must supply and the only thing that is not
     a body field, so an operation that does not publish it cannot be called by
     a generated client."""
+    ops = {"/health", "/started", "/ready", "/info"}
     for path, operations in spec["paths"].items():
-        if path == "/health":
+        # The ops endpoints are about the process, not about a session.
+        if path in ops:
             continue
         for method, operation in operations.items():
             names = {p["name"] for p in operation.get("parameters", [])}
@@ -171,7 +173,7 @@ def test_the_document_validates(server_spec_yaml):
 
 @pytest.fixture
 async def server_spec_yaml(server):
-    spec = await build_spec(server.mcp, ENDPOINTS, "/browser", authenticated=True)
+    spec = await build_spec(server.mcp, ENDPOINTS, "", authenticated=True)
     spec["info"]["version"] = PLACEHOLDER_VERSION
     return yaml.safe_dump(spec, sort_keys=False, width=100)
 
