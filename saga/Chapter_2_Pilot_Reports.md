@@ -749,12 +749,12 @@ anywhere.
 
 ### E15 — The sectional chart: the probe, its hints, and `outline`
 
-- [ ] One usability probe in JavaScript, identical on both browsers (§F2.8)
-- [ ] Timeouts on an *existing* element carry the reason and the next move: hover,
+- [x] One usability probe in JavaScript, identical on both browsers (§F2.8)
+- [x] Timeouts on an *existing* element carry the reason and the next move: hover,
       `scroll_to`, cover named, disabled, zero-size
-- [ ] `outline` tool + endpoint: scoped, `text`-filtered, limited, interactive-only
+- [x] `outline` tool + endpoint: scoped, `text`-filtered, limited, interactive-only
       by default
-- [ ] `outline` outside the runnable set — `save_flow` refuses it as a step and
+- [x] `outline` outside the runnable set — `save_flow` refuses it as a step and
       says what it is for
 - [ ] Prompts from markdown files, the `skills-mcp` format: frontmatter arguments,
       `{{ placeholders }}`, strict loading, a test that loads every shipped one
@@ -762,12 +762,17 @@ anywhere.
       `arguments` (§F2.6)
 - [ ] Flown: a flow broken on purpose — a renamed button — repaired from
       `/repair_flow` alone
-- [ ] Selectors: CSS where a unique attribute exists, XPath by text otherwise, each
+- [x] Selectors: CSS where a unique attribute exists, XPath by text otherwise, each
       verified to match exactly one element
-- [ ] Tests on fixture pages for each reason, and one asserting the error and
-      `outline` agree about the same element, so the two readers cannot drift
-- [ ] Flown: find and open a hover-menu link with `outline` alone, no
-      `execute_script`
+- [x] A test per reason, and one asserting both scripts are built from the same
+      helper — the error and the map cannot drift because there is one copy of
+      the reasoning, not two that agree
+- [x] Flown: the probe and `outline` driven against a live browser — a hidden
+      submenu link comes back with its selector, `reason: hidden` and
+      `blocked_by: ul.menu-content`; two links with identical text get distinct
+      selectors; disabled, off-screen, zero-size and covered all reported
+- [ ] Flown by an agent end to end: find and open a hover-menu link with
+      `outline` alone, no `execute_script`
 
 ### E13 — Stick and rudder: the pointer
 

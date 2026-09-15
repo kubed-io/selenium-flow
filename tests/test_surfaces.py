@@ -70,6 +70,7 @@ EXPECTED = {
     "screenshot",
     "save_pdf",
     "assert",
+    "outline",
 }
 
 
@@ -162,16 +163,21 @@ async def test_only_reading_the_page_is_marked_read_only(server):
     """The hint is a promise a client is entitled to act on, so it is asserted
     against a named list rather than left to whoever adds the next tool.
 
-    `screenshot` is the interesting exclusion: it looks like a pure read, but
-    `save=true` writes a file into the session's store, and a tool cannot be
-    read-only only sometimes.
+    `screenshot` is the interesting exclusion: it looks like a pure read, but it
+    writes a file into the session's store, and a tool cannot be read-only only
+    sometimes.
+
+    `outline` is the interesting inclusion. It runs JavaScript, which is the
+    thing that makes `execute_script` destructive — but the script is *ours* and
+    only reads, where `execute_script` hands the page whatever the caller wrote.
+    The rule is about what the page is asked to do, not about the mechanism.
     """
     read_only = {
         t.name
         for t in await server.mcp.list_tools()
         if t.annotations.read_only_hint
     } - FLOW_TOOLS
-    assert read_only == {"extract"}, "of the browser ACTIONS, only extract reads"
+    assert read_only == {"extract", "outline"}, "only these read the page"
 
 
 async def test_a_tool_that_can_act_on_the_page_admits_it(server):

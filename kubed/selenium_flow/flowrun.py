@@ -60,7 +60,7 @@ from .routes import ENDPOINTS, method_for
 # validates the name but a file edited on disk never passed through saving.
 # ENDPOINTS is the canonical list of browser actions and is already held to the
 # tool surface by test_surfaces.py.
-RUNNABLE = frozenset(ENDPOINTS.values()) - NOT_STEPS
+RUNNABLE = frozenset(ENDPOINTS.values()) - NOT_STEPS.keys()
 
 log = logging.getLogger(__name__)
 

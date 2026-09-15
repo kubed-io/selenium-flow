@@ -118,6 +118,14 @@ may appear in the report. For a password, do not use a parameter at all — name
 secret, which is a different mechanism on purpose
 (`references/SECRETS.md`).
 
+## Finding the selectors to put in one
+
+Use `outline` while you are writing or repairing a flow — it lists what is on
+the page with a checked selector for each, and says whether an element can
+actually be used. It is deliberately not a step: a saved flow already knows its
+selectors, and a flow that had to look around first would be a program rather
+than a wizard (`references/READING_PAGES.md`).
+
 ## Say what must be true
 
 A flow that carries on when the page is not what it expected reports a success it

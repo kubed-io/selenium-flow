@@ -70,7 +70,7 @@ its context.
 the same window size, and the page you were last on. Pass arguments only to
 change something.
 
-## The four rules
+## The five rules
 
 **1. Read with `extract`, not `screenshot`.** An image of text costs orders of
 magnitude more, cannot be quoted, and may be a picture of a half-rendered page.
@@ -84,12 +84,17 @@ not two:
 extract(url="https://example.com/settings", xpath="//h1")
 ```
 
-**3. Address elements with `xpath` or `css`, never both.** `css` is shorter for
+**3. Find selectors with `outline`, not by reading HTML.** It lists what is on
+the page with a checked selector for each, and says whether an element can be
+used or what is in the way — a hidden ancestor, an overlay, no size, off-screen,
+disabled. `extract` is for *content*.
+
+**4. Address elements with `xpath` or `css`, never both.** `css` is shorter for
 ids, classes and attributes; `xpath` is the only one that can match visible text
 (`//button[contains(., 'Save')]`) or walk up to an ancestor. Passing both is an
 error rather than a preference — see `references/READING_PAGES.md`.
 
-**4. Always end the browser.** Including on failure paths. `end_browser()`
+**5. Always end the browser.** Including on failure paths. `end_browser()`
 frees the slot; skipping it makes the next person wait. It ends the *browser*,
 not your session — the session keeps your browser choice and last page, so this
 costs you nothing.
@@ -146,6 +151,7 @@ check this table twice before reaching for it.
 | `write` | type into a field, or type a secret you never see | `text` or `secret`, `clear`, `submit` |
 | `press_key` | a key or a combination | `key`: `Enter`, `Escape`, `a`, `Control+a` |
 | `extract` | read an element's text and HTML | `xpath` or `css` |
+| `outline` | what is on the page: selectors, and what works | `css`/`xpath`, `text`, `limit`, `interactive` |
 | `screenshot` | the viewport, one element, or the whole page — saved, with a link to share | `full_page`, `filename`, `save` |
 | `save_pdf` | print the page into your files | `filename` |
 | `upload_file` | attach a file to a file input | `text`, `content` or `path`, `filename` |

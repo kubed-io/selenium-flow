@@ -1,0 +1,330 @@
+"""What the page can tell you about its own elements.
+
+A wait that times out says the element never became clickable, which is true and
+almost never the diagnosis. The page usually knows: the link is inside a menu
+whose ancestor is `display: none`, a banner is on top of it, it is below the
+fold, it is disabled, or it is there with no size at all. Each of those has a
+different next move, and an agent told only "timed out" guesses.
+
+Two callers read the same answer. :func:`explain` decorates a failure with it,
+and :func:`outline` hands it out *before* anything is tried — the map an agent
+would otherwise build by hand out of three `execute_script` DOM dumps, which is
+what the first pilot report said cost it the most.
+
+They share `_HELPERS`, because a second copy of this reasoning is how the error
+and the map start disagreeing about the same element (saga §F2.8).
+
+Script, not CDP: the answer has to be the same on Chrome and on Firefox, which
+is a promise every other action in this package already keeps.
+"""
+
+from __future__ import annotations
+
+import logging
+
+log = logging.getLogger(__name__)
+
+# How many elements `outline` returns unless asked for more. A page map is only
+# cheaper than reading the DOM if it stays small.
+DEFAULT_LIMIT = 50
+
+# What counts as worth listing when a caller has not asked for everything: the
+# things an agent can act on. `[role]` is here because a div with a role is a
+# button someone built by hand, and those are exactly the ones a tag-based list
+# misses.
+# `iframe` is here because `frame` is an action and needs a selector for one -
+# a page whose real content is inside a frame would otherwise map to nothing.
+# The roles are listed rather than matched with `[role]`: that also catches
+# `main`, `navigation`, `region` and `heading`, and a page's structural
+# containers would eat the budget before its buttons were reached.
+ACTIONABLE_ROLES = (
+    "button",
+    "link",
+    "checkbox",
+    "radio",
+    "switch",
+    "tab",
+    "menuitem",
+    "menuitemcheckbox",
+    "menuitemradio",
+    "option",
+    "textbox",
+    "combobox",
+    "searchbox",
+    "slider",
+    "spinbutton",
+)
+
+INTERACTIVE = (
+    # `input:not([type="hidden"])`: a hidden field cannot be clicked or typed
+    # into, and a form with thirty of them would fill the budget before a
+    # single visible control was reached.
+    'a[href], button, input:not([type="hidden"]), select, textarea, '
+    "summary, label, iframe, "
+    '[onclick], [contenteditable=""], [contenteditable="true"], '
+    '[tabindex]:not([tabindex="-1"]), '
+    + ", ".join(f'[role="{role}"]' for role in ACTIONABLE_ROLES)
+)
+
+# Shared by both scripts below. `reasonFor` is the whole point of the module:
+# one answer to "can this be used, and if not, what is in the way".
+_HELPERS = """
+const nameOf = (node) => {
+  if (!node || !node.tagName) return 'something';
+  const tag = node.tagName.toLowerCase();
+  if (node.id) return tag + '#' + node.id;
+  const cls = (node.getAttribute('class') || '').trim().split(/\\s+/)[0];
+  return cls ? tag + '.' + cls : tag;
+};
+
+const reasonFor = (el) => {
+  // `:disabled` rather than `.disabled`: a control inside a disabled
+  // <fieldset> reports false for the property and is disabled all the same.
+  let isDisabled = el.getAttribute('aria-disabled') === 'true';
+  try {
+    isDisabled = isDisabled || el.matches(':disabled');
+  } catch (e) { /* not a control, so it has no disabled state */ }
+  if (isDisabled) return {reason: 'disabled', detail: nameOf(el)};
+  for (let node = el; node && node.nodeType === 1; node = node.parentElement) {
+    const style = getComputedStyle(node);
+    if (style.display === 'none' || style.visibility === 'hidden' ||
+        style.opacity === '0' || node.hidden === true) {
+      // The hidden node cannot be hovered - nothing with display:none can
+      // receive a pointer. What opens it is the nearest ancestor that IS
+      // visible, so name that instead of sending the caller at the menu it
+      // cannot touch.
+      let trigger = null;
+      for (let up = node.parentElement; up; up = up.parentElement) {
+        const upStyle = getComputedStyle(up);
+        if (upStyle.display !== 'none' && upStyle.visibility !== 'hidden' &&
+            upStyle.opacity !== '0' && up.hidden !== true) {
+          trigger = nameOf(up);
+          break;
+        }
+      }
+      return {reason: 'hidden', detail: nameOf(node), trigger: trigger};
+    }
+  }
+  const rect = el.getBoundingClientRect();
+  if (!rect.width || !rect.height) return {reason: 'zero_size', detail: nameOf(el)};
+  const onScreen = rect.bottom > 0 && rect.right > 0 &&
+    rect.top < (window.innerHeight || 0) && rect.left < (window.innerWidth || 0);
+  if (!onScreen) return {reason: 'offscreen', detail: nameOf(el)};
+  const top = document.elementFromPoint(
+    rect.left + rect.width / 2, rect.top + rect.height / 2);
+  if (top && top !== el && !el.contains(top) && !top.contains(el)) {
+    return {reason: 'covered', detail: nameOf(top)};
+  }
+  return {reason: null, detail: nameOf(el)};
+};
+"""
+
+# One element, as `explain` reads it.
+USABLE_JS = _HELPERS + "\nreturn reasonFor(arguments[0]);"
+
+# The map. Every entry carries a selector that is checked to match exactly one
+# element before it is handed out — a selector an agent has to verify itself is
+# most of the work it came here to avoid.
+OUTLINE_JS = _HELPERS + """
+const [root, wanted, limit, interactiveOnly, selector] = [
+  arguments[0] || document.body, (arguments[1] || '').toLowerCase(),
+  arguments[2], arguments[3], arguments[4]];
+
+const ROLES = {a: 'link', button: 'button', select: 'combobox',
+  textarea: 'textbox', summary: 'disclosure', form: 'form', img: 'img',
+  nav: 'navigation', label: 'label'};
+const INPUT_ROLES = {checkbox: 'checkbox', radio: 'radio', submit: 'button',
+  button: 'button', file: 'file', search: 'searchbox', range: 'slider'};
+
+const roleOf = (el) => {
+  const explicit = (el.getAttribute('role') || '').trim();
+  if (explicit) return explicit;
+  const tag = el.tagName.toLowerCase();
+  if (tag === 'input') {
+    return INPUT_ROLES[(el.getAttribute('type') || 'text').toLowerCase()] || 'textbox';
+  }
+  if (/^h[1-6]$/.test(tag)) return 'heading';
+  if (el.isContentEditable) return 'textbox';
+  return ROLES[tag] || tag;
+};
+
+const textOf = (el) => (el.textContent || '').replace(/\\s+/g, ' ').trim();
+
+const accessibleName = (el) => {
+  const aria = (el.getAttribute('aria-label') || '').trim();
+  if (aria) return aria;
+  const labelledBy = el.getAttribute('aria-labelledby');
+  if (labelledBy) {
+    const target = document.getElementById(labelledBy);
+    if (target) return textOf(target).slice(0, 80);
+  }
+  const tag = el.tagName.toLowerCase();
+  if (tag === 'img') return (el.getAttribute('alt') || '').trim().slice(0, 80);
+  if (tag === 'input' || tag === 'select' || tag === 'textarea') {
+    if (el.id) {
+      const label = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
+      if (label) return textOf(label).slice(0, 80);
+    }
+    const placeholder = (el.getAttribute('placeholder') || '').trim();
+    if (placeholder) return placeholder.slice(0, 80);
+    const value = (el.value || '').trim();
+    if (value && (el.type === 'submit' || el.type === 'button')) {
+      return value.slice(0, 80);
+    }
+    return (el.getAttribute('name') || '').trim().slice(0, 80);
+  }
+  return textOf(el).slice(0, 80);
+};
+
+// Unique *and* this element. Counting alone is not enough: an attribute value
+// carrying a quote or a backslash can build a selector that matches exactly one
+// element which is not the one it was built from, and handing that out would
+// point a later click at the wrong node - the precise failure a checked
+// selector exists to prevent.
+const onlyOne = (css, el) => {
+  try {
+    const found = document.querySelectorAll(css);
+    return found.length === 1 && (!el || found[0] === el);
+  } catch (e) { return false; }
+};
+
+// Walked to the root rather than stopped at five ancestors: a path anchored at
+// <html> with :nth-of-type at every level matches exactly one element by
+// construction, and stopping early could hand out a selector matching several -
+// which is the promise this whole function exists to keep.
+const cssPath = (el) => {
+  const parts = [];
+  for (let node = el; node && node.nodeType === 1; node = node.parentElement) {
+    let part = node.tagName.toLowerCase();
+    if (node.parentElement) {
+      const siblings = [...node.parentElement.children]
+        .filter(s => s.tagName === node.tagName);
+      if (siblings.length > 1) {
+        part += ':nth-of-type(' + (siblings.indexOf(node) + 1) + ')';
+      }
+    }
+    parts.unshift(part);
+    const candidate = parts.join(' > ');
+    if (onlyOne(candidate, el)) return candidate;
+  }
+  return parts.join(' > ');
+};
+
+// One selector per element, and the key says which kind. CSS where the page
+// gives something stable to hold; XPath by text when it does not, because CSS
+// cannot match text at all.
+const selectorFor = (el) => {
+  const tag = el.tagName.toLowerCase();
+  const byId = el.id ? '#' + CSS.escape(el.id) : '';
+  if (byId && onlyOne(byId, el)) return {css: byId};
+  for (const attr of ['data-testid', 'data-test', 'data-qa', 'name',
+                      'aria-label', 'placeholder', 'title', 'href']) {
+    const value = el.getAttribute(attr);
+    if (!value || value.length > 80 || value.includes('"')) continue;
+    const candidate = tag + '[' + attr + '="' + value + '"]';
+    if (onlyOne(candidate, el)) return {css: candidate};
+  }
+  const text = textOf(el);
+  if (text && text.length <= 60 && !text.includes('"')) {
+    const xpath = '//' + tag + '[normalize-space()="' + text + '"]';
+    try {
+      const count = document.evaluate('count(' + xpath + ')', document, null,
+        XPathResult.NUMBER_TYPE, null).numberValue;
+      // Same rule as the CSS candidates: one match, and it has to be this one.
+      const first = document.evaluate(xpath, document, null,
+        XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+      if (count === 1 && first === el) return {xpath: xpath};
+    } catch (e) { /* an unusable expression is simply not the answer */ }
+  }
+  return {css: cssPath(el)};
+};
+
+const seen = [];
+for (const el of root.querySelectorAll(interactiveOnly ? selector : '*')) {
+  if (seen.length >= limit) break;
+  const name = accessibleName(el);
+  if (wanted && !name.toLowerCase().includes(wanted)) continue;
+  const verdict = reasonFor(el);
+  const entry = {role: roleOf(el), name: name, visible: verdict.reason === null,
+                 ...selectorFor(el)};
+  if (verdict.reason) {
+    entry.reason = verdict.reason;
+    if (verdict.reason === 'hidden' || verdict.reason === 'covered') {
+      entry.blocked_by = verdict.detail;
+    }
+  }
+  const expanded = el.getAttribute('aria-expanded');
+  if (expanded !== null) entry.expanded = expanded === 'true';
+  seen.push(entry);
+}
+return seen;
+"""
+
+# What to do about it, in the same voice as the error it is appended to: the
+# reason, then the move. The move is the part a timeout never had.
+SENTENCES = {
+    "hidden": (
+        "It exists, but {detail} is hidden — a menu that opens on mouse-over "
+        "looks exactly like this. Hover whatever reveals it{trigger}; you "
+        "cannot hover the hidden part itself, and a script cannot open one "
+        "either, because synthetic events do not set :hover."
+    ),
+    "covered": (
+        "It exists, but {detail} is on top of it — a cookie banner or an "
+        "overlay. Dismiss that first, or act on it instead."
+    ),
+    "zero_size": (
+        "It exists but has no size, so there is nothing to click. It may still "
+        "be rendering, or it may be a wrapper whose content has not arrived."
+    ),
+    "offscreen": (
+        "It exists but is outside the viewport. "
+        'interact(action="scroll_to") brings it into view first.'
+    ),
+    "disabled": (
+        "It exists but is disabled, so it will not respond until something on "
+        "the page enables it — usually a form that is not valid yet."
+    ),
+}
+
+
+def usable(driver, element) -> dict:
+    """Ask the page whether ``element`` can be used, and why not."""
+    return driver.execute_script(USABLE_JS, element) or {}
+
+
+def outline(driver, scope=None, text="", limit=DEFAULT_LIMIT, interactive=True):
+    """Every element worth acting on under ``scope``, with a checked selector."""
+    return (
+        driver.execute_script(
+            OUTLINE_JS, scope, text or "", int(limit), bool(interactive), INTERACTIVE
+        )
+        or []
+    )
+
+
+def explain(driver, target) -> str:
+    """One sentence about why the element matching ``target`` cannot be used.
+
+    Empty when there is nothing useful to add: no element, a usable one, or a
+    probe that failed. **This runs inside a failure path**, so it never raises
+    and never replaces the error it is decorating — a diagnosis that throws
+    would hide the timeout that prompted it.
+    """
+    try:
+        found = driver.find_elements(*target)
+        if not found:
+            return ""
+        answer = usable(driver, found[0])
+        sentence = SENTENCES.get(answer.get("reason") or "")
+        if not sentence:
+            return ""
+        trigger = answer.get("trigger")
+        return sentence.format(
+            detail=answer.get("detail") or "something",
+            trigger=f' — try interact(action="hover") on {trigger}' if trigger else "",
+        )
+    # Broad on purpose: a diagnosis must never outrank the failure it decorates.
+    except Exception:
+        log.debug("could not probe %r", target, exc_info=True)
+        return ""

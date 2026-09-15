@@ -23,7 +23,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 
-from . import browser
+from . import browser, probe
 from .browser import Grid, as_bool, as_int, normalize_browser
 from .errors import AssertionFailed
 
@@ -151,6 +151,18 @@ MOUSE_ACTIONS = ("click", "double_click", "right_click", "hover", "scroll_to")
 # is going to take seconds.
 ASSERT_POLL = 0.2
 
+# How long to wait for a screenshot to appear in the download store. Shorter
+# than `save_to_downloads`'s own default, which is right for a file the caller
+# asked for and wrong for a save that happens on every capture: a flow taking
+# thirty frames on a page that cannot download would otherwise spend thirty full
+# timeouts discovering the same thing.
+SAVE_TIMEOUT = 5
+
+# Pages the browser will not download from at all, so there is nothing to wait
+# for. Chrome refuses a data: URL outright - which is exactly what a synthetic
+# test page is - and about: pages have no origin to download to.
+UNDOWNLOADABLE = ("data:", "about:")
+
 # What can be done with a native dialog. "read" deliberately leaves it open.
 DIALOG_ACTIONS = ("accept", "dismiss", "read", "send_text")
 
@@ -228,6 +240,21 @@ def _safe_name(filename, mime_type=None, default_extension="") -> str:
         name = "upload"
     if not PurePosixPath(name).suffix:
         name += _extension_for(mime_type) or default_extension
+    return name
+
+
+def _generated_name(filename, extension: str) -> str:
+    """A name for bytes this server made, whose type it already knows.
+
+    `_safe_name` keeps whatever suffix the caller wrote, which is right for an
+    upload: there the caller has the file and names its type. Here the bytes are
+    ours. A screenshot called `chart.pdf` is still a PNG, and the file store
+    guesses the served type from the name - so the wrong suffix hands a browser
+    a PNG labelled `application/pdf`, which it will not open.
+    """
+    name = _safe_name(filename, None, extension)
+    if PurePosixPath(name).suffix.lower() != extension:
+        name += extension
     return name
 
 
@@ -666,6 +693,47 @@ class Actions:
             browser.settled(driver, target)
         return {"key": key, **browser.page_state(driver)}
 
+    def outline(
+        self,
+        session_id: str,
+        xpath=None,
+        css=None,
+        text=None,
+        limit=probe.DEFAULT_LIMIT,
+        interactive=True,
+        url=None,
+        wait_timeout=WAIT_TIMEOUT,
+    ) -> dict:
+        """What is on the page, with a selector for each and whether it works.
+
+        The answer an agent otherwise assembles out of DOM dumps: the first
+        pilot report spent three hand-written scripts finding one sidebar link,
+        then clicked it and failed anyway, because the element existed and its
+        ancestor was `display: none`. Both halves are here - the selector and
+        the verdict - so the failure does not have to teach it.
+        """
+        driver = self._at(session_id, url)
+        scope = None
+        if xpath or css:
+            scope = browser.wait_for_element(
+                driver, browser.locator(xpath, css), as_int(wait_timeout, 30)
+            )
+        # Both coerced here rather than in the page: an HTTP caller can send a
+        # number for `text`, which reaches JavaScript as one and dies on
+        # `.toLowerCase()`, and a negative `limit` would bound nothing.
+        found = probe.outline(
+            driver,
+            scope,
+            "" if text is None else str(text),
+            max(as_int(limit, probe.DEFAULT_LIMIT), 0),
+            as_bool(interactive, True),
+        )
+        return {
+            "elements": found,
+            "count": len(found),
+            **browser.page_state(driver),
+        }
+
     def execute_script(self, session_id: str, script: str, url=None) -> dict:
         """Run JavaScript in the page and return its result.
 
@@ -823,12 +891,24 @@ class Actions:
         # nothing while it lives, so the cheap thing is to keep them all and let
         # `keep_file` be the only decision anybody makes (§F2.9).
         if as_bool(save, True):
-            name = _safe_name(filename or "screenshot", "image/png", ".png")
+            name = _generated_name(filename or "screenshot", ".png")
+            page = result.get("url") or ""
             try:
+                if page.startswith(UNDOWNLOADABLE):
+                    scheme = page.split(":", 1)[0]
+                    raise TimeoutError(
+                        f"the browser does not download from {scheme}: pages, so "
+                        f"{name} was not stored"
+                    )
                 result["file"] = self._stored(
                     session_id,
                     browser.save_to_downloads(
-                        self.grid, driver, name, raw, "image/png"
+                        self.grid,
+                        driver,
+                        name,
+                        raw,
+                        "image/png",
+                        timeout=SAVE_TIMEOUT,
                     ),
                 )
             except Exception as exc:  # noqa: BLE001 - the picture outranks the file
@@ -867,7 +947,7 @@ class Actions:
         rendering a user gets from Ctrl+P rather than a screenshot of the
         viewport — text stays selectable and the whole document is included.
         """
-        name = _safe_name(filename or "page", "application/pdf", ".pdf")
+        name = _generated_name(filename or "page", ".pdf")
         driver = self._at(session_id, url)
         data = base64.b64decode(driver.print_page())
         entry = browser.save_to_downloads(

@@ -122,6 +122,32 @@ RESPONSES = {
         },
         script={"type": "string", "description": "The expression that was true."},
     ),
+    "outline": _page(
+        count={"type": "integer", "description": "How many elements are listed."},
+        elements={
+            "type": "array",
+            "description": "What is on the page, in document order.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "role": {"type": "string"},
+                    "name": {"type": "string"},
+                    "css": {"type": "string"},
+                    "xpath": {"type": "string"},
+                    "visible": {"type": "boolean"},
+                    "reason": {
+                        "type": "string",
+                        "description": (
+                            "Why it cannot be used: hidden, covered, "
+                            "zero_size, offscreen or disabled."
+                        ),
+                    },
+                    "blocked_by": {"type": "string"},
+                    "expanded": {"type": "boolean"},
+                },
+            },
+        },
+    ),
     "execute_script": _page(
         result={"description": "Whatever the script returned. Any JSON type."}
     ),

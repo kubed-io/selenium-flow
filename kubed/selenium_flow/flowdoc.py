@@ -85,7 +85,22 @@ ASSERTION = "assert"
 # which is what lets one flow be run on Chrome and then on Firefox without being
 # edited — see §F1.9. A flow that opened its own browser would also end the
 # caller's, since open_session replaces the one you are holding.
-NOT_STEPS = {"open_session", "end_browser"}
+NOT_STEPS = {
+    "open_session": (
+        "A flow runs in the browser you already have, which is what lets one "
+        "flow run on Chrome and then on Firefox without being edited"
+    ),
+    "end_browser": (
+        "A flow runs in the browser you already have, which is what lets one "
+        "flow run on Chrome and then on Firefox without being edited"
+    ),
+    "outline": (
+        "It is for working out what a flow should do - the selectors, and "
+        "whether an element can be used - not for doing it. A saved flow "
+        "already knows its selectors; call outline while writing or repairing "
+        "one"
+    ),
+}
 
 # The runner supplies this. A step naming it would be addressing someone else's
 # browser, which is the one thing a caller must never be able to do.
@@ -447,12 +462,7 @@ def _check_step(index: int, step, declared: set[str], schemas: dict) -> list[str
     if not tool or not isinstance(tool, str):
         return [*problems, f"{where}: names no tool"]
     if tool in NOT_STEPS:
-        return [
-        *problems,
-            f"{where}: {tool} is not a step. A flow runs in the browser you "
-            "already have, which is what lets one flow run on Chrome and then "
-            "on Firefox without being edited"
-        ]
+        return [*problems, f"{where}: {tool} is not a step. {NOT_STEPS[tool]}"]
     if tool not in schemas:
         return [
         *problems,
