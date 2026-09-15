@@ -147,18 +147,23 @@ def _described(name: str, entry: dict, url: str, kept: bool, base: str) -> dict:
     return described
 
 
-def describe(session_id: str, entry: dict, token: str | None, base: str = "") -> dict:
-    """One of a browser's downloads."""
+def describe(
+    session_id: str, entry: dict, token: str | None, base: str = "", mount: str = ""
+) -> dict:
+    """One of a browser's downloads, at the path this server serves it on."""
     name = entry.get("name", "")
     return _described(
-        name, entry, links.file_url(session_id, name, token), False, base
+        name, entry, links.file_url(session_id, name, token, mount), False, base
     )
 
 
-def describe_kept(session: str, entry: dict, token: str | None, base: str = "") -> dict:
+def describe_kept(
+    session: str, entry: dict, token: str | None, base: str = "", mount: str = ""
+) -> dict:
     """One file kept beyond the browser that produced it."""
     name = entry.get("name", "")
-    return _described(name, entry, links.kept_url(session, name, token), True, base)
+    url = links.kept_url(session, name, token, mount)
+    return _described(name, entry, url, True, base)
 
 
 def merged(
@@ -169,6 +174,7 @@ def merged(
     token: str | None,
     base: str = "",
     downloads: list[dict] | None = None,
+    mount: str = "",
 ) -> list[dict]:
     """Both halves of a session's files as one list, newest first.
 
@@ -194,10 +200,12 @@ def merged(
         downloads = actions.grid.files(session_id) if session_id else []
     if session_id:
         for entry in downloads:
-            entries[entry.get("name", "")] = describe(session_id, entry, token, base)
+            entries[entry.get("name", "")] = describe(
+                session_id, entry, token, base, mount
+            )
     if store is not None and session:
         for entry in store.files(session):
-            entries[entry["name"]] = describe_kept(session, entry, token, base)
+            entries[entry["name"]] = describe_kept(session, entry, token, base, mount)
     return sorted(entries.values(), key=lambda f: f.get("created") or 0, reverse=True)
 
 
@@ -217,6 +225,7 @@ def listing(
     token,
     name: str,
     base="",
+    mount: str = "",
 ) -> dict:
     """The file list for a session, resolved the same way for every surface.
 
@@ -233,7 +242,7 @@ def listing(
         raise ValueError(
             "session_id is required: this server is not holding one for you"
         )
-    files = merged(actions, store, owned, target, token, base)
+    files = merged(actions, store, owned, target, token, base, mount=mount)
     return {
         "component": "fileGrid",
         "session_id": target or None,
@@ -331,7 +340,9 @@ def register(
 
     @mcp.resource(LIST_URI, description=DESCRIPTION, mime_type="application/json")
     def files_resource() -> dict:
-        return listing(actions, sessions, store, token, sessions.name(), base=base)
+        return listing(
+            actions, sessions, store, token, sessions.name(), base=base, mount=prefix
+        )
 
     @mcp.resource(
         FILE_URI,
@@ -370,7 +381,9 @@ def register(
         annotations=reads("Files this session has"),
     )
     def session_files() -> dict:
-        return listing(actions, sessions, store, token, sessions.name(), base=base)
+        return listing(
+            actions, sessions, store, token, sessions.name(), base=base, mount=prefix
+        )
 
     @mcp.tool(
         name=KEEP_TOOL,
@@ -440,7 +453,7 @@ def _routes(mcp, actions, sessions, store, token, base, prefix) -> None:
             request,
             "list",
             lambda name, _body: listing(
-                actions, sessions, store, token, name, base=base
+                actions, sessions, store, token, name, base=base, mount=prefix
             ),
         )
 

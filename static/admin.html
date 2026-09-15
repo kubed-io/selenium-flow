@@ -6,9 +6,9 @@
      layout, nothing more.
 
      Rendered by admin.py with __CSS__, __COMPONENTS__ and __CONSOLE__ filled in.
-     Everything is addressed relative to BASE, worked out by stripping this
-     page's own /admin off the URL, so the same document works whether the
-     server is reached directly or mounted under a path by an ingress. -->
+     Calls are addressed relative to BASE, this page's own path, so the same
+     document works reached directly or behind an ingress. URLs the server hands
+     back already carry its mount and resolve against ROOT instead. -->
 <!-- In the document, not only in the Content-Type header. The charset because
      the UI is largely glyphs and a host that re-serves or inlines this loses
      the header; the viewport because without it a phone lays the page out at
@@ -107,7 +107,7 @@
       The Grid's own console, same-origin in a frame. Its live view works from
       here because both halves are served from one host.
     </p>
-    <iframe class="console" src="__CONSOLE__" title="Selenium Grid console"></iframe>
+    <iframe class="console" data-src="__CONSOLE__" title="Selenium Grid console"></iframe>
   </section>
 </main>
 
@@ -119,6 +119,11 @@ __COMPONENTS__
    prefix. The hash is not part of pathname, so a deep link does not disturb
    it. */
 const BASE = location.pathname.replace(/\/+$/, '');
+/* A URL the server hands back — the signed stream, a file link — is a server
+   path with the mount already in it, so it resolves against ROOT: whatever an
+   ingress stripped before the request arrived. Prepending BASE doubled it. */
+const MOUNT = '__MOUNT__';
+const ROOT = MOUNT && BASE.endsWith(MOUNT) ? BASE.slice(0, -MOUNT.length) : BASE;
 const $ = (id) => document.getElementById(id);
 const show = (el, on) => { el.hidden = !on; };
 let token = sessionStorage.getItem('sf-token') || '';
@@ -277,7 +282,7 @@ let events = null, lastBeat = 0, fallback = null;
 
 function watch(url) {
   if (events) return;
-  events = new EventSource(BASE + url);
+  events = new EventSource(ROOT + url);
   events.onopen = () => { lastBeat = Date.now(); badge('live', 'live'); };
   events.onmessage = (e) => {
     lastBeat = Date.now();
@@ -372,7 +377,7 @@ async function loadFiles(key) {
     // afterwards, which is the distinction the confirm below has to draw.
     keptNames = (data.files || []).filter((f) => f.kept).map((f) => f.name);
     $('filesCount').textContent = (data.files || []).length;
-    SF.fileGrid(box, data, {base: BASE, actions: true});
+    SF.fileGrid(box, data, {base: ROOT, actions: true});
   } catch (e) {
     if (gone(key) || mine !== filesSeq) return;
     box.innerHTML = '<div class="empty error">' + SF.esc(e.message) + '</div>';
@@ -1064,10 +1069,26 @@ function showList() {
 
 function route() {
   const [view, key] = location.hash.replace(/^#\/?/, '').split('/');
-  if (view === 'console') { selectTab(true); showList(); selectTab(false); return; }
+  if (view === 'console' && !$('tabConsole').hidden) {
+    selectTab(true); showList(); selectTab(false); return;
+  }
   selectTab(true);
-  if (view === 'sessions' && key) openSession(decodeURIComponent(key));
-  else showList();
+  if (view === 'sessions' && key) {
+    // A pasted or reloaded deep link never passed through the list, which is
+    // where the live stream starts; without this it sat at `connecting…`.
+    if (!events) loadSessions();
+    openSession(decodeURIComponent(key));
+  } else showList();
+}
+
+/* At a root mount the default console URL, `/`, is this page — framing it
+   nests the dashboard inside itself without end. No tab beats a mirror. */
+{
+  const frame = document.querySelector('iframe.console');
+  const target = new URL(frame.dataset.src, location.href);
+  const self = target.origin === location.origin
+    && target.pathname.replace(/\/+$/, '') === BASE;
+  if (self) $('tabConsole').hidden = true; else frame.src = target.href;
 }
 
 window.addEventListener('hashchange', route);

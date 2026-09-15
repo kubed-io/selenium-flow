@@ -5,8 +5,9 @@ session someone else opened, waiting for elements, and the small coercions that
 keep a caller's loose JSON from crashing a handler.
 
 The browser is stateful, this process is not. A browser lives on the Grid and
-the caller's session name leads back to it, which is what lets this server scale to zero, restart
-mid-workflow, or run behind more than one replica without losing a browser.
+the caller's session name leads back to it, which is what lets this server
+scale to zero, restart mid-workflow, or run behind more than one replica without
+losing a browser.
 """
 
 from __future__ import annotations
@@ -127,6 +128,19 @@ def public_url(url: str) -> str:
     if parts.port:
         host = f"{host}:{parts.port}"
     return urlunsplit((parts.scheme, host, parts.path.rstrip("/"), "", ""))
+
+
+def scrub(text: str, url: str) -> str:
+    """``text`` with ``url``'s credentials cut out, wherever it quoted them.
+
+    ``errors.message`` trims the one Grid failure known to print its URL, but a
+    proxy or parse error can quote it too, and ``/ready`` answers to anyone.
+    """
+    parts = urlsplit(url)
+    for secret in (parts.netloc.rpartition("@")[0], parts.password):
+        if secret:
+            text = text.replace(secret, "***")
+    return text
 
 
 def is_partial(name: str) -> bool:

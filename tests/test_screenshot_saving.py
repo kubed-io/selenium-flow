@@ -129,6 +129,31 @@ async def test_the_server_wires_the_signer_up(monkeypatch):
     assert "sig=" in described["absolute_url"], "the link must be signed"
 
 
+@pytest.mark.parametrize(
+    ("public", "absolute"),
+    [
+        ("", None),  # a path is not an absolute URL, however it looks
+        ("https://sf.example", "https://sf.example/flow/files/"),
+        ("https://sf.example/flow", "https://sf.example/flow/files/"),
+    ],
+)
+def test_a_mounted_server_hands_out_links_it_serves(monkeypatch, public, absolute):
+    """The route is at `/flow/files`, so the link must be too — whether or not a
+    public base is set, and once only when that base already names the mount."""
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    monkeypatch.setenv("PUBLIC_BASE_URL", public)
+    server = SeleniumMCP(
+        grid_url="http://grid.invalid:4444", auth_token="tok", route_prefix="/flow"
+    )
+    described = server.actions.describe_file("abc", ENTRY)
+    assert described["url"].startswith("/flow/files/abc/")
+    if absolute is None:
+        assert "absolute_url" not in described
+    else:
+        assert described["absolute_url"].startswith(absolute + "abc/")
+
+
 async def test_the_tools_tell_the_agent_to_hand_over_the_link(server):
     """A hint the model reads while deciding, not after."""
     for name in ("screenshot", "save_pdf"):

@@ -432,10 +432,11 @@ somewhere unexpected. All four answer at the root **as well as** under the
 mount, because a kubelet did not choose the mount. `/openapi.json` was being
 used as a liveness probe in this cluster before they existed; it is not one.
 
-Anything this server hands out a URL for is built from `PUBLIC_BASE_URL + the
-mount`. A signed link is signed over the **unprefixed** path, because the route
-knows where it is mounted and the signature has to mean the same thing on both
-sides of the wire.
+A URL this server hands out is a **server path with the mount in it**, signed
+over the **unprefixed** path — the route knows where it is mounted, and the
+signature has to mean the same thing on both sides of the wire. `absolute_url`
+puts `PUBLIC_BASE_URL`, where the server's own root is reachable, in front. The
+page resolves these against `ROOT`, what an ingress stripped, never its own path.
 
 ## A selector is one object
 

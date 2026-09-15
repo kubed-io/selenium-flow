@@ -186,7 +186,11 @@ def register(
             running = actions.grid.session_count()
         except Exception as exc:  # noqa: BLE001 - the probe must never raise
             return JSONResponse(
-                {"status": "degraded", "grid": grid, "error": errors.message(exc)},
+                {
+                    "status": "degraded",
+                    "grid": grid,
+                    "error": browser.scrub(errors.message(exc), actions.grid.url),
+                },
                 status_code=503,
             )
         return JSONResponse(

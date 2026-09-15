@@ -27,7 +27,7 @@
 
 ---
 
-## Status: **OPEN — E17 and E5 left** — opened 2026-09-14, built 2026-09-14/15
+## Status: **OPEN — E17 left** — opened 2026-09-14, built 2026-09-14/15
 
 It opened as planning only — nothing built until Dr K signed the forks off,
 which is how Chapter 1 ran and why its reasoning survived the build. The forks
@@ -63,11 +63,11 @@ every session is named by its caller and no browser id is in the contract
 and `xpath` and `css` are one `selector` (§F2.14). The four questions §F2.12
 held open were answered in the course of it and are recorded there.
 
-**What is left.** Two epics, two migrations, and a release.
+**What is left.** One epic, the cluster half of E5, and a release.
 
 1. **E17 — the admin UI's carried items.** Wants a Penpot pass before any code.
-2. **E5 — `ROUTE_PREFIX` as the global mount.** Independent, and it reaches into
-   the cluster repo.
+2. ~~**E5 — `ROUTE_PREFIX` as the global mount.**~~ **Built in #35**, but for
+   its cluster-repo half, which has to ship with the release that carries it.
 3. **The callers of the old contract.** The n8n workflows in this cluster and
    the flows on its NFS share both break the moment this ships — they are live
    data in another repo's deployment, not files in this one.
@@ -1133,7 +1133,7 @@ link dies with the browser and a durable one still needs `keep_file`. That is
 
 | Item | From | This chapter |
 |---|---|---|
-| **E5** — `ROUTE_PREFIX` becomes the global mount | §F1.11 | Still owed, still independent. Slot it wherever a PR is quiet. |
+| **E5** — `ROUTE_PREFIX` becomes the global mount | §F1.11 | **Built** (#35). The cluster-repo half ships with the release. |
 | **E8** — secrets from Kubernetes | §F1.20–22 | Deferred. The filesystem source serves the one install. |
 | **E11** — flows that know where they apply | §F1.33–35 | **In part**: §F2.5's `url` condition uses E11's glob matcher, so the matcher lands in E14 and the rest of E11 follows cheaply. |
 | The detached-browser state in the admin UI | §F1.36 | E17. |
@@ -1383,9 +1383,9 @@ In the E18/E19 release: it breaks saved flows, and they migrate once.
       live data in another repo's deployment, and they break the moment this
       ships
 
-### E5 — The approach plate (carried, unchanged)
+### E5 — The approach plate (carried, built in #35)
 
-As written in Chapter 1. Independent.
+As written in Chapter 1, and ticked there with what changed in the building.
 
 ---
 

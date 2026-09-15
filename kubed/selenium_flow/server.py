@@ -44,8 +44,9 @@ class SeleniumMCP:
     functions, so the surfaces cannot drift.
 
     The server holds no browser state — a browser lives on the Grid and the
-    caller's session name leads back to it. What it *does* hold, in the default HTTP mode, is the
-    MCP transport session, and that lives in this process's memory. So the
+    caller's session name leads back to it. What it *does* hold, in the default
+    HTTP mode, is the MCP transport session, and that lives in this process's
+    memory. So the
     ``/browser`` surface scales to any number of replicas as-is, while the
     ``/mcp`` surface does not: a client whose next request lands on another pod
     is told its session does not exist. Set ``stateless`` to drop MCP sessions
@@ -139,15 +140,13 @@ class SeleniumMCP:
         # with a tool that mirrors it. Those tools also carry the app config,
         # which is why they are exempt from hiding for a client that can render
         # one — for that client the tool is the only route to a picture.
-        # What a URL this server hands out is built from. The prefix belongs in
-        # it rather than in each path, because a signed link is signed over the
-        # UNPREFIXED path — the route knows where it is mounted, and the
-        # signature must mean the same thing on both sides of the wire.
+        # Where the server's own root is publicly reachable, or "" when nobody
+        # said — never the bare mount, which made a relative path look absolute
+        # (Copilot, #35). Links carry the mount themselves, signed over the
+        # unprefixed path; a base that names it too is forgiven, not doubled.
         base = apps.public_base()
-        # A base behind a stripping ingress already names the mount; appending
-        # it again sent every file link to `/flow/flow` (Copilot, #35).
-        if not base.endswith(self.prefix):
-            base += self.prefix
+        if self.prefix and base.endswith(self.prefix):
+            base = base[: -len(self.prefix)]
         app_config = apps.config_for(base) if apps_enabled else None
         app_tools = files.register(
             self.mcp,
@@ -163,7 +162,7 @@ class SeleniumMCP:
         # this is where the token and the public base both exist; the behaviour
         # layer takes the function and never the key (§F2.9).
         self.actions.describe_file = lambda session_id, entry: files.describe(
-            session_id, entry, auth_token, base
+            session_id, entry, auth_token, base, self.prefix
         )
         # And how it reads one back, for `upload_file(kept=...)`. Wired here for
         # the same reason: which flow session owns a kept file is a question

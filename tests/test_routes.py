@@ -82,11 +82,19 @@ def test_readiness_is_the_one_that_asks_the_grid(client):
     assert response.json()["status"] == "degraded"
 
 
-def test_no_ops_endpoint_hands_out_the_grids_credentials():
+def test_no_ops_endpoint_hands_out_the_grids_credentials(monkeypatch):
     """`GRID_URL` may carry userinfo, and these answer to anyone."""
+    import requests
+
     from kubed.selenium_flow.server import SeleniumMCP
 
-    server = SeleniumMCP(grid_url="http://user:hunter2@[fd00::1]:4444")
+    grid = "http://user:hunter2@[fd00::1]:4444"
+    server = SeleniumMCP(grid_url=grid)
+
+    def quotes_the_url():  # a parse or proxy error, not the HTTPError already cut
+        raise requests.exceptions.InvalidURL(f"Failed to parse: {grid}/status")
+
+    monkeypatch.setattr(server.actions.grid, "status", quotes_the_url)
     client = TestClient(server.mcp.http_app())
     for probe in ("/ready", "/info"):
         body = client.get(probe).text

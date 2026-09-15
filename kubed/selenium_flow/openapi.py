@@ -296,7 +296,12 @@ ERROR = {
 # One schema per question, because the ops endpoints answer different ones.
 HEALTH = {
     "type": "object",
-    "properties": {"status": {"type": "string", "enum": ["ok", "started"]}},
+    "properties": {"status": {"type": "string", "const": "ok"}},
+}
+
+STARTED = {
+    "type": "object",
+    "properties": {"status": {"type": "string", "const": "started"}},
 }
 
 READY = {
@@ -336,7 +341,7 @@ INFO = {
 DESCRIPTION = """\
 Drive a persistent browser on Selenium Grid over plain HTTP.
 
-Every operation here is also an MCP tool at `/mcp`, backed by the same code —
+Every operation here is also an MCP tool at `{mount}/mcp`, backed by the same code —
 the request schemas in this document are generated from those tools, so the two
 surfaces cannot describe different things.
 
@@ -345,8 +350,9 @@ Name your session on every request — an `X-Session-Key` header or `?session=`
 is sending neither on anything that touches a browser. There is no browser id
 in this API.
 
-`POST /browser` opens yours, `DELETE /browser` ends it when you are finished —
-do that even after a failure, or it holds a Grid slot until it times out.
+`POST {mount}/browser` opens yours, `DELETE {mount}/browser` ends it when you
+are finished — do that even after a failure, or it holds a Grid slot until it
+times out.
 """
 
 
@@ -568,6 +574,7 @@ async def build_spec(
     # standing in for a liveness probe in this cluster, which it is not (Dr K).
     # Each answers at the root as well as here, for a reader that did not choose
     # the mount; the document names the mounted one.
+    schemas["Started"] = STARTED
     schemas["Ready"] = READY
     schemas["Info"] = INFO
     ops = (
@@ -586,7 +593,7 @@ async def build_spec(
             "Answers once the routes are registered. Separate from liveness "
             "because the two differ in what a failure means: not yet, versus no "
             "longer.",
-            "Health",
+            "Started",
             False,
         ),
         (
@@ -643,7 +650,7 @@ async def build_spec(
         "info": {
             "title": "Selenium Flow",
             "version": _version(),
-            "description": DESCRIPTION,
+            "description": DESCRIPTION.format(mount=prefix),
             # identifier, not just name: an SPDX id is machine-readable, and
             # redocly's info-license-strict rule warns without one.
             "license": {"name": "MIT", "identifier": "MIT"},

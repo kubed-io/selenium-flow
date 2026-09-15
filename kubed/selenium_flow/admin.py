@@ -301,7 +301,7 @@ def register(
         Unauthenticated on purpose — it is the sign-in form, and every byte of
         data it shows is fetched separately with the token.
         """
-        return HTMLResponse(page("admin.html", CONSOLE=console))
+        return HTMLResponse(page("admin.html", CONSOLE=console, MOUNT=prefix))
 
     @mcp.custom_route(f"{prefix}/admin", methods=["GET"], name="admin_ui_moved")
     async def admin_ui_moved(_request: Request) -> Response:
@@ -464,7 +464,10 @@ def register(
         return JSONResponse(
             {
                 **payload,
-                "events_url": links.sign(EVENTS_PATH, token) if token else EVENTS_PATH,
+                # Mounted, so a caller other than the page can follow it; signed
+                # over the unprefixed path the route checks (Copilot, #35).
+                "events_url": prefix
+                + (links.sign(EVENTS_PATH, token) if token else EVENTS_PATH),
             }
         )
 
@@ -651,7 +654,7 @@ def register(
             )
             listing = await run_in_threadpool(
                 files.merged, actions, flow_store, session, live_id,
-                token, "", downloads,
+                token, "", downloads, prefix,
             )
             return JSONResponse(
                 {
