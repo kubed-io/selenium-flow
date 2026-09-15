@@ -237,6 +237,7 @@ def run_one(
     session_id: str = "",
     after_step=None,
     secrets_catalogue=None,
+    skill_available: bool = True,
 ) -> dict:
     """Run one flow against an already-resolved browser."""
     document = read_one(store, session, name)
@@ -248,13 +249,14 @@ def run_one(
         verbose=verbose,
         after_step=after_step,
         catalogue=secrets_catalogue,
+        skill_available=skill_available,
     )
     return {"session": document["session"], **report}
 
 
 def register(
     mcp, store, sessions, actions, token: str | None, prefix: str = "/flows",
-    secrets_catalogue=None, schemas=None,
+    secrets_catalogue=None, schemas=None, skill_available: bool = True,
 ) -> set[str]:
     """Register the flow resources, tools and endpoints. Returns mirror names."""
     # Shared with the admin surface when the server hands one in, so the editor
@@ -413,6 +415,7 @@ def register(
             session_id=resolved,
             after_step=remember,
             secrets_catalogue=secrets_catalogue,
+            skill_available=skill_available,
         )
         # One touch for the whole run, not one per step: the point of running
         # server-side is that the bookkeeping happens once.
@@ -450,7 +453,8 @@ def register(
         return delete_one(store, session_of(sessions), name)
 
     _routes(
-        mcp, store, sessions, actions, schemas, token, prefix, secrets_catalogue
+        mcp, store, sessions, actions, schemas, token, prefix, secrets_catalogue,
+        skill_available,
     )
     return {LIST_TOOL, GET_TOOL, SCHEMA_TOOL}
 
@@ -527,7 +531,7 @@ async def _document_schema(schemas: Schemas) -> dict:
 
 def _routes(
     mcp, store, sessions, actions, schemas: Schemas, token, prefix,
-    secrets_catalogue=None,
+    secrets_catalogue=None, skill_available: bool = True,
 ) -> None:
     """The same five operations as plain JSON, for callers that are not MCP."""
 
@@ -570,6 +574,7 @@ def _routes(
                         verbose=as_bool(body.get("verbose"), False),
                         session_id=session_id,
                         secrets_catalogue=secrets_catalogue,
+                        skill_available=skill_available,
                     )
                 )
             document = {

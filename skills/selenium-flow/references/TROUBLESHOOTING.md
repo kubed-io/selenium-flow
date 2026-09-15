@@ -2,9 +2,11 @@
 
 **Read the error first.** When the element is on the page but cannot be used,
 the failure says which of these it is and what to do about it: an ancestor is
-hidden (try `hover` on it — a `:hover` menu looks exactly like this), something
-is on top of it (dismiss the banner), it has no size, it is outside the viewport
-(`scroll_to`), or it is disabled. That sentence is the diagnosis; the list below
+hidden — a `:hover` menu looks exactly like this, and the message names the
+*visible* element to hover when it can identify one, because nothing with
+`display: none` can receive a pointer — something is on top of it (dismiss the
+banner), it has no size, it is outside the viewport (`scroll_to`), or it is
+disabled. That sentence is the diagnosis; the list below
 is for when there is no element at all.
 
 ## A timeout on an XPath you believe in

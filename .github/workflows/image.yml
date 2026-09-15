@@ -39,6 +39,7 @@ on:
     # old one — which happened. tests/test_packaging.py guards the pairing.
     - static/**
     - skills/**
+    - prompts/**
     # Not in the wheel, but the Dockerfile copies it and it decides which
     # dependencies get installed — so a change here changes the image without
     # changing anything the rules above watch. test_packaging.py now derives

@@ -15,8 +15,10 @@ a check you repeat on Chrome and then on Firefox.
 
 ## The loop
 
-1. **Discover.** Drive it once by hand. Use `extract` to find each selector and
-   confirm it matches exactly one element (`references/READING_PAGES.md`).
+1. **Discover.** Drive it once by hand. Use `outline` to find each selector —
+   it returns one per element, already checked to match exactly one, and says
+   whether the element can be used. `extract` is for reading *content*
+   (`references/READING_PAGES.md`).
 2. **Build.** Write each call down as a step. Anything that changes between runs
    becomes a parameter.
 3. **Save.** `save_flow`, once. It validates every step against the live tool
@@ -169,6 +171,42 @@ say a flow should not run at all:
 Signed out, the login form is there and the flow runs. Signed in, the app has
 redirected, the field never appears, and the run fails in five seconds with that
 sentence instead of grinding through a login that cannot work.
+
+## When a flow fails
+
+A run that fails names the step, what went wrong, and the page it was on. It also
+carries a `hint`:
+
+```json
+{
+  "status": "failed",
+  "hint": {
+    "read": "skill://selenium-flow/references/FLOWS.md",
+    "section": "when-a-flow-fails",
+    "prompt": "repair_flow",
+    "arguments": {"flow": "sign-in", "step": "4"}
+  }
+}
+```
+
+- **`read`** is a resource to load, exactly as written — and `section` is the
+  heading in it that covers this kind of failure. A server started with
+  `--no-skill` serves no references, and then there is no `read` to give.
+- **`prompt`** is for a person. `repair_flow` walks a page and fixes the flow
+  against what is there now; you cannot pick it yourself, but you can tell
+  somebody to.
+
+Two failures, two fixes:
+
+**The page changed under the flow.** A selector that found nothing, or found
+something that cannot be used. Go to that page, `outline` it, and read what the
+entries say — an element that is there but `hidden`, `covered` or `disabled` is
+not a missing element, it is a step that needs a `hover`, a dismissed banner, or
+a different order. Then `save_flow` the fix and run it again.
+
+**The flow was run somewhere it was not written for.** Nothing is wrong with the
+flow except where it started. Give it a first step that navigates, or an
+`assert` that stops the run and says where it must be.
 
 ## Whose flows you see
 

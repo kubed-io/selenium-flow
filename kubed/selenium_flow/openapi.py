@@ -607,6 +607,28 @@ FLOW_SCHEMAS = {
             "flow": {"type": "string"},
             "session": {"type": "string"},
             "status": {"type": "string", "enum": ["ok", "failed"]},
+            "hint": {
+                "type": "object",
+                "description": (
+                    "On a failed run: where to read about this kind of failure "
+                    "and which prompt repairs it. `read` is absent when the "
+                    "skill is not being served."
+                ),
+                "properties": {
+                    "read": {
+                        "type": "string",
+                        "description": "A skill:// resource URI, exactly as read.",
+                    },
+                    "section": {
+                        "type": "string",
+                        "description": (
+                            "The heading in that reference, when there is one."
+                        ),
+                    },
+                    "prompt": {"type": "string"},
+                    "arguments": {"type": "object"},
+                },
+            },
             "steps_run": {"type": "integer"},
             "steps_total": {"type": "integer"},
             "steps": {

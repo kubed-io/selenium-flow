@@ -43,7 +43,7 @@ Every action is a tool **and** an endpoint, one to one, and a test fails the bui
 
 ## 🧰 Every action, both ways
 
-Fourteen actions, each a tool **and** an endpoint with identical parameters. All endpoints are `POST` with a JSON body.
+Sixteen actions, each a tool **and** an endpoint with identical parameters. All endpoints are `POST` with a JSON body.
 
 > **The one difference:** over HTTP `session_id` is always **required**; over MCP it depends on the mode, and the advertised schema says which. See [Sessions](#-sessions).
 
@@ -55,6 +55,8 @@ Fourteen actions, each a tool **and** an endpoint with identical parameters. All
 | [`write`](https://github.com/kubed-io/selenium-flow/wiki/write) | `POST /browser/write` | Type into a field ⌨️ |
 | [`press_key`](https://github.com/kubed-io/selenium-flow/wiki/press_key) | `POST /browser/press-key` | Press a named key — `tab`, `enter`, arrows 🎹 |
 | [`extract`](https://github.com/kubed-io/selenium-flow/wiki/extract) | `POST /browser/extract` | Read text and HTML off the page 📖 |
+| [`outline`](https://github.com/kubed-io/selenium-flow/wiki/outline) | `POST /browser/outline` | What is on the page: a checked selector each, and what works 🗺️ |
+| [`assert`](https://github.com/kubed-io/selenium-flow/wiki/assert) | `POST /browser/assert` | JavaScript that must come back true, or the call fails ✅ |
 | [`screenshot`](https://github.com/kubed-io/selenium-flow/wiki/screenshot) | `POST /browser/screenshot` | Capture a PNG, viewport or full page 📸 |
 | [`save_pdf`](https://github.com/kubed-io/selenium-flow/wiki/save_pdf) | `POST /browser/pdf` | Print the page with the browser's print engine 📄 |
 | [`execute_script`](https://github.com/kubed-io/selenium-flow/wiki/execute_script) | `POST /browser/script` | Run JavaScript — the escape hatch 🧪 |
@@ -185,7 +187,7 @@ the image.
 | a resource | `session://files` — the listing |
 | a resource | `session://files/{name}` — one file, as bytes |
 | a tool | `session_files` — same listing, where there are no resources |
-| a link | `GET /files/{session}/{name}?exp=…&sig=…` |
+| a link | `GET /files/{session}/{name}?exp=…&sig=…` — signed when the server has a token, a plain path when authentication is off |
 
 That last one travels: signed over path and expiry, because an `<img>` tag cannot send an `Authorization` header.
 

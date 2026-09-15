@@ -179,6 +179,11 @@ Every tool that names an element waits for it in the background and carries on
 the moment it appears. `wait_timeout` is only how long it may take, never a
 pause.
 
+**There are prompts too, and they are not for you.** `repair_flow` and
+`build_flow` are templates a *person* picks in their client. You cannot invoke
+one; when a run fails its report names the one that would repair it, so you can
+say which to pick.
+
 `hover` leaves the pointer where it put it, so a `:hover` menu stays open for the
 next call — and it is the only way to open one. `press_key` is **not** a reliable
 way to scroll; `execute_script` is. The detail is in `references/INTERACTION.md`.
