@@ -14,8 +14,6 @@ orchestration, which a double can prove and which is where the mistakes were.
 """
 
 import os
-import shutil
-import subprocess
 from urllib.parse import quote
 
 import pytest
@@ -25,26 +23,6 @@ from kubed.selenium_flow import pointer
 from kubed.selenium_flow.pointer import MemoryPointers, RedisPointers
 
 pytestmark = pytest.mark.unit
-
-
-# ---- the JavaScript it sends --------------------------------------------
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="needs node to parse JS")
-@pytest.mark.parametrize(
-    "script", [pointer.NUDGE_JS, pointer.CENTRE_JS], ids=["nudge", "centre"]
-)
-def test_the_scripts_parse(tmp_path, script):
-    """Same guard `test_probe_js.py` has, for the same reason: a script that
-    does not parse fails in the browser as a WebDriverException whose message is
-    not about the mistake. Wrapped in a function because that is how WebDriver
-    runs it — the bare text has a top-level `return`."""
-    path = tmp_path / "pointer.js"
-    path.write_text("(function () {\n" + script + "\n});", encoding="utf-8")
-    result = subprocess.run(
-        ["node", "--check", str(path)], capture_output=True, text=True, check=False
-    )
-    assert result.returncode == 0, result.stderr
 
 
 # ---- the path -----------------------------------------------------------

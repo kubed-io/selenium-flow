@@ -643,7 +643,7 @@ class Actions:
         if to_target is not None:
             # Read now rather than when the step was written: the approach may
             # have scrolled, and every rect on the page moved with it (§F2.3).
-            end = pointer.centre(
+            end = pointer.center(
                 driver, browser.wait_for_element(driver, to_target, timeout)
             )
         else:

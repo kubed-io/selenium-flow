@@ -87,7 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`POST /browser/upload` takes `session`**, naming the library a kept file belongs to — the same way `/files/keep` already does, so a file kept into a named session can be uploaded back out of it.
 
-- **A drag whose source is taller than the window works.** The pointer's position is now where WebDriver actually puts it — the element's in-view centre — rather than the centre of a rectangle running off the screen.
+- **A drag whose source is taller than the window works.** The pointer's position is now where WebDriver actually puts it — the element's in-view center — rather than the center of a rectangle running off the screen.
 
 - **`assert` refuses a `stable_for` it cannot read** instead of silently dropping the stability check, and no longer accepts an answer a slow script returned after `wait_timeout` had passed.
 

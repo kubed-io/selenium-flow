@@ -334,7 +334,7 @@ which is worse than no path.
 
 **Where it is going** is read at the moment of the move with
 `getBoundingClientRect`, never cached — scrolling moves every element under a
-pointer that stays put (B's centre went from y=430 to y=130 after a 300px
+pointer that stays put (B's center went from y=430 to y=130 after a 300px
 scroll).
 
 **The path** is a straight, eased line, with a step count from distance — about
@@ -623,7 +623,7 @@ exactly one element before it is returned.
 **The probe** — one piece of JavaScript, because Chapter 1's most repeated lesson
 is that a rule written twice drifts. Per element: visible or not, and if not, why
 — `display:none` on a named ancestor, zero size, covered by another element (named,
-from `elementFromPoint` at its centre), disabled, or outside the viewport.
+from `elementFromPoint` at its center), disabled, or outside the viewport.
 
 **Reader one — the failure message.** When a wait for a usable element times out
 and the element *exists*, the error extends the house pattern with the reason and
