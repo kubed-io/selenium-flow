@@ -578,15 +578,47 @@ async def test_a_saved_screenshot_tells_the_caller_what_it_was_called(
 
 async def test_an_unsaved_screenshot_is_still_just_an_image(live, named_caller):
     """Nothing was stored, so there is no name to carry and no reason to wrap
-    the result in anything."""
+    the result in anything. Storing is now the default, so this is the caller
+    that asked not to (§F2.9)."""
     tool = await live.mcp.get_tool("screenshot")
     with patch.object(
         live.actions,
         "screenshot",
         return_value={"image": "", "url": "https://x/"},
     ):
-        result = tool.fn()
+        result = tool.fn(save=False)
     assert not hasattr(result, "structured_content")
+
+
+async def test_the_tool_saves_by_default_too(live, named_caller):
+    """Through the tool, not the action: the default has to travel."""
+    entry = {"name": "screenshot.png", "size": 3, "creationTime": 1}
+    asked = {}
+
+    def fake(session_id, **kwargs):
+        asked.update(kwargs)
+        return {"image": "", "url": "https://x/", "file": entry}
+
+    tool = await live.mcp.get_tool("screenshot")
+    with patch.object(live.actions, "screenshot", fake):
+        result = tool.fn()
+    assert asked["save"] is True
+    assert result.structured_content == {"file": entry}
+    assert result.content and result.content[0].type == "image"
+
+
+async def test_an_mcp_caller_is_told_why_the_file_is_missing(live, named_caller):
+    """The HTTP surface returns file_error; a tool caller used to get the image
+    and no explanation, and would wait for a name that is never coming."""
+    tool = await live.mcp.get_tool("screenshot")
+    with patch.object(
+        live.actions,
+        "screenshot",
+        return_value={"image": "", "url": "https://x/", "file_error": "blocked"},
+    ):
+        result = tool.fn()
+    assert result.structured_content == {"file_error": "blocked"}
+    assert result.content and result.content[0].type == "image"
 
 
 # ---- the admin surface -------------------------------------------------------

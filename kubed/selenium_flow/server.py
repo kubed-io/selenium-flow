@@ -126,6 +126,12 @@ class SeleniumMCP:
             app_config,
             base,
         )
+        # What an action hands back when it stores a file. Wired here because
+        # this is where the token and the public base both exist; the behaviour
+        # layer takes the function and never the key (§F2.9).
+        self.actions.describe_file = lambda session_id, entry: files.describe(
+            session_id, entry, auth_token, base
+        )
         self.apps = (
             apps.register(self.mcp, self.actions, auth_token) if apps_enabled else set()
         )

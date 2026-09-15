@@ -95,7 +95,7 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   tool hands the page an instruction the page is free to interpret** — `interact`,
   `press_key`, `dialog`, `execute_script`. A click is not destructive in itself and can
   place an order, and this server cannot tell which. Of the browser actions `extract` is
-  the only read-only one; `screenshot` is not, because `save=true` writes a file, and a
+  the only read-only one; `screenshot` is not, because it writes a file, and a
   tool cannot be read-only only sometimes. The three mirror tools are reads too, and are
   the ones easiest to forget — they only appear for a client that declares it cannot read
   resources, so a listing taken in the default mode proves nothing about them.

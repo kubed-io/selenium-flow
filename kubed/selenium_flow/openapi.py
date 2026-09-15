@@ -133,26 +133,17 @@ RESPONSES = {
             "type": "integer",
             "description": "Decoded size. A value near zero means a blank capture.",
         },
-        file={
-            "type": "object",
-            "description": "The stored file, as the Grid's download store lists it.",
-            "properties": {
-                "name": {"type": "string"},
-                "size": {"type": "integer"},
-                "creationTime": {"type": "integer"},
-            },
+        file={"$ref": "#/components/schemas/FileEntry"},
+        file_error={
+            "type": "string",
+            "description": (
+                "Present instead of file when the capture could not be stored. "
+                "The image is still returned."
+            ),
         },
     ),
     "save_pdf": _page(
-        file={
-            "type": "object",
-            "description": "The stored file, as the Grid's download store lists it.",
-            "properties": {
-                "name": {"type": "string"},
-                "size": {"type": "integer"},
-                "creationTime": {"type": "integer"},
-            },
-        },
+        file={"$ref": "#/components/schemas/FileEntry"},
         bytes={"type": "integer", "description": "Size of the PDF in bytes."},
     ),
 }

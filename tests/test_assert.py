@@ -331,3 +331,31 @@ def test_it_never_waits_longer_than_it_was_told(actions, monkeypatch):
     # Evaluated at 0.0, 0.3, 0.6, 0.9 and 1.0 — the last one exactly on the
     # deadline, and none after it.
     assert driver.calls == 5
+
+
+def test_an_answer_that_arrives_after_the_deadline_is_not_accepted(
+    actions, monkeypatch
+):
+    """A sleep can wake late, and the loop evaluated again without re-checking.
+    A page that turns true a moment after the caller stopped waiting must not
+    pass (Copilot, late review on #26)."""
+    now = {"t": 1000.0}
+    driver = _Driver(False, True)  # false first, then true — but too late
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: driver)
+    monkeypatch.setattr(actions_module.time, "monotonic", lambda: now["t"])
+    # Oversleeps, the way a loaded machine does.
+    monkeypatch.setattr(
+        actions_module.time, "sleep", lambda seconds: now.update(t=now["t"] + 5)
+    )
+
+    with pytest.raises(actions_module.AssertionFailed):
+        actions.assert_("abc", "return ready", wait_timeout=1)
+    assert driver.calls == 1, "it evaluated again after the deadline had passed"
+
+
+def test_no_wait_still_means_exactly_one_look(actions, driving):
+    """The guard above must not cost the single evaluation wait_timeout=0
+    promises."""
+    driver = driving(True)
+    assert actions.assert_("abc", "return true", wait_timeout=0)["asserted"] is True
+    assert driver.calls == 1

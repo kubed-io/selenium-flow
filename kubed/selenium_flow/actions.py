@@ -73,6 +73,20 @@ _BY_SPELLING = {_squash(name): value for name, value in KEYS.items()}
 _COMBINATION = re.compile(r"\+(?=.)")
 
 
+def _why_unsaved(exc: BaseException) -> str:
+    """Why a capture could not be stored, without quoting the Grid at it.
+
+    Storing goes through the Grid's HTTP API, and `requests` puts the whole URL
+    into its message - a URL this deployment is allowed to put credentials in
+    (`GRID_URL`). The one message worth repeating is ours, which names the file
+    and says it never arrived; everything else is reported by type, and the
+    detail stays in the log where it belongs.
+    """
+    if isinstance(exc, TimeoutError):
+        return str(exc)
+    return f"the capture could not be stored ({type(exc).__name__})"
+
+
 def _shape(value) -> str:
     """What came back, without saying what was in it.
 
@@ -220,8 +234,18 @@ def _safe_name(filename, mime_type=None, default_extension="") -> str:
 class Actions:
     """The browser operations, bound to one Grid."""
 
-    def __init__(self, grid: Grid):
+    def __init__(self, grid: Grid, describe_file=None):
         self.grid = grid
+        # How a stored file is described on the way out: the server injects a
+        # function that signs a URL for it. A function rather than the token,
+        # because this layer should be able to hand out a link without ever
+        # holding the key that makes one (§F2.9). Absent - an open server with
+        # no public base - a file is reported exactly as the Grid lists it.
+        self.describe_file = describe_file
+
+    def _stored(self, session_id: str, entry: dict) -> dict:
+        """One saved file, described the same way wherever it was saved."""
+        return self.describe_file(session_id, entry) if self.describe_file else entry
 
     # ---- session lifecycle -------------------------------------------------
 
@@ -704,6 +728,13 @@ class Actions:
             if remaining <= 0:
                 break
             time.sleep(min(ASSERT_POLL, remaining))
+            if time.monotonic() > deadline:
+                # A sleep can wake late. Without this, the answer that arrived
+                # after the caller stopped waiting would still be accepted, so
+                # a slow page could pass an assertion it had already failed.
+                # The first evaluation is above the loop's exits, so
+                # wait_timeout=0 still asks exactly once.
+                break
 
         state = browser.page_state(driver)
         # The script is not echoed. It is the author's text rather than the
@@ -743,7 +774,7 @@ class Actions:
         width=None,
         height=None,
         wait_timeout=WAIT_TIMEOUT,
-        save=False,
+        save=True,
         filename=None,
         css=None,
     ) -> dict:
@@ -785,14 +816,27 @@ class Actions:
             "bytes": len(raw),
             **browser.page_state(driver),
         }
-        # Saving is opt-in because most screenshots are looked at once and
-        # thrown away. The ones worth keeping are the ones a human will open
-        # later, and those need a URL rather than base64 in a tool result.
-        if as_bool(save, False):
+        # Saved by default. It used to be opt-in, which made the *agent* decide
+        # whether a person would ever want to look at this one — and the answer
+        # is usually no, so an operator watching the admin UI saw nothing and
+        # had nothing to open. A session's files die with the browser and cost
+        # nothing while it lives, so the cheap thing is to keep them all and let
+        # `keep_file` be the only decision anybody makes (§F2.9).
+        if as_bool(save, True):
             name = _safe_name(filename or "screenshot", "image/png", ".png")
-            result["file"] = browser.save_to_downloads(
-                self.grid, driver, name, raw, "image/png"
-            )
+            try:
+                result["file"] = self._stored(
+                    session_id,
+                    browser.save_to_downloads(
+                        self.grid, driver, name, raw, "image/png"
+                    ),
+                )
+            except Exception as exc:  # noqa: BLE001 - the picture outranks the file
+                # Saving happens on every screenshot now, so it must never be
+                # able to take one away. A page whose policy blocks a download,
+                # or a Grid that never lists the file, costs the file and not
+                # the capture — said out loud rather than silently.
+                result["file_error"] = _why_unsaved(exc)
         return result
 
     # ---- internals ---------------------------------------------------------
@@ -829,7 +873,11 @@ class Actions:
         entry = browser.save_to_downloads(
             self.grid, driver, name, data, "application/pdf"
         )
-        return {"file": entry, "bytes": len(data), **browser.page_state(driver)}
+        return {
+            "file": self._stored(session_id, entry),
+            "bytes": len(data),
+            **browser.page_state(driver),
+        }
 
     def page(self, session_id: str) -> dict:
         """Where the browser is, without touching it.
