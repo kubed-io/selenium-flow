@@ -185,3 +185,72 @@ def test_the_published_file_shape_matches_what_describe_returns():
     # and a generated client must accept that (Copilot, #28).
     assert "null" in entry["created"]["type"]
     assert files.describe("sess", {"name": "x.png"}, "tok")["created"] is None
+
+
+# ---- saving by default must not cost the caller time or lie about the type ---
+# From the suppressed half of Copilot's review on #28.
+
+
+def test_a_page_that_cannot_download_is_not_waited_out(shooting):
+    """Chrome refuses downloads from a data: URL, and the poll would spend its
+    whole timeout finding that out — on every frame of a thirty-frame flow, now
+    that saving is the default."""
+    driver = _Driver()
+    driver.current_url = "data:text/html,<h1>test</h1>"
+    shooting._at = lambda *a, **k: driver
+    with patch.object(actions_module.browser, "save_to_downloads") as saving:
+        result = shooting.screenshot("abc")
+    assert saving.call_count == 0, "it tried anyway, and would wait out the poll"
+    assert "data:" in result["file_error"]
+    assert result["image"] == PIXEL
+
+
+def test_the_default_save_does_not_wait_the_full_download_timeout(shooting):
+    """15s is the right budget for a file the caller asked for. It is the wrong
+    one for a best-effort save on every screenshot."""
+    with patch.object(
+        actions_module.browser, "save_to_downloads", return_value=ENTRY
+    ) as saving:
+        shooting.screenshot("abc")
+    assert saving.call_args.kwargs["timeout"] <= 5
+
+
+@pytest.mark.parametrize(
+    "given,expected",
+    [("chart", "chart.png"), ("chart.png", "chart.png"), ("chart.pdf", "chart.pdf.png")],
+)
+def test_a_screenshot_is_named_as_the_png_it_is(shooting, given, expected):
+    """The file store guesses the served type from the name, so a PNG called
+    `chart.pdf` is handed to a browser as a PDF and will not open."""
+    with patch.object(
+        actions_module.browser, "save_to_downloads", return_value=ENTRY
+    ) as saving:
+        shooting.screenshot("abc", filename=given)
+    assert saving.call_args.args[2] == expected
+
+
+def test_a_pdf_is_named_as_the_pdf_it_is(shooting, monkeypatch):
+    driver = _Driver()
+    driver.print_page = lambda: PIXEL
+    monkeypatch.setattr(shooting, "_at", lambda *a, **k: driver)
+    with patch.object(
+        actions_module.browser, "save_to_downloads", return_value=ENTRY
+    ) as saving:
+        shooting.save_pdf("abc", filename="page.png")
+    assert saving.call_args.args[2] == "page.png.pdf"
+
+
+async def test_the_prompt_does_not_promise_a_file_that_may_not_exist(server):
+    """`save=false` and a blocked download both mean there is no file, and a
+    model told otherwise will hand a person a name that does not exist."""
+    description = (await server.mcp.get_tool("screenshot")).description or ""
+    assert "By default" in description
+    assert "file_error" in description
+
+
+async def test_the_prompt_does_not_promise_a_signature_auth_off_cannot_give(server):
+    """With MCP_AUTH_TOKEN unset there is nothing to sign with, and links.py
+    emits the plain path deliberately."""
+    for name in ("screenshot", "save_pdf"):
+        description = (await server.mcp.get_tool(name)).description or ""
+        assert "signed" not in description or "when this server has a token" in description

@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A screenshot of a page the browser will not download from no longer costs you fifteen seconds.** It says so straight away and still returns the image.
+
+- **A saved file is named for what it actually is** — `screenshot(filename="chart.pdf")` is stored as a PNG rather than handed to a browser as a PDF that will not open.
+
 ### Added
 
 - **A flow can say what must be true.** `assert` runs JavaScript that has to come back `true` — the URL, an element, a cookie, anything the page knows — and fails with the message you wrote, so a flow stops on the wrong page instead of reporting steps it did not really pass.

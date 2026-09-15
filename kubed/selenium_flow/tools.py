@@ -632,16 +632,23 @@ def register(
         Only reach for this when the *visual* result matters — layout, styling,
         a rendered chart. To read content, extract is far cheaper.
 
-        Every screenshot is also kept with the session's files, where it has a
-        URL that opens in a browser and shows up in the admin page - so a person
-        can see what you saw, whether or not your client can display an image.
-        The result carries the file's name, which is what keep_file and
+        By default it is also kept with the session's files, where it has a URL
+        that opens in a browser and shows up in the admin page - so a person can
+        see what you saw, whether or not your client can display an image. The
+        result then carries the file's name, which is what keep_file and
         session_files take.
 
+        When it could not be stored - a page the browser will not download from,
+        say - the result carries file_error instead of file, and the image still
+        comes back. There is no name to keep in that case.
+
         **To show a person what you saw, give them the file's absolute_url.**
-        It opens in any browser, needs no token, and is the only form of this
-        they can actually look at - do not paste the image back into your reply
-        and do not describe it instead. Markdown works too: ![](absolute_url).
+        It opens in any browser, needs no bearer token, and is the only form of
+        this they can actually look at - do not paste the image back into your
+        reply and do not describe it instead. Markdown works: ![](absolute_url).
+        The link is signed and time-limited when this server has a token; with
+        authentication off there is nothing to sign and the plain path is the
+        answer.
 
         A server that has not been told its public address has no absolute_url
         to give: the file carries a relative url instead, which needs the
@@ -700,10 +707,11 @@ def register(
         This is the browser's own print output, so text stays selectable and the
         whole document is included rather than just the viewport.
 
-        Returns the stored file. **Give a person its absolute_url** - a signed
-        link that opens in any browser and needs no token. That is how somebody
-        reads the PDF; nothing else in this result is any use to them. Without a
-        public address configured the file carries a relative url instead.
+        Returns the stored file. **Give a person its absolute_url** - a link
+        that opens in any browser and needs no bearer token, signed and
+        time-limited when this server has a token to sign with. That is how
+        somebody reads the PDF; nothing else in this result is any use to them.
+        Without a public address configured the file carries a relative url.
         """
         return run(
             session_id,

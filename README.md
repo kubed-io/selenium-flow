@@ -174,8 +174,11 @@ The server types it; it never passes through the model, the transcript or a log.
 ## 🗂 What a session leaves behind
 
 Everything a session downloads is kept **by the Grid**, in a per-session store beside the browser — created with the session, deleted with it. Two kinds of file land there, undistinguished: whatever the **site** served to a download, and whatever **you** produced with `screenshot` or `save_pdf`. Both save there by
-default and come back with a signed link to hand someone; `screenshot(save=false)`
-opts out when a capture is not worth keeping even that long.
+default and come back with a link to hand someone — signed and time-limited when
+the server has a token, a plain path when authentication is off.
+`screenshot(save=false)` opts out when a capture is not worth keeping even that
+long, and a page the browser refuses to download from returns `file_error` and
+the image.
 
 | Read it as | URI / path |
 |---|---|
