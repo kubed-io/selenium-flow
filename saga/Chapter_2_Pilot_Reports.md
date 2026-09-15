@@ -27,11 +27,13 @@
 
 ---
 
-## Status: **OPEN — planning** — opened 2026-09-14
+## Status: **OPEN — half built** — opened 2026-09-14, building since
 
-Planning only. **Nothing is built until Dr K signs the forks off**, which is
-how Chapter 1 ran and why its reasoning survived the build. Sections are marked
-*recommended* until answered and *locked* once they are.
+It opened as planning only — nothing built until Dr K signed the forks off,
+which is how Chapter 1 ran and why its reasoning survived the build. The forks
+were answered the same day and four epics shipped behind them. Sections are
+marked *recommended* until answered and *locked* once they are; the passes below
+say who answered what, and §F2.10 says what flying it afterwards proved wrong.
 
 **First pass, same day.** Dr K answered five of the six forks: nothing glides
 unless asked (§F2.3), `press_key` is not an enum (§F2.1), and the epic order is
@@ -43,6 +45,29 @@ so the answer is an `assert` step that stops the run with instructions (§F2.5,
 §F2.6). **Only screenshots change**: they save by default, and every other file
 keeps working exactly as it does (§F2.9). And `outline` is for the agent building
 a flow, not a step inside one (§F2.8).
+
+**Built, same day.** E12, E14, E15 and E16 shipped in five pull requests — `#25`
+through `#30` — and the server was flown afterwards by two pilots, whose findings
+are §F2.10 and are folded into the plan below. Chapter 2 is no longer a plan
+being signed off; it is a plan half built.
+
+**Where to start next.** In this order, and the first two are small:
+
+1. **§F2.10's three faults** — `stable_for` on `assert` and the guard example
+   that teaches the race (E14); the hover nudge (E13); and what `outline` says
+   about a trigger: `revealed_by`, `aria-expanded` in the interactive set, click
+   rather than hover when the page says click, and no text XPath for an element
+   whose text belongs to its children (E15).
+2. **E16's two leftovers** — `upload_file` on a kept file, and
+   `open_session(fresh=true)`, which `build_flow` currently has to work around.
+3. **E13 proper** — the Firefox measurements and the HTML5-drag spike first,
+   then the remembered pointer, `glide`, and `drag`.
+4. **E17**, which wants a Penpot pass before any code, and **E5**, which reaches
+   into the cluster repo.
+
+**And a release.** Everything above is on `main` and in `:latest`; the last tag
+is still `v0.1.0`, so nothing shipped today is in a version anybody can pin. The
+next publish is a minor.
 
 What this chapter was planned from:
 
@@ -655,6 +680,87 @@ preferences, and Firefox's equivalent too.
   login flow from a known start. Auth state already resets; only the URL carries.
 - **`upload_file` takes a kept file by name** — carried from §F1.41.
 
+### §F2.10 — Flying it again: what the second sortie found
+
+`v0.1.0` plus everything above went to the Grid, and two pilots flew it — the
+agent whose first report opened this chapter, on a real app, and Dispatch, on
+`selenium.dev`. Both reports are here because they change the plan below rather
+than merely praising it.
+
+**What the tools bought.** `outline` replaced three hand-written DOM dumps with
+one call, and caught a fact the pilot had previously got right only by luck: a
+*Sign in* button disabled until both fields validate. `assert` turned a selector
+trick into stated intent. The hint even changed section — from *when a flow
+fails* to *say what must be true* — once the failure was an assertion rather
+than a selector. And the failure message the pilot singled out is the one this
+chapter was written around: *"It exists, but ul.menu-content is hidden… a script
+cannot open one either, because synthetic events do not set :hover."* A dead end
+converted into the answer.
+
+**Three faults, and the first is the serious one.**
+
+**1. `assert` polls until true, so it latches onto a transient.** Poll-until-true
+means *eventually* true, which is right after a click and wrong for a
+precondition. The pilot's guard passed **while signed out**: navigating to `/`,
+the authenticated shell paints for a moment before the auth guard redirects, and
+the poll caught that window. Worse, §F2.5's own example teaches the racy shape —
+`wait_timeout: 5` on "is the login form here", which a flickering form satisfies.
+
+The pattern that works is *settle, then ask once*: poll for either terminal
+state, then ask the real question with `wait_timeout: 0`.
+
+```yaml
+- tool: assert   # wait for the page to commit to one state or the other
+  args: {script: "return !!document.querySelector('#login-username') ||
+                  document.querySelectorAll('div.navigation-header').length > 0",
+         wait_timeout: 30}
+- tool: assert   # then the precondition, asked once
+  args: {script: "return !document.querySelector('#login-username')",
+         wait_timeout: 0, message: Already signed in.}
+```
+
+So: **`stable_for`** — the answer must hold for N milliseconds, not merely
+occur — and the documented pattern above beside it. Without one of the two, a
+guard that looks right is wrong on exactly the pages people write guards for.
+
+**2. `hover` reports success when it did nothing.** If the pointer is already
+inside the target, no `mouseover` fires and the step still returns `ok`. It bit
+the pilot twice. Measured here on a `:hover` menu: the first hover fired one
+`mouseover`, the second fired **none**, and both were reported as successes.
+
+And the obvious verification does not work. `document.querySelectorAll(':hover')`
+came back **empty** in the same breath as `getComputedStyle` reporting the menu
+`display: block` — the state is applying and the selector will not confess to
+it. So the fix is not to check afterwards; it is to **nudge**: when the pointer
+is already within the target, move it away first, so the move it is asked for
+is a move. That is E13's pointer work arriving early, and it removes the failure
+mode rather than reporting it.
+
+**3. `outline` says what blocks an element, never what reveals it.**
+`blocked_by: ul.menu-content` names what is in the way; the caller needs what to
+hover. The click error tries, and on a real page produced
+`//li[normalize-space()="HelpDeskHelpDeskAdd TicketHistoryFeature Requests"]` —
+concatenated descendant text, brittle and unreadable. Two fixes, one rule: a
+**`revealed_by`** field carrying the trigger's checked selector, in the map as
+well as the message; and **no text XPath for an element with element children**,
+because that text is its descendants' and not its own.
+
+Related, from the same flight: `outline` skipped the trigger entirely, because
+it is an `<a>` with no `href`. Defensible by accessibility semantics and useless
+in practice — it gated half the nav. `[aria-expanded]` belongs in the
+interactive set, and a bare `<a>` probably does too.
+
+**And one Dispatch found on `selenium.dev`:** the advice says *hover whatever
+reveals it*, and that menu is **click-toggled**. Hovering the element it named
+did nothing; clicking the toggle opened it. The page said so all along —
+`outline` reports `expanded: false` there, because it reads `aria-expanded`. The
+probe has the evidence and ignores it when writing the sentence. When a trigger
+carries `aria-expanded`, say **click**; say hover only when it does not.
+
+**Carried, minor:** `screenshot` returns `absolute_url`, but `kept: false` — the
+link dies with the browser and a durable one still needs `keep_file`. That is
+§F2.9's decision working as designed; what is missing is the tool saying so.
+
 ---
 
 ## Part III — Carried from Chapter 1
@@ -710,7 +816,8 @@ anywhere.
 - [x] `FLOWS.md` documents `default`; `TROUBLESHOOTING.md` documents KEDA's
       `ready: false` (§F2.9)
 - [x] The wiki regenerates from the new descriptions
-- [ ] Flown: a fresh agent, given only the tools, asked to open a hover menu
+- [x] Flown: a menu opened from the tool list alone on `selenium.dev` — the
+      schema's enums and `outline` were enough, and no `execute_script`
 
 ### E14 — Cross-check: `assert`, and failures that say what to do
 
@@ -731,21 +838,30 @@ anywhere.
 - [x] Tests through `run()`, not the helper: the wrong-page flow now fails with
       its message, the signed-in login flow fails inside its `wait_timeout`, and
       breaking the assertion on purpose turns both red
-- [ ] Flown: a route-changing flow on a real single-page app, and the login flow
-      on both paths. The action itself has been driven against the live Grid —
+- [x] Flown: a route-changing flow with an `assert` on a live site, and the login
+      guard on a real app by the other pilot — which is how §F2.10's first fault
+      was found
+- [ ] **`stable_for`**: the answer must hold for N ms, not merely occur —
+      poll-until-true latches onto a transient and passed a signed-out guard
+      (§F2.10)
+- [ ] `FLOWS.md`: replace the racy guard example with settle-then-ask-once, and
+      say which shape belongs after a click and which before one. The action itself has been driven against the live Grid —
       true, false with and without a message, a non-boolean, and an element that
       appears 2.5s late, which it waited 2.4s for
 
 ### E16 — Ground handling: screenshots, and two file odds and ends
 
-- [ ] `screenshot(save=...)` defaults to `true`; the result carries the file entry
+- [x] `screenshot(save=...)` defaults to `true`; the result carries the file entry
       and signed URL (§F2.9)
-- [ ] A failed save returns the image with a note, never an error
-- [ ] **Changed:** changelog line — screenshots now appear in the session's files
+- [x] A failed save returns the image with a note, never an error
+- [x] **Changed:** changelog line — screenshots now appear in the session's files
 - [ ] `upload_file` accepts a kept file by name
 - [ ] `open_session(fresh=true)`
-- [ ] Flown: screenshots from a flow appear in the admin UI without anyone asking,
-      and one is kept from there
+- [x] Flown: a screenshot saved itself and came back with a working signed link,
+      opened from the result
+- [ ] Flown: one kept from the admin UI, which is the half not yet exercised
+- [ ] `screenshot` says the link dies with the browser and `keep_file` is what
+      outlives it — true since §F2.9 and never stated (§F2.10)
 
 ### E15 — The sectional chart: the probe, its hints, and `outline`
 
@@ -771,8 +887,18 @@ anywhere.
       submenu link comes back with its selector, `reason: hidden` and
       `blocked_by: ul.menu-content`; two links with identical text get distinct
       selectors; disabled, off-screen, zero-size and covered all reported
-- [ ] Flown by an agent end to end: find and open a hover-menu link with
-      `outline` alone, no `execute_script`
+- [x] Flown by an agent end to end: a hidden nav item found and opened with
+      `outline` and `interact` alone, no `execute_script` — on a menu that turned
+      out to be click-toggled, which is the next item
+- [ ] **Say click when the trigger says click.** `outline` already reports
+      `expanded: false` from `aria-expanded`; the advice ignores it and tells the
+      caller to hover a menu that opens on click (§F2.10)
+- [ ] **`revealed_by`** on a hidden entry — the trigger's checked selector, in the
+      map as well as in the failure message (§F2.10)
+- [ ] **No text XPath for an element with element children**: the selector
+      offered for a nav container was its descendants' text concatenated
+- [ ] `[aria-expanded]` in the interactive set, and probably a bare `<a>`: the
+      trigger gating half a nav was skipped for having no `href`
 
 ### E13 — Stick and rudder: the pointer
 
@@ -791,6 +917,10 @@ anywhere.
       after a click the pointer is on the clicked element; a covered click is
       still refused
 - [ ] Flown: a sortable list and a range slider on real pages
+- [ ] **Nudge before hovering.** A hover onto a target the pointer is already
+      inside fires no `mouseover` and still reports `ok` — measured, twice
+      (§F2.10). Move away first; do not try to verify afterwards, because
+      `querySelectorAll(':hover')` comes back empty while the state is applying
 
 ### E17 — The tower: the admin UI's carried items
 
