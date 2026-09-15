@@ -306,8 +306,12 @@ def register(
     @mcp.custom_route(f"{prefix}/admin", methods=["GET"], name="admin_ui_moved")
     async def admin_ui_moved(_request: Request) -> Response:
         """Where the page used to be. A redirect rather than a second copy, so
-        there is one URL for the UI and one answer to "where is it"."""
-        return RedirectResponse(f"{prefix}/", status_code=301)
+        there is one URL for the UI and one answer to "where is it".
+
+        Relative, because `/flow/admin` may be `/base/flow/admin` to the browser
+        behind an ingress that stripped `/base`; `./` lands on the UI either way.
+        """
+        return RedirectResponse("./", status_code=301)
 
     # Whether the last read of the store failed, so an outage warns once rather
     # than on every two-second poll of every open page.

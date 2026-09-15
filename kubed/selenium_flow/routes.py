@@ -112,16 +112,16 @@ def register(
     prefix: str = "",
     catalogue=None,
 ) -> None:
-    """Register ``/health``, the spec, and the browser resource on ``mcp``.
+    """Register the ops endpoints, the spec, and the browser resource on ``mcp``.
 
     ``prefix`` is where the **whole server** is mounted, and every tree is fixed
     beneath it (§F1.11) — the spec included, because a person reading it in a
     browser should find it where everything else lives.
 
-    **`/health` is the one thing served twice**: under the prefix like the rest,
-    and at the root whatever the prefix is. A readiness probe that 404s after a
-    config change is the failure §F1.11 named, and it is the one path whose
-    reader — a kubelet — is not the one who chose the mount.
+    **The four ops endpoints are the only things served twice** — `/health`,
+    `/started`, `/ready` and `/info`: under the prefix like the rest, and at the
+    root whatever the prefix is. A probe that 404s after a config change is the
+    failure §F1.11 named, and a kubelet is not the one who chose the mount.
     """
     browser_root = f"{prefix}/browser"
 

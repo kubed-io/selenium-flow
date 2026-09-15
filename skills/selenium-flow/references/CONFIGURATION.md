@@ -14,10 +14,11 @@ installed in the server image, deliberately.
 GRID_URL=http://selenium-grid-selenium-hub.<namespace>.svc.cluster.local:4444
 ```
 
-`GET /health` answers this in one call: it reports Grid reachability and the
-live session count, not merely that the process is up. A server that cannot see
-a Grid is correctly *not* ready. It needs no credentials, so a kubelet or a
-curl can check it.
+`GET /ready` answers this in one call: it reports Grid reachability and the
+live browser count, and a server that cannot see a Grid is correctly *not*
+ready. `/health` only says the process is up, `/started` that it finished
+starting, and `/info` what it is wired to. None needs credentials, and all four
+answer at the root as well as under `ROUTE_PREFIX`.
 
 ## Running it
 
@@ -158,4 +159,4 @@ the last known URL.
 The Grid runs a small, fixed number of browsers — five is typical. That is the
 real constraint, and the reason every task should end in `end_browser`. If
 sessions will not open, it is almost always abandoned browsers from earlier runs
-rather than load. `GET /health` reports the live count.
+rather than load. `GET /ready` reports the live count.

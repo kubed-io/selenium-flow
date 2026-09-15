@@ -922,10 +922,15 @@ Proposed:
 | Admin, files, flows | `/admin`, `/files` | `$ROUTE_PREFIX/admin`, `/files`, `/flows` |
 | `/health`, `/openapi.*` | root | ~~stays at root~~ **built otherwise** — see E5 |
 
-`/health` and `/openapi.json` stay unprefixed on purpose. They are how a kubelet
-and a load balancer find out whether this process is alive, and making that
-depend on a configurable path is how a readiness probe silently 404s after a
-config change. The cluster's probes point at `/openapi.json` today.
+The plan was for `/health` and `/openapi.json` to stay unprefixed, because they
+are how a kubelet and a load balancer find out whether this process is alive,
+and making that depend on a configurable path is how a readiness probe silently
+404s after a config change. The cluster's probes pointed at `/openapi.json`.
+
+**Built otherwise (E5).** `/openapi.*` is mounted with everything else and
+nothing probes it. Four ops endpoints — `/health`, `/started`, `/ready`, `/info`
+— answer at the root **and** under the mount, and the cluster's probes move to
+`/started` and `/ready` with the release that carries it.
 
 **This is a breaking change with a live deployment attached, and the sequencing
 is the risk, not the code.** `mcp.env` currently sets `ROUTE_PREFIX=/browser`.

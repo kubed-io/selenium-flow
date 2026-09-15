@@ -454,7 +454,8 @@ def test_the_ui_is_at_the_mount_root_and_the_old_path_redirects():
     assert client.get("/flow/").status_code == 200
     moved = client.get("/flow/admin", follow_redirects=False)
     assert moved.status_code == 301
-    assert moved.headers["location"] == "/flow/"
+    # Relative, so a path an ingress stripped survives the redirect.
+    assert moved.headers["location"] == "./"
 
 
 def test_the_ops_endpoints_answer_at_the_root_whatever_the_prefix():
