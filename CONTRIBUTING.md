@@ -28,6 +28,11 @@ The tests wire a server against an unroutable Grid address and drive both
 surfaces through the real ASGI app, so they need no browser and no network. A
 test that reaches the Grid is an integration test and is marked as one.
 
+`tests/integration/` is the other half: the real server as a process, a real
+browser, and the server's own admin page as the site under test. It skips
+unless `GRID_URL` and `ADMIN_ORIGIN` are set — see
+[Integration tests](#integration-tests-less-is-more).
+
 ## Where things live
 
 | Path | Holds |
@@ -180,6 +185,37 @@ and the auth check — so `test_files_and_admin.py` asserts those and does not
 re-assert the manager's contract through HTTP. When both files test the same
 sentence, the second one is not extra safety: it is a second thing to update
 when the behaviour changes, and it will be the one that gets missed.
+
+### Integration tests: less is more
+
+An integration test here is **a flow file in `tests/integration/flows/`, and
+nothing else**. One parametrised test runs every file in that directory against
+the admin page, so the flow exercises the tools, the flow runner and the admin
+UI in one pass — and there is no demo site to keep alive.
+
+Keep it small. Before you add a flow, name what a *user* would see break that no
+existing flow already catches. If you cannot, it is not an integration test:
+
+- **A detail of a behaviour a flow already covers** belongs in the unit suite,
+  which is fast and needs no browser.
+- **A tool the admin UI does not need** is not tested here. The admin page is
+  the subject; a flow that reaches for `drag` or `upload_file` to have something
+  to do is testing the tool, and that has its own tests.
+- **No Python beside the flows.** A helper, a second test function or a fixture
+  for one case is how this directory grows tenfold. If a flow cannot say it,
+  the flow format is what needs the change.
+
+Two flows exist today, and that is the right order of magnitude. To run them:
+
+```bash
+GRID_URL=http://localhost:4444 ADMIN_ORIGIN=http://host.docker.internal:8765 \
+  pytest tests/integration
+```
+
+`ADMIN_ORIGIN` is where the *browser* reaches this server, which is never
+`localhost` — the browser is in another container. Set `REDIS_URL` and
+`SESSION_STORE=redis` to run them the way production does; the fault that
+started this directory existed only on Redis.
 
 ## Before you push
 

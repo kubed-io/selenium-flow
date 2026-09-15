@@ -45,6 +45,33 @@ def test_every_script_parses(tmp_path, name):
     assert result.returncode == 0, result.stderr
 
 
+# What WebDriver is actually handed. Each file parsing on its own does not make
+# the concatenation parse: `helpers.js` goes into both of these, so a `const`
+# it already declares, redeclared by the file joined to it, is a SyntaxError
+# that only exists in the composition. The per-file loop above cannot see it,
+# and the browser reports it as a WebDriverException about nothing useful.
+COMPOSED = {
+    "USABLE_JS": probe.USABLE_JS,
+    "OUTLINE_JS": probe.OUTLINE_JS,
+    "NUDGE_JS": pointer.NUDGE_JS,
+    "CENTER_JS": pointer.CENTER_JS,
+}
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node to parse JS")
+@pytest.mark.parametrize("name", sorted(COMPOSED))
+def test_every_composed_script_parses(tmp_path, name):
+    """Copilot, #32: the per-file check replaced the only tests that parsed
+    these, so a composition-only error would have passed here and failed in the
+    browser."""
+    path = tmp_path / f"{name}.js"
+    path.write_text("(function () {\n" + COMPOSED[name] + "\n});", encoding="utf-8")
+    result = subprocess.run(
+        ["node", "--check", str(path)], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+
+
 @pytest.mark.parametrize("name", SCRIPTS)
 def test_every_script_is_used(name):
     """A file nobody loads still ships in the wheel and still looks maintained.

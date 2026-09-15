@@ -1,0 +1,95 @@
+name: 🔌 Integration
+
+# The real server, a real browser, and the server's own admin page as the site
+# under test. test.yml never opens a port, which is how the admin list went
+# blank in production with every test green.
+#
+# The flows in tests/integration/flows/ are the tests. Read the "less is more"
+# section of CONTRIBUTING.md before adding one.
+#
+# Not a required check yet: it depends on a browser container, and a flake here
+# should be visible without blocking a merge until it has a track record.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GRID_URL: http://localhost:4444
+  # Where the BROWSER reaches the server, which runs on the runner host rather
+  # than beside it. host-gateway is Docker's name for that host.
+  ADMIN_ORIGIN: http://host.docker.internal:8765
+  # Production runs Redis, and the blank admin list only happened on Redis.
+  SESSION_STORE: redis
+  REDIS_URL: redis://localhost:6379/0
+
+jobs:
+
+  integration:
+    name: Integration
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      # Pinned to what the cluster's Grid runs, so a pass here is a claim about
+      # the browser production uses.
+      selenium:
+        image: selenium/standalone-chrome:4.48.0-20260905
+        ports:
+        - 4444:4444
+        options: >-
+          --shm-size 2g
+          --add-host host.docker.internal:host-gateway
+          --health-cmd "curl -sf http://localhost:4444/status"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 24
+      redis:
+        image: redis:7.4.1
+        ports:
+        - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        # setuptools_scm needs history to resolve a version at install time.
+        fetch-depth: 0
+        persist-credentials: false
+
+    - name: Setup Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.14'
+        cache: pip
+        cache-dependency-path: pyproject.toml
+
+    - name: Install
+      run: pip install .[test,redis]
+
+    - name: Integration Tests
+      run: pytest tests/integration -s --junit-xml=dist/integration-results.xml
+
+    - name: Surface Failing Tests
+      if: always()
+      uses: pmeier/pytest-results-action@v0.9.0
+      with:
+        path: dist/integration-results.xml
+        summary: true
+        display-options: fEX
+        fail-on-empty: true

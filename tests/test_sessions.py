@@ -484,6 +484,10 @@ class FakeRedis:
     def delete(self, key):
         self.data.pop(key, None)
 
+    def scan_iter(self, match="*", count=None):
+        prefix = match.rstrip("*")
+        return [k for k in list(self.data) if k.startswith(prefix)]
+
 
 def test_redis_store_round_trips_a_record_and_expires_it():
     fake = FakeRedis()
@@ -501,6 +505,21 @@ def test_a_corrupt_redis_entry_is_a_miss_not_a_crash():
     fake = FakeRedis()
     fake.data["p:k"] = b"not json"
     assert RedisStore(fake, prefix="p:").get("k") is None
+
+
+def test_the_pointer_beside_a_session_does_not_empty_the_history():
+    """The admin list went blank in production: the pointer store writes under
+    the session prefix, `records()` read its `[x, y]` as a record, raised, and
+    the page rendered the failure as "No sessions yet." Built through the real
+    pointer store, so a pointer namespace that moves is still covered."""
+    from kubed.selenium_flow import pointer
+
+    fake = FakeRedis()
+    store = RedisStore(fake, prefix="p:")
+    store.set("named:desktop", SessionRecord(session_id="abc"))
+    pointer.matching(store).set("abc", 10.5, 20.0)
+
+    assert list(store.records()) == ["named:desktop"]
 
 
 def test_the_memory_store_expires_like_redis_does():

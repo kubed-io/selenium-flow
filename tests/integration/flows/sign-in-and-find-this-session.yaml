@@ -1,0 +1,36 @@
+description: >-
+  Sign in to the admin page and find the session running this flow in its list.
+  This is the admin UI's whole front door: the list went blank in production
+  while every unit test stayed green.
+parameters:
+  type: object
+  required: [admin, session]
+  properties:
+    admin:
+      type: string
+      description: The origin the browser reaches this server at
+    session:
+      type: string
+      description: The name the caller running this flow gave its session
+steps:
+- tool: navigate
+  args:
+    url: ${admin}/admin
+- tool: write
+  args:
+    css: "#token"
+    secret:
+      name: admin
+      key: token
+- tool: interact
+  args:
+    action: click
+    css: "#loginForm button[type=submit]"
+- tool: assert
+  args:
+    script: >-
+      return [...document.querySelectorAll('#sessions .pill.name')]
+      .some((pill) => pill.textContent === '${session}')
+    message: >-
+      Signed in, but the session running this flow is not in the list. Either
+      /admin/sessions came back empty or the page did not render what it got.

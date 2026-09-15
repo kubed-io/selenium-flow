@@ -67,6 +67,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The admin page lists sessions again on Redis** — it went blank once any browser had been pointed at something.
+
 - **A screenshot of a page the browser will not download from no longer costs fifteen seconds.** It says so straight away and still returns the image.
 
 - **A saved file is named for what it actually is** — `screenshot(filename="chart.pdf")` is stored as a PNG.

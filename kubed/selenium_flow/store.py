@@ -37,6 +37,11 @@ log = logging.getLogger(__name__)
 # Every key is written under this prefix, which is what makes sharing a database
 # with other applications safe.
 DEFAULT_PREFIX = "selenium-flow:session:"
+# The pointer store writes under the session prefix too, in this sub-namespace.
+# No caller key has this shape, so it is never a session — but a SCAN of the
+# prefix finds it, and `records()` reading one as a record emptied the admin
+# list the moment any browser had been hovered.
+POINTER_NAMESPACE = "pointer:"
 # Redis's own default. Deliberately not a guess about the deployment: an install
 # with an index convention passes REDIS_DB, and the prefix keeps it safe if not.
 DEFAULT_DB = 0
@@ -94,6 +99,11 @@ class SessionRecord:
     def from_json(cls, raw: str | bytes) -> SessionRecord | None:
         try:
             data = json.loads(raw)
+            if not isinstance(data, dict):
+                # Valid JSON that is not a record — a pointer's `[x, y]` — is
+                # a miss too. `.get` on it raised AttributeError, which the
+                # clause below does not catch.
+                return None
             settings = data.get("settings")
             return cls(
                 session_id=str(data.get("session_id") or ""),
@@ -273,6 +283,8 @@ class RedisStore:
         found: dict[str, SessionRecord] = {}
         for raw in self._redis.scan_iter(match=f"{self._prefix}*", count=100):
             key = raw.decode() if isinstance(raw, bytes) else raw
+            if key.startswith(self._prefix + POINTER_NAMESPACE):
+                continue
             record = SessionRecord.from_json(self._redis.get(key) or b"")
             if record:
                 found[key[len(self._prefix) :]] = record

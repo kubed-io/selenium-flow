@@ -1,0 +1,39 @@
+description: >-
+  Open this session from the admin list and see the shared flows in its detail
+  view — including this one.
+parameters:
+  type: object
+  required: [admin, session]
+  properties:
+    admin:
+      type: string
+      description: The origin the browser reaches this server at
+    session:
+      type: string
+      description: The name the caller running this flow gave its session
+steps:
+- tool: navigate
+  args:
+    url: ${admin}/admin
+- tool: write
+  args:
+    css: "#token"
+    secret:
+      name: admin
+      key: token
+- tool: interact
+  args:
+    action: click
+    css: "#loginForm button[type=submit]"
+- tool: interact
+  args:
+    action: click
+    xpath: //div[contains(@class, 'card')][.//span[contains(@class, 'name') and . = '${session}']]
+- tool: assert
+  args:
+    script: >-
+      return [...document.querySelectorAll('#flowlist .item .nm')]
+      .some((name) => name.textContent === 'open-this-session')
+    message: >-
+      The session opened, but its flows section does not list the shared flow
+      that is running right now.
