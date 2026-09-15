@@ -31,7 +31,7 @@ from .conftest import NAMED, TOKEN
 
 pytestmark = pytest.mark.unit
 
-KEY = "named:desktop"
+KEY = "desktop"
 SESSION = "desktop"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
@@ -60,7 +60,10 @@ def kept_server(tmp_path):
 
 @pytest.fixture
 def client(kept_server):
-    return TestClient(kept_server.mcp.http_app())
+    """Every request names its session, the way this surface says to (§F2.13)."""
+    return TestClient(
+        kept_server.mcp.http_app(), headers={"X-Session-Key": SESSION}
+    )
 
 
 @pytest.fixture
@@ -94,19 +97,23 @@ class FakeActions:
 
 
 class Sessions:
-    """A session manager double: only what `listing` actually reads."""
+    """A session manager double: only what `listing` actually reads.
+
+    `browser` is what a listing asks for — the Grid id of a LIVE browser, or ""
+    — because a listing must keep answering after the browser is gone, which is
+    the whole point of keeping a file.
+    """
 
     def __init__(self, **status):
         self.status = status
 
-    def describe(self):
+    def describe(self, name=None):
         return dict(self.status)
 
-    def key(self):
-        return NAMED
+    def browser(self, name):
+        return self.status.get("session_id", "") if self.status.get("live") else ""
 
-    def library_key(self):
-        # Which library a caller owns does not depend on browser persistence.
+    def name(self):
         return NAMED
 
 
@@ -293,7 +300,11 @@ def test_the_listing_ignores_a_browser_the_grid_has_reaped(store):
             raise AssertionError(f"dialled the Grid for reaped {session_id!r}")
 
     listed = files.listing(
-        FakeActions(Reaped()), Sessions(session_id="dead", live=False), store, TOKEN
+        FakeActions(Reaped()),
+        Sessions(session_id="dead", live=False),
+        store,
+        TOKEN,
+        SESSION,
     )
     assert [f["name"] for f in listed["files"]] == ["kept.pdf"]
 
@@ -304,21 +315,9 @@ def test_the_listing_still_uses_a_browser_that_is_live(store):
         Sessions(session_id="abc", live=True),
         store,
         TOKEN,
+        SESSION,
     )
     assert [f["name"] for f in listed["files"]] == ["report.pdf", "shot.png"]
-
-
-def test_an_explicitly_passed_browser_is_trusted(store):
-    """The caller owns that id and may well have opened it elsewhere, so it is
-    not second-guessed against a status this server holds."""
-    listed = files.listing(
-        FakeActions(FakeGrid(DOWNLOADS)),
-        Sessions(session_id=None, live=False),
-        store,
-        TOKEN,
-        session_id="abc",
-    )
-    assert len(listed["files"]) == 2
 
 
 def test_with_no_store_only_downloads_are_listed():
@@ -406,10 +405,12 @@ async def test_every_file_action_is_reachable_from_both_surfaces(
     monkeypatch.setattr(resources_module, "_http", lambda: ({"resources": "off"}, {}))
     names = {t.name for t in await kept_server.mcp.list_tools()}
     for path, tool in TOOL_FOR.items():
-        assert tool in names, f"/files/{path} has no tool"
+        method, template = files.FILE_ROUTES[path]
+        route = f"/files{template}".replace("{name}", "report.pdf")
+        assert tool in names, f"{route} has no tool"
         # 401 rather than 404: the route exists and refused the credential,
         # which is what proves it is bound.
-        assert client.post(f"/files/{path}").status_code == 401, f"{tool} has no route"
+        assert getattr(client, method)(route).status_code == 401, f"{tool} has no route"
 
 
 async def test_the_file_actions_are_not_counted_as_browser_actions(kept_server):
@@ -444,14 +445,13 @@ async def test_deleting_a_kept_file_is_not_offered_to_an_agent(
 
 
 def test_the_endpoints_need_the_token(client):
-    for path in files.FILE_ENDPOINTS:
-        assert client.post(f"/files/{path}").status_code == 401, path
+    for method, template in files.FILE_ROUTES.values():
+        route = f"/files{template}".replace("{name}", "report.pdf")
+        call = getattr(client, method)
+        assert call(route).status_code == 401, route
         assert (
-            client.post(
-                f"/files/{path}", headers={"Authorization": "Bearer nope"}
-            ).status_code
-            == 401
-        ), path
+            call(route, headers={"Authorization": "Bearer nope"}).status_code == 401
+        ), route
 
 
 def test_keep_then_list_over_http(client, live):
@@ -459,19 +459,11 @@ def test_keep_then_list_over_http(client, live):
         patch.object(browser.Grid, "files", return_value=DOWNLOADS),
         patch.object(browser.Grid, "read_file", return_value=b"PDF"),
     ):
-        kept = client.post(
-            "/files/keep",
-            json={"session_id": "abc", "name": "report.pdf", "session": SESSION},
-            headers=AUTH,
-        )
+        kept = client.put("/files/report.pdf/kept", headers=AUTH)
         assert kept.status_code == 200, kept.text
         assert kept.json()["kept"] is True
 
-        body = client.post(
-            "/files/list",
-            json={"session_id": "abc", "session": SESSION},
-            headers=AUTH,
-        ).json()
+        body = client.get("/files", headers=AUTH).json()
     assert [(f["name"], f["kept"]) for f in body["files"]] == [
         ("report.pdf", True),
         ("shot.png", False),
@@ -480,11 +472,11 @@ def test_keep_then_list_over_http(client, live):
 
 
 def test_an_unusable_name_is_a_400_over_http(client, live):
-    response = client.post(
-        "/files/keep",
-        json={"session_id": "abc", "name": "../passwd", "session": SESSION},
-        headers=AUTH,
-    )
+    """A leading dot rather than a traversal: a name with a slash in it never
+    reaches the handler, because the path pattern does not match one — which is
+    a refusal too, just a 404 shaped one. `valid_file_name` is what refuses the
+    rest, and it is unit-tested on its own."""
+    response = client.put("/files/.hidden/kept", headers=AUTH)
     assert response.status_code == 400
     assert "file name" in response.json()["error"]
 
@@ -500,11 +492,7 @@ def test_a_grid_that_says_no_is_not_a_500(client, live):
     with patch.object(
         browser.Grid, "read_file", side_effect=requests.HTTPError(response=gone)
     ):
-        response = client.post(
-            "/files/keep",
-            json={"session_id": "abc", "name": "report.pdf", "session": SESSION},
-            headers=AUTH,
-        )
+        response = client.put("/files/report.pdf/kept", headers=AUTH)
     assert response.status_code == 404
 
 
@@ -523,17 +511,16 @@ def test_a_grid_refusal_does_not_echo_the_grid_url():
     assert "404" in text, "the useful half survived"
 
 
-async def test_the_file_listing_tool_enforces_the_session_mode(
-    kept_server, named_caller
-):
-    """Every other tool enforces this through `sessions.resolve`, which this one
-    cannot call: resolve opens a browser when the record has none, and a listing
-    that opened one would be the leak the status resource refuses to be. A
-    browser id is the whole credential for driving that browser, so being handed
-    another caller's downloads — with a signed URL each — is not nothing."""
+async def test_the_file_listing_never_opens_a_browser(kept_server, named_caller):
+    """It cannot call `sessions.resolve`: that opens a browser when the record
+    has none, and a listing that opened one would be the leak the status
+    resource refuses to be. It asks `browser` instead, which answers "" — and
+    the kept files still list, which is what keeping one is for."""
     tool = await kept_server.mcp.get_tool(files.FILES_TOOL)
-    with pytest.raises(ValueError, match="do not pass session_id"):
-        tool.fn(session_id="somebody-elses-browser")
+    opened_before = kept_server.actions.grid
+    listing = tool.fn()
+    assert listing["files"] == []
+    assert kept_server.actions.grid is opened_before
 
 
 @pytest.mark.parametrize(
@@ -701,18 +688,18 @@ def test_the_download_names_are_reported_unmerged(client, live):
 def test_a_session_with_no_browser_has_nothing_to_clear(client, kept_server):
     """No browser, no Grid store — and the kept files are not downloads, so the
     list stays empty rather than offering to clear something it cannot."""
-    kept_server.sessions.store.set("named:idle", SessionRecord(session_id=""))
+    kept_server.sessions.store.set("idle", SessionRecord(session_id=""))
     kept_server.flows.write_file("idle", "report.pdf", b"PDF")
-    body = client.get("/admin/sessions/named:idle/files", headers=AUTH).json()
+    body = client.get("/admin/sessions/idle/files", headers=AUTH).json()
     assert body["downloads"] == []
 
 
 def test_a_detached_session_still_lists_its_kept_files(client, kept_server):
     """It has no browser and therefore no downloads — but keeping exists exactly
     so that is not the end of the answer."""
-    kept_server.sessions.store.set("named:idle", SessionRecord(session_id=""))
+    kept_server.sessions.store.set("idle", SessionRecord(session_id=""))
     kept_server.flows.write_file("idle", "report.pdf", b"PDF")
-    body = client.get("/admin/sessions/named:idle/files", headers=AUTH).json()
+    body = client.get("/admin/sessions/idle/files", headers=AUTH).json()
     assert [f["name"] for f in body["files"]] == ["report.pdf"]
     assert body["session"]["attached"] is False
 
@@ -756,7 +743,7 @@ def test_a_grid_outage_is_an_error_not_an_empty_download_list(client, live):
     assert response.status_code == 502
 
 
-BAD_KEY = "named:my bot"
+BAD_KEY = "my bot"
 
 
 def test_a_session_whose_name_is_not_a_directory_keeps_nothing(client, kept_server):
@@ -878,15 +865,24 @@ async def test_every_file_endpoint_is_in_the_published_contract(spec):
     """These paths are written by hand, so the list is held against the one the
     server actually binds — the guard the multipart upload schema lacked until
     it had already drifted."""
-    published = {p for p in spec["paths"] if p.startswith("/files/")}
-    assert published == {f"/files/{path}" for path in files.FILE_ENDPOINTS}
+    published = {
+        (method, path)
+        for path, operations in spec["paths"].items()
+        for method in operations
+        if path.startswith("/files")
+    }
+    assert published == {
+        (method, f"/files{template}")
+        for method, template in files.FILE_ROUTES.values()
+    }
 
 
 async def test_the_file_endpoints_are_tagged_apart(spec):
     assert "files" in {t["name"] for t in spec["tags"]}
     for path, operations in spec["paths"].items():
-        if path.startswith("/files/"):
-            assert operations["post"]["tags"] == ["files"], path
+        if path.startswith("/files"):
+            for method, operation in operations.items():
+                assert operation["tags"] == ["files"], f"{method} {path}"
 
 
 async def test_every_file_response_schema_it_references_exists(spec):
@@ -894,21 +890,22 @@ async def test_every_file_response_schema_it_references_exists(spec):
     and fails a strict linter."""
     defined = set(spec["components"]["schemas"])
     for path, operations in spec["paths"].items():
-        if not path.startswith("/files/"):
+        if not path.startswith("/files"):
             continue
-        for block in operations["post"]["responses"].values():
-            ref = block["content"]["application/json"]["schema"].get("$ref")
-            if ref:
-                assert ref.split("/")[-1] in defined, f"{path} -> {ref}"
+        for method, operation in operations.items():
+            for block in operation["responses"].values():
+                ref = block["content"]["application/json"]["schema"].get("$ref")
+                if ref:
+                    assert ref.split("/")[-1] in defined, f"{method} {path} -> {ref}"
 
 
 async def test_every_file_operation_declares_the_grids_failure_modes(spec):
     """Both remaining operations dial the Grid, so both can fail its way — and
     the contract has to say so, or a generated client writes no handling for the
     reaped browser it will certainly meet."""
-    for path in files.FILE_ENDPOINTS:
-        responses = spec["paths"][f"/files/{path}"]["post"]["responses"]
-        assert set(responses) == {"200", "400", "401", "404", "500", "503"}, path
+    for method, template in files.FILE_ROUTES.values():
+        responses = spec["paths"][f"/files{template}"][method]["responses"]
+        assert set(responses) == {"200", "400", "401", "404", "500", "503"}, template
 
 
 def test_the_session_row_counts_distinct_files_not_both_lists(client, live):
@@ -993,9 +990,7 @@ def test_the_file_stamp_cannot_be_forged_by_a_files_own_name(client, live):
 class _Sessions:
     """A session manager that names one flow session, the way `owner` asks."""
 
-    enabled = True
-
-    def library_key(self):
+    def name(self):
         return NAMED
 
 
@@ -1064,7 +1059,7 @@ def test_upload_sends_the_bytes_of_a_kept_file(actions, tmp_path, monkeypatch):
 
     actions.read_kept = reader
 
-    result = actions.upload_file("abc", css="input[type=file]", kept="export.csv")
+    result = actions.upload_file("abc", selector={"css": "input[type=file]"}, kept="export.csv")
 
     assert sent["bytes"] == b"id,name\n1,a\n"
     assert sent["name"] == "export.csv", "the kept name is the default filename"
@@ -1105,7 +1100,7 @@ def test_an_http_caller_can_name_the_library_its_file_was_kept_in(
         return b"x"
 
     actions.read_kept = reader
-    actions.upload_file("abc", css="input", kept="export.csv", session="desktop")
+    actions.upload_file("abc", selector={"css": "input"}, kept="export.csv", session="desktop")
     assert asked["session"] == "desktop"
 
 
@@ -1125,12 +1120,12 @@ def test_a_kept_upload_is_refused_when_there_is_nowhere_to_keep(actions):
     """Flows off means no file store, so `kept` names something that cannot
     exist. Refused with the three sources that do work."""
     with pytest.raises(ValueError, match="not available"):
-        actions.upload_file("abc", css="input", kept="export.csv")
+        actions.upload_file("abc", selector={"css": "input"}, kept="export.csv")
 
 
 def test_only_one_source_may_be_given(actions):
     with pytest.raises(ValueError, match="only one of"):
-        actions.upload_file("abc", css="input", text="hi", kept="export.csv")
+        actions.upload_file("abc", selector={"css": "input"}, text="hi", kept="export.csv")
 
 
 def test_an_unkept_file_says_what_would_keep_it(store):

@@ -42,7 +42,7 @@ there is nothing to find, and asking again will not change it.
 Give `write` a `secret` **instead of** `text`:
 
 ```
-write(css="#password", secret={"name": "nextcloud", "key": "password"})
+write(selector={"selector": {"css": "#password"}}, secret={"name": "nextcloud", "key": "password"})
 ```
 
 It comes back with `"text_from": "secret"` and no value. In a flow, the same
@@ -54,12 +54,12 @@ It comes back with `"text_from": "secret"` and no value. In a flow, the same
   "description": "Log in to Nextcloud as the admin",
   "steps": [
     {"tool": "navigate", "args": {"url": "https://nextcloud.example.com/login"}},
-    {"tool": "write", "args": {"css": "#user",
+    {"tool": "write", "args": {"selector": {"css": "#user"},
       "secret": {"name": "nextcloud", "key": "username"}}},
-    {"tool": "write", "args": {"css": "#password",
+    {"tool": "write", "args": {"selector": {"css": "#password"},
       "secret": {"name": "nextcloud", "key": "password"}}},
-    {"tool": "interact", "args": {"action": "click", "css": "button[type=submit]"}},
-    {"tool": "extract", "args": {"css": "h1"}, "return": true}
+    {"tool": "interact", "args": {"action": "click", "selector": {"css": "button[type=submit]"}}},
+    {"tool": "extract", "args": {"selector": {"css": "h1"}}, "return": true}
   ]
 }
 ```

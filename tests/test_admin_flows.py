@@ -25,7 +25,7 @@ from .conftest import TOKEN
 
 pytestmark = pytest.mark.unit
 
-KEY = "named:desktop"
+KEY = "desktop"
 SESSION = "desktop"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
@@ -109,10 +109,10 @@ def test_with_flows_off_the_panel_is_empty_rather_than_broken(tmp_path, monkeypa
 def test_a_session_whose_name_is_not_a_directory_lists_nothing(client, server):
     """It has no library, and must not be shown the shared one as though it
     were its own — the same rule the file counts follow."""
-    server.sessions.store.set("named:my bot", SessionRecord(session_id=""))
+    server.sessions.store.set("my bot", SessionRecord(session_id=""))
     server.flows.save(GLOBAL_SESSION, "shared", {"steps": []})
     body = client.get(
-        f"/admin/sessions/{quote('named:my bot', safe='')}/flows", headers=AUTH
+        f"/admin/sessions/{quote('my bot', safe='')}/flows", headers=AUTH
     ).json()
     assert body["enabled"] is False and body["flows"] == []
 
@@ -144,12 +144,14 @@ steps:
 - tool: write
   id: search
   args:
-    css: input
+    selector:
+      css: input
     text: ${term}
 - tool: extract
   id: heading
   args:
-    xpath: //h1[contains(., '${term}')]
+    selector:
+      xpath: //h1[contains(., '${term}')]
 """
 
 
@@ -376,8 +378,8 @@ def test_moving_between_two_sessions_needs_no_new_mechanism(client, server):
     """Push to global from one, claim from the other. The design leans on this,
     so it is worth proving rather than assuming."""
     server.flows.write_text("other", "login", YAML)
-    other = f"/admin/sessions/{quote('named:other', safe='')}/flows/login/move"
-    server.sessions.store.set("named:other", SessionRecord(session_id=""))
+    other = f"/admin/sessions/{quote('other', safe='')}/flows/login/move"
+    server.sessions.store.set("other", SessionRecord(session_id=""))
     client.post(other, json={"to": GLOBAL_SESSION}, headers=AUTH)
     client.post(url("login", "/move"), json={"to": SESSION}, headers=AUTH)
     assert server.flows.read_text(SESSION, "login") == YAML
@@ -472,7 +474,7 @@ def test_the_shared_revision_is_read_once_per_payload(client, server, monkeypatc
     walked and stat-ed the whole shared library once per session — O(sessions x
     shared flows) on a two-second poll."""
     for n in range(3):
-        server.sessions.store.set(f"named:s{n}", SessionRecord(session_id=""))
+        server.sessions.store.set(f"s{n}", SessionRecord(session_id=""))
     seen = []
     real = server.flows.revision
     monkeypatch.setattr(

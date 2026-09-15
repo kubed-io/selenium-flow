@@ -310,7 +310,7 @@ def secret_server(tmp_path, monkeypatch):
         secrets_dirs=str(tmp_path / "secrets-src"),
         flow_data_dir=str(tmp_path / "flows"),
     )
-    monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
+    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
     return server
 
 
@@ -355,7 +355,7 @@ async def test_no_tool_on_this_server_returns_a_secret_value(secret_server,
         steps=[
             {
                 "tool": "write",
-                "args": {"css": "#password", "secret": {"name": "nextcloud-admin", "key": "password"}},
+                "args": {"selector": {"css": "#password"}, "secret": {"name": "nextcloud-admin", "key": "password"}},
             }
         ],
     )
@@ -751,7 +751,11 @@ def bound_http(tmp_path, monkeypatch):
         auth_token=TOKEN,
         secrets_dirs=str(tmp_path),
     )
-    return TestClient(server.mcp.http_app()), typed
+    # A named session holding a browser: this surface addresses one by naming
+    # itself now, so there is no id to put in the body (§F2.13).
+    monkeypatch.setattr(server.sessions, "resolve", lambda name: "b1")
+    client = TestClient(server.mcp.http_app(), headers={"X-Session-Key": "desktop"})
+    return client, typed
 
 
 AUTH = {"Authorization": "Bearer test-token-abc123"}
@@ -766,8 +770,7 @@ def test_an_http_caller_can_bind_a_secret_it_never_sees(bound_http):
     response = client.post(
         "/browser/write",
         json={
-            "session_id": "b1",
-            "css": "#password",
+            "selector": {"css": "#password"},
             "secret": {"name": "nextcloud", "key": "password"},
         },
         headers=AUTH,
@@ -787,8 +790,7 @@ def test_an_http_bind_on_a_disallowed_page_is_refused(bound_http, monkeypatch):
     response = client.post(
         "/browser/write",
         json={
-            "session_id": "b1",
-            "css": "#password",
+            "selector": {"css": "#password"},
             "secret": {"name": "nextcloud", "key": "nope"},
         },
         headers=AUTH,
@@ -805,8 +807,7 @@ def test_an_http_bind_may_not_also_navigate(bound_http):
     response = client.post(
         "/browser/write",
         json={
-            "session_id": "b1",
-            "css": "#password",
+            "selector": {"css": "#password"},
             "url": "https://evil.test/",
             "secret": {"name": "nextcloud", "key": "password"},
         },
@@ -827,7 +828,7 @@ def test_a_malformed_binding_over_http_is_a_400_not_a_500(bound_http, reference)
     client, _ = bound_http
     response = client.post(
         "/browser/write",
-        json={"session_id": "b1", "css": "#p", "secret": reference},
+        json={"selector": {"css": "#p"}, "secret": reference},
         headers=AUTH,
     )
     assert response.status_code == 400, response.text
@@ -839,7 +840,7 @@ def test_an_http_caller_cannot_ask_for_the_read_back_to_be_skipped(bound_http):
     client, typed = bound_http
     response = client.post(
         "/browser/write",
-        json={"session_id": "b1", "css": "#p", "text": "plain", "read_back": False},
+        json={"selector": {"css": "#p"}, "text": "plain", "read_back": False},
         headers=AUTH,
     )
     assert response.status_code == 200, response.text
@@ -883,8 +884,8 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
         auth_token=TOKEN,
         secrets_dirs=str(tmp_path),
     )
-    monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
-    monkeypatch.setattr(server.sessions, "resolve", lambda key, sid: "browser-1")
+    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
+    monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
     monkeypatch.setattr(
         server.actions, "page",
         lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
@@ -901,12 +902,12 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
     touched = []
     monkeypatch.setattr(
         server.sessions, "touch",
-        lambda key, url, sid: touched.append(url),
+        lambda name, url: touched.append(url),
     )
 
     write = await server.mcp.get_tool("write")
     result = write.fn(
-        css="#password",
+        selector={"css": "#password"},
         secret={"name": "nextcloud", "key": "password"},
     )
     # The page the value reached is never remembered, whatever the value is —
@@ -937,8 +938,8 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
         auth_token=TOKEN,
         secrets_dirs=str(tmp_path),
     )
-    monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
-    monkeypatch.setattr(server.sessions, "resolve", lambda key, sid: "browser-1")
+    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
+    monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
     monkeypatch.setattr(
         server.actions, "page",
         lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
@@ -951,12 +952,12 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
     )
     touched = []
     monkeypatch.setattr(
-        server.sessions, "touch", lambda key, url, sid: touched.append(url)
+        server.sessions, "touch", lambda name, url: touched.append(url)
     )
 
     write = await server.mcp.get_tool("write")
     write.fn(
-        css="#password",
+        selector={"css": "#password"},
         secret={"name": "nextcloud", "key": "password"},
     )
     assert touched == ["https://nc.example.com/home"]
@@ -972,7 +973,7 @@ def test_an_http_binding_naming_two_sources_is_refused(bound_http, monkeypatch):
         headers=AUTH,
         json={
             "session_id": "browser-1",
-            "css": "#password",
+            "selector": {"css": "#password"},
             "secret": {"name": "nextcloud", "key": "password"},
             "text": "typed as well",
         },
@@ -1001,16 +1002,16 @@ def test_a_session_in_use_is_kept_alive_even_when_its_page_is_withheld():
     clock = [1000.0]
     store = MemoryStore(ttl=60, clock=lambda: clock[0])
     store.set(
-        NAMED.value, SessionRecord(session_id="browser-1", url="https://nc.test/home")
+        NAMED, SessionRecord(session_id="browser-1", url="https://nc.test/home")
     )
     sessions = manager(store=store)
 
     clock[0] += 50
     # The page is withheld, the way a bound write withholds it.
-    sessions.touch(NAMED, None, "browser-1")
+    sessions.touch(NAMED, None)
 
     clock[0] += 50  # past the original expiry, inside the slid one
-    kept = store.get(NAMED.value)
+    kept = store.get(NAMED)
     assert kept is not None, "the session expired while it was being used"
     # And the page it already knew survives being touched with nothing.
     assert kept.url == "https://nc.test/home"
@@ -1026,7 +1027,7 @@ async def test_every_surface_refuses_a_value_given_twice(bound_http):
         headers=AUTH,
         json={
             "session_id": "browser-1",
-            "css": "#password",
+            "selector": {"css": "#password"},
             "text": "typed as well",
             "secret": {"name": "nextcloud", "key": "password"},
         },
@@ -1093,7 +1094,7 @@ def test_an_http_reference_with_an_unknown_field_is_a_400(bound_http):
         headers=AUTH,
         json={
             "session_id": "browser-1",
-            "css": "#password",
+            "selector": {"css": "#password"},
             "secret": {"name": "nextcloud", "key": "password", "namespace": "x"},
         },
     )

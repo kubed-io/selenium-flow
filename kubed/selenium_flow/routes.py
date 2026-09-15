@@ -1,11 +1,26 @@
-"""The HTTP surface: the same actions, as plain REST.
+"""The HTTP surface: the same capabilities, as REST.
 
 Served alongside ``/mcp`` so a caller that is not an MCP client — an n8n HTTP
 Request node, a shell script, a health probe — can drive the browser without
-speaking JSON-RPC. The handlers call ``actions.py`` directly, so the two
-surfaces cannot disagree about what an operation does.
+speaking JSON-RPC. The handlers call ``actions.py`` through the same
+``SessionManager`` the tools use, so the two surfaces cannot disagree about what
+an operation does *or* about whose browser it does it to.
 
-Bodies are JSON and mirror the tool parameters one for one.
+**Paths and methods are declared, not derived** (§F2.13). Generating this
+surface from the tool list produced RPC wearing URLs — ``POST /flows/get`` for
+what is plainly ``GET /flows/{name}`` — because a tool is a verb with arguments
+while a resource is a path plus a method. What the two surfaces still share is
+what matters: the bodies and the results come from the same action signatures,
+so neither can accept something the other refuses.
+
+**The session is who is calling, never a body field and never a path segment**
+— ``X-Session-Key`` or ``?session=``, resolved by ``sessions.name_from``. A
+browser is addressed by naming yourself, which is why there is one browser
+resource here rather than one per id: ``POST /browser`` opens *yours*.
+
+The one place a session appears in a path is ``/admin``, which is the same rule
+from the other side: the token holder looking across sessions is the only role
+that addresses them as resources.
 """
 
 from __future__ import annotations
@@ -19,16 +34,23 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from . import auth, errors, settings
+from . import secrets as secrets_module
+from . import sessions as sessions_module
 from .actions import Actions
 from .openapi import build_spec
+from .sessions import SessionManager
 
 log = logging.getLogger(__name__)
 
-# The action behind each path. The signature of each method is what determines
-# the accepted body, so this table is the only thing a new endpoint needs.
+# One row per capability: the path under the browser root, and the action it
+# calls. The signature of each method is what determines the accepted body, so
+# this table plus `actions.py` is the whole definition of an endpoint.
+#
+# Every one is a POST, reads included. A body is then the same object as a
+# tool's arguments and a flow step's `args` — one shape in three places — and a
+# GET that waits thirty seconds for an element surprises caches and proxies
+# besides (§F2.13, Dr K).
 ENDPOINTS = {
-    "open": "open_session",
-    "end": "end_browser",
     "navigate": "navigate",
     "interact": "interact",
     "drag": "drag",
@@ -46,6 +68,11 @@ ENDPOINTS = {
     "pdf": "save_pdf",
 }
 
+# `interact` is the one action whose choice is a path segment rather than a body
+# field: /browser/interact/click reads as the thing it does, and the enum is
+# already closed (§F2.1). The action layer still validates it.
+ACTION_IN_PATH = "interact"
+
 # `assert` is a Python keyword, so the one action whose tool name cannot also be
 # its method name. The tool, the route and a flow step all say `assert`; the
 # method is `assert_`. One alias, in one place, read by everything that
@@ -53,28 +80,24 @@ ENDPOINTS = {
 # places that map a name to a method is how the two surfaces drift apart.
 METHOD_ALIASES = {"assert": "assert_"}
 
+# What `resize` changes outlives the page, so the record has to hear about it.
+RESHAPES = "resize"
+
 
 def method_for(tool: str) -> str:
     """The ``Actions`` method that serves ``tool``."""
     return METHOD_ALIASES.get(tool, tool)
 
 
-# Paths that named an action before it was renamed, kept working because their
-# callers cannot be found: an n8n workflow lives in a database, not in this
-# repo. Not in ENDPOINTS, so the spec and the wiki describe one name per action
-# rather than advertising both.
-LEGACY_PATHS = {"close": "end_browser"}
-
-
 def register(
     mcp: FastMCP,
     actions: Actions,
+    sessions: SessionManager,
     token: str | None,
     prefix: str,
-    sessions_kind: str = "memory",
     catalogue=None,
 ) -> None:
-    """Register ``/health`` and the ``<prefix>/*`` action endpoints on ``mcp``."""
+    """Register ``/health``, the spec, and the browser resource on ``mcp``."""
 
     @mcp.custom_route("/health", methods=["GET"])
     async def health(_request: Request) -> JSONResponse:
@@ -85,7 +108,7 @@ def register(
         """
         try:
             ready = bool(actions.grid.status()["value"]["ready"])
-            sessions = actions.grid.session_count()
+            running = actions.grid.session_count()
         except Exception as exc:  # noqa: BLE001 - the probe must never raise
             return JSONResponse(
                 {"status": "degraded", "grid": actions.grid.url, "error": str(exc)},
@@ -96,8 +119,8 @@ def register(
                 "status": "ok" if ready else "degraded",
                 "grid": actions.grid.url,
                 "grid_ready": ready,
-                "sessions": sessions,
-                "saved_sessions": sessions_kind,
+                "browsers": running,
+                "sessions": sessions.kind,
             },
             status_code=200 if ready else 503,
         )
@@ -129,20 +152,91 @@ def register(
         """The same document as JSON, for tools that will not read YAML."""
         return JSONResponse(await spec())
 
-    for path, method_name in {**ENDPOINTS, **LEGACY_PATHS}.items():
-        _add(mcp, actions, token, prefix, path, method_name, catalogue)
+    # ---- the browser this caller holds ------------------------------------
+    #
+    # One resource, not one per browser id. Which browser is a question about
+    # who is asking, and the answer is in the header or the query string.
+
+    @mcp.custom_route(prefix, methods=["POST"], name="browser_open")
+    async def open_browser(request: Request) -> JSONResponse:
+        """Open this session's browser, or pick up the one it was using."""
+        return await _answer(request, token, "open", lambda name, body: (
+            sessions.open_browser(
+                name,
+                url=body.get("url"),
+                fresh=body.get("fresh", False),
+                **{k: v for k, v in body.items() if k in settings.SETTINGS},
+            )
+        ))
+
+    @mcp.custom_route(prefix, methods=["DELETE"], name="browser_end")
+    async def end_browser(request: Request) -> JSONResponse:
+        """Quit the browser, keeping the session and what it was doing."""
+        return await _answer(request, token, "end", lambda name, _body: (
+            {"success": True, "session": name, "ended": sessions.end_browser(name)}
+        ))
+
+    @mcp.custom_route(prefix, methods=["GET"], name="browser_status")
+    async def browser_status(request: Request) -> JSONResponse:
+        """What this session is and whether it holds a browser. Opens nothing."""
+        return await _answer(request, token, "status", lambda name, _body: (
+            sessions.describe(name)
+        ))
+
+    for path, method_name in ENDPOINTS.items():
+        _add(mcp, actions, sessions, token, prefix, path, method_name, catalogue)
 
 
-def _add(mcp, actions, token, prefix, path, method_name, catalogue=None) -> None:
-    """Bind one action method to ``<prefix>/<path>``."""
+async def _answer(request, token, what, call) -> JSONResponse:
+    """Authorise, name the session, run ``call``, and turn a failure into JSON.
+
+    Every handler here shares it, so a refusal reads the same whichever endpoint
+    produced it — and `errors.py` stays the one place that decides what a
+    failure means.
+    """
+    if not auth.authorized(request, token):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await _body(request)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    try:
+        name = sessions_module.name_from(request)
+        return JSONResponse(call(name, body))
+    except Exception as exc:
+        # errors.py decides what the failure means; see it for why a timeout is
+        # the caller's problem and an unknown one is ours.
+        status = errors.status_for(exc)
+        text = errors.message(exc)
+        if status >= 500:
+            if status != 500:
+                # No traceback for a condition we DO recognise — a Grid that is
+                # unreachable or refusing — whose text is where the Grid URL,
+                # credentials included, lives.
+                log.error("%s failed (%s): %s", what, status, text)
+            else:
+                log.exception("%s failed", what)
+        else:
+            # A refused request is not an incident. Logging a mistyped XPath
+            # with a full traceback buried the real failures.
+            log.info("%s refused (%s): %s", what, status, text)
+        return JSONResponse({"error": text}, status_code=status)
+
+
+def _add(mcp, actions, sessions, token, prefix, path, method_name, catalogue) -> None:
+    """Bind one action to ``<prefix>/<path>``."""
     method = getattr(actions, method_for(method_name))
-    accepted = set(inspect.signature(method).parameters)
-    # `secret` is not an argument of the action — resolving it needs the
-    # secret catalogue, which the behaviour layer deliberately cannot see. It is
-    # still a parameter of the *capability*, so this surface has to accept it or
-    # the two surfaces differ in what they can do, which is the one divergence
-    # this package does not allow. It is dropped from `accepted` by that same
-    # signature check, so without this branch an HTTP caller's binding vanished
+    # `session_id` is the Grid's, supplied by the session manager. It was never
+    # a field a caller filled in and now it is not one it could.
+    accepted = set(inspect.signature(method).parameters) - {"session_id"}
+    # `secret` is not an argument of the action — resolving it needs the secret
+    # catalogue, which the behaviour layer deliberately cannot see. It is still
+    # a parameter of the *capability*, so this surface has to accept it or the
+    # two surfaces differ in what they can do, which is the one divergence this
+    # package does not allow. It is dropped from `accepted` by that same
+    # signature check, so without this an HTTP caller's binding vanished
     # silently while the published spec advertised it.
     binds = method_name == "write"
     if binds:
@@ -150,83 +244,31 @@ def _add(mcp, actions, token, prefix, path, method_name, catalogue=None) -> None
         # field: accepting it would let a caller ask for `value: null` with no
         # binding, which neither MCP nor the published spec offers.
         accepted = (accepted | {"secret"}) - {"read_back"}
+    in_path = method_name == ACTION_IN_PATH
+    route = f"{prefix}/{path}" + ("/{action}" if in_path else "")
 
-    @mcp.custom_route(f"{prefix}/{path}", methods=["POST"], name=f"browser_{path}")
+    @mcp.custom_route(route, methods=["POST"], name=f"browser_{path}")
     async def handler(request: Request) -> JSONResponse:
-        if not auth.authorized(request, token):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
-
-        try:
-            body = await _body(request)
-        except ValueError as exc:
-            return JSONResponse({"error": str(exc)}, status_code=400)
-        if not isinstance(body, dict):
-            return JSONResponse(
-                {"error": "body must be a JSON object"}, status_code=400
+        def call(name, body):
+            # Unknown keys are dropped rather than refused: a caller sending a
+            # field a newer version accepts should not be a hard failure.
+            kwargs = {k: v for k, v in body.items() if k in accepted}
+            if in_path:
+                kwargs["action"] = request.path_params["action"]
+            if binds and kwargs.get("secret") is not None:
+                # Its own path, because a bound write must not let the shared
+                # wrapper store the page it landed on. See secrets.perform_write.
+                return secrets_module.perform_write(
+                    catalogue, actions, sessions, name, kwargs
+                )
+            kwargs.pop("secret", None)
+            return sessions.act(
+                name,
+                lambda s: method(s, **kwargs),
+                reshapes=method_name == RESHAPES,
             )
 
-        # Drop unknown keys rather than 400 on them: a caller sending a field a
-        # newer version accepts should not be a hard failure.
-        kwargs = {k: v for k, v in body.items() if k in accepted}
-        guarded: set[str] = set()
-        try:
-            if binds and kwargs.get("secret") is not None:
-                from . import secrets as secrets_module
-
-                session = kwargs.get("session_id") or ""
-                if not session:
-                    raise ValueError("session_id is required")
-                kwargs, guarded = secrets_module.prepare_write(
-                    catalogue, actions, session, kwargs
-                )
-                kwargs["read_back"] = False
-            elif binds:
-                kwargs.pop("secret", None)
-            if method_name == "open_session":
-                # Same cascade as the tool: server default < client default <
-                # body. Inside the try because it VALIDATES as well as merges —
-                # an explicit browser is checked strictly — and run outside it
-                # that ValueError escaped the handler entirely, so a caller
-                # asking for Safari got a bare 500 with no body while the MCP
-                # surface got "unknown browser 'safari'; known browsers: ...".
-                kwargs = settings.resolve(kwargs) | {
-                    k: v for k, v in kwargs.items() if k not in settings.SETTINGS
-                }
-            result = method(**kwargs)
-            if guarded:
-                from . import flowrun
-
-                hidden = flowrun.hidden_forms(kwargs.get(n) for n in guarded)
-                result = flowrun.scrub_values(
-                    {**result, "text_from": "secret"}, hidden
-                )
-            return JSONResponse(result)
-        except Exception as exc:
-            # errors.py decides what the failure means; see it for why a
-            # timeout is the caller's problem and an unknown one is ours.
-            status = errors.status_for(exc)
-            text = errors.message(exc)
-            if guarded:
-                from . import flowrun
-
-                text = flowrun.scrub(
-                    text, flowrun.hidden_forms(kwargs.get(n) for n in guarded)
-                )
-            if status >= 500:
-                if guarded or status != 500:
-                    # No traceback, for two different reasons that want the same
-                    # thing. A guarded call's exception and frames can hold the
-                    # bound value. And anything above 500 is a condition we DO
-                    # recognise — a Grid that is unreachable or refusing — whose
-                    # text is where the Grid URL, credentials included, lives.
-                    log.error("%s failed (%s): %s", path, status, text)
-                else:
-                    log.exception("%s failed", path)
-            else:
-                # A refused request is not an incident. Logging a mistyped
-                # XPath with a full traceback buried the real failures.
-                log.info("%s refused (%s): %s", path, status, text)
-            return JSONResponse({"error": text}, status_code=status)
+        return await _answer(request, token, path, call)
 
     return handler
 
@@ -255,5 +297,5 @@ async def _body(request: Request) -> dict:
 
     try:
         return await request.json()
-    except Exception:  # noqa: BLE001 - an empty body is legitimate for /open
+    except Exception:  # noqa: BLE001 - an empty body is legitimate for an open
         return {}

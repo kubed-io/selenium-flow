@@ -39,16 +39,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="path prefix for the plain HTTP endpoints (env: ROUTE_PREFIX)",
     )
     parser.add_argument(
-        "--no-saved-sessions",
-        dest="saved_sessions",
-        action="store_false",
-        default=os.environ.get("SAVED_SESSIONS", "true").strip().lower()
-        not in ("0", "false", "no", "off"),
-        help="require session_id on every MCP tool call instead of remembering "
-        "the browser per MCP session. The HTTP endpoints are unaffected: they "
-        "are always explicit (env: SAVED_SESSIONS)",
-    )
-    parser.add_argument(
         "--no-skill",
         dest="skill_enabled",
         action="store_false",
@@ -123,14 +113,13 @@ def main(argv: list[str] | None = None) -> None:
         auth_token=args.auth_token or None,
         route_prefix=args.route_prefix,
         stateless=args.stateless,
-        saved_sessions=args.saved_sessions,
         skill_enabled=args.skill_enabled,
         apps_enabled=args.apps_enabled,
         flow_data_dir=args.flow_data_dir or None,
         secrets_dirs=args.secrets_dirs or None,
     )
     logging.getLogger(__name__).info(
-        "grid=%s auth=%s saved-sessions=%s stateless=%s skill=%s flows=%s secrets=%s",
+        "grid=%s auth=%s sessions=%s stateless=%s skill=%s flows=%s secrets=%s",
         args.grid_url,
         "on" if args.auth_token else "off",
         server.sessions.kind,

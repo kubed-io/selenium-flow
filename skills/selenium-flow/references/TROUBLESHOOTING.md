@@ -22,7 +22,7 @@ is not the page you expected, the selector was never the problem.
 Check where you are, cheaply:
 
 ```
-extract(xpath="//title")
+extract(selector={"selector": {"xpath": "//title"}})
 ```
 
 or read `session://current`, which reports the URL without touching the browser.
@@ -47,9 +47,9 @@ using the wrong one. Read `session://current` — it reports `mode` and links th
 reference that applies.
 
 - **"session_id is required"** — you are stateless and own the session. Call
-  `open_session` and pass its id on every call. See `references/STATELESS.md`.
+  `open_session` first. See `references/SESSIONS.md`.
 - **"do not pass session_id"** — the server is holding a browser for you. Omit
-  the argument entirely. See `references/SAVED_SESSIONS.md`.
+  the argument entirely. See `references/SESSIONS.md`.
 
 Neither is transient; retrying unchanged will not help.
 
@@ -95,7 +95,7 @@ The page had not finished rendering. Force a wait by extracting something from
 it first, then capture:
 
 ```
-extract(xpath="//main")
+extract(selector={"selector": {"xpath": "//main"}})
 screenshot()
 ```
 
@@ -108,7 +108,7 @@ click either hit the wrong element or the page uses JavaScript that has not
 settled. Confirm what you actually clicked:
 
 ```
-extract(xpath="//button[contains(., 'Submit')]")
+extract(selector={"selector": {"xpath": "//button[contains(., 'Submit')]"}})
 ```
 
 If an overlay or cookie banner is intercepting the click, dismiss it first —

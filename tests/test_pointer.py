@@ -208,7 +208,7 @@ def test_a_click_leaves_the_pointer_on_what_it_clicked(actions, moving, monkeypa
         "kubed.selenium_flow.browser.wait_for_clickable",
         lambda *a, **k: type("E", (), {"click": lambda self: clicked.append(1)})(),
     )
-    actions.interact("abc", "click", css="#go")
+    actions.interact("abc", "click", selector={"css": "#go"})
     assert clicked == [1], "the element click still happens, and still first-class"
     assert len(moving) == 1, "and the pointer moved onto it before the click"
     assert actions.pointers.get("abc") == (120.0, 80.0)
@@ -216,32 +216,32 @@ def test_a_click_leaves_the_pointer_on_what_it_clicked(actions, moving, monkeypa
 
 @pytest.mark.parametrize("action", ["click", "double_click", "right_click", "hover"])
 def test_every_pointer_gesture_moves_first(actions, moving, action):
-    actions.interact("abc", action, css="#go")
+    actions.interact("abc", action, selector={"css": "#go"})
     assert len(moving) == 1, action
 
 
 def test_scroll_to_does_not_move_the_pointer(actions, moving):
     """It moves the PAGE. A pointer that followed a scroll_to would hover things
     on the way that nobody asked to hover."""
-    result = actions.interact("abc", "scroll_to", css="#go")
+    result = actions.interact("abc", "scroll_to", selector={"css": "#go"})
     assert moving == []
     assert "glided" not in result
 
 
 def test_a_glide_is_off_unless_asked_for(actions, moving):
-    actions.interact("abc", "hover", css="#go")
+    actions.interact("abc", "hover", selector={"css": "#go"})
     assert moving[0]["glide"] is False
-    assert actions.interact("abc", "hover", css="#go", glide=True)["glided"] is True
+    assert actions.interact("abc", "hover", selector={"css": "#go"}, glide=True)["glided"] is True
 
 
 def test_the_first_glide_in_a_browser_is_a_jump_and_says_so(actions, moving):
     """Never a guessed start (§F2.3). The result has to admit the degrade, or a
     caller debugging a slider believes it sent movement it did not send."""
-    result = actions.interact("abc", "hover", css="#go", glide=True)
+    result = actions.interact("abc", "hover", selector={"css": "#go"}, glide=True)
     assert result["glided"] is False
     assert "not known" in result["glide_note"]
     # And the next one has a start to plot from.
-    assert actions.interact("abc", "hover", css="#go", glide=True)["glided"] is True
+    assert actions.interact("abc", "hover", selector={"css": "#go"}, glide=True)["glided"] is True
 
 
 def test_a_move_that_cannot_be_sent_costs_the_position_and_not_the_gesture(
@@ -270,7 +270,7 @@ def test_a_move_that_cannot_be_sent_costs_the_position_and_not_the_gesture(
         raise RuntimeError("move target out of bounds")
 
     monkeypatch.setattr(pointer, "move", explodes)
-    result = actions.interact("abc", "click", css="#go")
+    result = actions.interact("abc", "click", selector={"css": "#go"})
     assert clicked == [1], "the click still happened"
     assert "glided" not in result
     assert actions.pointers.get("abc") is None, "a stale origin is worse than none"
@@ -314,7 +314,7 @@ def test_a_hover_falls_back_to_the_old_gesture_when_the_move_fails(
     monkeypatch.setattr(
         pointer, "move", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no"))
     )
-    actions.interact("abc", "hover", css="#go")
+    actions.interact("abc", "hover", selector={"css": "#go"})
     assert performed == ["move_to_element", "perform"]
 
 
@@ -341,17 +341,17 @@ def test_opening_a_browser_forgets_where_the_pointer_was(actions, monkeypatch):
 
 def test_a_drag_with_no_destination_is_refused_before_the_browser_is_touched(actions):
     with pytest.raises(ValueError, match="destination is required"):
-        actions.drag("abc", css="#card")
+        actions.drag("abc", selector={"css": "#card"})
 
 
 def test_a_drag_with_two_kinds_of_destination_is_refused(actions):
     with pytest.raises(ValueError, match="never both"):
-        actions.drag("abc", css="#card", to_css="#done", by_x=10)
+        actions.drag("abc", selector={"css": "#card"}, to={"css": "#done"}, by_x=10)
 
 
 def test_a_drag_to_where_it_already_is_is_refused(actions):
     with pytest.raises(ValueError, match="already is"):
-        actions.drag("abc", css="#card", by_x=0, by_y=0)
+        actions.drag("abc", selector={"css": "#card"}, by_x=0, by_y=0)
 
 
 def test_a_source_the_pointer_cannot_reach_is_the_callers_to_fix(actions, monkeypatch):
@@ -374,7 +374,7 @@ def test_a_source_the_pointer_cannot_reach_is_the_callers_to_fix(actions, monkey
     monkeypatch.setattr(actions, "_move_onto", lambda *a, **k: None)
 
     with pytest.raises(ValueError) as refused:
-        actions.drag("abc", css="#card", to_css="#done")
+        actions.drag("abc", selector={"css": "#card"}, to={"css": "#done"})
     assert status_for(refused.value) == 400
     assert "resize" in str(refused.value)
 
@@ -451,14 +451,14 @@ def test_a_jump_delivers_one_move_and_a_glide_delivers_many(live):
     actions, session = live
     driver = actions.grid.reconnect(session)
 
-    actions.interact(session, "hover", css="#a")
+    actions.interact(session, "hover", selector={"css": "#a"})
     driver.execute_script("window.moves = [];")
-    actions.interact(session, "hover", css="#b")
+    actions.interact(session, "hover", selector={"css": "#b"})
     jumped = driver.execute_script("return window.moves.length")
 
-    actions.interact(session, "hover", css="#a")
+    actions.interact(session, "hover", selector={"css": "#a"})
     driver.execute_script("window.moves = [];")
-    result = actions.interact(session, "hover", css="#b", glide=True)
+    result = actions.interact(session, "hover", selector={"css": "#b"}, glide=True)
     glided = driver.execute_script("return window.moves.length")
 
     assert result["glided"] is True
@@ -471,8 +471,8 @@ def test_a_jump_delivers_one_move_and_a_glide_delivers_many(live):
 def test_a_glide_ends_on_the_element_it_was_aimed_at(live):
     actions, session = live
     driver = actions.grid.reconnect(session)
-    actions.interact(session, "hover", css="#a")
-    actions.interact(session, "hover", css="#b", glide=True)
+    actions.interact(session, "hover", selector={"css": "#a"})
+    actions.interact(session, "hover", selector={"css": "#b"}, glide=True)
     assert driver.execute_script("return window.moves.slice(-1)[0]") == [630, 430]
 
 
@@ -485,9 +485,9 @@ def test_hovering_what_the_pointer_is_already_on_still_fires_mouseover(live):
     actions, session = live
     driver = actions.grid.reconnect(session)
 
-    actions.interact(session, "hover", css="#b")
+    actions.interact(session, "hover", selector={"css": "#b"})
     driver.execute_script("window.overs = 0;")
-    result = actions.interact(session, "hover", css="#b")
+    result = actions.interact(session, "hover", selector={"css": "#b"})
 
     assert result["nudged"] is True
     assert driver.execute_script("return window.overs") == 1
@@ -502,8 +502,8 @@ def test_after_a_click_the_pointer_is_on_what_was_clicked(live):
     actions, session = live
     driver = actions.grid.reconnect(session)
 
-    actions.interact(session, "hover", css="#a")
-    actions.interact(session, "click", css="#b")
+    actions.interact(session, "hover", selector={"css": "#a"})
+    actions.interact(session, "click", selector={"css": "#b"})
     assert driver.execute_script("return window.clicked") == 1
     # `elementFromPoint` at the pointer's last known position is the only way
     # to ask the page where it is: WebDriver has no such command.
@@ -528,7 +528,7 @@ def test_a_covered_click_is_still_refused_loudly(live):
         "document.getElementById('b').style.left = '40px';"
     )
     with pytest.raises(ElementClickInterceptedException) as refused:
-        actions.interact(session, "click", css="#b")
+        actions.interact(session, "click", selector={"css": "#b"})
     assert "div#cover is on top of it" in str(refused.value)
     assert driver.execute_script("return window.clicked") == 0
 
@@ -551,10 +551,10 @@ def test_gliding_to_something_below_the_fold_still_glides(live):
         "document.body.appendChild(far);"
         "document.body.style.height = '4000px';"
     )
-    actions.interact(session, "hover", css="#a")
+    actions.interact(session, "hover", selector={"css": "#a"})
     driver.execute_script("window.moves = [];")
 
-    result = actions.interact(session, "hover", css="#far", glide=True)
+    result = actions.interact(session, "hover", selector={"css": "#far"}, glide=True)
 
     assert result["glided"] is True, result.get("glide_note")
     assert driver.execute_script("return window.moves.length") >= pointer.MIN_STEPS
@@ -580,8 +580,8 @@ def test_a_click_that_cannot_glide_still_clicks(live):
         "tall.addEventListener('click', () => window.clicked++);"
         "document.body.appendChild(tall);"
     )
-    actions.interact(session, "hover", css="#a")
-    result = actions.interact(session, "click", css="#tall", glide=True)
+    actions.interact(session, "hover", selector={"css": "#a"})
+    result = actions.interact(session, "click", selector={"css": "#tall"}, glide=True)
     assert driver.execute_script("return window.clicked") == 1
     if not result["glided"]:
         assert "jump" in result["glide_note"]
@@ -595,7 +595,7 @@ def test_a_drag_presses_travels_and_releases(live):
     driver = actions.grid.reconnect(session)
     driver.execute_script("window.moves = 0;")
 
-    result = actions.drag(session, css="#src", to_css="#dst")
+    result = actions.drag(session, selector={"css": "#src"}, to={"css": "#dst"})
 
     assert driver.execute_script("return window.down") == 1
     assert driver.execute_script("return window.up") == 1
@@ -613,7 +613,7 @@ def test_a_drag_by_an_offset_moves_a_range_slider(live):
     driver = actions.grid.reconnect(session)
     assert driver.execute_script("return slider.value") == "0"
 
-    actions.drag(session, css="#slider", by_x=100)
+    actions.drag(session, selector={"css": "#slider"}, by_x=100)
 
     assert int(driver.execute_script("return slider.value")) > 50
 
@@ -627,7 +627,7 @@ def test_a_destination_outside_the_window_stops_at_the_edge_rather_than_failing(
     # The window is 900 wide and the viewport is not: a scrollbar is the
     # difference, which is why the edge is asked for rather than assumed.
     edge = driver.execute_script("return window.innerWidth;") - 1
-    result = actions.drag(session, css="#src", by_x=5000)
+    result = actions.drag(session, selector={"css": "#src"}, by_x=5000)
     assert "clamped" in result
     assert result["to"]["x"] == edge
 
@@ -704,7 +704,7 @@ def test_a_dead_browser_during_a_move_is_not_reported_as_bad_geometry(
     )
 
     with pytest.raises(InvalidSessionIdException) as dead:
-        actions.drag("abc", css="#card", to_css="#done")
+        actions.drag("abc", selector={"css": "#card"}, to={"css": "#done"})
     assert status_for(dead.value) == 404
 
 
@@ -752,3 +752,100 @@ def test_a_custom_store_without_a_ttl_still_starts_the_server():
 
     server = SeleniumMCP(grid_url="http://grid.invalid:4444", store=_Minimal())
     assert server.actions.pointers.kind == "memory"
+
+
+# ---- a page that repaints under the action --------------------------------
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda actions: actions.interact(
+            "abc", "click", selector={"css": "#row"}
+        ),
+        lambda actions: actions.write("abc", "hello", selector={"css": "#row"}),
+    ],
+    ids=["interact", "write"],
+)
+def test_an_element_replaced_under_the_action_is_found_again(
+    actions, monkeypatch, call
+):
+    """Found by the admin UI's own session list, which repaints on a two-second
+    poll: the row was replaced between the wait and the click, and WebDriver
+    called that a stale reference. Nothing was wrong with the selector — the
+    element it found simply was not on the page any more — so the pair is
+    retried together, once.
+    """
+    from selenium.common.exceptions import StaleElementReferenceException
+
+    class _Typed(_Element):
+        """Enough element for both actions, without a real browser behind it."""
+
+        def send_keys(self, *_a):
+            return None
+
+        def clear(self):
+            return None
+
+        def get_attribute(self, _name):
+            return "hello"
+
+    class _Stale(_Typed):
+        def click(self):
+            raise StaleElementReferenceException("gone")
+
+        def clear(self):
+            raise StaleElementReferenceException("gone")
+
+    class _Driver:
+        current_url = "https://example.test/"
+        title = "t"
+
+        def execute_script(self, *_a, **_k):
+            return None
+
+        def execute(self, *_a, **_k):
+            return {"value": None}
+
+    found = []
+
+    def finding(*_a, **_k):
+        # Stale the first time, ordinary the second — a page that repainted once.
+        found.append(1)
+        return _Stale() if len(found) == 1 else _Typed()
+
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
+    monkeypatch.setattr(actions, "_move_onto", lambda *a, **k: None)
+    monkeypatch.setattr("kubed.selenium_flow.browser.wait_for_element", finding)
+    monkeypatch.setattr("kubed.selenium_flow.browser.wait_for_clickable", finding)
+    monkeypatch.setattr("kubed.selenium_flow.browser.settled", lambda *a, **k: None)
+
+    call(actions)
+    assert len(found) == 2, "it reused the dead reference instead of finding it again"
+
+
+def test_an_element_that_keeps_going_stale_is_reported_rather_than_looped(
+    actions, monkeypatch
+):
+    """Once, not until it works. A page that replaces an element faster than we
+    can act on it is a real finding, and a loop would bury it as a slow call."""
+    from selenium.common.exceptions import StaleElementReferenceException
+
+    class _AlwaysStale(_Element):
+        def click(self):
+            raise StaleElementReferenceException("gone")
+
+    class _Driver:
+        current_url = "https://example.test/"
+        title = "t"
+
+        def execute_script(self, *_a, **_k):
+            return None
+
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
+    monkeypatch.setattr(actions, "_move_onto", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "kubed.selenium_flow.browser.wait_for_clickable", lambda *a, **k: _AlwaysStale()
+    )
+    with pytest.raises(StaleElementReferenceException):
+        actions.interact("abc", "click", selector={"css": "#row"})

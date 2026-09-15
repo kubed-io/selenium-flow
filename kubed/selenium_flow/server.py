@@ -55,7 +55,6 @@ class SeleniumMCP:
         auth_token: str | None = None,
         route_prefix: str = DEFAULT_ROUTE_PREFIX,
         stateless: bool = False,
-        saved_sessions: bool = True,
         store: SessionStore | None = None,
         pointers=None,
         skill_enabled: bool = True,
@@ -83,11 +82,7 @@ class SeleniumMCP:
         )
         self.auth_token = auth_token
         self.stateless = stateless
-        self.sessions = SessionManager(
-            self.actions,
-            store=self.store,
-            enabled=saved_sessions,
-        )
+        self.sessions = SessionManager(self.actions, store=self.store)
 
         # Saved flows, or None when no data directory was named — which is the
         # default, and is the feature being off rather than a degraded mode.
@@ -189,17 +184,14 @@ class SeleniumMCP:
         self.mcp.add_middleware(
             resources.HideMirrorTools(mirrors, app_tools if apps_enabled else set())
         )
-        # Shapes session_id per request, so the advertised schema matches the
-        # mode the caller is actually in rather than the union of both.
-        self.mcp.add_middleware(resources.ShapeSessionId(self.sessions))
-        # No saved sessions here, deliberately: the HTTP surface takes a session
-        # id in and gives one back, so the caller owns it.
+        # The same sessions the MCP surface uses: one contract, one resolver,
+        # and the HTTP surface inherits the reopen-after-reap it never had.
         routes.register(
             self.mcp,
             self.actions,
+            self.sessions,
             auth_token,
             route_prefix,
-            self.sessions.kind,
             catalogue=self.secrets,
         )
 

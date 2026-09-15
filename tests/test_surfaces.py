@@ -54,9 +54,14 @@ def browser_tools(tools) -> set[str]:
     return {t.name for t in tools} - FLOW_TOOLS - FILE_TOOLS
 
 
+# `open_session` and `end_browser` are actions on the browser RESOURCE rather
+# than commands under it: POST and DELETE on /browser itself, because which
+# browser is a question about who is asking (§F2.13). They are still on both
+# surfaces, and `test_the_browser_resource_is_on_both_surfaces` below holds them
+# to it — this set is the commands, which is what ENDPOINTS lists.
+RESOURCE_ACTIONS = {"open_session", "end_browser"}
+
 EXPECTED = {
-    "open_session",
-    "end_browser",
     "navigate",
     "interact",
     "drag",
@@ -85,20 +90,34 @@ def test_every_route_maps_to_a_real_action(actions):
 
 
 def test_route_table_covers_every_action():
+    """The commands. The resource's own two are asserted separately, below."""
     assert set(ENDPOINTS.values()) == EXPECTED
 
 
 async def test_tool_names_match_the_action_names(server):
-    assert browser_tools(await server.mcp.list_tools()) == EXPECTED
+    assert browser_tools(await server.mcp.list_tools()) == EXPECTED | RESOURCE_ACTIONS
 
 
 async def test_every_action_is_reachable_from_both_surfaces(server):
     tools = browser_tools(await server.mcp.list_tools())
-    routed = set(ENDPOINTS.values())
+    routed = set(ENDPOINTS.values()) | RESOURCE_ACTIONS
     assert tools == routed, (
         "an action is exposed on one surface only: "
         f"tools-only={tools - routed}, routes-only={routed - tools}"
     )
+
+
+async def test_the_browser_resource_is_on_both_surfaces(server):
+    """The subtraction above is a narrowing, not an excuse: opening and ending
+    are bound as methods on /browser, and this is where that is held."""
+    routes = {
+        (r.path, method)
+        for r in server.mcp.http_app().routes
+        if getattr(r, "path", None) == "/browser"
+        for method in getattr(r, "methods", ())
+    }
+    assert ("/browser", "POST") in routes
+    assert ("/browser", "DELETE") in routes
 
 
 async def test_tools_declare_real_parameter_schemas(server):
@@ -110,7 +129,8 @@ async def test_tools_declare_real_parameter_schemas(server):
     """
     click = await server.mcp.get_tool("interact")
     props = click.parameters["properties"]
-    assert {"session_id", "xpath", "css", "url", "wait_timeout"} <= set(props)
+    assert {"selector", "url", "wait_timeout"} <= set(props)
+    assert "session_id" not in props, "the Grid's id is never a parameter (§F2.12)"
     # Only `action` is required. The element is addressed by EITHER xpath OR
     # css, which a JSON schema cannot say without oneOf, so it is enforced at
     # the boundary by `browser.locator` and asserted in test_coercion.py.
@@ -202,8 +222,8 @@ async def test_resize_writes_the_new_size_back_to_the_session(server, monkeypatc
     from .conftest import NAMED
 
     resize = (await server.mcp.get_tool("resize")).fn
-    monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
-    monkeypatch.setattr(server.sessions, "resolve", lambda key, session_id: "abc")
+    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
+    monkeypatch.setattr(server.sessions, "resolve", lambda name: "abc")
     monkeypatch.setattr(
         server.actions,
         "resize",
@@ -212,7 +232,7 @@ async def test_resize_writes_the_new_size_back_to_the_session(server, monkeypatc
     server.sessions.remember(NAMED, "abc", "", {"browser": "firefox"})
 
     resize(width=1024, height=768)
-    assert server.sessions.store.get(NAMED.value).window == "1024x768"
+    assert server.sessions.store.get(NAMED).window == "1024x768"
 
 
 async def test_press_key_lists_its_keys_in_the_description(server):
@@ -282,8 +302,9 @@ async def test_stateless_mode_keeps_both_surfaces_intact(server):
     """Statelessness is a transport setting, not a capability change.
 
     It exists so more than one replica can serve the /mcp surface — MCP sessions
-    otherwise live in one process's memory. The browser is unaffected either way,
-    because its session lives on the Grid and the caller carries the id.
+    otherwise live in one process's memory. The browser is unaffected either
+    way: the session is a name the caller supplies on every request, and the
+    record behind it is in the shared store rather than in this process.
     """
     from kubed.selenium_flow.server import SeleniumMCP
 
@@ -292,4 +313,6 @@ async def test_stateless_mode_keeps_both_surfaces_intact(server):
     )
     assert stateless.stateless is True
     assert server.stateless is False
-    assert browser_tools(await stateless.mcp.list_tools()) == EXPECTED
+    assert browser_tools(await stateless.mcp.list_tools()) == (
+        EXPECTED | RESOURCE_ACTIONS
+    )

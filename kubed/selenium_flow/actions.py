@@ -20,7 +20,10 @@ import tempfile
 import time
 from pathlib import Path, PurePosixPath
 
-from selenium.common.exceptions import ElementClickInterceptedException
+from selenium.common.exceptions import (
+    ElementClickInterceptedException,
+    StaleElementReferenceException,
+)
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -441,10 +444,9 @@ class Actions:
         self,
         session_id: str,
         action: str,
-        xpath=None,
+        selector=None,
         url=None,
         wait_timeout=WAIT_TIMEOUT,
-        css=None,
         glide=False,
     ) -> dict:
         """Perform a mouse action on an element.
@@ -467,59 +469,84 @@ class Actions:
                 f"unknown action {action!r}; known actions: "
                 f"{', '.join(sorted(MOUSE_ACTIONS))}"
             )
-        # Resolved before the browser is touched: a call naming both xpath and
-        # css is a mistake, and finding that out after a reconnect and a
+        # Resolved before the browser is touched: a selector naming both xpath
+        # and css is a mistake, and finding that out after a reconnect and a
         # navigation costs a page load to learn nothing.
-        target = browser.locator(xpath, css)
+        target = browser.locator(selector)
         driver = self._at(session_id, url)
         timeout = as_int(wait_timeout, 30)
 
+        def gesture(element):
+            """The whole act, so a retry re-does the move as well as the click."""
+            moved = None
+            if resolved in POINTER_ACTIONS:
+                moved = self._move_onto(session_id, driver, element, glide)
+
+            if resolved == "click":
+                try:
+                    element.click()
+                except ElementClickInterceptedException as exc:
+                    # This is where a covered element actually surfaces.
+                    # Selenium's `element_to_be_clickable` considers one
+                    # clickable, so the wait above passes and the failure lands
+                    # here - and the driver's message names the element it was
+                    # asked for, not the thing on top of it. The probe knows
+                    # which (saga §F2.8).
+                    why = probe.explain(driver, target)
+                    first = (getattr(exc, "msg", "") or "").strip().splitlines()
+                    raise ElementClickInterceptedException(
+                        (first[0] if first else "element click intercepted")
+                        + (f" {why}" if why else "")
+                    ) from exc
+            elif resolved == "hover":
+                # The move IS the hover. Only when it could not be sent does
+                # this fall back to the gesture this package has always used.
+                if moved is None:
+                    ActionChains(driver).move_to_element(element).perform()
+            else:
+                chain = ActionChains(driver)
+                if resolved == "double_click":
+                    chain.double_click(element)
+                elif resolved == "right_click":
+                    chain.context_click(element)
+                elif resolved == "scroll_to":
+                    chain.scroll_to_element(element)
+                chain.perform()
+            return moved
+
         # hover and scroll_to only need the element to exist. Requiring it to be
         # clickable would refuse exactly the off-screen element scroll_to is for.
-        if resolved in ("hover", "scroll_to"):
-            element = browser.wait_for_element(driver, target, timeout)
-        else:
-            element = browser.wait_for_clickable(driver, target, timeout)
-
-        moved = None
-        if resolved in POINTER_ACTIONS:
-            moved = self._move_onto(session_id, driver, element, glide)
-
-        if resolved == "click":
-            try:
-                element.click()
-            except ElementClickInterceptedException as exc:
-                # This is where a covered element actually surfaces. Selenium's
-                # `element_to_be_clickable` considers one clickable, so the wait
-                # above passes and the failure lands here - and the driver's
-                # message names the element it was asked for, not the thing on
-                # top of it. The probe knows which (saga §F2.8).
-                why = probe.explain(driver, target)
-                first = (getattr(exc, "msg", "") or "").strip().splitlines()
-                raise ElementClickInterceptedException(
-                    (first[0] if first else "element click intercepted")
-                    + (f" {why}" if why else "")
-                ) from exc
-        elif resolved == "hover":
-            # The move IS the hover. Only when it could not be sent does this
-            # fall back to the gesture this package has always used.
-            if moved is None:
-                ActionChains(driver).move_to_element(element).perform()
-        else:
-            chain = ActionChains(driver)
-            if resolved == "double_click":
-                chain.double_click(element)
-            elif resolved == "right_click":
-                chain.context_click(element)
-            elif resolved == "scroll_to":
-                chain.scroll_to_element(element)
-            chain.perform()
+        moved = self._acting_on(
+            driver, target, timeout, resolved not in ("hover", "scroll_to"), gesture
+        )
 
         return {
             "action": resolved,
             **self._pointer_report(moved, glide),
             **browser.page_state(driver),
         }
+
+    def _acting_on(self, driver, target, timeout: int, clickable: bool, act):
+        """Find the element and act on it, once more if it goes stale first.
+
+        A page that repaints replaces the element between the wait and the act,
+        and WebDriver reports that as a stale reference. It is not a mistake by
+        the caller and there is nothing to fix in the selector: the element it
+        found is simply not the one on the page any more. Found by the admin UI,
+        whose session list repaints on a two-second poll — a click on a row was
+        racy on every page that refreshes itself, which is a great many of them.
+
+        Retried **once**, and the wait is part of the retry: retrying the act
+        alone would reuse the same dead reference. Once rather than until it
+        works, because a page that replaces an element faster than we can act on
+        it is a real finding, and a loop would bury it as a slow call.
+        """
+        find = browser.wait_for_clickable if clickable else browser.wait_for_element
+        try:
+            return act(find(driver, target, timeout))
+        except StaleElementReferenceException:
+            log.info("element went stale before it could be used; finding it again")
+            return act(find(driver, target, timeout))
 
     def _move_onto(self, session_id: str, driver, element, glide) -> dict | None:
         """Put the pointer on ``element`` before the gesture, if it can.
@@ -584,10 +611,8 @@ class Actions:
     def drag(
         self,
         session_id: str,
-        xpath=None,
-        css=None,
-        to_xpath=None,
-        to_css=None,
+        selector=None,
+        to=None,
         by_x=None,
         by_y=None,
         url=None,
@@ -608,18 +633,18 @@ class Actions:
         Incremental movement is most of what a drag is for — a sortable list or
         a slider watching for `pointermove` sees a teleport otherwise.
         """
-        target = browser.locator(xpath, css)
+        target = browser.locator(selector)
         # Resolved before the browser is touched, like every other locator
         # mistake: an impossible drag should cost a 400, not a page load.
         to_target = None
         offset = None
-        if to_xpath or to_css:
+        if to is not None:
             if by_x is not None or by_y is not None:
                 raise ValueError(
-                    "give the destination as to_xpath/to_css OR as a by_x/by_y "
+                    "give the destination as `to` OR as a by_x/by_y "
                     "offset, never both"
                 )
-            to_target = browser.locator(to_xpath, to_css)
+            to_target = browser.locator(to)
         elif by_x is not None or by_y is not None:
             offset = (as_int(by_x, 0), as_int(by_y, 0))
             if offset == (0, 0):
@@ -629,7 +654,7 @@ class Actions:
                 )
         else:
             raise ValueError(
-                "the destination is required: name it with to_xpath or to_css, "
+                "the destination is required: name it with `to`, "
                 "or give a by_x/by_y offset in pixels"
             )
 
@@ -686,10 +711,9 @@ class Actions:
         self,
         session_id: str,
         action="switch",
-        xpath=None,
+        selector=None,
         index=None,
         wait_timeout=WAIT_TIMEOUT,
-        css=None,
     ) -> dict:
         """Move the session into an iframe, or back out of it.
 
@@ -706,9 +730,9 @@ class Actions:
                 f"unknown action {action!r}; known actions: "
                 f"{', '.join(sorted(FRAME_ACTIONS))}"
             )
-        if resolved == "switch" and not xpath and not css and index is None:
+        if resolved == "switch" and not selector and index is None:
             raise ValueError(
-                "switch needs xpath, css or index to say which frame"
+                "switch needs a selector or an index to say which frame"
             )
 
         driver = self.grid.reconnect(session_id)
@@ -716,10 +740,10 @@ class Actions:
             driver.switch_to.default_content()
         elif resolved == "parent":
             driver.switch_to.parent_frame()
-        elif xpath or css:
+        elif selector:
             driver.switch_to.frame(
                 browser.wait_for_element(
-                    driver, browser.locator(xpath, css), as_int(wait_timeout, 30)
+                    driver, browser.locator(selector), as_int(wait_timeout, 30)
                 )
             )
         else:
@@ -793,7 +817,7 @@ class Actions:
     def upload_file(
         self,
         session_id: str,
-        xpath=None,
+        selector=None,
         text=None,
         content=None,
         filename=None,
@@ -801,7 +825,6 @@ class Actions:
         path=None,
         url=None,
         wait_timeout=WAIT_TIMEOUT,
-        css=None,
         kept=None,
         session=None,
     ) -> dict:
@@ -883,7 +906,7 @@ class Actions:
         driver = self._at(session_id, url)
         browser.accept_local_files(driver)
         element = browser.wait_for_element(
-            driver, browser.locator(xpath, css), as_int(wait_timeout, 30)
+            driver, browser.locator(selector), as_int(wait_timeout, 30)
         )
 
         temp_dir = None
@@ -928,12 +951,11 @@ class Actions:
         self,
         session_id: str,
         text: str,
-        xpath=None,
+        selector=None,
         url=None,
         clear=True,
         submit=False,
         wait_timeout=WAIT_TIMEOUT,
-        css=None,
         read_back=True,
     ) -> dict:
         """Type ``text`` into a field.
@@ -946,30 +968,36 @@ class Actions:
         fires between the two, and in whatever the action returned before
         anything wrapped it.
         """
-        target = browser.locator(xpath, css)
+        target = browser.locator(selector)
         driver = self._at(session_id, url)
-        element = browser.wait_for_clickable(driver, target, as_int(wait_timeout, 30))
-        if as_bool(clear, True):
-            element.clear()
-        element.send_keys(str(text))
-        # Read the value back before any submit: submitting navigates, which
-        # makes the element reference stale.
-        value = element.get_attribute("value") if as_bool(read_back, True) else None
-        if as_bool(submit, False):
-            element.send_keys(Keys.RETURN)
-            # And then wait for the navigation it may have caused, or the state
-            # below describes the page we just left. See `browser.settled`.
-            browser.settled(driver, element)
+
+        def typing(element):
+            if as_bool(clear, True):
+                element.clear()
+            element.send_keys(str(text))
+            # Read the value back before any submit: submitting navigates, which
+            # makes the element reference stale.
+            read = element.get_attribute("value") if as_bool(read_back, True) else None
+            if as_bool(submit, False):
+                element.send_keys(Keys.RETURN)
+                # And then wait for the navigation it may have caused, or the
+                # state below describes the page we just left. See
+                # `browser.settled`.
+                browser.settled(driver, element)
+            return read
+
+        value = self._acting_on(
+            driver, target, as_int(wait_timeout, 30), True, typing
+        )
         return {"value": value, **browser.page_state(driver)}
 
     def press_key(
         self,
         session_id: str,
         key: str,
-        xpath=None,
+        selector=None,
         url=None,
         wait_timeout=WAIT_TIMEOUT,
-        css=None,
     ) -> dict:
         """Press a key or combination, at an element or wherever focus is.
 
@@ -980,25 +1008,30 @@ class Actions:
         # Resolved before the browser is touched: a typo costs nothing.
         resolved = resolve_key(key)
         driver = self._at(session_id, url)
-        if xpath or css:
-            target = browser.wait_for_clickable(
-                driver, browser.locator(xpath, css), as_int(wait_timeout, 30)
+        def press(element):
+            element.send_keys(resolved)
+            # Only the keys that can submit a form. Tab, Escape and the arrows
+            # never navigate, and making every one of them wait to find that out
+            # would tax the common case for nothing. See `browser.settled`.
+            if any(submit in resolved for submit in SUBMIT_KEYS):
+                browser.settled(driver, element)
+
+        if selector:
+            self._acting_on(
+                driver,
+                browser.locator(selector),
+                as_int(wait_timeout, 30),
+                True,
+                press,
             )
         else:
-            target = driver.find_element(By.TAG_NAME, "body")
-        target.send_keys(resolved)
-        # Only the keys that can submit a form. Tab, Escape and the arrows never
-        # navigate, and making every one of them wait to find that out would tax
-        # the common case for nothing. See `browser.settled`.
-        if any(submit in resolved for submit in SUBMIT_KEYS):
-            browser.settled(driver, target)
+            press(driver.find_element(By.TAG_NAME, "body"))
         return {"key": key, **browser.page_state(driver)}
 
     def outline(
         self,
         session_id: str,
-        xpath=None,
-        css=None,
+        selector=None,
         text=None,
         limit=probe.DEFAULT_LIMIT,
         interactive=True,
@@ -1015,9 +1048,9 @@ class Actions:
         """
         driver = self._at(session_id, url)
         scope = None
-        if xpath or css:
+        if selector:
             scope = browser.wait_for_element(
-                driver, browser.locator(xpath, css), as_int(wait_timeout, 30)
+                driver, browser.locator(selector), as_int(wait_timeout, 30)
             )
         # Both coerced here rather than in the page: an HTTP caller can send a
         # number for `text`, which reaches JavaScript as one and dies on
@@ -1187,10 +1220,10 @@ class Actions:
     # ---- reading -----------------------------------------------------------
 
     def extract(
-        self, session_id: str, xpath=None, url=None, wait_timeout=WAIT_TIMEOUT, css=None
+        self, session_id: str, selector=None, url=None, wait_timeout=WAIT_TIMEOUT
     ) -> dict:
         """Read the text and HTML of an element."""
-        target = browser.locator(xpath, css)
+        target = browser.locator(selector)
         driver = self._at(session_id, url)
         element = browser.wait_for_element(driver, target, as_int(wait_timeout, 30))
         return {
@@ -1203,14 +1236,13 @@ class Actions:
         self,
         session_id: str,
         url=None,
-        xpath=None,
+        selector=None,
         full_page=False,
         width=None,
         height=None,
         wait_timeout=WAIT_TIMEOUT,
         save=True,
         filename=None,
-        css=None,
     ) -> dict:
         """Capture a PNG and return it base64-encoded.
 
@@ -1225,9 +1257,9 @@ class Actions:
                 as_int(width, current["width"]), as_int(height, current["height"])
             )
 
-        if xpath or css:
+        if selector:
             element = browser.wait_for_element(
-                driver, browser.locator(xpath, css), as_int(wait_timeout, 30)
+                driver, browser.locator(selector), as_int(wait_timeout, 30)
             )
             image = element.screenshot_as_base64
         elif as_bool(full_page, False):

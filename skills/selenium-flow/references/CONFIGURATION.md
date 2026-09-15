@@ -72,8 +72,8 @@ the URL is written by whoever wires up the call.
 | Resources off | `X-MCP-Resources: off` | `?resources=off` | Reveals `current_session` and `selenium_flow_skill` as tools, for clients that cannot read MCP resources |
 
 Setting a session name is what turns on the ergonomic mode described in
-`references/SAVED_SESSIONS.md`. Leaving it unset does not break anything — see
-`references/STATELESS.md`.
+`references/SESSIONS.md`. Without a name a caller is refused, with a message
+saying how to set one.
 
 ## Server settings worth knowing
 
@@ -83,7 +83,6 @@ will notice.
 | Env | Default | Why you would change it |
 |---|---|---|
 | `MCP_AUTH_TOKEN` | unset | Sets the bearer token for both surfaces. Unset means **no auth** |
-| `SAVED_SESSIONS` | `true` | `false` forces every caller to pass `session_id`, HTTP-style |
 | `SESSION_STORE` | `memory` | `redis` to share a caller's browser across replicas or a restart |
 | `SESSION_TTL` | `3600` | How long a caller's mapping is kept. Not the browser's lifetime |
 | `STATELESS_HTTP` | `false` | Required for more than one replica |

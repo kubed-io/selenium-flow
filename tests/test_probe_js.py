@@ -149,7 +149,7 @@ def test_the_failure_says_click_when_the_trigger_says_click(browser_page):
 
     actions, session = browser_page
     with pytest.raises(TimeoutException) as timed_out:
-        actions.interact(session, "click", css='a[href="/profile"]', wait_timeout=1)
+        actions.interact(session, "click", selector={"css": 'a[href="/profile"]'}, wait_timeout=1)
     message = str(timed_out.value)
     assert "#acctbtn" in message
     assert 'interact(action="click")' in message
@@ -218,6 +218,6 @@ def test_a_covered_click_says_what_is_on_top(browser_page):
     )
     with pytest.raises(ElementClickInterceptedException) as refused:
         actions.interact(
-            session, "click", css="#under", url="data:text/html," + quote(covered)
+            session, "click", selector={"css": "#under"}, url="data:text/html," + quote(covered)
         )
     assert "div#cover is on top of it" in str(refused.value)

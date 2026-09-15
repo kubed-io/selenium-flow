@@ -30,7 +30,7 @@ def client(server):
     return TestClient(server.mcp.http_app())
 
 
-KEY = "named:desktop"
+KEY = "desktop"
 
 
 @pytest.fixture
@@ -269,10 +269,10 @@ def test_a_grid_that_refuses_to_quit_is_still_a_200(client, flow_session):
 def test_ending_a_session_with_no_browser_is_a_no_op(client, server):
     """The button's job is "make sure this holds no browser", which is already
     true — so it succeeds rather than erroring."""
-    server.sessions.store.set("named:idle", SessionRecord(session_id=""))
+    server.sessions.store.set("idle", SessionRecord(session_id=""))
     with patch.object(browser.Grid, "quit") as quit_:
         response = client.delete(
-            "/admin/sessions/named:idle", headers={"Authorization": f"Bearer {TOKEN}"}
+            "/admin/sessions/idle", headers={"Authorization": f"Bearer {TOKEN}"}
         )
     assert response.status_code == 200
     assert response.json()["session_id"] is None
@@ -332,7 +332,7 @@ def test_the_listing_shows_flow_sessions_not_grid_sessions(client, server):
     Listing those would be showing somebody else's work as though it were ours,
     and handing whoever holds the admin token a browser id they never opened."""
     server.sessions.store.set(
-        "named:mine",
+        "mine",
         SessionRecord(session_id="mine", url="https://x/", settings={"browser": "firefox"}),
     )
     grid_rows = [
@@ -347,14 +347,14 @@ def test_the_listing_shows_flow_sessions_not_grid_sessions(client, server):
             "/admin/sessions", headers={"Authorization": f"Bearer {TOKEN}"}
         ).json()
     keys = [row["key"] for row in body["sessions"]]
-    assert keys == ["named:mine"]
+    assert keys == ["mine"]
     assert "somebody-else" not in str(body)
 
 
 def test_a_detached_session_is_listed_as_idle_with_its_context(client, server):
     """The point of the split: no browser, but still a session worth seeing."""
     server.sessions.store.set(
-        "named:idle",
+        "idle",
         SessionRecord(session_id="", url="https://x/", settings={"browser": "firefox"}),
     )
     with patch.object(browser.Grid, "sessions", return_value=[]):
@@ -369,20 +369,22 @@ def test_a_detached_session_is_listed_as_idle_with_its_context(client, server):
     assert row["browser"] == "firefox", "the context outlives the browser"
 
 
-def test_a_stateless_session_is_listed_and_labelled(client, server):
-    server.sessions.store.set("session:abc", SessionRecord(session_id="abc"))
+def test_the_stdio_session_is_listed_and_labelled(client, server):
+    """One key shape survives — the name a caller chose — and `stdio` is the one
+    nobody typed, so it is still worth saying where it came from (§F2.12)."""
+    server.sessions.store.set("stdio", SessionRecord(session_id="abc"))
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get(
             "/admin/sessions", headers={"Authorization": f"Bearer {TOKEN}"}
         ).json()
-    assert body["sessions"][0]["owner"] == "stateless"
+    assert body["sessions"][0]["owner"] == "stdio"
 
 
 def test_a_detached_session_has_no_files_rather_than_an_error(client, server):
     """It had them; the Grid deleted them with the browser. That is not a fault."""
-    server.sessions.store.set("named:idle", SessionRecord(session_id=""))
+    server.sessions.store.set("idle", SessionRecord(session_id=""))
     body = client.get(
-        "/admin/sessions/named:idle/files",
+        "/admin/sessions/idle/files",
         headers={"Authorization": f"Bearer {TOKEN}"},
     )
     assert body.status_code == 200

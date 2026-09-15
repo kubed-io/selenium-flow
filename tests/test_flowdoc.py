@@ -35,8 +35,8 @@ def flow(**overrides):
         "description": "Log in",
         "steps": [
             {"tool": "navigate", "args": {"url": "https://example.test/login"}},
-            {"tool": "write", "args": {"css": "#email", "text": "a@b.c"}},
-            {"tool": "interact", "args": {"action": "click", "css": "button"}},
+            {"tool": "write", "args": {"selector": {"css": "#email"}, "text": "a@b.c"}},
+            {"tool": "interact", "args": {"action": "click", "selector": {"css": "button"}}},
         ],
     }
     document.update(overrides)
@@ -52,7 +52,7 @@ async def test_an_ordinary_flow_validates(step_schema_map):
 
 async def test_the_real_tool_schemas_are_what_it_checks(step_schema_map):
     """If `write` gains a parameter, this map gains it with no edit here."""
-    assert "css" in step_schema_map["write"]["properties"]
+    assert "selector" in step_schema_map["write"]["properties"]
     assert "text" in step_schema_map["write"]["properties"]
 
 
@@ -105,7 +105,7 @@ async def test_a_missing_required_parameter_is_refused(step_schema_map):
     instead — so the validator has to know what the schema cannot say."""
     with pytest.raises(InvalidFlow, match="write needs 'text'"):
         validate(
-            flow(steps=[{"tool": "write", "args": {"css": "#a"}}]), step_schema_map
+            flow(steps=[{"tool": "write", "args": {"selector": {"css": "#a"}}}]), step_schema_map
         )
 
 
@@ -115,7 +115,7 @@ async def test_a_binding_satisfies_what_the_schema_cannot_demand(step_schema_map
             steps=[
                 {
                     "tool": "write",
-                    "args": {"css": "#p", "secret": {"name": "n", "key": "password"}},
+                    "args": {"selector": {"css": "#p"}, "secret": {"name": "n", "key": "password"}},
                 }
             ]
         ),
@@ -133,9 +133,17 @@ async def test_a_step_with_no_element_is_refused_at_save(step_schema_map):
 
 
 async def test_a_step_naming_both_selectors_is_refused_at_save(step_schema_map):
+    """One selector names one element. A flow is YAML somebody may have written
+    by hand, so this is checked at save as well as by the model at run time —
+    a document that saves cleanly and fails later is the split save-time
+    validation exists to close."""
     with pytest.raises(InvalidFlow, match="not both"):
         validate(
-            flow(steps=[{"tool": "extract", "args": {"css": "a", "xpath": "//a"}}]),
+            flow(
+                steps=[
+                    {"tool": "extract", "args": {"selector": {"css": "a", "xpath": "//a"}}}
+                ]
+            ),
             step_schema_map,
         )
 
@@ -177,7 +185,7 @@ async def test_a_step_that_binds_a_secret_may_not_also_navigate(step_schema_map)
                 steps=[
                     {
                         "tool": "write",
-                        "args": {"css": "#p", "url": "https://x.test/login", "secret": {"name": "n", "key": "k"}},
+                        "args": {"selector": {"css": "#p"}, "url": "https://x.test/login", "secret": {"name": "n", "key": "k"}},
                     }
                 ]
             ),
@@ -198,7 +206,7 @@ async def test_a_wrong_type_is_caught_before_the_browser_sees_it(step_schema_map
         validate(
             flow(
                 steps=[
-                    {"tool": "extract", "args": {"css": "h1", "wait_timeout": "soon"}}
+                    {"tool": "extract", "args": {"selector": {"css": "h1"}, "wait_timeout": "soon"}}
                 ]
             ),
             step_schema_map,
@@ -210,7 +218,7 @@ async def test_a_boolean_does_not_pass_as_an_integer(step_schema_map):
     where a timeout belongs."""
     with pytest.raises(InvalidFlow, match="wait_timeout should be integer"):
         validate(
-            flow(steps=[{"tool": "extract", "args": {"css": "h1", "wait_timeout": True}}]),
+            flow(steps=[{"tool": "extract", "args": {"selector": {"css": "h1"}, "wait_timeout": True}}]),
             step_schema_map,
         )
 
@@ -225,7 +233,7 @@ async def test_a_step_may_take_its_value_from_a_declared_parameter(step_schema_m
             steps=[
                 {
                     "tool": "write",
-                    "args": {"css": "#email", "text": "${email}"},
+                    "args": {"selector": {"css": "#email"}, "text": "${email}"},
                 }
             ],
         ),
@@ -239,7 +247,7 @@ async def test_a_step_may_take_its_value_from_a_secret(step_schema_map):
             steps=[
                 {
                     "tool": "write",
-                    "args": {"css": "#password", "secret": {"name": "nextcloud", "key": "password"}},
+                    "args": {"selector": {"css": "#password"}, "secret": {"name": "nextcloud", "key": "password"}},
                 }
             ]
         ),
@@ -259,7 +267,7 @@ async def test_a_reference_to_an_undeclared_parameter_is_caught_at_save(
                 steps=[
                     {
                         "tool": "write",
-                        "args": {"css": "#e", "text": "${emial}"},
+                        "args": {"selector": {"css": "#e"}, "text": "${emial}"},
                     }
                 ],
             ),
@@ -277,7 +285,7 @@ async def test_a_reference_is_found_wherever_it_sits(step_schema_map):
         validate(
             flow(
                 parameters={"type": "object", "properties": {"email": {}}},
-                steps=[{"tool": "extract", "args": {"css": "#row-${ident} .total"}}],
+                steps=[{"tool": "extract", "args": {"selector": {"css": "#row-${ident} .total"}}}],
             ),
             step_schema_map,
         )
@@ -288,7 +296,7 @@ async def test_an_escaped_sigil_is_not_a_reference(step_schema_map):
     type one, and a page that genuinely wants `${x}` in a field is not exotic —
     it is every templating tutorial on the internet."""
     assert validate(
-        flow(steps=[{"tool": "write", "args": {"css": "#e", "text": "$${notaparam}"}}]),
+        flow(steps=[{"tool": "write", "args": {"selector": {"css": "#e"}, "text": "$${notaparam}"}}]),
         step_schema_map,
     )
 
@@ -296,7 +304,7 @@ async def test_an_escaped_sigil_is_not_a_reference(step_schema_map):
 async def test_an_empty_reference_says_what_to_write(step_schema_map):
     with pytest.raises(InvalidFlow, match="names no parameter"):
         validate(
-            flow(steps=[{"tool": "write", "args": {"css": "#e", "text": "${}"}}]),
+            flow(steps=[{"tool": "write", "args": {"selector": {"css": "#e"}, "text": "${}"}}]),
             step_schema_map,
         )
 
@@ -313,7 +321,7 @@ async def test_a_secret_may_not_be_named_by_a_parameter(step_schema_map):
                     {
                         "tool": "write",
                         "args": {
-                            "css": "#p",
+                            "selector": {"css": "#p"},
                             "secret": {"name": "${which}", "key": "password"},
                         },
                     }
@@ -332,7 +340,7 @@ async def test_a_secret_reference_needs_a_name_and_a_key(step_schema_map):
                 steps=[
                     {
                         "tool": "write",
-                        "args": {"css": "#p", "secret": {"name": "nextcloud"}},
+                        "args": {"selector": {"css": "#p"}, "secret": {"name": "nextcloud"}},
                     }
                 ]
             ),
@@ -351,7 +359,7 @@ async def test_a_value_given_twice_is_refused_rather_than_resolved(step_schema_m
                     {
                         "tool": "write",
                         "args": {
-                            "css": "#e",
+                            "selector": {"css": "#e"},
                             "text": "literal",
                             "secret": {"name": "n", "key": "password"},
                         },
@@ -369,7 +377,7 @@ async def test_a_reference_satisfies_a_required_parameter(step_schema_map):
             steps=[
                 {
                     "tool": "write",
-                    "args": {"css": "#p", "secret": {"name": "n", "key": "password"}},
+                    "args": {"selector": {"css": "#p"}, "secret": {"name": "n", "key": "password"}},
                 }
             ]
         ),
@@ -390,7 +398,7 @@ async def test_a_steps_args_are_the_calls_arguments_with_no_exception(
             steps=[
                 {
                     "tool": "write",
-                    "args": {"css": "#e", "text": "${email}"},
+                    "args": {"selector": {"css": "#e"}, "text": "${email}"},
                 }
             ],
         ),
@@ -407,8 +415,8 @@ async def test_a_parameter_reaches_any_argument_of_any_action(step_schema_map):
             parameters={"type": "object", "properties": {"site": {}, "who": {}}},
             steps=[
                 {"tool": "navigate", "args": {"url": "${site}/login"}},
-                {"tool": "write", "args": {"css": "#u", "text": "${who}"}},
-                {"tool": "extract", "args": {"css": "[data-user=${who}]"}},
+                {"tool": "write", "args": {"selector": {"css": "#u"}, "text": "${who}"}},
+                {"tool": "extract", "args": {"selector": {"css": "[data-user=${who}]"}}},
             ],
         ),
         step_schema_map,
@@ -455,7 +463,7 @@ async def test_an_id_puts_itself_in_the_error_so_you_can_find_the_step(
 ):
     with pytest.raises(InvalidFlow, match=r"step 1 \(sign-in\)"):
         validate(
-            flow(steps=[{"tool": "write", "args": {"css": "#a"}, "id": "sign-in"}]),
+            flow(steps=[{"tool": "write", "args": {"selector": {"css": "#a"}}, "id": "sign-in"}]),
             step_schema_map,
         )
 
@@ -484,7 +492,7 @@ async def test_every_problem_is_reported_at_once(step_schema_map):
             flow(
                 steps=[
                     {"tool": "nope", "args": {}},
-                    {"tool": "write", "args": {"css": "#a"}},
+                    {"tool": "write", "args": {"selector": {"css": "#a"}}},
                     {"tool": "extract", "args": {"bogus": 1}},
                 ]
             ),
@@ -507,7 +515,7 @@ async def test_a_step_timeout_is_refused_rather_than_ignored(step_schema_map):
 
 async def test_wait_timeout_is_the_per_step_bound_and_is_accepted(step_schema_map):
     assert validate(
-        flow(steps=[{"tool": "extract", "args": {"css": "h1", "wait_timeout": 5}}]),
+        flow(steps=[{"tool": "extract", "args": {"selector": {"css": "h1"}, "wait_timeout": 5}}]),
         step_schema_map,
     )
 
@@ -543,7 +551,7 @@ async def test_a_null_text_is_not_a_supplied_value(step_schema_map):
     "None" into the field."""
     with pytest.raises(InvalidFlow, match="write needs 'text'"):
         validate(
-            flow(steps=[{"tool": "write", "args": {"css": "#p", "text": None}}]),
+            flow(steps=[{"tool": "write", "args": {"selector": {"css": "#p"}, "text": None}}]),
             step_schema_map,
         )
 
@@ -628,7 +636,7 @@ async def test_a_document_with_integer_keys_is_refused_with_every_problem(step_s
                 "tool": "write",
                 7: "stray",
                 "args": {
-                    "css": "#p",
+                    "selector": {"css": "#p"},
                     "secret": {"name": "n", "key": "k", 1: "x"},
                 },
             }
@@ -655,7 +663,7 @@ async def test_a_write_only_parameter_is_refused_rather_than_ignored(
                     "type": "object",
                     "properties": {"password": {"type": "string", "writeOnly": True}},
                 },
-                steps=[{"tool": "write", "args": {"css": "#p", "text": "${password}"}}],
+                steps=[{"tool": "write", "args": {"selector": {"css": "#p"}, "text": "${password}"}}],
             ),
             step_schema_map,
         )
@@ -675,7 +683,7 @@ async def test_a_whole_reference_is_not_type_checked_against_the_schema(
                 "type": "object",
                 "properties": {"secs": {"type": "integer"}},
             },
-            steps=[{"tool": "extract", "args": {"css": "#a", "wait_timeout": "${secs}"}}],
+            steps=[{"tool": "extract", "args": {"selector": {"css": "#a"}, "wait_timeout": "${secs}"}}],
         ),
         step_schema_map,
     )
@@ -691,7 +699,7 @@ async def test_a_reference_inside_a_longer_string_is_still_type_checked(
             flow(
                 parameters={"type": "object", "properties": {"secs": {}}},
                 steps=[
-                    {"tool": "extract", "args": {"css": "#a", "wait_timeout": "${secs}s"}}
+                    {"tool": "extract", "args": {"selector": {"css": "#a"}, "wait_timeout": "${secs}s"}}
                 ],
             ),
             step_schema_map,
@@ -732,7 +740,7 @@ async def test_an_action_outside_its_set_is_refused_at_save_time(step_schema_map
     mistake this server otherwise catches before the browser sees it."""
     with pytest.raises(InvalidFlow, match=r"interact\.action is 'mouseover'") as refused:
         validate(
-            flow(steps=[{"tool": "interact", "args": {"action": "mouseover", "css": "a"}}]),
+            flow(steps=[{"tool": "interact", "args": {"action": "mouseover", "selector": {"css": "a"}}}]),
             step_schema_map,
         )
     assert "hover" in str(refused.value), "the refusal should list what is valid"
@@ -742,7 +750,7 @@ async def test_a_value_in_the_set_is_accepted_whatever_its_case(step_schema_map)
     """The action layer lowercases, so a run accepts `Hover`. Refusing it at save
     time would make validation stricter than execution, and the two must agree."""
     assert validate(
-        flow(steps=[{"tool": "interact", "args": {"action": "Hover", "css": "a"}}]),
+        flow(steps=[{"tool": "interact", "args": {"action": "Hover", "selector": {"css": "a"}}}]),
         step_schema_map,
     )
 
@@ -753,6 +761,6 @@ async def test_a_whole_reference_is_not_checked_against_the_set(step_schema_map)
             "type": "object",
             "properties": {"gesture": {"type": "string"}},
         },
-        steps=[{"tool": "interact", "args": {"action": "${gesture}", "css": "a"}}],
+        steps=[{"tool": "interact", "args": {"action": "${gesture}", "selector": {"css": "a"}}}],
     )
     assert validate(document, step_schema_map)

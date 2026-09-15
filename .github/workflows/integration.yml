@@ -47,10 +47,13 @@ jobs:
         image: selenium/standalone-chrome:4.48.0-20260905
         ports:
         - 4444:4444
+        # The health check is the image's own readiness script: /status answers
+        # 200 before the Grid is ready, so a plain curl let tests race startup
+        # (Copilot, #33).
         options: >-
           --shm-size 2g
           --add-host host.docker.internal:host-gateway
-          --health-cmd "curl -sf http://localhost:4444/status"
+          --health-cmd "/opt/bin/check-grid.sh --host 0.0.0.0 --port 4444"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 24

@@ -43,6 +43,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from . import auth, errors, flowdoc, flowrun, flows
+from . import sessions as sessions_module
 from .browser import as_bool
 from .hints import hints, reads
 from .routes import ENDPOINTS
@@ -63,7 +64,27 @@ DELETE_TOOL = "delete_flow"
 
 # Path -> the function behind it. Separate from routes.ENDPOINTS on purpose:
 # these are not browser actions and must not be counted as though they were.
+# The REST tree these serve (§F2.13). Kept as names rather than paths because
+# the spec and the wiki describe capabilities, and the path each one lives at is
+# the route table's business.
 FLOW_ENDPOINTS = ("list", "get", "save", "delete", "schema", "run")
+
+# Not under /flows: `schema` there would be indistinguishable from a flow of
+# that name.
+SCHEMA_PATH = "/schemas/flow"
+
+# The REST shape of each one: method, and the path under the /flows prefix. The
+# route table and the published spec read the same rows, so a path can only be
+# described the way it is actually served (§F2.13).
+FLOW_ROUTES = {
+    "list": ("get", ""),
+    "get": ("get", "/{name}"),
+    "save": ("put", "/{name}"),
+    "delete": ("delete", "/{name}"),
+    "run": ("post", "/{name}/runs"),
+    # Absolute, not under the prefix.
+    "schema": ("get", SCHEMA_PATH),
+}
 
 OFF = (
     "saved flows are not enabled on this server: it was started with no "
@@ -86,11 +107,11 @@ def _require(store):
     return store
 
 
-# Which session owns a caller's documents, and its kept files with them. It
-# lives in `flows.py` because the rule is about the session directory rather
-# than about flows — `files.py` needs the identical answer, and two functions
-# deciding who owns a directory is how one of them starts disagreeing.
-session_of = flows.session_of
+# Which library a call is about: the caller's own, or the shared one when it
+# named no session. `sessions.library` owns the rule so that this surface and
+# the HTTP one cannot answer it differently.
+def session_of(sessions) -> str:
+    return sessions.library()
 
 
 def catalogue(store, session: str) -> dict:
@@ -165,9 +186,9 @@ def writable(session: str) -> str:
             "the shared 'global' library is read-only: every session can list "
             "and run what is in it, so a flow you changed or deleted would "
             "change or vanish under another session mid-run. Name your session "
-            "and save into your own library — ?session=<name> on the MCP URL or "
-            "the X-Session-Key header, or \"session\" in the body over HTTP. An "
-            "operator moves a flow into global from the admin UI."
+            "and save into your own library — ?session=<name> on the URL or the "
+            "X-Session-Key header. An operator moves a flow into global from "
+            "the admin UI."
         )
     return session
 
@@ -356,12 +377,10 @@ def register(
             "Chrome and then on Firefox unchanged.\n\n"
             "The whole document is checked now, against the real tools, and a "
             "refusal lists every problem at once.\n\n"
-            "Saves into your own library. Over HTTP that means naming your "
-            "session — add ?session=<name> to the MCP URL, or send "
-            "X-Session-Key — because without a name you land in the shared "
-            "'global' library, which every session runs and none may change. "
-            "Over stdio you already have a library of your own and need no "
-            "name for it.\n\nThe result may carry warnings: things that are "
+            "Saves into the library your session name owns. A caller that "
+            "named no session has only the shared 'global' library, which every "
+            "session runs and none may change — the refusal says how to get one "
+            "of your own.\n\nThe result may carry warnings: things that are "
             "valid and probably not what you meant, such as a flow whose first "
             "step acts on whatever page the browser happens to be on."
         ),
@@ -401,50 +420,21 @@ def register(
         annotations=hints("Run a saved flow", destructive=True),
     )
     def run_flow(
-        name: str, params: dict | None = None, verbose: bool = False,
-        session_id: str | None = None,
+        name: str, params: dict | None = None, verbose: bool = False
     ) -> dict:
-        key = sessions.key()
-        resolved = sessions.resolve(key, session_id)
-
-        def remember(tool, result):
-            # `resize` changes something the session RECORD stores, not just the
-            # page it is on. The per-call path in tools.py has always done this;
-            # a flow that skipped it would resize the live browser and then come
-            # back the old size the next time the Grid reaped it — the silent
-            # shape change `sessions.reshape` exists to prevent.
-            if tool == "resize" and isinstance(result, dict):
-                sessions.reshape(key, result, resolved)
-
-        report = run_one(
+        # `name()`, not `library()`: a run drives a browser, so this is one of
+        # the calls that has to know who is asking.
+        return run_for(
             store,
             actions,
-            session_of(sessions),
+            sessions,
+            sessions.name(),
             name,
             params=params,
             verbose=verbose,
-            session_id=resolved,
-            after_step=remember,
             secrets_catalogue=secrets_catalogue,
             skill_available=skill_available,
         )
-        # One touch for the whole run, not one per step: the point of running
-        # server-side is that the bookkeeping happens once.
-        #
-        # But not a page the redaction had to touch. A submitting bound write
-        # lands on `?q=<what was typed>`, which comes back scrubbed — storing
-        # that would persist a URL which does not exist, and `sessions.resolve`
-        # would reopen the browser there after the Grid reaped it. Keeping the
-        # last page we genuinely know is the lesser wrong, and it is the same
-        # rule the direct write path follows.
-        #
-        # The touch happens regardless: it slides the TTL, and a run is the
-        # clearest evidence there is that a session is in use. Only the page is
-        # withheld.
-        sessions.touch(
-            key, None if report.get("url_redacted") else report.get("url"), resolved
-        )
-        return report
 
     @mcp.tool(
         name=DELETE_TOOL,
@@ -454,9 +444,8 @@ def register(
             "It deletes from your own library only. A flow in the shared "
             "'global' library is not yours to remove — every session runs those, "
             "so one vanishing mid-run would break somebody else's work — and "
-            "trying is refused. Over HTTP with no session name you have no "
-            "library of your own and so nothing here to delete; over stdio you "
-            "have one automatically."
+            "trying is refused. A caller that named no session has no library "
+            "of its own and so nothing here to delete."
         ),
         annotations=hints("Delete a flow", destructive=True, idempotent=True),
     )
@@ -540,62 +529,78 @@ async def _document_schema(schemas: Schemas) -> dict:
     }
 
 
+def run_for(
+    store, actions, sessions, session: str, name: str,
+    params=None, verbose: bool = False,
+    secrets_catalogue=None, skill_available: bool = True,
+) -> dict:
+    """Run a saved flow in ``session``'s browser, and keep the record honest.
+
+    Shared by the tool and the endpoint. The bookkeeping either side of the run
+    is the part that used to be duplicated, and the HTTP surface simply did not
+    have it: a run there slid no TTL and recorded no page, so a workflow that
+    ran flows for an hour could expire out of the store while it worked.
+    """
+    resolved = sessions.resolve(session)
+
+    def remember(tool, result):
+        # `resize` changes something the session RECORD stores, not just the
+        # page it is on. A flow that skipped it would resize the live browser
+        # and then come back the old size the next time the Grid reaped it —
+        # the silent shape change `sessions.reshape` exists to prevent.
+        if tool == "resize" and isinstance(result, dict):
+            sessions.reshape(session, result)
+
+    report = run_one(
+        store,
+        actions,
+        session,
+        name,
+        params=params,
+        verbose=verbose,
+        session_id=resolved,
+        after_step=remember,
+        secrets_catalogue=secrets_catalogue,
+        skill_available=skill_available,
+    )
+    # One touch for the whole run, not one per step: the point of running
+    # server-side is that the bookkeeping happens once.
+    #
+    # But not a page the redaction had to touch. A submitting bound write lands
+    # on `?q=<what was typed>`, which comes back scrubbed — storing that would
+    # persist a URL which does not exist, and `sessions.resolve` would reopen
+    # the browser there after the Grid reaped it.
+    #
+    # The touch happens regardless: it slides the TTL, and a run is the clearest
+    # evidence there is that a session is in use. Only the page is withheld.
+    sessions.touch(session, None if report.get("url_redacted") else report.get("url"))
+    return report
+
+
 def _routes(
     mcp, store, sessions, actions, schemas: Schemas, token, prefix,
     secrets_catalogue=None, skill_available: bool = True,
 ) -> None:
-    """The same five operations as plain JSON, for callers that are not MCP."""
+    """The flow library as REST (§F2.13).
 
-    async def handle(request: Request, what: str) -> JSONResponse:
+    A flow is a resource: ``GET /flows/{name}``, ``PUT`` to create or replace
+    it, ``DELETE`` to remove it. Running one **creates a run**, so that is a
+    POST to a sub-collection rather than a verb in the path.
+
+    Which library is a question about who is calling, so it comes from the
+    header or ``?session=`` like everything else — and a caller that names no
+    session gets the shared one, which it may read and may not write.
+    """
+
+    async def answer(request: Request, what: str, call) -> JSONResponse:
         body, refused = await auth.json_request(request, token)
         if refused:
             return refused
         try:
-            session = session_of(sessions, body.get("session"))
-            if what == "list":
-                return JSONResponse(catalogue(store, session))
-            if what == "schema":
-                return JSONResponse(await _document_schema(schemas))
-            name = body.get("name")
-            if not name:
-                raise ValueError("name is required")
-            if what == "get":
-                return JSONResponse(read_one(store, session, name))
-            if what == "delete":
-                return JSONResponse(delete_one(store, session, name))
-            if what == "run":
-                session_id = body.get("session_id")
-                if not session_id:
-                    raise ValueError(
-                        "session_id is required: this surface is always "
-                        "explicit, so open a browser with /browser/open and "
-                        "pass the id it returns"
-                    )
-                return JSONResponse(
-                    run_one(
-                        store,
-                        actions,
-                        session,
-                        name,
-                        params=body.get("params"),
-                        # as_bool, not bool: over HTTP "false" arrives as a
-                        # string, and bool("false") is True — which would
-                        # turn on full per-step results and return every
-                        # extract in the flow.
-                        verbose=as_bool(body.get("verbose"), False),
-                        session_id=session_id,
-                        secrets_catalogue=secrets_catalogue,
-                        skill_available=skill_available,
-                    )
-                )
-            document = {
-                key: body[key]
-                for key in ("description", "parameters", "steps")
-                if key in body
-            }
-            return JSONResponse(
-                save_one(store, session, name, document, await schemas.get())
-            )
+            result = call(body)
+            if hasattr(result, "__await__"):
+                result = await result
+            return JSONResponse(result)
         except Exception as exc:  # errors.py decides what it means
             status = errors.status_for(exc)
             text = errors.message(exc)
@@ -609,11 +614,90 @@ def _routes(
                 log.info("flows/%s refused (%s): %s", what, status, text)
             return JSONResponse({"error": text}, status_code=status)
 
-    for path in FLOW_ENDPOINTS:
-        _bind(mcp, prefix, path, handle)
+    @mcp.custom_route(prefix, methods=["GET"], name="flows_list")
+    async def list_flows(request: Request) -> JSONResponse:
+        """This session's flows, and the shared ones it can run."""
+        return await answer(
+            request,
+            "list",
+            lambda _body: catalogue(store, sessions_module.library_from(request)),
+        )
 
+    @mcp.custom_route(SCHEMA_PATH, methods=["GET"], name="flows_schema")
+    async def flow_schema(request: Request) -> JSONResponse:
+        """What a flow document may contain — every tool that may be a step.
 
-def _bind(mcp, prefix, path, handle) -> None:
-    @mcp.custom_route(f"{prefix}/{path}", methods=["POST"], name=f"flows_{path}")
-    async def route(request: Request) -> JSONResponse:
-        return await handle(request, path)
+        Not under /flows, where `schema` would be indistinguishable from a flow
+        of that name.
+        """
+        return await answer(request, "schema", lambda _body: _document_schema(schemas))
+
+    @mcp.custom_route(prefix + "/{name}", methods=["GET"], name="flows_get")
+    async def get_flow(request: Request) -> JSONResponse:
+        """One flow, with its steps."""
+        return await answer(
+            request,
+            "get",
+            lambda _body: read_one(
+                store,
+                sessions_module.library_from(request),
+                request.path_params["name"],
+            ),
+        )
+
+    @mcp.custom_route(prefix + "/{name}", methods=["PUT"], name="flows_save")
+    async def save_flow(request: Request) -> JSONResponse:
+        """Create or replace one flow. One verb for both, as §F1.5 has it."""
+
+        async def call(body):
+            document = {
+                key: body[key]
+                for key in ("description", "parameters", "steps")
+                if key in body
+            }
+            return save_one(
+                store,
+                sessions_module.library_from(request),
+                request.path_params["name"],
+                document,
+                await schemas.get(),
+            )
+
+        return await answer(request, "save", call)
+
+    @mcp.custom_route(prefix + "/{name}", methods=["DELETE"], name="flows_delete")
+    async def delete_flow(request: Request) -> JSONResponse:
+        """Remove one of this session's flows."""
+        return await answer(
+            request,
+            "delete",
+            lambda _body: delete_one(
+                store,
+                sessions_module.library_from(request),
+                request.path_params["name"],
+            ),
+        )
+
+    @mcp.custom_route(prefix + "/{name}/runs", methods=["POST"], name="flows_run")
+    async def run_flow(request: Request) -> JSONResponse:
+        """Run a flow in this session's browser. A run is created, not fetched."""
+        return await answer(
+            request,
+            "run",
+            lambda body: run_for(
+                store,
+                actions,
+                sessions,
+                # `name_from`, not `library_from`: a run drives a browser, so
+                # this is one of the calls that has to know who is asking.
+                sessions_module.name_from(request),
+                request.path_params["name"],
+                params=body.get("params"),
+                # as_bool, not bool: over HTTP "false" arrives as a string, and
+                # bool("false") is True — which would turn on full per-step
+                # results and return every extract in the flow.
+                verbose=as_bool(body.get("verbose"), False),
+                secrets_catalogue=secrets_catalogue,
+                skill_available=skill_available,
+            ),
+        )

@@ -258,7 +258,7 @@ async def test_a_rejected_browser_does_not_cost_you_the_one_you_have(
 
     open_session = (await server.mcp.get_tool("open_session")).fn
     ended = []
-    monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
+    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
     monkeypatch.setattr(server.sessions, "end_browser", lambda *a: ended.append(a))
 
     with pytest.raises(ValueError, match="safari"):

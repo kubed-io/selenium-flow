@@ -16,11 +16,11 @@ from kubed.selenium_flow.routes import ENDPOINTS, method_for
 pytestmark = pytest.mark.unit
 
 FOUND = [
-    {"role": "button", "name": "HelpDesk", "css": "#menu-toggle", "visible": True},
+    {"role": "button", "name": "HelpDesk", "selector": {"css": "#menu-toggle"}, "visible": True},
     {
         "role": "link",
         "name": "Feature Requests",
-        "xpath": "//a[normalize-space()='Feature Requests']",
+        "selector": {"xpath": "//a[normalize-space()='Feature Requests']"},
         "visible": False,
         "reason": "hidden",
         "blocked_by": "ul.menu-content",
@@ -54,7 +54,7 @@ def test_outline_is_on_both_surfaces():
 
 async def test_the_tool_publishes_its_arguments(server):
     schema = (await server.mcp.get_tool("outline")).parameters
-    assert {"xpath", "css", "text", "limit", "interactive"} <= set(schema["properties"])
+    assert {"selector", "text", "limit", "interactive"} <= set(schema["properties"])
     assert schema.get("required", []) == []
 
 
@@ -99,7 +99,7 @@ def test_a_scope_is_waited_for_like_any_other_element(actions, monkeypatch):
         "wait_for_element",
         lambda driver, target, timeout: waited.append(target) or "<scope>",
     )
-    actions.outline("abc", css="nav")
+    actions.outline("abc", selector={"css": "nav"})
     assert waited == [("css selector", "nav")]
     assert page.args[0] == "<scope>"
 
@@ -132,7 +132,7 @@ async def test_a_flow_cannot_outline_anything(server):
 
     document = {
         "description": "Look around",
-        "steps": [{"tool": "outline", "args": {"css": "nav"}}],
+        "steps": [{"tool": "outline", "args": {"selector": {"css": "nav"}}}],
     }
     with pytest.raises(InvalidFlow, match="outline is not a step") as refused:
         validate(document, step_schemas(tools))

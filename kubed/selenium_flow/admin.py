@@ -88,24 +88,18 @@ def page(name: str, **substitutions: str) -> str:
 
 
 def owner_label(key: str) -> dict:
-    """A caller key turned into something worth showing next to a session.
+    """A store key turned into something worth showing next to a session.
 
-    The three key shapes carry different amounts of meaning. A name someone
-    chose is worth showing as-is; a negotiated transport id is noise, so it is
-    reported as a kind rather than printed.
+    There is one key shape now: the name its caller chose (§F2.12). This used to
+    unpick four — a name, a negotiated transport id, stdio, and a caller with
+    nothing stable to key on — and report the last three as kinds because none
+    of them was worth printing. The function survives the collapse because the
+    admin page still wants to say where a session came from, and `stdio` is
+    still a session nobody typed.
     """
-    if key.startswith("named:"):
-        return {"name": key[len("named:") :], "owner": "named"}
-    if key.startswith("mcp:"):
-        return {"name": None, "owner": "mcp client"}
-    if key == "stdio":
-        return {"name": None, "owner": "stdio"}
-    if key.startswith("session:"):
-        # A caller with nothing stable to key on. It owns its browser by holding
-        # the id, so this record exists to give it a place in the history rather
-        # than to resolve anyone.
-        return {"name": None, "owner": "stateless"}
-    return {"name": key, "owner": "saved"}
+    if key == flows.STDIO_SESSION:
+        return {"name": key, "owner": "stdio"}
+    return {"name": key, "owner": "named"}
 
 
 def _recency(item) -> float:
@@ -300,6 +294,10 @@ def register(
         and every byte of data it shows is fetched separately with the token."""
         return HTMLResponse(page("admin.html", CONSOLE=console))
 
+    # Whether the last read of the store failed, so an outage warns once rather
+    # than on every two-second poll of every open page.
+    store_failing = [False]
+
     def sessions_payload() -> dict:
         """Every flow session, and the browser each one currently holds.
 
@@ -320,11 +318,17 @@ def register(
         try:
             records = sessions_store.records()
         except Exception as exc:  # noqa: BLE001 - a Redis blip is not an outage
-            # Warning, not info: the page renders this as "no sessions",
-            # which looks exactly like an empty install. At info it hid a
-            # store that failed on every poll for a day.
-            log.warning("could not read the session store: %s", exc)
+            # A warning, because the page renders this as "no sessions" and that
+            # looks exactly like an empty install - at info it hid a store that
+            # failed on every poll for a day. Once, because every open page
+            # polls every two seconds (Copilot, #33).
+            report = log.debug if store_failing[0] else log.warning
+            report("could not read the session store: %s", exc)
+            store_failing[0] = True
             return {"sessions": []}
+        if store_failing[0]:
+            log.info("the session store is readable again")
+            store_failing[0] = False
 
         # One Grid listing for the whole payload rather than a liveness call per
         # row: the answer for every session is in it, and it is one round trip.

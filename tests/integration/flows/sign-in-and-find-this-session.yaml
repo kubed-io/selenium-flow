@@ -18,14 +18,16 @@ steps:
     url: ${admin}/admin
 - tool: write
   args:
-    css: "#token"
+    selector:
+      css: "#token"
     secret:
       name: admin
       key: token
 - tool: interact
   args:
     action: click
-    css: "#loginForm button[type=submit]"
+    selector:
+      css: "#loginForm button[type=submit]"
 - tool: assert
   args:
     script: >-

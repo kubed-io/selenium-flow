@@ -125,7 +125,7 @@ RUN_TIMEOUT = 300
 # the summary is built from what is safe, so a value can never reach it by
 # being missed. A selector and a URL are how you tell which step ran; `text` is
 # the one an agent most wants to see and the one most likely to be a password.
-SAFE_IN_SUMMARY = ("url", "xpath", "css", "action", "key", "filename", "index")
+SAFE_IN_SUMMARY = ("url", "selector", "to", "action", "key", "filename", "index")
 
 # Dropped from every step result in a report. A full-page screenshot is over a
 # megabyte of base64, and a run that returned three of them would cost more than
@@ -475,9 +475,18 @@ def summarise(tool: str, kwargs: dict, guarded: set) -> str:
     """
     parts = []
     for key in SAFE_IN_SUMMARY:
-        if not kwargs.get(key):
+        value = kwargs.get(key)
+        if not value:
             continue
-        parts.append(f"{key}=<hidden>" if key in guarded else f"{key}={kwargs[key]!r}")
+        if key in guarded:
+            parts.append(f"{key}=<hidden>")
+            continue
+        # A selector is an object with one key in it, so the line reads
+        # `css='button.go'` rather than `selector={'css': 'button.go'}`.
+        if isinstance(value, dict):
+            parts += [f"{k}={v!r}" for k, v in value.items() if v]
+            continue
+        parts.append(f"{key}={value!r}")
     if "text" in kwargs:
         value = kwargs["text"]
         parts.append(

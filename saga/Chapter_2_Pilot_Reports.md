@@ -56,22 +56,24 @@ E17 and E5: §F2.10's three faults, E16's two leftovers, and **E13 whole** — t
 spike (§F2.11), the remembered pointer, `glide`, the nudge, and `drag`. The plan
 below is ticked against it.
 
-**What is left.** Two epics, a design, and a release.
+**Built since, in one breaking change.** E18, E19 and E20 landed together
+because each one breaks the published contract and a caller should migrate once:
+every session is named by its caller and no browser id is in the contract
+(§F2.12), the HTTP surface is REST with paths declared per capability (§F2.13),
+and `xpath` and `css` are one `selector` (§F2.14). The four questions §F2.12
+held open were answered in the course of it and are recorded there.
+
+**What is left.** Two epics, two migrations, and a release.
 
 1. **E17 — the admin UI's carried items.** Wants a Penpot pass before any code.
 2. **E5 — `ROUTE_PREFIX` as the global mount.** Independent, and it reaches into
    the cluster repo.
-3. **E18 — one session, always named** (§F2.12). Dr K's: one contract, a name
-   the caller supplies, no `session_id` anywhere in the contract and no Grid id
-   exposed at all. It deletes a middleware, a reference and a mode. Design
-   recorded with four questions open, not started, and big enough to want its
-   own chapter.
-4. **E19 — a RESTful HTTP surface** (§F2.13). Dr K's: paths and methods
-   declared per route instead of generated from tool names, and the session
-   as who is calling — a header, never a path segment or a body field. Recorded, not started, and paired
-   with E18 so callers migrate once.
-5. **A release.** The last tag is still `v0.1.0` and everything since is only in
-   `:latest`. A minor version would make all of this pinnable.
+3. **The callers of the old contract.** The n8n workflows in this cluster and
+   the flows on its NFS share both break the moment this ships — they are live
+   data in another repo's deployment, not files in this one.
+4. **A release, and it is the one that matters.** The last tag is still `v0.1.0`
+   and everything since is only in `:latest`. This is a breaking change, so the
+   version is what tells a caller which contract it is holding.
 
 Three smaller things are deliberately still open, each recorded on its own line
 in Part IV rather than hidden here: a flow used as a contract in `FLOWS.md`
@@ -781,23 +783,28 @@ the store.
 4. **The admin UI correlates on the browser id** and would keep doing so
    internally, but what it *shows* a person becomes the name.
 
-**Open — four, and Dr K's to answer before anything is written.** Q5 below was
-asked and answered in the same breath and is kept for its reasoning, not as a
-question (Copilot, #32).
+**All four answered, in the course of building it.** They are kept with their
+answers because each one shaped the result. Q5 below was asked and answered in
+the same breath and is kept for its reasoning, not as a question (Copilot, #32).
 
-1. **Does the MCP transport id still count as a name?** It is supplied by the
-   transport rather than chosen, so it is a generated name by another route. Keep
-   it and an unnamed client still works, reconnecting as a new session, exactly
-   as today. Drop it and *every* caller names itself, which is the cleaner rule
-   and refuses clients that work now.
-2. **What does `open_session` answer with?** The name and the settings, and
-   nothing else, is the reading consistent with hiding the id.
-3. **Is there a migration release** that accepts `session_id` and warns — a
-   temporary branch to remove a permanent one — or is it a clean break at a
-   major version?
-4. **Two callers, one name, is sharing.** That is true today and deliberate
-   (§F1.2). Under a rule where naming is mandatory it becomes much easier to do
-   by accident, and a name is guarded by nothing but the bearer token.
+1. ~~**Does the MCP transport id still count as a name?**~~ **Answered: no.**
+   Dr K's rule was to drop the generated names entirely, and a transport id is a
+   generated name by another route. Every caller names itself; one that names
+   nothing is refused with a message saying how. It does refuse clients that
+   worked before, which is the price of there being one rule.
+2. ~~**What does `open_session` answer with?**~~ **Answered: the name and the
+   settings.** The Grid's id is dropped on the way out rather than never
+   fetched — it is how the browser is reached, and not part of what a caller is
+   told.
+3. ~~**Is there a migration release?**~~ **Answered: a clean break.** A release
+   that accepts `session_id` and warns is a branch, and removing branches was
+   the point. The package is `0.x`, the callers are countable, and they migrate
+   once — with E19 and E20 — rather than three times.
+4. ~~**Two callers, one name, is sharing.**~~ **Answered: documented, not
+   enforced.** It is true today and deliberate (§F1.2), and mandatory naming
+   makes it easier to do by accident. That sentence is now in `AGENTS.md`, the
+   README, the wiki and the skill rather than only here. Enforcing it needs a
+   credential per session, which is its own piece of work.
 5. ~~**Could the Grid replace the store outright, and Redis with it?**~~
    **Closed: no — half of it can, and the half that cannot is the half that
    matters.** Dr K's question, and the answer is *half*. **Capabilities are write-once**: W3C
@@ -930,9 +937,68 @@ this surface anyway.
 1. ~~**One tree or two for a session's flows?**~~ **Closed: one.** `GET
    /flows/{name}` with the session from the header; a session is never a path
    segment outside the admin page.
-2. **Does `outline`/`extract` become a `GET`?** They are read-only, but they take
-   a locator and wait, and a GET that can take thirty seconds surprises caches
-   and proxies. Recommend **no**: every action is a POST, reads included.
+2. ~~**Does `outline`/`extract` become a `GET`?**~~ **Closed: no — every browser
+   action is a POST, reads included.** Dr K's reason is the better one: the body
+   of a request is then the same object as a tool's arguments and a flow step's
+   `args`, one shape in three places. `extract` in particular takes enough
+   options that a query string would be a worse home for them, and a GET that
+   waits thirty seconds surprises caches and proxies besides.
+
+### §F2.14 — Decision (Dr K's, recommended): `xpath` and `css` become one `selector`
+
+**Proposed:** `interact(selector={"css": "button.go"})` instead of
+`interact(css="button.go")`. A `Selector` model with two fields, exactly one of
+which is given.
+
+**Measured, on FastMCP 4.0.3,** before recommending it:
+
+- The schema a client lists is **fully inlined** — no `$defs`, no `$ref` — so a
+  client that cannot follow references sees a plain nested object.
+- "Exactly one" as a model validator is refused with a message naming both
+  keys, the same rule `browser.locator` gives today.
+- A selector sent as a **JSON string** (`selector='{"css": "#a"}'`) is refused
+  as "not a valid dictionary". Some clients stringify object arguments, so this
+  needs the `BeforeValidator` coercion `tools.py` already applies to its enums.
+
+**For it:**
+
+- **They always mean one thing.** Every tool that takes one takes the other,
+  for the same element, with the same rule. Today that rule is written out in
+  about a dozen descriptions; it becomes one description on one model.
+- **`drag` is where it pays most.** `xpath`/`css`/`to_xpath`/`to_css` become
+  `selector` and `to`, and `to` is plainly the same kind of thing as `selector`
+  — the `to_` prefix was a flat schema doing the work of a type.
+- **`outline` can hand back what a step takes.** Its result can carry
+  `selector: {"css": …}`, pasted into a step unchanged.
+
+**Against, and why it does not decide it:** to a model, one level of nesting is
+a small cost and not zero — flat arguments are the easiest shape there is. A
+one-level object is well within what current models fill reliably, and the
+grouping says *these two are one choice*, which is worth about what it costs.
+
+**Where it does not fit:** `frame` also takes `index`, which is not a selector.
+It stays beside `selector` rather than inside it.
+
+**Mutually exclusive, or combined?** Dr K asked. There are three readings of
+"both":
+
+1. **Or — try css, fall back to xpath.** Refused. It is the self-healing locator,
+   and `locator()` already says why not: a typo in one becomes a click on the
+   element the other found, and a flow that silently used its fallback reports
+   `ok` while it drifts. A broken selector should fail loudly and go to
+   `repair_flow`.
+2. **And — both must match the same element.** Refused. Twice the lookups to
+   state one thing twice, and when they disagree the error has no good answer.
+3. **Within — css finds a container, xpath searches inside it.** The one reading
+   with real value, and it is still not two keys on one element: a single XPath
+   already says `//form[@id='signup']//button[.='Save']`. If scoping ever earns
+   a place it is a nested `within` selector.
+
+**So exclusive.** The model validator keeps the rule `locator()` has today.
+
+**It breaks every saved flow**, since a step's `args` are exactly a tool's
+arguments. That is why it belongs in the same release as E18 and E19: one
+migration for flows on disk, n8n workflows and HTTP bodies, not three.
 
 ### §F2.11 — Measured: Firefox interpolates, and a pointer drag is a real HTML5 drag on Chrome
 
@@ -1253,46 +1319,69 @@ anywhere.
 - [ ] `If-Match` on flow saves against `flows.revision`, 409 on conflict, and the
       editor says what happened
 
-### E18 — One session, always named (§F2.12)
+### E18 — One session, always named (§F2.12) — **built**
 
 Dr K's design, recorded rather than planned: §F2.12 is the work of this entry,
-and the boxes are what it implies rather than a commitment. **The four open
-questions in §F2.12 are answered before any of this is written.**
+and the boxes are what it implies rather than a commitment. **The four
+questions in §F2.12 were answered in the course of building it**, and are
+recorded there with their answers.
 
-- [ ] Every session has a name and the **caller** supplies it; nothing here
+- [x] Every session has a name and the **caller** supplies it; nothing here
       generates one
-- [ ] `session_id` is gone from every tool schema, every request body and every
+- [x] `session_id` is gone from every tool schema, every request body and every
       result
-- [ ] The Grid's browser id is never exposed; it stays attached to the named
+- [x] The Grid's browser id is never exposed; it stays attached to the named
       session in the background
-- [ ] `routes.py` resolves a session the way `/mcp` does — one path, and the
+- [x] `routes.py` resolves a session the way `/mcp` does — one path, and the
       HTTP surface inherits the reopen-after-reap it has never had
-- [ ] `resources.ShapeSessionId` and one of the two session references are
+- [x] `resources.ShapeSessionId` and one of the two session references are
       deleted, not adapted
-- [ ] `SAVED_SESSIONS` is resolved: gone, or given a meaning that still holds
-- [ ] Written down: a session name is a credential, the bearer token is all that
+- [x] `SAVED_SESSIONS` is resolved: gone, or given a meaning that still holds
+- [x] Written down: a session name is a credential, the bearer token is all that
       guards it, and sharing one is now easy to do by accident
 - [ ] The browser carries its session name as a capability (`se:flowSession`),
       so the admin view can reconcile with the Grid and an orphaned browser can
-      be found again. Augments the store; does not replace it (§F2.12 Q5)
+      be found again. Augments the store; does not replace it (§F2.12 Q5).
+      **Not built** — it is additive, and nothing else waits on it
 
-### E19 — A RESTful HTTP surface (§F2.13)
+### E19 — A RESTful HTTP surface (§F2.13) — **built**
 
 Built with E18 or not at all: both break the published HTTP contract, and a
 caller should migrate once.
 
-- [ ] Paths and methods come from a declared route table, not from tool names;
+- [x] Paths and methods come from a declared route table, not from tool names;
       bodies and results stay derived from the tool schemas
-- [ ] The session is the `X-Session-Key` header or `?session=`, never a path
+- [x] The session is the `X-Session-Key` header or `?session=`, never a path
       segment and never a body field; both at once is a 400
-- [ ] HTTP resolves a session through the same code `/mcp` does
-- [ ] No session on a library route means `global`; on a browser route, a 400
-- [ ] `interact`'s action is a path segment: `POST /browser/interact/click`
-- [ ] `PUT` and a created run answer with `Location`; results carry `links`
-- [ ] `/admin/sessions/{key}/…` stays — the admin view is the one role that
+- [x] HTTP resolves a session through the same code `/mcp` does
+- [x] No session on a library route means `global`; on a browser route, a 400
+- [x] `interact`'s action is a path segment: `POST /browser/interact/click`
+- [ ] `PUT` and a created run answer with `Location`; results carry `links`.
+      **Not built** — the shapes are right without it, and HATEOAS earns its
+      place only once something follows a link
+- [x] `/admin/sessions/{key}/…` stays — the admin view is the one role that
       looks across sessions
-- [ ] The OpenAPI spec, the wiki and the skill references are regenerated from
-      the new table, and the n8n workflows in this cluster are migrated
+- [x] The OpenAPI spec, the wiki and the skill references are regenerated from
+      the new table
+- [ ] The n8n workflows in this cluster are migrated. **Not done** — they live
+      in a database, not in this repo, and they break the moment this ships
+
+### E20 — One `selector` (§F2.14) — **built**
+
+In the E18/E19 release: it breaks saved flows, and they migrate once.
+
+- [x] A `Selector` model — `xpath` or `css`, exactly one — replaces the two flat
+      arguments on every tool that takes them
+- [x] `drag` takes `selector` and `to`; `frame` keeps `index` beside `selector`
+- [x] A selector sent as a JSON string is coerced, like the enums are
+- [ ] `outline` returns `selector` in the shape a step takes. **Not built** —
+      it still returns `xpath`/`css` flat, which is a smaller change than it
+      looks and wants its own pass over the probe
+- [x] The integration flows and every example in the skill and the wiki are
+      migrated
+- [ ] The flows on the cluster's NFS share are migrated. **Not done** — they are
+      live data in another repo's deployment, and they break the moment this
+      ships
 
 ### E5 — The approach plate (carried, unchanged)
 

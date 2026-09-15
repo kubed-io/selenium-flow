@@ -156,10 +156,12 @@ def test_every_reference_is_reachable_from_the_index():
     assert on_disk <= linked, f"unreferenced files: {sorted(on_disk - linked)}"
 
 
-def test_both_session_modes_have_a_reference():
-    """The one branch every caller has to take before anything else works."""
-    assert (SKILL_DIR / "references/STATELESS.md").is_file()
-    assert (SKILL_DIR / "references/SAVED_SESSIONS.md").is_file()
+def test_the_one_session_contract_has_a_reference():
+    """There is one contract now — name yourself — where there were two modes,
+    so there is one reference rather than a branch to take first (§F2.12)."""
+    assert (SKILL_DIR / "references/SESSIONS.md").is_file()
+    for gone in ("STATELESS.md", "SAVED_SESSIONS.md"):
+        assert not (SKILL_DIR / "references" / gone).is_file(), gone
 
 
 async def test_each_reference_is_its_own_resource(server):
@@ -171,7 +173,7 @@ async def test_each_reference_is_its_own_resource(server):
 
 
 async def test_a_reference_can_be_read_through_the_tool(server):
-    body = skill_module.read(server.skill, "references/STATELESS.md")
+    body = skill_module.read(server.skill, "references/SESSIONS.md")
     assert body and body.startswith("#")
 
 

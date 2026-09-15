@@ -25,6 +25,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: every session is named by its caller.** Add `?session=<name>` to the URL or send an `X-Session-Key` header; sending both, or neither, is refused. There is no `session_id` on any tool, in any request body, or in any result — call again with the same name to get the same browser back.
+
+- **BREAKING: the HTTP surface is REST.** `GET /flows/{name}`, `PUT` to save it, `DELETE` to remove it, `POST /flows/{name}/runs` to run it; `POST /browser` opens your browser, `DELETE /browser` ends it, `GET /browser` says what you are holding; a mouse action is a path — `POST /browser/interact/click`. Files are `GET /files` and `PUT /files/{name}/kept`.
+
+- **BREAKING: `xpath` and `css` are one `selector`.** `interact(selector={"css": "button.go"})`, and `drag` takes `selector` and `to`. Exactly one of the two, never both — and never a fallback from one to the other.
+
+- **`SAVED_SESSIONS` is gone**, along with the two session modes it switched between. There is one contract now.
+
+- **A browser opened over HTTP is a session like any other** — it appears in the admin list, slides its TTL, and is reopened where it left off after the Grid reaps it.
+
+### Fixed
+
+- **A click on a page that repaints itself is no longer racy** — the element is found again and the action retried once, rather than failing with a stale reference. Found by the admin page's own session list, which refreshes every two seconds.
+
 ### Added
 
 - **`outline` maps the page** — every element worth acting on, with a selector checked to match exactly one, and whether it can be used.

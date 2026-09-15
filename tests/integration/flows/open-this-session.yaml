@@ -17,18 +17,21 @@ steps:
     url: ${admin}/admin
 - tool: write
   args:
-    css: "#token"
+    selector:
+      css: "#token"
     secret:
       name: admin
       key: token
 - tool: interact
   args:
     action: click
-    css: "#loginForm button[type=submit]"
+    selector:
+      css: "#loginForm button[type=submit]"
 - tool: interact
   args:
     action: click
-    xpath: //div[contains(@class, 'card')][.//span[contains(@class, 'name') and . = '${session}']]
+    selector:
+      xpath: //div[contains(@class, 'card')][.//span[contains(@class, 'name') and . = '${session}']]
 - tool: assert
   args:
     script: >-

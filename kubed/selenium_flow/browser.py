@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import time
 import zipfile
 from urllib.parse import urlsplit, urlunsplit
@@ -405,27 +406,60 @@ def _waited(driver, condition, timeout: int, description: str, target=None):
 SELECTORS = {"xpath": By.XPATH, "css": By.CSS_SELECTOR}
 
 
-def locator(xpath=None, css=None) -> tuple[str, str]:
+def locator(selector) -> tuple[str, str]:
     """Exactly one selector, as the (strategy, value) pair Selenium wants.
 
+    ``selector`` is ``{"xpath": ...}`` or ``{"css": ...}`` — one object rather
+    than two flat arguments, because they are one choice and every tool that
+    took one took the other (§F2.14). A model with the same two fields is
+    accepted too, which is what the MCP surface passes.
+
     Mutually exclusive keys rather than a ``by=`` enum beside a ``value=``: the
-    key names itself, so a caller writes ``css="button.go"`` without having to
-    be told what the strategies are, and ``xpath`` keeps meaning exactly what it
-    has always meant.
+    key names itself, so a caller writes ``{"css": "button.go"}`` without having
+    to be told what the strategies are, and ``xpath`` keeps meaning exactly what
+    it has always meant.
 
     Both, or neither, is refused rather than resolved. Guessing which one was
     meant is how a typo in one of them becomes a click on the element the other
     one found, which is the most expensive kind of wrong this server can be.
+    **Never a fallback from one to the other**, for that reason: a flow that
+    silently used its second choice reports `ok` while it drifts (§F2.14).
     """
-    given = [(name, value) for name, value in (("xpath", xpath), ("css", css)) if value]
+    if selector is None:
+        selector = {}
+    elif hasattr(selector, "model_dump"):
+        selector = selector.model_dump(exclude_none=True)
+    elif isinstance(selector, str):
+        # A multipart form field can only carry a string, and some clients
+        # stringify object arguments. Parsed here rather than only at the tool
+        # boundary, because an upload over HTTP arrives as a form.
+        try:
+            selector = json.loads(selector)
+        except ValueError:
+            raise ValueError(
+                "selector must be an object: {\"css\": \"button.go\"} or "
+                "{\"xpath\": \"//button\"}"
+            ) from None
+    if not isinstance(selector, dict):
+        raise ValueError(
+            "selector must be an object: {\"css\": \"button.go\"} or "
+            "{\"xpath\": \"//button\"}"
+        )
+    unknown = set(selector) - set(SELECTORS)
+    if unknown:
+        raise ValueError(
+            f"a selector takes xpath or css, not {', '.join(sorted(unknown))}"
+        )
+    given = [(name, selector.get(name)) for name in SELECTORS if selector.get(name)]
     if not given:
         raise ValueError(
-            "no element given: pass xpath or css, e.g. "
-            "xpath=\"//button[@type='submit']\" or css=\"button[type=submit]\""
+            "no element given: pass a selector, e.g. "
+            "selector={\"xpath\": \"//button[@type='submit']\"} or "
+            "selector={\"css\": \"button[type=submit]\"}"
         )
     if len(given) > 1:
         raise ValueError(
-            "pass xpath or css, not both: "
+            "a selector takes xpath or css, not both: "
             + ", ".join(f"{name}={value!r}" for name, value in given)
         )
     name, value = given[0]
