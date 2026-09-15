@@ -32,14 +32,28 @@ pytestmark = pytest.mark.unit
 GRID_DOWN = 503
 
 
-@pytest.fixture
-def client(server):
-    return TestClient(server.mcp.http_app())
+# Every request names its session the way the surface says to (§F2.13). It is a
+# default header on the client rather than a keyword on each call, because it is
+# a property of the caller, not of the request.
+SESSION = "desktop"
 
 
 @pytest.fixture
-def open_client(open_server):
-    return TestClient(open_server.mcp.http_app())
+def client(server, monkeypatch):
+    monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
+    return TestClient(server.mcp.http_app(), headers={"X-Session-Key": SESSION})
+
+
+@pytest.fixture
+def open_client(open_server, monkeypatch):
+    """A client with auth off, whose session already holds a browser.
+
+    These tests are about this surface's own validation, so the browser is
+    resolved out of the way: the Grid address is unroutable, and reaching it is
+    the sentinel for "the input was accepted".
+    """
+    monkeypatch.setattr(open_server.sessions, "resolve", lambda name: "browser-1")
+    return TestClient(open_server.mcp.http_app(), headers={"X-Session-Key": SESSION})
 
 
 def test_health_needs_no_credentials(client):
@@ -54,14 +68,14 @@ def test_health_needs_no_credentials(client):
 
 
 def test_endpoints_reject_a_missing_token(client):
-    response = client.post("/browser/open", json={})
+    response = client.post("/browser", json={})
     assert response.status_code == 401
     assert response.json() == {"error": "unauthorized"}
 
 
 def test_endpoints_reject_a_wrong_token(client):
     response = client.post(
-        "/browser/open", json={}, headers={"Authorization": "Bearer nope"}
+        "/browser", json={}, headers={"Authorization": "Bearer nope"}
     )
     assert response.status_code == 401
 
@@ -69,24 +83,22 @@ def test_endpoints_reject_a_wrong_token(client):
 def test_a_good_token_gets_past_auth(client):
     """It fails on the unreachable Grid, not on the credential."""
     response = client.post(
-        "/browser/open", json={}, headers={"Authorization": f"Bearer {TOKEN}"}
+        "/browser", json={}, headers={"Authorization": f"Bearer {TOKEN}"}
     )
     assert response.status_code == GRID_DOWN
     assert "error" in response.json()
 
 
-def test_missing_required_argument_is_a_400_not_a_500(open_client):
-    response = open_client.post("/browser/interact", json={"session_id": "x"})
-    assert response.status_code == 400
-    assert "action" in response.json()["error"]
+def test_the_mouse_action_is_the_path_not_a_field(open_client):
+    """`/browser/interact/click` reads as the thing it does, and the action can
+    no longer be omitted: without one there is no route (§F2.13)."""
+    assert open_client.post("/browser/interact", json={}).status_code in (404, 405)
 
 
 def test_naming_no_element_is_a_400_that_says_how_to_address_one(open_client):
     """`xpath` stopped being required when `css` was added, so the schema can no
     longer catch this — the boundary check has to, and it has to say both."""
-    response = open_client.post(
-        "/browser/interact", json={"session_id": "x", "action": "click"}
-    )
+    response = open_client.post("/browser/interact/click", json={})
     assert response.status_code == 400
     error = response.json()["error"]
     assert "xpath" in error and "css" in error
@@ -94,8 +106,8 @@ def test_naming_no_element_is_a_400_that_says_how_to_address_one(open_client):
 
 def test_naming_both_elements_is_a_400_rather_than_a_silent_choice(open_client):
     response = open_client.post(
-        "/browser/interact",
-        json={"session_id": "x", "action": "click", "xpath": "//a", "css": "a"},
+        "/browser/interact/click",
+        json={"xpath": "//a", "css": "a"},
     )
     assert response.status_code == 400
     assert "not both" in response.json()["error"]
@@ -104,13 +116,8 @@ def test_naming_both_elements_is_a_400_rather_than_a_silent_choice(open_client):
 def test_unknown_keys_are_dropped_rather_than_rejected(open_client):
     """A caller on a newer client should not hard-fail on an extra field."""
     response = open_client.post(
-        "/browser/interact",
-        json={
-            "session_id": "x",
-            "action": "click",
-            "xpath": "//a",
-            "not_a_real_field": 1,
-        },
+        "/browser/interact/click",
+        json={"xpath": "//a", "not_a_real_field": 1},
     )
     assert response.status_code == GRID_DOWN  # reached the Grid, not a 400
 
@@ -118,7 +125,7 @@ def test_unknown_keys_are_dropped_rather_than_rejected(open_client):
 def test_interact_rejects_an_unknown_action(open_client):
     """The error names the real list, so a model can correct itself."""
     response = open_client.post(
-        "/browser/interact", json={"session_id": "x", "action": "karate", "xpath": "//a"}
+        "/browser/interact/karate", json={"xpath": "//a"}
     )
     assert response.status_code == 400
     error = response.json()["error"]
@@ -129,7 +136,7 @@ def test_interact_rejects_an_unknown_action(open_client):
 
 def test_dialog_rejects_an_unknown_action(open_client):
     response = open_client.post(
-        "/browser/dialog", json={"session_id": "x", "action": "shout"}
+        "/browser/dialog", json={"action": "shout"}
     )
     assert response.status_code == 400
     assert "shout" in response.json()["error"]
@@ -137,7 +144,7 @@ def test_dialog_rejects_an_unknown_action(open_client):
 
 def test_dialog_send_text_requires_text(open_client):
     response = open_client.post(
-        "/browser/dialog", json={"session_id": "x", "action": "send_text"}
+        "/browser/dialog", json={"action": "send_text"}
     )
     assert response.status_code == 400
     assert "text is required" in response.json()["error"]
@@ -147,7 +154,7 @@ def test_upload_refuses_more_than_one_source(open_client):
     """Two sources for one file is a caller mistake worth naming precisely."""
     response = open_client.post(
         "/browser/upload",
-        json={"session_id": "x", "xpath": "//input", "content": "eA==", "path": "/tmp/x"},
+        json={"xpath": "//input", "content": "eA==", "path": "/tmp/x"},
     )
     assert response.status_code == 400
     error = response.json()["error"]
@@ -164,7 +171,6 @@ def test_upload_takes_plain_text_as_the_file(open_client):
     response = open_client.post(
         "/browser/upload",
         json={
-            "session_id": "x",
             "xpath": "//input",
             "text": '{"generated": true}',
             "filename": "data.json",
@@ -175,7 +181,7 @@ def test_upload_takes_plain_text_as_the_file(open_client):
 
 def test_upload_needs_some_kind_of_file(open_client):
     response = open_client.post(
-        "/browser/upload", json={"session_id": "x", "xpath": "//input"}
+        "/browser/upload", json={"xpath": "//input"}
     )
     assert response.status_code == 400
     error = response.json()["error"]
@@ -186,7 +192,7 @@ def test_upload_rejects_content_that_is_not_base64(open_client):
     """And points at the multipart form, which is the easier way over HTTP."""
     response = open_client.post(
         "/browser/upload",
-        json={"session_id": "x", "xpath": "//input", "content": "definitely not base64!"},
+        json={"xpath": "//input", "content": "definitely not base64!"},
     )
     assert response.status_code == 400
     assert "base64" in response.json()["error"]
@@ -201,7 +207,7 @@ def test_upload_accepts_a_multipart_file(open_client):
     """
     response = open_client.post(
         "/browser/upload",
-        data={"session_id": "x", "xpath": "//input"},
+        data={"xpath": "//input"},
         files={"content": ("report.csv", b"a,b\n1,2\n", "text/csv")},
     )
     assert response.status_code == GRID_DOWN, response.json()
@@ -210,7 +216,7 @@ def test_upload_accepts_a_multipart_file(open_client):
 def test_a_multipart_filename_can_be_overridden(open_client):
     response = open_client.post(
         "/browser/upload",
-        data={"session_id": "x", "xpath": "//input", "filename": "renamed.csv"},
+        data={"xpath": "//input", "filename": "renamed.csv"},
         files={"content": ("original.csv", b"x", "text/csv")},
     )
     assert response.status_code == GRID_DOWN, response.json()
@@ -218,7 +224,7 @@ def test_a_multipart_filename_can_be_overridden(open_client):
 
 def test_frame_rejects_an_unknown_action(open_client):
     response = open_client.post(
-        "/browser/frame", json={"session_id": "x", "action": "sideways"}
+        "/browser/frame", json={"action": "sideways"}
     )
     assert response.status_code == 400
     error = response.json()["error"]
@@ -230,7 +236,7 @@ def test_frame_rejects_an_unknown_action(open_client):
 def test_frame_switch_needs_a_target(open_client):
     """Switching without saying which frame is a caller mistake, not a default."""
     response = open_client.post(
-        "/browser/frame", json={"session_id": "x", "action": "switch"}
+        "/browser/frame", json={"action": "switch"}
     )
     assert response.status_code == 400
     assert "xpath" in response.json()["error"]
@@ -242,19 +248,19 @@ def test_frame_default_needs_no_target(open_client):
     Reaching the Grid means it got past validation.
     """
     response = open_client.post(
-        "/browser/frame", json={"session_id": "x", "action": "default"}
+        "/browser/frame", json={"action": "default"}
     )
     assert response.status_code == GRID_DOWN, response.json()
 
 
 def test_a_non_object_body_is_rejected(open_client):
-    response = open_client.post("/browser/open", json=[1, 2, 3])
+    response = open_client.post("/browser", json=[1, 2, 3])
     assert response.status_code == 400
 
 
 def test_press_key_rejects_an_unknown_key(open_client):
     response = open_client.post(
-        "/browser/press-key", json={"session_id": "x", "key": "banana"}
+        "/browser/press-key", json={"key": "banana"}
     )
     assert response.status_code == 400
     assert "unknown key" in response.json()["error"]
@@ -266,7 +272,7 @@ def test_an_unsupported_browser_is_a_400_with_the_real_list(open_client):
     body, while the MCP surface answered with the message below. The surfaces
     may differ in return shape, never in whether an error is usable.
     """
-    response = open_client.post("/browser/open", json={"browser": "safari"})
+    response = open_client.post("/browser", json={"browser": "safari"})
     assert response.status_code == 400
     error = response.json()["error"]
     assert "safari" in error
@@ -276,34 +282,38 @@ def test_an_unsupported_browser_is_a_400_with_the_real_list(open_client):
 
 def test_every_endpoint_is_mounted(open_client):
     """A 404 here means the route table and the app disagree."""
-    from kubed.selenium_flow.routes import ENDPOINTS
+    from kubed.selenium_flow.routes import ACTION_IN_PATH, ENDPOINTS
 
-    for path in ENDPOINTS:
-        response = open_client.post(f"/browser/{path}", json={})
-        assert response.status_code != 404, f"/browser/{path} is not mounted"
+    for path, action in ENDPOINTS.items():
+        route = f"/browser/{path}" + ("/click" if action == ACTION_IN_PATH else "")
+        response = open_client.post(route, json={})
+        assert response.status_code != 404, f"{route} is not mounted"
 
 
-def test_the_old_close_path_still_works(open_server):
-    """`/browser/close` became `/browser/end` when the action was renamed.
+def test_the_browser_is_one_resource_addressed_by_naming_yourself(open_client):
+    """Opening, reading and ending are methods on it rather than paths of their
+    own, because which browser is a question about who is asking (§F2.13)."""
+    assert open_client.get("/browser").status_code == 200
+    assert open_client.delete("/browser").status_code == 200
 
-    Its callers cannot be found and updated — an n8n workflow lives in a
-    database, not in this repo — so the old path stays mapped to the same
-    action. It is deliberately not in ENDPOINTS, so the spec and the wiki
-    describe one name per action rather than advertising both.
-    """
-    from unittest.mock import patch
 
-    from kubed.selenium_flow import browser as browser_module
-    from kubed.selenium_flow.routes import ENDPOINTS, LEGACY_PATHS
+def test_a_request_that_names_no_session_is_refused(open_server):
+    """The one contract, on this surface too: there is no browser to act on
+    until a caller says who it is."""
+    bare = TestClient(open_server.mcp.http_app())
+    response = bare.post("/browser/navigate", json={"url": "https://example.test"})
+    assert response.status_code == 400
+    assert "name your session" in response.json()["error"]
 
-    assert "close" not in ENDPOINTS, "the legacy path must not be advertised"
-    assert LEGACY_PATHS["close"] == "end_browser"
 
-    client = TestClient(open_server.mcp.http_app())
-    with patch.object(browser_module.Grid, "quit") as quit_:
-        response = client.post("/browser/close", json={"session_id": "abc"})
-    assert response.status_code == 200
-    quit_.assert_called_once_with("abc")
+def test_naming_the_session_twice_is_refused(open_client):
+    response = open_client.post(
+        "/browser/navigate",
+        json={"url": "https://example.test"},
+        params={"session": "from-url"},
+    )
+    assert response.status_code == 400
+    assert "once" in response.json()["error"]
 
 
 # ---- what a failure means --------------------------------------------------

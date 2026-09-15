@@ -474,9 +474,7 @@ def register(mcp, catalogue, sessions, token: str | None, prefix: str = "") -> s
     def listing() -> dict:
         if catalogue is None:
             raise ValueError(OFF)
-        from .flows import session_for
-
-        return catalogue.listing(session_for(sessions.key()))
+        return catalogue.listing(sessions.name())
 
     @mcp.resource(LIST_URI, description=LIST_DESCRIPTION, mime_type="application/json")
     def secrets_resource() -> dict:
@@ -624,6 +622,50 @@ def bind(catalogue, reference, url: str, tool: str = "write") -> str:
     # deliberately not among the arguments.
     log.info("bound secret %s/%s on %s for %s", known, known_key, origin(url), tool)
     return value
+
+
+def perform_write(catalogue, actions, sessions, name: str, kwargs: dict) -> dict:
+    """A whole bound write — resolve, type, redact, remember — on either surface.
+
+    Deliberately NOT routed through ``sessions.act``. That touches the session
+    with the URL the action returned, and ``submit=True`` can land the browser
+    on ``?q=<what was typed>`` — so the shared wrapper would persist the
+    credential into the session record before anything had a chance to redact
+    it. Everything else about a write is identical, which is exactly why this
+    lives in one place: two copies of a redaction are one copy that is older.
+    """
+    from . import flowrun
+
+    resolved = sessions.resolve(name)
+    given, _guarded = prepare_write(catalogue, actions, resolved, kwargs)
+    hidden = flowrun.hidden_forms([given["text"]])
+    rest = {k: v for k, v in given.items() if k not in ("text", "url")}
+    try:
+        result = actions.write(
+            resolved,
+            given["text"],
+            # Not read back at all, rather than read and then hidden.
+            read_back=False,
+            **rest,
+        )
+    except Exception as exc:  # noqa: BLE001 - rewrapped, never swallowed
+        # An action puts its arguments in its error text.
+        raise ValueError(flowrun.scrub(str(exc), hidden)) from None
+    shown = flowrun.scrub_values({**result, "text_from": "secret"}, hidden)
+    # Only remember a page the value never reached. A submitting write can land
+    # on `?q=<what was typed>`; storing the scrubbed form would persist a URL
+    # that does not exist, and a later reattach would navigate to it.
+    #
+    # Asked of the URL rather than by comparing it with its scrubbed form: a
+    # secret whose value is the marker scrubs to itself, so equality would have
+    # called the credential URL safe and stored it.
+    #
+    # Touched either way. Withholding the page must not also stop the clock:
+    # `touch` slides the TTL, and skipping it entirely let a session expire
+    # *because* its URL was correctly kept out of the store.
+    safe = None if flowrun.taints(result.get("url"), hidden) else shown.get("url")
+    sessions.touch(name, safe)
+    return shown
 
 
 def prepare_write(

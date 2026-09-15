@@ -97,20 +97,6 @@ async def test_saved_mode_does_not_advertise_session_id(server, monkeypatch):
         assert "session_id" not in tools[name].parameters["properties"], name
 
 
-async def test_stateless_mode_makes_session_id_required(server, monkeypatch):
-    """So a caller reads that it is mandatory instead of discovering it by
-    failing a call."""
-    stateless(monkeypatch)
-    tools = {t.name: t for t in await server.mcp.list_tools()}
-    schema = tools["navigate"].parameters
-    assert "session_id" in schema["required"]
-    # and the null branch is gone, since null is never valid here
-    assert schema["properties"]["session_id"] == {
-        "type": "string",
-        "description": "Required: this server cannot identify you, so you own the session.",
-    }
-
-
 async def test_open_session_is_the_same_in_both_modes(server, monkeypatch):
     """It has no session_id to shape, and both modes call it identically."""
     saved(monkeypatch)
@@ -121,18 +107,3 @@ async def test_open_session_is_the_same_in_both_modes(server, monkeypatch):
     assert "session_id" not in a["properties"]
 
 
-async def test_shaping_does_not_leak_between_clients(server, monkeypatch):
-    """The registered tools are shared, so shaping must copy rather than mutate.
-
-    Otherwise the first client to list tools decides what every later client
-    sees, which is the worst kind of bug: correct in testing, wrong in use.
-    """
-    saved(monkeypatch)
-    await server.mcp.list_tools()
-    registered = await server.mcp.get_tool("navigate")
-    assert "session_id" in registered.parameters["properties"], (
-        "the registered tool was mutated in place"
-    )
-    stateless(monkeypatch)
-    tools = {t.name: t for t in await server.mcp.list_tools()}
-    assert "session_id" in tools["navigate"].parameters["properties"]

@@ -1,15 +1,15 @@
-"""Sessions: how a caller is identified, and which browser that resolves to.
+"""Sessions: the name a caller gives, and which browser that resolves to.
 
-Keying is the whole risk in this feature. Key on something that changes per
-request and every tool call opens a browser nobody closes, so the tests that
-matter most here are the ones that prove an unstable identity is *refused*
-rather than quietly used.
+Naming is the whole contract now (§F2.12). The tests that matter most are the
+ones proving a request that names nothing — or names two things — is *refused*
+rather than quietly given a browser, because inventing an identity is how every
+tool call opened a browser nobody closed.
 """
 
 import pytest
 
 from kubed.selenium_flow import sessions as sessions_module
-from kubed.selenium_flow.sessions import CallerKey, SessionManager, caller_key
+from kubed.selenium_flow.sessions import requested
 from kubed.selenium_flow.store import (
     DEFAULT_DB,
     DEFAULT_PREFIX,
@@ -26,121 +26,96 @@ from .conftest import NAMED, OTHER, RecordingActions, http, manager
 pytestmark = pytest.mark.unit
 
 
-# ---- identifying the caller ------------------------------------------------
+# ---- naming the session ----------------------------------------------------
 
 
-def test_a_named_session_in_the_query_string_is_the_key(monkeypatch):
-    monkeypatch.setattr(sessions_module, "http_request", lambda: http({"session": "desktop"}))
-    key = caller_key()
-    assert key == CallerKey("named:desktop", "named")
-
-
-def test_a_named_session_header_works_too(monkeypatch):
+def test_a_name_in_the_query_string_is_the_session(monkeypatch):
     monkeypatch.setattr(
-        sessions_module, "http_request", lambda: http(headers={"x-session-key": "desktop"})
+        sessions_module, "http_request", lambda: http({"session": "research"})
     )
-    assert caller_key().value == "named:desktop"
+    assert requested() == sessions_module.Caller("research", "query")
 
 
-def test_the_header_wins_over_the_query_parameter(monkeypatch):
-    """A permission boundary, not a preference.
+def test_a_name_in_the_header_is_the_session_too(monkeypatch):
+    monkeypatch.setattr(
+        sessions_module, "http_request", lambda: http(headers={"x-session-key": "desk"})
+    )
+    assert requested() == sessions_module.Caller("desk", "header")
 
-    The header is set inside the credential, which an admin controls; the query
-    parameter is written by whoever wires up the call. An admin pinning a name
-    in the credential means one session per credential, so a caller must not be
-    able to override it from the URL.
-    """
+
+def test_naming_it_twice_is_refused_rather_than_resolved(monkeypatch):
+    """Dr K's rule, and it replaces a precedence the old surface had. A request
+    carrying both has two ideas about who is calling, and picking one hides that
+    from whoever wired it up — including an admin who pinned a name in a
+    credential and a caller that overrode it from the URL."""
     monkeypatch.setattr(
         sessions_module,
         "http_request",
-        lambda: http({"session": "from-param"}, {"x-session-key": "from-header"}),
+        lambda: http({"session": "from-url"}, {"x-session-key": "from-credential"}),
     )
-    assert caller_key().value == "named:from-header"
+    with pytest.raises(ValueError, match="name your session once"):
+        requested()
 
 
-def test_a_name_beats_the_transport_session(monkeypatch):
-    """An explicit choice by the client is more trustworthy than the transport."""
-    monkeypatch.setattr(
-        sessions_module,
-        "http_request",
-        lambda: http({"session": "desktop"}, {"mcp-session-id": "abc123"}),
-    )
-    assert caller_key() == CallerKey("named:desktop", "named")
-
-
-def test_the_transport_session_header_is_used_when_there_is_no_name(monkeypatch):
-    monkeypatch.setattr(
-        sessions_module, "http_request", lambda: http(headers={"mcp-session-id": "abc123"})
-    )
-    assert caller_key() == CallerKey("mcp:abc123", "transport")
-
-
-def test_a_request_with_nothing_stable_has_no_key(monkeypatch):
-    """The regression that leaked a browser per call.
-
-    Context.session_id answers this case with a fresh uuid4 instead of an error,
-    so every call looked like a new client and opened a new browser. Refusing to
-    invent a key is the entire fix.
-    """
+def test_a_request_that_names_nothing_names_nothing(monkeypatch):
+    """None is a real answer, not a failure: it is what `library` turns into the
+    shared library and what `name` refuses."""
     monkeypatch.setattr(sessions_module, "http_request", lambda: http())
-    assert caller_key() is None
+    assert requested() is None
 
 
 def test_stdio_is_one_client_so_a_constant_is_correct(monkeypatch):
     monkeypatch.setattr(sessions_module, "http_request", lambda: None)
-    assert caller_key() == CallerKey("stdio", "stdio")
+    assert requested() == sessions_module.Caller("stdio", "stdio")
 
 
-def test_no_key_means_the_caller_must_be_explicit():
+def test_an_unusable_name_is_refused_where_it_arrives(monkeypatch):
+    """A session name IS a directory name, so it is validated once, here. It used
+    to be accepted for the browser and refused later for the library, which meant
+    `?session=my bot` drove a private browser while saving its flows into the
+    shared library."""
+    monkeypatch.setattr(
+        sessions_module, "http_request", lambda: http({"session": "my bot"})
+    )
+    with pytest.raises(ValueError, match="not a usable session name"):
+        requested()
+
+
+def test_the_shared_library_cannot_be_claimed_as_a_name(monkeypatch):
+    """`global` is read-only to everyone, so a caller that could name itself that
+    would own every session's shared flows."""
+    monkeypatch.setattr(
+        sessions_module, "http_request", lambda: http({"session": "global"})
+    )
+    with pytest.raises(ValueError, match="reserved"):
+        requested()
+
+
+# ---- one contract, and it is "say who you are" -----------------------------
+
+
+def test_a_caller_that_named_nothing_is_told_how_to(monkeypatch):
     actions = RecordingActions()
-    with pytest.raises(ValueError, match="no stable session"):
-        manager(actions).resolve(None, None)
-    assert actions.opened == 0, "an unidentifiable caller must never open a browser"
-
-
-def test_the_error_names_the_reference_that_explains_it():
-    """An agent that hits this should not have to guess what to read."""
-    with pytest.raises(ValueError, match=r"STATELESS\.md"):
-        manager().resolve(None, None)
-
-
-# ---- the two modes are exclusive -------------------------------------------
-
-
-def test_a_key_means_saved_mode(monkeypatch):
-    monkeypatch.setattr(sessions_module, "http_request", lambda: http({"session": "d"}))
-    sessions = manager()
-    assert sessions.mode() == sessions.SAVED
-
-
-def test_no_key_means_stateless_mode(monkeypatch):
     monkeypatch.setattr(sessions_module, "http_request", lambda: http())
-    sessions = manager()
-    assert sessions.mode() == sessions.STATELESS
+    with pytest.raises(ValueError, match=r"\?session=") as raised:
+        manager(actions).name()
+    assert "X-Session-Key" in str(raised.value)
+    assert actions.opened == 0, "an unnamed caller must never open a browser"
 
 
-def test_stateless_honours_the_id_it_is_given():
-    assert manager().resolve(None, "abc") == "abc"
+def test_the_shared_library_is_the_one_thing_an_unnamed_caller_gets(monkeypatch):
+    """The other half of requiring a name, rather than an exception to it:
+    `global` is read-only, so an unnamed caller can read the shared flows and can
+    write nowhere at all (§F2.13)."""
+    monkeypatch.setattr(sessions_module, "http_request", lambda: http())
+    assert manager().library() == "global"
 
 
-def test_saved_mode_refuses_a_session_id():
-    """The modes are exclusive on purpose.
-
-    A caller passing an id while the server holds one for it is either confused
-    or reaching for a browser it does not own, and both produce the expensive
-    kind of mistake: acting on the wrong browser.
-    """
-    actions = RecordingActions()
-    sessions = manager(actions)
-    sessions.remember(NAMED, "mine")
-    with pytest.raises(ValueError, match="do not pass session_id"):
-        sessions.resolve(NAMED, "somebody-elses")
-    assert actions.opened == 0
-
-
-def test_the_refusal_names_the_reference():
-    with pytest.raises(ValueError, match=r"SAVED_SESSIONS\.md"):
-        manager().resolve(NAMED, "abc")
+def test_a_named_caller_owns_its_own_library(monkeypatch):
+    monkeypatch.setattr(
+        sessions_module, "http_request", lambda: http({"session": "research"})
+    )
+    assert manager().library() == "research"
 
 
 # ---- resolving, without any magic ------------------------------------------
@@ -154,7 +129,7 @@ def test_resolve_never_opens_a_browser():
     """
     actions = RecordingActions()
     with pytest.raises(ValueError, match="call open_session first"):
-        manager(actions).resolve(NAMED, None)
+        manager(actions).resolve(NAMED)
     assert actions.opened == 0
 
 
@@ -163,8 +138,8 @@ def test_a_live_remembered_session_is_recalled():
     sessions = manager(actions)
     actions.grid.alive.add("abc")
     sessions.remember(NAMED, "abc")
-    assert sessions.resolve(NAMED, None) == "abc"
-    assert sessions.resolve(NAMED, None) == "abc"
+    assert sessions.resolve(NAMED) == "abc"
+    assert sessions.resolve(NAMED) == "abc"
     assert actions.opened == 0
 
 
@@ -174,7 +149,7 @@ def test_clients_do_not_see_each_others_browsers():
     actions.grid.alive.add("mine")
     sessions.remember(NAMED, "mine")
     with pytest.raises(ValueError, match="call open_session first"):
-        sessions.resolve(OTHER, None)
+        sessions.resolve(OTHER)
 
 
 # ---- refreshing a session the Grid has reaped ------------------------------
@@ -188,9 +163,9 @@ def test_a_reaped_session_is_reopened_where_it_left_off():
     actions = RecordingActions()
     sessions = manager(actions)
     sessions.store.set(
-        NAMED.value, SessionRecord(session_id="dead", url="https://example.com/page")
+        NAMED, SessionRecord(session_id="dead", url="https://example.com/page")
     )
-    assert sessions.resolve(NAMED, None) == "generated-1"
+    assert sessions.resolve(NAMED) == "generated-1"
     assert actions.opened_urls == ["https://example.com/page"]
 
 
@@ -199,12 +174,12 @@ def test_a_refresh_reopens_with_the_same_settings():
     actions = RecordingActions()
     sessions = manager(actions)
     sessions.store.set(
-        NAMED.value,
+        NAMED,
         SessionRecord(session_id="dead", url="", settings={"width": 1400, "height": 900}),
     )
-    sessions.resolve(NAMED, None)
+    sessions.resolve(NAMED)
     assert actions.opened_settings == [{"width": 1400, "height": 900}]
-    assert sessions.store.get(NAMED.value).settings == {"width": 1400, "height": 900}
+    assert sessions.store.get(NAMED).settings == {"width": 1400, "height": 900}
 
 
 def test_a_refresh_reopens_on_the_same_browser():
@@ -217,10 +192,10 @@ def test_a_refresh_reopens_on_the_same_browser():
     actions = RecordingActions()
     sessions = manager(actions)
     sessions.store.set(
-        NAMED.value,
+        NAMED,
         SessionRecord(session_id="dead", url="", settings={"browser": "firefox"}),
     )
-    sessions.resolve(NAMED, None)
+    sessions.resolve(NAMED)
     assert actions.opened_settings == [{"browser": "firefox"}]
 
 
@@ -237,12 +212,12 @@ def test_a_resize_is_remembered_so_a_refresh_replays_it():
     sessions.remember(NAMED, "dead", "", {"browser": "firefox", "width": 800})
     sessions.reshape(NAMED, {"width": 1024, "height": 768})
 
-    record = sessions.store.get(NAMED.value)
+    record = sessions.store.get(NAMED)
     assert record.window == "1024x768"
     assert record.settings["browser"] == "firefox", "a merge, not a swap"
 
     # "dead" was never added to the fake Grid, so this takes the refresh path.
-    sessions.resolve(NAMED, None)
+    sessions.resolve(NAMED)
     assert actions.opened_settings == [
         {"browser": "firefox", "width": 1024, "height": 768}
     ]
@@ -251,11 +226,11 @@ def test_a_resize_is_remembered_so_a_refresh_replays_it():
 def test_the_refreshed_session_replaces_the_stored_one():
     actions = RecordingActions()
     sessions = manager(actions)
-    sessions.store.set(NAMED.value, SessionRecord(session_id="dead", url=""))
-    sessions.resolve(NAMED, None)
-    assert sessions.store.get(NAMED.value).session_id == "generated-1"
+    sessions.store.set(NAMED, SessionRecord(session_id="dead", url=""))
+    sessions.resolve(NAMED)
+    assert sessions.store.get(NAMED).session_id == "generated-1"
     assert actions.opened == 1, "a second resolve must not open another"
-    assert sessions.resolve(NAMED, None) == "generated-1"
+    assert sessions.resolve(NAMED) == "generated-1"
 
 
 def test_touch_records_the_page_for_a_later_refresh():
@@ -264,13 +239,13 @@ def test_touch_records_the_page_for_a_later_refresh():
     actions.grid.alive.add("abc")
     sessions.remember(NAMED, "abc")
     sessions.touch(NAMED, "https://example.com/deep")
-    assert sessions.store.get(NAMED.value).url == "https://example.com/deep"
+    assert sessions.store.get(NAMED).url == "https://example.com/deep"
 
 
 def test_touch_on_an_unknown_key_is_harmless():
     sessions = manager()
     sessions.touch(NAMED, "https://example.com")
-    assert sessions.store.get(NAMED.value) is None
+    assert sessions.store.get(NAMED) is None
 
 
 # ---- ending a browser ------------------------------------------------------
@@ -284,10 +259,10 @@ def test_ending_a_browser_means_open_session_again():
     sessions = manager(actions)
     actions.grid.alive.add("abc")
     sessions.remember(NAMED, "abc")
-    sessions.end_browser(NAMED.value)
+    sessions.end_browser(NAMED)
     opened_before = actions.opened
     with pytest.raises(ValueError, match="call open_session first"):
-        sessions.resolve(NAMED, None)
+        sessions.resolve(NAMED)
     assert actions.opened == opened_before, "resolve must never open one"
 
 
@@ -300,55 +275,34 @@ def test_ending_a_browser_never_removes_the_flow_session():
     assertion as "ending keeps the context", made once."""
     sessions = manager()
     sessions.remember(NAMED, "mine", "https://x/", {"browser": "firefox"})
-    sessions.end_browser(NAMED.value)
-    record = sessions.store.get(NAMED.value)
+    sessions.end_browser(NAMED)
+    record = sessions.store.get(NAMED)
     assert record is not None
     assert not record.attached
     assert record.url == "https://x/"
     assert record.settings == {"browser": "firefox"}
 
 
-def test_naming_someone_elses_browser_cannot_end_it():
-    """`session_id` is only a fallback for a record that names no browser. A
-    record with one of its own wins, so a passed id cannot reach past it."""
+def test_a_session_can_only_end_its_own_browser():
+    """There is no id to pass any more, which is the point: the only browser a
+    caller can name is the one its own session holds."""
     actions = RecordingActions()
     sessions = manager(actions)
     sessions.remember(NAMED, "mine")
-    ended = sessions.end_browser(NAMED.value, "a-different-session")
-    assert ended == "mine"
+    sessions.remember(OTHER, "theirs")
+    assert sessions.end_browser(NAMED) == "mine"
     assert actions.closed == ["mine"]
+    assert sessions.store.get(OTHER).session_id == "theirs"
 
 
-def test_an_untracked_browser_is_still_ended():
-    """A stateless caller passing an id it opened over the HTTP surface. There
-    is no record to detach, but the browser is still holding a Grid slot."""
+def test_ending_a_browser_nobody_holds_is_harmless():
     actions = RecordingActions()
     sessions = manager(actions)
-    assert sessions.end_browser(None, "loose-browser") == "loose-browser"
-    assert actions.closed == ["loose-browser"]
-
-
-# ---- the feature, off ------------------------------------------------------
-
-
-def test_disabled_is_simply_stateless(monkeypatch):
-    """Off is a real mode, not a degraded one: every tool still works."""
-    monkeypatch.setattr(sessions_module, "http_request", lambda: http({"session": "d"}))
-    sessions = manager(enabled=False)
-    assert sessions.key() is None
-    assert sessions.mode() == sessions.STATELESS
-    assert sessions.resolve(None, "abc") == "abc"
-
-
-def test_disabled_requires_an_explicit_session_id():
-    actions = RecordingActions()
-    with pytest.raises(ValueError, match="session_id is required"):
-        manager(actions, enabled=False).resolve(None, None)
-    assert actions.opened == 0
+    assert sessions.end_browser(NAMED) is None
+    assert actions.closed == []
 
 
 def test_the_backend_in_use_is_reported():
-    assert manager(enabled=False).kind == "disabled"
     assert manager().kind == "memory"
     assert manager(store=RedisStore(FakeRedis())).kind == "redis"
 
@@ -360,27 +314,28 @@ def test_the_backend_in_use_is_reported():
 # gets this status in, a resource or a tool — and does not re-test the content.
 
 
-def test_describe_reports_the_mode_and_where_to_read_about_it(named_caller):
+def test_describe_reports_the_session_and_where_to_read_about_it(named_caller):
     status = manager().describe()
-    assert status["mode"] == "saved"
-    assert status["pass_session_id"] is False
-    assert "SAVED_SESSIONS.md" in status["guidance"]
+    assert status["session"] == NAMED
+    assert "SESSIONS.md" in status["guidance"]
 
 
-def test_describe_reports_stateless_and_its_reference(stateless_caller):
-    status = manager().describe()
-    assert status["mode"] == "stateless"
-    assert status["pass_session_id"] is True
-    assert status["key"] is None
-    assert "STATELESS.md" in status["guidance"]
+def test_describe_never_names_the_grid_id(named_caller):
+    """The whole of E18 in one assertion: the browser id is how a browser is
+    reached and is not part of what a caller is told."""
+    actions = RecordingActions()
+    actions.grid.alive.add("abc")
+    sessions = manager(actions)
+    sessions.remember(NAMED, "abc", "https://example.com")
+    assert "abc" not in repr(sessions.describe())
 
 
 def test_describe_never_opens_a_browser(named_caller):
     """Reading a status resource must never create one."""
     actions = RecordingActions()
     status = manager(actions).describe()
-    assert status["session_id"] is None
-    assert status["key"] == "named:desktop"
+    assert status["live"] is False
+    assert status["session"] == NAMED
     assert actions.opened == 0
 
 
@@ -390,18 +345,17 @@ def test_describe_reports_a_held_session_and_whether_it_is_still_there(named_cal
     actions.grid.alive.add("abc")
     sessions = manager(actions)
     sessions.store.set(
-        NAMED.value, SessionRecord(session_id="abc", url="https://example.com")
+        NAMED, SessionRecord(session_id="abc", url="https://example.com")
     )
     status = sessions.describe()
-    assert status["session_id"] == "abc"
     assert status["url"] == "https://example.com"
     assert status["live"] is True
-    assert status["key_source"] == "named"
+    assert status["named_by"] == "query"
 
 
 def test_describe_flags_a_session_the_grid_has_reaped(named_caller):
     sessions = manager()
-    sessions.store.set(NAMED.value, SessionRecord(session_id="dead"))
+    sessions.store.set(NAMED, SessionRecord(session_id="dead"))
     assert sessions.describe()["live"] is False
 
 
@@ -516,10 +470,10 @@ def test_the_pointer_beside_a_session_does_not_empty_the_history():
 
     fake = FakeRedis()
     store = RedisStore(fake, prefix="p:")
-    store.set("named:desktop", SessionRecord(session_id="abc"))
+    store.set("desktop", SessionRecord(session_id="abc"))
     pointer.matching(store).set("abc", 10.5, 20.0)
 
-    assert list(store.records()) == ["named:desktop"]
+    assert list(store.records()) == ["desktop"]
 
 
 def test_json_that_is_not_a_record_is_a_miss_not_a_crash():
@@ -564,7 +518,7 @@ def test_touch_slides_the_expiry_of_a_session_in_use():
     now[0] += 50
     sessions.touch(NAMED, "https://example.com")
     now[0] += 50
-    assert sessions.store.get(NAMED.value) is not None, "an in-use session must not lapse"
+    assert sessions.store.get(NAMED) is not None, "an in-use session must not lapse"
 
 
 # ---- configuration ---------------------------------------------------------
@@ -762,13 +716,13 @@ def test_an_unreachable_grid_does_not_strand_the_session(monkeypatch):
 
 
 def test_ending_something_that_is_not_there_is_not_an_error():
-    assert manager().end_browser("named:nobody") is None
+    assert manager().end_browser("nobody") is None
 
 
 def test_context_is_what_a_reopen_should_inherit(monkeypatch):
     sessions = manager()
     sessions.store.set(
-        NAMED.value,
+        NAMED,
         SessionRecord(session_id="", url="https://x/", settings={"browser": "firefox"}),
     )
     monkeypatch.setattr(
@@ -787,45 +741,6 @@ def test_context_is_empty_when_there_is_nothing_to_inherit(monkeypatch):
     assert manager().context(NAMED) == {}
 
 
-# ---- stateless sessions are recorded, never resolved -----------------------
-
-
-def test_a_stateless_session_is_recorded_under_its_own_browser():
-    """So it appears in the admin history and expires like any other. This is
-    NOT a caller key: nothing ever resolves a caller from it, which is what
-    keeps the leak that `caller_key` exists to prevent prevented."""
-    sessions = manager()
-    sessions.remember(None, "sess-1", "https://x/", {"browser": "chrome"})
-    record = sessions.store.get(sessions_module.stateless_key("sess-1"))
-    assert record is not None
-    assert record.session_id == "sess-1"
-    assert record.url == "https://x/"
-
-
-def test_a_stateless_caller_still_has_no_key(monkeypatch):
-    """Recording one must not have quietly given stateless callers an identity."""
-    monkeypatch.setattr(sessions_module, "http_request", lambda: http())
-    sessions = manager()
-    sessions.remember(None, "sess-1", "https://x/")
-    assert sessions.key() is None
-    assert sessions.mode() == SessionManager.STATELESS
-
-
-def test_a_stateless_session_records_where_it_got_to():
-    sessions = manager()
-    sessions.remember(None, "sess-1", "https://x/")
-    sessions.touch(None, "https://x/deep", "sess-1")
-    record = sessions.store.get(sessions_module.stateless_key("sess-1"))
-    assert record.url == "https://x/deep"
-
-
-def test_touch_without_a_session_id_or_key_records_nothing():
-    """Belt and braces: the one path that could invent a store key must not."""
-    sessions = manager()
-    sessions.touch(None, "https://x/")
-    assert sessions.store.records() == {}
-
-
 # ---- one session holds one browser -----------------------------------------
 
 
@@ -840,7 +755,7 @@ def test_opening_a_replacement_ends_the_browser_it_replaces():
     actions = RecordingActions()
     sessions = manager(actions)
     sessions.remember(NAMED, "old-browser", "https://x/", {"browser": "chrome"})
-    ended = sessions.end_browser(sessions.store_key(NAMED))
+    ended = sessions.end_browser(NAMED)
     assert ended == "old-browser"
     assert actions.closed == ["old-browser"]
 
@@ -850,8 +765,8 @@ def test_replacing_keeps_the_session_and_its_context():
     replacement inherits, so ending must not take it."""
     sessions = manager()
     sessions.remember(NAMED, "old-browser", "https://x/", {"browser": "firefox"})
-    sessions.end_browser(sessions.store_key(NAMED))
-    record = sessions.store.get(NAMED.value)
+    sessions.end_browser(NAMED)
+    record = sessions.store.get(NAMED)
     assert not record.attached
     assert record.url == "https://x/"
     assert record.settings == {"browser": "firefox"}
@@ -860,8 +775,8 @@ def test_replacing_keeps_the_session_and_its_context():
 def test_ending_a_session_with_no_browser_ends_nothing():
     actions = RecordingActions()
     sessions = manager(actions)
-    sessions.store.set(NAMED.value, SessionRecord(session_id="", url="https://x/"))
-    assert sessions.end_browser(sessions.store_key(NAMED)) is None
+    sessions.store.set(NAMED, SessionRecord(session_id="", url="https://x/"))
+    assert sessions.end_browser(NAMED) is None
     assert actions.closed == []
 
 
@@ -875,19 +790,8 @@ def test_ending_detaches_even_when_the_browser_will_not_quit():
 
     sessions = manager(Refuses())
     sessions.remember(NAMED, "old-browser", "https://x/")
-    sessions.end_browser(sessions.store_key(NAMED))
-    assert not sessions.store.get(NAMED.value).attached
-
-
-def test_replacing_ends_nothing_for_a_caller_with_no_key():
-    """store_key(None) with no browser id is None, so there is nothing to look
-    up — a stateless caller passes its own ids and owns them, and guessing which
-    browser to end for it would end somebody else's."""
-    actions = RecordingActions()
-    sessions = manager(actions)
-    sessions.remember(None, "sess-1", "https://x/")
-    assert sessions.end_browser(sessions.store_key(None)) is None
-    assert actions.closed == []
+    sessions.end_browser(NAMED)
+    assert not sessions.store.get(NAMED).attached
 
 
 # ---- opening from a known start ---------------------------------------------
@@ -907,10 +811,10 @@ async def test_open_session_comes_back_to_the_page_it_was_on(server, monkeypatch
         seen.update(kwargs)
         return {"session_id": "abc", "url": kwargs.get("url") or "about:blank"}
 
-    monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
+    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
     monkeypatch.setattr(server.actions, "open_session", fake_open)
     server.sessions.store.set(
-        NAMED.value, SessionRecord(session_id="", url="https://app.test/orders")
+        NAMED, SessionRecord(session_id="", url="https://app.test/orders")
     )
     async with Client(server.mcp) as client:
         await client.call_tool("open_session", {})
@@ -935,10 +839,10 @@ async def test_fresh_drops_the_remembered_page_and_keeps_the_browser(
         seen.update(kwargs)
         return {"session_id": "abc", "url": "about:blank"}
 
-    monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
+    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
     monkeypatch.setattr(server.actions, "open_session", fake_open)
     server.sessions.store.set(
-        NAMED.value,
+        NAMED,
         SessionRecord(
             session_id="",
             url="https://app.test/orders",
@@ -963,7 +867,7 @@ async def test_a_url_given_alongside_fresh_still_wins(server, monkeypatch):
     from .conftest import NAMED
 
     seen = {}
-    monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
+    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
     monkeypatch.setattr(
         server.actions,
         "open_session",
@@ -972,7 +876,7 @@ async def test_a_url_given_alongside_fresh_still_wins(server, monkeypatch):
         ),
     )
     server.sessions.store.set(
-        NAMED.value, SessionRecord(session_id="", url="https://app.test/orders")
+        NAMED, SessionRecord(session_id="", url="https://app.test/orders")
     )
     async with Client(server.mcp) as client:
         await client.call_tool(

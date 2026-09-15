@@ -9,21 +9,24 @@ Response shapes are the one hand-maintained half: the actions return plain
 dicts, so there is nothing to introspect. ``RESPONSES`` below is that
 declaration, and a test asserts every endpoint has one.
 
-Three transforms are applied on the way through, and they are the only
-sanctioned differences between the two schemas. Each is pinned by a test.
+**No transform is applied on the way through, and that is new.** There used to
+be three sanctioned differences, all of them consequences of the HTTP surface
+having no session of its own: ``session_id`` became required, ``fresh`` was
+dropped because there was no session to be fresh *from*, and ``upload_file``
+gained a ``session`` field so a kept file could name a library. §F2.12 and
+§F2.13 removed the cause rather than the symptoms — both surfaces now name a
+session the same way — so a request body here is exactly the tool's schema, and
+a test asserts it.
 
-1. Saved sessions let an MCP caller omit ``session_id``, so the tool schema
-   marks it optional. The HTTP endpoints never do that — they take a session in
-   and give one back so the caller owns it — so ``http_schema`` puts it back as
-   required.
-2. ``SESSION_ONLY`` removes an argument that describes a *flow session*, which
-   the HTTP surface does not have: ``open_session(fresh=...)`` is the one.
-3. ``HTTP_ONLY`` adds an argument the action takes and the tool deliberately
-   does not publish, because over MCP the caller's own key answers it:
-   ``upload_file(session=...)`` is the one.
+What is described here and not in a tool schema is the session itself, as the
+header and query parameter every operation takes. That is not a body field on
+either surface, which is the whole point of it.
 
-The last two are opposites of each other and both deliberate. A reader who
-finds either and assumes accidental schema drift will remove a capability.
+What is described *differently* is the shape, and only the shape: a tool is a
+verb with arguments, an endpoint is a path with a method. Those come from the
+route tables — ``routes.ENDPOINTS``, ``flowapi.FLOW_ROUTES``,
+``files.FILE_ROUTES`` — so this document cannot describe a path that is not
+served.
 """
 
 from __future__ import annotations
@@ -327,6 +330,8 @@ async def build_spec(
     schemas: dict[str, dict] = {"Error": ERROR, "Health": HEALTH}
     paths: dict[str, dict] = {}
 
+    from .routes import ACTION_IN_PATH
+
     for path, action in endpoints.items():
         tool = tools.get(action)
         if tool is None:  # pragma: no cover - the surfaces test forbids this
@@ -334,14 +339,37 @@ async def build_spec(
 
         request_name = f"{_camel(action)}Request"
         response_name = f"{_camel(action)}Response"
-        request, nested = _hoisted(http_schema(tool.parameters, action))
+        # Verbatim: the body an endpoint accepts IS the tool's schema now.
+        request, nested = _hoisted(copy.deepcopy(tool.parameters))
         schemas.update(nested)
         schemas[request_name] = request
         schemas[response_name] = RESPONSES.get(action, {"type": "object"})
 
-        paths[f"{prefix}/{path}"] = {
+        in_path = action == ACTION_IN_PATH
+        route = f"{prefix}/{path}" + ("/{action}" if in_path else "")
+        parameters = list(SESSION_PARAMETERS)
+        if in_path:
+            # The mouse action is the path, not a field: /browser/interact/click
+            # reads as the thing it does, and the enum is already closed.
+            choice = dict(request.get("properties", {}).get("action", {}))
+            request = _without(request, "action")
+            schemas[request_name] = request
+            parameters = [
+                {
+                    "name": "action",
+                    "in": "path",
+                    "required": True,
+                    "schema": {k: v for k, v in choice.items() if k != "description"}
+                    or {"type": "string"},
+                    "description": choice.get("description", ""),
+                },
+                *parameters,
+            ]
+
+        paths[route] = {
             "post": {
                 "operationId": action,
+                "parameters": parameters,
                 # The MCP tool this endpoint is the other half of. Redundant for
                 # a browser action, where the two names are the same by
                 # construction — and stated anyway, so a reader of the document
@@ -388,6 +416,88 @@ async def build_spec(
                 },
             }
         }
+
+    # The browser this caller holds: one resource, three methods. Not one path
+    # per verb, because which browser is a question about who is asking and the
+    # answer is in the header (§F2.13).
+    resource = (
+        (
+            "open_session",
+            "post",
+            "Open this session's browser, or pick up the one it was using.",
+        ),
+        (
+            "end_browser",
+            "delete",
+            "Quit the browser, keeping the session and its context.",
+        ),
+    )
+    for action, method, summary in resource:
+        tool = await mcp.get_tool(action)
+        request_name = f"{_camel(action)}Request"
+        response_name = f"{_camel(action)}Response"
+        request, nested = _hoisted(copy.deepcopy(tool.parameters))
+        schemas.update(nested)
+        schemas[request_name] = request
+        schemas[response_name] = RESPONSES.get(action, {"type": "object"})
+        paths.setdefault(prefix, {})[method] = {
+            "operationId": action,
+            "x-mcp-tool": action,
+            "parameters": list(SESSION_PARAMETERS),
+            "summary": summary,
+            "description": tool.description or "",
+            "tags": ["browser"],
+            "requestBody": {
+                "required": False,
+                "content": {
+                    "application/json": {
+                        "schema": {"$ref": f"#/components/schemas/{request_name}"}
+                    }
+                },
+            },
+            "responses": {
+                "200": {
+                    "description": summary,
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": f"#/components/schemas/{response_name}"}
+                        }
+                    },
+                },
+                "400": _error(
+                    "The request cannot succeed as sent — no session named, two "
+                    "names given, or a setting that was rejected."
+                ),
+                "401": _error("Missing or wrong bearer token."),
+                "503": _error(
+                    "The Grid could not serve this — unreachable, or no free "
+                    "slot for a new browser. Worth retrying after a wait."
+                ),
+            },
+        }
+
+    status_tool = await mcp.get_tool("current_session")
+    schemas["SessionStatus"] = RESPONSES.get("current_session", {"type": "object"})
+    paths.setdefault(prefix, {})["get"] = {
+        "operationId": "currentSession",
+        "x-mcp-tool": "current_session",
+        "parameters": list(SESSION_PARAMETERS),
+        "summary": "What this session is, and whether it holds a browser.",
+        "description": status_tool.description or "",
+        "tags": ["browser"],
+        "responses": {
+            "200": {
+                "description": "The session's current state. Opens nothing.",
+                "content": {
+                    "application/json": {
+                        "schema": {"$ref": "#/components/schemas/SessionStatus"}
+                    }
+                },
+            },
+            "400": _error("No session named, or two names given."),
+            "401": _error("Missing or wrong bearer token."),
+        },
+    }
 
     schemas.update(FLOW_SCHEMAS)
     paths.update(_flow_paths())
@@ -502,7 +612,6 @@ def _request_content(action: str, request_name: str) -> dict:
             "schema": {
                 "type": "object",
                 "properties": {
-                    "session_id": {"type": "string"},
                     "xpath": {"type": "string"},
                     "css": {"type": "string"},
                     "content": {
@@ -536,84 +645,80 @@ def _request_content(action: str, request_name: str) -> dict:
                             "content part, text, kept, or path."
                         ),
                     },
-                    "session": dict(HTTP_ONLY["upload_file"]["session"]),
                     "url": {"type": "string"},
                     "wait_timeout": {"type": "integer"},
                 },
-                # Not the selector: the input is addressed by EITHER xpath OR
-                # css, which this hand-written schema cannot say without a
-                # oneOf. `browser.locator` enforces it at the boundary and
-                # returns a 400 naming both, exactly as it does for the JSON
-                # body. Requiring `xpath` here would publish a contract that
-                # forbids a call the route accepts.
-                "required": ["session_id"],
+                # Nothing is required: the input is addressed by EITHER xpath
+                # OR css, which this hand-written schema cannot say without a
+                # oneOf, and the session is a header rather than a field.
+                # `browser.locator` enforces the selector rule at the boundary
+                # and returns a 400 naming both, exactly as it does for a JSON
+                # body.
             }
         }
     return content
 
 
-# Arguments about the caller's FLOW SESSION rather than about the browser. The
-# HTTP surface has no flow session at all - `routes.py` never touches
-# `SessionManager`, which is why a browser opened over HTTP never appears in the
-# admin list - so an open there cannot inherit a previous page and `fresh` would
-# be a parameter that parses and does nothing. Dropped from the published
-# contract rather than accepted and ignored.
-SESSION_ONLY = {"open_session": ("fresh",)}
+# The session every operation is about, named the way §F2.13 says: a header, or
+# a query parameter, and never a body field or a path segment. Published on
+# every operation because it is how a caller says who it is, and a generated
+# client that cannot see it cannot hold a session at all.
+SESSION_PARAMETERS = [
+    {
+        "name": "X-Session-Key",
+        "in": "header",
+        "required": False,
+        "schema": {"type": "string"},
+        "description": (
+            "Which session this call is about. What an admin pins inside a "
+            "credential when one credential should mean one session. Sending "
+            "this AND ?session= is a 400: two names is two ideas about who is "
+            "calling."
+        ),
+    },
+    {
+        "name": "session",
+        "in": "query",
+        "required": False,
+        "schema": {"type": "string"},
+        "description": (
+            "The same thing on the URL, for a caller that cannot set a header. "
+            "Anything touching a browser needs one of the two; the flow library "
+            "falls back to the shared 'global' one, which is read-only."
+        ),
+    },
+]
 
-# The mirror image: arguments the ACTION takes that the MCP tool deliberately
-# does not publish, because over MCP the caller's own key answers them. The
-# schema is derived from the tool, so without this the endpoint accepts a field
-# no generated client can discover (Copilot, #31).
-HTTP_ONLY = {
-    "upload_file": {
-        "session": {
-            "type": "string",
-            "description": (
-                "Which flow library `kept` names a file in — the same selector "
-                "/files/keep and /files/list take. Over MCP the caller's own "
-                "session answers this and the argument does not exist; here "
-                "the surface is always explicit, and without it a kept file is "
-                "looked for in the shared `global` library."
-            ),
+
+def _named_in_path(template: str) -> list[dict]:
+    """The path parameters a route template declares."""
+    if "{name}" not in template:
+        return []
+    return [
+        {
+            "name": "name",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "string"},
         }
-    }
-}
+    ]
 
 
-def http_schema(tool_schema: dict, action: str = "") -> dict:
-    """A tool's schema as the HTTP surface actually accepts it.
+def _without(schema: dict, *names: str) -> dict:
+    """A request schema with fields that are no longer body fields removed.
 
-    Three things change. ``session_id`` becomes required and loses its null
-    branch: MCP callers may omit it because saved sessions can supply it, and an
-    endpoint has no session to draw on and must be told. Anything in
-    ``SESSION_ONLY`` is removed, because it describes a flow session this
-    surface does not have. And anything in ``HTTP_ONLY`` is added, for the
-    opposite reason — the action takes it and the tool does not publish it.
+    `name` moved into the path and `session`/`session_id` into the header, so
+    publishing them here would describe a request nothing accepts.
     """
-    schema = copy.deepcopy(tool_schema)
-    for name, published in HTTP_ONLY.get(action, {}).items():
-        schema.setdefault("properties", {})[name] = dict(published)
-    for name in SESSION_ONLY.get(action, ()):
-        schema.get("properties", {}).pop(name, None)
-        required = schema.get("required")
-        if isinstance(required, list) and name in required:
+    schema = copy.deepcopy(schema)
+    properties = schema.get("properties", {})
+    required = schema.get("required", [])
+    for name in names:
+        properties.pop(name, None)
+        if name in required:
             required.remove(name)
-    prop = schema.get("properties", {}).get("session_id")
-    if prop is None:
-        return schema
-
-    required = schema.setdefault("required", [])
-    if "session_id" not in required:
-        required.insert(0, "session_id")
-
-    branches = [b for b in prop.get("anyOf", []) if b.get("type") != "null"]
-    if len(branches) == 1:
-        prop.clear()
-        prop.update(branches[0])
-    prop.pop("default", None)
-    prop.setdefault(
-        "description", "The session_id returned by /browser/open. Required here."
-    )
+    if not required:
+        schema.pop("required", None)
     return schema
 
 
@@ -975,27 +1080,31 @@ def _mcp_tools() -> tuple[dict, dict]:
 
 
 def _flow_paths(prefix: str = "/flows") -> dict:
-    """The five /flows endpoints."""
+    """The flow library as resources, from `flowapi.FLOW_ROUTES`."""
+    from .flowapi import FLOW_ROUTES
+
     tools, _ = _mcp_tools()
-    paths = {}
+    paths: dict = {}
     for path, (op, summary, description, request, response) in _FLOW_OPERATIONS.items():
+        method, template = FLOW_ROUTES[path]
+        route = template if template.startswith("/schemas") else f"{prefix}{template}"
         schema = (
             {"$ref": f"#/components/schemas/{response}"}
             if response
             else {"type": "object"}
         )
-        paths[f"{prefix}/{path}"] = {
-            "post": {
-                "operationId": op,
-                "x-mcp-tool": tools[path],
-                "summary": summary,
-                "description": description,
-                "tags": ["flows"],
-                "requestBody": {
-                    "required": path not in ("list", "schema"),
-                    "content": {"application/json": {"schema": request}},
-                },
-                "responses": {
+        # `name` is the path and the session is a header, so neither is a body
+        # field any more.
+        request = _without(request, "name", "session", "session_id")
+        has_body = method in ("post", "put")
+        operation = {
+            "operationId": op,
+            "x-mcp-tool": tools[path],
+            "parameters": [*_named_in_path(template), *SESSION_PARAMETERS],
+            "summary": summary,
+            "description": description,
+            "tags": ["flows"],
+            "responses": {
                     "200": {
                         "description": summary,
                         "content": {"application/json": {"schema": schema}},
@@ -1006,11 +1115,16 @@ def _flow_paths(prefix: str = "/flows") -> dict:
                         "run, or a write aimed at the read-only shared library. "
                         "Do not retry it unchanged."
                     ),
-                    "401": _error("Missing or wrong bearer token."),
-                    "500": _error("Something failed that this server did not expect."),
-                },
-            }
+                "401": _error("Missing or wrong bearer token."),
+                "500": _error("Something failed that this server did not expect."),
+            },
         }
+        if has_body:
+            operation["requestBody"] = {
+                "required": method == "put",
+                "content": {"application/json": {"schema": request}},
+            }
+        paths.setdefault(route, {})[method] = operation
     return paths
 
 
@@ -1153,7 +1267,9 @@ _FILE_OPERATIONS = {
 
 
 def _file_paths(prefix: str = "/files") -> dict:
-    """The four /files endpoints."""
+    """A session's files as resources, from `files.FILE_ROUTES`."""
+    from .files import FILE_ROUTES
+
     _, tools = _mcp_tools()
     paths = {}
     for path, (op, summary, description, request, response) in (
@@ -1184,20 +1300,26 @@ def _file_paths(prefix: str = "/files") -> dict:
                 "retrying after a wait."
             ),
         }
-        paths[f"{prefix}/{path}"] = {
-            "post": {
-                "operationId": op,
-                "x-mcp-tool": tools[path],
-                "summary": summary,
-                "description": description,
-                "tags": ["files"],
-                "requestBody": {
-                    "required": path != "list",
-                    "content": {"application/json": {"schema": request}},
-                },
-                "responses": responses,
-            }
+        method, template = FILE_ROUTES[path]
+        operation = {
+            "operationId": op,
+            "x-mcp-tool": tools[path],
+            "parameters": [*_named_in_path(template), *SESSION_PARAMETERS],
+            "summary": summary,
+            "description": description,
+            "tags": ["files"],
+            "responses": responses,
         }
+        if method in ("post", "put"):
+            operation["requestBody"] = {
+                "required": False,
+                "content": {
+                    "application/json": {
+                        "schema": _without(request, "name", "session", "session_id")
+                    }
+                },
+            }
+        paths.setdefault(f"{prefix}{template}", {})[method] = operation
     return paths
 
 

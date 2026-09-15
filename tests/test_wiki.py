@@ -117,9 +117,9 @@ def test_every_action_with_an_endpoint_has_a_page():
     spec = _spec()
     tagged = {}
     for path, item in spec["paths"].items():
-        for op in item.values():
+        for method, op in item.items():
             if "x-mcp-tool" in op:
-                tagged[path] = op["x-mcp-tool"]
+                tagged[path, method] = op["x-mcp-tool"]
 
     # Counted against the route tables, not against a list of names written out
     # here. Naming a couple of tools as sentinels looked like a check and was
@@ -128,11 +128,17 @@ def test_every_action_with_an_endpoint_has_a_page():
     # nothing fails. Counting catches that AND a seventh flow endpoint added
     # without a tool behind it.
     for prefix, endpoints in (
-        ("/browser/", set(ENDPOINTS.values())),
-        ("/flows/", flowapi.FLOW_ENDPOINTS),
-        ("/files/", files_module.FILE_ENDPOINTS),
+        # The browser tree is the commands plus the three methods on the
+        # resource itself, which is why this counts operations rather than paths.
+        (
+            "/browser",
+            set(ENDPOINTS.values())
+            | {"open_session", "end_browser", "current_session"},
+        ),
+        (("/flows", "/schemas/flow"), flowapi.FLOW_ENDPOINTS),
+        ("/files", files_module.FILE_ENDPOINTS),
     ):
-        found = {t for p, t in tagged.items() if p.startswith(prefix)}
+        found = {t for (p, _), t in tagged.items() if p.startswith(prefix)}
         assert len(found) == len(set(endpoints)), (
             f"{prefix} has {len(found)} operations carrying x-mcp-tool, "
             f"but {len(set(endpoints))} endpoints"

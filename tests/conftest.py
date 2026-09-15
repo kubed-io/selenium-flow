@@ -18,16 +18,17 @@ from kubed.selenium_flow import sessions as sessions_module
 from kubed.selenium_flow.actions import Actions
 from kubed.selenium_flow.browser import Grid
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.sessions import CallerKey, SessionManager
+from kubed.selenium_flow.sessions import SessionManager
 from kubed.selenium_flow.store import MemoryStore
 
 TOKEN = "test-token-abc123"
 
-# Two callers that are stable and distinct, which is the whole premise of the
-# saved-session feature: the same key must always resolve to the same browser,
-# and two different keys must never see each other's.
-NAMED = CallerKey("named:desktop", "named")
-OTHER = CallerKey("named:laptop", "named")
+# Two sessions that are stable and distinct, which is the whole premise: the
+# same name must always resolve to the same browser, and two different names
+# must never see each other's. A name is the store key, so a test can read and
+# write `store[NAMED]` directly.
+NAMED = "desktop"
+OTHER = "laptop"
 
 
 # ---- the real server -------------------------------------------------------
@@ -105,11 +106,9 @@ def http(params=None, headers=None):
     return dict(params or {}), dict(headers or {})
 
 
-def manager(actions=None, store=None, enabled=True):
+def manager(actions=None, store=None):
     """A SessionManager over doubles, which is how nearly every test wants one."""
-    return SessionManager(
-        actions or RecordingActions(), store or MemoryStore(), enabled=enabled
-    )
+    return SessionManager(actions or RecordingActions(), store or MemoryStore())
 
 
 # ---- who is calling --------------------------------------------------------
@@ -119,21 +118,21 @@ def manager(actions=None, store=None, enabled=True):
 def named_caller(monkeypatch):
     """Make the ambient request look like a client that named its session.
 
-    This is the `NAMED` key, so a test using this fixture can read and write
-    `store[NAMED.value]` directly. Saved mode — `session_id` is resolved for the
-    caller and passing one is an error.
+    This is the `NAMED` session, so a test using this fixture can read and write
+    `store[NAMED]` directly.
     """
     monkeypatch.setattr(
-        sessions_module, "http_request", lambda: http({"session": "desktop"})
+        sessions_module, "http_request", lambda: http({"session": NAMED})
     )
     return NAMED
 
 
 @pytest.fixture
-def stateless_caller(monkeypatch):
-    """Make the ambient request carry nothing stable to key on.
+def unnamed_caller(monkeypatch):
+    """Make the ambient request name no session at all.
 
-    Stateless mode — every call must pass its own `session_id`.
+    There is one contract now, and this is the caller that has not met it: every
+    call is refused with the message that says how to name yourself (§F2.12).
     """
     monkeypatch.setattr(sessions_module, "http_request", lambda: http())
     return

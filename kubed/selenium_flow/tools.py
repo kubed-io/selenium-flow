@@ -7,9 +7,9 @@ and defaults written below are exactly what a model sees and fills in.
 Docstrings are prompt. They are written for a model deciding whether to call the
 tool, not for a developer reading the source.
 
-``session_id`` is optional on every tool because ``sessions.py`` can supply it
-from the caller's key. When it cannot, the error says how to fix it. The HTTP
-surface never does this — see ``routes.py``.
+No tool takes a ``session_id``. A caller names its session — ``?session=`` or
+``X-Session-Key`` — and ``sessions.py`` turns that name into the browser it
+holds. The Grid's own id is never a parameter and never a result (§F2.12).
 """
 
 from __future__ import annotations
@@ -23,9 +23,7 @@ from fastmcp.tools import ToolResult
 from fastmcp.utilities.types import Image
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
-from . import flowrun
 from . import secrets as secrets_module
-from . import settings as settings_module
 from .actions import (
     DIALOG_ACTIONS,
     DIALOG_TIMEOUT,
@@ -35,7 +33,7 @@ from .actions import (
     WAIT_TIMEOUT,
     Actions,
 )
-from .browser import BROWSERS, as_bool
+from .browser import BROWSERS
 from .hints import hints
 from .probe import DEFAULT_LIMIT as OUTLINE_LIMIT
 from .sessions import NAME_PARAM, SessionManager
@@ -97,19 +95,18 @@ Drives a real Chrome or Firefox browser on Selenium Grid. The browser is \
 persistent: it stays alive between tool calls and keeps its page, cookies and \
 scroll position.
 
+Name your session first: add ?{NAME_PARAM}=<name> to the MCP URL, or send an \
+X-Session-Key header. Every call is then about that session, and no call takes \
+a session id — calling again with the same name is how you get the same browser \
+back, after a reconnect or a restart.
+
 Lifecycle:
-1. Call open_session to start a browser. It returns a session_id. Pass \
-browser="firefox" for Firefox; the default is Chrome. Every other tool behaves \
-identically on both.
-2. Pass that session_id to the other calls.
+1. Call open_session to start a browser. Pass browser="firefox" for Firefox; \
+the default is Chrome. Every other tool behaves identically on both.
+2. Call the other tools. They act on your session's browser.
 3. Call end_browser when finished, including after a failure. Browsers are a \
 scarce resource and an abandoned one holds a slot until the Grid reaps it. Your \
 session survives it, so open_session picks up where you left off.
-
-If this server can identify your client it will remember the browser for you \
-and session_id becomes optional. When it cannot, the error tells you so; either \
-pass session_id every time, or add ?{NAME_PARAM}=<name> to the MCP URL to name \
-a session the server can hold on your behalf.
 
 Elements are addressed by XPath or by CSS - pass one or the other, never \
 both. xpath="//input[@name='q']" or css="input[name=q]".
@@ -130,29 +127,13 @@ def register(
     """Register every action as an MCP tool on ``mcp``."""
 
     def run(
-        session_id: str | None,
         call: Callable[[str], dict],
         *,
         reshapes: bool = False,
     ) -> dict:
-        """Resolve the caller's browser, act, and remember where it ended up.
-
-        The three steps every tool shares. ``touch`` is what lets a later reopen
-        land on the right page, and keeps an in-use session from expiring out of
-        the store. The resolved id is passed along so a stateless caller, which
-        has no key, is still touched under the browser it is holding.
-
-        ``reshapes`` is for the one action that changes a setting the record
-        *stores* rather than just the page it is on. See ``sessions.reshape``.
-        """
-        key = sessions.key()
-        resolved = sessions.resolve(key, session_id)
-        result = call(resolved)
-        if isinstance(result, dict):
-            sessions.touch(key, result.get("url"), resolved)
-            if reshapes:
-                sessions.reshape(key, result, resolved)
-        return result
+        """Whose browser this is, then act on it. See ``sessions.act``, which
+        the HTTP surface calls too so the two cannot drift."""
+        return sessions.act(sessions.name(), call, reshapes=reshapes)
 
     @mcp.tool(annotations=hints("Open browser session", destructive=True))
     def open_session(
@@ -194,47 +175,23 @@ def register(
         login flow you want to exercise signed out. It keeps the browser and
         window this session was using; only the page is dropped.
 
-        The returned session_id is what a stateless caller passes to every later
-        call. If this server is holding the browser for you, it is returned for
-        information and you should NOT pass it back — read the session://current
-        resource if you are unsure which of the two you are.
+        Returns the session name and the settings the browser was opened with.
+        There is no browser id to keep: every later call is about this session
+        because of how you named yourself, not because of anything you pass.
         """
-        key = sessions.key()
-        # What this flow session was last using. It sits between the client's
-        # defaults and the explicit arguments: a caller that names nothing means
-        # "carry on where I was", which is a stronger signal than a server-wide
-        # default and a weaker one than an argument it just typed.
-        previous = sessions.context(key)
-        # Resolved BEFORE the browser you are holding is ended, because this
-        # validates as well as merges: an explicit browser is checked strictly,
-        # and doing it afterwards meant a typo in `browser=` quit a perfectly
-        # good browser and then failed. A rejected argument must cost nothing.
-        resolved = settings_module.resolve(
-            {
-                "browser": browser,
-                "width": width,
-                "height": height,
-                "page_load_timeout": page_load_timeout,
-                "script_timeout": script_timeout,
-            },
-            previous=previous.get("settings"),
+        return sessions.open_browser(
+            sessions.name(),
+            url=url,
+            fresh=fresh,
+            browser=browser,
+            width=width,
+            height=height,
+            page_load_timeout=page_load_timeout,
+            script_timeout=script_timeout,
         )
-        # A flow session holds one browser. Opening a second without ending the
-        # first leaves it on the Grid referenced by nothing, holding a slot
-        # until the idle timeout — which switching browser did.
-        sessions.end_browser(sessions.store_key(key))
-        # `fresh` drops only the remembered page. The settings still come
-        # through the cascade above, because coming back as Chrome when the
-        # session was using Firefox is a silent change of shape, not a fresh
-        # start - and an explicit `url` is a start the caller named, which
-        # `fresh` has no business overriding.
-        inherited = None if as_bool(fresh) else (previous.get("url") or None)
-        opened = actions.open_session(url=url or inherited, **resolved)
-        sessions.remember(key, opened["session_id"], opened.get("url", ""), resolved)
-        return opened
 
     @mcp.tool(annotations=hints("End browser", destructive=True, idempotent=True))
-    def end_browser(session_id: str | None = None) -> dict:
+    def end_browser() -> dict:
         """Quit the browser and free its Grid slot. Do this when finished.
 
         Ends the *browser*, not your session. The session keeps the browser
@@ -243,22 +200,20 @@ def register(
         browser had are gone with it, because the Grid keeps them per browser.
 
         Call it on failure paths too. Browsers are scarce and an abandoned one
-        holds a Grid slot until it is reaped. Omit session_id to end the one
-        this client has been using.
+        holds a Grid slot until it is reaped.
         """
-        key = sessions.key()
-        resolved = sessions.resolve(key, session_id)
-        sessions.end_browser(sessions.store_key(key, resolved), resolved)
-        return {"success": True, "session_id": resolved}
+        name = sessions.name()
+        sessions.end_browser(name)
+        return {"success": True, "session": name}
 
     @mcp.tool(annotations=hints("Navigate to URL", idempotent=True))
-    def navigate(url: str, session_id: str | None = None) -> dict:
+    def navigate(url: str) -> dict:
         """Go to a URL. Returns the resulting URL and page title.
 
         Use this to move somewhere unconditionally. To act on a page in one
         step, prefer passing url to click, write, extract or screenshot.
         """
-        return run(session_id, lambda s: actions.navigate(s, url))
+        return run(lambda s: actions.navigate(s, url))
 
     # The action list is interpolated so it cannot drift from the tuple the
     # action layer validates against.
@@ -288,13 +243,11 @@ def register(
         action: MouseAction,
         xpath: str | None = None,
         css: str | None = None,
-        session_id: str | None = None,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
         glide: bool = False,
     ) -> dict:
         return run(
-            session_id,
             lambda s: actions.interact(
                 s,
                 action,
@@ -333,13 +286,11 @@ def register(
         to_css: str | None = None,
         by_x: int | None = None,
         by_y: int | None = None,
-        session_id: str | None = None,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
         glide: bool = True,
     ) -> dict:
         return run(
-            session_id,
             lambda s: actions.drag(
                 s,
                 xpath=xpath,
@@ -375,11 +326,9 @@ def register(
         xpath: str | None = None,
         css: str | None = None,
         index: int | None = None,
-        session_id: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
     ) -> dict:
         return run(
-            session_id,
             lambda s: actions.frame(
                 s,
                 action=action,
@@ -394,7 +343,6 @@ def register(
     def resize(
         width: int | None = None,
         height: int | None = None,
-        session_id: str | None = None,
     ) -> dict:
         """Resize the browser window.
 
@@ -408,7 +356,6 @@ def register(
         opened at.
         """
         return run(
-            session_id,
             lambda s: actions.resize(s, width=width, height=height),
             reshapes=True,
         )
@@ -427,11 +374,9 @@ def register(
     def dialog(
         action: DialogAction = "accept",
         text: str | None = None,
-        session_id: str | None = None,
         wait_timeout: int = DIALOG_TIMEOUT,
     ) -> dict:
         return run(
-            session_id,
             lambda s: actions.dialog(
                 s, action=action, text=text, wait_timeout=wait_timeout
             ),
@@ -445,7 +390,6 @@ def register(
         filename: str | None = None,
         mime_type: str | None = None,
         content: str | None = None,
-        session_id: str | None = None,
         path: str | None = None,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
@@ -474,7 +418,6 @@ def register(
         neither.
         """
         return run(
-            session_id,
             lambda s: actions.upload_file(
                 s,
                 xpath=xpath,
@@ -495,7 +438,6 @@ def register(
         text: str | None = None,
         xpath: str | None = None,
         css: str | None = None,
-        session_id: str | None = None,
         url: str | None = None,
         clear: bool = True,
         submit: bool = False,
@@ -521,8 +463,7 @@ def register(
             raise ValueError("write needs text, or a secret to supply it")
         if secret is None:
             return run(
-                session_id,
-                lambda s: actions.write(
+                    lambda s: actions.write(
                     s,
                     text,
                     xpath=xpath,
@@ -534,50 +475,22 @@ def register(
                 ),
             )
 
-        # A bound write does not go through `run`, deliberately. `run` touches
-        # the session with the URL the action returned, and `submit=True` can
-        # land the browser on `?q=<what was typed>` — so the shared wrapper
-        # would persist the credential into the session record before anything
-        # had a chance to redact it.
-        key = sessions.key()
-        resolved = sessions.resolve(key, session_id)
-        given, _guarded = secrets_module.prepare_write(
+        return secrets_module.perform_write(
             catalogue,
             actions,
-            resolved,
-            {"text": text, "url": url, "secret": secret},
+            sessions,
+            sessions.name(),
+            {
+                "text": text,
+                "url": url,
+                "secret": secret,
+                "xpath": xpath,
+                "css": css,
+                "clear": clear,
+                "submit": submit,
+                "wait_timeout": wait_timeout,
+            },
         )
-        hidden = flowrun.hidden_forms([given["text"]])
-        try:
-            result = actions.write(
-                resolved,
-                given["text"],
-                xpath=xpath,
-                css=css,
-                clear=clear,
-                submit=submit,
-                wait_timeout=wait_timeout,
-                # Not read back at all, rather than read and then hidden.
-                read_back=False,
-            )
-        except Exception as exc:  # noqa: BLE001 - rewrapped, never swallowed
-            # An action puts its arguments in its error text.
-            raise ValueError(flowrun.scrub(str(exc), hidden)) from None
-        shown = flowrun.scrub_values({**result, "text_from": "secret"}, hidden)
-        # Only remember a page the value never reached. A submitting write can
-        # land on `?q=<what was typed>`; storing the scrubbed form would persist
-        # a URL that does not exist, and a later reattach would navigate to it.
-        #
-        # Asked of the URL rather than by comparing it with its scrubbed form:
-        # a secret whose value is the marker scrubs to itself, so equality would
-        # have called the credential URL safe and stored it.
-        #
-        # Touched either way. Withholding the page must not also stop the clock:
-        # `touch` slides the TTL, and skipping it entirely let a session expire
-        # *because* its URL was correctly kept out of the store.
-        safe = None if flowrun.taints(result.get("url"), hidden) else shown.get("url")
-        sessions.touch(key, safe, resolved)
-        return shown
 
     # The description is passed rather than left as a docstring so the real key
     # list is interpolated in — a model guessing key names gets a 400, and the
@@ -600,14 +513,12 @@ def register(
     )
     def press_key(
         key: str,
-        session_id: str | None = None,
         xpath: str | None = None,
         css: str | None = None,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
     ) -> dict:
         return run(
-            session_id,
             lambda s: actions.press_key(
                 s, key, xpath=xpath, css=css, url=url, wait_timeout=wait_timeout
             ),
@@ -617,7 +528,6 @@ def register(
     def extract(
         xpath: str | None = None,
         css: str | None = None,
-        session_id: str | None = None,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
     ) -> dict:
@@ -631,7 +541,6 @@ def register(
         neither.
         """
         return run(
-            session_id,
             lambda s: actions.extract(
                 s, xpath=xpath, css=css, url=url, wait_timeout=wait_timeout
             ),
@@ -664,12 +573,10 @@ def register(
         text: str | None = None,
         limit: int = OUTLINE_LIMIT,
         interactive: bool = True,
-        session_id: str | None = None,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
     ) -> dict:
         return run(
-            session_id,
             lambda s: actions.outline(
                 s,
                 xpath=xpath,
@@ -684,7 +591,7 @@ def register(
 
     @mcp.tool(annotations=hints("Run JavaScript in the page", destructive=True))
     def execute_script(
-        script: str, session_id: str | None = None, url: str | None = None
+        script: str, url: str | None = None
     ) -> dict:
         """Run JavaScript in the page and return its result.
 
@@ -702,7 +609,7 @@ def register(
         Not drag and drop - `drag` does that with real pointer input, which a
         script cannot produce.
         """
-        return run(session_id, lambda s: actions.execute_script(s, script, url=url))
+        return run(lambda s: actions.execute_script(s, script, url=url))
 
     # Named through `name=` because `assert` is a Python keyword and cannot be a
     # function name. `routes.METHOD_ALIASES` is the other half of that.
@@ -736,13 +643,11 @@ def register(
     def assert_page(
         script: str,
         message: str | None = None,
-        session_id: str | None = None,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
         stable_for: float = 0,
     ) -> dict:
         return run(
-            session_id,
             lambda s: actions.assert_(
                 s,
                 script,
@@ -755,7 +660,6 @@ def register(
 
     @mcp.tool(annotations=hints("Capture a screenshot"))
     def screenshot(
-        session_id: str | None = None,
         url: str | None = None,
         xpath: str | None = None,
         css: str | None = None,
@@ -801,7 +705,6 @@ def register(
         look at later - a flow taking thirty frames it will never reopen.
         """
         result = run(
-            session_id,
             lambda s: actions.screenshot(
                 s,
                 url=url,
@@ -840,7 +743,6 @@ def register(
 
     @mcp.tool(annotations=hints("Save the page as PDF"))
     def save_pdf(
-        session_id: str | None = None,
         url: str | None = None,
         filename: str | None = None,
     ) -> dict:
@@ -856,6 +758,5 @@ def register(
         Without a public address configured the file carries a relative url.
         """
         return run(
-            session_id,
             lambda s: actions.save_pdf(s, url=url, filename=filename),
         )

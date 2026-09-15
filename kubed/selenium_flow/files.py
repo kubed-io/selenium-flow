@@ -63,6 +63,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from . import auth, errors, flows, links
+from . import sessions as sessions_module
 from .hints import hints, reads
 
 log = logging.getLogger(__name__)
@@ -81,6 +82,10 @@ KEEP_TOOL = "keep_file"
 # DELETE /admin/sessions/{key}/files and .../files/{name} — which is an operator
 # surface rather than a caller's, and is where deleting anything belongs.
 FILE_ENDPOINTS = ("list", "keep")
+
+# The REST shape of each: method, and the path under the /files prefix. Read by
+# the routes and by the published spec, so the two cannot disagree (§F2.13).
+FILE_ROUTES = {"list": ("get", ""), "keep": ("put", "/{name}/kept")}
 
 IMAGE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml")
 
@@ -196,16 +201,13 @@ def merged(
     return sorted(entries.values(), key=lambda f: f.get("created") or 0, reverse=True)
 
 
-def owner(sessions, store, explicit: str | None = None) -> str:
+def owner(store, name: str) -> str:
     """The session name whose kept files these are, or "" when keeping is off.
 
-    Asked through ``flows.session_of`` rather than worked out here, because a
-    file and a flow must land in the same session directory — see that function
-    for why an unusable name is refused rather than quietly shared.
+    The name is also the flow library's directory: a file and a flow land in
+    the same place because they are the same session.
     """
-    if store is None:
-        return ""
-    return flows.session_of(sessions, explicit)
+    return name if store is not None else ""
 
 
 def listing(
@@ -213,9 +215,8 @@ def listing(
     sessions,
     store,
     token,
-    session_id=None,
+    name: str,
     base="",
-    session: str | None = None,
 ) -> dict:
     """The file list for a session, resolved the same way for every surface.
 
@@ -223,15 +224,11 @@ def listing(
     alone. That is the point of keeping one: a listing that emptied when the
     Grid reaped a browser would make the durable half look lost.
     """
-    status = sessions.describe()
-    # A reaped browser keeps its id in the session record until something
-    # refreshes it, and `describe` reports that id alongside `live: false`.
-    # Trusting it would dial the Grid for a browser that is gone and fail the
-    # whole listing — in precisely the state kept files exist to survive. An
-    # explicitly passed id is still trusted: that caller owns it.
-    remembered = status.get("session_id") if status.get("live") else None
-    target = session_id or remembered or ""
-    owned = owner(sessions, store, session)
+    owned = owner(store, name)
+    # Never `resolve`: that opens a browser when the record has none, and a
+    # listing that opened one would be the leak the status resource refuses to
+    # be. `browser` answers "" instead, and the kept files still list.
+    target = sessions.browser(name)
     if not target and store is None:
         raise ValueError(
             "session_id is required: this server is not holding one for you"
@@ -274,17 +271,15 @@ def read_kept(sessions, store, name: str, session: str | None = None) -> bytes:
     (§F1.41). `upload_file(kept=...)` is that way, and it reads through here so
     that "which session's files are these" has exactly one answer.
 
-    ``session`` names the library explicitly, which is how the HTTP surface says
-    it — the same contract `/files/list` and `/files/keep` already have, and the
-    reason they have it: that surface is always explicit. Without it a caller
-    that kept a file with `{"session": "desktop"}` had no way to name the same
-    library when uploading it back, and landed in `global` instead (Copilot,
-    #31). Over MCP it is omitted and the caller's own key answers.
+    ``session`` names the library explicitly, which is how a **flow** says it:
+    the run supplies the library it was loaded from, so a flow in the shared
+    library uploading a kept file reads it from the session that is running,
+    not from `global` (Copilot, #31). Omitted, the caller's own name answers.
     """
     if store is None:
         raise ValueError(OFF)
     wanted = flows.valid_file_name(name)
-    session = owner(sessions, store, session)
+    session = owner(store, session or sessions.name())
     try:
         return store.read_file(session, wanted)
     except FileNotFoundError as exc:
@@ -336,7 +331,7 @@ def register(
 
     @mcp.resource(LIST_URI, description=DESCRIPTION, mime_type="application/json")
     def files_resource() -> dict:
-        return listing(actions, sessions, store, token, base=base)
+        return listing(actions, sessions, store, token, sessions.name(), base=base)
 
     @mcp.resource(
         FILE_URI,
@@ -357,13 +352,13 @@ def register(
         that produced it has gone.
         """
         wanted = flows.valid_file_name(name)
-        session = owner(sessions, store)
+        session = owner(store, sessions.name())
         if store is not None and session:
             try:
                 return store.read_file(session, wanted)
             except FileNotFoundError:
                 pass
-        target = sessions.describe().get("session_id")
+        target = sessions.browser(sessions.name())
         if not target:
             raise ValueError("no session is being held for you")
         return actions.grid.read_file(target, wanted)
@@ -374,23 +369,8 @@ def register(
         app=app_config,
         annotations=reads("Files this session has"),
     )
-    def session_files(session_id: str | None = None) -> dict:
-        # The mode rule every other tool enforces through `sessions.resolve`,
-        # applied directly because this must not call it: `resolve` OPENS a
-        # browser when the record has none, and a listing that opened one would
-        # be the leak the status resource already refuses to be.
-        #
-        # `ShapeSessionId` hides this argument in saved mode, but that is
-        # presentation: a crafted call could still name another caller's browser
-        # and be handed its downloads, with signed URLs for each.
-        if session_id and sessions.mode() == sessions.SAVED:
-            raise ValueError(
-                "do not pass session_id: this server is holding a browser for "
-                "you, and its files are the ones you get. Omit it."
-            )
-        return listing(
-            actions, sessions, store, token, session_id=session_id, base=base
-        )
+    def session_files() -> dict:
+        return listing(actions, sessions, store, token, sessions.name(), base=base)
 
     @mcp.tool(
         name=KEEP_TOOL,
@@ -408,45 +388,33 @@ def register(
         ),
         annotations=hints("Keep a file beyond the browser", idempotent=True),
     )
-    def keep_file(name: str, session_id: str | None = None) -> dict:
-        resolved = sessions.resolve(sessions.key(), session_id)
-        return keep_one(actions, store, owner(sessions, store), resolved, name)
+    def keep_file(name: str) -> dict:
+        session = sessions.name()
+        return keep_one(
+            actions, store, owner(store, session), sessions.resolve(session), name
+        )
 
     _routes(mcp, actions, sessions, store, token, base, prefix)
     return {FILES_TOOL}
 
 
 def _routes(mcp, actions, sessions, store, token, base, prefix) -> None:
-    """The same operations as plain JSON, for callers that are not MCP.
+    """The same operations as REST, for callers that are not MCP.
 
-    Their own route table under ``/files``, for the reason ``/flows`` has one:
-    these are not browser actions, and counting them as such would break the
+    Their own tree under ``/files``, for the reason ``/flows`` has one: these
+    are not browser actions, and counting them as such would break the
     one-to-one promise ``test_surfaces.py`` guards over those.
+
+    A file belongs to a session, so both of these name one the way everything
+    else does — a header or ``?session=`` — and neither takes an id.
     """
 
-    async def handle(request: Request, what: str) -> JSONResponse:
+    async def answer(request: Request, what: str, call) -> JSONResponse:
         body, refused = await auth.json_request(request, token)
         if refused:
             return refused
         try:
-            session_id = body.get("session_id") or ""
-            session = owner(sessions, store, body.get("session"))
-            if what == "list":
-                return JSONResponse(
-                    listing(
-                        actions,
-                        sessions,
-                        store,
-                        token,
-                        session_id=session_id,
-                        base=base,
-                        session=body.get("session"),
-                    )
-                )
-            name = body.get("name")
-            if not name:
-                raise ValueError("name is required")
-            return JSONResponse(keep_one(actions, store, session, session_id, name))
+            return JSONResponse(call(sessions_module.name_from(request), body))
         except Exception as exc:  # errors.py decides what it means
             status = errors.status_for(exc)
             text = errors.message(exc)
@@ -462,11 +430,30 @@ def _routes(mcp, actions, sessions, store, token, base, prefix) -> None:
                 log.info("files/%s refused (%s): %s", what, status, text)
             return JSONResponse({"error": text}, status_code=status)
 
-    for path in FILE_ENDPOINTS:
-        _bind(mcp, prefix, path, handle)
+    @mcp.custom_route(prefix, methods=["GET"], name="files_list")
+    async def list_files(request: Request) -> JSONResponse:
+        """Every file this session has: the browser's downloads and its kept
+        files, still answering after the browser is gone."""
+        return await answer(
+            request,
+            "list",
+            lambda name, _body: listing(
+                actions, sessions, store, token, name, base=base
+            ),
+        )
 
-
-def _bind(mcp, prefix, path, handle) -> None:
-    @mcp.custom_route(f"{prefix}/{path}", methods=["POST"], name=f"files_{path}")
-    async def route(request: Request) -> JSONResponse:
-        return await handle(request, path)
+    @mcp.custom_route(prefix + "/{name}/kept", methods=["PUT"], name="files_keep")
+    async def keep(request: Request) -> JSONResponse:
+        """Keep one download beyond the browser that made it. A PUT because
+        keeping a name that is already kept replaces it."""
+        return await answer(
+            request,
+            "keep",
+            lambda name, _body: keep_one(
+                actions,
+                store,
+                owner(store, name),
+                sessions.resolve(name),
+                request.path_params["name"],
+            ),
+        )

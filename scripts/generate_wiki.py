@@ -64,6 +64,7 @@ GROUPS = [
         "Everything you can do to a page.",
         [
             "open_session",
+            "current_session",
             "navigate",
             "interact",
             "drag",
@@ -203,11 +204,6 @@ def parameters(spec: dict, schema: dict) -> str:
     for name, field in props.items():
         note = clean(field.get("description")) or ""
         mark = "**yes**" if name in required else "no"
-        # session_id is the one parameter whose requirement depends on the
-        # caller, so the table says so rather than picking one answer.
-        if name == "session_id":
-            mark = "**yes** over HTTP"
-            note = note or "Omit over MCP when the server is holding your browser."
         rows.append([f"`{name}`", type_of(field), mark, default_of(field), note])
     # Argument descriptions come from Python signatures, which have none, so the
     # column is usually empty. An empty column is worse than no column.
@@ -272,9 +268,9 @@ def sample_of(spec: dict, field: dict, depth: int = 0) -> object:
     )
 
 
-def example(spec: dict, tool: str, path: str, schema: dict) -> str:
+def example(spec: dict, tool: str, method: str, path: str, schema: dict) -> str:
     """A call in both shapes, using only the parameters that are required."""
-    required = [n for n in (schema.get("required") or []) if n != "session_id"]
+    required = list(schema.get("required") or [])
     props = schema.get("properties") or {}
     sample = {name: sample_of(spec, props.get(name, {})) for name in required}
     mcp_args = ", ".join(
@@ -285,14 +281,24 @@ def example(spec: dict, tool: str, path: str, schema: dict) -> str:
     # `repr` then emitted Python — True, single quotes — into a JSON body.
     # ensure_ascii=False or the placeholder renders as `"…"`, which is a
     # perfectly valid JSON string and reads like a mistake.
-    encoded = json.dumps({"session_id": "…", **sample}, indent=2, ensure_ascii=False)
-    payload = "\n  ".join(encoded.splitlines())
+    # The session is a header on both surfaces — never a body field and never a
+    # path segment — so every example shows it (§F2.13).
+    session = '  -H "X-Session-Key: $SESSION" \\\n'
+    url = path.replace("{name}", "my-flow").replace("{action}", "click")
+    lines = [
+        f"curl -X {method} $SELENIUM_FLOW{url} \\",
+        '  -H "Authorization: Bearer $TOKEN" \\',
+        session.strip().rstrip(" \\"),
+    ]
+    if sample:
+        encoded = json.dumps(sample, indent=2, ensure_ascii=False)
+        payload = "\n  ".join(encoded.splitlines())
+        lines[-1] += " \\"
+        lines += ["  -H 'Content-Type: application/json' \\", f"  -d '{payload}'"]
+    body = "\n".join(lines)
     return (
         f"**MCP**\n\n```\n{tool}({mcp_args})\n```\n\n"
-        f"**HTTP**\n\n```bash\ncurl -X POST $SELENIUM_FLOW{path} \\\n"
-        f'  -H "Authorization: Bearer $TOKEN" \\\n'
-        f"  -H 'Content-Type: application/json' \\\n"
-        f"  -d '{payload}'\n```"
+        f"**HTTP**\n\n```bash\n{body}\n```"
     )
 
 
@@ -318,8 +324,33 @@ def failures(op: dict) -> str:
     )
 
 
-def render(spec: dict, tool: str, path: str, op: dict) -> str:
-    request = resolve(spec, op["requestBody"]["content"]["application/json"]["schema"])
+def render(spec: dict, tool: str, method: str, path: str, op: dict) -> str:
+    # A GET or a DELETE has no body: what it takes is in the path and the
+    # session header, so there is nothing to resolve.
+    body = op.get("requestBody")
+    request = (
+        resolve(spec, body["content"]["application/json"]["schema"]) if body else {}
+    )
+    # A path parameter is still a parameter of the action: `GET /flows/{name}`
+    # takes a name, it is simply not in the body. The MCP tool takes it as an
+    # argument, so a page that listed only the body said the tool took nothing.
+    in_path = [p for p in op.get("parameters", []) if p.get("in") == "path"]
+    if in_path:
+        request = {
+            **request,
+            "properties": {
+                **{
+                    p["name"]: {
+                        **p.get("schema", {}),
+                        "description": p.get("description", ""),
+                    }
+                    for p in in_path
+                },
+                **(request.get("properties") or {}),
+            },
+            "required": [p["name"] for p in in_path]
+            + list(request.get("required") or []),
+        }
     response = resolve(
         spec, op["responses"]["200"]["content"]["application/json"]["schema"]
     )
@@ -341,7 +372,7 @@ def render(spec: dict, tool: str, path: str, op: dict) -> str:
 |  |  |
 |---|---|
 | **MCP tool** | `{tool}` |
-| **HTTP** | `POST {path}` |
+| **HTTP** | `{method} {path}` |
 
 {description}
 
@@ -349,13 +380,16 @@ def render(spec: dict, tool: str, path: str, op: dict) -> str:
 
 {parameters(spec, request)}
 
+Every call names its session: an `X-Session-Key` header, or `?session=<name>`.
+Sending both is refused. See [Sessions](Sessions).
+
 ## Returns
 
 {returns(spec, response)}
 {failures(op)}
 ## Example
 
-{example(spec, tool, path, request)}
+{example(spec, tool, method, path, request)}
 {extra}
 ---
 
@@ -366,7 +400,7 @@ def render(spec: dict, tool: str, path: str, op: dict) -> str:
 def pages(spec: dict) -> dict[str, str]:
     by_tool = {}
     for path, item in spec["paths"].items():
-        for op in item.values():
+        for method, op in item.items():
             # `x-mcp-tool` is the filter, not the path prefix. An operation
             # carries it when it is one half of an action a caller can also
             # reach over MCP, which is exactly the set worth a page — and it
@@ -375,7 +409,7 @@ def pages(spec: dict) -> dict[str, str]:
             # while every other page went on referring to them.
             tool = op.get("x-mcp-tool")
             if tool:
-                by_tool[tool] = (path, op)
+                by_tool[tool] = (method.upper(), path, op)
 
     missing = set(by_tool) - set(ORDER)
     if missing:
@@ -387,16 +421,16 @@ def pages(spec: dict) -> dict[str, str]:
     for tool in ORDER:
         if tool not in by_tool:
             continue
-        endpoint, op = by_tool[tool]
-        out[f"{tool}.md"] = render(spec, tool, endpoint, op)
+        method, endpoint, op = by_tool[tool]
+        out[f"{tool}.md"] = render(spec, tool, method, endpoint, op)
 
     sections = []
     for title, blurb, tools in GROUPS:
         rows = [
             [
                 f"[`{tool}`]({tool})",
-                f"`POST {by_tool[tool][0]}`",
-                clean(by_tool[tool][1].get("summary")),
+                f"`{by_tool[tool][0]} {by_tool[tool][1]}`",
+                clean(by_tool[tool][2].get("summary")),
             ]
             for tool in tools
             if tool in by_tool

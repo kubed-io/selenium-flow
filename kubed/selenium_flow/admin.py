@@ -88,24 +88,18 @@ def page(name: str, **substitutions: str) -> str:
 
 
 def owner_label(key: str) -> dict:
-    """A caller key turned into something worth showing next to a session.
+    """A store key turned into something worth showing next to a session.
 
-    The three key shapes carry different amounts of meaning. A name someone
-    chose is worth showing as-is; a negotiated transport id is noise, so it is
-    reported as a kind rather than printed.
+    There is one key shape now: the name its caller chose (§F2.12). This used to
+    unpick four — a name, a negotiated transport id, stdio, and a caller with
+    nothing stable to key on — and report the last three as kinds because none
+    of them was worth printing. The function survives the collapse because the
+    admin page still wants to say where a session came from, and `stdio` is
+    still a session nobody typed.
     """
-    if key.startswith("named:"):
-        return {"name": key[len("named:") :], "owner": "named"}
-    if key.startswith("mcp:"):
-        return {"name": None, "owner": "mcp client"}
-    if key == "stdio":
-        return {"name": None, "owner": "stdio"}
-    if key.startswith("session:"):
-        # A caller with nothing stable to key on. It owns its browser by holding
-        # the id, so this record exists to give it a place in the history rather
-        # than to resolve anyone.
-        return {"name": None, "owner": "stateless"}
-    return {"name": key, "owner": "saved"}
+    if key == flows.STDIO_SESSION:
+        return {"name": key, "owner": "stdio"}
+    return {"name": key, "owner": "named"}
 
 
 def _recency(item) -> float:

@@ -203,8 +203,8 @@ async def test_a_choice_is_accepted_in_any_case_over_mcp(
 
     from .conftest import NAMED
 
-    monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
-    monkeypatch.setattr(server.sessions, "resolve", lambda key, session_id: "abc")
+    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
+    monkeypatch.setattr(server.sessions, "resolve", lambda name: "abc")
     monkeypatch.setattr(
         server.actions, tool, lambda s, action, **_: {"action": action, "url": "about:blank"}
     )
@@ -244,7 +244,7 @@ async def test_a_blank_browser_still_means_the_default(server, monkeypatch, give
             seen.update(kwargs)
             return {"session_id": "abc", "url": "about:blank"}
 
-        monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
+        monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
         monkeypatch.setattr(server.actions, "open_session", fake_open)
         async with Client(server.mcp) as client:
             await client.call_tool("open_session", arguments)

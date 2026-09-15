@@ -17,10 +17,9 @@ from kubed.selenium_flow.flows import (
     STDIO_SESSION,
     InvalidName,
     LocalFlowStore,
-    session_for,
+    library_of,
     valid_name,
 )
-from kubed.selenium_flow.sessions import CallerKey
 
 pytestmark = pytest.mark.unit
 
@@ -79,26 +78,12 @@ def test_the_error_names_which_kind_of_name_was_wrong():
 # ---- which session owns a caller's flows ------------------------------------
 
 
-def test_a_named_caller_gets_its_own_library():
-    assert session_for(CallerKey("named:research-bot", "named")) == "research-bot"
-
-
-@pytest.mark.parametrize(
-    "key",
-    [
-        None,  # stateless: no key at all
-        CallerKey("mcp:8f21c0aa-1b2c", "transport"),
-    ],
-)
-def test_everything_unnamed_shares_the_global_session(key):
-    """A transport key is new on every reconnect, so a directory per key would
-    bury the disk in folders whose flows nobody could reach again.
-
-    Both of these can name themselves — `?session=` on the URL, or the
-    `X-Session-Key` header — which is what makes the read-only shared library a
-    reasonable place to land them. Stdio cannot, and is below.
-    """
-    assert session_for(key) == GLOBAL_SESSION
+def test_a_session_owns_the_library_of_its_own_name():
+    """One answer now, where there were three. A session name IS a directory
+    name — validated where it arrives (§F2.12) — so there is no longer a lenient
+    resolver for browsers, a strict one for storage, and a third answering None
+    for the admin list."""
+    assert library_of("research-bot") == "research-bot"
 
 
 def test_stdio_gets_a_library_of_its_own():
@@ -109,31 +94,21 @@ def test_stdio_gets_a_library_of_its_own():
     it in the read-only shared library would leave it with no writable library
     at all and no way to obtain one: a refusal whose remedy cannot be performed.
     """
-    assert session_for(CallerKey("stdio", "stdio")) == STDIO_SESSION
+    assert library_of(STDIO_SESSION) == STDIO_SESSION
     assert STDIO_SESSION != GLOBAL_SESSION
 
 
-def test_stdio_is_reserved_as_a_session_name_but_not_as_a_flow_name():
+def test_the_reserved_names_are_reserved_as_sessions_but_not_as_flow_names():
     """The reservation is about who may own that *library*. A flow called
-    `stdio` is nobody's business but its author's, and `valid_name` still takes
-    it — which is why the session rule is a separate function rather than a
-    line inside that one."""
+    `stdio` or `global` is nobody's business but its author's, and `valid_name`
+    still takes it — which is why the session rule is a separate function rather
+    than a line inside that one."""
     from kubed.selenium_flow.flows import valid_session_name
 
-    with pytest.raises(InvalidName, match="reserved"):
-        valid_session_name(STDIO_SESSION)
-    assert valid_name(STDIO_SESSION, "flow name") == STDIO_SESSION
-
-
-def test_naming_yourself_global_is_legal_and_lands_in_the_same_place():
-    assert session_for(CallerKey(f"named:{GLOBAL_SESSION}", "named")) == GLOBAL_SESSION
-
-
-def test_a_session_key_that_cannot_be_a_directory_falls_back_rather_than_failing():
-    """?session= keys the *browser* perfectly well whatever is in it — that is
-    an opaque string in a store, not a path. Refusing it here would break a
-    working session over a feature the caller is not using."""
-    assert session_for(CallerKey("named:../etc", "named")) == GLOBAL_SESSION
+    for reserved in (STDIO_SESSION, GLOBAL_SESSION):
+        with pytest.raises(InvalidName, match="reserved"):
+            valid_session_name(reserved)
+        assert valid_name(reserved, "flow name") == reserved
 
 
 # ---- reading and writing ----------------------------------------------------
@@ -312,8 +287,10 @@ def test_surrounding_whitespace_is_trimmed_rather_than_refused():
     """Not slugging: these arrive from URL query parameters and hand-written
     JSON, where a trailing space is a typo. A name that is only whitespace still
     names nothing and is still refused."""
+    from kubed.selenium_flow.flows import valid_session_name
+
     assert valid_name(" bot ") == "bot"
-    assert session_for(CallerKey("named: bot ", "named")) == "bot"
+    assert valid_session_name(" bot ") == "bot"
     with pytest.raises(InvalidName):
         valid_name("   ")
 

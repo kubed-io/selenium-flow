@@ -138,7 +138,10 @@ def valid_name(name, kind: str = "name") -> str:
 # `global` is deliberately NOT reserved. It is the *shared* library, so naming
 # it is how a caller asks for it on purpose, and a collision there is the
 # intended behaviour rather than a leak.
-RESERVED_SESSIONS = frozenset({STDIO_SESSION})
+# Neither can be claimed by a caller naming itself. `stdio` is the transport's
+# own library; `global` is the shared one every session reads and none may
+# write (§F1.2), so a caller that could claim it would own everyone's flows.
+RESERVED_SESSIONS = frozenset({STDIO_SESSION, GLOBAL_SESSION})
 
 
 def valid_session_name(name) -> str:
@@ -146,14 +149,15 @@ def valid_session_name(name) -> str:
 
     Everything :func:`valid_name` requires, plus the reserved set. Kept apart
     from ``valid_name`` because that one also validates *flow* names, and a flow
-    called ``stdio`` is perfectly reasonable — it is only the library name that
-    is spoken for.
+    called ``stdio`` or ``global`` is perfectly reasonable — it is only the
+    library name that is spoken for.
     """
     session = valid_name(name, "session name")
     if session in RESERVED_SESSIONS:
         raise InvalidName(
-            f"{session!r} is reserved for the stdio transport's own library, "
-            "which no other caller may write to: choose another session name"
+            f"{session!r} is a reserved library name — {STDIO_SESSION} belongs "
+            f"to the stdio transport and {GLOBAL_SESSION} is the shared library "
+            "every session reads: choose another session name"
         )
     return session
 
@@ -188,131 +192,28 @@ def valid_file_name(name) -> str:
     return text
 
 
-def named_session(key) -> str | None:
-    """The name a caller gave itself, exactly as given, or None if it gave none.
+def library_of(key: str) -> str | None:
+    """The directory a stored session key owns, or None if it cannot have one.
 
-    Accepts a ``CallerKey`` or the bare string a store holds. The admin surface
-    only ever has the string — it reads the store's keys rather than a live
-    caller — and giving it a second way to unpack one is how the two would come
-    to disagree about which session owns a file.
+    **Only the admin surface needs this.** Everywhere else a session name is
+    validated where it arrives (§F2.12), so by the time anything asks, the name
+    is already a directory name — which is why the two *other* resolvers that
+    used to live here are gone.
+
+    The admin cannot make that assumption, because it reads the store's keys
+    rather than a live caller's name. Those include keys written by an older
+    version, where a key was `named:desktop` or an MCP transport id, and they
+    outlive an upgrade by a whole ``SESSION_TTL``. It lists **every** session
+    there is, so one unusable row must not take the listing down: it gets None,
+    meaning "this session has nowhere to keep anything", and is shown as having
+    no library rather than being shown the shared one as though it were its own.
+
+    ``valid_name`` rather than ``valid_session_name``: the reserved names are
+    reserved against being *claimed* by a caller, and the two sessions that
+    legitimately own them are exactly the ones this function is asked about.
     """
-    value = key_value(key)
-    if not value.startswith("named:"):
-        return None
-    return value[len("named:") :]
-
-
-def key_value(key) -> str:
-    """The store-key string behind a ``CallerKey``, a bare string, or nothing.
-
-    One unpacking, because the admin surface holds keys as strings while the
-    live path holds them as objects, and two ways to read one is how the two
-    come to disagree about which session owns a file.
-    """
-    if key is None:
-        return ""
-    return key if isinstance(key, str) else (getattr(key, "value", "") or "")
-
-
-def session_for(key) -> str:
-    """The session whose flows this caller owns.
-
-    A caller that named itself gets its own library, and **stdio gets
-    :data:`STDIO_SESSION`** — it cannot name itself, so it is given one. What is
-    left — an MCP transport key that changes on every reconnect, a caller with
-    no key at all — shares :data:`GLOBAL_SESSION` (§F1.2).
-
-    Note what falls out rather than being special-cased: an unnamed caller *is*
-    the global session. It reads and runs the shared library like everyone
-    else, and writes nowhere at all — `global` is read-only to every agent
-    (§F1.2), so naming yourself is how you get somewhere to write. That closes
-    the asymmetry this docstring used to have to describe, where the anonymous
-    callers were the only ones who *could* change the shared library.
-
-    Enforcing it is `flowapi.writable`'s job, not this function's: here we only
-    decide which directory a key maps to.
-
-    The lenient one of the three resolvers: it shares :func:`library_of`'s rules
-    and differs only in what it does with a name no directory can be called.
-    """
-    session = library_of(key)
-    if session is None:
-        # A caller may put anything in ?session=. It still keys their *browser*
-        # perfectly well — that is an opaque string in a store, not a path — so
-        # refusing the browser over it would break a working session to protect
-        # a feature they are not using. They get the shared library instead, and
-        # the flow tools are where the name is refused out loud.
-        log.info(
-            "session key %r cannot name a directory; using %s",
-            named_session(key),
-            GLOBAL_SESSION,
-        )
-        return GLOBAL_SESSION
-    return session
-
-
-def session_of(sessions, explicit: str | None = None) -> str:
-    """Whose library — and whose kept files — this call is about.
-
-    An explicit name is how the HTTP surface says it, because that surface is
-    always explicit — the same contract ``/browser/*`` already has. Over MCP it
-    comes from the caller's key, and anything unnamed is :data:`GLOBAL_SESSION`
-    (§F1.2).
-
-    A caller that NAMED itself and cannot have that name as a directory is
-    refused here, out loud. :func:`session_for` falls back to ``global`` for
-    such a name, which is right for the browser — an opaque key, and refusing it
-    would break a working session — and is wrong here: ``?session=my bot`` got a
-    private browser and saved its flows into the shared library, where every
-    unnamed caller can overwrite or delete them, while believing they were its
-    own. Kept files inherit the same rule for the same reason, which is why this
-    lives here rather than beside the flow tools that first needed it.
-    """
-    if explicit:
-        return valid_session_name(explicit)
-    # `library_key`, not `key`: which library a caller owns does not depend on
-    # whether this server is remembering browsers. See `sessions.library_key`.
-    key = sessions.library_key()
-    session = library_of(key)
-    if session is None:
-        # Raised rather than returned, and by the same validator, so the message
-        # names the offending value — and says *which* rule it broke, an
-        # unusable name and a reserved one being different problems.
-        return valid_session_name(named_session(key))
-    return session
-
-
-def library_of(key) -> str | None:
-    """The session directory a store key owns, or None if it cannot have one.
-
-    The strict counterpart to :func:`session_for`, and they differ on exactly
-    one input: a caller that named itself something no directory can be called.
-
-    :func:`session_for` hands that caller ``global``. That is right for a
-    *browser* — the key is an opaque string there, and refusing it would break a
-    working session over a feature they are not using — and it is wrong for
-    anything **stored**, because the caller's private flows and files would land
-    in the shared library, where every unnamed caller can read them. That is the
-    bug E6 fixed for flows; this function exists so it cannot come back for
-    files.
-
-    :func:`session_of` refuses such a name out loud, which is right on a surface
-    where one caller is waiting for one answer. The admin surface cannot refuse:
-    it lists **every** session there is, unusable names included, and one bad row
-    must not take the listing down. So it gets a third answer — None, meaning
-    "this session has nowhere to keep anything" — and shows it as unknown rather
-    than borrowing the shared library's.
-    """
-    if key_value(key) == STDIO_SESSION:
-        return STDIO_SESSION
-    named = named_session(key)
-    if named is None:
-        return GLOBAL_SESSION
     try:
-        # `valid_session_name`, so a caller cannot claim `stdio` and land in the
-        # transport's private library. The check has to be here rather than only
-        # at the write gate: reading another client's flows is the same leak.
-        return valid_session_name(named)
+        return valid_name(key, "session name")
     except InvalidName:
         return None
 
