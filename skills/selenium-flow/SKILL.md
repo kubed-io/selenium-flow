@@ -144,22 +144,23 @@ check this table twice before reaching for it.
 
 | Tool | Does | Key arguments |
 |---|---|---|
-| `open_session` | start a browser, or come back to the one you had | `browser`: `chrome` \| `firefox`, `width`, `height`, `url` |
+| `open_session` | start a browser, or come back to the one you had | `browser`: `chrome` \| `firefox`, `width`, `height`, `url`, `fresh` |
 | `end_browser` | free the Grid slot; your session survives | — |
 | `navigate` | go to a URL | `url` |
-| `interact` | a mouse gesture on an element | `action`: `click` \| `double_click` \| `right_click` \| `hover` \| `scroll_to` |
+| `interact` | a mouse gesture on an element | `action`: `click` \| `double_click` \| `right_click` \| `hover` \| `scroll_to`, `glide` |
+| `drag` | drag an element onto another, or by an offset | `to_xpath`/`to_css` or `by_x`/`by_y`, `glide` |
 | `write` | type into a field, or type a secret you never see | `text` or `secret`, `clear`, `submit` |
 | `press_key` | a key or a combination | `key`: `Enter`, `Escape`, `a`, `Control+a` |
 | `extract` | read an element's text and HTML | `xpath` or `css` |
 | `outline` | what is on the page: selectors, and what works | `css`/`xpath`, `text`, `limit`, `interactive` |
 | `screenshot` | the viewport, one element, or the whole page — saved, with a link to share | `full_page`, `filename`, `save` |
 | `save_pdf` | print the page into your files | `filename` |
-| `upload_file` | attach a file to a file input | `text`, `content` or `path`, `filename` |
+| `upload_file` | attach a file to a file input | `text`, `content`, `kept` or `path`, `filename` |
 | `frame` | move into or out of an iframe | `action`: `switch` \| `parent` \| `default` |
 | `dialog` | answer an alert, confirm or prompt | `action`: `accept` \| `dismiss` \| `read` \| `send_text` |
 | `resize` | change the window size | `width`, `height` |
 | `execute_script` | run JavaScript — only for what nothing above does | `script` |
-| `assert` | JavaScript that must return true, or the call fails | `script`, `message` |
+| `assert` | JavaScript that must return true, or the call fails | `script`, `message`, `stable_for` |
 | `session_files` | what the browser downloaded and what you kept | — |
 | `keep_file` | keep a file past the browser | `name` |
 | `list_secrets` | the secrets you may type — never their values | — |

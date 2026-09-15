@@ -122,6 +122,13 @@ def _described(name: str, entry: dict, url: str, kept: bool, base: str) -> dict:
         "kept": kept,
         "url": url,
     }
+    if not kept:
+        # The call that makes this one durable, spelled out. The tool
+        # description has said "these die with the browser" since #28 and a
+        # pilot still handed somebody a link that would stop working - because
+        # what it read was the result, not the docstring. So the result says it
+        # too, in the only form that is also an instruction (§F2.10).
+        described["keep_with"] = f'keep_file("{name}")'
     if base:
         # An app renders on a sandbox origin of the host's choosing, so a path
         # would resolve against the wrong server. Absolute only when the server
@@ -252,6 +259,30 @@ def keep_one(actions, store, session: str, session_id: str, name: str) -> dict:
     entry = store.write_file(session, wanted, data)
     log.info("kept %s/%s (%s bytes)", session, wanted, len(data))
     return {"kept": True, "session": session, **entry}
+
+
+def read_kept(sessions, store, name: str) -> bytes:
+    """The bytes of one kept file, for a caller that wants to send it somewhere.
+
+    The other half of `keep_one`, and the reason it exists: a browser could
+    download a file and keep it, and there was no way to hand it back to a page
+    (§F1.41). `upload_file(kept=...)` is that way, and it reads through here so
+    that "which session's files are these" has exactly one answer.
+    """
+    if store is None:
+        raise ValueError(OFF)
+    wanted = flows.valid_file_name(name)
+    session = owner(sessions, store)
+    try:
+        return store.read_file(session, wanted)
+    except FileNotFoundError as exc:
+        # Named rather than passed through: `[Errno 2] ... /data/flows/x/files/y`
+        # answers a question about this server's disk, and the caller's question
+        # is which name to use.
+        raise FileNotFoundError(
+            f"no kept file called {wanted!r}. session_files lists what is kept; "
+            "keep_file(name) is what keeps one before the browser goes"
+        ) from exc
 
 
 def delete_one(store, session: str, name: str) -> dict:

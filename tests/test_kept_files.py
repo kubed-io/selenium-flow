@@ -985,3 +985,101 @@ def test_the_file_stamp_cannot_be_forged_by_a_files_own_name(client, live):
     # this alone — the count is not in it — so a collision here is a panel that
     # never repaints, whatever the counts happen to be.
     assert forged["files_rev"] != real["files_rev"]
+
+
+# ---- giving a kept file back to a page ---------------------------------------
+
+
+class _Sessions:
+    """A session manager that names one flow session, the way `owner` asks."""
+
+    enabled = True
+
+    def library_key(self):
+        return NAMED
+
+
+def test_a_kept_file_can_be_read_back_by_name(store):
+    """The loop the file store never closed: a browser could download a file
+    and keep it, and there was no way to hand it back to a page (§F1.41)."""
+    store.write_file(SESSION, "export.csv", b"id,name\n1,a\n")
+    assert files.read_kept(_Sessions(), store, "export.csv") == b"id,name\n1,a\n"
+
+
+def test_reading_a_name_nobody_kept_says_what_to_call_instead(store):
+    with pytest.raises(FileNotFoundError) as missing:
+        files.read_kept(_Sessions(), store, "nope.csv")
+    message = str(missing.value)
+    assert "no kept file called 'nope.csv'" in message
+    assert "session_files" in message and "keep_file" in message
+    # The path on this server's disk answers a question nobody asked.
+    assert "/" not in message.split("session_files")[0]
+
+
+def test_reading_a_kept_file_refuses_a_name_that_is_not_one_segment(store):
+    with pytest.raises(ValueError):
+        files.read_kept(_Sessions(), store, "../../etc/passwd")
+
+
+def test_upload_sends_the_bytes_of_a_kept_file(actions, tmp_path, monkeypatch):
+    """Through `upload_file`, not through the helper: the action is where the
+    four sources are told apart and where the name defaults."""
+    sent = {}
+
+    class _Element:
+        def send_keys(self, path):
+            from pathlib import Path
+
+            sent["name"] = Path(path).name
+            sent["bytes"] = Path(path).read_bytes()
+
+    class _Driver:
+        current_url = "https://example.test/upload"
+        title = "Upload"
+
+        def execute_script(self, *_a, **_k):
+            return None
+
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
+    monkeypatch.setattr(browser, "accept_local_files", lambda _d: None)
+    monkeypatch.setattr(
+        "kubed.selenium_flow.browser.wait_for_element", lambda *a, **k: _Element()
+    )
+    actions.read_kept = lambda name: b"id,name\n1,a\n"
+
+    result = actions.upload_file("abc", css="input[type=file]", kept="export.csv")
+
+    assert sent["bytes"] == b"id,name\n1,a\n"
+    assert sent["name"] == "export.csv", "the kept name is the default filename"
+    assert result["filename"] == "export.csv"
+
+
+def test_a_kept_upload_is_refused_when_there_is_nowhere_to_keep(actions):
+    """Flows off means no file store, so `kept` names something that cannot
+    exist. Refused with the three sources that do work."""
+    with pytest.raises(ValueError, match="not available"):
+        actions.upload_file("abc", css="input", kept="export.csv")
+
+
+def test_only_one_source_may_be_given(actions):
+    with pytest.raises(ValueError, match="only one of"):
+        actions.upload_file("abc", css="input", text="hi", kept="export.csv")
+
+
+def test_an_unkept_file_says_what_would_keep_it(store):
+    """`kept: false` has always meant "this link dies with the browser", and a
+    pilot still handed somebody one — because what it read was the result, not
+    the tool description (§F2.10)."""
+    actions = FakeActions(FakeGrid(DOWNLOADS))
+    listed = files.merged(actions, store, SESSION, "abc", TOKEN)
+    entry = next(f for f in listed if f["name"] == "shot.png")
+    assert entry["kept"] is False
+    assert entry["keep_with"] == 'keep_file("shot.png")'
+
+
+def test_a_kept_file_has_nothing_to_keep(store):
+    store.write_file(SESSION, "report.pdf", b"x")
+    actions = FakeActions(FakeGrid([]))
+    entry = files.merged(actions, store, SESSION, "abc", TOKEN)[0]
+    assert entry["kept"] is True
+    assert "keep_with" not in entry

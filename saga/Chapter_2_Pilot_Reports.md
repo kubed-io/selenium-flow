@@ -27,13 +27,14 @@
 
 ---
 
-## Status: **OPEN — half built** — opened 2026-09-14, building since
+## Status: **OPEN — E17 and E5 left** — opened 2026-09-14, built 2026-09-14/15
 
 It opened as planning only — nothing built until Dr K signed the forks off,
 which is how Chapter 1 ran and why its reasoning survived the build. The forks
 were answered the same day and four epics shipped behind them. Sections are
 marked *recommended* until answered and *locked* once they are; the passes below
-say who answered what, and §F2.10 says what flying it afterwards proved wrong.
+say who answered what, §F2.10 says what flying it afterwards proved wrong, and
+§F2.11 is the measuring §F2.4 asked for before anything was promised.
 
 **First pass, same day.** Dr K answered five of the six forks: nothing glides
 unless asked (§F2.3), `press_key` is not an enum (§F2.1), and the epic order is
@@ -48,22 +49,26 @@ a flow, not a step inside one (§F2.8).
 
 **Built, same day.** E12, E14, E15 and E16 shipped in five pull requests — `#25`
 through `#30` — and the server was flown afterwards by two pilots, whose findings
-are §F2.10 and are folded into the plan below. Chapter 2 is no longer a plan
-being signed off; it is a plan half built.
+are §F2.10 and are folded into the plan below.
 
-**Where to start next.** In this order, and the first two are small:
+**Built, the next day.** One pull request closed everything that was left except
+E17 and E5: §F2.10's three faults, E16's two leftovers, and **E13 whole** — the
+spike (§F2.11), the remembered pointer, `glide`, the nudge, and `drag`. The plan
+below is ticked against it.
 
-1. **§F2.10's three faults** — `stable_for` on `assert` and the guard example
-   that teaches the race (E14); the hover nudge (E13); and what `outline` says
-   about a trigger: `revealed_by`, `aria-expanded` in the interactive set, click
-   rather than hover when the page says click, and no text XPath for an element
-   whose text belongs to its children (E15).
-2. **E16's two leftovers** — `upload_file` on a kept file, and
-   `open_session(fresh=true)`, which `build_flow` currently has to work around.
-3. **E13 proper** — the Firefox measurements and the HTML5-drag spike first,
-   then the remembered pointer, `glide`, and `drag`.
-4. **E17**, which wants a Penpot pass before any code, and **E5**, which reaches
-   into the cluster repo.
+**What is left.** Two epics and a release.
+
+1. **E17 — the admin UI's carried items.** Wants a Penpot pass before any code.
+2. **E5 — `ROUTE_PREFIX` as the global mount.** Independent, and it reaches into
+   the cluster repo.
+3. **A release.** The last tag is still `v0.1.0` and everything since is only in
+   `:latest`. A minor version would make all of this pinnable.
+
+Three smaller things are deliberately still open, each recorded on its own line
+in Part IV rather than hidden here: a flow used as a contract in `FLOWS.md`
+(waiting on somebody using one that way), a kept file exercised from the admin
+UI, and a `drag` flown against a sortable list on a real site rather than a
+synthetic one.
 
 **And a release.** Everything above is on `main` and in `:latest`; the last tag
 is still `v0.1.0`, so nothing shipped today is in a version anybody can pin. The
@@ -197,7 +202,8 @@ What falls out, and §F2.3 rests on all of it:
 
 1. **ChromeDriver waits out a move's duration and delivers one event.** Anything
    watching intermediate movement — a sortable list, a slider, a drag library
-   with a distance threshold — sees a teleport. *Firefox not yet measured.*
+   with a distance threshold — sees a teleport. *Firefox measured later, in
+   §F2.11: it does not behave this way.*
 2. **A glide is cheap.** Many small moves in one action sequence are one round
    trip and deliver every step.
 3. **The pointer's position survives navigation.** Input state belongs to the
@@ -680,6 +686,52 @@ preferences, and Firefox's equivalent too.
   login flow from a known start. Auth state already resets; only the URL carries.
 - **`upload_file` takes a kept file by name** — carried from §F1.41.
 
+### §F2.11 — Measured: Firefox interpolates, and a pointer drag is a real HTML5 drag on Chrome
+
+§F2.4 said *verify in the pod before promising anything*, and Part I left
+Firefox unmeasured. Both were done before E13 was written. Same method: the live
+Grid, a `data:` page logging every event, one run per browser.
+
+| | Chrome | Firefox |
+|---|---|---|
+| `pointermove` from `move_to_element` (WebDriver's 250ms default) | **1** | **13** |
+| the same move at `duration=800` | **1**, in 0.82s | **44**, in 0.83s |
+| the same move at `duration=16` — what a jump sends now | **1** | **1** |
+| 24 small moves in one `perform()` | 24, in 0.41s | 24+, in ~0.5s |
+| second hover of the element the pointer is on | **0** `mouseover` | **0** `mouseover` |
+| the same, after a nudge away | 1 | 1 |
+| pointer position after a reload | survives | survives |
+| HTML5 drag from a pointer sequence | `dragstart` → `drag` ×13 → `dragenter` → `dragover` ×4 → **`drop`** → `dragend` | **nothing native at all** |
+
+Three things fall out, and two of them are not what was expected.
+
+**1. Interpolation is a function of the move's duration, and Firefox is the one
+that honours it.** geckodriver spreads a long move over intermediate
+`pointermove` events; ChromeDriver waits out the duration and delivers one. So
+"a move is a teleport" is a *ChromeDriver* fact, not a WebDriver one.
+
+It stops mattering once the server sets the duration, which it does: a jump is
+one 16ms move and arrives as one event on both, and a glide is many small moves
+and arrives as many on both. The two browsers agree because we stopped leaving
+the number to them.
+
+It does mean the honest thing to report is **what the server sent**. `glided`
+says "this travelled in steps"; it is not a claim about what the page received.
+
+**2. A pointer drag *is* an HTML5 drag on Chrome.** The folklore §F2.4 warned
+about — pointer actions not firing native `dragstart`/`drop` — is out of date
+there: the full native sequence fires, `drop` included, which means `drag` covers
+`draggable=true` as well as the pointer-event libraries it was built for. **On
+Firefox it fires nothing native**: the same sequence moves the pointer and the
+page's drag handlers never hear about it. So the sentence the tool description
+owes an agent is not "this cannot do HTML5 drag" but "this does HTML5 drag on
+Chrome and not on Firefox", which is what it says.
+
+**3. The hover that does nothing is both browsers.** §F2.10's fault was measured
+on Chrome; it reproduces identically on Firefox, and the nudge fixes it on both.
+So does everything else E13 promises — glide, the click that leaves the pointer
+on what it clicked, and a `by_x` drag that moves a range slider from 0 to 86.
+
 ### §F2.10 — Flying it again: what the second sortie found
 
 `v0.1.0` plus everything above went to the Grid, and two pilots flew it — the
@@ -832,20 +884,25 @@ anywhere.
 - [x] `SKILL.md` and `FLOWS.md`: *a flow owns where it starts*; `assert`, its
       boolean rule and the `$${` escape; the login guard
 - [ ] `FLOWS.md`: flows as contracts, once someone has used one that way
-- [ ] `save_flow` warns when the first step neither navigates, carries a `url`,
-      nor asserts
-- [ ] Per-step `url` in the non-verbose report when it changes (§F2.7)
+- [x] `save_flow` warns when the first step neither navigates, carries a `url`,
+      nor asserts — a `warnings` list on the save result, never a refusal
+- [x] Per-step `url` in the non-verbose report when it changes (§F2.7)
 - [x] Tests through `run()`, not the helper: the wrong-page flow now fails with
       its message, the signed-in login flow fails inside its `wait_timeout`, and
       breaking the assertion on purpose turns both red
 - [x] Flown: a route-changing flow with an `assert` on a live site, and the login
       guard on a real app by the other pilot — which is how §F2.10's first fault
       was found
-- [ ] **`stable_for`**: the answer must hold for N ms, not merely occur —
-      poll-until-true latches onto a transient and passed a signed-out guard
-      (§F2.10)
-- [ ] `FLOWS.md`: replace the racy guard example with settle-then-ask-once, and
-      say which shape belongs after a click and which before one. The action itself has been driven against the live Grid —
+- [x] **`stable_for`**: the answer must hold, not merely occur — poll-until-true
+      latches onto a transient and passed a signed-out guard (§F2.10). **In
+      seconds**, not the milliseconds this line first said: `wait_timeout` is
+      seconds and two units on one call is a trap. A `stable_for` longer than
+      the `wait_timeout` is refused, naming the unit, so the misreading fails
+      loudly instead of never passing. And the failure tells *never true* apart
+      from *would not stay true*, because the fixes are opposite
+- [x] `FLOWS.md`: the guard example takes `stable_for`, settle-then-ask-once is
+      documented beside it, and the page says which shape belongs after a click
+      and which before one. The action itself has been driven against the live Grid —
       true, false with and without a message, a non-boolean, and an element that
       appears 2.5s late, which it waited 2.4s for
 
@@ -855,13 +912,17 @@ anywhere.
       and signed URL (§F2.9)
 - [x] A failed save returns the image with a note, never an error
 - [x] **Changed:** changelog line — screenshots now appear in the session's files
-- [ ] `upload_file` accepts a kept file by name
-- [ ] `open_session(fresh=true)`
+- [x] `upload_file` accepts a kept file by name — `kept=`, a fourth source
+- [x] `open_session(fresh=true)` — drops the remembered page, keeps the browser
+      and window. MCP only: the HTTP surface has no flow session to inherit
+      from, so the argument is stripped from the published contract rather than
+      accepted and ignored
 - [x] Flown: a screenshot saved itself and came back with a working signed link,
       opened from the result
 - [ ] Flown: one kept from the admin UI, which is the half not yet exercised
-- [ ] `screenshot` says the link dies with the browser and `keep_file` is what
-      outlives it — true since §F2.9 and never stated (§F2.10)
+- [x] Every unkept file entry carries `keep_with` — `keep_file("shot.png")`.
+      The tool description has said it since #28 and a pilot still handed
+      somebody a dying link, because what it read was the result (§F2.10)
 
 ### E15 — The sectional chart: the probe, its hints, and `outline`
 
@@ -890,37 +951,48 @@ anywhere.
 - [x] Flown by an agent end to end: a hidden nav item found and opened with
       `outline` and `interact` alone, no `execute_script` — on a menu that turned
       out to be click-toggled, which is the next item
-- [ ] **Say click when the trigger says click.** `outline` already reports
-      `expanded: false` from `aria-expanded`; the advice ignores it and tells the
-      caller to hover a menu that opens on click (§F2.10)
-- [ ] **`revealed_by`** on a hidden entry — the trigger's checked selector, in the
+- [x] **Say click when the trigger says click.** `open_with` on the entry and
+      the right verb in the failure sentence, from `aria-expanded` and
+      `aria-controls` (§F2.10)
+- [x] **`revealed_by`** on a hidden entry — the trigger's checked selector, in the
       map as well as in the failure message (§F2.10)
-- [ ] **No text XPath for an element with element children**: the selector
-      offered for a nav container was its descendants' text concatenated
-- [ ] `[aria-expanded]` in the interactive set, and probably a bare `<a>`: the
-      trigger gating half a nav was skipped for having no `href`
+- [x] **No text XPath unless the text is the element's own**: refused for a
+      container of several children, kept for a single wrapper chain, which is
+      what `<button><span>Save</span></button>` is
+- [x] `[aria-expanded]`, `[aria-controls]`, `[aria-haspopup]` and `a:not([href])`
+      in the interactive set: the trigger gating half a nav was skipped for
+      having no `href`
 
 ### E13 — Stick and rudder: the pointer
 
-- [ ] **Spike first:** the Part I measurements on **Firefox**, and HTML5 native
-      drag vs pointer-event drag in Chrome
-- [ ] Pointer position recorded per Grid session after every move, reset on
-      `open_session`, carried in the session store (§F2.3)
-- [ ] Every pointer gesture moves first, then acts; `click` keeps WebDriver's
-      element click so a covered target is still refused
-- [ ] `glide` on `interact`, default `false`; unknown start → a jump, and the
-      result says so
-- [ ] Destination from `getBoundingClientRect` at move time, correct after a scroll
-- [ ] `drag` tool + `POST /browser/drag`, element-to-element and by offset, `glide`
-      default `true` (§F2.4)
-- [ ] A test page logging `pointermove`: a glide delivers many events, a jump one;
+- [x] **Spike first:** the Part I measurements on **Firefox**, and HTML5 native
+      drag vs pointer-event drag in Chrome — both done, both surprising, §F2.11
+- [x] Pointer position recorded per Grid session after every move, reset on
+      `open_session` and on `end_browser`, in Redis wherever the session store
+      is — `pointer.py`, sharing the session store's own switches (§F2.3)
+- [x] Every pointer gesture moves first, then acts; `click` keeps WebDriver's
+      element click so a covered target is still refused. A move that cannot be
+      sent costs the remembered position and never the gesture
+- [x] `glide` on `interact`, default `false`; unknown start → a jump, and the
+      result says so in `glide_note`
+- [x] Destination from `getBoundingClientRect` at move time, correct after a scroll
+- [x] `drag` tool + `POST /browser/drag`, element-to-element and by offset, `glide`
+      default `true`; a destination outside the window stops at its edge and
+      says so (§F2.4)
+- [x] A test page logging `pointermove`: a glide delivers many events, a jump one;
       after a click the pointer is on the clicked element; a covered click is
-      still refused
-- [ ] Flown: a sortable list and a range slider on real pages
-- [ ] **Nudge before hovering.** A hover onto a target the pointer is already
+      still refused. All of it in `tests/test_pointer.py`, marked `integration`
+      and run against the live Grid
+- [x] Flown: a range slider driven from 0 past 50 by `drag(by_x=100)`, and a
+      `draggable=true` drop target that receives the whole native sequence —
+      both on Chrome and on Firefox
+- [ ] Flown: a sortable list on a *real site*. The pages driven so far are
+      synthetic, which proves the events and not the libraries
+- [x] **Nudge before hovering.** A hover onto a target the pointer is already
       inside fires no `mouseover` and still reports `ok` — measured, twice
-      (§F2.10). Move away first; do not try to verify afterwards, because
-      `querySelectorAll(':hover')` comes back empty while the state is applying
+      (§F2.10). The move steps aside first, preferring a point still inside the
+      element's parent so a nudge cannot close the flyout it is about to hover,
+      and the result says `nudged`
 
 ### E17 — The tower: the admin UI's carried items
 

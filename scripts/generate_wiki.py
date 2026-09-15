@@ -66,6 +66,7 @@ GROUPS = [
             "open_session",
             "navigate",
             "interact",
+            "drag",
             "write",
             "press_key",
             "extract",

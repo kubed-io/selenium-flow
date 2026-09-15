@@ -17,6 +17,7 @@ from . import (
     files,
     flowapi,
     flows,
+    pointer,
     prompts,
     resources,
     routes,
@@ -62,7 +63,12 @@ class SeleniumMCP:
         secrets_dirs: str | None = None,
     ):
         self.grid = Grid(grid_url)
-        self.actions = Actions(self.grid)
+        # Where the pointer is in each browser, shared between replicas
+        # wherever the session store is (§F2.3). Built from the same
+        # environment, so one deployment cannot end up sharing sessions and not
+        # pointers - which would leave one replica plotting a glide from
+        # another's stale origin.
+        self.actions = Actions(self.grid, pointers=pointer.from_env())
         self.auth_token = auth_token
         self.stateless = stateless
         # Redis or memory per SESSION_STORE. The store is only ever a
@@ -137,6 +143,12 @@ class SeleniumMCP:
         # layer takes the function and never the key (§F2.9).
         self.actions.describe_file = lambda session_id, entry: files.describe(
             session_id, entry, auth_token, base
+        )
+        # And how it reads one back, for `upload_file(kept=...)`. Wired here for
+        # the same reason: which flow session owns a kept file is a question
+        # about the caller, which the behaviour layer deliberately cannot see.
+        self.actions.read_kept = lambda name: files.read_kept(
+            self.sessions, self.flows, name
         )
         self.apps = (
             apps.register(self.mcp, self.actions, auth_token) if apps_enabled else set()

@@ -65,7 +65,7 @@ async def test_request_schemas_are_the_tool_schemas(server, spec):
         documented = spec["components"]["schemas"][
             "".join(p.capitalize() for p in action.split("_")) + "Request"
         ]
-        expected, _ = _hoisted(http_schema(tool.parameters))
+        expected, _ = _hoisted(http_schema(tool.parameters, action))
         assert documented == expected, action
 
 
@@ -242,3 +242,20 @@ async def test_every_flow_response_schema_it_references_exists(spec):
             ref = schema.get("$ref")
             if ref:
                 assert ref.split("/")[-1] in defined, f"{path} -> {ref}"
+
+
+async def test_a_session_only_argument_is_not_published_as_an_http_parameter(spec):
+    """`fresh` says "do not go back to the page my session was last on", and
+    the HTTP surface has no session to go back to — `routes.py` never touches
+    `SessionManager`. Accepting it there would be a parameter that parses and
+    does nothing, so it is dropped from the contract instead (§F2.10)."""
+    published = spec["components"]["schemas"]["OpenSessionRequest"]["properties"]
+    assert "fresh" not in published
+    assert "browser" in published, "and nothing else went with it"
+
+
+async def test_the_tool_still_offers_it(server):
+    """The other half: dropping it from the HTTP contract must not drop it from
+    the surface that has a session."""
+    schema = (await server.mcp.get_tool("open_session")).parameters
+    assert "fresh" in schema["properties"]

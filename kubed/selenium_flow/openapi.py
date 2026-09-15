@@ -68,7 +68,50 @@ RESPONSES = {
     },
     "navigate": _page(),
     "interact": _page(
-        action={"type": "string", "description": "The gesture that was performed."}
+        action={"type": "string", "description": "The gesture that was performed."},
+        glided={
+            "type": "boolean",
+            "description": (
+                "Whether the pointer travelled to the element in steps rather "
+                "than jumping. Absent for scroll_to, which moves the page."
+            ),
+        },
+        nudged={
+            "type": "boolean",
+            "description": (
+                "Present when the pointer was already inside the target and had "
+                "to step away first, so the move it was asked for was a move."
+            ),
+        },
+        glide_note={
+            "type": "string",
+            "description": "Why a requested glide was a jump instead.",
+        },
+    ),
+    "drag": _page(
+        **{
+            "from": {
+                "type": "object",
+                "description": "Where the drag started, in viewport pixels.",
+                "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}},
+            },
+            "to": {
+                "type": "object",
+                "description": "Where it was released, in viewport pixels.",
+                "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}},
+            },
+            "glided": {
+                "type": "boolean",
+                "description": "Whether the travel was incremental.",
+            },
+            "clamped": {
+                "type": "string",
+                "description": (
+                    "Present when the destination was outside the window, so "
+                    "the drag stopped at its edge."
+                ),
+            },
+        }
     ),
     "frame": _page(
         action={"type": "string", "description": "The switch that was performed."},
@@ -121,6 +164,13 @@ RESPONSES = {
             "description": "Always true: a false assertion is an error, not a result.",
         },
         script={"type": "string", "description": "The expression that was true."},
+        stable_for={
+            "type": "number",
+            "description": (
+                "Present when a hold was asked for: the seconds the answer had "
+                "to stay true, and did."
+            ),
+        },
     ),
     "outline": _page(
         count={"type": "integer", "description": "How many elements are listed."},
@@ -143,6 +193,21 @@ RESPONSES = {
                         ),
                     },
                     "blocked_by": {"type": "string"},
+                    "revealed_by": {
+                        "type": "string",
+                        "description": (
+                            "Selector of the control that opens a hidden "
+                            "element. This is the one to act on."
+                        ),
+                    },
+                    "open_with": {
+                        "type": "string",
+                        "enum": ["click", "hover"],
+                        "description": (
+                            "Which gesture opens it: click when the trigger "
+                            "carries aria-expanded, hover otherwise."
+                        ),
+                    },
                     "expanded": {"type": "boolean"},
                 },
             },
@@ -259,7 +324,7 @@ async def build_spec(
 
         request_name = f"{_camel(action)}Request"
         response_name = f"{_camel(action)}Response"
-        request, nested = _hoisted(http_schema(tool.parameters))
+        request, nested = _hoisted(http_schema(tool.parameters, action))
         schemas.update(nested)
         schemas[request_name] = request
         schemas[response_name] = RESPONSES.get(action, {"type": "object"})
@@ -468,14 +533,30 @@ def _request_content(action: str, request_name: str) -> dict:
     return content
 
 
-def http_schema(tool_schema: dict) -> dict:
+# Arguments about the caller's FLOW SESSION rather than about the browser. The
+# HTTP surface has no flow session at all - `routes.py` never touches
+# `SessionManager`, which is why a browser opened over HTTP never appears in the
+# admin list - so an open there cannot inherit a previous page and `fresh` would
+# be a parameter that parses and does nothing. Dropped from the published
+# contract rather than accepted and ignored.
+SESSION_ONLY = {"open_session": ("fresh",)}
+
+
+def http_schema(tool_schema: dict, action: str = "") -> dict:
     """A tool's schema as the HTTP surface actually accepts it.
 
-    Only one thing changes: ``session_id`` becomes required and loses its null
-    branch. MCP callers may omit it because saved sessions can supply it; an
-    endpoint has no session to draw on and must be told.
+    Two things change. ``session_id`` becomes required and loses its null
+    branch: MCP callers may omit it because saved sessions can supply it, and an
+    endpoint has no session to draw on and must be told. And anything in
+    ``SESSION_ONLY`` is removed, because it describes a flow session this
+    surface does not have.
     """
     schema = copy.deepcopy(tool_schema)
+    for name in SESSION_ONLY.get(action, ()):
+        schema.get("properties", {}).pop(name, None)
+        required = schema.get("required")
+        if isinstance(required, list) and name in required:
+            required.remove(name)
     prop = schema.get("properties", {}).get("session_id")
     if prop is None:
         return schema
@@ -903,6 +984,14 @@ FILE_SCHEMAS = {
                     "True when it belongs to the session and outlives the "
                     "browser. False when it is a download, which the Grid "
                     "deletes with the browser and cannot delete singly."
+                ),
+            },
+            "keep_with": {
+                "type": "string",
+                "description": (
+                    "Present only when `kept` is false: the call that makes a "
+                    "copy outliving the browser. Until it is made, this file's "
+                    "url stops working when the browser ends."
                 ),
             },
             "url": {

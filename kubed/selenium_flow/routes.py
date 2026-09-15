@@ -31,6 +31,7 @@ ENDPOINTS = {
     "end": "end_browser",
     "navigate": "navigate",
     "interact": "interact",
+    "drag": "drag",
     "write": "write",
     "press-key": "press_key",
     "extract": "extract",

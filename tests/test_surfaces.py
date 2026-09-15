@@ -59,6 +59,7 @@ EXPECTED = {
     "end_browser",
     "navigate",
     "interact",
+    "drag",
     "frame",
     "resize",
     "dialog",

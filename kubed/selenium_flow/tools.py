@@ -35,7 +35,7 @@ from .actions import (
     WAIT_TIMEOUT,
     Actions,
 )
-from .browser import BROWSERS
+from .browser import BROWSERS, as_bool
 from .hints import hints
 from .probe import DEFAULT_LIMIT as OUTLINE_LIMIT
 from .sessions import NAME_PARAM, SessionManager
@@ -162,6 +162,7 @@ def register(
         height: int | None = None,
         page_load_timeout: int | None = None,
         script_timeout: int | None = None,
+        fresh: bool = False,
     ) -> dict:
         """Start a browser session. Do this first.
 
@@ -187,6 +188,11 @@ def register(
         narrow and varies between Grid nodes. page_load_timeout bounds how long
         a navigation may hang; without one a stuck page holds a scarce Grid slot
         until the Grid reaps it.
+
+        fresh=true opens on about:blank instead of going back to the page this
+        session was last on. Use it to run something from a known start — a
+        login flow you want to exercise signed out. It keeps the browser and
+        window this session was using; only the page is dropped.
 
         The returned session_id is what a stateless caller passes to every later
         call. If this server is holding the browser for you, it is returned for
@@ -217,9 +223,13 @@ def register(
         # first leaves it on the Grid referenced by nothing, holding a slot
         # until the idle timeout — which switching browser did.
         sessions.end_browser(sessions.store_key(key))
-        opened = actions.open_session(
-            url=url or previous.get("url") or None, **resolved
-        )
+        # `fresh` drops only the remembered page. The settings still come
+        # through the cascade above, because coming back as Chrome when the
+        # session was using Firefox is a silent change of shape, not a fresh
+        # start - and an explicit `url` is a start the caller named, which
+        # `fresh` has no business overriding.
+        inherited = None if as_bool(fresh) else (previous.get("url") or None)
+        opened = actions.open_session(url=url or inherited, **resolved)
         sessions.remember(key, opened["session_id"], opened.get("url", ""), resolved)
         return opened
 
@@ -262,6 +272,13 @@ def register(
             "opens context menus. scroll_to brings an "
             "off-screen element into view, which is often what a click on a "
             "long page needs first.\n\n"
+            "The pointer moves onto the element first, so after a click it is "
+            "on what you clicked, the way a person's would be. That move is an "
+            "instant jump unless you set glide=true, which sends many small "
+            "moves instead - set it for an interface that watches movement "
+            "rather than arrival: sliders, sortable lists, drag thresholds, and "
+            "menus that track which way the pointer came from. To drag "
+            "something, use drag.\n\n"
             "Returns the URL and title *after* the action, so any navigation it "
             "caused is visible in the result.\n\n" + SELECTOR
         ),
@@ -274,11 +291,66 @@ def register(
         session_id: str | None = None,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
+        glide: bool = False,
     ) -> dict:
         return run(
             session_id,
             lambda s: actions.interact(
-                s, action, xpath=xpath, css=css, url=url, wait_timeout=wait_timeout
+                s,
+                action,
+                xpath=xpath,
+                css=css,
+                url=url,
+                wait_timeout=wait_timeout,
+                glide=glide,
+            ),
+        )
+
+    @mcp.tool(
+        description=(
+            "Drag one element onto another, or by an offset in pixels.\n\n"
+            "Address the thing being dragged with EITHER xpath OR css. Say "
+            "where it goes with EITHER to_xpath/to_css - a destination element "
+            "- OR by_x and by_y, a distance from where it started. A range "
+            "slider is the by_x case; a card into a column is the element "
+            "case.\n\n"
+            "The pointer presses, travels and releases, holding briefly at "
+            "each end because several drag libraries arm on a delay rather than "
+            "on the press. glide defaults to true here: incremental movement is "
+            "most of what a drag is for, and a library watching pointermove "
+            "sees nothing without it.\n\n"
+            "This drives pointer events, and on Chrome that is also enough for "
+            "native HTML5 drag-and-drop (dragstart through drop). On Firefox "
+            "the native drop does not complete - measured, not assumed - so a "
+            "draggable=true element there may need the page's own fallback."
+        ),
+        annotations=hints("Drag an element", destructive=True),
+    )
+    def drag(
+        xpath: str | None = None,
+        css: str | None = None,
+        to_xpath: str | None = None,
+        to_css: str | None = None,
+        by_x: int | None = None,
+        by_y: int | None = None,
+        session_id: str | None = None,
+        url: str | None = None,
+        wait_timeout: int = WAIT_TIMEOUT,
+        glide: bool = True,
+    ) -> dict:
+        return run(
+            session_id,
+            lambda s: actions.drag(
+                s,
+                xpath=xpath,
+                css=css,
+                to_xpath=to_xpath,
+                to_css=to_css,
+                by_x=by_x,
+                by_y=by_y,
+                url=url,
+                wait_timeout=wait_timeout,
+                glide=glide,
             ),
         )
 
@@ -377,6 +449,7 @@ def register(
         path: str | None = None,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
+        kept: str | None = None,
     ) -> dict:
         """Attach a file to a file input.
 
@@ -385,8 +458,13 @@ def register(
         to encode it; the server writes the real file and sends it to the
         browser, which runs on another machine.
 
+        `kept` takes the name of a file keep_file has kept, which is how you
+        give a page back something a browser downloaded — an export from one
+        site uploaded to another, without the bytes passing through you.
+        session_files lists what is there.
+
         Use `content` (base64) only for binary, and `path` only for a file
-        already on the server's filesystem. Pass exactly one of the three.
+        already on the server's filesystem. Pass exactly one of the four.
 
         The page reads the file's type from the **filename extension**, so name
         it `report.csv` rather than `report`. If you give a name without an
@@ -408,6 +486,7 @@ def register(
                 path=path,
                 url=url,
                 wait_timeout=wait_timeout,
+                kept=kept,
             ),
         )
 
@@ -633,7 +712,14 @@ def register(
             "Anything else is refused.\n\nIt asks again until the answer is "
             "true or wait_timeout passes, so an assertion straight after a click "
             "does not have to know how long a route change takes. "
-            "wait_timeout=0 asks once.\n\nGive message the sentence whoever "
+            "wait_timeout=0 asks once.\n\n"
+            "**For a guard - something that must be true BEFORE the flow acts "
+            "- set stable_for.** Asking until true means EVENTUALLY true, and "
+            "an app that paints its signed-in shell for a moment before "
+            "redirecting to the login page satisfies 'am I signed in' during "
+            "that moment. stable_for=1 makes the answer hold for a second "
+            "before it counts. Both it and wait_timeout are in seconds.\n\n"
+            "Give message the sentence whoever "
             "reads the failure should see - in a flow it becomes the failing "
             "step's error, and a flow cannot continue past one. Without a "
             "message the failure names only the page it was false on.\n\n"
@@ -649,11 +735,17 @@ def register(
         session_id: str | None = None,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
+        stable_for: float = 0,
     ) -> dict:
         return run(
             session_id,
             lambda s: actions.assert_(
-                s, script, message=message, url=url, wait_timeout=wait_timeout
+                s,
+                script,
+                message=message,
+                url=url,
+                wait_timeout=wait_timeout,
+                stable_for=stable_for,
             ),
         )
 

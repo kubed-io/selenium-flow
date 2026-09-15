@@ -55,14 +55,28 @@ ACTIONABLE_ROLES = (
     "spinbutton",
 )
 
+# What a page says about a control that opens something else. All three are
+# declarations rather than guesses, and the one that matters is `aria-expanded`:
+# the trigger gating half a real site's nav was an `<a>` with no `href`, so the
+# tag-and-href rules above skipped it and the map had no way to say what opened
+# the menu it had just listed as hidden (saga §F2.10).
+DECLARES_A_CONTROL = ("aria-expanded", "aria-controls", "aria-haspopup")
+
 INTERACTIVE = (
     # `input:not([type="hidden"])`: a hidden field cannot be clicked or typed
     # into, and a form with thirty of them would fill the budget before a
     # single visible control was reached.
     'a[href], button, input:not([type="hidden"]), select, textarea, '
     "summary, label, iframe, "
+    # A bare `<a>` — no href — is almost always a control somebody wired up in
+    # JavaScript. The one false positive is the legacy `<a name="top">` bookmark,
+    # which costs an entry with an empty name; missing a nav toggle costs the
+    # whole nav.
+    "a:not([href]), "
     '[onclick], [contenteditable=""], [contenteditable="true"], '
     '[tabindex]:not([tabindex="-1"]), '
+    + ", ".join(f"[{attr}]" for attr in DECLARES_A_CONTROL)
+    + ", "
     + ", ".join(f'[role="{role}"]' for role in ACTIONABLE_ROLES)
 )
 
@@ -108,6 +122,13 @@ const cssPath = (el) => {
   return parts.join(' > ');
 };
 
+const ownsItsText = (el) => {
+  const kids = el.children;
+  if (kids.length === 0) return true;
+  if (kids.length > 1) return false;
+  return ownsItsText(kids[0]);
+};
+
 // One selector per element, and the key says which kind. CSS where the page
 // gives something stable to hold; XPath by text when it does not, because CSS
 // cannot match text at all.
@@ -122,7 +143,13 @@ const selectorFor = (el) => {
     const candidate = tag + '[' + attr + '="' + value + '"]';
     if (onlyOne(candidate, el)) return {css: candidate};
   }
-  const text = textOf(el);
+  // A container's `normalize-space()` is every descendant's text run together:
+  // a nav <li> produced //li[normalize-space()="HelpDeskHelpDeskAdd Ticket..."],
+  // which is unreadable, brittle, and not this element's label at all. So the
+  // text selector is offered only where the text really belongs to this
+  // element - no element children, or a single unbroken chain of wrappers,
+  // which is what <button><span>Save</span></button> is (saga §F2.10).
+  const text = ownsItsText(el) ? textOf(el) : '';
   if (text && text.length <= 60 && !text.includes('"')) {
     const xpath = '//' + tag + '[normalize-space()="' + text + '"]';
     try {
@@ -138,6 +165,39 @@ const selectorFor = (el) => {
 };
 
 
+const shown = (node) => {
+  const style = getComputedStyle(node);
+  return style.display !== 'none' && style.visibility !== 'hidden' &&
+    style.opacity !== '0' && node.hidden !== true;
+};
+
+// What opens `node`, where the PAGE says so rather than where we guess. A
+// control carrying aria-expanded is one somebody clicks, and telling an agent
+// to hover a click-toggled menu is advice that does nothing - it happened on
+// selenium.dev, on a page this map had already reported `expanded: false` for
+// (saga §F2.10). aria-controls naming the hidden node by id is the strongest
+// statement a page can make, so it is asked first.
+const statedOpener = (node) => {
+  if (node.id) {
+    for (const el of document.querySelectorAll('[aria-controls]')) {
+      const controls = (el.getAttribute('aria-controls') || '').split(/\\s+/);
+      if (controls.includes(node.id) && !node.contains(el) && shown(el)) return el;
+    }
+  }
+  // Otherwise the nearest ancestor that declares the state itself, or holds a
+  // control that does: <li class="dropdown"> wrapping the <a aria-expanded>
+  // and the <ul> it opens is the ordinary shape of a nav menu.
+  for (let up = node.parentElement; up && up.nodeType === 1; up = up.parentElement) {
+    const tag = up.tagName.toLowerCase();
+    if (tag === 'body' || tag === 'html') break;
+    if (up.hasAttribute('aria-expanded') && shown(up)) return up;
+    for (const el of up.querySelectorAll('[aria-expanded]')) {
+      if (!node.contains(el) && el !== node && shown(el)) return el;
+    }
+  }
+  return null;
+};
+
 const reasonFor = (el) => {
   // `:disabled` rather than `.disabled`: a control inside a disabled
   // <fieldset> reports false for the property and is disabled all the same.
@@ -147,9 +207,7 @@ const reasonFor = (el) => {
   } catch (e) { /* not a control, so it has no disabled state */ }
   if (isDisabled) return {reason: 'disabled', detail: nameOf(el)};
   for (let node = el; node && node.nodeType === 1; node = node.parentElement) {
-    const style = getComputedStyle(node);
-    if (style.display === 'none' || style.visibility === 'hidden' ||
-        style.opacity === '0' || node.hidden === true) {
+    if (!shown(node)) {
       // The hidden node cannot be hovered - nothing with display:none can
       // receive a pointer - so the advice has to name something else. That is
       // only worth saying when it is a target the caller can act on: an
@@ -157,21 +215,31 @@ const reasonFor = (el) => {
       // checked to match exactly one element. Otherwise say nothing: `body` is
       // a true answer to "what is visible above this" and useless advice.
       let trigger = null;
-      for (let up = node.parentElement; up && up.nodeType === 1;
-           up = up.parentElement) {
-        const tag = up.tagName.toLowerCase();
-        if (tag === 'body' || tag === 'html') break;
-        const upStyle = getComputedStyle(up);
-        const visible = upStyle.display !== 'none' && upStyle.visibility !== 'hidden' &&
-          upStyle.opacity !== '0' && up.hidden !== true;
-        if (!visible) continue;
-        const found = selectorFor(up);
+      let gesture = '';
+      const stated = statedOpener(node);
+      if (stated) {
+        const found = selectorFor(stated);
         if (found && (found.css || found.xpath)) {
           trigger = found.css || found.xpath;
-          break;
+          gesture = stated.hasAttribute('aria-expanded') ? 'click' : 'hover';
         }
       }
-      return {reason: 'hidden', detail: nameOf(node), trigger: trigger};
+      if (!trigger) {
+        for (let up = node.parentElement; up && up.nodeType === 1;
+             up = up.parentElement) {
+          const tag = up.tagName.toLowerCase();
+          if (tag === 'body' || tag === 'html') break;
+          if (!shown(up)) continue;
+          const found = selectorFor(up);
+          if (found && (found.css || found.xpath)) {
+            trigger = found.css || found.xpath;
+            gesture = 'hover';
+            break;
+          }
+        }
+      }
+      return {reason: 'hidden', detail: nameOf(node), trigger: trigger,
+              gesture: gesture};
     }
   }
   const rect = el.getBoundingClientRect();
@@ -268,6 +336,13 @@ for (const el of root.querySelectorAll(interactiveOnly ? selector : '*')) {
     if (verdict.reason === 'hidden' || verdict.reason === 'covered') {
       entry.blocked_by = verdict.detail;
     }
+    // What is in the way was never the question a caller had. `revealed_by`
+    // is: the selector of the control that opens this, and `open_with` says
+    // whether to click it or hover it (saga §F2.10).
+    if (verdict.reason === 'hidden' && verdict.trigger) {
+      entry.revealed_by = verdict.trigger;
+      entry.open_with = verdict.gesture || 'hover';
+    }
   }
   const expanded = el.getAttribute('aria-expanded');
   if (expanded !== null) entry.expanded = expanded === 'true';
@@ -281,9 +356,7 @@ return seen;
 SENTENCES = {
     "hidden": (
         "It exists, but {detail} is hidden — a menu that opens on mouse-over "
-        "looks exactly like this. Hover whatever reveals it{trigger}; you "
-        "cannot hover the hidden part itself, and a script cannot open one "
-        "either, because synthetic events do not set :hover."
+        "looks exactly like this.{trigger}"
     ),
     "covered": (
         "It exists, but {detail} is on top of it — a cookie banner or an "
@@ -302,6 +375,38 @@ SENTENCES = {
         "the page enables it — usually a form that is not valid yet."
     ),
 }
+
+
+# The move, which is not the same move for every menu. A trigger carrying
+# `aria-expanded` is a control somebody CLICKS: on selenium.dev the advice said
+# hover, hovering did nothing, and the page had been saying `expanded: false`
+# the whole time (saga §F2.10). The :hover caveat belongs only where the answer
+# actually is a hover — appended to "click this" it reads as a contradiction.
+MOVES = {
+    "click": (
+        " {trigger} opens it and says so with aria-expanded, so "
+        'interact(action="click") on that — hovering it will do nothing.'
+    ),
+    "hover": (
+        ' Hover whatever reveals it — interact(action="hover") on {trigger}. '
+        "You cannot hover the hidden part itself, and a script cannot open one "
+        "either, because synthetic events do not set :hover."
+    ),
+    "": (
+        " Hover whatever reveals it; you cannot hover the hidden part itself, "
+        "and a script cannot open one either, because synthetic events do not "
+        "set :hover."
+    ),
+}
+
+
+def move_for(answer: dict) -> str:
+    """The instruction clause for a hidden element, or "" when there is none."""
+    trigger = answer.get("trigger")
+    if not trigger:
+        return MOVES[""]
+    gesture = answer.get("gesture") or "hover"
+    return MOVES.get(gesture, MOVES["hover"]).format(trigger=trigger)
 
 
 def usable(driver, element) -> dict:
@@ -335,10 +440,9 @@ def explain(driver, target) -> str:
         sentence = SENTENCES.get(answer.get("reason") or "")
         if not sentence:
             return ""
-        trigger = answer.get("trigger")
         return sentence.format(
             detail=answer.get("detail") or "something",
-            trigger=f' — try interact(action="hover") on {trigger}' if trigger else "",
+            trigger=move_for(answer),
         )
     # Broad on purpose: a diagnosis must never outrank the failure it decorates.
     except Exception:

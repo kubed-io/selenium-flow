@@ -602,6 +602,35 @@ def validate(document, schemas: dict) -> dict:
     return document
 
 
+def concerns(document) -> list[str]:
+    """What is probably wrong with a valid flow, said once at save time.
+
+    A **warning**, not a refusal, and the difference is deliberate: a flow whose
+    first step acts on whatever page the browser happens to be on is legitimate
+    when the caller arranged that page, and a mistake the rest of the time.
+    Refusing it would break the legitimate case; saying nothing is how eight
+    green steps get reported on the page before the one the flow meant to reach
+    (§F2.6).
+    """
+    if not isinstance(document, dict):
+        return []
+    steps = document.get("steps") or []
+    first = steps[0] if steps and isinstance(steps[0], dict) else None
+    if first is None:
+        return []
+    tool = str(first.get("tool") or "")
+    args = first.get(ARGS)
+    args = args if isinstance(args, dict) else {}
+    if tool in ("navigate", ASSERTION) or args.get("url"):
+        return []
+    return [
+        f"this flow starts with {tool or 'a step'} on whatever page the browser "
+        "is already on. If it is meant for a particular page, say so: make the "
+        "first step navigate, give it a url, or put an assert in front of it "
+        "that says where the run must already be."
+    ]
+
+
 def step_schemas(tools: dict) -> dict:
     """The tool schemas a step's ``params`` are checked against.
 

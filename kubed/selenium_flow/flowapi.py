@@ -193,7 +193,13 @@ def save_one(store, session: str, name: str, document: dict, schemas: dict) -> d
     stored = store.save(session, name, document)
     steps = len(stored.get("steps") or [])
     log.info("flow %s/%s saved (%s steps)", session, name, steps)
-    return {"saved": True, "session": session, **stored}
+    saved = {"saved": True, "session": session, **stored}
+    # Said on the way out rather than refused on the way in: the flow is valid
+    # and has been kept. See `flowdoc.concerns`.
+    concerns = flowdoc.concerns(document)
+    if concerns:
+        saved["warnings"] = concerns
+    return saved
 
 
 def delete_one(store, session: str, name: str) -> dict:
@@ -352,7 +358,9 @@ def register(
             "X-Session-Key — because without a name you land in the shared "
             "'global' library, which every session runs and none may change. "
             "Over stdio you already have a library of your own and need no "
-            "name for it."
+            "name for it.\n\nThe result may carry warnings: things that are "
+            "valid and probably not what you meant, such as a flow whose first "
+            "step acts on whatever page the browser happens to be on."
         ),
         annotations=hints("Save a flow", idempotent=True),
     )
