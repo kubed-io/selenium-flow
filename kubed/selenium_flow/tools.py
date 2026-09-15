@@ -695,8 +695,12 @@ def register(
         tool that names an element already waits for it.
 
         What is left is this: scrolling the page (window.scrollTo(0, 2000)),
-        drag and drop, computed styles, reading many things at once, direct DOM
-        access. Use `return` to send a value back.
+        computed styles, reading many things at once, direct DOM access,
+        setting a value on an input `write` cannot reach. Use `return` to send
+        a value back.
+
+        Not drag and drop - `drag` does that with real pointer input, which a
+        script cannot produce.
         """
         return run(session_id, lambda s: actions.execute_script(s, script, url=url))
 

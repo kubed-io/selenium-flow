@@ -171,6 +171,18 @@ const shown = (node) => {
     style.opacity !== '0' && node.hidden !== true;
 };
 
+// `shown` asks about one element's own styles, which is right where the caller
+// is walking the tree itself and wrong for a trigger: a control inside a
+// display:none container looks perfectly visible on its own, and offering it as
+// `revealed_by` advises clicking something that cannot be reached (Copilot,
+// #31). A trigger has to be reachable, so its ancestors are asked too.
+const reachable = (el) => {
+  for (let node = el; node && node.nodeType === 1; node = node.parentElement) {
+    if (!shown(node)) return false;
+  }
+  return true;
+};
+
 // Whether `el` says, through aria-controls, that it opens `node`.
 //   true  - it names this one, or something containing it
 //   false - it names something else, so it opens somebody ELSE's menu
@@ -199,7 +211,9 @@ const statedOpener = (node) => {
   // 1. A control that SAYS it opens this one. The strongest statement a page
   //    can make, and it does not depend on where the control sits in the tree.
   for (const el of document.querySelectorAll('[aria-controls]')) {
-    if (!node.contains(el) && shown(el) && controlsThis(el, node) === true) return el;
+    if (!node.contains(el) && reachable(el) && controlsThis(el, node) === true) {
+      return el;
+    }
   }
   // 2. Otherwise the nearest ancestor that declares the state itself, or holds
   //    a control that does: <li class="dropdown"> wrapping the <a aria-expanded>
@@ -212,12 +226,12 @@ const statedOpener = (node) => {
   for (let up = node.parentElement; up && up.nodeType === 1; up = up.parentElement) {
     const tag = up.tagName.toLowerCase();
     if (tag === 'body' || tag === 'html') break;
-    if (up.hasAttribute('aria-expanded') && shown(up) &&
+    if (up.hasAttribute('aria-expanded') && reachable(up) &&
         controlsThis(up, node) !== false) {
       return up;
     }
     for (const el of up.querySelectorAll('[aria-expanded]')) {
-      if (!node.contains(el) && el !== node && shown(el) &&
+      if (!node.contains(el) && el !== node && reachable(el) &&
           controlsThis(el, node) !== false) {
         return el;
       }

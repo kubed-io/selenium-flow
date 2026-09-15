@@ -64,28 +64,28 @@ class SeleniumMCP:
         secrets_dirs: str | None = None,
     ):
         self.grid = Grid(grid_url)
-        # Where the pointer is in each browser, shared between replicas
-        # wherever the session store is (§F2.3). Read from the same environment
-        # as `store` below, so one deployment cannot end up sharing sessions and
-        # not pointers - which would leave one replica plotting a glide from
-        # another's stale origin.
-        #
-        # Injectable for the same reason `store` is, and it has to be: a caller
-        # that hands in a shared session store while the environment says memory
-        # would otherwise get exactly the mismatch the paragraph above is about
-        # (Copilot, #31). The two are one decision, so they are passed together
-        # or neither is.
+        # Redis or memory per SESSION_STORE. The store is only ever a
+        # key -> session record map; the browser is on the Grid either way.
+        # Resolved before the actions, because the pointer store is derived
+        # from it.
+        self.store = store if store is not None else from_env()
+        # Where the pointer is in each browser, on the same backend as the
+        # session record (§F2.3) - built FROM that store rather than from a
+        # second reading of the environment, which is the only way the two are
+        # guaranteed to agree. An injected Redis store with a memory
+        # environment would otherwise share session mappings and keep pointers
+        # process-local, so a glide on another replica silently started as a
+        # jump (Copilot, #31). Still injectable, for a caller that wants a
+        # third thing.
         self.actions = Actions(
             self.grid,
-            pointers=pointers if pointers is not None else pointer.from_env(),
+            pointers=pointers if pointers is not None else pointer.matching(self.store),
         )
         self.auth_token = auth_token
         self.stateless = stateless
-        # Redis or memory per SESSION_STORE. The store is only ever a
-        # key -> session record map; the browser is on the Grid either way.
         self.sessions = SessionManager(
             self.actions,
-            store=store if store is not None else from_env(),
+            store=self.store,
             enabled=saved_sessions,
         )
 
@@ -157,8 +157,8 @@ class SeleniumMCP:
         # And how it reads one back, for `upload_file(kept=...)`. Wired here for
         # the same reason: which flow session owns a kept file is a question
         # about the caller, which the behaviour layer deliberately cannot see.
-        self.actions.read_kept = lambda name: files.read_kept(
-            self.sessions, self.flows, name
+        self.actions.read_kept = lambda name, session=None: files.read_kept(
+            self.sessions, self.flows, name, session
         )
         self.apps = (
             apps.register(self.mcp, self.actions, auth_token) if apps_enabled else set()

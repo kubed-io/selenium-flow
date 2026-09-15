@@ -1017,9 +1017,12 @@ FILE_SCHEMAS = {
             "keep_with": {
                 "type": "string",
                 "description": (
-                    "Present only when `kept` is false: the call that makes a "
-                    "copy outliving the browser. Until it is made, this file's "
-                    "url stops working when the browser ends."
+                    "Present only when `kept` is false: the MCP call that "
+                    "makes a copy outliving the browser. Until it is made, "
+                    "this file's url stops working when the browser ends. The "
+                    "HTTP equivalent is POST /files/keep with the same name; a "
+                    "stateless MCP caller adds its session_id, as it does to "
+                    "every call."
                 ),
             },
             "url": {

@@ -1056,13 +1056,69 @@ def test_upload_sends_the_bytes_of_a_kept_file(actions, tmp_path, monkeypatch):
     monkeypatch.setattr(
         "kubed.selenium_flow.browser.wait_for_element", lambda *a, **k: _Element()
     )
-    actions.read_kept = lambda name: b"id,name\n1,a\n"
+    asked = {}
+
+    def reader(name, session=None):
+        asked["name"], asked["session"] = name, session
+        return b"id,name\n1,a\n"
+
+    actions.read_kept = reader
 
     result = actions.upload_file("abc", css="input[type=file]", kept="export.csv")
 
     assert sent["bytes"] == b"id,name\n1,a\n"
     assert sent["name"] == "export.csv", "the kept name is the default filename"
     assert result["filename"] == "export.csv"
+    assert asked == {"name": "export.csv", "session": None}, (
+        "an MCP caller names no library - its own key answers"
+    )
+
+
+def test_an_http_caller_can_name_the_library_its_file_was_kept_in(
+    actions, monkeypatch
+):
+    """`/files/keep` takes `session` in its body, and `/browser/upload` had no
+    way to say the same thing — so a caller that kept a file into `desktop`
+    landed in `global` when it tried to upload it back (Copilot, #31). The HTTP
+    surface is always explicit; this is that contract, on this action."""
+    asked = {}
+
+    class _Element:
+        def send_keys(self, _path):
+            pass
+
+    class _Driver:
+        current_url = "https://example.test/upload"
+        title = "Upload"
+
+        def execute_script(self, *_a, **_k):
+            return None
+
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
+    monkeypatch.setattr(browser, "accept_local_files", lambda _d: None)
+    monkeypatch.setattr(
+        "kubed.selenium_flow.browser.wait_for_element", lambda *a, **k: _Element()
+    )
+
+    def reader(name, session=None):
+        asked["session"] = session
+        return b"x"
+
+    actions.read_kept = reader
+    actions.upload_file("abc", css="input", kept="export.csv", session="desktop")
+    assert asked["session"] == "desktop"
+
+
+def test_the_upload_endpoint_accepts_the_library_name():
+    """Through the route table, not the action: `routes.py` derives the body it
+    accepts from the signature, so a parameter the action grew is only reachable
+    if it is really there."""
+    import inspect
+
+    from kubed.selenium_flow.actions import Actions
+
+    accepted = set(inspect.signature(Actions.upload_file).parameters)
+    assert {"kept", "session"} <= accepted
 
 
 def test_a_kept_upload_is_refused_when_there_is_nowhere_to_keep(actions):

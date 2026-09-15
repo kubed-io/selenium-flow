@@ -214,9 +214,27 @@ class RedisStore:
     def __init__(
         self, client, prefix: str = DEFAULT_PREFIX, ttl: int = DEFAULT_TTL_SECONDS
     ):
+        # Readable, so anything that must share this backend can be built FROM
+        # this object rather than from a second reading of the environment.
+        # `pointer.matching` is the one that needs it: deriving it from the env
+        # a second time meant an injected store and the pointers could disagree
+        # about whether they were shared at all (Copilot, #31).
         self._redis = client
         self._prefix = prefix
         self._ttl = ttl
+
+    @property
+    def client(self):
+        """The connected Redis client this store writes through."""
+        return self._redis
+
+    @property
+    def prefix(self) -> str:
+        return self._prefix
+
+    @property
+    def ttl(self) -> int:
+        return self._ttl
 
     def _k(self, key: str) -> str:
         return f"{self._prefix}{key}"

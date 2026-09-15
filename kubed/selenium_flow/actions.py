@@ -112,18 +112,32 @@ def _shape(value) -> str:
     return f"a {type(value).__name__}"
 
 
-def _seconds(value, default: float) -> float:
+def _seconds(value, default: float, name: str = "value") -> float:
     """A duration in seconds, from JSON that may have sent it as a string.
 
-    `as_int` cannot serve here: half a second is a sensible stability window
-    and `int("0.5")` raises. Same forgiveness, wider type.
+    `as_int` cannot serve here: half a second is a sensible stability window and
+    `int("0.5")` raises. Wider type, and deliberately **less** forgiving.
+
+    "Coerce, don't trust" is the rule everywhere else because a fallback there
+    is harmless - a `wait_timeout` that cannot be read becomes the default wait,
+    and the call still waits. This one is different in kind: the fallback is
+    zero, and zero means *the stability check does not happen*. A typo would
+    quietly take away the guard the argument exists to add, and the assertion
+    would then pass on the transient it was written to reject (Copilot, #31).
     """
     if value is None or value == "":
         return default
     try:
-        return float(value)
+        seconds = float(value)
     except (TypeError, ValueError):
-        return default
+        raise ValueError(
+            f"{name} must be a number of seconds; got {value!r}"
+        ) from None
+    if seconds != seconds or seconds in (float("inf"), float("-inf")):
+        raise ValueError(f"{name} must be a finite number of seconds")
+    if seconds < 0:
+        raise ValueError(f"{name} cannot be negative; got {seconds}")
+    return seconds
 
 
 def resolve_key(key) -> str:
@@ -777,6 +791,7 @@ class Actions:
         wait_timeout=WAIT_TIMEOUT,
         css=None,
         kept=None,
+        session=None,
     ) -> dict:
         """Attach a file to a file input.
 
@@ -787,7 +802,8 @@ class Actions:
           Base64-encoding text it just wrote is a wasted step it can get wrong.
         - ``content`` — base64, which binary needs and which is the only shape
           MCP tool arguments can carry.
-        - ``kept`` — the name of a file `keep_file` already kept. This closes
+        - ``kept`` — the name of a file `keep_file` already kept, from the
+          library ``session`` names. This closes
           the loop the file store never had: a browser could download a file
           and keep it, and there was no way to give it back to a page. Now a
           flow can download an export and upload it somewhere else, without the
@@ -841,7 +857,12 @@ class Actions:
                     "store is off, so there is nowhere for keep_file to keep "
                     "one. Pass text, content or path instead"
                 )
-            raw = self.read_kept(str(kept))
+            # `session` names WHICH library, and is not `session_id`, which
+            # names the browser. Both appear on `/files/list` for the same
+            # reason: a file store outlives the browser that filled it, so the
+            # two are different questions. An MCP caller passes neither - its
+            # key answers the first and the server the second.
+            raw = self.read_kept(str(kept), str(session) if session else None)
             # The kept name is the default, because its extension is what the
             # page reads the type from and a caller that kept `export.csv`
             # should not have to say so twice.
@@ -1053,7 +1074,7 @@ class Actions:
         # it means an impossible request moves the caller's browser and then
         # answers 400. A rejected argument must cost nothing (Copilot, #31).
         timeout = max(as_int(wait_timeout, WAIT_TIMEOUT), 0)
-        hold = max(_seconds(stable_for, 0.0), 0.0)
+        hold = _seconds(stable_for, 0.0, "stable_for")
         if hold > timeout:
             # Refused rather than silently impossible, and the message names the
             # unit: `stable_for` and `wait_timeout` are both seconds, and a
@@ -1068,6 +1089,7 @@ class Actions:
         deadline = time.monotonic() + timeout
         true_since = None
         ever_true = False
+        first = True
         while True:
             answer = driver.execute_script(script)
             if not isinstance(answer, bool):
@@ -1077,6 +1099,15 @@ class Actions:
                     "thing itself - return !!document.querySelector('#x')"
                 )
             now = time.monotonic()
+            # The script itself can run past the deadline - a blocking
+            # expression, a page that stops responding - and an answer that
+            # arrived after the caller stopped waiting is not an answer to
+            # `wait_timeout` (Copilot, #31). The FIRST evaluation is exempt,
+            # because `wait_timeout=0` promises exactly one look and any script
+            # takes longer than nothing.
+            if answer and not first and now > deadline:
+                answer = False
+            first = False
             if answer:
                 ever_true = True
                 if true_since is None:

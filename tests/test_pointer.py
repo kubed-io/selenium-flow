@@ -654,6 +654,34 @@ def test_a_destination_outside_the_window_stops_at_the_edge_rather_than_failing(
     assert result["to"]["x"] == edge
 
 
+def test_the_pointer_store_is_built_from_the_session_store():
+    """Not from a second reading of the environment. An injected Redis store
+    with a memory environment would otherwise share session mappings and keep
+    pointers process-local, so a glide on another replica silently starts as a
+    jump (Copilot, #31)."""
+    from kubed.selenium_flow.store import MemoryStore, RedisStore
+
+    assert pointer.matching(MemoryStore()).kind == "memory"
+
+    client = _Redis()
+    paired = pointer.matching(RedisStore(client, prefix="sf:", ttl=99))
+    assert paired.kind == "redis"
+    paired.set("abc", 1, 2)
+    # Same client, and a prefix derived from the store's own.
+    assert list(client.data) == ["sf:pointer:abc"]
+
+
+def test_a_server_given_a_shared_store_shares_its_pointers_too():
+    """Through the constructor, which is where the mismatch actually lived."""
+    from kubed.selenium_flow.server import SeleniumMCP
+    from kubed.selenium_flow.store import RedisStore
+
+    server = SeleniumMCP(
+        grid_url="http://grid.invalid:4444", store=RedisStore(_Redis(), prefix="sf:")
+    )
+    assert server.actions.pointers.kind == "redis"
+
+
 def test_an_injected_session_store_can_bring_a_matching_pointer_store():
     """The two are one decision. A caller that hands in a shared session store
     while the environment says memory would otherwise share session mappings

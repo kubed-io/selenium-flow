@@ -148,20 +148,63 @@ def from_env(env: dict | None = None):
     return RedisPointers(client, prefix=prefix, ttl=ttl)
 
 
+# The **in-view centre point**, which is WebDriver's own definition of where an
+# element-origin move lands: the centre of the element's rectangle intersected
+# with the viewport, not the centre of the rectangle. They are the same thing
+# for an ordinary element and very different for one taller than the window -
+# whose raw centre can be hundreds of pixels below the fold while the pointer is
+# sitting comfortably inside it. Reporting the raw centre made a later glide
+# plot a path to a coordinate outside the window (Copilot, #31).
 CENTRE_JS = """
 const [el, bringIntoView] = [arguments[0], arguments[1]];
-const middle = (r) => [r.left + r.width / 2, r.top + r.height / 2];
-let at = middle(el.getBoundingClientRect());
-const outside = (p) => p[0] < 0 || p[1] < 0 ||
-  p[0] >= window.innerWidth || p[1] >= window.innerHeight;
+const inView = (r) => {
+  const w = window.innerWidth, h = window.innerHeight;
+  const left = Math.max(r.left, 0), right = Math.min(r.right, w);
+  const top = Math.max(r.top, 0), bottom = Math.min(r.bottom, h);
+  if (right <= left || bottom <= top) return null;
+  return [(left + right) / 2, (top + bottom) / 2];
+};
+let at = inView(el.getBoundingClientRect());
 let scrolled = false;
-if (bringIntoView && outside(at)) {
+if (bringIntoView && at === null) {
   el.scrollIntoView({block: 'center', inline: 'center'});
-  at = middle(el.getBoundingClientRect());
+  at = inView(el.getBoundingClientRect());
   scrolled = true;
 }
-return {at: at, scrolled: scrolled, outside: outside(at)};
+if (at === null) {
+  const r = el.getBoundingClientRect();
+  return {at: [r.left + r.width / 2, r.top + r.height / 2],
+          scrolled: scrolled, outside: true};
+}
+return {at: at, scrolled: scrolled, outside: false};
 """
+
+
+def matching(store):
+    """A pointer store on the same backend as the session ``store``.
+
+    Built from the store object rather than from the environment, which is the
+    only way the two can be guaranteed to agree: a caller that injects a shared
+    session store while the environment says memory would otherwise get shared
+    session mappings and process-local pointers, so a glide on another replica
+    silently starts as a jump (Copilot, #31).
+
+    Anything that is not the shared backend is process-local, which is exactly
+    what a `MemoryStore` is.
+
+    Branching on ``kind`` rather than on ``getattr(store, "client", None)``,
+    because that idiom swallows an AttributeError raised *inside* the property
+    and answers None — which is indistinguishable from "this store has no
+    client" and degrades silently to memory. It did exactly that here once,
+    through a one-word typo in the property. A store that says it is redis and
+    then cannot produce a client should raise.
+    """
+    ttl = getattr(store, "ttl", DEFAULT_TTL_SECONDS)
+    if getattr(store, "kind", "memory") != "redis":
+        return MemoryPointers(ttl=ttl)
+    return RedisPointers(
+        store.client, prefix=store.prefix + "pointer:", ttl=ttl
+    )
 
 
 def centre(driver, element, bring_into_view: bool = False) -> tuple[float, float]:
@@ -175,10 +218,12 @@ def centre(driver, element, bring_into_view: bool = False) -> tuple[float, float
 
 
 def aim(driver, element, bring_into_view: bool = False) -> dict:
-    """``element``'s centre, and whether it is somewhere a pointer may go.
+    """Where a pointer move onto ``element`` lands, and whether one can.
 
-    ``bring_into_view`` scrolls it to the middle of the window first if it is
-    not already in there. That is only needed for a **glide**, and it is needed
+    The **in-view centre**, not the rectangle's: see `CENTRE_JS`.
+
+    ``bring_into_view`` scrolls it to the middle of the window first if none of
+    it is in there. That is only needed for a **glide**, and it is needed
     badly: a pointer move to a coordinate outside the viewport is an error, not
     a scroll, so a path plotted to an element below the fold is a sequence
     WebDriver rejects — taking the whole gesture's move with it, since the

@@ -274,9 +274,13 @@ extract(xpath="//div[@class='results'][.//li]", wait_timeout=60)
 
 ## Anything else
 
-`execute_script` covers what the other tools do not: drag and drop, dispatching
-events, setting values on inputs a normal `write` cannot reach, reading computed
-styles, clearing storage.
+`execute_script` covers what the other tools do not: dispatching events, setting
+values on inputs a normal `write` cannot reach, reading computed styles, clearing
+storage.
+
+**Not drag and drop** — `drag` does that, with real pointer input a page cannot
+tell from a hand. Reach for a script only when that has been tried and the page
+wants something specific of its own.
 
 ```
 execute_script(script="localStorage.clear(); return true")

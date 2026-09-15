@@ -55,6 +55,7 @@ images, a link pasted to a colleague, an ``<img>`` on the admin page.
 
 from __future__ import annotations
 
+import json
 import logging
 import mimetypes
 
@@ -128,7 +129,11 @@ def _described(name: str, entry: dict, url: str, kept: bool, base: str) -> dict:
         # pilot still handed somebody a link that would stop working - because
         # what it read was the result, not the docstring. So the result says it
         # too, in the only form that is also an instruction (§F2.10).
-        described["keep_with"] = f'keep_file("{name}")'
+        #
+        # json.dumps for the argument, not an f-string: `FILE_NAME` permits a
+        # double quote, and a browser will happily save `Q4 "final".csv` - which
+        # rendered as a call nobody could paste (Copilot, #31).
+        described["keep_with"] = f"keep_file({json.dumps(name)})"
     if base:
         # An app renders on a sandbox origin of the host's choosing, so a path
         # would resolve against the wrong server. Absolute only when the server
@@ -261,18 +266,25 @@ def keep_one(actions, store, session: str, session_id: str, name: str) -> dict:
     return {"kept": True, "session": session, **entry}
 
 
-def read_kept(sessions, store, name: str) -> bytes:
+def read_kept(sessions, store, name: str, session: str | None = None) -> bytes:
     """The bytes of one kept file, for a caller that wants to send it somewhere.
 
     The other half of `keep_one`, and the reason it exists: a browser could
     download a file and keep it, and there was no way to hand it back to a page
     (§F1.41). `upload_file(kept=...)` is that way, and it reads through here so
     that "which session's files are these" has exactly one answer.
+
+    ``session`` names the library explicitly, which is how the HTTP surface says
+    it — the same contract `/files/list` and `/files/keep` already have, and the
+    reason they have it: that surface is always explicit. Without it a caller
+    that kept a file with `{"session": "desktop"}` had no way to name the same
+    library when uploading it back, and landed in `global` instead (Copilot,
+    #31). Over MCP it is omitted and the caller's own key answers.
     """
     if store is None:
         raise ValueError(OFF)
     wanted = flows.valid_file_name(name)
-    session = owner(sessions, store)
+    session = owner(sessions, store, session)
     try:
         return store.read_file(session, wanted)
     except FileNotFoundError as exc:

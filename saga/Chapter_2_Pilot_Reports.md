@@ -56,12 +56,16 @@ E17 and E5: §F2.10's three faults, E16's two leftovers, and **E13 whole** — t
 spike (§F2.11), the remembered pointer, `glide`, the nudge, and `drag`. The plan
 below is ticked against it.
 
-**What is left.** Two epics and a release.
+**What is left.** Two epics, a design, and a release.
 
 1. **E17 — the admin UI's carried items.** Wants a Penpot pass before any code.
 2. **E5 — `ROUTE_PREFIX` as the global mount.** Independent, and it reaches into
    the cluster repo.
-3. **A release.** The last tag is still `v0.1.0` and everything since is only in
+3. **E18 — one kind of session** (§F2.12). Dr K's: stop splitting sessions by
+   transport and split them by whether the name was chosen or generated, so an
+   HTTP caller and an MCP caller can be the same session. Design recorded, not
+   started, and big enough to want its own chapter.
+4. **A release.** The last tag is still `v0.1.0` and everything since is only in
    `:latest`. A minor version would make all of this pinnable.
 
 Three smaller things are deliberately still open, each recorded on its own line
@@ -686,6 +690,75 @@ preferences, and Firefox's equivalent too.
   login flow from a known start. Auth state already resets; only the URL carries.
 - **`upload_file` takes a kept file by name** — carried from §F1.41.
 
+### §F2.12 — Decision (recommended, Dr K's): one kind of session, and a name that is either chosen or generated
+
+Raised while reviewing #31, on the back of a finding about kept files: an HTTP
+caller had no way to name the library it had just kept a file into. The small
+fix is an explicit `session` argument, matching what `/files/*` already takes,
+and that is what #31 shipped. **Dr K's point is that the small fix keeps paying
+rent on a distinction that has stopped making sense.**
+
+**What the split is today.** Two session models, described in `AGENTS.md` as
+"MCP callers get a saved session, HTTP callers are always explicit":
+
+| | MCP | HTTP |
+|---|---|---|
+| Identity | a caller key — a chosen name, else the transport id, else stdio | none; the browser id is the whole credential |
+| Browser | the server holds it and reopens it after a reap | the caller holds it; a reaped browser is simply gone |
+| Session record | yes, and it survives the browser | **none** — `routes.py` never touches `SessionManager` |
+| Visible in the admin UI | yes | no |
+| Flow library / kept files | resolved from the caller key | resolved from the caller key *or* an explicit `session` |
+
+That last row is where it shows. The **library** already works the same way on
+both surfaces; only the **browser** does not. So the split is not really
+MCP-versus-HTTP at all.
+
+**What the distinction actually is.** Not headless versus saved. It is whether
+the session's name was **chosen by the caller** or **generated because nobody
+chose one**. Everything else follows from that, and nothing follows from which
+transport asked.
+
+**The proposal.** One session model, on both surfaces:
+
+- Every session has a **name**. A caller that names itself gets that name; one
+  that does not gets a generated id, and the generated one is a name like any
+  other.
+- A session is **ephemeral** when nothing was saved under it — no flows, no kept
+  files. An ephemeral session whose browser has gone is genuinely disposable and
+  disappears from the admin UI rather than lingering as history.
+- **An HTTP caller may name an existing session.** That is the payoff Dr K is
+  after: a script driving `/browser/*` as a tool *for an agent* that is also on
+  `/mcp` shares one browser and one library, instead of running a second browser
+  beside it and wondering why the login did not carry.
+
+**What it buys beyond that.** An HTTP caller inherits the thing MCP callers
+already have and it does not: a browser the Grid reaped comes back, on the same
+page, with the same window. Today that caller holds an id for a browser that no
+longer exists and has no way to find out except by failing.
+
+**The sharp edges, before anyone starts.**
+
+1. **A name becomes a credential.** Today an MCP caller can already claim any
+   name with `?session=`, so the exposure is not new — but extending it to the
+   browser surface makes "whoever holds the bearer token can attach to any named
+   session" a load-bearing property rather than an incidental one. It should be
+   written down as a decision, not discovered.
+2. **It is the first deliberate deletion.** §F1 was explicit that a flow session
+   is only ever removed by expiring, because nothing should be lost to a
+   misclick. "Ephemeral sessions disappear" is a new path that removes a record
+   on purpose, and it needs a rule for what counts as *nothing saved* — and for
+   what happens when something is saved under it afterwards.
+3. **The HTTP contract must not break.** `session_id` in, `session_id` out is
+   what every existing n8n workflow depends on. A generated session *name* is a
+   new thing beside the browser id, not a replacement for it, unless somebody
+   deliberately decides otherwise.
+4. **Every HTTP browser starts appearing in the admin list.** That is the
+   intent, and it is still a visible behaviour change on the day it ships.
+
+**Not decided here.** This is Dr K's design, recorded so the next chapter starts
+from it rather than from the review thread it came out of. It wants its own
+epic, and probably its own chapter.
+
 ### §F2.11 — Measured: Firefox interpolates, and a pointer drag is a real HTML5 drag on Chrome
 
 §F2.4 said *verify in the pod before promising anything*, and Part I left
@@ -983,9 +1056,13 @@ anywhere.
       after a click the pointer is on the clicked element; a covered click is
       still refused. All of it in `tests/test_pointer.py`, marked `integration`
       and run against the live Grid
-- [x] Flown: a range slider driven from 0 past 50 by `drag(by_x=100)`, and a
-      `draggable=true` drop target that receives the whole native sequence —
-      both on Chrome and on Firefox
+- [x] Flown: a range slider driven from 0 past 50 by `drag(by_x=100)`, on Chrome
+      **and** on Firefox — pointer-event drag works on both
+- [x] Flown: a `draggable=true` drop target receiving the whole native sequence
+      — **Chrome only**, which is what §F2.11 measured. Firefox fires nothing
+      native from a pointer drag, and this line said the opposite for a while
+      (Copilot, #31): a box ticked for a browser the measurement two sections
+      above it had already ruled out
 - [ ] Flown: a sortable list on a *real site*. The pages driven so far are
       synthetic, which proves the events and not the libraries
 - [x] **Nudge before hovering.** A hover onto a target the pointer is already
@@ -1000,6 +1077,20 @@ anywhere.
 - [ ] Keyboard reaches the flow list and its rows
 - [ ] `If-Match` on flow saves against `flows.revision`, 409 on conflict, and the
       editor says what happened
+
+### E18 — One kind of session (§F2.12)
+
+Dr K's design, recorded rather than planned: the decision section is the work of
+this entry, and the boxes below are what it implies rather than a commitment.
+
+- [ ] Every session has a name; an unnamed caller gets a generated one
+- [ ] `routes.py` resolves a session the way `/mcp` does, so an HTTP caller can
+      name an existing one — and inherits the reopen-after-reap it has never had
+- [ ] Ephemeral means nothing was saved under it, and an ephemeral session with
+      no browser leaves the admin list
+- [ ] The HTTP contract survives: `session_id` in, `session_id` out
+- [ ] Written down: a session name is a credential, and the bearer token is what
+      guards it
 
 ### E5 — The approach plate (carried, unchanged)
 

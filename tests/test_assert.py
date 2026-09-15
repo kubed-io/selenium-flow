@@ -457,3 +457,71 @@ def test_a_failure_tells_never_true_apart_from_would_not_hold(actions, driving, 
         actions.assert_("abc", "return false", wait_timeout=1, stable_for=0.5)
     assert "did not hold" not in str(never.value)
     assert "assertion failed after" in str(never.value)
+
+
+def test_an_answer_that_arrives_after_the_deadline_is_not_an_answer(actions, monkeypatch):
+    """The script itself can run past `wait_timeout` — a blocking expression, a
+    page that stops responding. The sleep-wake case was already guarded; this is
+    the symmetric one, and without it a slow page passes an assertion it had
+    already failed (Copilot, #31)."""
+
+    class _Slow:
+        current_url = "https://example.test/dashboard"
+        title = "Dashboard"
+
+        def __init__(self, clock):
+            self.clock = clock
+            self.calls = 0
+
+        def execute_script(self, *_):
+            self.calls += 1
+            # First look is quick and false; the second takes 60s and is true.
+            if self.calls > 1:
+                self.clock.now += 60
+            return self.calls > 1
+
+    fake = _Clock()
+    monkeypatch.setattr(actions_module.time, "monotonic", fake.monotonic)
+    monkeypatch.setattr(actions_module.time, "sleep", fake.sleep)
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Slow(fake))
+
+    with pytest.raises(actions_module.AssertionFailed):
+        actions.assert_("abc", "return slow()", wait_timeout=5)
+
+
+def test_the_single_look_a_zero_wait_promises_is_still_honoured(actions, monkeypatch):
+    """`wait_timeout=0` asks exactly once, and any script takes longer than
+    nothing — so the first evaluation cannot be subject to the deadline."""
+
+    class _Slow:
+        current_url = "https://example.test/"
+        title = "t"
+
+        def __init__(self, clock):
+            self.clock = clock
+            self.calls = 0
+
+        def execute_script(self, *_):
+            self.calls += 1
+            self.clock.now += 3
+            return True
+
+    fake = _Clock()
+    monkeypatch.setattr(actions_module.time, "monotonic", fake.monotonic)
+    monkeypatch.setattr(actions_module.time, "sleep", fake.sleep)
+    driver = _Slow(fake)
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: driver)
+
+    assert actions.assert_("abc", "return true", wait_timeout=0)["asserted"] is True
+    assert driver.calls == 1
+
+
+@pytest.mark.parametrize("bad", ["abc", -1, float("inf"), float("nan")])
+def test_a_stability_window_that_cannot_be_read_is_refused(actions, driving, bad):
+    """Everywhere else a value that cannot be read falls back to the default,
+    and that is right because the default still does the work. Here the default
+    is zero, and zero means the check does not happen — a typo would silently
+    take away the guard this argument exists to add (Copilot, #31)."""
+    driving(True)
+    with pytest.raises(ValueError, match="stable_for"):
+        actions.assert_("abc", "return true", wait_timeout=5, stable_for=bad)
