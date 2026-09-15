@@ -545,6 +545,12 @@ class Actions:
                 "the pointer's position in this browser was not known, so this "
                 "was a jump; a glide from here on has a start to plot from"
             )
+        elif moved.get("unglideable"):
+            report["glide_note"] = (
+                "the element is not somewhere a path can be plotted to - it "
+                "does not fit in the window even scrolled to the middle - so "
+                "this was a jump"
+            )
         elif as_bool(glide, False) and not moved["glided"]:
             report["glide_note"] = "this was a jump"
         return report
@@ -609,10 +615,14 @@ class Actions:
         # button down, which is the part a drag library is watching.
         moved = self._move_onto(session_id, driver, element, False)
         if moved is None:
-            raise RuntimeError(
+            # A ValueError, so this is a 400. It describes a geometry the
+            # caller can fix - resize the window, scroll, name a smaller
+            # handle - and a 500 would tell an n8n node with Retry-On-Fail to
+            # send the identical drag again (Copilot, #31).
+            raise ValueError(
                 "the pointer could not be put on the element to drag it. It may "
                 "be larger than the window, or outside it in a way scrolling "
-                "does not fix"
+                "does not fix. Try resize, or drag a smaller handle inside it"
             )
         start = moved["at"]
 
@@ -1038,7 +1048,10 @@ class Actions:
         out. With ``stable_for`` the answer has to still be true that many
         seconds later, or the clock starts again (§F2.10).
         """
-        driver = self._at(session_id, url)
+        # Resolved before the browser is touched, like every other argument
+        # mistake here: `_at` reconnects and may NAVIGATE, so validating after
+        # it means an impossible request moves the caller's browser and then
+        # answers 400. A rejected argument must cost nothing (Copilot, #31).
         timeout = max(as_int(wait_timeout, WAIT_TIMEOUT), 0)
         hold = max(_seconds(stable_for, 0.0), 0.0)
         if hold > timeout:
@@ -1051,6 +1064,7 @@ class Actions:
                 "so the answer could never hold long enough. Both are in "
                 "seconds; raise wait_timeout, or lower stable_for"
             )
+        driver = self._at(session_id, url)
         deadline = time.monotonic() + timeout
         true_since = None
         ever_true = False

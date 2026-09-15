@@ -14,6 +14,8 @@ orchestration, which a double can prove and which is where the mistakes were.
 """
 
 import os
+import shutil
+import subprocess
 from urllib.parse import quote
 
 import pytest
@@ -23,6 +25,26 @@ from kubed.selenium_flow import pointer
 from kubed.selenium_flow.pointer import MemoryPointers, RedisPointers
 
 pytestmark = pytest.mark.unit
+
+
+# ---- the JavaScript it sends --------------------------------------------
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node to parse JS")
+@pytest.mark.parametrize(
+    "script", [pointer.NUDGE_JS, pointer.CENTRE_JS], ids=["nudge", "centre"]
+)
+def test_the_scripts_parse(tmp_path, script):
+    """Same guard `test_probe_js.py` has, for the same reason: a script that
+    does not parse fails in the browser as a WebDriverException whose message is
+    not about the mistake. Wrapped in a function because that is how WebDriver
+    runs it — the bare text has a top-level `return`."""
+    path = tmp_path / "pointer.js"
+    path.write_text("(function () {\n" + script + "\n});", encoding="utf-8")
+    result = subprocess.run(
+        ["node", "--check", str(path)], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
 
 
 # ---- the path -----------------------------------------------------------
@@ -354,6 +376,31 @@ def test_a_drag_to_where_it_already_is_is_refused(actions):
         actions.drag("abc", css="#card", by_x=0, by_y=0)
 
 
+def test_a_source_the_pointer_cannot_reach_is_the_callers_to_fix(actions, monkeypatch):
+    """400, not 500: it describes a geometry the caller can fix - resize,
+    scroll, grab a smaller handle - and a 500 tells a workflow with
+    Retry-On-Fail to send the identical drag again (Copilot, #31)."""
+    from kubed.selenium_flow.errors import status_for
+
+    class _Driver:
+        current_url = "https://example.test/"
+        title = "t"
+
+        def execute_script(self, *_a, **_k):
+            return None
+
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
+    monkeypatch.setattr(
+        "kubed.selenium_flow.browser.wait_for_clickable", lambda *a, **k: _Element()
+    )
+    monkeypatch.setattr(actions, "_move_onto", lambda *a, **k: None)
+
+    with pytest.raises(ValueError) as refused:
+        actions.drag("abc", css="#card", to_css="#done")
+    assert status_for(refused.value) == 400
+    assert "resize" in str(refused.value)
+
+
 # ---- against a real browser ----------------------------------------------
 #
 # Everything above fakes the WebDriver call. These are the tests that prove the
@@ -510,6 +557,60 @@ def test_a_covered_click_is_still_refused_loudly(live):
 
 @pytest.mark.integration
 @needs_grid
+def test_gliding_to_something_below_the_fold_still_glides(live):
+    """Every point on a path is a coordinate, and a coordinate outside the
+    window is an error rather than a scroll — so a path plotted to an element
+    below the fold was a sequence WebDriver rejected, taking the whole move
+    with it (Copilot, #31). The target is scrolled into view before the path is
+    plotted."""
+    actions, session = live
+    driver = actions.grid.reconnect(session)
+    driver.execute_script(
+        "const far = document.createElement('div');"
+        "far.id = 'far'; far.textContent = 'far';"
+        "far.style.cssText = 'position:absolute;left:100px;top:3000px;"
+        "width:80px;height:40px;background:#fca';"
+        "document.body.appendChild(far);"
+        "document.body.style.height = '4000px';"
+    )
+    actions.interact(session, "hover", css="#a")
+    driver.execute_script("window.moves = [];")
+
+    result = actions.interact(session, "hover", css="#far", glide=True)
+
+    assert result["glided"] is True, result.get("glide_note")
+    assert driver.execute_script("return window.moves.length") >= pointer.MIN_STEPS
+    # And it ended on the element, not at some clamped edge.
+    at = actions.pointers.get(session)
+    under = driver.execute_script(
+        "return document.elementFromPoint(arguments[0], arguments[1]).id;", *at
+    )
+    assert under == "far"
+
+
+@pytest.mark.integration
+@needs_grid
+def test_a_click_that_cannot_glide_still_clicks(live):
+    """The degrade has to be the glide, never the gesture."""
+    actions, session = live
+    driver = actions.grid.reconnect(session)
+    driver.execute_script(
+        "const tall = document.createElement('div');"
+        "tall.id = 'tall';"
+        "tall.style.cssText = 'position:absolute;left:0;top:0;width:100%;"
+        "height:5000px;background:rgba(0,0,0,0.02)';"
+        "tall.addEventListener('click', () => window.clicked++);"
+        "document.body.appendChild(tall);"
+    )
+    actions.interact(session, "hover", css="#a")
+    result = actions.interact(session, "click", css="#tall", glide=True)
+    assert driver.execute_script("return window.clicked") == 1
+    if not result["glided"]:
+        assert "jump" in result["glide_note"]
+
+
+@pytest.mark.integration
+@needs_grid
 @pytest.mark.parametrize("live", [DRAG_PAGE], indirect=True, ids=["drag-page"])
 def test_a_drag_presses_travels_and_releases(live):
     actions, session = live
@@ -551,3 +652,18 @@ def test_a_destination_outside_the_window_stops_at_the_edge_rather_than_failing(
     result = actions.drag(session, css="#src", by_x=5000)
     assert "clamped" in result
     assert result["to"]["x"] == edge
+
+
+def test_an_injected_session_store_can_bring_a_matching_pointer_store():
+    """The two are one decision. A caller that hands in a shared session store
+    while the environment says memory would otherwise share session mappings
+    across replicas and keep pointers local — and a cross-replica glide would
+    silently degrade to a jump (Copilot, #31)."""
+    from kubed.selenium_flow.server import SeleniumMCP
+    from kubed.selenium_flow.store import MemoryStore
+
+    mine = MemoryPointers()
+    server = SeleniumMCP(
+        grid_url="http://grid.invalid:4444", store=MemoryStore(), pointers=mine
+    )
+    assert server.actions.pointers is mine

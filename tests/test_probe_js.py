@@ -38,6 +38,16 @@ PAGE = (
     "<div id=acct><a id=acctbtn aria-expanded=false aria-controls=acctmenu>"
     "Account menu</a>"
     '<ul id=acctmenu><li><a href="/profile">Profile</a></li></ul></div>'
+    # Two dropdowns under one wrapper, where the SECOND menu has no id of its
+    # own. Its nearest ancestor holding an [aria-expanded] is the wrapper, which
+    # holds the FIRST toggle too - and that one says aria-controls="menu-a",
+    # so it opens somebody else's menu (Copilot, #31).
+    "<style>.twin-hidden{display:none}</style>"
+    "<nav id=twin>"
+    "<a id=tog-a aria-expanded=false aria-controls=menu-a>A</a>"
+    '<ul id=menu-a class=twin-hidden><li><a href="/a-item">A item</a></li></ul>'
+    '<span><ul class=twin-hidden><li><a href="/b-item">B item</a></li></ul></span>'
+    "</nav>"
     # A container whose text belongs to its children, not to itself - and
     # beside it a button whose single wrapper still makes the text its own.
     '<li id=navrow><a href="/a">Alpha</a><a href="/b">Beta</a></li>'
@@ -130,6 +140,25 @@ def test_a_hidden_entry_names_what_opens_it_and_which_gesture(browser_page):
     settings = by_name["Settings"]
     assert settings["open_with"] == "hover"
     assert settings["revealed_by"]
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not GRID_URL, reason="needs a Selenium Grid; set GRID_URL")
+def test_a_trigger_that_opens_a_different_menu_is_not_offered(browser_page):
+    """`aria-controls` is a statement about WHICH menu, and it disqualifies as
+    well as qualifies: a wrapper holding two dropdowns would otherwise hand out
+    whichever toggle came first in the document (Copilot, #31)."""
+    actions, session = browser_page
+    by_name = {e["name"]: e for e in actions.outline(session)["elements"]}
+
+    # The one it does name: click that.
+    assert by_name["A item"]["revealed_by"] == "#tog-a"
+    assert by_name["A item"]["open_with"] == "click"
+
+    # The one it does not: anything but that, and never "click #tog-a".
+    other = by_name["B item"]
+    assert other["reason"] == "hidden"
+    assert other.get("revealed_by") != "#tog-a"
 
 
 @pytest.mark.integration

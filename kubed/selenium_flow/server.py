@@ -57,6 +57,7 @@ class SeleniumMCP:
         stateless: bool = False,
         saved_sessions: bool = True,
         store: SessionStore | None = None,
+        pointers=None,
         skill_enabled: bool = True,
         apps_enabled: bool = True,
         flow_data_dir: str | None = None,
@@ -64,11 +65,20 @@ class SeleniumMCP:
     ):
         self.grid = Grid(grid_url)
         # Where the pointer is in each browser, shared between replicas
-        # wherever the session store is (§F2.3). Built from the same
-        # environment, so one deployment cannot end up sharing sessions and not
-        # pointers - which would leave one replica plotting a glide from
+        # wherever the session store is (§F2.3). Read from the same environment
+        # as `store` below, so one deployment cannot end up sharing sessions and
+        # not pointers - which would leave one replica plotting a glide from
         # another's stale origin.
-        self.actions = Actions(self.grid, pointers=pointer.from_env())
+        #
+        # Injectable for the same reason `store` is, and it has to be: a caller
+        # that hands in a shared session store while the environment says memory
+        # would otherwise get exactly the mismatch the paragraph above is about
+        # (Copilot, #31). The two are one decision, so they are passed together
+        # or neither is.
+        self.actions = Actions(
+            self.grid,
+            pointers=pointers if pointers is not None else pointer.from_env(),
+        )
         self.auth_token = auth_token
         self.stateless = stateless
         # Redis or memory per SESSION_STORE. The store is only ever a

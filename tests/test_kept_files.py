@@ -1007,13 +1007,24 @@ def test_a_kept_file_can_be_read_back_by_name(store):
 
 
 def test_reading_a_name_nobody_kept_says_what_to_call_instead(store):
-    with pytest.raises(FileNotFoundError) as missing:
+    with pytest.raises(ValueError) as missing:
         files.read_kept(_Sessions(), store, "nope.csv")
     message = str(missing.value)
     assert "no kept file called 'nope.csv'" in message
     assert "session_files" in message and "keep_file" in message
     # The path on this server's disk answers a question nobody asked.
     assert "/" not in message.split("session_files")[0]
+
+
+def test_a_name_nobody_kept_is_the_callers_mistake_not_the_servers(store):
+    """400, beside `upload_file(path=...)` naming a file that is not there.
+    A 500 tells an n8n node with Retry-On-Fail to send the same wrong name
+    again, and an alert on the 5xx rate to count it as an outage (Copilot,
+    #31)."""
+    try:
+        files.read_kept(_Sessions(), store, "nope.csv")
+    except Exception as exc:  # noqa: BLE001 - the status is the assertion
+        assert errors.status_for(exc) == 400
 
 
 def test_reading_a_kept_file_refuses_a_name_that_is_not_one_segment(store):

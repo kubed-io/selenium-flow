@@ -148,19 +148,51 @@ def from_env(env: dict | None = None):
     return RedisPointers(client, prefix=prefix, ttl=ttl)
 
 
-def centre(driver, element) -> tuple[float, float]:
+CENTRE_JS = """
+const [el, bringIntoView] = [arguments[0], arguments[1]];
+const middle = (r) => [r.left + r.width / 2, r.top + r.height / 2];
+let at = middle(el.getBoundingClientRect());
+const outside = (p) => p[0] < 0 || p[1] < 0 ||
+  p[0] >= window.innerWidth || p[1] >= window.innerHeight;
+let scrolled = false;
+if (bringIntoView && outside(at)) {
+  el.scrollIntoView({block: 'center', inline: 'center'});
+  at = middle(el.getBoundingClientRect());
+  scrolled = true;
+}
+return {at: at, scrolled: scrolled, outside: outside(at)};
+"""
+
+
+def centre(driver, element, bring_into_view: bool = False) -> tuple[float, float]:
     """Where ``element`` is *now*, in viewport coordinates.
 
     Read at the moment of the move and never cached: scrolling moves every
     element under a pointer that stays put, so a destination worked out one call
     ago is a destination somewhere else (saga §F2.3).
     """
-    rect = driver.execute_script(
-        "const r = arguments[0].getBoundingClientRect();"
-        "return [r.left + r.width / 2, r.top + r.height / 2];",
-        element,
-    )
-    return float(rect[0]), float(rect[1])
+    return aim(driver, element, bring_into_view)["at"]
+
+
+def aim(driver, element, bring_into_view: bool = False) -> dict:
+    """``element``'s centre, and whether it is somewhere a pointer may go.
+
+    ``bring_into_view`` scrolls it to the middle of the window first if it is
+    not already in there. That is only needed for a **glide**, and it is needed
+    badly: a pointer move to a coordinate outside the viewport is an error, not
+    a scroll, so a path plotted to an element below the fold is a sequence
+    WebDriver rejects — taking the whole gesture's move with it, since the
+    intermediate points are sent before the element-origin move that would have
+    scrolled (Copilot, #31). A jump does not need it, because that move names
+    the element rather than a coordinate and scrolls on its own.
+    """
+    answer = driver.execute_script(CENTRE_JS, element, bool(bring_into_view))
+    at = answer.get("at") or [0, 0]
+    return {
+        "at": (float(at[0]), float(at[1])),
+        "scrolled": bool(answer.get("scrolled")),
+        "outside": bool(answer.get("outside")),
+    }
 
 
 def steps_between(start: tuple[float, float], end: tuple[float, float]) -> int:
@@ -255,16 +287,30 @@ def move(driver, element, start=None, glide=False) -> dict:
     """
     inside, away = _nudge_point(driver, element, start)
     builder = ActionBuilder(driver, duration=STEP_MS)
+    unglideable = False
     if inside and away is not None:
         builder.pointer_action.move_to_location(away[0], away[1])
         start = (float(away[0]), float(away[1]))
 
     glided = False
     if glide and start is not None:
-        end = centre(driver, element)
-        for x, y in path(start, end)[:-1]:
-            builder.pointer_action.move_to_location(x, y)
-        glided = True
+        # Scrolled into view first when it is not there: every point on the path
+        # is a coordinate, and a coordinate outside the window is refused.
+        aimed = aim(driver, element, bring_into_view=True)
+        if aimed["outside"]:
+            # Still not reachable by coordinate after scrolling — an element
+            # taller than the window, or one a scroll container cannot centre.
+            # A jump still works, because that move names the element.
+            unglideable = True
+        else:
+            # The start is clamped rather than trusted. It is where we left the
+            # pointer, but the window may have been resized since — and a path
+            # between two points inside the viewport stays inside it, so this is
+            # the only end that can put one out of bounds.
+            begin = clamped(start, viewport(driver))
+            for x, y in path(begin, aimed["at"])[:-1]:
+                builder.pointer_action.move_to_location(x, y)
+            glided = True
     builder.pointer_action.move_to(element)
     builder.perform()
 
@@ -276,6 +322,7 @@ def move(driver, element, start=None, glide=False) -> dict:
         "glided": glided,
         "nudged": inside and away is not None,
         "unknown_start": glide and start is None,
+        "unglideable": unglideable,
     }
 
 

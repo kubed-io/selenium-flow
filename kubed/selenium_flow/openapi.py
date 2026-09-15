@@ -518,6 +518,14 @@ def _request_content(action: str, request_name: str) -> dict:
                         "type": "string",
                         "description": "Picks an extension when filename has none.",
                     },
+                    "kept": {
+                        "type": "string",
+                        "description": (
+                            "The name of a file keep_file has kept, instead of "
+                            "sending any bytes at all. Exactly one source: a "
+                            "content part, text, kept, or path."
+                        ),
+                    },
                     "url": {"type": "string"},
                     "wait_timeout": {"type": "integer"},
                 },
@@ -676,6 +684,16 @@ FLOW_SCHEMAS = {
             "saved": {"type": "boolean"},
             "session": {"type": "string"},
             "name": {"type": "string"},
+            "warnings": {
+                "type": "array",
+                "description": (
+                    "Things that are valid and probably not what was meant — a "
+                    "flow whose first step acts on whatever page the browser "
+                    "happens to be on. Present only when there are any; the "
+                    "flow is saved either way."
+                ),
+                "items": {"type": "string"},
+            },
             "steps": {
                 "type": "array",
                 "items": {"$ref": "#/components/schemas/FlowStep"},
@@ -724,6 +742,16 @@ FLOW_SCHEMAS = {
                         "summary": {"type": "string"},
                         "note": {"type": "string"},
                         "error": {"type": "string"},
+                        "url": {
+                            "type": "string",
+                            "description": (
+                                "The page this step ended on, present only when "
+                                "it differs from the step before — so silence "
+                                "means the page did not change. Withheld when "
+                                "the URL could carry a value typed from a "
+                                "secret."
+                            ),
+                        },
                         "result": {
                             "type": "object",
                             "description": (

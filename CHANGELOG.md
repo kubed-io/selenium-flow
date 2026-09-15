@@ -79,6 +79,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **An unkept file says what would keep it** — `keep_with` on every entry whose link dies with the browser.
 
+- **A glide to something below the fold works.** It used to send coordinates outside the window, which WebDriver refuses, and the whole move was lost.
+
+- **A drag step with no element or no destination is refused when it is saved**, rather than at run time.
+
+- **`upload_file` naming a kept file that is not there answers 400**, like naming a `path` that is not there — not 500.
+
 ## [0.1.0] - 2026-09-12
 
 0.0.2 could drive a browser. This one lets an agent keep what it worked out.

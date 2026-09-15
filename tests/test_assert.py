@@ -426,6 +426,20 @@ def test_without_a_hold_nothing_about_the_old_behaviour_changes(actions, driving
     assert driver.calls == 1
 
 
+def test_an_impossible_hold_is_refused_before_the_browser_is_touched(actions, monkeypatch):
+    """`_at` reconnects and may NAVIGATE, so validating after it means a request
+    that can never succeed moves the caller's browser and then answers 400. A
+    rejected argument must cost nothing (Copilot, #31)."""
+    touched = []
+    monkeypatch.setattr(
+        actions, "_at", lambda *a, **k: touched.append(1) or _Driver(True)
+    )
+    with pytest.raises(ValueError, match="seconds"):
+        actions.assert_("abc", "return true", wait_timeout=5, stable_for=500,
+                        url="https://elsewhere.test/")
+    assert touched == [], "the browser must not have been reconnected or moved"
+
+
 def test_a_hold_longer_than_the_wait_is_refused_naming_the_unit(actions, driving):
     """The footgun this argument brings: `stable_for: 500` read as milliseconds
     is 500 seconds, and an assertion that can never pass. Refused before the

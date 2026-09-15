@@ -276,10 +276,17 @@ def read_kept(sessions, store, name: str) -> bytes:
     try:
         return store.read_file(session, wanted)
     except FileNotFoundError as exc:
-        # Named rather than passed through: `[Errno 2] ... /data/flows/x/files/y`
-        # answers a question about this server's disk, and the caller's question
-        # is which name to use.
-        raise FileNotFoundError(
+        # A ValueError, not the FileNotFoundError this came from, and both
+        # halves of that are deliberate. The message is named rather than
+        # passed through, because `[Errno 2] ... /data/flows/x/files/y` answers
+        # a question about this server's disk when the caller's question is
+        # which name to use. And the TYPE is the caller-error one, because
+        # `errors.status_for` does not classify FileNotFoundError and would
+        # call this a 500 - telling an n8n node with Retry-On-Fail to send the
+        # same wrong name again, and an alert on the 5xx rate to count it as an
+        # outage. `upload_file(path=...)` already answers 400 for exactly this
+        # (`no file at ...`), and the sibling source must not disagree.
+        raise ValueError(
             f"no kept file called {wanted!r}. session_files lists what is kept; "
             "keep_file(name) is what keeps one before the browser goes"
         ) from exc

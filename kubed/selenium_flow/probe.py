@@ -171,28 +171,56 @@ const shown = (node) => {
     style.opacity !== '0' && node.hidden !== true;
 };
 
+// Whether `el` says, through aria-controls, that it opens `node`.
+//   true  - it names this one, or something containing it
+//   false - it names something else, so it opens somebody ELSE's menu
+//   null  - it says nothing, which disqualifies nothing
+// Resolved to elements rather than compared as id strings, because a control
+// often points at a wrapper around the hidden part rather than at the hidden
+// part itself, and a string match would miss that.
+const controlsThis = (el, node) => {
+  const named = (el.getAttribute('aria-controls') || '').trim();
+  if (!named) return null;
+  for (const id of named.split(/\\s+/)) {
+    const target = document.getElementById(id);
+    if (target && (target === node || target.contains(node) || node.contains(target))) {
+      return true;
+    }
+  }
+  return false;
+};
+
 // What opens `node`, where the PAGE says so rather than where we guess. A
 // control carrying aria-expanded is one somebody clicks, and telling an agent
 // to hover a click-toggled menu is advice that does nothing - it happened on
 // selenium.dev, on a page this map had already reported `expanded: false` for
-// (saga §F2.10). aria-controls naming the hidden node by id is the strongest
-// statement a page can make, so it is asked first.
+// (saga §F2.10).
 const statedOpener = (node) => {
-  if (node.id) {
-    for (const el of document.querySelectorAll('[aria-controls]')) {
-      const controls = (el.getAttribute('aria-controls') || '').split(/\\s+/);
-      if (controls.includes(node.id) && !node.contains(el) && shown(el)) return el;
-    }
+  // 1. A control that SAYS it opens this one. The strongest statement a page
+  //    can make, and it does not depend on where the control sits in the tree.
+  for (const el of document.querySelectorAll('[aria-controls]')) {
+    if (!node.contains(el) && shown(el) && controlsThis(el, node) === true) return el;
   }
-  // Otherwise the nearest ancestor that declares the state itself, or holds a
-  // control that does: <li class="dropdown"> wrapping the <a aria-expanded>
-  // and the <ul> it opens is the ordinary shape of a nav menu.
+  // 2. Otherwise the nearest ancestor that declares the state itself, or holds
+  //    a control that does: <li class="dropdown"> wrapping the <a aria-expanded>
+  //    and the <ul> it opens is the ordinary shape of a nav menu.
+  //
+  //    Skipping any candidate whose own aria-controls names a DIFFERENT
+  //    element. Without that, a <nav> holding two dropdowns hands out whichever
+  //    toggle comes first in the document for either menu - advice to click the
+  //    control that opens the other one (Copilot, #31).
   for (let up = node.parentElement; up && up.nodeType === 1; up = up.parentElement) {
     const tag = up.tagName.toLowerCase();
     if (tag === 'body' || tag === 'html') break;
-    if (up.hasAttribute('aria-expanded') && shown(up)) return up;
+    if (up.hasAttribute('aria-expanded') && shown(up) &&
+        controlsThis(up, node) !== false) {
+      return up;
+    }
     for (const el of up.querySelectorAll('[aria-expanded]')) {
-      if (!node.contains(el) && el !== node && shown(el)) return el;
+      if (!node.contains(el) && el !== node && shown(el) &&
+          controlsThis(el, node) !== false) {
+        return el;
+      }
     }
   }
   return null;
@@ -354,10 +382,11 @@ return seen;
 # What to do about it, in the same voice as the error it is appended to: the
 # reason, then the move. The move is the part a timeout never had.
 SENTENCES = {
-    "hidden": (
-        "It exists, but {detail} is hidden — a menu that opens on mouse-over "
-        "looks exactly like this.{trigger}"
-    ),
+    # Deliberately says nothing about HOW it opens. That belongs to `MOVES`,
+    # which knows: a base sentence asserting "a menu that opens on mouse-over
+    # looks exactly like this" and then advising a click contradicts itself in
+    # two consecutive clauses (Copilot, #31).
+    "hidden": "It exists, but {detail} is hidden.{trigger}",
     "covered": (
         "It exists, but {detail} is on top of it — a cookie banner or an "
         "overlay. Dismiss that first, or act on it instead."
@@ -388,14 +417,16 @@ MOVES = {
         'interact(action="click") on that — hovering it will do nothing.'
     ),
     "hover": (
-        ' Hover whatever reveals it — interact(action="hover") on {trigger}. '
-        "You cannot hover the hidden part itself, and a script cannot open one "
+        " A menu that opens on mouse-over looks exactly like this: hover "
+        'whatever reveals it — interact(action="hover") on {trigger}. You '
+        "cannot hover the hidden part itself, and a script cannot open one "
         "either, because synthetic events do not set :hover."
     ),
     "": (
-        " Hover whatever reveals it; you cannot hover the hidden part itself, "
-        "and a script cannot open one either, because synthetic events do not "
-        "set :hover."
+        " A menu that opens on mouse-over looks exactly like this. Hover "
+        "whatever reveals it; you cannot hover the hidden part itself, and a "
+        "script cannot open one either, because synthetic events do not set "
+        ":hover."
     ),
 }
 

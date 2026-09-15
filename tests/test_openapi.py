@@ -259,3 +259,30 @@ async def test_the_tool_still_offers_it(server):
     the surface that has a session."""
     schema = (await server.mcp.get_tool("open_session")).parameters
     assert "fresh" in schema["properties"]
+
+
+async def test_a_saved_flows_warnings_are_in_the_published_contract(spec):
+    """`save_one` returns them conditionally, and the /flows schemas are the
+    hand-written half of this document — so a field added there is invisible to
+    a generated client until it is declared (Copilot, #31)."""
+    saved = spec["components"]["schemas"]["FlowSaved"]["properties"]
+    assert saved["warnings"]["type"] == "array"
+
+
+async def test_a_run_reports_step_url_in_the_published_contract(spec):
+    step = spec["components"]["schemas"]["FlowRun"]["properties"]["steps"]["items"]
+    assert "url" in step["properties"]
+
+
+async def test_the_upload_form_offers_every_source_the_action_takes(spec, server):
+    """The multipart schema is hand-written while the JSON one is derived, so
+    the two drift in exactly one direction: a new source appears in JSON and
+    not in the form."""
+    upload = await server.mcp.get_tool("upload_file")
+    sources = {"text", "content", "kept", "path"} & set(upload.parameters["properties"])
+    form = spec["paths"]["/browser/upload"]["post"]["requestBody"]["content"][
+        "multipart/form-data"
+    ]["schema"]["properties"]
+    # `path` is a server-side filesystem path and has no place in a form, so it
+    # is the one source deliberately absent; everything else must be offered.
+    assert (sources - {"path"}) <= set(form)
