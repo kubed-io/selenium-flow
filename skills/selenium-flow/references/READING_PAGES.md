@@ -96,13 +96,16 @@ Over MCP you get an image block you can see. Over HTTP you get base64 plus real
 pixel dimensions and a `bytes` count — a `bytes` value near zero means a blank
 capture, which almost always means the page had not rendered yet.
 
-**Every screenshot is also saved** with the session's files, and the result
-carries that file's `absolute_url`.
+**A screenshot is saved** with the session's files by default, and the result
+carries that file's link. `save=false` opts out, and if the page blocked the
+download there is no file at all — the result says `file_error` instead and you
+still get the image.
 
 **Give a person the link, not the picture.** They cannot see a tool result, many
 clients cannot render an image block at all, and describing it is worse than
 both. Paste the URL, or `![](absolute_url)` — it opens in any browser and needs
-no token.
+no token. A server that has not been told its public address returns only the
+relative `url`; hand that over with the address you reached the server on.
 
 ```
 screenshot(xpath="//div[@class='chart']")

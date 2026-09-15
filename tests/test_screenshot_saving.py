@@ -171,12 +171,17 @@ def test_the_published_file_shape_matches_what_describe_returns():
     """A generated client hides or rejects fields the document does not declare,
     and the two drifted the moment this was written by hand (Copilot, #28)."""
     from kubed.selenium_flow import files
-    from kubed.selenium_flow.openapi import STORED_FILE
+    from kubed.selenium_flow.openapi import FILE_SCHEMAS
 
+    entry = FILE_SCHEMAS["FileEntry"]["properties"]
     described = files.describe(
         "sess", {"name": "shot.png", "size": 3, "creationTime": 1}, "tok", "https://h"
     )
-    assert set(described) <= set(STORED_FILE["properties"]), (
+    assert set(described) <= set(entry), (
         "the OpenAPI file schema is missing keys that are actually returned: "
-        f"{sorted(set(described) - set(STORED_FILE['properties']))}"
+        f"{sorted(set(described) - set(entry))}"
     )
+    # The Grid can omit creationTime, so the descriptor's `created` can be null
+    # and a generated client must accept that (Copilot, #28).
+    assert "null" in entry["created"]["type"]
+    assert files.describe("sess", {"name": "x.png"}, "tok")["created"] is None

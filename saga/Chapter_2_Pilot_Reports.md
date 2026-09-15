@@ -624,9 +624,17 @@ today — so nothing else moves:
   link is one call. It still returns the image for the agent to see.
 - **A save that fails does not fail the screenshot.** A page whose policy blocks
   the download still returns its image, with a note that it was not saved.
-- **`save_pdf`, downloads and `keep_file` are unchanged.** Keeping a file past the
-  browser is still one explicit act — by an agent when asked, or from the admin
-  UI's button.
+- **`keep_file` is unchanged**, and keeping a file past the browser is still one
+  explicit act — by an agent when asked, or from the admin UI's button.
+- **The stored file's shape changed, on purpose, and `save_pdf` shares it.** An
+  action that stores something used to return the Grid's own listing entry:
+  `name`, `size`, `creationTime` and nothing to open. It now returns the
+  descriptor every other file surface already used — `created` rather than
+  `creationTime`, plus `content_type`, `image`, `kept`, `url` and
+  `absolute_url`. One shape for a file everywhere, rather than the raw Grid
+  entry in two places and the descriptor in the rest. It is a **breaking**
+  change to `screenshot(save=true)` and `save_pdf`, which shipped in `v0.1.0`,
+  and the changelog says so.
 
 Not breaking: a flow that says `save: true` means what it always meant, and a
 caller that never passed `save` now gets a file, in a session that is ephemeral

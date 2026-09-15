@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Screenshots are kept with the session's files by default**, and come back with a signed link anyone can open — `save_pdf` too. `screenshot(save=false)` opts out.
 
+- **BREAKING:** a stored file is now described the way `session_files` describes one — `created` instead of `creationTime`, plus `content_type`, `image`, `kept`, `url` and `absolute_url`. Affects the `file` in `screenshot` and `save_pdf` results; a caller reading `creationTime` should read `created`.
+
 - **Tools list their fixed choices in their schemas** — every `interact`, `dialog` and `frame` action, and `open_session`'s browsers — so a client can show them, and a flow naming one that does not exist is refused when it is saved instead of when it runs.
 
 ## [0.1.0] - 2026-09-12
