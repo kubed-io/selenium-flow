@@ -70,7 +70,10 @@ below is ticked against it.
    declared per route instead of generated from tool names, and the session
    as who is calling — a header, never a path segment or a body field. Recorded, not started, and paired
    with E18 so callers migrate once.
-5. **A release.** The last tag is still `v0.1.0` and everything since is only in
+5. **E20 — one `selector`** (§F2.14). `xpath` and `css` as one object, exactly
+   one of them — measured to list as a plain inlined object on FastMCP.
+   Recorded, in the same release as E18/E19.
+6. **A release.** The last tag is still `v0.1.0` and everything since is only in
    `:latest`. A minor version would make all of this pinnable.
 
 Three smaller things are deliberately still open, each recorded on its own line
@@ -930,9 +933,68 @@ this surface anyway.
 1. ~~**One tree or two for a session's flows?**~~ **Closed: one.** `GET
    /flows/{name}` with the session from the header; a session is never a path
    segment outside the admin page.
-2. **Does `outline`/`extract` become a `GET`?** They are read-only, but they take
-   a locator and wait, and a GET that can take thirty seconds surprises caches
-   and proxies. Recommend **no**: every action is a POST, reads included.
+2. ~~**Does `outline`/`extract` become a `GET`?**~~ **Closed: no — every browser
+   action is a POST, reads included.** Dr K's reason is the better one: the body
+   of a request is then the same object as a tool's arguments and a flow step's
+   `args`, one shape in three places. `extract` in particular takes enough
+   options that a query string would be a worse home for them, and a GET that
+   waits thirty seconds surprises caches and proxies besides.
+
+### §F2.14 — Decision (Dr K's, recommended): `xpath` and `css` become one `selector`
+
+**Proposed:** `interact(selector={"css": "button.go"})` instead of
+`interact(css="button.go")`. A `Selector` model with two fields, exactly one of
+which is given.
+
+**Measured, on FastMCP 4.0.3,** before recommending it:
+
+- The schema a client lists is **fully inlined** — no `$defs`, no `$ref` — so a
+  client that cannot follow references sees a plain nested object.
+- "Exactly one" as a model validator is refused with a message naming both
+  keys, the same rule `browser.locator` gives today.
+- A selector sent as a **JSON string** (`selector='{"css": "#a"}'`) is refused
+  as "not a valid dictionary". Some clients stringify object arguments, so this
+  needs the `BeforeValidator` coercion `tools.py` already applies to its enums.
+
+**For it:**
+
+- **They always mean one thing.** Every tool that takes one takes the other,
+  for the same element, with the same rule. Today that rule is written out in
+  about a dozen descriptions; it becomes one description on one model.
+- **`drag` is where it pays most.** `xpath`/`css`/`to_xpath`/`to_css` become
+  `selector` and `to`, and `to` is plainly the same kind of thing as `selector`
+  — the `to_` prefix was a flat schema doing the work of a type.
+- **`outline` can hand back what a step takes.** Its result can carry
+  `selector: {"css": …}`, pasted into a step unchanged.
+
+**Against, and why it does not decide it:** to a model, one level of nesting is
+a small cost and not zero — flat arguments are the easiest shape there is. A
+one-level object is well within what current models fill reliably, and the
+grouping says *these two are one choice*, which is worth about what it costs.
+
+**Where it does not fit:** `frame` also takes `index`, which is not a selector.
+It stays beside `selector` rather than inside it.
+
+**Mutually exclusive, or combined?** Dr K asked. There are three readings of
+"both":
+
+1. **Or — try css, fall back to xpath.** Refused. It is the self-healing locator,
+   and `locator()` already says why not: a typo in one becomes a click on the
+   element the other found, and a flow that silently used its fallback reports
+   `ok` while it drifts. A broken selector should fail loudly and go to
+   `repair_flow`.
+2. **And — both must match the same element.** Refused. Twice the lookups to
+   state one thing twice, and when they disagree the error has no good answer.
+3. **Within — css finds a container, xpath searches inside it.** The one reading
+   with real value, and it is still not two keys on one element: a single XPath
+   already says `//form[@id='signup']//button[.='Save']`. If scoping ever earns
+   a place it is a nested `within` selector.
+
+**So exclusive.** The model validator keeps the rule `locator()` has today.
+
+**It breaks every saved flow**, since a step's `args` are exactly a tool's
+arguments. That is why it belongs in the same release as E18 and E19: one
+migration for flows on disk, n8n workflows and HTTP bodies, not three.
 
 ### §F2.11 — Measured: Firefox interpolates, and a pointer drag is a real HTML5 drag on Chrome
 
@@ -1293,6 +1355,18 @@ caller should migrate once.
       looks across sessions
 - [ ] The OpenAPI spec, the wiki and the skill references are regenerated from
       the new table, and the n8n workflows in this cluster are migrated
+
+### E20 — One `selector` (§F2.14)
+
+In the E18/E19 release: it breaks saved flows, and they migrate once.
+
+- [ ] A `Selector` model — `xpath` or `css`, exactly one — replaces the two flat
+      arguments on every tool that takes them
+- [ ] `drag` takes `selector` and `to`; `frame` keeps `index` beside `selector`
+- [ ] A selector sent as a JSON string is coerced, like the enums are
+- [ ] `outline` returns `selector` in the shape a step takes
+- [ ] Saved flows are migrated: the ones on the cluster's NFS share, the
+      integration flows, and every example in the skill and the wiki
 
 ### E5 — The approach plate (carried, unchanged)
 

@@ -522,6 +522,14 @@ def test_the_pointer_beside_a_session_does_not_empty_the_history():
     assert list(store.records()) == ["named:desktop"]
 
 
+def test_json_that_is_not_a_record_is_a_miss_not_a_crash():
+    """A pointer's `[x, y]` parses as JSON and is not a record. `.get` on it
+    raised AttributeError, which the parse guard did not catch - the other half
+    of the blank admin list, and not reached by the namespace test (Copilot, #33)."""
+    assert SessionRecord.from_json("[253.5, 226.0]") is None
+    assert SessionRecord.from_json("42") is None
+
+
 def test_the_memory_store_expires_like_redis_does():
     """Both backends must mean the same thing by SESSION_TTL."""
     now = [1000.0]

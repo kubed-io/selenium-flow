@@ -300,6 +300,10 @@ def register(
         and every byte of data it shows is fetched separately with the token."""
         return HTMLResponse(page("admin.html", CONSOLE=console))
 
+    # Whether the last read of the store failed, so an outage warns once rather
+    # than on every two-second poll of every open page.
+    store_failing = [False]
+
     def sessions_payload() -> dict:
         """Every flow session, and the browser each one currently holds.
 
@@ -320,11 +324,17 @@ def register(
         try:
             records = sessions_store.records()
         except Exception as exc:  # noqa: BLE001 - a Redis blip is not an outage
-            # Warning, not info: the page renders this as "no sessions",
-            # which looks exactly like an empty install. At info it hid a
-            # store that failed on every poll for a day.
-            log.warning("could not read the session store: %s", exc)
+            # A warning, because the page renders this as "no sessions" and that
+            # looks exactly like an empty install - at info it hid a store that
+            # failed on every poll for a day. Once, because every open page
+            # polls every two seconds (Copilot, #33).
+            report = log.debug if store_failing[0] else log.warning
+            report("could not read the session store: %s", exc)
+            store_failing[0] = True
             return {"sessions": []}
+        if store_failing[0]:
+            log.info("the session store is readable again")
+            store_failing[0] = False
 
         # One Grid listing for the whole payload rather than a liveness call per
         # row: the answer for every session is in it, and it is one round trip.
