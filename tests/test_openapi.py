@@ -65,7 +65,7 @@ async def test_request_schemas_are_the_tool_schemas(server, spec):
         documented = spec["components"]["schemas"][
             "".join(p.capitalize() for p in action.split("_")) + "Request"
         ]
-        expected, _ = _hoisted(http_schema(tool.parameters))
+        expected, _ = _hoisted(http_schema(tool.parameters, action))
         assert documented == expected, action
 
 
@@ -242,3 +242,47 @@ async def test_every_flow_response_schema_it_references_exists(spec):
             ref = schema.get("$ref")
             if ref:
                 assert ref.split("/")[-1] in defined, f"{path} -> {ref}"
+
+
+async def test_a_session_only_argument_is_not_published_as_an_http_parameter(spec):
+    """`fresh` says "do not go back to the page my session was last on", and
+    the HTTP surface has no session to go back to — `routes.py` never touches
+    `SessionManager`. Accepting it there would be a parameter that parses and
+    does nothing, so it is dropped from the contract instead (§F2.10)."""
+    published = spec["components"]["schemas"]["OpenSessionRequest"]["properties"]
+    assert "fresh" not in published
+    assert "browser" in published, "and nothing else went with it"
+
+
+async def test_the_tool_still_offers_it(server):
+    """The other half: dropping it from the HTTP contract must not drop it from
+    the surface that has a session."""
+    schema = (await server.mcp.get_tool("open_session")).parameters
+    assert "fresh" in schema["properties"]
+
+
+async def test_a_saved_flows_warnings_are_in_the_published_contract(spec):
+    """`save_one` returns them conditionally, and the /flows schemas are the
+    hand-written half of this document — so a field added there is invisible to
+    a generated client until it is declared (Copilot, #31)."""
+    saved = spec["components"]["schemas"]["FlowSaved"]["properties"]
+    assert saved["warnings"]["type"] == "array"
+
+
+async def test_a_run_reports_step_url_in_the_published_contract(spec):
+    step = spec["components"]["schemas"]["FlowRun"]["properties"]["steps"]["items"]
+    assert "url" in step["properties"]
+
+
+async def test_the_upload_form_offers_every_source_the_action_takes(spec, server):
+    """The multipart schema is hand-written while the JSON one is derived, so
+    the two drift in exactly one direction: a new source appears in JSON and
+    not in the form."""
+    upload = await server.mcp.get_tool("upload_file")
+    sources = {"text", "content", "kept", "path"} & set(upload.parameters["properties"])
+    form = spec["paths"]["/browser/upload"]["post"]["requestBody"]["content"][
+        "multipart/form-data"
+    ]["schema"]["properties"]
+    # `path` is a server-side filesystem path and has no place in a form, so it
+    # is the one source deliberately absent; everything else must be offered.
+    assert (sources - {"path"}) <= set(form)

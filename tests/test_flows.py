@@ -467,3 +467,65 @@ def test_a_file_that_will_not_parse_is_logged_without_its_contents(
         assert store.get("bot", "broken") is None
     assert "hunter2" not in caplog.text
     assert "broken" in caplog.text
+
+
+# ---- drag: the second address a schema cannot demand -------------------------
+
+
+def _drag_problems(args):
+    """What `save_flow` would say about one drag step."""
+    from kubed.selenium_flow import flowdoc
+
+    schemas = {
+        "drag": {
+            "type": "object",
+            "properties": {
+                "xpath": {"type": "string"},
+                "css": {"type": "string"},
+                "to_xpath": {"type": "string"},
+                "to_css": {"type": "string"},
+                "by_x": {"type": "integer"},
+                "by_y": {"type": "integer"},
+            },
+            "required": [],
+        }
+    }
+    try:
+        flowdoc.validate({"steps": [{"tool": "drag", "args": args}]}, schemas)
+    except flowdoc.InvalidFlow as refused:
+        return " ".join(refused.problems)
+    return ""
+
+
+def test_a_drag_with_no_element_is_refused_at_save():
+    """It is a registered action now, so it has to be in the set the validator
+    checks — otherwise the step saves cleanly and fails at run time, which is
+    the whole thing save-time validation exists to prevent (Copilot, #31)."""
+    assert "needs an element" in _drag_problems({"to_css": "#done"})
+
+
+def test_a_drag_with_no_destination_is_refused_at_save():
+    assert "needs a destination" in _drag_problems({"css": "#card"})
+
+
+def test_a_drag_with_two_kinds_of_destination_is_refused_at_save():
+    problems = _drag_problems({"css": "#card", "to_css": "#done", "by_x": 10})
+    assert "not both" in problems
+
+
+def test_a_drag_to_where_it_already_is_is_refused_at_save():
+    assert "already is" in _drag_problems({"css": "#card", "by_x": 0, "by_y": 0})
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"css": "#card", "to_css": "#done"},
+        {"xpath": "//div[@id='card']", "to_xpath": "//div[@id='done']"},
+        {"css": "input[type=range]", "by_x": 120},
+        {"css": "input[type=range]", "by_y": -40},
+    ],
+    ids=["css to css", "xpath to xpath", "by x", "negative by y"],
+)
+def test_a_drag_that_says_both_ends_saves(args):
+    assert _drag_problems(args) == ""

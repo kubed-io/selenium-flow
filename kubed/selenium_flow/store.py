@@ -214,9 +214,27 @@ class RedisStore:
     def __init__(
         self, client, prefix: str = DEFAULT_PREFIX, ttl: int = DEFAULT_TTL_SECONDS
     ):
+        # Readable, so anything that must share this backend can be built FROM
+        # this object rather than from a second reading of the environment.
+        # `pointer.matching` is the one that needs it: deriving it from the env
+        # a second time meant an injected store and the pointers could disagree
+        # about whether they were shared at all (Copilot, #31).
         self._redis = client
         self._prefix = prefix
         self._ttl = ttl
+
+    @property
+    def client(self):
+        """The connected Redis client this store writes through."""
+        return self._redis
+
+    @property
+    def prefix(self) -> str:
+        return self._prefix
+
+    @property
+    def ttl(self) -> int:
+        return self._ttl
 
     def _k(self, key: str) -> str:
         return f"{self._prefix}{key}"
@@ -297,15 +315,32 @@ def from_env(env: dict | None = None) -> SessionStore:
 
     prefix = env.get("REDIS_PREFIX", DEFAULT_PREFIX)
     db = int(env.get("REDIS_DB", DEFAULT_DB))
+    client = redis_client(env)
+    if client is None:
+        return MemoryStore(ttl=ttl)
 
+    log.info("session store: redis db %s, prefix %s, ttl %ss", db, prefix, ttl)
+    return RedisStore(client, prefix=prefix, ttl=ttl)
+
+
+def redis_client(env: dict | None = None):
+    """A connected Redis client for ``env``, or None with a reason in the log.
+
+    Separate from `from_env` because the session record is no longer the only
+    thing worth sharing between replicas — `pointer.py` keeps the pointer's
+    position the same way. Two copies of this connection cascade is two places
+    to forget `REDIS_DB`, and the second one would be the one nobody tests.
+    """
+    env = os.environ if env is None else env
+    db = int(env.get("REDIS_DB", DEFAULT_DB))
     try:
         import redis  # imported here: an optional dependency must not be a hard import
     except ImportError:
         log.warning(
             "SESSION_STORE=redis but the redis package is missing — "
-            "install kubed-selenium-flow[redis]. Falling back to in-memory sessions."
+            "install kubed-selenium-flow[redis]. Falling back to memory."
         )
-        return MemoryStore(ttl=ttl)
+        return None
 
     try:
         if env.get("REDIS_URL"):
@@ -325,11 +360,7 @@ def from_env(env: dict | None = None) -> SessionStore:
         client.ping()
     except Exception as exc:  # noqa: BLE001 - a bad address must not stop the boot
         log.warning(
-            "Redis is configured but unreachable (%s). "
-            "Falling back to in-memory sessions.",
-            exc,
+            "Redis is configured but unreachable (%s). Falling back to memory.", exc
         )
-        return MemoryStore(ttl=ttl)
-
-    log.info("session store: redis db %s, prefix %s, ttl %ss", db, prefix, ttl)
-    return RedisStore(client, prefix=prefix, ttl=ttl)
+        return None
+    return client

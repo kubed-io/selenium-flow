@@ -86,15 +86,27 @@ has been checked to match exactly one element**, and whether it can be used.
 ```
 outline(css="nav")
 → {"role": "button", "name": "HelpDesk", "xpath": "//button[normalize-space()=\"HelpDesk\"]",
-   "visible": true}
+   "visible": true, "expanded": false}
   {"role": "link", "name": "Feature Requests", "css": "a[href=\"/extensions/feature-requests\"]",
-   "visible": false, "reason": "hidden", "blocked_by": "ul.menu-content"}
+   "visible": false, "reason": "hidden", "blocked_by": "ul.menu-content",
+   "revealed_by": "button[aria-controls=\"menu\"]", "open_with": "click"}
 ```
 
 That second entry is the whole point: the link is real, its selector works, and
-clicking it now would time out — because `ul.menu-content` is hidden. Hover the
-menu first. The reasons are `hidden`, `covered` (with `blocked_by`), `zero_size`,
-`offscreen` and `disabled`.
+clicking it now would time out — because `ul.menu-content` is hidden. The reasons
+are `hidden`, `covered` (with `blocked_by`), `zero_size`, `offscreen` and
+`disabled`.
+
+**`blocked_by` says what is in the way; `revealed_by` says what to act on.** Act
+on `revealed_by`, and use the gesture `open_with` names:
+
+- `open_with: "click"` — the trigger carries `aria-expanded`, so the page has
+  told you it toggles on a click. Hovering it does nothing.
+- `open_with: "hover"` — nothing said otherwise, and a `:hover` menu is the
+  usual reason an ancestor is `display: none`.
+
+Neither appears when nothing visible above the element has a checked selector,
+because `body` is a true answer and useless advice.
 
 - **Scope it** with `css` or `xpath` to one region, so you get a panel rather
   than a page.

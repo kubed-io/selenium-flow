@@ -56,6 +56,39 @@ def test_the_page_is_asked_what_is_wrong(reason, detail, expected):
     assert expected in probe.explain(driver, (By.CSS_SELECTOR, "a"))
 
 
+def test_the_sentence_does_not_argue_with_its_own_advice():
+    """A base sentence asserting "a menu that opens on mouse-over looks exactly
+    like this" and then advising a click contradicts itself in two consecutive
+    clauses. How it opens belongs to the move, which knows (Copilot, #31)."""
+    clicky = probe.explain(
+        _Page(
+            {
+                "reason": "hidden",
+                "detail": "ul.menu",
+                "trigger": "#toggle",
+                "gesture": "click",
+            }
+        ),
+        (By.CSS_SELECTOR, "a"),
+    )
+    assert 'interact(action="click")' in clicky
+    assert "mouse-over" not in clicky, "it opens on click; do not muddy it"
+
+    hovery = probe.explain(
+        _Page(
+            {
+                "reason": "hidden",
+                "detail": "ul.menu",
+                "trigger": "nav#menu",
+                "gesture": "hover",
+            }
+        ),
+        (By.CSS_SELECTOR, "a"),
+    )
+    assert "mouse-over" in hovery, "and where it IS a hover, still say so"
+    assert 'interact(action="hover")' in hovery
+
+
 def test_a_hidden_element_names_what_would_reveal_it():
     """The move, not just the reason — and the move is to hover the *visible*
     thing that opens the menu. Nothing with `display: none` can receive a

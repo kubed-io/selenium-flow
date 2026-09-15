@@ -114,6 +114,27 @@ extract(xpath="//button[contains(., 'Submit')]")
 If an overlay or cookie banner is intercepting the click, dismiss it first —
 they are the most common cause of a click that lands on nothing.
 
+## A hover that reported success and opened nothing
+
+A hover onto a target the pointer is **already inside** fires no `mouseover`: the
+pointer did not move, so nothing happened, and the call still returns `ok`. It is
+the same menu failing twice in a row that gives it away.
+
+The server now steps the pointer aside before moving back, and the result says
+`nudged: true` when it did. If you are on an older server, hover something else
+first and then hover the target again.
+
+Do not try to check afterwards with `document.querySelectorAll(':hover')` — it
+comes back **empty** while the `:hover` styling is plainly applying. Read the
+thing you wanted instead: `outline` the menu, or check the revealed element's
+computed `display`.
+
+## The advice said hover and hovering did nothing
+
+Then it is a menu that opens on **click**. `outline` says which: an entry's
+`open_with` is `click` when the trigger carries `aria-expanded`, and the trigger
+itself is in `revealed_by`. Click that.
+
 ## Everything is slow or a session will not open
 
 The Grid runs a small, fixed number of browsers. If they are all held, a new

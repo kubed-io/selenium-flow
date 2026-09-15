@@ -55,6 +55,7 @@ images, a link pasted to a colleague, an ``<img>`` on the admin page.
 
 from __future__ import annotations
 
+import json
 import logging
 import mimetypes
 
@@ -122,6 +123,17 @@ def _described(name: str, entry: dict, url: str, kept: bool, base: str) -> dict:
         "kept": kept,
         "url": url,
     }
+    if not kept:
+        # The call that makes this one durable, spelled out. The tool
+        # description has said "these die with the browser" since #28 and a
+        # pilot still handed somebody a link that would stop working - because
+        # what it read was the result, not the docstring. So the result says it
+        # too, in the only form that is also an instruction (§F2.10).
+        #
+        # json.dumps for the argument, not an f-string: `FILE_NAME` permits a
+        # double quote, and a browser will happily save `Q4 "final".csv` - which
+        # rendered as a call nobody could paste (Copilot, #31).
+        described["keep_with"] = f"keep_file({json.dumps(name)})"
     if base:
         # An app renders on a sandbox origin of the host's choosing, so a path
         # would resolve against the wrong server. Absolute only when the server
@@ -252,6 +264,44 @@ def keep_one(actions, store, session: str, session_id: str, name: str) -> dict:
     entry = store.write_file(session, wanted, data)
     log.info("kept %s/%s (%s bytes)", session, wanted, len(data))
     return {"kept": True, "session": session, **entry}
+
+
+def read_kept(sessions, store, name: str, session: str | None = None) -> bytes:
+    """The bytes of one kept file, for a caller that wants to send it somewhere.
+
+    The other half of `keep_one`, and the reason it exists: a browser could
+    download a file and keep it, and there was no way to hand it back to a page
+    (§F1.41). `upload_file(kept=...)` is that way, and it reads through here so
+    that "which session's files are these" has exactly one answer.
+
+    ``session`` names the library explicitly, which is how the HTTP surface says
+    it — the same contract `/files/list` and `/files/keep` already have, and the
+    reason they have it: that surface is always explicit. Without it a caller
+    that kept a file with `{"session": "desktop"}` had no way to name the same
+    library when uploading it back, and landed in `global` instead (Copilot,
+    #31). Over MCP it is omitted and the caller's own key answers.
+    """
+    if store is None:
+        raise ValueError(OFF)
+    wanted = flows.valid_file_name(name)
+    session = owner(sessions, store, session)
+    try:
+        return store.read_file(session, wanted)
+    except FileNotFoundError as exc:
+        # A ValueError, not the FileNotFoundError this came from, and both
+        # halves of that are deliberate. The message is named rather than
+        # passed through, because `[Errno 2] ... /data/flows/x/files/y` answers
+        # a question about this server's disk when the caller's question is
+        # which name to use. And the TYPE is the caller-error one, because
+        # `errors.status_for` does not classify FileNotFoundError and would
+        # call this a 500 - telling an n8n node with Retry-On-Fail to send the
+        # same wrong name again, and an alert on the 5xx rate to count it as an
+        # outage. `upload_file(path=...)` already answers 400 for exactly this
+        # (`no file at ...`), and the sibling source must not disagree.
+        raise ValueError(
+            f"no kept file called {wanted!r}. session_files lists what is kept; "
+            "keep_file(name) is what keeps one before the browser goes"
+        ) from exc
 
 
 def delete_one(store, session: str, name: str) -> dict:

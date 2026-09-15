@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import logging
 import mimetypes
 import re
 import shutil
@@ -24,9 +25,11 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 
-from . import browser, probe
+from . import browser, pointer, probe
 from .browser import Grid, as_bool, as_int, normalize_browser
 from .errors import AssertionFailed
+
+log = logging.getLogger(__name__)
 
 # Named keys a caller can press. Selenium's Keys members are unicode private-use
 # characters, so a caller cannot reasonably type them into JSON by hand.
@@ -109,6 +112,34 @@ def _shape(value) -> str:
     return f"a {type(value).__name__}"
 
 
+def _seconds(value, default: float, name: str = "value") -> float:
+    """A duration in seconds, from JSON that may have sent it as a string.
+
+    `as_int` cannot serve here: half a second is a sensible stability window and
+    `int("0.5")` raises. Wider type, and deliberately **less** forgiving.
+
+    "Coerce, don't trust" is the rule everywhere else because a fallback there
+    is harmless - a `wait_timeout` that cannot be read becomes the default wait,
+    and the call still waits. This one is different in kind: the fallback is
+    zero, and zero means *the stability check does not happen*. A typo would
+    quietly take away the guard the argument exists to add, and the assertion
+    would then pass on the transient it was written to reject (Copilot, #31).
+    """
+    if value is None or value == "":
+        return default
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"{name} must be a number of seconds; got {value!r}"
+        ) from None
+    if seconds != seconds or seconds in (float("inf"), float("-inf")):
+        raise ValueError(f"{name} must be a finite number of seconds")
+    if seconds < 0:
+        raise ValueError(f"{name} cannot be negative; got {seconds}")
+    return seconds
+
+
 def resolve_key(key) -> str:
     """What to send for ``key``: a name, one character, or a combination.
 
@@ -146,6 +177,13 @@ SUBMIT_KEYS = frozenset({Keys.RETURN, Keys.ENTER})
 # Mouse gestures ``interact`` understands. hover and scroll_to are here rather
 # than in their own tools because they take the same arguments as a click.
 MOUSE_ACTIONS = ("click", "double_click", "right_click", "hover", "scroll_to")
+
+# The ones that put the pointer somewhere. `scroll_to` moves the PAGE, not the
+# pointer, so it is excluded and `glide` is meaningless for it. Every one of
+# these now moves first and acts second, which is what makes Dr K's rule true:
+# after a click the pointer is on what was clicked, the way a person's would be
+# (saga §F2.3).
+POINTER_ACTIONS = ("click", "double_click", "right_click", "hover")
 
 # How often `assert_` asks the page again. Short enough to catch a route change
 # in the frame after it lands, long enough not to spin the Grid on a wait that
@@ -262,7 +300,7 @@ def _generated_name(filename, extension: str) -> str:
 class Actions:
     """The browser operations, bound to one Grid."""
 
-    def __init__(self, grid: Grid, describe_file=None):
+    def __init__(self, grid: Grid, describe_file=None, pointers=None, read_kept=None):
         self.grid = grid
         # How a stored file is described on the way out: the server injects a
         # function that signs a URL for it. A function rather than the token,
@@ -270,10 +308,37 @@ class Actions:
         # holding the key that makes one (§F2.9). Absent - an open server with
         # no public base - a file is reported exactly as the Grid lists it.
         self.describe_file = describe_file
+        # Where the pointer is in each browser, keyed by the Grid's session id.
+        # Injected so a deployment can share it between replicas, and defaulted
+        # so this class is still usable on its own.
+        self.pointers = pointers if pointers is not None else pointer.MemoryPointers()
+        # Reads a kept file by name, for `upload_file(kept=...)`. A function for
+        # the same reason as `describe_file`: which flow session owns a kept
+        # file is a question about the *caller*, and this layer deliberately
+        # cannot see one. Absent, naming a kept file is refused with a reason.
+        self.read_kept = read_kept
 
     def _stored(self, session_id: str, entry: dict) -> dict:
         """One saved file, described the same way wherever it was saved."""
         return self.describe_file(session_id, entry) if self.describe_file else entry
+
+    def _pointer(self, session_id: str):
+        """Where the pointer is in this browser, or None if we never sent it."""
+        try:
+            return self.pointers.get(session_id)
+        except Exception:  # not knowing is a state here, not a failure
+            log.debug("could not read the pointer for %s", session_id, exc_info=True)
+            return None
+
+    def _moved(self, session_id: str, at) -> None:
+        """Record where a move we sent left the pointer."""
+        try:
+            if at is None:
+                self.pointers.forget(session_id)
+            else:
+                self.pointers.set(session_id, at[0], at[1])
+        except Exception:  # see `_pointer`
+            log.debug("could not record the pointer for %s", session_id, exc_info=True)
 
     # ---- session lifecycle -------------------------------------------------
 
@@ -310,6 +375,12 @@ class Actions:
             driver.set_page_load_timeout(as_int(page_load_timeout, 300))
         if script_timeout:
             driver.set_script_timeout(as_int(script_timeout, 30))
+
+        # A new browser's pointer starts at (0,0) and nothing this server sent
+        # put it there, so whatever was remembered for a previous browser must
+        # not be inherited. Grid ids are not reused, but forgetting is what
+        # makes that a fact rather than an assumption.
+        self._moved(session_id, None)
 
         current_url, title = "about:blank", ""
         if url:
@@ -350,6 +421,7 @@ class Actions:
         keeps the context the next open inherits — see ``SessionManager``.
         """
         self.grid.quit(session_id)
+        self._moved(session_id, None)
         return {"success": True, "session_id": session_id}
 
     # ---- navigation --------------------------------------------------------
@@ -370,12 +442,21 @@ class Actions:
         url=None,
         wait_timeout=WAIT_TIMEOUT,
         css=None,
+        glide=False,
     ) -> dict:
         """Perform a mouse action on an element.
 
         One action rather than five tools: they take identical arguments and
         differ only in which gesture is sent, so splitting them would be five
         near-identical schemas for a model to choose between.
+
+        Every gesture that involves the pointer **moves it first and acts
+        second**. A jump unless ``glide`` asks otherwise, so nothing that worked
+        before behaves differently; what changes is that afterwards the pointer
+        is on what was acted on, which is where a person's would be (§F2.3).
+        The click itself stays WebDriver's element click, deliberately: it is
+        the one that refuses a covered target loudly, where a pointer-action
+        click would silently press whatever is on top.
         """
         resolved = str(action).strip().lower()
         if resolved not in MOUSE_ACTIONS:
@@ -397,6 +478,10 @@ class Actions:
         else:
             element = browser.wait_for_clickable(driver, target, timeout)
 
+        moved = None
+        if resolved in POINTER_ACTIONS:
+            moved = self._move_onto(session_id, driver, element, glide)
+
         if resolved == "click":
             try:
                 element.click()
@@ -412,22 +497,178 @@ class Actions:
                     (first[0] if first else "element click intercepted")
                     + (f" {why}" if why else "")
                 ) from exc
+        elif resolved == "hover":
+            # The move IS the hover. Only when it could not be sent does this
+            # fall back to the gesture this package has always used.
+            if moved is None:
+                ActionChains(driver).move_to_element(element).perform()
         else:
             chain = ActionChains(driver)
             if resolved == "double_click":
                 chain.double_click(element)
             elif resolved == "right_click":
                 chain.context_click(element)
-            elif resolved == "hover":
-                chain.move_to_element(element)
             elif resolved == "scroll_to":
                 chain.scroll_to_element(element)
             chain.perform()
 
         return {
             "action": resolved,
+            **self._pointer_report(moved, glide),
             **browser.page_state(driver),
         }
+
+    def _move_onto(self, session_id: str, driver, element, glide) -> dict | None:
+        """Put the pointer on ``element`` before the gesture, if it can.
+
+        Wrapped, because this is new work in front of gestures that already
+        worked: a destination WebDriver will not move to - an element taller
+        than the viewport is the usual one - must cost the pointer's position
+        and nothing else. The gesture then runs exactly as it did before.
+        """
+        try:
+            moved = pointer.move(
+                driver,
+                element,
+                start=self._pointer(session_id),
+                glide=as_bool(glide, False),
+            )
+        except Exception:  # the gesture outranks the move
+            log.debug("could not move the pointer onto the target", exc_info=True)
+            # Forgotten rather than left stale: a move that failed part-way
+            # leaves the pointer somewhere we cannot name, and a glide plotted
+            # from a wrong origin crosses the wrong elements (§F2.3).
+            self._moved(session_id, None)
+            return None
+        self._moved(session_id, moved["at"])
+        return moved
+
+    @staticmethod
+    def _pointer_report(moved: dict | None, glide) -> dict:
+        """What the result says about how the pointer got there."""
+        if moved is None:
+            return {}
+        report = {"glided": moved["glided"]}
+        if moved["nudged"]:
+            # Said out loud because it explains a hover that worked this time
+            # and did nothing last time: the pointer was already inside the
+            # target, so the move had to start by leaving it (§F2.10).
+            report["nudged"] = True
+        if moved["unknown_start"]:
+            report["glide_note"] = (
+                "the pointer's position in this browser was not known, so this "
+                "was a jump; a glide from here on has a start to plot from"
+            )
+        elif moved.get("unglideable"):
+            report["glide_note"] = (
+                "the element is not somewhere a path can be plotted to - it "
+                "does not fit in the window even scrolled to the middle - so "
+                "this was a jump"
+            )
+        elif as_bool(glide, False) and not moved["glided"]:
+            report["glide_note"] = "this was a jump"
+        return report
+
+    def drag(
+        self,
+        session_id: str,
+        xpath=None,
+        css=None,
+        to_xpath=None,
+        to_css=None,
+        by_x=None,
+        by_y=None,
+        url=None,
+        wait_timeout=WAIT_TIMEOUT,
+        glide=True,
+    ) -> dict:
+        """Drag one element onto another, or by an offset.
+
+        Its own tool rather than a sixth `interact` action, because it is the
+        one gesture that needs a **source and a destination** — which is the
+        premise that put five gestures into one tool in the first place (§F2.4).
+
+        Press, travel, release, with a short hold either side of the travel:
+        several drag libraries arm on a delay or a distance rather than on the
+        press, and a press and release in the same frame reads as a click.
+
+        ``glide`` defaults to **true** here, the opposite of `interact`.
+        Incremental movement is most of what a drag is for — a sortable list or
+        a slider watching for `pointermove` sees a teleport otherwise.
+        """
+        target = browser.locator(xpath, css)
+        # Resolved before the browser is touched, like every other locator
+        # mistake: an impossible drag should cost a 400, not a page load.
+        to_target = None
+        offset = None
+        if to_xpath or to_css:
+            if by_x is not None or by_y is not None:
+                raise ValueError(
+                    "give the destination as to_xpath/to_css OR as a by_x/by_y "
+                    "offset, never both"
+                )
+            to_target = browser.locator(to_xpath, to_css)
+        elif by_x is not None or by_y is not None:
+            offset = (as_int(by_x, 0), as_int(by_y, 0))
+            if offset == (0, 0):
+                raise ValueError(
+                    "by_x and by_y are both zero, which is a drag to where it "
+                    "already is; give a distance, or name a destination element"
+                )
+        else:
+            raise ValueError(
+                "the destination is required: name it with to_xpath or to_css, "
+                "or give a by_x/by_y offset in pixels"
+            )
+
+        driver = self._at(session_id, url)
+        timeout = as_int(wait_timeout, 30)
+        element = browser.wait_for_clickable(driver, target, timeout)
+
+        # The approach is always a jump: `glide` is about the travel with the
+        # button down, which is the part a drag library is watching.
+        moved = self._move_onto(session_id, driver, element, False)
+        if moved is None:
+            # A ValueError, so this is a 400. It describes a geometry the
+            # caller can fix - resize the window, scroll, name a smaller
+            # handle - and a 500 would tell an n8n node with Retry-On-Fail to
+            # send the identical drag again (Copilot, #31).
+            raise ValueError(
+                "the pointer could not be put on the element to drag it. It may "
+                "be larger than the window, or outside it in a way scrolling "
+                "does not fix. Try resize, or drag a smaller handle inside it"
+            )
+        start = moved["at"]
+
+        if to_target is not None:
+            # Read now rather than when the step was written: the approach may
+            # have scrolled, and every rect on the page moved with it (§F2.3).
+            end = pointer.centre(
+                driver, browser.wait_for_element(driver, to_target, timeout)
+            )
+        else:
+            end = (start[0] + offset[0], start[1] + offset[1])
+        inside = pointer.clamped(end, pointer.viewport(driver))
+
+        wanted = as_bool(glide, True)
+        pointer.drag_to(driver, start, inside, glide=wanted)
+        self._moved(session_id, inside)
+
+        result = {
+            "from": {"x": round(start[0]), "y": round(start[1])},
+            "to": {"x": round(inside[0]), "y": round(inside[1])},
+            "glided": wanted,
+            **browser.page_state(driver),
+        }
+        if inside != end:
+            # A clamp changes where the drop landed, so it cannot be silent: a
+            # slider dragged to the window edge instead of to +400 looks like
+            # the site ignoring the drag.
+            result["clamped"] = (
+                f"the destination was outside the window, so the drag stopped "
+                f"at its edge ({round(inside[0])}, {round(inside[1])})"
+            )
+        return result
 
     def frame(
         self,
@@ -549,16 +790,24 @@ class Actions:
         url=None,
         wait_timeout=WAIT_TIMEOUT,
         css=None,
+        kept=None,
+        session=None,
     ) -> dict:
         """Attach a file to a file input.
 
-        The file arrives one of three ways, and exactly one is required:
+        The file arrives one of four ways, and exactly one is required:
 
         - ``text`` — the file's content as plain text. This is the one to use
           for anything an agent produced itself: JSON, CSV, YAML, markdown.
           Base64-encoding text it just wrote is a wasted step it can get wrong.
         - ``content`` — base64, which binary needs and which is the only shape
           MCP tool arguments can carry.
+        - ``kept`` — the name of a file `keep_file` already kept, from the
+          library ``session`` names. This closes
+          the loop the file store never had: a browser could download a file
+          and keep it, and there was no way to give it back to a page. Now a
+          flow can download an export and upload it somewhere else, without the
+          bytes ever passing through a model's context (§F1.41).
         - ``path`` — a file already on this server's filesystem.
 
         Whichever it is, the bytes are written to a temporary file here and
@@ -571,16 +820,25 @@ class Actions:
         an extension when the filename lacks one, rather than to override it.
         """
         sources = [
-            n for n, v in (("text", text), ("content", content), ("path", path)) if v
+            n
+            for n, v in (
+                ("text", text),
+                ("content", content),
+                ("kept", kept),
+                ("path", path),
+            )
+            if v
         ]
         if not sources:
             raise ValueError(
                 "the file is required: pass text for a text file, content for "
-                "base64 bytes, or path for a file on the server"
+                "base64 bytes, kept for a file keep_file has kept, or path for "
+                "a file on the server"
             )
         if len(sources) > 1:
             raise ValueError(
-                f"pass only one of text, content or path; got {', '.join(sources)}"
+                f"pass only one of text, content, kept or path; "
+                f"got {', '.join(sources)}"
             )
 
         # Resolved before connecting: unusable input is a 400 about the input,
@@ -592,6 +850,23 @@ class Actions:
         elif content is not None:
             raw = content if isinstance(content, bytes) else _decode(content)
             name = _safe_name(filename, mime_type)
+        elif kept is not None:
+            if self.read_kept is None:
+                raise ValueError(
+                    "kept files are not available on this server: the flow "
+                    "store is off, so there is nowhere for keep_file to keep "
+                    "one. Pass text, content or path instead"
+                )
+            # `session` names WHICH library, and is not `session_id`, which
+            # names the browser. Both appear on `/files/list` for the same
+            # reason: a file store outlives the browser that filled it, so the
+            # two are different questions. An MCP caller passes neither - its
+            # key answers the first and the server the second.
+            raw = self.read_kept(str(kept), str(session) if session else None)
+            # The kept name is the default, because its extension is what the
+            # page reads the type from and a caller that kept `export.csv`
+            # should not have to say so twice.
+            name = _safe_name(filename or str(kept), mime_type)
 
         driver = self._at(session_id, url)
         browser.accept_local_files(driver)
@@ -766,6 +1041,7 @@ class Actions:
         message=None,
         wait_timeout=WAIT_TIMEOUT,
         url=None,
+        stable_for=0,
     ) -> dict:
         """Evaluate JavaScript that must come back true.
 
@@ -784,10 +1060,36 @@ class Actions:
         frames after the click that caused it, and an assertion that looked
         once would be that same race moved one step later. Nothing sleeps
         waiting for a fixed duration; ``wait_timeout=0`` asks exactly once.
+
+        ``stable_for`` is the other half, and it is what a **guard** needs.
+        Poll-until-true means *eventually* true, which is right after a click
+        and wrong before one: an app that paints its signed-in shell for a
+        moment before redirecting to the login page satisfies "am I signed in"
+        during that moment, and a guard written that way passed while signed
+        out. With ``stable_for`` the answer has to still be true that many
+        seconds later, or the clock starts again (§F2.10).
         """
-        driver = self._at(session_id, url)
+        # Resolved before the browser is touched, like every other argument
+        # mistake here: `_at` reconnects and may NAVIGATE, so validating after
+        # it means an impossible request moves the caller's browser and then
+        # answers 400. A rejected argument must cost nothing (Copilot, #31).
         timeout = max(as_int(wait_timeout, WAIT_TIMEOUT), 0)
+        hold = _seconds(stable_for, 0.0, "stable_for")
+        if hold > timeout:
+            # Refused rather than silently impossible, and the message names the
+            # unit: `stable_for` and `wait_timeout` are both seconds, and a
+            # caller who read one of them as milliseconds finds out here rather
+            # than from an assertion that can never pass.
+            raise ValueError(
+                f"stable_for ({hold}s) is longer than wait_timeout ({timeout}s), "
+                "so the answer could never hold long enough. Both are in "
+                "seconds; raise wait_timeout, or lower stable_for"
+            )
+        driver = self._at(session_id, url)
         deadline = time.monotonic() + timeout
+        true_since = None
+        ever_true = False
+        first = True
         while True:
             answer = driver.execute_script(script)
             if not isinstance(answer, bool):
@@ -796,12 +1098,33 @@ class Actions:
                     f"{_shape(answer)}. Compare, rather than returning the "
                     "thing itself - return !!document.querySelector('#x')"
                 )
+            now = time.monotonic()
+            # The script itself can run past the deadline - a blocking
+            # expression, a page that stops responding - and an answer that
+            # arrived after the caller stopped waiting is not an answer to
+            # `wait_timeout` (Copilot, #31). The FIRST evaluation is exempt,
+            # because `wait_timeout=0` promises exactly one look and any script
+            # takes longer than nothing.
+            if answer and not first and now > deadline:
+                answer = False
+            first = False
             if answer:
-                return {
-                    "asserted": True,
-                    "script": script,
-                    **browser.page_state(driver),
-                }
+                ever_true = True
+                if true_since is None:
+                    true_since = now
+                if now - true_since >= hold:
+                    result = {
+                        "asserted": True,
+                        "script": script,
+                        **browser.page_state(driver),
+                    }
+                    if hold:
+                        result["stable_for"] = hold
+                    return result
+            else:
+                # The clock restarts, it does not pause. A transient that
+                # flickers true, false, true has not held true for anything.
+                true_since = None
             # Bounded by what is left, and re-checked before the next
             # evaluation: a fixed pause here could carry the call past
             # `wait_timeout` and then report an answer that arrived after the
@@ -819,6 +1142,17 @@ class Actions:
                 break
 
         state = browser.page_state(driver)
+        if hold and ever_true:
+            # A different failure and worth saying so: the page DID answer true,
+            # it just would not stay that way. Told apart from "never true",
+            # because the fixes are opposite - one is a wrong assertion, the
+            # other is a page still settling.
+            raise AssertionFailed(
+                message
+                or f"the assertion became true on {state.get('url')!r} but did "
+                f"not hold for {hold}s. Give the step a message to say what "
+                "should have been true"
+            )
         # The script is not echoed. It is the author's text rather than the
         # page's, but it can carry a literal a run report must not: a token
         # compared inline, a serialised request body. This package already keeps

@@ -25,6 +25,56 @@ only way to open one. A script's synthetic events do not set `:hover`, so an
 `execute_script` that "opens" such a menu opens it sometimes and lets it close
 again.
 
+**A click leaves the pointer there too.** Every gesture except `scroll_to` moves
+the pointer onto the element before it acts, so afterwards it is on what you
+acted on — which is where a person's hand would be, and which keeps a `:hover`
+menu open across the click that opened it.
+
+That also means a hover onto something the pointer is already inside is not a
+no-op any more. It used to be: no movement, no `mouseover`, and a cheerful `ok`
+either way. The server steps the pointer aside first, and says `nudged: true`
+when it did.
+
+## Gliding, and when to ask for it
+
+The move is an instant jump. `glide=true` sends many small moves instead:
+
+```
+interact(action="hover", css=".slider-handle", glide=true)
+```
+
+Ask for it when the interface watches *movement* rather than arrival — sliders,
+sortable lists, drag thresholds, menus that track which way you came from.
+Leave it off otherwise; a jump is one event and does everything else.
+
+The server plots the path, from where it last put the pointer to wherever the
+element is *now*. You never give coordinates. The first move in a browser has no
+known start, so it is a jump and the result says so in `glide_note`; from then
+on a glide has a line to walk.
+
+## Dragging
+
+`drag` is its own tool, because it is the one gesture that needs a source **and**
+a destination:
+
+```
+drag(css=".card:nth-child(2)", to_css=".column.done")   # onto another element
+drag(css="input[type=range]", by_x=120)                 # by an offset in pixels
+```
+
+Say where it goes with **either** `to_xpath`/`to_css` **or** a `by_x`/`by_y`
+offset — never both, never neither. It presses, travels and releases, holding
+briefly at each end because several drag libraries arm on a delay rather than on
+the press itself.
+
+`glide` defaults to **true** here, the opposite of `interact`: incremental
+movement is most of what a drag is for.
+
+This drives pointer events. On Chrome that turns out to be enough for native
+HTML5 drag-and-drop as well — `dragstart` through `drop` fire in full. On
+Firefox the native drop does not complete, so a `draggable=true` element there
+may need whatever fallback the page offers. Both measured, not assumed.
+
 `click` and the two double/right variants wait for the element to be
 *clickable*; `hover` and `scroll_to` only wait for it to *exist*, because
 requiring clickability would refuse exactly the off-screen element `scroll_to`
@@ -224,9 +274,13 @@ extract(xpath="//div[@class='results'][.//li]", wait_timeout=60)
 
 ## Anything else
 
-`execute_script` covers what the other tools do not: drag and drop, dispatching
-events, setting values on inputs a normal `write` cannot reach, reading computed
-styles, clearing storage.
+`execute_script` covers what the other tools do not: dispatching events, setting
+values on inputs a normal `write` cannot reach, reading computed styles, clearing
+storage.
+
+**Not drag and drop** — `drag` does that, with real pointer input a page cannot
+tell from a hand. Reach for a script only when that has been tried and the page
+wants something specific of its own.
 
 ```
 execute_script(script="localStorage.clear(); return true")

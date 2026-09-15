@@ -147,6 +147,13 @@ reach. `assert` runs JavaScript that must come back **true**:
 - **It asks again** until the answer is true or `wait_timeout` passes, so an
   assertion straight after a click does not have to know how long a route change
   takes. `wait_timeout: 0` asks once.
+- **After a click, ask until true. Before acting, ask for an answer that
+  holds.** Those are different jobs and the same tool does both. Asking until
+  true means *eventually* true, which is exactly what you want of a route that
+  is still landing — and exactly wrong for a guard, because a page that is about
+  to redirect satisfies it on the way past. `stable_for` is the guard's half:
+  the answer must still be true that many seconds later, or the clock restarts.
+  Both it and `wait_timeout` are seconds.
 - **`message` is what the reader sees.** In a flow it becomes the failing step's
   error. Without one the failure names only the page it was false on — so write
   one; the expression is not repeated back to you.
@@ -164,13 +171,36 @@ say a flow should not run at all:
 - tool: assert
   args:
     script: return !!document.querySelector('#login-username')
-    wait_timeout: 5
+    stable_for: 1
     message: Already signed in - you don't need to run this flow.
 ```
 
-Signed out, the login form is there and the flow runs. Signed in, the app has
-redirected, the field never appears, and the run fails in five seconds with that
-sentence instead of grinding through a login that cannot work.
+Signed out, the login form is there and stays there, so the flow runs. Signed
+in, the app redirects and the run stops with that sentence instead of grinding
+through a login that cannot work.
+
+**`stable_for` is doing real work in that example.** Without it the same guard
+passed while signed out on a real app: navigating to `/`, the authenticated
+shell painted for a moment before the auth guard redirected, and asking until
+true caught that moment. One second of "and it is still true" is the whole fix.
+
+The other shape, for a page that takes a while to decide: **settle, then ask
+once.** Wait for either outcome, then ask the real question with no patience at
+all.
+
+```yaml
+- tool: assert   # wait for the page to commit to one state or the other
+  args:
+    script: >-
+      return !!document.querySelector('#login-username') ||
+        document.querySelectorAll('div.navigation-header').length > 0
+    wait_timeout: 30
+- tool: assert   # then the precondition, asked once
+  args:
+    script: return !document.querySelector('#login-username')
+    wait_timeout: 0
+    message: Already signed in - you don't need to run this flow.
+```
 
 ## When a flow fails
 

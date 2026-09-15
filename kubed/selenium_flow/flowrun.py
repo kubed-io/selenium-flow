@@ -550,6 +550,10 @@ def run(
     reports: list[dict] = []
     seen: set = set()
     redacted_url = False
+    # The page the previous step ended on, so a step can say where it went when
+    # it went somewhere. Starts unset, which makes step one report where the
+    # flow began - a fact about the run nobody else states (§F2.7).
+    was_at: str | None = None
     last: dict = {}
     status = "ok"
     # `is None`, not `or`: an explicit 0 means "no budget" and must not be read
@@ -688,6 +692,17 @@ def run(
             # perfectly ordinary, and a sticky flag threw that page away and
             # left the session pointing at whatever it knew before.
             redacted_url = isinstance(raw, dict) and taints(raw.get("url"), hidden)
+            # Where this step went, and only when it went somewhere. Silence
+            # means the page did not change, which is what makes a navigation
+            # that did not happen visible in a report nobody asked to be
+            # verbose - the cheapest defence left when an author forgets an
+            # assert (§F2.7). Withheld on exactly the terms the failure branch
+            # withholds it: a URL carrying a typed secret is not reported.
+            went_to = raw.get("url") if isinstance(raw, dict) else None
+            if went_to and went_to != was_at:
+                if not redacted_url and "url" not in guarded:
+                    entry["url"] = went_to
+                was_at = went_to
             last = result
             if after_step is not None:
                 after_step(tool, raw)
@@ -707,6 +722,7 @@ def run(
             landed = scrub_values(page, hidden)
             if landed.get("url") and "url" not in guarded:
                 entry["url"] = landed["url"]
+                was_at = landed["url"]
                 # The same fact on the branch that had not recorded it: a step
                 # can fail *after* the value reached the page, so the URL it
                 # failed on is exactly as unsafe to store as one a step

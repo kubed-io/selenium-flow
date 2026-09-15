@@ -39,6 +39,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`press_key` takes the browser's key names, single characters and combinations** — `ArrowLeft`, `/`, `Control+a`, `Shift+Tab`.
 
+- **`drag` drags an element onto another, or by an offset** — `drag(css=".card", to_css=".done")` or `drag(css="input[type=range]", by_x=120)`. Sliders and sortable lists work, and so does native HTML5 drag-and-drop on Chrome.
+
+- **`interact` takes `glide`** — the pointer travels in steps instead of jumping, for interfaces that watch movement rather than arrival.
+
+- **`assert` takes `stable_for`** — the answer must still be true that many seconds later, which is what a guard needs and what asking until true cannot give it.
+
+- **`upload_file` takes `kept`**, the name of a file `keep_file` kept — download an export from one site and upload it to another without the bytes passing through you.
+
+- **`open_session(fresh=true)`** opens on a blank page instead of returning to the one your session was last on.
+
 ### Changed
 
 - **Screenshots are kept with the session's files by default**, and come back with a link anyone can open — signed and time-limited when the server has a token, a plain path when authentication is off. `screenshot(save=false)` opts out, and a page that refuses the download returns `file_error` with the image.
@@ -47,11 +57,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Tools list their fixed choices in their schemas** — every `interact`, `dialog` and `frame` action, and `open_session`'s browsers — so a client can show them, and a flow naming one that does not exist is refused when it is saved.
 
+- **Every mouse gesture moves the pointer onto the element first**, so after a click the pointer is on what you clicked and a `:hover` menu stays open across it. The click itself is unchanged, so a covered target is still refused.
+
+- **`outline` says what *reveals* a hidden element, not just what blocks it** — `revealed_by` carries the trigger's selector and `open_with` says whether to click it or hover it.
+
+- **A run report says where each step went** when the page changed, without `verbose`.
+
+- **A saved flow that starts on whatever page you happen to be on is warned about** — not refused.
+
 ### Fixed
 
 - **A screenshot of a page the browser will not download from no longer costs fifteen seconds.** It says so straight away and still returns the image.
 
 - **A saved file is named for what it actually is** — `screenshot(filename="chart.pdf")` is stored as a PNG.
+
+- **A hover onto something the pointer was already on did nothing and reported success.** The pointer now steps aside first, and the result says `nudged`.
+
+- **The advice for a hidden menu said "hover" even when the page said it opens on click.** It reads `aria-expanded` now and says which.
+
+- **`outline` no longer offers a selector built from a container's concatenated descendant text**, and no longer skips an `<a>` for having no `href`.
+
+- **An unkept file says what would keep it** — `keep_with` on every entry whose link dies with the browser.
+
+- **A glide to something below the fold works.** It used to send coordinates outside the window, which WebDriver refuses, and the whole move was lost.
+
+- **A drag step with no element or no destination is refused when it is saved**, rather than at run time.
+
+- **`upload_file` naming a kept file that is not there answers 400**, like naming a `path` that is not there — not 500.
+
+- **`POST /browser/upload` takes `session`**, naming the library a kept file belongs to — the same way `/files/keep` already does, so a file kept into a named session can be uploaded back out of it.
+
+- **A drag whose source is taller than the window works.** The pointer's position is now where WebDriver actually puts it — the element's in-view centre — rather than the centre of a rectangle running off the screen.
+
+- **`assert` refuses a `stable_for` it cannot read** instead of silently dropping the stability check, and no longer accepts an answer a slow script returned after `wait_timeout` had passed.
 
 ## [0.1.0] - 2026-09-12
 

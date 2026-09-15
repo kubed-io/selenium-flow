@@ -861,3 +861,94 @@ def test_replacing_ends_nothing_for_a_caller_with_no_key():
     sessions.remember(None, "sess-1", "https://x/")
     assert sessions.end_browser(sessions.store_key(None)) is None
     assert actions.closed == []
+
+
+# ---- opening from a known start ---------------------------------------------
+
+
+async def test_open_session_comes_back_to_the_page_it_was_on(server, monkeypatch):
+    """The default, and the reason a reaped browser is invisible."""
+    from fastmcp import Client
+
+    from kubed.selenium_flow.store import SessionRecord
+
+    from .conftest import NAMED
+
+    seen = {}
+
+    def fake_open(**kwargs):
+        seen.update(kwargs)
+        return {"session_id": "abc", "url": kwargs.get("url") or "about:blank"}
+
+    monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
+    monkeypatch.setattr(server.actions, "open_session", fake_open)
+    server.sessions.store.set(
+        NAMED.value, SessionRecord(session_id="", url="https://app.test/orders")
+    )
+    async with Client(server.mcp) as client:
+        await client.call_tool("open_session", {})
+    assert seen["url"] == "https://app.test/orders"
+
+
+async def test_fresh_drops_the_remembered_page_and_keeps_the_browser(
+    server, monkeypatch
+):
+    """For running something from a known start — a login flow you want to
+    exercise signed out. Only the page is dropped: coming back as Chrome when
+    the session was on Firefox is a silent change of shape, not a fresh start."""
+    from fastmcp import Client
+
+    from kubed.selenium_flow.store import SessionRecord
+
+    from .conftest import NAMED
+
+    seen = {}
+
+    def fake_open(**kwargs):
+        seen.update(kwargs)
+        return {"session_id": "abc", "url": "about:blank"}
+
+    monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
+    monkeypatch.setattr(server.actions, "open_session", fake_open)
+    server.sessions.store.set(
+        NAMED.value,
+        SessionRecord(
+            session_id="",
+            url="https://app.test/orders",
+            settings={"browser": "firefox", "width": 1400, "height": 900},
+        ),
+    )
+    async with Client(server.mcp) as client:
+        await client.call_tool("open_session", {"fresh": True})
+
+    assert seen["url"] is None, "the remembered page is dropped"
+    assert seen["browser"] == "firefox", "and the browser it was using is not"
+    assert seen["width"] == 1400
+
+
+async def test_a_url_given_alongside_fresh_still_wins(server, monkeypatch):
+    """`fresh` says "not where I was", not "nowhere". A caller that named a
+    start has named one."""
+    from fastmcp import Client
+
+    from kubed.selenium_flow.store import SessionRecord
+
+    from .conftest import NAMED
+
+    seen = {}
+    monkeypatch.setattr(server.sessions, "key", lambda: NAMED)
+    monkeypatch.setattr(
+        server.actions,
+        "open_session",
+        lambda **kwargs: (
+            seen.update(kwargs) or {"session_id": "abc", "url": "about:blank"}
+        ),
+    )
+    server.sessions.store.set(
+        NAMED.value, SessionRecord(session_id="", url="https://app.test/orders")
+    )
+    async with Client(server.mcp) as client:
+        await client.call_tool(
+            "open_session", {"fresh": True, "url": "https://app.test/login"}
+        )
+    assert seen["url"] == "https://app.test/login"

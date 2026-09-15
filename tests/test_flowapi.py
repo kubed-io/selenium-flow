@@ -710,3 +710,44 @@ async def test_the_schema_publishes_the_secret_shape_from_the_model(flow_server)
     fields = secret["properties"]
     assert fields["name"]["minLength"] == 1
     assert fields["key"]["minLength"] == 1
+
+
+# ---- what a save warns about, rather than refusing ---------------------------
+
+
+async def test_a_flow_that_starts_on_whatever_page_you_are_on_is_warned_about(
+    flow_server, store
+):
+    """A flow is responsible for being where it acts (§F2.6). One that starts
+    by clicking whatever is under a selector reports eight green steps on the
+    page before the one it meant to reach — the worst thing this server does."""
+    saved = await call(
+        flow_server,
+        flowapi.SAVE_TOOL,
+        name="risky",
+        steps=[{"tool": "interact", "args": {"action": "click", "css": "#go"}}],
+    )
+    assert saved["saved"] is True, "a warning is not a refusal"
+    assert store.names("desktop") == ["risky"], "and it is kept"
+    warning = " ".join(saved["warnings"])
+    assert "whatever page the browser is already on" in warning
+    assert "navigate" in warning and "assert" in warning
+
+
+@pytest.mark.parametrize(
+    "first",
+    [
+        {"tool": "navigate", "args": {"url": "https://example.test/"}},
+        {"tool": "assert", "args": {"script": "return location.pathname === '/x'"}},
+        {
+            "tool": "interact",
+            "args": {"action": "click", "css": "#go", "url": "https://example.test/"},
+        },
+    ],
+    ids=["navigates", "asserts", "carries a url"],
+)
+async def test_a_flow_that_owns_its_starting_page_is_not_warned_about(
+    flow_server, first
+):
+    saved = await call(flow_server, flowapi.SAVE_TOOL, name="fine", steps=[first])
+    assert "warnings" not in saved

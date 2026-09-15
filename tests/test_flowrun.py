@@ -1178,3 +1178,69 @@ def test_a_run_will_not_let_a_default_stand_in_for_a_required_parameter():
     )
     with pytest.raises(FlowError, match="needs email"):
         run(FakeActions(), document, "b")
+
+
+# ---- where each step went ----------------------------------------------------
+
+
+class _Stepping:
+    """A browser whose page changes only when a step is meant to move it."""
+
+    def __init__(self, pages):
+        self.pages = list(pages)
+        self.at = "https://app.test/"
+
+    def _go(self, _session_id, **_kwargs):
+        if self.pages:
+            self.at = self.pages.pop(0)
+        return {"url": self.at, "title": "t"}
+
+    navigate = interact = write = extract = _go
+
+    def page(self, session_id):
+        return {"url": self.at, "title": "t"}
+
+
+def test_a_step_says_where_it_went_when_it_went_somewhere():
+    """§F2.7: the cheapest defence left when an author forgets an assert — a
+    navigation that did not happen becomes visible in a report nobody asked to
+    be verbose."""
+    actions = _Stepping(
+        ["https://app.test/login", "https://app.test/login", "https://app.test/home"]
+    )
+    report = run(actions, flow(SIMPLE), "b")
+    assert [step.get("url") for step in report["steps"]] == [
+        "https://app.test/login",
+        None,
+        "https://app.test/home",
+    ]
+
+
+def test_the_first_step_always_says_where_the_flow_started():
+    """There is no previous step to differ from, and where a run began is a
+    fact about the run that nothing else states."""
+    actions = _Stepping(["https://app.test/one"])
+    report = run(actions, flow(SIMPLE[:1]), "b")
+    assert report["steps"][0]["url"] == "https://app.test/one"
+
+
+def test_a_page_carrying_a_typed_secret_is_still_not_reported():
+    """A submitting write lands on `?q=<what you typed>`. The per-step url is
+    withheld on exactly the terms the failure branch already withholds it."""
+
+    class _Leaky:
+        at = "https://app.test/"
+
+        def write(self, session_id, **kwargs):
+            self.at = "https://app.test/search?q=hunter2"
+            return {"url": self.at, "title": "t", "value": None}
+
+        def page(self, session_id):
+            return {"url": self.at, "title": "t"}
+
+    report = guarded(
+        [{"tool": "write", "args": {"css": "#p", "secret": SECRET_STEP}}],
+        actions=_Leaky(),
+    )
+    assert "hunter2" not in str(report)
+    assert report["steps"][0].get("url") is None

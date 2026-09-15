@@ -136,9 +136,18 @@ NEEDED_SOMEHOW = {"write": ("text",)}
 # press_key goes wherever focus is, screenshot captures the viewport, frame
 # takes an index instead.
 ADDRESSES_AN_ELEMENT = {
-    "interact", "write", "extract", "upload_file", "press_key", "screenshot", "frame",
+    "interact", "write", "extract", "upload_file", "press_key", "screenshot",
+    "frame", "drag",
 }
 OPTIONAL_ELEMENT = {"press_key", "screenshot"}
+
+# `drag` alone needs a second address: where the thing goes. Exactly one of a
+# destination element or a by_x/by_y offset, which is the same shape as
+# xpath-or-css and equally beyond a JSON schema to say. Without this a drag
+# step with no destination saved cleanly and failed at run time, which is the
+# whole reason validation happens at save (Copilot, #31).
+DESTINATION = ("to_xpath", "to_css")
+OFFSET = ("by_x", "by_y")
 
 
 def _needs_an_element(tool: str, params: dict) -> bool:
@@ -435,11 +444,38 @@ def _check_params(where: str, tool: str, params: dict, bound: set[str], schema: 
         elif not named and _needs_an_element(tool, params):
             problems.append(f"{where}: {tool} needs an element — give xpath or css")
 
+    if tool == "drag":
+        problems += _check_destination(where, params)
+
     for name in schema.get("required") or []:
         if name not in params and name not in bound and name not in RESERVED_PARAMS:
             problems.append(f"{where}: {tool} requires {name!r}")
 
     return problems
+
+
+def _check_destination(where: str, params: dict) -> list[str]:
+    """Where a drag ends: a destination element, or an offset. Never both."""
+    to = [k for k in DESTINATION if params.get(k)]
+    by = [k for k in OFFSET if params.get(k) is not None]
+    if len(to) > 1:
+        return [f"{where}: drag takes to_xpath or to_css, not both"]
+    if to and by:
+        return [
+            f"{where}: drag takes a destination element ({listed(to)}) or an "
+            f"offset ({listed(by)}), not both"
+        ]
+    if not to and not by:
+        return [
+            f"{where}: drag needs a destination — to_xpath or to_css for an "
+            "element, or by_x/by_y for an offset in pixels"
+        ]
+    if by and all(params.get(k) in (0, None) for k in OFFSET):
+        return [
+            f"{where}: drag by_x and by_y are both zero, which is a drag to "
+            "where it already is"
+        ]
+    return []
 
 
 def _check_step(index: int, step, declared: set[str], schemas: dict) -> list[str]:
@@ -600,6 +636,35 @@ def validate(document, schemas: dict) -> dict:
     if problems:
         raise InvalidFlow(problems)
     return document
+
+
+def concerns(document) -> list[str]:
+    """What is probably wrong with a valid flow, said once at save time.
+
+    A **warning**, not a refusal, and the difference is deliberate: a flow whose
+    first step acts on whatever page the browser happens to be on is legitimate
+    when the caller arranged that page, and a mistake the rest of the time.
+    Refusing it would break the legitimate case; saying nothing is how eight
+    green steps get reported on the page before the one the flow meant to reach
+    (§F2.6).
+    """
+    if not isinstance(document, dict):
+        return []
+    steps = document.get("steps") or []
+    first = steps[0] if steps and isinstance(steps[0], dict) else None
+    if first is None:
+        return []
+    tool = str(first.get("tool") or "")
+    args = first.get(ARGS)
+    args = args if isinstance(args, dict) else {}
+    if tool in ("navigate", ASSERTION) or args.get("url"):
+        return []
+    return [
+        f"this flow starts with {tool or 'a step'} on whatever page the browser "
+        "is already on. If it is meant for a particular page, say so: make the "
+        "first step navigate, give it a url, or put an assert in front of it "
+        "that says where the run must already be."
+    ]
 
 
 def step_schemas(tools: dict) -> dict:

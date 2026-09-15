@@ -43,7 +43,7 @@ Every action is a tool **and** an endpoint, one to one, and a test fails the bui
 
 ## 🧰 Every action, both ways
 
-Sixteen actions, each a tool **and** an endpoint with identical parameters. All endpoints are `POST` with a JSON body.
+Seventeen actions, each a tool **and** an endpoint with identical parameters. All endpoints are `POST` with a JSON body.
 
 > **The one difference:** over HTTP `session_id` is always **required**; over MCP it depends on the mode, and the advertised schema says which. See [Sessions](#-sessions).
 
@@ -52,6 +52,7 @@ Sixteen actions, each a tool **and** an endpoint with identical parameters. All 
 | [`open_session`](https://github.com/kubed-io/selenium-flow/wiki/open_session) | `POST /browser/open` | Start a browser — `chrome` or `firefox` 🚀 |
 | [`navigate`](https://github.com/kubed-io/selenium-flow/wiki/navigate) | `POST /browser/navigate` | Go to a URL 🧭 |
 | [`interact`](https://github.com/kubed-io/selenium-flow/wiki/interact) | `POST /browser/interact` | Click, double-click, right-click, hover, scroll to 🖱️ |
+| [`drag`](https://github.com/kubed-io/selenium-flow/wiki/drag) | `POST /browser/drag` | Drag an element onto another, or by an offset 🤏 |
 | [`write`](https://github.com/kubed-io/selenium-flow/wiki/write) | `POST /browser/write` | Type into a field ⌨️ |
 | [`press_key`](https://github.com/kubed-io/selenium-flow/wiki/press_key) | `POST /browser/press-key` | Press a named key — `tab`, `enter`, arrows 🎹 |
 | [`extract`](https://github.com/kubed-io/selenium-flow/wiki/extract) | `POST /browser/extract` | Read text and HTML off the page 📖 |

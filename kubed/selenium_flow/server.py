@@ -17,6 +17,7 @@ from . import (
     files,
     flowapi,
     flows,
+    pointer,
     prompts,
     resources,
     routes,
@@ -56,20 +57,35 @@ class SeleniumMCP:
         stateless: bool = False,
         saved_sessions: bool = True,
         store: SessionStore | None = None,
+        pointers=None,
         skill_enabled: bool = True,
         apps_enabled: bool = True,
         flow_data_dir: str | None = None,
         secrets_dirs: str | None = None,
     ):
         self.grid = Grid(grid_url)
-        self.actions = Actions(self.grid)
-        self.auth_token = auth_token
-        self.stateless = stateless
         # Redis or memory per SESSION_STORE. The store is only ever a
         # key -> session record map; the browser is on the Grid either way.
+        # Resolved before the actions, because the pointer store is derived
+        # from it.
+        self.store = store if store is not None else from_env()
+        # Where the pointer is in each browser, on the same backend as the
+        # session record (§F2.3) - built FROM that store rather than from a
+        # second reading of the environment, which is the only way the two are
+        # guaranteed to agree. An injected Redis store with a memory
+        # environment would otherwise share session mappings and keep pointers
+        # process-local, so a glide on another replica silently started as a
+        # jump (Copilot, #31). Still injectable, for a caller that wants a
+        # third thing.
+        self.actions = Actions(
+            self.grid,
+            pointers=pointers if pointers is not None else pointer.matching(self.store),
+        )
+        self.auth_token = auth_token
+        self.stateless = stateless
         self.sessions = SessionManager(
             self.actions,
-            store=store if store is not None else from_env(),
+            store=self.store,
             enabled=saved_sessions,
         )
 
@@ -137,6 +153,12 @@ class SeleniumMCP:
         # layer takes the function and never the key (§F2.9).
         self.actions.describe_file = lambda session_id, entry: files.describe(
             session_id, entry, auth_token, base
+        )
+        # And how it reads one back, for `upload_file(kept=...)`. Wired here for
+        # the same reason: which flow session owns a kept file is a question
+        # about the caller, which the behaviour layer deliberately cannot see.
+        self.actions.read_kept = lambda name, session=None: files.read_kept(
+            self.sessions, self.flows, name, session
         )
         self.apps = (
             apps.register(self.mcp, self.actions, auth_token) if apps_enabled else set()
