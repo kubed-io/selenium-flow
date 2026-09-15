@@ -145,6 +145,14 @@ HEAVY_FIELDS = ("image",)
 # Redis as the page a later reopen should return to.
 RESULT_FROM_ARGUMENT = {"text": "value", "script": "result"}
 
+# Arguments a STEP never writes and the run supplies, because they are about
+# the caller rather than about the action. `upload_file(kept=...)` reads from a
+# flow library, and which library that is, is the same question `/flows/run`
+# already answered to find the flow - so the run hands it down rather than
+# letting the action fall back to the ambient caller key, which over HTTP is
+# nobody and resolves to `global` (Copilot, #31).
+LIBRARY_ARG = {"upload_file": "session"}
+
 # Actions that can be told not to read their value back off the page.
 READ_BACK_OFF = {"write"}
 
@@ -525,6 +533,7 @@ def run(
     after_step=None,
     catalogue=None,
     skill_available: bool = True,
+    library: str = "",
 ) -> dict:
     """Run every step of ``document`` against the browser ``session_id``.
 
@@ -662,6 +671,14 @@ def run(
             reports.append(entry)
             status = "failed"
             break
+
+        # Filled in before the summary, so a step reading a kept file is
+        # answered by the library this run belongs to rather than by whatever
+        # the ambient caller key happens to resolve to. Never overridden: a
+        # step that named one meant it.
+        holder = LIBRARY_ARG.get(tool)
+        if holder and library and kwargs.get(holder) is None:
+            kwargs[holder] = library
 
         entry["summary"] = summarise(tool, kwargs, guarded)
         # Accumulated across the run, not scoped to this step. A submitting

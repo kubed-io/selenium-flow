@@ -162,15 +162,20 @@ def matching(store):
     Anything that is not the shared backend is process-local, which is exactly
     what a `MemoryStore` is.
 
-    Branching on ``kind`` rather than on ``getattr(store, "client", None)``,
+    Reading ``kind``, ``ttl`` and ``client`` directly rather than through
+    ``getattr(store, ..., default)``,
     because that idiom swallows an AttributeError raised *inside* the property
     and answers None — which is indistinguishable from "this store has no
     client" and degrades silently to memory. It did exactly that here once,
     through a one-word typo in the property. A store that says it is redis and
     then cannot produce a client should raise.
     """
-    ttl = getattr(store, "ttl", DEFAULT_TTL_SECONDS)
-    if getattr(store, "kind", "memory") != "redis":
+    # `store.ttl`, not `getattr(store, "ttl", <default>)`. Both backends expose
+    # it, and a silent default is how the memory path kept a pointer for a day
+    # on a server configured for minutes - the same swallowing-getattr trap as
+    # the client property below (Copilot, #31).
+    ttl = store.ttl
+    if store.kind != "redis":
         return MemoryPointers(ttl=ttl)
     return RedisPointers(store.client, prefix=store.prefix + "pointer:", ttl=ttl)
 

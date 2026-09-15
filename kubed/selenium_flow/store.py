@@ -161,6 +161,14 @@ class MemoryStore:
         self._ttl = ttl
         self._clock = clock
 
+    @property
+    def ttl(self) -> int:
+        """How long an entry is kept, so anything derived from this store keeps
+        the same retention. `RedisStore` exposes it for the same reason: without
+        it, `pointer.matching` fell back to its own default and held a pointer
+        for a day on a server configured for minutes (Copilot, #31)."""
+        return self._ttl
+
     def get(self, key: str) -> SessionRecord | None:
         entry = self._data.get(key)
         if entry is None:

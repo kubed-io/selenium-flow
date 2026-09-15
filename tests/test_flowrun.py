@@ -1244,3 +1244,54 @@ def test_a_page_carrying_a_typed_secret_is_still_not_reported():
     )
     assert "hunter2" not in str(report)
     assert report["steps"][0].get("url") is None
+
+
+def test_a_flow_reads_a_kept_file_from_the_library_the_run_belongs_to():
+    """`/flows/run` resolves the library to find the flow, and then the step
+    that reads a kept file has to be answered by the same one. Over HTTP the
+    ambient caller key is nobody, so without this the file was looked for in
+    the shared `global` library (Copilot, #31)."""
+    seen = {}
+
+    class _Uploading:
+        def upload_file(self, session_id, **kwargs):
+            seen.update(kwargs)
+            return {"url": "https://app.test/", "title": "t"}
+
+        def page(self, session_id):
+            return {"url": "https://app.test/", "title": "t"}
+
+    report = run(
+        _Uploading(),
+        flow([{"tool": "upload_file", "args": {"css": "input", "kept": "export.csv"}}]),
+        "b",
+        library="desktop",
+    )
+    assert report["status"] == "ok"
+    assert seen["session"] == "desktop"
+
+
+def test_a_step_that_names_its_own_library_is_left_alone():
+    """The run fills a gap; it does not overrule an author who said which."""
+    seen = {}
+
+    class _Uploading:
+        def upload_file(self, session_id, **kwargs):
+            seen.update(kwargs)
+            return {"url": "https://app.test/", "title": "t"}
+
+        def page(self, session_id):
+            return {"url": "https://app.test/", "title": "t"}
+
+    run(
+        _Uploading(),
+        flow([
+            {
+                "tool": "upload_file",
+                "args": {"css": "input", "kept": "x.csv", "session": "chosen"},
+            }
+        ]),
+        "b",
+        library="desktop",
+    )
+    assert seen["session"] == "chosen"

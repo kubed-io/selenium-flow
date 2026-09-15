@@ -673,3 +673,46 @@ def test_an_injected_session_store_can_bring_a_matching_pointer_store():
         grid_url="http://grid.invalid:4444", store=MemoryStore(), pointers=mine
     )
     assert server.actions.pointers is mine
+
+
+def test_a_dead_browser_during_a_move_is_not_reported_as_bad_geometry(
+    actions, monkeypatch
+):
+    """`_move_onto` swallows a failed move so the gesture still runs, and that
+    is right for geometry — but a dead browser has its own status and its own
+    fix (404, "call /browser/open"). Swallowing it turned `drag` into a 400
+    telling the caller their element was the wrong shape (Copilot, #31)."""
+    from selenium.common.exceptions import InvalidSessionIdException
+
+    from kubed.selenium_flow.errors import status_for
+
+    class _Driver:
+        current_url = "https://example.test/"
+        title = "t"
+
+        def execute_script(self, *_a, **_k):
+            return None
+
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
+    monkeypatch.setattr(
+        "kubed.selenium_flow.browser.wait_for_clickable", lambda *a, **k: _Element()
+    )
+    monkeypatch.setattr(
+        pointer,
+        "move",
+        lambda *a, **k: (_ for _ in ()).throw(InvalidSessionIdException("gone")),
+    )
+
+    with pytest.raises(InvalidSessionIdException) as dead:
+        actions.drag("abc", css="#card", to_css="#done")
+    assert status_for(dead.value) == 404
+
+
+def test_the_pointer_store_keeps_the_session_stores_retention():
+    """Both backends expose `ttl` now. The memory path used to fall back to its
+    own default, so a server configured for minutes held a pointer for a day
+    (Copilot, #31)."""
+    from kubed.selenium_flow.store import MemoryStore, RedisStore
+
+    assert pointer.matching(MemoryStore(ttl=60))._ttl == 60
+    assert pointer.matching(RedisStore(_Redis(), ttl=60))._ttl == 60
