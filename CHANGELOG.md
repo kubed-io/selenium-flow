@@ -37,6 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A browser opened over HTTP is a session like any other** — it appears in the admin list, slides its TTL, and is reopened where it left off after the Grid reaps it.
 
+### Fixed
+
+- **A click on a page that repaints itself is no longer racy** — the element is found again and the action retried once, rather than failing with a stale reference. Found by the admin page's own session list, which refreshes every two seconds.
+
 ### Added
 
 - **`outline` maps the page** — every element worth acting on, with a selector checked to match exactly one, and whether it can be used.

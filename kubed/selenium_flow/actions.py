@@ -20,7 +20,10 @@ import tempfile
 import time
 from pathlib import Path, PurePosixPath
 
-from selenium.common.exceptions import ElementClickInterceptedException
+from selenium.common.exceptions import (
+    ElementClickInterceptedException,
+    StaleElementReferenceException,
+)
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -473,52 +476,77 @@ class Actions:
         driver = self._at(session_id, url)
         timeout = as_int(wait_timeout, 30)
 
+        def gesture(element):
+            """The whole act, so a retry re-does the move as well as the click."""
+            moved = None
+            if resolved in POINTER_ACTIONS:
+                moved = self._move_onto(session_id, driver, element, glide)
+
+            if resolved == "click":
+                try:
+                    element.click()
+                except ElementClickInterceptedException as exc:
+                    # This is where a covered element actually surfaces.
+                    # Selenium's `element_to_be_clickable` considers one
+                    # clickable, so the wait above passes and the failure lands
+                    # here - and the driver's message names the element it was
+                    # asked for, not the thing on top of it. The probe knows
+                    # which (saga §F2.8).
+                    why = probe.explain(driver, target)
+                    first = (getattr(exc, "msg", "") or "").strip().splitlines()
+                    raise ElementClickInterceptedException(
+                        (first[0] if first else "element click intercepted")
+                        + (f" {why}" if why else "")
+                    ) from exc
+            elif resolved == "hover":
+                # The move IS the hover. Only when it could not be sent does
+                # this fall back to the gesture this package has always used.
+                if moved is None:
+                    ActionChains(driver).move_to_element(element).perform()
+            else:
+                chain = ActionChains(driver)
+                if resolved == "double_click":
+                    chain.double_click(element)
+                elif resolved == "right_click":
+                    chain.context_click(element)
+                elif resolved == "scroll_to":
+                    chain.scroll_to_element(element)
+                chain.perform()
+            return moved
+
         # hover and scroll_to only need the element to exist. Requiring it to be
         # clickable would refuse exactly the off-screen element scroll_to is for.
-        if resolved in ("hover", "scroll_to"):
-            element = browser.wait_for_element(driver, target, timeout)
-        else:
-            element = browser.wait_for_clickable(driver, target, timeout)
-
-        moved = None
-        if resolved in POINTER_ACTIONS:
-            moved = self._move_onto(session_id, driver, element, glide)
-
-        if resolved == "click":
-            try:
-                element.click()
-            except ElementClickInterceptedException as exc:
-                # This is where a covered element actually surfaces. Selenium's
-                # `element_to_be_clickable` considers one clickable, so the wait
-                # above passes and the failure lands here - and the driver's
-                # message names the element it was asked for, not the thing on
-                # top of it. The probe knows which (saga §F2.8).
-                why = probe.explain(driver, target)
-                first = (getattr(exc, "msg", "") or "").strip().splitlines()
-                raise ElementClickInterceptedException(
-                    (first[0] if first else "element click intercepted")
-                    + (f" {why}" if why else "")
-                ) from exc
-        elif resolved == "hover":
-            # The move IS the hover. Only when it could not be sent does this
-            # fall back to the gesture this package has always used.
-            if moved is None:
-                ActionChains(driver).move_to_element(element).perform()
-        else:
-            chain = ActionChains(driver)
-            if resolved == "double_click":
-                chain.double_click(element)
-            elif resolved == "right_click":
-                chain.context_click(element)
-            elif resolved == "scroll_to":
-                chain.scroll_to_element(element)
-            chain.perform()
+        moved = self._acting_on(
+            driver, target, timeout, resolved not in ("hover", "scroll_to"), gesture
+        )
 
         return {
             "action": resolved,
             **self._pointer_report(moved, glide),
             **browser.page_state(driver),
         }
+
+    def _acting_on(self, driver, target, timeout: int, clickable: bool, act):
+        """Find the element and act on it, once more if it goes stale first.
+
+        A page that repaints replaces the element between the wait and the act,
+        and WebDriver reports that as a stale reference. It is not a mistake by
+        the caller and there is nothing to fix in the selector: the element it
+        found is simply not the one on the page any more. Found by the admin UI,
+        whose session list repaints on a two-second poll — a click on a row was
+        racy on every page that refreshes itself, which is a great many of them.
+
+        Retried **once**, and the wait is part of the retry: retrying the act
+        alone would reuse the same dead reference. Once rather than until it
+        works, because a page that replaces an element faster than we can act on
+        it is a real finding, and a loop would bury it as a slow call.
+        """
+        find = browser.wait_for_clickable if clickable else browser.wait_for_element
+        try:
+            return act(find(driver, target, timeout))
+        except StaleElementReferenceException:
+            log.info("element went stale before it could be used; finding it again")
+            return act(find(driver, target, timeout))
 
     def _move_onto(self, session_id: str, driver, element, glide) -> dict | None:
         """Put the pointer on ``element`` before the gesture, if it can.
@@ -942,18 +970,25 @@ class Actions:
         """
         target = browser.locator(selector)
         driver = self._at(session_id, url)
-        element = browser.wait_for_clickable(driver, target, as_int(wait_timeout, 30))
-        if as_bool(clear, True):
-            element.clear()
-        element.send_keys(str(text))
-        # Read the value back before any submit: submitting navigates, which
-        # makes the element reference stale.
-        value = element.get_attribute("value") if as_bool(read_back, True) else None
-        if as_bool(submit, False):
-            element.send_keys(Keys.RETURN)
-            # And then wait for the navigation it may have caused, or the state
-            # below describes the page we just left. See `browser.settled`.
-            browser.settled(driver, element)
+
+        def typing(element):
+            if as_bool(clear, True):
+                element.clear()
+            element.send_keys(str(text))
+            # Read the value back before any submit: submitting navigates, which
+            # makes the element reference stale.
+            read = element.get_attribute("value") if as_bool(read_back, True) else None
+            if as_bool(submit, False):
+                element.send_keys(Keys.RETURN)
+                # And then wait for the navigation it may have caused, or the
+                # state below describes the page we just left. See
+                # `browser.settled`.
+                browser.settled(driver, element)
+            return read
+
+        value = self._acting_on(
+            driver, target, as_int(wait_timeout, 30), True, typing
+        )
         return {"value": value, **browser.page_state(driver)}
 
     def press_key(
@@ -973,18 +1008,24 @@ class Actions:
         # Resolved before the browser is touched: a typo costs nothing.
         resolved = resolve_key(key)
         driver = self._at(session_id, url)
+        def press(element):
+            element.send_keys(resolved)
+            # Only the keys that can submit a form. Tab, Escape and the arrows
+            # never navigate, and making every one of them wait to find that out
+            # would tax the common case for nothing. See `browser.settled`.
+            if any(submit in resolved for submit in SUBMIT_KEYS):
+                browser.settled(driver, element)
+
         if selector:
-            target = browser.wait_for_clickable(
-                driver, browser.locator(selector), as_int(wait_timeout, 30)
+            self._acting_on(
+                driver,
+                browser.locator(selector),
+                as_int(wait_timeout, 30),
+                True,
+                press,
             )
         else:
-            target = driver.find_element(By.TAG_NAME, "body")
-        target.send_keys(resolved)
-        # Only the keys that can submit a form. Tab, Escape and the arrows never
-        # navigate, and making every one of them wait to find that out would tax
-        # the common case for nothing. See `browser.settled`.
-        if any(submit in resolved for submit in SUBMIT_KEYS):
-            browser.settled(driver, target)
+            press(driver.find_element(By.TAG_NAME, "body"))
         return {"key": key, **browser.page_state(driver)}
 
     def outline(

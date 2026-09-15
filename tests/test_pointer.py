@@ -752,3 +752,100 @@ def test_a_custom_store_without_a_ttl_still_starts_the_server():
 
     server = SeleniumMCP(grid_url="http://grid.invalid:4444", store=_Minimal())
     assert server.actions.pointers.kind == "memory"
+
+
+# ---- a page that repaints under the action --------------------------------
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda actions: actions.interact(
+            "abc", "click", selector={"css": "#row"}
+        ),
+        lambda actions: actions.write("abc", "hello", selector={"css": "#row"}),
+    ],
+    ids=["interact", "write"],
+)
+def test_an_element_replaced_under_the_action_is_found_again(
+    actions, monkeypatch, call
+):
+    """Found by the admin UI's own session list, which repaints on a two-second
+    poll: the row was replaced between the wait and the click, and WebDriver
+    called that a stale reference. Nothing was wrong with the selector — the
+    element it found simply was not on the page any more — so the pair is
+    retried together, once.
+    """
+    from selenium.common.exceptions import StaleElementReferenceException
+
+    class _Typed(_Element):
+        """Enough element for both actions, without a real browser behind it."""
+
+        def send_keys(self, *_a):
+            return None
+
+        def clear(self):
+            return None
+
+        def get_attribute(self, _name):
+            return "hello"
+
+    class _Stale(_Typed):
+        def click(self):
+            raise StaleElementReferenceException("gone")
+
+        def clear(self):
+            raise StaleElementReferenceException("gone")
+
+    class _Driver:
+        current_url = "https://example.test/"
+        title = "t"
+
+        def execute_script(self, *_a, **_k):
+            return None
+
+        def execute(self, *_a, **_k):
+            return {"value": None}
+
+    found = []
+
+    def finding(*_a, **_k):
+        # Stale the first time, ordinary the second — a page that repainted once.
+        found.append(1)
+        return _Stale() if len(found) == 1 else _Typed()
+
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
+    monkeypatch.setattr(actions, "_move_onto", lambda *a, **k: None)
+    monkeypatch.setattr("kubed.selenium_flow.browser.wait_for_element", finding)
+    monkeypatch.setattr("kubed.selenium_flow.browser.wait_for_clickable", finding)
+    monkeypatch.setattr("kubed.selenium_flow.browser.settled", lambda *a, **k: None)
+
+    call(actions)
+    assert len(found) == 2, "it reused the dead reference instead of finding it again"
+
+
+def test_an_element_that_keeps_going_stale_is_reported_rather_than_looped(
+    actions, monkeypatch
+):
+    """Once, not until it works. A page that replaces an element faster than we
+    can act on it is a real finding, and a loop would bury it as a slow call."""
+    from selenium.common.exceptions import StaleElementReferenceException
+
+    class _AlwaysStale(_Element):
+        def click(self):
+            raise StaleElementReferenceException("gone")
+
+    class _Driver:
+        current_url = "https://example.test/"
+        title = "t"
+
+        def execute_script(self, *_a, **_k):
+            return None
+
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
+    monkeypatch.setattr(actions, "_move_onto", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "kubed.selenium_flow.browser.wait_for_clickable", lambda *a, **k: _AlwaysStale()
+    )
+    with pytest.raises(StaleElementReferenceException):
+        actions.interact("abc", "click", selector={"css": "#row"})
