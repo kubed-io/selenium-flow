@@ -145,6 +145,14 @@ HEAVY_FIELDS = ("image",)
 # Redis as the page a later reopen should return to.
 RESULT_FROM_ARGUMENT = {"text": "value", "script": "result"}
 
+# Arguments a STEP never writes and the run supplies, because they are about
+# the caller rather than about the action. `upload_file(kept=...)` reads from a
+# flow library, and which library that is, is the same question `/flows/run`
+# already answered to find the flow - so the run hands it down rather than
+# letting the action fall back to the ambient caller key, which over HTTP is
+# nobody and resolves to `global` (Copilot, #31).
+LIBRARY_ARG = {"upload_file": "session"}
+
 # Actions that can be told not to read their value back off the page.
 READ_BACK_OFF = {"write"}
 
@@ -525,6 +533,7 @@ def run(
     after_step=None,
     catalogue=None,
     skill_available: bool = True,
+    library: str = "",
 ) -> dict:
     """Run every step of ``document`` against the browser ``session_id``.
 
@@ -662,6 +671,20 @@ def run(
             reports.append(entry)
             status = "failed"
             break
+
+        # Filled in before the summary, so a step reading a kept file is
+        # answered by the library this run belongs to rather than by whatever
+        # the ambient caller key happens to resolve to.
+        #
+        # It OVERWRITES rather than filling a gap, and that is the point. The
+        # argument is not part of the saved-flow schema - `step_schemas` is
+        # built from the MCP tool, which deliberately omits it - so a document
+        # carrying one was hand-edited on disk and never passed validation. A
+        # step that could name a library would be a step that reads another
+        # session's kept files, which is not a feature (Copilot, #32).
+        holder = LIBRARY_ARG.get(tool)
+        if holder and library:
+            kwargs[holder] = library
 
         entry["summary"] = summarise(tool, kwargs, guarded)
         # Accumulated across the run, not scoped to this step. A submitting

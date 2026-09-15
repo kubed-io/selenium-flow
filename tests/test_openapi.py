@@ -286,3 +286,17 @@ async def test_the_upload_form_offers_every_source_the_action_takes(spec, server
     # `path` is a server-side filesystem path and has no place in a form, so it
     # is the one source deliberately absent; everything else must be offered.
     assert (sources - {"path"}) <= set(form)
+
+
+async def test_the_http_only_upload_selector_is_published_in_both_shapes(spec, server):
+    """`session` is on the action and deliberately not on the MCP tool, so the
+    derived schema cannot see it. Without publishing it here the endpoint
+    accepts a field no generated client can discover (Copilot, #31)."""
+    upload = spec["paths"]["/browser/upload"]["post"]["requestBody"]["content"]
+    assert "session" in spec["components"]["schemas"]["UploadFileRequest"]["properties"]
+    assert "session" in upload["multipart/form-data"]["schema"]["properties"]
+
+    # And the other half: it stays off the MCP tool, where the caller's key
+    # answers the same question.
+    tool = await server.mcp.get_tool("upload_file")
+    assert "session" not in tool.parameters["properties"]

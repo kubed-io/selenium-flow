@@ -158,7 +158,14 @@ def test_the_failure_and_the_map_read_the_same_answer():
     way to guarantee that is not to test two copies against each other — it is
     to have one copy. Both scripts are built from `_HELPERS`; if someone
     inlines a second `reasonFor`, this fails (saga §F2.8)."""
-    assert probe._HELPERS in probe.USABLE_JS
-    assert probe._HELPERS in probe.OUTLINE_JS
+    from kubed.selenium_flow import js
+
+    helpers = js.read(probe._HELPERS_FILE)
+    # The TEXT, not the file name: comparing the constant would pass whatever
+    # the constant happened to be, which is exactly what it started doing the
+    # day the scripts moved out of Python and it became "helpers.js".
+    assert helpers.strip()
+    assert helpers in probe.USABLE_JS
+    assert helpers in probe.OUTLINE_JS
     assert probe.USABLE_JS.count("reasonFor = ") == 1
     assert probe.OUTLINE_JS.count("reasonFor = ") == 1

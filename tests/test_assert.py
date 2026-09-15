@@ -525,3 +525,20 @@ def test_a_stability_window_that_cannot_be_read_is_refused(actions, driving, bad
     driving(True)
     with pytest.raises(ValueError, match="stable_for"):
         actions.assert_("abc", "return true", wait_timeout=5, stable_for=bad)
+
+
+def test_a_hold_that_fills_the_whole_wait_is_refused(actions, driving):
+    """Verifying a hold needs a poll AFTER the answer first came back true, and
+    the deadline stops that poll at `wait_timeout` — so `stable_for` equal to
+    `wait_timeout` could never be confirmed, and every such assertion failed
+    with "did not hold" whatever the page did (Copilot, #31)."""
+    driving(True)
+    with pytest.raises(ValueError, match="no room"):
+        actions.assert_("abc", "return true", wait_timeout=5, stable_for=5)
+
+
+def test_a_hold_with_room_left_still_passes(actions, driving, clock):
+    driving(True)
+    assert actions.assert_(
+        "abc", "return true", wait_timeout=5, stable_for=4.9
+    )["asserted"] is True

@@ -131,6 +131,11 @@ class SessionStore(Protocol):
     """Maps a caller key to the browser session it is using."""
 
     kind: str
+    # How long an entry is kept. Part of the contract because things derived
+    # from a store have to keep its retention - `pointer.matching` is the one
+    # that does - and a store that answered a different question about how long
+    # anything lives would be two retention policies wearing one name.
+    ttl: int
 
     def get(self, key: str) -> SessionRecord | None: ...
 
@@ -160,6 +165,14 @@ class MemoryStore:
         self._data: dict[str, tuple[float, SessionRecord]] = {}
         self._ttl = ttl
         self._clock = clock
+
+    @property
+    def ttl(self) -> int:
+        """How long an entry is kept, so anything derived from this store keeps
+        the same retention. `RedisStore` exposes it for the same reason: without
+        it, `pointer.matching` fell back to its own default and held a pointer
+        for a day on a server configured for minutes (Copilot, #31)."""
+        return self._ttl
 
     def get(self, key: str) -> SessionRecord | None:
         entry = self._data.get(key)

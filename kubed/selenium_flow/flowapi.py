@@ -256,6 +256,9 @@ def run_one(
         after_step=after_step,
         catalogue=secrets_catalogue,
         skill_available=skill_available,
+        # The CALLER's library, not `document["session"]`: a flow read from the
+        # shared `global` library still uploads a file this caller kept.
+        library=session,
     )
     return {"session": document["session"], **report}
 

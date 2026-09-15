@@ -39,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`press_key` takes the browser's key names, single characters and combinations** — `ArrowLeft`, `/`, `Control+a`, `Shift+Tab`.
 
-- **`drag` drags an element onto another, or by an offset** — `drag(css=".card", to_css=".done")` or `drag(css="input[type=range]", by_x=120)`. Sliders and sortable lists work, and so does native HTML5 drag-and-drop on Chrome.
+- **`drag` drags an element onto another, or by an offset** — `drag(css=".card", to_css=".done")` or `drag(css="input[type=range]", by_x=120)`. Real pointer input, so range sliders respond, and on Chrome it drives native HTML5 drag-and-drop as well.
 
 - **`interact` takes `glide`** — the pointer travels in steps instead of jumping, for interfaces that watch movement rather than arrival.
 
@@ -87,7 +87,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`POST /browser/upload` takes `session`**, naming the library a kept file belongs to — the same way `/files/keep` already does, so a file kept into a named session can be uploaded back out of it.
 
-- **A drag whose source is taller than the window works.** The pointer's position is now where WebDriver actually puts it — the element's in-view centre — rather than the centre of a rectangle running off the screen.
+- **A drag that failed because the browser had gone says so** — 404 with the fix, instead of 400 blaming the element's shape.
+
+- **A drag whose source is taller than the window works.** The pointer's position is now where WebDriver actually puts it — the element's in-view center — rather than the center of a rectangle running off the screen.
+
+- **A flow that uploads a kept file reads it from the library the run belongs to**, not from the shared `global` one.
 
 - **`assert` refuses a `stable_for` it cannot read** instead of silently dropping the stability check, and no longer accepts an answer a slow script returned after `wait_timeout` had passed.
 

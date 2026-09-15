@@ -9,11 +9,21 @@ Response shapes are the one hand-maintained half: the actions return plain
 dicts, so there is nothing to introspect. ``RESPONSES`` below is that
 declaration, and a test asserts every endpoint has one.
 
-One transform is applied on the way through. Saved sessions let an MCP caller
-omit ``session_id``, so the tool schema marks it optional. The HTTP endpoints
-never do that — they take a session in and give one back so the caller owns it —
-so ``_http_schema`` puts it back as required. That is the single sanctioned
-difference between the two schemas, and a test pins it.
+Three transforms are applied on the way through, and they are the only
+sanctioned differences between the two schemas. Each is pinned by a test.
+
+1. Saved sessions let an MCP caller omit ``session_id``, so the tool schema
+   marks it optional. The HTTP endpoints never do that — they take a session in
+   and give one back so the caller owns it — so ``http_schema`` puts it back as
+   required.
+2. ``SESSION_ONLY`` removes an argument that describes a *flow session*, which
+   the HTTP surface does not have: ``open_session(fresh=...)`` is the one.
+3. ``HTTP_ONLY`` adds an argument the action takes and the tool deliberately
+   does not publish, because over MCP the caller's own key answers it:
+   ``upload_file(session=...)`` is the one.
+
+The last two are opposites of each other and both deliberate. A reader who
+finds either and assumes accidental schema drift will remove a capability.
 """
 
 from __future__ import annotations
@@ -526,6 +536,7 @@ def _request_content(action: str, request_name: str) -> dict:
                             "content part, text, kept, or path."
                         ),
                     },
+                    "session": dict(HTTP_ONLY["upload_file"]["session"]),
                     "url": {"type": "string"},
                     "wait_timeout": {"type": "integer"},
                 },
@@ -549,17 +560,39 @@ def _request_content(action: str, request_name: str) -> dict:
 # contract rather than accepted and ignored.
 SESSION_ONLY = {"open_session": ("fresh",)}
 
+# The mirror image: arguments the ACTION takes that the MCP tool deliberately
+# does not publish, because over MCP the caller's own key answers them. The
+# schema is derived from the tool, so without this the endpoint accepts a field
+# no generated client can discover (Copilot, #31).
+HTTP_ONLY = {
+    "upload_file": {
+        "session": {
+            "type": "string",
+            "description": (
+                "Which flow library `kept` names a file in — the same selector "
+                "/files/keep and /files/list take. Over MCP the caller's own "
+                "session answers this and the argument does not exist; here "
+                "the surface is always explicit, and without it a kept file is "
+                "looked for in the shared `global` library."
+            ),
+        }
+    }
+}
+
 
 def http_schema(tool_schema: dict, action: str = "") -> dict:
     """A tool's schema as the HTTP surface actually accepts it.
 
-    Two things change. ``session_id`` becomes required and loses its null
+    Three things change. ``session_id`` becomes required and loses its null
     branch: MCP callers may omit it because saved sessions can supply it, and an
-    endpoint has no session to draw on and must be told. And anything in
+    endpoint has no session to draw on and must be told. Anything in
     ``SESSION_ONLY`` is removed, because it describes a flow session this
-    surface does not have.
+    surface does not have. And anything in ``HTTP_ONLY`` is added, for the
+    opposite reason — the action takes it and the tool does not publish it.
     """
     schema = copy.deepcopy(tool_schema)
+    for name, published in HTTP_ONLY.get(action, {}).items():
+        schema.setdefault("properties", {})[name] = dict(published)
     for name in SESSION_ONLY.get(action, ()):
         schema.get("properties", {}).pop(name, None)
         required = schema.get("required")

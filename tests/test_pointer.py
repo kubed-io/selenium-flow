@@ -14,8 +14,6 @@ orchestration, which a double can prove and which is where the mistakes were.
 """
 
 import os
-import shutil
-import subprocess
 from urllib.parse import quote
 
 import pytest
@@ -25,26 +23,6 @@ from kubed.selenium_flow import pointer
 from kubed.selenium_flow.pointer import MemoryPointers, RedisPointers
 
 pytestmark = pytest.mark.unit
-
-
-# ---- the JavaScript it sends --------------------------------------------
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="needs node to parse JS")
-@pytest.mark.parametrize(
-    "script", [pointer.NUDGE_JS, pointer.CENTRE_JS], ids=["nudge", "centre"]
-)
-def test_the_scripts_parse(tmp_path, script):
-    """Same guard `test_probe_js.py` has, for the same reason: a script that
-    does not parse fails in the browser as a WebDriverException whose message is
-    not about the mistake. Wrapped in a function because that is how WebDriver
-    runs it — the bare text has a top-level `return`."""
-    path = tmp_path / "pointer.js"
-    path.write_text("(function () {\n" + script + "\n});", encoding="utf-8")
-    result = subprocess.run(
-        ["node", "--check", str(path)], capture_output=True, text=True, check=False
-    )
-    assert result.returncode == 0, result.stderr
 
 
 # ---- the path -----------------------------------------------------------
@@ -695,3 +673,82 @@ def test_an_injected_session_store_can_bring_a_matching_pointer_store():
         grid_url="http://grid.invalid:4444", store=MemoryStore(), pointers=mine
     )
     assert server.actions.pointers is mine
+
+
+def test_a_dead_browser_during_a_move_is_not_reported_as_bad_geometry(
+    actions, monkeypatch
+):
+    """`_move_onto` swallows a failed move so the gesture still runs, and that
+    is right for geometry — but a dead browser has its own status and its own
+    fix (404, "call /browser/open"). Swallowing it turned `drag` into a 400
+    telling the caller their element was the wrong shape (Copilot, #31)."""
+    from selenium.common.exceptions import InvalidSessionIdException
+
+    from kubed.selenium_flow.errors import status_for
+
+    class _Driver:
+        current_url = "https://example.test/"
+        title = "t"
+
+        def execute_script(self, *_a, **_k):
+            return None
+
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
+    monkeypatch.setattr(
+        "kubed.selenium_flow.browser.wait_for_clickable", lambda *a, **k: _Element()
+    )
+    monkeypatch.setattr(
+        pointer,
+        "move",
+        lambda *a, **k: (_ for _ in ()).throw(InvalidSessionIdException("gone")),
+    )
+
+    with pytest.raises(InvalidSessionIdException) as dead:
+        actions.drag("abc", css="#card", to_css="#done")
+    assert status_for(dead.value) == 404
+
+
+def test_the_pointer_store_keeps_the_session_stores_retention():
+    """Both backends expose `ttl` now. The memory path used to fall back to its
+    own default, so a server configured for minutes held a pointer for a day
+    (Copilot, #31)."""
+    from kubed.selenium_flow.store import MemoryStore, RedisStore
+
+    assert pointer.matching(MemoryStore(ttl=60))._ttl == 60
+    assert pointer.matching(RedisStore(_Redis(), ttl=60))._ttl == 60
+
+
+def test_a_custom_store_without_a_ttl_still_starts_the_server():
+    """`SeleniumMCP` takes an injected store, and `SessionStore` is a Protocol —
+    so a store written before `ttl` joined the contract is still a valid one.
+    Reading it directly turned that into a server that would not start
+    (Copilot, #32). The contract asks for it; the fallback is for the ones that
+    predate it."""
+    from kubed.selenium_flow.server import SeleniumMCP
+    from kubed.selenium_flow.store import SessionRecord
+
+    class _Minimal:
+        """Exactly the protocol as it was: kind, and the CRUD."""
+
+        kind = "memory"
+
+        def __init__(self):
+            self._data: dict = {}
+
+        def get(self, key):
+            return self._data.get(key)
+
+        def set(self, key, record: SessionRecord):
+            self._data[key] = record
+
+        def delete(self, key):
+            self._data.pop(key, None)
+
+        def records(self):
+            return dict(self._data)
+
+        def owners(self):
+            return {}
+
+    server = SeleniumMCP(grid_url="http://grid.invalid:4444", store=_Minimal())
+    assert server.actions.pointers.kind == "memory"

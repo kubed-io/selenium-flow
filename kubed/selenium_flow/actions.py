@@ -27,7 +27,10 @@ from selenium.webdriver.common.keys import Keys
 
 from . import browser, pointer, probe
 from .browser import Grid, as_bool, as_int, normalize_browser
-from .errors import AssertionFailed
+from .errors import GONE, UNAVAILABLE, AssertionFailed
+
+# What a failed pointer move must never be mistaken for. See `_move_onto`.
+INFRASTRUCTURE = (*GONE, *UNAVAILABLE)
 
 log = logging.getLogger(__name__)
 
@@ -533,6 +536,15 @@ class Actions:
                 start=self._pointer(session_id),
                 glide=as_bool(glide, False),
             )
+        except INFRASTRUCTURE:
+            # A dead browser or an unreachable Grid is not something the
+            # gesture can carry on without, and `errors.py` has a specific
+            # status and a specific fix for each - 404 "call /browser/open",
+            # 503 "the Grid is unavailable". Swallowing them here turned both
+            # into "the pointer could not be moved", which for `drag` then
+            # became a 400 telling the caller their geometry was wrong
+            # (Copilot, #31).
+            raise
         except Exception:  # the gesture outranks the move
             log.debug("could not move the pointer onto the target", exc_info=True)
             # Forgotten rather than left stale: a move that failed part-way
@@ -643,7 +655,7 @@ class Actions:
         if to_target is not None:
             # Read now rather than when the step was written: the approach may
             # have scrolled, and every rect on the page moved with it (§F2.3).
-            end = pointer.centre(
+            end = pointer.center(
                 driver, browser.wait_for_element(driver, to_target, timeout)
             )
         else:
@@ -1075,14 +1087,20 @@ class Actions:
         # answers 400. A rejected argument must cost nothing (Copilot, #31).
         timeout = max(as_int(wait_timeout, WAIT_TIMEOUT), 0)
         hold = _seconds(stable_for, 0.0, "stable_for")
-        if hold > timeout:
+        # `>=`, not `>`. Verifying a hold needs at least one poll AFTER the
+        # answer first came back true, and the deadline stops that poll at
+        # `wait_timeout` - so a hold exactly equal to the timeout can never be
+        # confirmed and every such assertion failed with "did not hold",
+        # whatever the page did (Copilot, #31).
+        if hold and hold >= timeout:
             # Refused rather than silently impossible, and the message names the
             # unit: `stable_for` and `wait_timeout` are both seconds, and a
             # caller who read one of them as milliseconds finds out here rather
             # than from an assertion that can never pass.
             raise ValueError(
-                f"stable_for ({hold}s) is longer than wait_timeout ({timeout}s), "
-                "so the answer could never hold long enough. Both are in "
+                f"stable_for ({hold}s) leaves no room inside wait_timeout "
+                f"({timeout}s): the answer has to be asked again AFTER it has "
+                "held, so the wait must be longer than the hold. Both are in "
                 "seconds; raise wait_timeout, or lower stable_for"
             )
         driver = self._at(session_id, url)

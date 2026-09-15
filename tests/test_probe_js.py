@@ -7,9 +7,9 @@ said so twice on #29 and was right both times.
 
 Two guards, because neither is enough alone:
 
-- **A syntax check**, which runs anywhere node does. A script that does not
-  parse fails in the browser as a WebDriverException whose message is not about
-  the mistake, and the substring assertions elsewhere would not notice.
+- **A syntax check**, which `tests/test_js.py` now runs over every file in
+  `js/` — the scripts are files rather than Python strings, so one test covers
+  all of them.
 - **An integration test against a real browser**, which is the only thing that
   can prove what the script *answers*. It needs a Grid, so it is marked
   `integration` and skips without `GRID_URL` — `pytest -m integration` with that
@@ -17,13 +17,9 @@ Two guards, because neither is enough alone:
 """
 
 import os
-import shutil
-import subprocess
 from urllib.parse import quote
 
 import pytest
-
-from kubed.selenium_flow import probe
 
 GRID_URL = os.environ.get("GRID_URL", "")
 
@@ -59,22 +55,6 @@ PAGE = (
     '<a href="/one">Open</a><a href="/two">Open</a>'
     '<div role=heading>Not a control</div>'
 )
-
-
-@pytest.mark.unit
-@pytest.mark.skipif(shutil.which("node") is None, reason="needs node to parse JS")
-@pytest.mark.parametrize(
-    "script", [probe.USABLE_JS, probe.OUTLINE_JS], ids=["usable", "outline"]
-)
-def test_the_script_parses(tmp_path, script):
-    """Wrapped in a function because that is how WebDriver runs it: the bare
-    text has a top-level `return`, which is only legal inside one."""
-    path = tmp_path / "probe.js"
-    path.write_text("(function () {\n" + script + "\n});", encoding="utf-8")
-    result = subprocess.run(
-        ["node", "--check", str(path)], capture_output=True, text=True, check=False
-    )
-    assert result.returncode == 0, result.stderr
 
 
 @pytest.fixture

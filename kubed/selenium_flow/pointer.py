@@ -34,6 +34,8 @@ import time
 from selenium.webdriver.common.actions.action_builder import ActionBuilder
 from selenium.webdriver.common.actions.mouse_button import MouseButton
 
+from . import js
+
 log = logging.getLogger(__name__)
 
 # Long enough to outlive any browser: the Grid reaps an idle session well
@@ -148,38 +150,6 @@ def from_env(env: dict | None = None):
     return RedisPointers(client, prefix=prefix, ttl=ttl)
 
 
-# The **in-view centre point**, which is WebDriver's own definition of where an
-# element-origin move lands: the centre of the element's rectangle intersected
-# with the viewport, not the centre of the rectangle. They are the same thing
-# for an ordinary element and very different for one taller than the window -
-# whose raw centre can be hundreds of pixels below the fold while the pointer is
-# sitting comfortably inside it. Reporting the raw centre made a later glide
-# plot a path to a coordinate outside the window (Copilot, #31).
-CENTRE_JS = """
-const [el, bringIntoView] = [arguments[0], arguments[1]];
-const inView = (r) => {
-  const w = window.innerWidth, h = window.innerHeight;
-  const left = Math.max(r.left, 0), right = Math.min(r.right, w);
-  const top = Math.max(r.top, 0), bottom = Math.min(r.bottom, h);
-  if (right <= left || bottom <= top) return null;
-  return [(left + right) / 2, (top + bottom) / 2];
-};
-let at = inView(el.getBoundingClientRect());
-let scrolled = false;
-if (bringIntoView && at === null) {
-  el.scrollIntoView({block: 'center', inline: 'center'});
-  at = inView(el.getBoundingClientRect());
-  scrolled = true;
-}
-if (at === null) {
-  const r = el.getBoundingClientRect();
-  return {at: [r.left + r.width / 2, r.top + r.height / 2],
-          scrolled: scrolled, outside: true};
-}
-return {at: at, scrolled: scrolled, outside: false};
-"""
-
-
 def matching(store):
     """A pointer store on the same backend as the session ``store``.
 
@@ -192,22 +162,40 @@ def matching(store):
     Anything that is not the shared backend is process-local, which is exactly
     what a `MemoryStore` is.
 
-    Branching on ``kind`` rather than on ``getattr(store, "client", None)``,
+    Reading ``kind`` and ``client`` directly rather than through
+    ``getattr(store, ..., default)``,
     because that idiom swallows an AttributeError raised *inside* the property
     and answers None — which is indistinguishable from "this store has no
     client" and degrades silently to memory. It did exactly that here once,
     through a one-word typo in the property. A store that says it is redis and
     then cannot produce a client should raise.
     """
+    # `ttl` is in the `SessionStore` protocol, and the fallback is for a store
+    # written before it was - `SeleniumMCP` takes an injected store, and a
+    # direct read turned a store that merely predates this into a server that
+    # will not start (Copilot, #32).
+    #
+    # This is NOT the swallowing getattr the client read below avoids. There
+    # the attribute must exist, so a missing one is a bug worth raising; here
+    # a store may legitimately not express a retention and the default is a
+    # real answer. The difference is whether absence means "broken".
     ttl = getattr(store, "ttl", DEFAULT_TTL_SECONDS)
-    if getattr(store, "kind", "memory") != "redis":
+    if store.kind != "redis":
         return MemoryPointers(ttl=ttl)
-    return RedisPointers(
-        store.client, prefix=store.prefix + "pointer:", ttl=ttl
-    )
+    return RedisPointers(store.client, prefix=store.prefix + "pointer:", ttl=ttl)
 
 
-def centre(driver, element, bring_into_view: bool = False) -> tuple[float, float]:
+# The **in-view center point**, which is WebDriver's own definition of where an
+# element-origin move lands: the center of the element's rectangle intersected
+# with the viewport, not the center of the rectangle. They are the same thing
+# for an ordinary element and very different for one taller than the window -
+# whose raw center can be hundreds of pixels below the fold while the pointer is
+# sitting comfortably inside it. Reporting the raw center made a later glide
+# plot a path to a coordinate outside the window (Copilot, #31).
+CENTER_JS = js.read("center.js")
+
+
+def center(driver, element, bring_into_view: bool = False) -> tuple[float, float]:
     """Where ``element`` is *now*, in viewport coordinates.
 
     Read at the moment of the move and never cached: scrolling moves every
@@ -220,7 +208,7 @@ def centre(driver, element, bring_into_view: bool = False) -> tuple[float, float
 def aim(driver, element, bring_into_view: bool = False) -> dict:
     """Where a pointer move onto ``element`` lands, and whether one can.
 
-    The **in-view centre**, not the rectangle's: see `CENTRE_JS`.
+    The **in-view center**, not the rectangle's: see `CENTER_JS`.
 
     ``bring_into_view`` scrolls it to the middle of the window first if none of
     it is in there. That is only needed for a **glide**, and it is needed
@@ -231,7 +219,7 @@ def aim(driver, element, bring_into_view: bool = False) -> dict:
     scrolled (Copilot, #31). A jump does not need it, because that move names
     the element rather than a coordinate and scrolls on its own.
     """
-    answer = driver.execute_script(CENTRE_JS, element, bool(bring_into_view))
+    answer = driver.execute_script(CENTER_JS, element, bool(bring_into_view))
     at = answer.get("at") or [0, 0]
     return {
         "at": (float(at[0]), float(at[1])),
@@ -275,35 +263,7 @@ def path(start: tuple[float, float], end: tuple[float, float]) -> list[tuple[int
 
 # One round trip for both questions a move has to ask about its destination: is
 # the pointer already inside it, and if so where is there to step to first.
-NUDGE_JS = """
-const [el, atX, atY, gap] = [arguments[0], arguments[1], arguments[2], arguments[3]];
-const box = el.getBoundingClientRect();
-const within = (x, y, r) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-if (atX === null || atY === null || !within(atX, atY, box)) {
-  return {inside: false, away: null};
-}
-const vw = window.innerWidth, vh = window.innerHeight;
-const parent = el.parentElement ? el.parentElement.getBoundingClientRect() : null;
-const candidates = [
-  [box.left - gap, box.top + box.height / 2],
-  [box.right + gap, box.top + box.height / 2],
-  [box.left + box.width / 2, box.top - gap],
-  [box.left + box.width / 2, box.bottom + gap],
-];
-const usable = (c) => c[0] >= 0 && c[1] >= 0 && c[0] < vw && c[1] < vh &&
-  !within(c[0], c[1], box);
-// A point still inside the element's parent is preferred: stepping right out
-// of an open flyout to nudge would close the very thing we are about to hover.
-for (const c of candidates) {
-  if (usable(c) && parent && within(c[0], c[1], parent)) {
-    return {inside: true, away: [Math.round(c[0]), Math.round(c[1])]};
-  }
-}
-for (const c of candidates) {
-  if (usable(c)) return {inside: true, away: [Math.round(c[0]), Math.round(c[1])]};
-}
-return {inside: true, away: null};
-"""
+NUDGE_JS = js.read("nudge.js")
 
 
 def _nudge_point(driver, element, start) -> tuple[bool, tuple[int, int] | None]:
@@ -344,7 +304,7 @@ def move(driver, element, start=None, glide=False) -> dict:
         aimed = aim(driver, element, bring_into_view=True)
         if aimed["outside"]:
             # Still not reachable by coordinate after scrolling — an element
-            # taller than the window, or one a scroll container cannot centre.
+            # taller than the window, or one a scroll container cannot center.
             # A jump still works, because that move names the element.
             unglideable = True
         else:
@@ -361,7 +321,7 @@ def move(driver, element, start=None, glide=False) -> dict:
 
     # Read after the move, not before: the element-origin move may have
     # scrolled the page, which moves every rect including this one.
-    landed = centre(driver, element)
+    landed = center(driver, element)
     return {
         "at": landed,
         "glided": glided,

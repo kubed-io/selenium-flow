@@ -1244,3 +1244,84 @@ def test_a_page_carrying_a_typed_secret_is_still_not_reported():
     )
     assert "hunter2" not in str(report)
     assert report["steps"][0].get("url") is None
+
+
+def test_a_flow_reads_a_kept_file_from_the_library_the_run_belongs_to():
+    """`/flows/run` resolves the library to find the flow, and then the step
+    that reads a kept file has to be answered by the same one. Over HTTP the
+    ambient caller key is nobody, so without this the file was looked for in
+    the shared `global` library (Copilot, #31)."""
+    seen = {}
+
+    class _Uploading:
+        def upload_file(self, session_id, **kwargs):
+            seen.update(kwargs)
+            return {"url": "https://app.test/", "title": "t"}
+
+        def page(self, session_id):
+            return {"url": "https://app.test/", "title": "t"}
+
+    report = run(
+        _Uploading(),
+        flow([{"tool": "upload_file", "args": {"css": "input", "kept": "export.csv"}}]),
+        "b",
+        library="desktop",
+    )
+    assert report["status"] == "ok"
+    assert seen["session"] == "desktop"
+
+
+def test_a_step_can_never_name_another_callers_library():
+    """The run OVERWRITES rather than filling a gap. `session` is not part of
+    the saved-flow schema — `step_schemas` comes from the MCP tool, which omits
+    it — so a document carrying one was hand-edited on disk and never validated.
+    A step that could name a library would read another session's kept files
+    (Copilot, #32)."""
+    seen = {}
+
+    class _Uploading:
+        def upload_file(self, session_id, **kwargs):
+            seen.update(kwargs)
+            return {"url": "https://app.test/", "title": "t"}
+
+        def page(self, session_id):
+            return {"url": "https://app.test/", "title": "t"}
+
+    run(
+        _Uploading(),
+        flow([
+            {
+                "tool": "upload_file",
+                "args": {"css": "input", "kept": "x.csv", "session": "somebody-else"},
+            }
+        ]),
+        "b",
+        library="desktop",
+    )
+    assert seen["session"] == "desktop"
+
+
+def test_a_saved_flow_cannot_carry_a_library_selector():
+    """The other half of the rule above, at the gate rather than at run time."""
+    from kubed.selenium_flow import flowdoc
+
+    schemas = {
+        "upload_file": {
+            "type": "object",
+            "properties": {"css": {"type": "string"}, "kept": {"type": "string"}},
+            "required": [],
+        }
+    }
+    with pytest.raises(flowdoc.InvalidFlow) as refused:
+        flowdoc.validate(
+            {
+                "steps": [
+                    {
+                        "tool": "upload_file",
+                        "args": {"css": "input", "kept": "x.csv", "session": "other"},
+                    }
+                ]
+            },
+            schemas,
+        )
+    assert "session" in " ".join(refused.value.problems)
