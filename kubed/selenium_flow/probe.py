@@ -56,7 +56,11 @@ ACTIONABLE_ROLES = (
 )
 
 INTERACTIVE = (
-    "a[href], button, input, select, textarea, summary, label, iframe, "
+    # `input:not([type="hidden"])`: a hidden field cannot be clicked or typed
+    # into, and a form with thirty of them would fill the budget before a
+    # single visible control was reached.
+    'a[href], button, input:not([type="hidden"]), select, textarea, '
+    "summary, label, iframe, "
     '[onclick], [contenteditable=""], [contenteditable="true"], '
     '[tabindex]:not([tabindex="-1"]), '
     + ", ".join(f'[role="{role}"]' for role in ACTIONABLE_ROLES)
@@ -172,9 +176,15 @@ const accessibleName = (el) => {
   return textOf(el).slice(0, 80);
 };
 
-const onlyOne = (css) => {
+// Unique *and* this element. Counting alone is not enough: an attribute value
+// carrying a quote or a backslash can build a selector that matches exactly one
+// element which is not the one it was built from, and handing that out would
+// point a later click at the wrong node - the precise failure a checked
+// selector exists to prevent.
+const onlyOne = (css, el) => {
   try {
-    return document.querySelectorAll(css).length === 1;
+    const found = document.querySelectorAll(css);
+    return found.length === 1 && (!el || found[0] === el);
   } catch (e) { return false; }
 };
 
@@ -195,7 +205,7 @@ const cssPath = (el) => {
     }
     parts.unshift(part);
     const candidate = parts.join(' > ');
-    if (onlyOne(candidate)) return candidate;
+    if (onlyOne(candidate, el)) return candidate;
   }
   return parts.join(' > ');
 };
@@ -205,13 +215,14 @@ const cssPath = (el) => {
 // cannot match text at all.
 const selectorFor = (el) => {
   const tag = el.tagName.toLowerCase();
-  if (el.id && onlyOne('#' + CSS.escape(el.id))) return {css: '#' + CSS.escape(el.id)};
+  const byId = el.id ? '#' + CSS.escape(el.id) : '';
+  if (byId && onlyOne(byId, el)) return {css: byId};
   for (const attr of ['data-testid', 'data-test', 'data-qa', 'name',
                       'aria-label', 'placeholder', 'title', 'href']) {
     const value = el.getAttribute(attr);
     if (!value || value.length > 80 || value.includes('"')) continue;
     const candidate = tag + '[' + attr + '="' + value + '"]';
-    if (onlyOne(candidate)) return {css: candidate};
+    if (onlyOne(candidate, el)) return {css: candidate};
   }
   const text = textOf(el);
   if (text && text.length <= 60 && !text.includes('"')) {
@@ -219,7 +230,10 @@ const selectorFor = (el) => {
     try {
       const count = document.evaluate('count(' + xpath + ')', document, null,
         XPathResult.NUMBER_TYPE, null).numberValue;
-      if (count === 1) return {xpath: xpath};
+      // Same rule as the CSS candidates: one match, and it has to be this one.
+      const first = document.evaluate(xpath, document, null,
+        XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+      if (count === 1 && first === el) return {xpath: xpath};
     } catch (e) { /* an unusable expression is simply not the answer */ }
   }
   return {css: cssPath(el)};
