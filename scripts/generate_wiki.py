@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Generate one wiki page per action, from the OpenAPI spec.
 
-There are fourteen actions, each with a tool and an endpoint, and a page that
-described them by hand would be wrong within a month. The spec is already
+There is a page per browser action — sixteen of them — each with a tool and an
+endpoint, and a set described by hand would be wrong within a month. The spec is already
 generated from the live MCP tool schemas and a test fails when it goes stale, so
 it is the one description of the surface that cannot drift — these pages are
 rendered from it for the same reason.
@@ -56,7 +56,7 @@ BANNER = (
 # two layers that sit above a browser action and have their own route tables.
 #
 # Grouped rather than flat because the groups are real: a flow is not a
-# fifteenth thing to do to a browser, it is a saved list of the first fourteen,
+# further thing to do to a browser, it is a saved list of the actions above,
 # and a reader who cannot see that from the index has to infer it.
 GROUPS = [
     (

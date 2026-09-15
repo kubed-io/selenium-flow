@@ -19,6 +19,7 @@ import tempfile
 import time
 from pathlib import Path, PurePosixPath
 
+from selenium.common.exceptions import ElementClickInterceptedException
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -397,7 +398,20 @@ class Actions:
             element = browser.wait_for_clickable(driver, target, timeout)
 
         if resolved == "click":
-            element.click()
+            try:
+                element.click()
+            except ElementClickInterceptedException as exc:
+                # This is where a covered element actually surfaces. Selenium's
+                # `element_to_be_clickable` considers one clickable, so the wait
+                # above passes and the failure lands here - and the driver's
+                # message names the element it was asked for, not the thing on
+                # top of it. The probe knows which (saga §F2.8).
+                why = probe.explain(driver, target)
+                first = (getattr(exc, "msg", "") or "").strip().splitlines()
+                raise ElementClickInterceptedException(
+                    (first[0] if first else "element click intercepted")
+                    + (f" {why}" if why else "")
+                ) from exc
         else:
             chain = ActionChains(driver)
             if resolved == "double_click":

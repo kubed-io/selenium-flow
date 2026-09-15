@@ -5,8 +5,9 @@ A skill is read by the model when it decides to; a prompt is chosen by somebody
 the model sees anything. Different primitive, different module.
 
 This is why a failed run's `hint` names one: an agent cannot invoke a prompt, but
-it can tell a person which to pick, and a person reading a stopped run in the
-admin page can pick it directly (saga §F2.6).
+it can tell a person which to pick, and that person picks it in their own client
+(saga §F2.6). The admin page has no run view and no picker — it shows sessions,
+files and flows — so the hint reaches a person through whoever ran the flow.
 
 The file format and this loader follow `kubed-io/skills-mcp`, which has run them
 in production for months: frontmatter declaring the arguments, a body with
@@ -86,8 +87,13 @@ def _split(text: str) -> tuple[dict, str] | None:
     block, separator, body = rest.partition("\n---")
     if not separator:
         return None
-    meta = yaml.safe_load(block) or {}
-    return (meta if isinstance(meta, dict) else {}), body.lstrip("\n")
+    meta = yaml.safe_load(block)
+    if meta is not None and not isinstance(meta, dict):
+        # `description: x` is a mapping; a bare list or scalar is a file
+        # somebody got wrong, and publishing it with no metadata leaves an
+        # unusable entry in the picker rather than a skipped file.
+        raise ValueError(f"frontmatter must be a mapping, got {type(meta).__name__}")
+    return (meta or {}), body.lstrip("\n")
 
 
 def load_prompt(path: Path) -> FilePrompt:

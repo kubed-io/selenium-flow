@@ -15,8 +15,10 @@ a check you repeat on Chrome and then on Firefox.
 
 ## The loop
 
-1. **Discover.** Drive it once by hand. Use `extract` to find each selector and
-   confirm it matches exactly one element (`references/READING_PAGES.md`).
+1. **Discover.** Drive it once by hand. Use `outline` to find each selector —
+   it returns one per element, already checked to match exactly one, and says
+   whether the element can be used. `extract` is for reading *content*
+   (`references/READING_PAGES.md`).
 2. **Build.** Write each call down as a step. Anything that changes between runs
    becomes a parameter.
 3. **Save.** `save_flow`, once. It validates every step against the live tool
