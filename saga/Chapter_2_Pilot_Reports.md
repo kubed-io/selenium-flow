@@ -61,10 +61,11 @@ below is ticked against it.
 1. **E17 — the admin UI's carried items.** Wants a Penpot pass before any code.
 2. **E5 — `ROUTE_PREFIX` as the global mount.** Independent, and it reaches into
    the cluster repo.
-3. **E18 — one kind of session** (§F2.12). Dr K's: stop splitting sessions by
-   transport and split them by whether the name was chosen or generated, so an
-   HTTP caller and an MCP caller can be the same session. Design recorded, not
-   started, and big enough to want its own chapter.
+3. **E18 — one session, always named** (§F2.12). Dr K's: one contract, a name
+   the caller supplies, no `session_id` anywhere in the contract and no Grid id
+   exposed at all. It deletes a middleware, a reference and a mode. Design
+   recorded with four questions open, not started, and big enough to want its
+   own chapter.
 4. **A release.** The last tag is still `v0.1.0` and everything since is only in
    `:latest`. A minor version would make all of this pinnable.
 
@@ -690,74 +691,155 @@ preferences, and Firefox's equivalent too.
   login flow from a known start. Auth state already resets; only the URL carries.
 - **`upload_file` takes a kept file by name** — carried from §F1.41.
 
-### §F2.12 — Decision (recommended, Dr K's): one kind of session, and a name that is either chosen or generated
+### §F2.12 — Decision (Dr K's): one session, always named, and no ids in the contract
 
 Raised while reviewing #31, on the back of a finding about kept files: an HTTP
-caller had no way to name the library it had just kept a file into. The small
-fix is an explicit `session` argument, matching what `/files/*` already takes,
-and that is what #31 shipped. **Dr K's point is that the small fix keeps paying
-rent on a distinction that has stopped making sense.**
+caller had no way to name the library it had just kept a file into. #31 took the
+small fix — an explicit `session` argument, matching what `/files/*` already
+takes. **Dr K's point is that the small fix keeps paying rent on a distinction
+that has stopped making sense**, and over two passes his answer got simpler
+rather than more elaborate. What follows is the simpler one.
 
-**What the split is today.** Two session models, described in `AGENTS.md` as
-"MCP callers get a saved session, HTTP callers are always explicit":
+**The rule.** One kind of session. It always has a **name**, and the **caller
+supplies it** — this server never generates one and has no opinion about what a
+good name looks like. `session_id` disappears from every tool, every request
+body and every result. **The Grid's browser id is never exposed**, because
+nothing outside needs it: it is already attached to the named session in the
+background.
 
-| | MCP | HTTP |
-|---|---|---|
-| Identity | a caller key — a chosen name, else the transport id, else stdio | none; the browser id is the whole credential |
-| Browser | the server holds it and reopens it after a reap | the caller holds it; a reaped browser is simply gone |
-| Session record | yes, and it survives the browser | **none** — `routes.py` never touches `SessionManager` |
-| Visible in the admin UI | yes | no |
-| Flow library / kept files | resolved from the caller key | resolved from the caller key *or* an explicit `session` |
+**What that is instead of.** Today there are two contracts. A caller with a key
+is in *saved* mode and must not pass `session_id`; a caller without one is in
+*stateless* mode and must pass it on every call. That split is described
+everywhere as MCP-versus-HTTP, and it is not really about the transport at all —
+the flow **library** already resolves the same way on both surfaces. Only the
+**browser** does not.
 
-That last row is where it shows. The **library** already works the same way on
-both surfaces; only the **browser** does not. So the split is not really
-MCP-versus-HTTP at all.
+**What it deletes.** This is the reason to do it, and it is a long list:
 
-**What the distinction actually is.** Not headless versus saved. It is whether
-the session's name was **chosen by the caller** or **generated because nobody
-chose one**. Everything else follows from that, and nothing follows from which
-transport asked.
+| Goes away | Why it existed |
+|---|---|
+| `resolve`'s two-mode branch | one contract per mode |
+| `mode()`, and `describe`'s `guidance` and `pass_session_id` | telling a caller which contract it is under |
+| `stateless_key()` and `store_key`'s special case | a keyless caller needed a key invented for it |
+| **`resources.ShapeSessionId`**, and `test_shaping_does_not_leak_between_clients` | rewriting the advertised schema per request, because `session_id` was required in one mode and refused in the other |
+| one of `STATELESS.md` / `SAVED_SESSIONS.md` | two ways of working, two references |
+| `routes.py`'s separate session world | the HTTP surface never touched `SessionManager` |
+| `session_id` on ~20 tool schemas and every HTTP body | the caller's handle on a browser |
 
-**The proposal.** One session model, on both surfaces:
+An entire middleware and a whole reference disappear. The awkward pair of
+paragraphs in `AGENTS.md` — "a client owns one session" and "a browser opened
+through the HTTP surface gets no record" — collapse into one sentence.
 
-- Every session has a **name**. A caller that names itself gets that name; one
-  that does not gets a generated id, and the generated one is a name like any
-  other.
-- A session is **ephemeral** when nothing was saved under it — no flows, no kept
-  files. An ephemeral session whose browser has gone is genuinely disposable and
-  disappears from the admin UI rather than lingering as history.
-- **An HTTP caller may name an existing session.** That is the payoff Dr K is
-  after: a script driving `/browser/*` as a tool *for an agent* that is also on
-  `/mcp` shares one browser and one library, instead of running a second browser
-  beside it and wondering why the login did not carry.
+**Durability is Redis, and in-memory is not meant to survive.** Worth stating
+because it is a real change and it was raised as an objection: *today* a
+stateless HTTP caller survives a pod restart, because the browser id is in its
+own hand and the server holds nothing. Under this rule the name is the only
+handle and the **store** is what resolves it, so a restart with an in-memory
+store loses the mapping and orphans the browser on the Grid until it is reaped.
+Dr K's answer: **that is what Redis is for.** A deployment that wants sessions
+to survive a restart configures one; in-memory is a single-replica convenience
+and always was.
 
-**What it buys beyond that.** An HTTP caller inherits the thing MCP callers
-already have and it does not: a browser the Grid reaped comes back, on the same
-page, with the same window. Today that caller holds an id for a browser that no
-longer exists and has no way to find out except by failing.
+*Measured, and deliberately not the chosen answer:* a browser **can** carry its
+own session name, because a Selenium session takes arbitrary metadata. Verified
+on the live Grid:
 
-**The sharp edges, before anyone starts.**
+- A capability set at creation — `se:flowSession`, or any key with a colon in
+  it — comes back from the hub's `/status` under
+  `nodes[].slots[].session.capabilities`, beside `se:vnc` and `se:containerName`
+  which `Grid.sessions()` already reads.
+- An **unprefixed** key is refused outright: W3C requires a colon in an
+  extension capability.
+- A **reconnect sees none of it.** `ReattachDriver` skips `start_session`, so
+  `driver.capabilities` is empty — zero entries. Only the session that opened
+  the browser holds them. So the shape is *write at open, read from the hub*,
+  which is one call for every browser at once and nothing at all on the
+  per-call path.
 
-1. **A name becomes a credential.** Today an MCP caller can already claim any
-   name with `?session=`, so the exposure is not new — but extending it to the
-   browser surface makes "whoever holds the bearer token can attach to any named
-   session" a load-bearing property rather than an incidental one. It should be
-   written down as a decision, not discovered.
-2. **It is the first deliberate deletion.** §F1 was explicit that a flow session
-   is only ever removed by expiring, because nothing should be lost to a
-   misclick. "Ephemeral sessions disappear" is a new path that removes a record
-   on purpose, and it needs a rule for what counts as *nothing saved* — and for
-   what happens when something is saved under it afterwards.
-3. **The HTTP contract must not break.** `session_id` in, `session_id` out is
-   what every existing n8n workflow depends on. A generated session *name* is a
-   new thing beside the browser id, not a replacement for it, unless somebody
-   deliberately decides otherwise.
-4. **Every HTTP browser starts appearing in the admin list.** That is the
-   intent, and it is still a visible behaviour change on the day it ships.
+So the name→browser mapping could be rebuilt by asking the Grid rather than the
+store, and a restart would survive with no Redis. That is **not** proposed:
+Redis is the answer to durability and it is the simpler one. It is recorded so
+nobody rediscovers it as a surprise — and because it is independently useful
+somewhere else. `grid://sessions` today lists browsers this server has no record
+of and labels them as somebody else's; a name on the browser itself would let
+the admin list and the Grid console agree about who owns what without consulting
+the store.
+
+**What breaks, and it is a published contract.**
+
+1. **`open_session` stops returning a Grid id.** Every HTTP caller today keeps
+   that id and passes it back. They would name themselves once instead — a URL
+   or a header change, not a code change, but a change.
+2. **A raw Grid id from somewhere else stops working.** `AGENTS.md` currently
+   promises such an id is "taken on trust". That promise goes.
+3. **`SAVED_SESSIONS=off` stops meaning anything**, since every session is a
+   record. The switch has to go or change meaning.
+4. **The admin UI correlates on the browser id** and would keep doing so
+   internally, but what it *shows* a person becomes the name.
+
+**Open, and Dr K's to answer before anything is written:**
+
+1. **Does the MCP transport id still count as a name?** It is supplied by the
+   transport rather than chosen, so it is a generated name by another route. Keep
+   it and an unnamed client still works, reconnecting as a new session, exactly
+   as today. Drop it and *every* caller names itself, which is the cleaner rule
+   and refuses clients that work now.
+2. **What does `open_session` answer with?** The name and the settings, and
+   nothing else, is the reading consistent with hiding the id.
+3. **Is there a migration release** that accepts `session_id` and warns — a
+   temporary branch to remove a permanent one — or is it a clean break at a
+   major version?
+4. **Two callers, one name, is sharing.** That is true today and deliberate
+   (§F1.2). Under a rule where naming is mandatory it becomes much easier to do
+   by accident, and a name is guarded by nothing but the bearer token.
+5. **Could the Grid replace the store outright, and Redis with it?** Dr K's
+   question, and the answer is *half*. **Capabilities are write-once**: W3C
+   negotiates them at session creation and there is no update command. So the
+   Grid can hold what never changes — the name, and the settings it opened
+   with — and cannot hold the two things that do: the page the browser is on,
+   which changes after every action, and the window size after a `resize`.
+
+   And the deeper catch: while the browser is alive nothing needs a store,
+   because the browser can be asked where it is. The record exists for **after
+   the Grid reaps it** — and the capability dies with the browser, so at the
+   one moment the last page is needed, both are gone. Losing that means a
+   caller returning after an idle timeout gets a fresh browser on `about:blank`
+   rather than the page it was on, which is the §F1 behaviour that made a reap
+   invisible.
+
+   A file-backed store was considered as the third option — `FLOW_DATA_DIR` is
+   already durable and, in this deployment, already shared between replicas —
+   and **recommended against**. Three reasons, in order of weight: `touch` runs
+   on every browser action, which is a small keyed write with a sliding TTL and
+   is precisely what Redis is for and what a network filesystem is not; TTL
+   expiry would become a sweep this package owns, and `AGENTS.md` says in as
+   many words not to add a scheduler; and two replicas writing one record over
+   NFS needs locking or accepts last-write-wins. Redis is also not a dependency
+   being *added* — it is an optional extra, the default is memory, and this
+   cluster already runs one.
+
+   **So: keep the store, and add the capability anyway.** Not as a consolation
+   — it closes things the store cannot:
+
+   - **The admin view reconciles with the Grid.** `grid://sessions` lists
+     browsers this server has no record of and labels them as somebody else's.
+     A name on the browser says whose they are, including ones opened by
+     another replica.
+   - **Orphans become recoverable.** After a store loss, browsers are stranded
+     on the Grid with no way back. A name makes them findable again: the last
+     page is gone, the browser is not. That makes memory mode markedly less bad
+     without pretending to be Redis.
+   - **The Grid console becomes readable** — `se:flowSession: helpdesk-duplo`
+     rather than a hex id.
+
+   It costs one `set_capability` in `Grid._options()`, at creation, with no
+   ongoing cost. The store stays the system of record for what must outlive the
+   browser; the capability is the browser saying who it belongs to.
 
 **Not decided here.** This is Dr K's design, recorded so the next chapter starts
-from it rather than from the review thread it came out of. It wants its own
-epic, and probably its own chapter.
+from it rather than from a review thread. It is a breaking contract change, it
+touches the admin UI, the skill references, the middleware and the published
+OpenAPI, and it wants its own chapter.
 
 ### §F2.11 — Measured: Firefox interpolates, and a pointer drag is a real HTML5 drag on Chrome
 
@@ -1078,19 +1160,28 @@ anywhere.
 - [ ] `If-Match` on flow saves against `flows.revision`, 409 on conflict, and the
       editor says what happened
 
-### E18 — One kind of session (§F2.12)
+### E18 — One session, always named (§F2.12)
 
-Dr K's design, recorded rather than planned: the decision section is the work of
-this entry, and the boxes below are what it implies rather than a commitment.
+Dr K's design, recorded rather than planned: §F2.12 is the work of this entry,
+and the boxes are what it implies rather than a commitment. **The four open
+questions in §F2.12 are answered before any of this is written.**
 
-- [ ] Every session has a name; an unnamed caller gets a generated one
-- [ ] `routes.py` resolves a session the way `/mcp` does, so an HTTP caller can
-      name an existing one — and inherits the reopen-after-reap it has never had
-- [ ] Ephemeral means nothing was saved under it, and an ephemeral session with
-      no browser leaves the admin list
-- [ ] The HTTP contract survives: `session_id` in, `session_id` out
-- [ ] Written down: a session name is a credential, and the bearer token is what
-      guards it
+- [ ] Every session has a name and the **caller** supplies it; nothing here
+      generates one
+- [ ] `session_id` is gone from every tool schema, every request body and every
+      result
+- [ ] The Grid's browser id is never exposed; it stays attached to the named
+      session in the background
+- [ ] `routes.py` resolves a session the way `/mcp` does — one path, and the
+      HTTP surface inherits the reopen-after-reap it has never had
+- [ ] `resources.ShapeSessionId` and one of the two session references are
+      deleted, not adapted
+- [ ] `SAVED_SESSIONS` is resolved: gone, or given a meaning that still holds
+- [ ] Written down: a session name is a credential, the bearer token is all that
+      guards it, and sharing one is now easy to do by accident
+- [ ] The browser carries its session name as a capability (`se:flowSession`),
+      so the admin view can reconcile with the Grid and an orphaned browser can
+      be found again. Augments the store; does not replace it (§F2.12 Q5)
 
 ### E5 — The approach plate (carried, unchanged)
 
