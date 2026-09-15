@@ -170,6 +170,40 @@ Signed out, the login form is there and the flow runs. Signed in, the app has
 redirected, the field never appears, and the run fails in five seconds with that
 sentence instead of grinding through a login that cannot work.
 
+## When a flow fails
+
+A run that fails names the step, what went wrong, and the page it was on. It also
+carries a `hint`:
+
+```json
+{
+  "status": "failed",
+  "hint": {
+    "read": "skill://selenium-flow/references/FLOWS.md#when-a-flow-fails",
+    "prompt": "repair_flow",
+    "arguments": {"flow": "sign-in", "step": "4"}
+  }
+}
+```
+
+- **`read`** is a reference to load — the section that covers this kind of
+  failure.
+- **`prompt`** is for a person. `repair_flow` walks a page and fixes the flow
+  against what is there now; you cannot pick it yourself, but you can tell
+  somebody to.
+
+Two failures, two fixes:
+
+**The page changed under the flow.** A selector that found nothing, or found
+something that cannot be used. Go to that page, `outline` it, and read what the
+entries say — an element that is there but `hidden`, `covered` or `disabled` is
+not a missing element, it is a step that needs a `hover`, a dismissed banner, or
+a different order. Then `save_flow` the fix and run it again.
+
+**The flow was run somewhere it was not written for.** Nothing is wrong with the
+flow except where it started. Give it a first step that navigates, or an
+`assert` that stops the run and says where it must be.
+
 ## Whose flows you see
 
 This depends on your session name, and it is not guessable from any schema.

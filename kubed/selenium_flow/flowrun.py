@@ -64,6 +64,33 @@ RUNNABLE = frozenset(ENDPOINTS.values()) - NOT_STEPS.keys()
 
 log = logging.getLogger(__name__)
 
+# Where to read about a failure, and which prompt repairs it. The reference is
+# for the agent, which reads resources when it decides to; the prompt is for a
+# person, because an agent cannot invoke one - it can only say which to pick
+# (§F2.6).
+REFERENCES = "skill://selenium-flow/references"
+REPAIR_PROMPT = "repair_flow"
+
+
+def hint_for(step: dict, flow: str) -> dict:
+    """Where to look, decided by what failed rather than guessed."""
+    error = str(step.get("error") or "")
+    if step.get("tool") == ASSERTION:
+        # The assertion did its job. What to do next is in the message its
+        # author wrote; the reference explains why the run stopped there.
+        page = "FLOWS.md#say-what-must-be-true"
+    elif "matched" in error:
+        # A locator that found nothing, or found something that cannot be used:
+        # the page has moved under the flow.
+        page = "FLOWS.md#when-a-flow-fails"
+    else:
+        page = "TROUBLESHOOTING.md"
+    return {
+        "read": f"{REFERENCES}/{page}",
+        "prompt": REPAIR_PROMPT,
+        "arguments": {"flow": flow, "step": str(step.get("n") or "")},
+    }
+
 # How long a whole run may take. Checked between steps rather than enforced
 # inside one: a Selenium call blocks, and the honest bound is "we will not start
 # another step after this". Each step still has its own wait_timeout.
@@ -669,6 +696,10 @@ def run(
             break
         reports.append(entry)
 
+    # Chosen from what actually failed, and only when something did.
+    failed_step = reports[-1] if status == "failed" and reports else None
+    report_hint = hint_for(failed_step, name) if failed_step else None
+
     report = {
         "flow": name,
         "status": status,
@@ -682,6 +713,8 @@ def run(
     for key in ("url", "title"):
         if last.get(key):
             report[key] = last[key]
+    if report_hint:
+        report["hint"] = report_hint
     if redacted_url:
         # Says the reported page is not the page: a caller must not store it as
         # somewhere to navigate back to.

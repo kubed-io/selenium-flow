@@ -88,6 +88,7 @@ selenium-flow = "kubed.selenium_flow.main:main"
 [tool.setuptools]
 packages = [
   "kubed.selenium_flow",
+  "kubed.selenium_flow.prompts",
   "kubed.selenium_flow.skills",
   "kubed.selenium_flow.static",
 ]
@@ -101,6 +102,10 @@ packages = [
 # a stylesheet and two HTML pages belong in a checkout, but they have to ship
 # inside the package or the admin UI 500s on an installed copy.
 [tool.setuptools.package-dir]
+# `prompts/` is mapped for the same reason as the skill below: it reads as
+# documentation at the repo root and has to install inside the package, or a
+# wheel serves no prompts and says nothing about it.
+"kubed.selenium_flow.prompts" = "prompts"
 "kubed.selenium_flow.skills" = "skills"
 "kubed.selenium_flow.static" = "static"
 
@@ -111,6 +116,7 @@ packages = [
 # The directory name IS the skill name — FastMCP's SkillProvider takes it from
 # the folder, not the frontmatter, and publishes skill://<folder>/SKILL.md.
 [tool.setuptools.package-data]
+"kubed.selenium_flow.prompts" = ["*.md"]
 "kubed.selenium_flow.skills" = ["*", "**/*"]
 "kubed.selenium_flow.static" = ["*"]
 

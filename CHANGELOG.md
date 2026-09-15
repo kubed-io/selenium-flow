@@ -27,27 +27,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`outline` maps the page**, so an agent stops guessing selectors out of HTML. Every element worth acting on, with one selector checked to match exactly one element, and whether it can be used — or what is in the way: a hidden ancestor, an overlay, no size, off-screen, disabled. Scope it with `css`, filter it with `text`.
+- **`outline` maps the page** — every element worth acting on, with a selector checked to match exactly one, and whether it can be used.
 
-- **A failed click says why, and what to do.** When the element is on the page but cannot be used, the error names the reason — an ancestor is hidden, something is on top of it, it has no size, it is off-screen, it is disabled — and the move that fixes it.
+- **A failed click says why, and what to do**: a hidden ancestor, something on top of it, no size, off-screen, disabled.
 
-- **A flow can say what must be true.** `assert` runs JavaScript that has to come back `true` — the URL, an element, a cookie, anything the page knows — and fails with the message you wrote, so a flow stops on the wrong page instead of reporting steps it did not really pass.
+- **A flow can say what must be true.** `assert` runs JavaScript that has to come back `true`, and fails with the message you wrote.
+
+- **Two prompts a person can pick.** `repair_flow` fixes a flow against the page it now fails on; `build_flow` walks a task by hand and saves what worked.
+
+- **A failed run says where to read and which prompt repairs it.**
 
 - **`press_key` takes the browser's key names, single characters and combinations** — `ArrowLeft`, `/`, `Control+a`, `Shift+Tab`.
 
 ### Changed
 
-- **Screenshots are kept with the session's files by default**, and come back with a signed link anyone can open — `save_pdf` too. `screenshot(save=false)` opts out.
+- **Screenshots are kept with the session's files by default**, and come back with a link anyone can open — signed and time-limited when the server has a token, a plain path when authentication is off. `screenshot(save=false)` opts out, and a page that refuses the download returns `file_error` with the image.
 
-- **BREAKING:** a stored file is now described the way `session_files` describes one — `created` instead of `creationTime`, plus `content_type`, `image`, `kept`, `url` and `absolute_url`. Affects the `file` in `screenshot` and `save_pdf` results; a caller reading `creationTime` should read `created`.
+- **BREAKING:** a stored file is now described the way `session_files` describes one — `created` instead of `creationTime`, plus `content_type`, `image`, `kept`, `url` and `absolute_url`. Affects the `file` in `screenshot` and `save_pdf` results.
 
-- **Tools list their fixed choices in their schemas** — every `interact`, `dialog` and `frame` action, and `open_session`'s browsers — so a client can show them, and a flow naming one that does not exist is refused when it is saved instead of when it runs.
+- **Tools list their fixed choices in their schemas** — every `interact`, `dialog` and `frame` action, and `open_session`'s browsers — so a client can show them, and a flow naming one that does not exist is refused when it is saved.
 
 ### Fixed
 
-- **A screenshot of a page the browser will not download from no longer costs you fifteen seconds.** It says so straight away and still returns the image.
+- **A screenshot of a page the browser will not download from no longer costs fifteen seconds.** It says so straight away and still returns the image.
 
-- **A saved file is named for what it actually is** — `screenshot(filename="chart.pdf")` is stored as a PNG rather than handed to a browser as a PDF that will not open.
+- **A saved file is named for what it actually is** — `screenshot(filename="chart.pdf")` is stored as a PNG.
 
 ## [0.1.0] - 2026-09-12
 

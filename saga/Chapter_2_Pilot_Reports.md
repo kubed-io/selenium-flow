@@ -721,7 +721,7 @@ anywhere.
 - [x] The keyword alias in one place — `assert` on both surfaces, `assert_` as the
       method — read by `flowrun` and by the surface test
 - [x] A failed assertion is a 400, and the step's `error` is the author's message
-- [ ] A `hint` on every failed run, its `read` URI chosen from what failed (§F2.6)
+- [x] A `hint` on every failed run, its `read` URI chosen from what failed (§F2.6)
 - [x] `SKILL.md` and `FLOWS.md`: *a flow owns where it starts*; `assert`, its
       boolean rule and the `$${` escape; the login guard
 - [ ] `FLOWS.md`: flows as contracts, once someone has used one that way
@@ -756,10 +756,10 @@ anywhere.
       by default
 - [x] `outline` outside the runnable set — `save_flow` refuses it as a step and
       says what it is for
-- [ ] Prompts from markdown files, the `skills-mcp` format: frontmatter arguments,
+- [x] Prompts from markdown files, the `skills-mcp` format: frontmatter arguments,
       `{{ placeholders }}`, strict loading, a test that loads every shipped one
-- [ ] `repair_flow` and `build_flow`, and the run hint gains `prompt` and
-      `arguments` (§F2.6)
+- [x] `repair_flow` and `build_flow`, and the run hint carries `read`, `prompt`
+      and `arguments`, chosen from what actually failed (§F2.6)
 - [ ] Flown: a flow broken on purpose — a renamed button — repaired from
       `/repair_flow` alone
 - [x] Selectors: CSS where a unique attribute exists, XPath by text otherwise, each

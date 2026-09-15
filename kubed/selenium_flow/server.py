@@ -17,6 +17,7 @@ from . import (
     files,
     flowapi,
     flows,
+    prompts,
     resources,
     routes,
     secrets,
@@ -106,6 +107,11 @@ class SeleniumMCP:
         # Resources, each with a tool that mirrors it for clients which cannot
         # read resources. The mirrors are collected rather than hidden
         # individually so one middleware makes the whole decision, per request.
+        # Templates a person picks, rather than instructions the model reads.
+        # A failed run's hint names one, which is how an agent that cannot
+        # invoke a prompt still points somebody at the right one (§F2.6).
+        self.prompts = prompts.register(self.mcp)
+
         mirrors = resources.register(self.mcp, self.sessions)
         self.skill = skill.load() if skill_enabled else None
         if self.skill is not None:
