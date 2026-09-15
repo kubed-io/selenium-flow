@@ -32,10 +32,34 @@ DEFAULT_LIMIT = 50
 # things an agent can act on. `[role]` is here because a div with a role is a
 # button someone built by hand, and those are exactly the ones a tag-based list
 # misses.
+# `iframe` is here because `frame` is an action and needs a selector for one -
+# a page whose real content is inside a frame would otherwise map to nothing.
+# The roles are listed rather than matched with `[role]`: that also catches
+# `main`, `navigation`, `region` and `heading`, and a page's structural
+# containers would eat the budget before its buttons were reached.
+ACTIONABLE_ROLES = (
+    "button",
+    "link",
+    "checkbox",
+    "radio",
+    "switch",
+    "tab",
+    "menuitem",
+    "menuitemcheckbox",
+    "menuitemradio",
+    "option",
+    "textbox",
+    "combobox",
+    "searchbox",
+    "slider",
+    "spinbutton",
+)
+
 INTERACTIVE = (
-    "a[href], button, input, select, textarea, summary, label, "
-    '[role], [onclick], [contenteditable=""], [contenteditable="true"], '
-    '[tabindex]:not([tabindex="-1"])'
+    "a[href], button, input, select, textarea, summary, label, iframe, "
+    '[onclick], [contenteditable=""], [contenteditable="true"], '
+    '[tabindex]:not([tabindex="-1"]), '
+    + ", ".join(f'[role="{role}"]' for role in ACTIONABLE_ROLES)
 )
 
 # Shared by both scripts below. `reasonFor` is the whole point of the module:
@@ -50,14 +74,31 @@ const nameOf = (node) => {
 };
 
 const reasonFor = (el) => {
-  if (el.disabled === true || el.getAttribute('aria-disabled') === 'true') {
-    return {reason: 'disabled', detail: nameOf(el)};
-  }
+  // `:disabled` rather than `.disabled`: a control inside a disabled
+  // <fieldset> reports false for the property and is disabled all the same.
+  let isDisabled = el.getAttribute('aria-disabled') === 'true';
+  try {
+    isDisabled = isDisabled || el.matches(':disabled');
+  } catch (e) { /* not a control, so it has no disabled state */ }
+  if (isDisabled) return {reason: 'disabled', detail: nameOf(el)};
   for (let node = el; node && node.nodeType === 1; node = node.parentElement) {
     const style = getComputedStyle(node);
     if (style.display === 'none' || style.visibility === 'hidden' ||
         style.opacity === '0' || node.hidden === true) {
-      return {reason: 'hidden', detail: nameOf(node)};
+      // The hidden node cannot be hovered - nothing with display:none can
+      // receive a pointer. What opens it is the nearest ancestor that IS
+      // visible, so name that instead of sending the caller at the menu it
+      // cannot touch.
+      let trigger = null;
+      for (let up = node.parentElement; up; up = up.parentElement) {
+        const upStyle = getComputedStyle(up);
+        if (upStyle.display !== 'none' && upStyle.visibility !== 'hidden' &&
+            upStyle.opacity !== '0' && up.hidden !== true) {
+          trigger = nameOf(up);
+          break;
+        }
+      }
+      return {reason: 'hidden', detail: nameOf(node), trigger: trigger};
     }
   }
   const rect = el.getBoundingClientRect();
@@ -137,10 +178,13 @@ const onlyOne = (css) => {
   } catch (e) { return false; }
 };
 
+// Walked to the root rather than stopped at five ancestors: a path anchored at
+// <html> with :nth-of-type at every level matches exactly one element by
+// construction, and stopping early could hand out a selector matching several -
+// which is the promise this whole function exists to keep.
 const cssPath = (el) => {
   const parts = [];
-  for (let node = el; node && node.nodeType === 1 && parts.length < 5;
-       node = node.parentElement) {
+  for (let node = el; node && node.nodeType === 1; node = node.parentElement) {
     let part = node.tagName.toLowerCase();
     if (node.parentElement) {
       const siblings = [...node.parentElement.children]
@@ -183,6 +227,7 @@ const selectorFor = (el) => {
 
 const seen = [];
 for (const el of root.querySelectorAll(interactiveOnly ? selector : '*')) {
+  if (seen.length >= limit) break;
   const name = accessibleName(el);
   if (wanted && !name.toLowerCase().includes(wanted)) continue;
   const verdict = reasonFor(el);
@@ -197,7 +242,6 @@ for (const el of root.querySelectorAll(interactiveOnly ? selector : '*')) {
   const expanded = el.getAttribute('aria-expanded');
   if (expanded !== null) entry.expanded = expanded === 'true';
   seen.push(entry);
-  if (seen.length >= limit) break;
 }
 return seen;
 """
@@ -207,8 +251,9 @@ return seen;
 SENTENCES = {
     "hidden": (
         "It exists, but {detail} is hidden — a menu that opens on mouse-over "
-        'looks exactly like this. Try interact(action="hover") on it first; a '
-        "script cannot open one, because synthetic events do not set :hover."
+        "looks exactly like this. Hover whatever reveals it{trigger}; you "
+        "cannot hover the hidden part itself, and a script cannot open one "
+        "either, because synthetic events do not set :hover."
     ),
     "covered": (
         "It exists, but {detail} is on top of it — a cookie banner or an "
@@ -260,7 +305,11 @@ def explain(driver, target) -> str:
         sentence = SENTENCES.get(answer.get("reason") or "")
         if not sentence:
             return ""
-        return sentence.format(detail=answer.get("detail") or "something")
+        trigger = answer.get("trigger")
+        return sentence.format(
+            detail=answer.get("detail") or "something",
+            trigger=f' — try interact(action="hover") on {trigger}' if trigger else "",
+        )
     # Broad on purpose: a diagnosis must never outrank the failure it decorates.
     except Exception:
         log.debug("could not probe %r", target, exc_info=True)

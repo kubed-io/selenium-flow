@@ -56,13 +56,28 @@ def test_the_page_is_asked_what_is_wrong(reason, detail, expected):
     assert expected in probe.explain(driver, (By.CSS_SELECTOR, "a"))
 
 
-def test_a_hidden_element_is_told_to_try_hover():
-    """The move, not just the reason — this is the case that cost the pilot a
-    flaky execute_script workaround."""
-    driver = _Page({"reason": "hidden", "detail": "ul.menu-content"})
+def test_a_hidden_element_names_what_would_reveal_it():
+    """The move, not just the reason — and the move is to hover the *visible*
+    thing that opens the menu. Nothing with `display: none` can receive a
+    pointer, so advice to hover the hidden node is advice that cannot work
+    (Copilot, #29)."""
+    driver = _Page(
+        {"reason": "hidden", "detail": "ul.menu-content", "trigger": "nav#menu"}
+    )
     sentence = probe.explain(driver, (By.CSS_SELECTOR, "a"))
-    assert 'interact(action="hover")' in sentence
+    assert 'interact(action="hover") on nav#menu' in sentence
+    assert "ul.menu-content is hidden" in sentence
     assert ":hover" in sentence, "and why a script cannot do it instead"
+
+
+def test_a_hidden_element_with_nothing_visible_above_it_says_less():
+    """No trigger found means no instruction to give: the sentence still names
+    what is hidden, and does not invent something to hover."""
+    driver = _Page({"reason": "hidden", "detail": "html"})
+    sentence = probe.explain(driver, (By.CSS_SELECTOR, "a"))
+    assert "html is hidden" in sentence
+    assert "hover" in sentence, "the class of problem is still worth naming"
+    assert 'interact(action="hover") on' not in sentence
 
 
 def test_an_offscreen_element_is_told_to_scroll_to_it():

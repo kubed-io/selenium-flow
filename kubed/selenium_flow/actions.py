@@ -718,11 +718,14 @@ class Actions:
             scope = browser.wait_for_element(
                 driver, browser.locator(xpath, css), as_int(wait_timeout, 30)
             )
+        # Both coerced here rather than in the page: an HTTP caller can send a
+        # number for `text`, which reaches JavaScript as one and dies on
+        # `.toLowerCase()`, and a negative `limit` would bound nothing.
         found = probe.outline(
             driver,
             scope,
-            text,
-            as_int(limit, probe.DEFAULT_LIMIT),
+            "" if text is None else str(text),
+            max(as_int(limit, probe.DEFAULT_LIMIT), 0),
             as_bool(interactive, True),
         )
         return {

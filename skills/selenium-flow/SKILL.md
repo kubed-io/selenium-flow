@@ -151,7 +151,7 @@ check this table twice before reaching for it.
 | `write` | type into a field, or type a secret you never see | `text` or `secret`, `clear`, `submit` |
 | `press_key` | a key or a combination | `key`: `Enter`, `Escape`, `a`, `Control+a` |
 | `extract` | read an element's text and HTML | `xpath` or `css` |
-| `outline` | what is on the page: selectors, and what works | `css`/`xpath`, `text`, `limit` |
+| `outline` | what is on the page: selectors, and what works | `css`/`xpath`, `text`, `limit`, `interactive` |
 | `screenshot` | the viewport, one element, or the whole page — saved, with a link to share | `full_page`, `filename`, `save` |
 | `save_pdf` | print the page into your files | `filename` |
 | `upload_file` | attach a file to a file input | `text`, `content` or `path`, `filename` |

@@ -31,14 +31,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A failed click says why, and what to do.** When the element is on the page but cannot be used, the error names the reason — an ancestor is hidden, something is on top of it, it has no size, it is off-screen, it is disabled — and the move that fixes it.
 
-### Fixed
-
-- **A screenshot of a page the browser will not download from no longer costs you fifteen seconds.** It says so straight away and still returns the image.
-
-- **A saved file is named for what it actually is** — `screenshot(filename="chart.pdf")` is stored as a PNG rather than handed to a browser as a PDF that will not open.
-
-### Added
-
 - **A flow can say what must be true.** `assert` runs JavaScript that has to come back `true` — the URL, an element, a cookie, anything the page knows — and fails with the message you wrote, so a flow stops on the wrong page instead of reporting steps it did not really pass.
 
 - **`press_key` takes the browser's key names, single characters and combinations** — `ArrowLeft`, `/`, `Control+a`, `Shift+Tab`.
@@ -50,6 +42,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING:** a stored file is now described the way `session_files` describes one — `created` instead of `creationTime`, plus `content_type`, `image`, `kept`, `url` and `absolute_url`. Affects the `file` in `screenshot` and `save_pdf` results; a caller reading `creationTime` should read `created`.
 
 - **Tools list their fixed choices in their schemas** — every `interact`, `dialog` and `frame` action, and `open_session`'s browsers — so a client can show them, and a flow naming one that does not exist is refused when it is saved instead of when it runs.
+
+### Fixed
+
+- **A screenshot of a page the browser will not download from no longer costs you fifteen seconds.** It says so straight away and still returns the image.
+
+- **A saved file is named for what it actually is** — `screenshot(filename="chart.pdf")` is stored as a PNG rather than handed to a browser as a PDF that will not open.
 
 ## [0.1.0] - 2026-09-12
 
