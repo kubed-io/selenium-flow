@@ -244,8 +244,9 @@ def listing(
         )
     files = merged(actions, store, owned, target, token, base, mount=mount)
     return {
+        # No `session_id`: the Grid's browser id is how a browser is reached and
+        # not part of what a caller is told (E18, and Copilot again on #35).
         "component": "fileGrid",
-        "session_id": target or None,
         "session": owned or None,
         "count": len(files),
         "files": files,

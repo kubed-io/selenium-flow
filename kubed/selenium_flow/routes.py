@@ -30,6 +30,7 @@ import logging
 
 import yaml
 from fastmcp import FastMCP
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
@@ -182,8 +183,13 @@ def register(
         """
         grid = browser.public_url(actions.grid.url)
         try:
-            ready = bool(actions.grid.status()["value"]["ready"])
-            running = actions.grid.session_count()
+            # In a thread: both are synchronous `requests` calls, and a Grid
+            # that has gone away blocks until it times out. On the event loop
+            # that stall would take `/health` — and every other request — down
+            # with it, which is the outage this split exists to survive.
+            status = await run_in_threadpool(actions.grid.status)
+            ready = bool(status["value"]["ready"])
+            running = await run_in_threadpool(actions.grid.session_count)
         except Exception as exc:  # noqa: BLE001 - the probe must never raise
             return JSONResponse(
                 {

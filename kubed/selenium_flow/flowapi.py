@@ -82,7 +82,7 @@ FLOW_ROUTES = {
     "save": ("put", "/{name}"),
     "delete": ("delete", "/{name}"),
     "run": ("post", "/{name}/runs"),
-    # Absolute, not under the prefix.
+    # Its own tree beside /flows, and mounted like every other tree.
     "schema": ("get", SCHEMA_PATH),
 }
 

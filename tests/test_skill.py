@@ -347,6 +347,10 @@ def documented_selectors() -> list[tuple[str, str]]:
                     if depth == 0:
                         found.append((page.name, text[start : index + 1]))
                         break
+            else:
+                # Ran off the end of the page. An unclosed literal is a broken
+                # example, and skipping it is how a guard goes quiet (Copilot).
+                raise AssertionError(f"unclosed selector literal in {page.name}")
     return found
 
 

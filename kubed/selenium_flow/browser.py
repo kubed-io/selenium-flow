@@ -15,6 +15,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import re
 import time
 import zipfile
 from urllib.parse import urlsplit, urlunsplit
@@ -114,6 +115,10 @@ def normalize_url(url: str) -> str:
     )
 
 
+# The userinfo of a URL, by pattern, for when parsing it is not on offer.
+USERINFO = re.compile(r"//[^/@\s]*@")
+
+
 def public_url(url: str) -> str:
     """``url`` with any credentials removed, for anything that leaves this process.
 
@@ -121,13 +126,19 @@ def public_url(url: str) -> str:
     probes and the admin page both name the Grid. Printing it whole puts the
     Grid's credential in an unauthenticated response and in whatever scrapes it.
     """
-    parts = urlsplit(url)
-    host = parts.hostname or ""
-    if ":" in host:  # IPv6 — `hostname` drops the brackets the authority needs
-        host = f"[{host}]"
-    if parts.port:
-        host = f"{host}:{parts.port}"
-    return urlunsplit((parts.scheme, host, parts.path.rstrip("/"), "", ""))
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname or ""
+        if ":" in host:  # IPv6 — `hostname` drops the brackets the authority wants
+            host = f"[{host}]"
+        if parts.port:  # parses, and raises when it is not a port
+            host = f"{host}:{parts.port}"
+        return urlunsplit((parts.scheme, host, parts.path.rstrip("/"), "", ""))
+    except ValueError:
+        # A malformed GRID_URL — a bad port, an unclosed IPv6 literal — reaches
+        # the probes like any other, and a probe answers rather than raises. The
+        # credentials still have to go, so they go by pattern (Copilot, #35).
+        return USERINFO.sub("//", url.split("?", 1)[0])
 
 
 def scrub(text: str, url: str) -> str:
@@ -136,8 +147,13 @@ def scrub(text: str, url: str) -> str:
     ``errors.message`` trims the one Grid failure known to print its URL, but a
     proxy or parse error can quote it too, and ``/ready`` answers to anyone.
     """
-    parts = urlsplit(url)
-    for secret in (parts.netloc.rpartition("@")[0], parts.password):
+    try:
+        parts = urlsplit(url)
+        secrets = (parts.netloc.rpartition("@")[0], parts.password)
+    except ValueError:  # same malformed URL, same credentials to remove
+        found = USERINFO.search(url)
+        secrets = (found.group(0)[2:-1] if found else "",)
+    for secret in secrets:
         if secret:
             text = text.replace(secret, "***")
     return text

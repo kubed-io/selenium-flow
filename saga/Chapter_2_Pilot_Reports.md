@@ -1387,6 +1387,20 @@ In the E18/E19 release: it breaks saved flows, and they migrate once.
 
 As written in Chapter 1, and ticked there with what changed in the building.
 
+### Found in review, not built: the JSON handlers block the event loop
+
+Copilot caught `/ready` dialling the Grid with synchronous `requests` inside an
+async handler, where a Grid that has gone away blocks the loop until it times
+out and takes `/health` down with it. That one is fixed, in a thread.
+
+**The same is true of every `/browser`, `/flows` and `/files` handler**:
+`_answer` calls straight into `actions`, which is Selenium and therefore
+blocking, on the event loop. One slow page stalls every other request in the
+process, probes included. The admin handlers already use `run_in_threadpool`
+and are the shape to copy. Not touched here because it is not this change's
+fault and the fix belongs with its own tests — but it is the next thing worth
+doing, and it is why `/ready` alone is not enough to survive a Grid outage.
+
 ---
 
 ## Open questions

@@ -103,6 +103,43 @@ def test_no_ops_endpoint_hands_out_the_grids_credentials(monkeypatch):
     assert client.get("/info").json()["grid"] == "http://[fd00::1]:4444"
 
 
+def test_readiness_asks_the_grid_off_the_event_loop(server, monkeypatch):
+    """`requests` is synchronous and a Grid that has gone away blocks until it
+    times out. On the event loop that stall takes `/health` down with it — the
+    outage this liveness/readiness split exists to survive (Copilot, #35)."""
+    import sniffio
+
+    on_loop = []
+
+    def status():
+        try:
+            sniffio.current_async_library()
+            on_loop.append(True)
+        except sniffio.AsyncLibraryNotFoundError:
+            on_loop.append(False)
+        return {"value": {"ready": True}}
+
+    monkeypatch.setattr(server.actions.grid, "status", status)
+    monkeypatch.setattr(server.actions.grid, "session_count", lambda: 0)
+    client = TestClient(server.mcp.http_app())
+    assert client.get("/ready").status_code == 200
+    assert on_loop == [False], "the Grid was dialled on the event loop"
+
+
+def test_the_probes_answer_when_the_grid_url_is_malformed():
+    """An operator's typo is not a reason for a probe to raise: a kubelet would
+    read the 500 as the process being broken, which it is not."""
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    # No closing bracket: `urlsplit().port` raises on this.
+    server = SeleniumMCP(grid_url="http://user:hunter2@[fd00::1:4444")
+    client = TestClient(server.mcp.http_app())
+    info = client.get("/info")
+    assert info.status_code == 200 and "hunter2" not in info.text
+    ready = client.get("/ready")
+    assert ready.status_code == GRID_DOWN and "hunter2" not in ready.text
+
+
 def test_endpoints_reject_a_missing_token(client):
     response = client.post("/browser", json={})
     assert response.status_code == 401
