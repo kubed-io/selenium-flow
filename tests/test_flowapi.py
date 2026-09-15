@@ -795,19 +795,26 @@ async def test_a_run_reads_a_kept_file_from_the_callers_own_library(
     )
     monkeypatch.setattr(flow_server.sessions, "resolve", lambda *a, **k: "browser-1")
 
-    await call(
-        flow_server,
-        flowapi.SAVE_TOOL,
-        name="send-export",
-        steps=[
-            {"tool": "upload_file", "args": {"css": "input", "kept": "export.csv"}}
-        ],
+    # Seeded in the SHARED library, deliberately. If the flow were saved into
+    # this caller's own, `document["session"]` and the caller's library would
+    # both be `desktop` and a regression forwarding the wrong one would pass
+    # unnoticed (Copilot, #32). Here they differ, so only the right one can
+    # produce the expected answer.
+    store.save(
+        GLOBAL_SESSION,
+        "send-export",
+        {
+            "description": "Upload the export",
+            "steps": [
+                {"tool": "upload_file", "args": {"css": "input", "kept": "export.csv"}}
+            ],
+        },
     )
     report = await call(flow_server, flowapi.RUN_TOOL, name="send-export")
 
     assert report["status"] == "ok", report
+    assert report["session"] == GLOBAL_SESSION, "the flow came from global"
     assert asked["name"] == "export.csv"
-    # `desktop` is this caller's library — the one `save_flow` wrote into — not
-    # the shared `global` one the ambient key would have resolved to.
+    # The CALLER's library, not the one the flow was read from.
     assert asked["session"] == "desktop"
     assert sent["name"] == "export.csv"

@@ -36,6 +36,12 @@ permissions:
 jobs:
 
   copilot-setup-steps:
+    # The job ID is fixed by GitHub; the display name is not, and every other
+    # job in this repository has one. It is also what the check run is called,
+    # which matters here: both Copilot workflows have to use the same job ID,
+    # so without a display name they would both report a check called
+    # `copilot-setup-steps`.
+    name: Copilot Review Setup
     runs-on: ubuntu-latest
     permissions:
       contents: read
