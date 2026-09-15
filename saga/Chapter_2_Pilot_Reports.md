@@ -64,9 +64,13 @@ below is ticked against it.
 3. **E18 — one session, always named** (§F2.12). Dr K's: one contract, a name
    the caller supplies, no `session_id` anywhere in the contract and no Grid id
    exposed at all. It deletes a middleware, a reference and a mode. Design
-   recorded with five questions open, not started, and big enough to want its
+   recorded with four questions open, not started, and big enough to want its
    own chapter.
-4. **A release.** The last tag is still `v0.1.0` and everything since is only in
+4. **E19 — a RESTful HTTP surface** (§F2.13). Dr K's: paths and methods
+   declared per route instead of generated from tool names, and the session
+   as who is calling — a header, never a path segment or a body field. Recorded, not started, and paired
+   with E18 so callers migrate once.
+5. **A release.** The last tag is still `v0.1.0` and everything since is only in
    `:latest`. A minor version would make all of this pinnable.
 
 Three smaller things are deliberately still open, each recorded on its own line
@@ -777,7 +781,9 @@ the store.
 4. **The admin UI correlates on the browser id** and would keep doing so
    internally, but what it *shows* a person becomes the name.
 
-**Open — five, and Dr K's to answer before anything is written:**
+**Open — four, and Dr K's to answer before anything is written.** Q5 below was
+asked and answered in the same breath and is kept for its reasoning, not as a
+question (Copilot, #32).
 
 1. **Does the MCP transport id still count as a name?** It is supplied by the
    transport rather than chosen, so it is a generated name by another route. Keep
@@ -792,8 +798,9 @@ the store.
 4. **Two callers, one name, is sharing.** That is true today and deliberate
    (§F1.2). Under a rule where naming is mandatory it becomes much easier to do
    by accident, and a name is guarded by nothing but the bearer token.
-5. **Could the Grid replace the store outright, and Redis with it?** Dr K's
-   question, and the answer is *half*. **Capabilities are write-once**: W3C
+5. ~~**Could the Grid replace the store outright, and Redis with it?**~~
+   **Closed: no — half of it can, and the half that cannot is the half that
+   matters.** Dr K's question, and the answer is *half*. **Capabilities are write-once**: W3C
    negotiates them at session creation and there is no update command. So the
    Grid can hold what never changes — the name, and the settings it opened
    with — and cannot hold the two things that do: the page the browser is on,
@@ -840,6 +847,92 @@ the store.
 from it rather than from a review thread. It is a breaking contract change, it
 touches the admin UI, the skill references, the middleware and the published
 OpenAPI, and it wants its own chapter.
+
+### §F2.13 — Decision (Dr K's): the HTTP surface is RESTful, and the session is who is calling
+
+**What is true today.** Every browser action is `POST /browser/<action>` with
+`session_id` in the body, and every flow verb is `POST /flows/<verb>` with the
+library in the body: `get_flow` is `POST /flows/get`. The routes are generated
+from the tool list, and a tool is a verb with arguments, so the HTTP surface
+came out as RPC wearing URLs.
+
+**Dr K's reading:** generating both surfaces from one list backfired on exactly
+one axis. A tool and an endpoint should share *behaviour and schemas* — what
+`actions.py` does, what a request body may contain, what comes back. They should
+not share *shape*. A tool is `verb(args)`; a resource is a path plus a method,
+and deriving the second from the first is what made `GET /flows/{name}` into
+`POST /flows/get`.
+
+**The rule.** Bodies and results stay derived from the tool schemas, so the two
+surfaces still cannot drift in what they accept. The path and the method are
+**declared**, one row per capability, in an explicit route table — and the
+existing test that every tool has a route keeps holding against that table.
+
+**The session is not in the path.** It was proposed there first, as
+`/sessions/{name}/…`, and Dr K turned it down. A session is **who is calling**,
+closer to a user than to a folder: it is the boundary of what a caller can see,
+not a namespace a request picks. A path segment is chosen per request, so a
+series of calls from one caller could land in three sessions by editing a URL,
+and an implementor has nothing to hold the line with. A header is set once on
+the client — exactly as the MCP URL names a session once, for the connection —
+so one caller is one session by construction, and HTTP resolves a session the
+same way `/mcp` does (E18's own goal).
+
+Stated in its limits: with one bearer token, a header stops **accidents**, not
+**attackers** — any caller can send any name. Real enforcement is a credential
+per session, which is §F2.12 Q4 and not this.
+
+- `X-Session-Key` header, else `?session=<name>`. The header is the normal case.
+- **Both present is a 400**, not a precedence contest. A caller sending both has
+  two ideas about who it is, and quietly picking one hides that.
+- For the flow library, **no session means `global`** — the default the lookup
+  cascade already falls back to, said out loud.
+- For anything touching a browser, no session is a 400. There is no shared
+  browser.
+
+**The one place a session is in a path is the admin page**, and that is the
+same rule seen from the other side: the token holder looking *across*
+boundaries is the only role that addresses sessions as resources. So
+`/admin/sessions/{key}/…` stays, and nothing else grows a session segment.
+
+**The shape, as proposed** (session from the header throughout):
+
+| Today | Becomes |
+|---|---|
+| `POST /flows/list` | `GET /flows` |
+| `POST /flows/get` | `GET /flows/{name}` |
+| `POST /flows/save` | `PUT /flows/{name}` — create-or-replace is what PUT means |
+| `POST /flows/delete` | `DELETE /flows/{name}` |
+| `POST /flows/run` | `POST /flows/{name}/runs` — a run is created, not fetched |
+| `POST /flows/schema` | `GET /schemas/flow` — not under `/flows`, where `schema` would be a flow name |
+| `POST /browser/open_session` | `POST /browser` — this session's browser, opened or picked up |
+| `POST /browser/end_browser` | `DELETE /browser` — the session survives its browser |
+| `session://current` | `GET /browser` |
+| `POST /browser/interact` + `action` | `POST /browser/interact/{action}` — `/browser/interact/click` |
+| `POST /browser/<action>` | `POST /browser/<action>`, with the session out of the body |
+
+**Browser actions stay commands**, and that is deliberate. `click` and
+`press_key` are not resources, and inventing one for each is worse REST than an
+honest command on the one resource they act on — *this caller's browser*.
+
+**Links.** A `PUT` or a created run answers with `Location`, and results carry a
+small `links` object — a run report links its flow, a file its signed URL, which
+it already has. HATEOAS as far as it helps a caller follow one link, and no
+further: no HAL, no media-type negotiation.
+
+**Why with E18 and not before it.** Both break the published contract, and every
+HTTP caller — the n8n workflows in this cluster first — migrates once rather
+than twice. Taking `session_id` out of every body is most of what E18 asks of
+this surface anyway.
+
+**Open, Dr K's:**
+
+1. ~~**One tree or two for a session's flows?**~~ **Closed: one.** `GET
+   /flows/{name}` with the session from the header; a session is never a path
+   segment outside the admin page.
+2. **Does `outline`/`extract` become a `GET`?** They are read-only, but they take
+   a locator and wait, and a GET that can take thirty seconds surprises caches
+   and proxies. Recommend **no**: every action is a POST, reads included.
 
 ### §F2.11 — Measured: Firefox interpolates, and a pointer drag is a real HTML5 drag on Chrome
 
@@ -1163,7 +1256,7 @@ anywhere.
 ### E18 — One session, always named (§F2.12)
 
 Dr K's design, recorded rather than planned: §F2.12 is the work of this entry,
-and the boxes are what it implies rather than a commitment. **The five open
+and the boxes are what it implies rather than a commitment. **The four open
 questions in §F2.12 are answered before any of this is written.**
 
 - [ ] Every session has a name and the **caller** supplies it; nothing here
@@ -1182,6 +1275,24 @@ questions in §F2.12 are answered before any of this is written.**
 - [ ] The browser carries its session name as a capability (`se:flowSession`),
       so the admin view can reconcile with the Grid and an orphaned browser can
       be found again. Augments the store; does not replace it (§F2.12 Q5)
+
+### E19 — A RESTful HTTP surface (§F2.13)
+
+Built with E18 or not at all: both break the published HTTP contract, and a
+caller should migrate once.
+
+- [ ] Paths and methods come from a declared route table, not from tool names;
+      bodies and results stay derived from the tool schemas
+- [ ] The session is the `X-Session-Key` header or `?session=`, never a path
+      segment and never a body field; both at once is a 400
+- [ ] HTTP resolves a session through the same code `/mcp` does
+- [ ] No session on a library route means `global`; on a browser route, a 400
+- [ ] `interact`'s action is a path segment: `POST /browser/interact/click`
+- [ ] `PUT` and a created run answer with `Location`; results carry `links`
+- [ ] `/admin/sessions/{key}/…` stays — the admin view is the one role that
+      looks across sessions
+- [ ] The OpenAPI spec, the wiki and the skill references are regenerated from
+      the new table, and the n8n workflows in this cluster are migrated
 
 ### E5 — The approach plate (carried, unchanged)
 

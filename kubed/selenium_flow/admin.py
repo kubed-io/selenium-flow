@@ -320,7 +320,10 @@ def register(
         try:
             records = sessions_store.records()
         except Exception as exc:  # noqa: BLE001 - a Redis blip is not an outage
-            log.info("could not read the session store: %s", exc)
+            # Warning, not info: the page renders this as "no sessions",
+            # which looks exactly like an empty install. At info it hid a
+            # store that failed on every poll for a day.
+            log.warning("could not read the session store: %s", exc)
             return {"sessions": []}
 
         # One Grid listing for the whole payload rather than a liveness call per

@@ -146,7 +146,10 @@ def from_env(env: dict | None = None):
     client = store_module.redis_client(env)
     if client is None:
         return MemoryPointers(ttl=ttl)
-    prefix = env.get("REDIS_PREFIX", store_module.DEFAULT_PREFIX) + "pointer:"
+    prefix = (
+        env.get("REDIS_PREFIX", store_module.DEFAULT_PREFIX)
+        + store_module.POINTER_NAMESPACE
+    )
     return RedisPointers(client, prefix=prefix, ttl=ttl)
 
 
@@ -182,7 +185,11 @@ def matching(store):
     ttl = getattr(store, "ttl", DEFAULT_TTL_SECONDS)
     if store.kind != "redis":
         return MemoryPointers(ttl=ttl)
-    return RedisPointers(store.client, prefix=store.prefix + "pointer:", ttl=ttl)
+    from .store import POINTER_NAMESPACE
+
+    return RedisPointers(
+        store.client, prefix=store.prefix + POINTER_NAMESPACE, ttl=ttl
+    )
 
 
 # The **in-view center point**, which is WebDriver's own definition of where an

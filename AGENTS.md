@@ -139,6 +139,18 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   retina render — both tested working against this Grid. If that capability is wanted, add
   it as a **separate** tool so the portable path keeps working when CDP goes away.
 
+## Integration tests: less is more
+
+`tests/integration/` runs the real server and a real browser against the
+server's own admin page. **A test there is a flow file in `flows/` and nothing
+else** — no new test functions, no helpers, no fixtures for one case.
+
+This is the rule most likely to be broken by an agent, so it is stated bluntly:
+**do not add integration tests to be thorough.** Add a flow only when you can
+name what a person would see break that no existing flow catches. Everything
+else is a unit test. Only exercise tools the admin UI actually needs. Two flows
+is the right size; ten is a mistake. See `CONTRIBUTING.md`.
+
 ## The changelog is the release notes, not a work log
 
 `publish.yml` hands the `[Unreleased]` section to `duplocloud/version-bump`, which stamps a
