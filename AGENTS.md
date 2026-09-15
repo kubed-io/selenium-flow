@@ -185,8 +185,11 @@ part that matters:
 
 So adding a *parameter* to a tool updates the spec on its own; adding a *return field* does
 not, and `test_every_action_declares_a_response_shape` is what stops that being forgotten.
-The one sanctioned transform is `http_schema`, which puts `session_id` back as required —
-saved sessions let an MCP caller omit it, the HTTP surface never does.
+There is **no** transform any more. Three used to be applied, all consequences of
+the HTTP surface having no session of its own; §F2.12 and §F2.13 removed the
+cause, so a request body here is exactly the tool's schema. What this document
+adds that no tool schema carries is the session itself, as the header and query
+parameter every operation takes.
 
 **`openapi.py` is where a change goes**, always. Both renderings come out of `build_spec`:
 
@@ -230,10 +233,10 @@ fails if a bare `<tool>.md` comes back.
 
 This is a rule, not a preference.
 
-- **An MCP client gets `open_session` and `end_browser`. That is its session.**
+- **A client gets `open_session` and `end_browser`. That is its session.**
 - **It can only ever control its own.** Nothing on the MCP surface enumerates
-  sessions, because a listing hands any client somebody else's browser id — and
-  a browser id is the entire credential for driving that browser.
+  sessions, because a listing hands any client somebody else's session — and a
+  session name is now the entire credential for driving that browser.
 - **An orphan is invisible to it.** A client whose browser went simply has none,
   and calls `open_session`. There is no "reclaim", no "take over".
 - **The admin surface is HTTP endpoints and the UI, never tools or resources.**
@@ -250,13 +253,13 @@ that test is the design telling you no.
 `session://current` is the sanctioned shape: this caller's session, and nothing
 else in the process.
 
-## A flow session is the thing; a browser is something it holds
+## A session is the thing; a browser is something it holds
 
 The two used to be one, and the split is what most of the session code is about.
 
-A **flow session** is a record in the store: a caller key, the browser choice
-and window it was opened with, the page it was last on, and — when it has one —
-the id of a browser on the Grid. `session_id` is empty when it does not.
+A **session** is a record in the store, keyed by **the name its caller chose**:
+the browser choice and window it was opened with, the page it was last on, and
+— when it has one — the id of a browser on the Grid.
 
 Detached is an **ordinary state**, not a broken one. It happens when the Grid
 reaps an idle browser, or an admin ends one. What survives is the context, and
@@ -270,24 +273,18 @@ that is the point:
 - Ending a browser from the admin UI therefore costs the caller nothing but the
   browser's live state. It never removes the session.
 
-**A flow session is only ever removed by expiring.** `SESSION_TTL` slides on
-every use, so one in daily use never goes and one abandoned yesterday does.
-There is deliberately no delete button: nothing should be permanently lost by a
-misclick, and the store is a cache of intent, not a system of record.
+**A session is only ever removed by expiring.** `SESSION_TTL` slides on every
+use, so one in daily use never goes and one abandoned yesterday does. There is
+deliberately no delete button: nothing should be permanently lost by a misclick,
+and the store is a cache of intent, not a system of record. A name reappears the
+moment its caller calls again, because the name comes from the caller's own URL
+or header rather than from anything stored.
 
-A keyless **MCP** caller gets a record too, under `session:<browser id>`. That is
-**not** giving it a caller key: nothing ever resolves a caller *from* that entry, so it
-cannot reintroduce the leak `caller_key` exists to prevent. It is written only so that
-session appears in the admin history and expires like everything else.
-
-Read "keyless MCP caller" strictly. **A browser opened through the HTTP surface gets no
-record and never appears in the admin list**, because `routes.py` does not touch
-`SessionManager` at all — the module docstring in `sessions.py` is where that rule is
-written down. It is the current design rather than an oversight, but it is worth knowing
-before you go hunting for an n8n workflow's browser in the admin view: it is on the Grid
-console tab, not the sessions tab. If that should ever change, the change is in
-`routes.py`, and it has to keep the HTTP contract — session id in, session id out —
-intact.
+**Both surfaces are the same session.** `routes.py` resolves a caller through
+the same `SessionManager` the tools use, so a browser opened over HTTP is in the
+admin list, slides its TTL, and is reopened after a reap exactly like one opened
+over MCP. That was not true before §F2.13 and the difference was invisible until
+a workflow's session expired underneath it.
 
 ## Sessions: what is stateful and what is not
 
@@ -297,11 +294,11 @@ Three different "sessions" are in play, and conflating them is the trap.
 |---|---|---|
 | Browser session | Selenium Grid | yes |
 | MCP transport session | this process's memory | no |
-| `session_key` -> browser mapping | the session store (memory, or Redis) | only with Redis |
+| name -> browser mapping | the session store (memory, or Redis) | only with Redis |
 
 **The browser session is the one that matters, and this server does not hold it.**
-`/browser/open` returns an id and the caller carries it. That is why a pod can restart,
-scale to zero, or be replaced mid-workflow without losing a browser.
+It lives on the Grid, and the record naming it lives in the store, so a pod can
+restart, scale to zero, or be replaced mid-workflow without losing a browser.
 
 ### Never key on `Context.session_id`
 
@@ -317,31 +314,41 @@ The tell was the shape of the key: the server's real ids are undashed hex
 (`131c43cc…`) while the ones in the log were dashed UUIDs (`bf532044-b55e-…`) — a value
 FastMCP had invented, not one the transport negotiated.
 
-`sessions.py` therefore reads the `Mcp-Session-Id` header itself, via
-`get_http_request()`. That is a different code path from the one `ctx.session_id` uses and
-it keeps working where that one gives up — verified against the deployed server. A missing
-session then shows up as a missing session, which is the whole point.
+`sessions.py` therefore reads what the request carries itself, via
+`get_http_request()`. A missing name then shows up as a missing name, which is
+the whole point — and under §F2.12 it is an error with a message rather than a
+silent new identity.
 
 ### How a caller is identified
 
-In order, first match wins, and nothing is ever invented:
+**The caller names itself, and nothing is ever invented** (§F2.12):
 
-1. **A name the client chose** — the `X-Session-Key` header, else `?session=<name>` on the
-   MCP URL. **The header winning is a permission boundary, not a preference.** The header
-   lives in the credential, which an admin controls; the query parameter is written by
-   whoever wires up the call. An admin who pins a name in the credential is deliberately
-   tying one session to one credential, so a caller must not be able to override it from
-   the URL. Leaving the header out is equally a decision: it delegates the choice to
-   whoever implements the call, who names each caller in its own URL against one shared
-   bearer credential — rather than needing a multi-header credential per agent.
-2. **The MCP transport session** — the `Mcp-Session-Id` header, read directly.
-3. **stdio**, where one process serves one client, so a constant is correct.
-4. **Otherwise no key**, and the caller is told to pass `session_id`.
+1. **`X-Session-Key`**, a header — what an admin pins inside a credential when
+   one credential should mean one session.
+2. **`?session=<name>`** on the URL — the ergonomic path: one shared bearer
+   credential, each caller naming itself in its own URL.
+3. **stdio**, where one process serves one client, so the constant `stdio` is
+   correct and needs no configuration.
 
-Opening a browser on first use is safe *because* every accepted key is stable by
-construction. That is the invariant to preserve: if a new key source is ever added, it must
-be one the client controls, or the leak comes straight back.
-`test_a_request_with_nothing_stable_has_no_key` and
+**Both at once is a 400.** It used to be a precedence — the header won, on the
+reasoning that an admin's credential outranks a caller's URL — and Dr K replaced
+that with a refusal: a request carrying two names has two ideas about who is
+calling, and quietly picking one hides that from whoever wired it up.
+
+**No name at all is a 400** on anything touching a browser, with a message
+saying how to set one. The single exception is the flow library, which falls
+back to the shared `global` one — readable by everyone, writable by nobody, so
+an unnamed caller can list and run shared flows and can write nowhere.
+
+**The name is validated where it arrives**, by the same rule that validates a
+flow library's directory, because a session name *is* that directory. There is
+no longer a lenient answer for the browser and a strict one for storage: that
+split is what let `?session=my bot` drive a private browser while saving its
+flows into the shared library.
+
+If a new way to supply a name is ever added, it must be one the client controls,
+or the leak `caller_key` existed to prevent comes straight back.
+`test_a_request_that_names_nothing_names_nothing` and
 `test_repeated_calls_on_one_key_open_exactly_one_browser` are the guards.
 
 ### Refresh, not cleanup
@@ -352,15 +359,13 @@ A stored mapping can name a browser the Grid has already reaped. `resolve` check
 package runs a cleanup loop: the Grid expires idle browsers via `SE_NODE_SESSION_TIMEOUT`,
 and the store expires mappings via its own TTL. Do not add a scheduler.
 
-An explicitly passed `session_id` is taken on trust and never validated or replaced — the
-caller owns it, and may well have opened it through the HTTP surface.
-
 ### The status resource, and why it is also a tool
 
 `session://current` is the natural shape for "what browser am I holding" — state to read,
 not an action, so a client can pull it into context without spending a tool call. It must
 stay side-effect free: `describe()` peeks at the store rather than going through `resolve`,
-because a status read that opens a browser would be the original leak wearing a hat.
+because a status read that opens a browser would be the original leak wearing a hat. It
+reports the session **name** and never the Grid's id.
 
 Resources are the least implemented part of MCP, so the same status is a `current_session`
 tool as well. That tool is **hidden from `tools/list` by default and still callable** — the
@@ -371,7 +376,7 @@ would bake one client's capabilities into a shared process.
 This is the general pattern for anything that has to vary by client: filter the listing,
 keep the capability. `?resources=off` / `X-MCP-Resources: off` is how a client declares it.
 
-## The two session modes are exclusive, and the schema says so
+## One contract, and no id in it
 
 `open_session` is the only place a browser is created. It was briefly implicit —
 `resolve` opened one on first use — and that was removed because it hid the one
@@ -379,18 +384,40 @@ place a session's settings can be chosen. Do not reintroduce it. A refresh after
 the Grid reaps a session is the *only* other open, and it replays the stored
 settings so the browser cannot change shape underneath a task.
 
-`resolve` enforces one rule per mode:
+There used to be two modes — **saved**, where the server held your browser, and
+**stateless**, where you passed an id — with a middleware rewriting every tool
+schema per request so a caller could see which rules applied. All of it is gone
+(§F2.12). There is no `session_id` on any tool, in any body, or in any result;
+`SAVED_SESSIONS` is gone; `resources.ShapeSessionId` is gone. **Sharing is by
+session name**, which is then the single way to do it — and worth writing down,
+because a name is guarded by nothing but the bearer token.
 
-- **stateless** (no caller key): `session_id` required.
-- **saved** (a key): `session_id` **refused**. An id from elsewhere is either a
-  mistake or a browser someone else owns. Sharing is by session *name*, which is
-  then the single way to do it.
+## The HTTP surface is REST, and the session is not in the path
 
-`resources.ShapeSessionId` rewrites the advertised schema per request to match —
-absent in saved mode, required in stateless. It **copies** each tool with
-`model_copy`; the registered tools are shared by every client, so mutating one
-in place would let the first client to list tools decide what every other client
-sees. `test_shaping_does_not_leak_between_clients` guards that.
+Paths and methods are **declared** per capability in a route table, never
+derived from tool names (§F2.13). What the two surfaces share is bodies and
+results — a request body *is* the tool's schema, asserted by
+`test_request_schemas_are_the_tool_schemas` — not shape.
+
+The session is who is calling, so it is a header or a query parameter and never
+a path segment. `POST /browser` opens *yours*; there is no `/browser/{id}`,
+because addressing a browser by id is exactly what E18 removed.
+
+**The one place a session is in a path is `/admin`**, and that is the same rule
+from the other side: the token holder looking across sessions is the only role
+that addresses them as resources.
+
+## A selector is one object
+
+`xpath` and `css` are fields of a `selector`, not two flat arguments (§F2.14):
+one choice, one description, one rule. `drag` takes `selector` and `to`, which
+is the same type rather than a `to_` prefix doing a type's work.
+
+**Exactly one of the two, and never a fallback.** A typo in the first would
+become a click on whatever the second found, and the run would report `ok` while
+it drifted. `browser.locator` refuses both-or-neither at the boundary and the
+model refuses it in the schema; `flowdoc` refuses it at save time, because a
+flow is YAML somebody may have written by hand.
 
 ## Frame switches are Grid-side and sticky
 
@@ -505,8 +532,10 @@ balanced to another pod is told its session does not exist.
 issued and every request stands alone. Both surfaces are then replica-safe. The browser is
 unaffected either way, because its session was never here.
 
-So: `replicas: 1` needs nothing; more than one requires the flag, and Redis if `session_key`
-is in use.
+So: `replicas: 1` needs nothing; more than one requires the flag, and Redis —
+which is no longer optional in the way it was: every caller has a session record
+now, and a memory store means a caller's browser is only found again when its
+request lands on the pod that opened it.
 
 ## Gotchas
 

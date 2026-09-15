@@ -43,15 +43,15 @@ Every action is a tool **and** an endpoint, one to one, and a test fails the bui
 
 ## 🧰 Every action, both ways
 
-Seventeen actions, each a tool **and** an endpoint with identical parameters. All endpoints are `POST` with a JSON body.
+Seventeen actions, each a tool **and** an endpoint with identical parameters — a request body *is* the tool's schema, with nothing added and nothing taken away.
 
-> **The one difference:** over HTTP `session_id` is always **required**; over MCP it depends on the mode, and the advertised schema says which. See [Sessions](#-sessions).
+> **Name your session** on either surface: `?session=<name>` or an `X-Session-Key` header. There is no session id anywhere. See [Sessions](#-sessions).
 
 | Action | Endpoint | |
 |---|---|---|
-| [`open_session`](https://github.com/kubed-io/selenium-flow/wiki/open_session) | `POST /browser/open` | Start a browser — `chrome` or `firefox` 🚀 |
+| [`open_session`](https://github.com/kubed-io/selenium-flow/wiki/open_session) | `POST /browser` | Start a browser — `chrome` or `firefox` 🚀 |
 | [`navigate`](https://github.com/kubed-io/selenium-flow/wiki/navigate) | `POST /browser/navigate` | Go to a URL 🧭 |
-| [`interact`](https://github.com/kubed-io/selenium-flow/wiki/interact) | `POST /browser/interact` | Click, double-click, right-click, hover, scroll to 🖱️ |
+| [`interact`](https://github.com/kubed-io/selenium-flow/wiki/interact) | `POST /browser/interact/{action}` | Click, double-click, right-click, hover, scroll to 🖱️ |
 | [`drag`](https://github.com/kubed-io/selenium-flow/wiki/drag) | `POST /browser/drag` | Drag an element onto another, or by an offset 🤏 |
 | [`write`](https://github.com/kubed-io/selenium-flow/wiki/write) | `POST /browser/write` | Type into a field ⌨️ |
 | [`press_key`](https://github.com/kubed-io/selenium-flow/wiki/press_key) | `POST /browser/press-key` | Press a named key — `tab`, `enter`, arrows 🎹 |
@@ -65,7 +65,7 @@ Seventeen actions, each a tool **and** an endpoint with identical parameters. Al
 | [`dialog`](https://github.com/kubed-io/selenium-flow/wiki/dialog) | `POST /browser/dialog` | Answer a native alert, confirm or prompt 💬 |
 | [`resize`](https://github.com/kubed-io/selenium-flow/wiki/resize) | `POST /browser/resize` | Change the window at any time 📐 |
 | [`upload_file`](https://github.com/kubed-io/selenium-flow/wiki/upload_file) | `POST /browser/upload` | Attach a file to a file input 📎 |
-| [`end_browser`](https://github.com/kubed-io/selenium-flow/wiki/end_browser) | `POST /browser/end` | Give the slot back, keep the session 🧹 |
+| [`end_browser`](https://github.com/kubed-io/selenium-flow/wiki/end_browser) | `DELETE /browser` | Give the slot back, keep the session 🧹 |
 
 Every parameter, every return field and the traps worth knowing are one page per action in the **[wiki](https://github.com/kubed-io/selenium-flow/wiki/Actions)** — generated from `openapi.yaml`, which is itself generated from the live tool schemas, so it cannot drift from the server. The same schemas are served at `GET /openapi.yaml`.
 
@@ -91,41 +91,36 @@ Sessions expire on `SESSION_TTL`, slid forward on every use. Nothing else remove
 
 ## 🍪 Sessions
 
-Over HTTP it is session in, session out, always — so an n8n workflow owns its session and can pass it between nodes.
+**Every session is named by whoever calls, on both surfaces.** Say who you are and you get the browser that belongs to that name — there is no session id in the contract at all, so there is nothing to keep and nothing to pass.
+
+| How to name it | Looks like | Use it when |
+|---|---|---|
+| **A URL parameter** | `…/mcp?session=research-bot` | the usual case: one credential, each caller named in its own URL |
+| **A header** | `X-Session-Key: research-bot` | an operator pins one session to one credential |
+| **stdio** | nothing to do | one process serves one client, and it is named `stdio` |
+
+**Sending both is a 400**, not a contest one wins: two names is two ideas about who is calling, and quietly picking one hides that from whoever wired it up. Naming nothing is a 400 too, with a message saying how — except on the flow library, which falls back to the shared `global` one that everyone reads and nobody writes.
 
 **`open_session` always comes first.** Nothing opens a browser implicitly, because that is the only place its browser, window size and timeouts can be chosen.
 
-After that there are two modes, and they are **exclusive**. `session://current` reports which one applies and links the reference that explains it:
+Call again with the same name — after a reconnect, a client restart, a week later — and you are back on the same browser at the same page.
 
-| Mode | When | The rule |
-|---|---|---|
-| **saved** | the server can identify you | **never** pass `session_id` — it is not even advertised |
-| **stateless** | it cannot, or you are on `/browser/*` | `session_id` is **required** on every call |
+> ⚠️ n8n opens a **new MCP transport per tool call**, so nothing the transport negotiates is ever the same twice. Name the session in the URL and it simply works.
 
-It works out who is calling from the first of these it finds and **never invents one** — a caller it cannot identify is stateless, not quietly handed a browser:
+> 🔑 A session name is a credential. The bearer token is the only thing guarding it, so anyone who can call this server can name your session and drive your browser.
 
-| Key | How it's set | How stable |
-|---|---|---|
-| **A name you choose** | `X-Session-Key` header, else `?session=<name>` on the MCP URL | Survives a client restart or reconnect |
-| **The MCP transport session** | the negotiated `Mcp-Session-Id` | Lasts the connection; a reconnect is a new key |
-| **stdio** | one process, one client | Lasts the process |
-
-Prefer the **query parameter**: one credential shared across callers, each naming itself in its URL. The **header** wins over it, so an admin can pin one browser per credential.
-
-> ⚠️ n8n opens a **new MCP transport per tool call**, so the negotiated id is never the same twice. Name the session in the URL or saved mode cannot work there.
-
-Browser lifetime is the Grid's (`SE_NODE_SESSION_TIMEOUT`, 300s here); how long we remember a caller is `SESSION_TTL`, slid forward on every call. Nothing runs a cleanup loop.
+Browser lifetime is the Grid's (`SE_NODE_SESSION_TIMEOUT`, 300s here); how long a session is remembered is `SESSION_TTL`, slid forward on every call. Nothing runs a cleanup loop.
 
 ### 📍 Where am I?
 
-`session://current` reports the mode, the session this client holds and which browser it is running, whether the Grid still has it, whether you are inside a frame, and a link to the reference that applies. Reading it never opens a browser.
+`session://current` reports the session name, which browser it is running, the page it is on, whether one is open at all, whether you are inside a frame, and the window size. Reading it never opens a browser.
 
 The same status is also a `current_session` **tool**, hidden unless a client declares `?resources=off` or `X-MCP-Resources: off` — resources being the least implemented corner of MCP.
 
 ### 📖 It teaches you how to use it
 
 The server ships an **Agent Skill**: the strategic half tool descriptions cannot
-hold — which session mode you are in, why `extract` beats `screenshot` by orders
+hold — how to name a session, why `extract` beats `screenshot` by orders
 of magnitude, how to reach a page in one call, and what a timeout usually means.
 
 `SKILL.md` is a thin index; each reference is its own resource, so an agent loads
@@ -133,9 +128,8 @@ only what its task needs:
 
 | Resource | Holds |
 |---|---|
-| `skill://selenium-flow/SKILL.md` | the index: session mode, the three rules, where next |
-| `.../references/STATELESS.md` | you own the session id |
-| `.../references/SAVED_SESSIONS.md` | the server holds your browser |
+| `skill://selenium-flow/SKILL.md` | the index: naming your session, the three rules, where next |
+| `.../references/SESSIONS.md` | naming a session, sharing one, recovering a dead browser |
 | `.../references/READING_PAGES.md` | extract vs script vs screenshot, and durable XPath |
 | `.../references/INTERACTION.md` | forms, clicks, keys, scrolling, waiting |
 | `.../references/TROUBLESHOOTING.md` | timeouts, dead sessions, blank captures |
@@ -169,7 +163,7 @@ A step is just a tool call, validated against the live tool schemas when it is s
 Mount credentials as a directory per secret and a file per key — exactly how Kubernetes already mounts a `Secret` — and point `SECRETS_DIRS` at it. An agent sees the names and keys, never a value, and binds one where the value would go:
 
 ```
-write(css="#password", secret={"name": "nextcloud", "key": "password"})
+write(selector={"selector": {"css": "#password"}}, secret={"name": "nextcloud", "key": "password"})
 ```
 
 The server types it; it never passes through the model, the transcript or a log. A secret can be pinned to the sites it may be used on, and is refused anywhere else.
@@ -233,7 +227,6 @@ Every flag has an environment fallback: containers are configured with env vars,
 | `GRID_URL` | `--grid-url` | the in-cluster Grid Service | Selenium Grid hub |
 | `MCP_AUTH_TOKEN` | `--auth-token` | unset | Bearer token for both surfaces. Unset disables auth |
 | `ROUTE_PREFIX` | `--route-prefix` | `/browser` | Path prefix for the HTTP endpoints |
-| `SAVED_SESSIONS` | `--no-saved-sessions` | `true` | Let MCP callers omit `session_id`. Never affects HTTP |
 | `SESSION_STORE` | — | `memory` | `memory` or `redis`. Any `REDIS_*` setting implies `redis` |
 | `SESSION_TTL` | — | `3600` | Seconds a caller's mapping is kept |
 | `REDIS_URL`, or `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_USERNAME` / `REDIS_PASSWORD` / `REDIS_SSL` | — | unset | Connection for `SESSION_STORE=redis`. `REDIS_DB` applies even with no `/<index>` in the URL |

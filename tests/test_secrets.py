@@ -355,7 +355,7 @@ async def test_no_tool_on_this_server_returns_a_secret_value(secret_server,
         steps=[
             {
                 "tool": "write",
-                "args": {"css": "#password", "secret": {"name": "nextcloud-admin", "key": "password"}},
+                "args": {"selector": {"css": "#password"}, "secret": {"name": "nextcloud-admin", "key": "password"}},
             }
         ],
     )
@@ -770,7 +770,7 @@ def test_an_http_caller_can_bind_a_secret_it_never_sees(bound_http):
     response = client.post(
         "/browser/write",
         json={
-            "css": "#password",
+            "selector": {"css": "#password"},
             "secret": {"name": "nextcloud", "key": "password"},
         },
         headers=AUTH,
@@ -790,7 +790,7 @@ def test_an_http_bind_on_a_disallowed_page_is_refused(bound_http, monkeypatch):
     response = client.post(
         "/browser/write",
         json={
-            "css": "#password",
+            "selector": {"css": "#password"},
             "secret": {"name": "nextcloud", "key": "nope"},
         },
         headers=AUTH,
@@ -807,7 +807,7 @@ def test_an_http_bind_may_not_also_navigate(bound_http):
     response = client.post(
         "/browser/write",
         json={
-            "css": "#password",
+            "selector": {"css": "#password"},
             "url": "https://evil.test/",
             "secret": {"name": "nextcloud", "key": "password"},
         },
@@ -828,7 +828,7 @@ def test_a_malformed_binding_over_http_is_a_400_not_a_500(bound_http, reference)
     client, _ = bound_http
     response = client.post(
         "/browser/write",
-        json={"css": "#p", "secret": reference},
+        json={"selector": {"css": "#p"}, "secret": reference},
         headers=AUTH,
     )
     assert response.status_code == 400, response.text
@@ -840,7 +840,7 @@ def test_an_http_caller_cannot_ask_for_the_read_back_to_be_skipped(bound_http):
     client, typed = bound_http
     response = client.post(
         "/browser/write",
-        json={"css": "#p", "text": "plain", "read_back": False},
+        json={"selector": {"css": "#p"}, "text": "plain", "read_back": False},
         headers=AUTH,
     )
     assert response.status_code == 200, response.text
@@ -907,7 +907,7 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
 
     write = await server.mcp.get_tool("write")
     result = write.fn(
-        css="#password",
+        selector={"css": "#password"},
         secret={"name": "nextcloud", "key": "password"},
     )
     # The page the value reached is never remembered, whatever the value is —
@@ -957,7 +957,7 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
 
     write = await server.mcp.get_tool("write")
     write.fn(
-        css="#password",
+        selector={"css": "#password"},
         secret={"name": "nextcloud", "key": "password"},
     )
     assert touched == ["https://nc.example.com/home"]
@@ -973,7 +973,7 @@ def test_an_http_binding_naming_two_sources_is_refused(bound_http, monkeypatch):
         headers=AUTH,
         json={
             "session_id": "browser-1",
-            "css": "#password",
+            "selector": {"css": "#password"},
             "secret": {"name": "nextcloud", "key": "password"},
             "text": "typed as well",
         },
@@ -1027,7 +1027,7 @@ async def test_every_surface_refuses_a_value_given_twice(bound_http):
         headers=AUTH,
         json={
             "session_id": "browser-1",
-            "css": "#password",
+            "selector": {"css": "#password"},
             "text": "typed as well",
             "secret": {"name": "nextcloud", "key": "password"},
         },
@@ -1094,7 +1094,7 @@ def test_an_http_reference_with_an_unknown_field_is_a_400(bound_http):
         headers=AUTH,
         json={
             "session_id": "browser-1",
-            "css": "#password",
+            "selector": {"css": "#password"},
             "secret": {"name": "nextcloud", "key": "password", "namespace": "x"},
         },
     )

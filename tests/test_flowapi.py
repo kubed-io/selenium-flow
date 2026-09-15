@@ -295,7 +295,7 @@ async def test_the_schema_is_derived_from_the_live_tools(flow_server):
     assert "write" in steps and "interact" in steps
     # Lifecycle is not a step, so it cannot appear in the shape we publish.
     assert "open_session" not in steps and "end_browser" not in steps
-    assert "css" in schema["x-step-params"]["write"]["properties"]
+    assert "selector" in schema["x-step-params"]["write"]["properties"]
 
 
 # ---- flows turned off --------------------------------------------------------
@@ -495,8 +495,8 @@ async def test_a_saved_flow_runs_end_to_end(ran):
         name="login",
         steps=[
             {"tool": "navigate", "args": {"url": "https://example.test/login"}},
-            {"tool": "write", "args": {"css": "#email", "text": "a@b.c"}},
-            {"tool": "interact", "args": {"action": "click", "css": "button"}},
+            {"tool": "write", "args": {"selector": {"css": "#email"}, "text": "a@b.c"}},
+            {"tool": "interact", "args": {"action": "click", "selector": {"css": "button"}}},
         ],
     )
     report = await call(server, flowapi.RUN_TOOL, name="login")
@@ -535,7 +535,7 @@ async def test_parameters_reach_the_step_that_names_them(ran):
         steps=[
             {
                 "tool": "write",
-                "args": {"css": "#email", "text": "${email}"},
+                "args": {"selector": {"css": "#email"}, "text": "${email}"},
             }
         ],
     )
@@ -638,7 +638,7 @@ async def test_a_flow_that_starts_on_whatever_page_you_are_on_is_warned_about(
         flow_server,
         flowapi.SAVE_TOOL,
         name="risky",
-        steps=[{"tool": "interact", "args": {"action": "click", "css": "#go"}}],
+        steps=[{"tool": "interact", "args": {"action": "click", "selector": {"css": "#go"}}}],
     )
     assert saved["saved"] is True, "a warning is not a refusal"
     assert store.names("desktop") == ["risky"], "and it is kept"
@@ -654,7 +654,7 @@ async def test_a_flow_that_starts_on_whatever_page_you_are_on_is_warned_about(
         {"tool": "assert", "args": {"script": "return location.pathname === '/x'"}},
         {
             "tool": "interact",
-            "args": {"action": "click", "css": "#go", "url": "https://example.test/"},
+            "args": {"action": "click", "selector": {"css": "#go"}, "url": "https://example.test/"},
         },
     ],
     ids=["navigates", "asserts", "carries a url"],
@@ -719,7 +719,7 @@ async def test_a_run_reads_a_kept_file_from_the_callers_own_library(
         {
             "description": "Upload the export",
             "steps": [
-                {"tool": "upload_file", "args": {"css": "input", "kept": "export.csv"}}
+                {"tool": "upload_file", "args": {"selector": {"css": "input"}, "kept": "export.csv"}}
             ],
         },
     )

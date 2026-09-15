@@ -15,13 +15,14 @@ holds. The Grid's own id is never a parameter and never a result (§F2.12).
 from __future__ import annotations
 
 import base64
+import json
 from collections.abc import Callable
 from typing import Annotated, Literal
 
 from fastmcp import FastMCP
 from fastmcp.tools import ToolResult
 from fastmcp.utilities.types import Image
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 from . import secrets as secrets_module
 from .actions import (
@@ -70,10 +71,65 @@ Browser = Annotated[Literal[BROWSERS] | None, BeforeValidator(_blank_is_unset)]
 # to pass both selectors or neither, and the fix has to be in front of the model
 # at the point it is choosing.
 SELECTOR = (
-    "Address the element with EITHER xpath OR css, never both and never "
-    "neither - e.g. xpath=\"//button[@type='submit']\" or "
-    "css=\"button[type=submit]\"."
+    "Address the element with a selector: {\"xpath\": \"//button[@type='submit']\"} "
+    "or {\"css\": \"button[type=submit]\"} - exactly one of the two, never both "
+    "and never neither."
 )
+
+
+def _as_selector(value):
+    """A selector sent as a JSON string, turned back into an object.
+
+    Some clients stringify object arguments, and pydantic refuses a string
+    where a model is expected with a message about dictionaries — which tells
+    the model nothing it can act on. The enums above take the same treatment
+    for the same reason.
+
+    A string that is not JSON is handed on unchanged, so the error a caller
+    sees is the selector's own rather than one about parsing.
+    """
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except ValueError:
+            return value
+    return value
+
+
+class Selector(BaseModel):
+    """Which element to act on: xpath or css, exactly one.
+
+    One object rather than two flat arguments because they are one choice
+    (§F2.14): every tool that takes one takes the other, for the same element,
+    under the same rule — which used to be written out in a dozen descriptions
+    and is now said once, here.
+    """
+
+    # Refused rather than dropped, as `SecretRef` does: an unknown key is a
+    # caller's mistake, and ignoring it silently runs a different request.
+    model_config = ConfigDict(extra="forbid")
+
+    xpath: str | None = Field(
+        None, description="An XPath expression, e.g. //button[@type='submit']"
+    )
+    css: str | None = Field(
+        None, description="A CSS selector, e.g. button[type=submit]"
+    )
+
+    @model_validator(mode="after")
+    def _exactly_one(self):
+        """Never a fallback from one to the other: a typo in the first would
+        become a click on whatever the second found, and the run would report
+        `ok` while it drifted (§F2.14)."""
+        if bool(self.xpath) == bool(self.css):
+            raise ValueError(
+                "a selector takes xpath or css - exactly one, not both and not "
+                "neither"
+            )
+        return self
+
+
+SelectorArg = Annotated[Selector | None, BeforeValidator(_as_selector)]
 
 class SecretRef(BaseModel):
     """Which secret, and which key inside it."""
@@ -109,7 +165,8 @@ scarce resource and an abandoned one holds a slot until the Grid reaps it. Your 
 session survives it, so open_session picks up where you left off.
 
 Elements are addressed by XPath or by CSS - pass one or the other, never \
-both. xpath="//input[@name='q']" or css="input[name=q]".
+both: selector={{"xpath": "//input[@name='q']"}} or \
+selector={{"css": "input[name=q]"}}.
 
 Most actions take an optional url. It is not an assertion: if the browser is \
 somewhere else it navigates there first, so you can jump straight to a page \
@@ -241,8 +298,7 @@ def register(
     )
     def interact(
         action: MouseAction,
-        xpath: str | None = None,
-        css: str | None = None,
+        selector: SelectorArg = None,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
         glide: bool = False,
@@ -251,8 +307,7 @@ def register(
             lambda s: actions.interact(
                 s,
                 action,
-                xpath=xpath,
-                css=css,
+                selector=selector,
                 url=url,
                 wait_timeout=wait_timeout,
                 glide=glide,
@@ -262,8 +317,8 @@ def register(
     @mcp.tool(
         description=(
             "Drag one element onto another, or by an offset in pixels.\n\n"
-            "Address the thing being dragged with EITHER xpath OR css. Say "
-            "where it goes with EITHER to_xpath/to_css - a destination element "
+            "Address the thing being dragged with selector. Say "
+            "where it goes with EITHER to - a destination element "
             "- OR by_x and by_y, a distance from where it started. A range "
             "slider is the by_x case; a card into a column is the element "
             "case.\n\n"
@@ -280,10 +335,8 @@ def register(
         annotations=hints("Drag an element", destructive=True),
     )
     def drag(
-        xpath: str | None = None,
-        css: str | None = None,
-        to_xpath: str | None = None,
-        to_css: str | None = None,
+        selector: SelectorArg = None,
+        to: SelectorArg = None,
         by_x: int | None = None,
         by_y: int | None = None,
         url: str | None = None,
@@ -293,10 +346,8 @@ def register(
         return run(
             lambda s: actions.drag(
                 s,
-                xpath=xpath,
-                css=css,
-                to_xpath=to_xpath,
-                to_css=to_css,
+                selector=selector,
+                to=to,
                 by_x=by_x,
                 by_y=by_y,
                 url=url,
@@ -309,22 +360,21 @@ def register(
         description=(
             "Move into an iframe, or back out of it.\n\n"
             f"action is one of: {', '.join(FRAME_ACTIONS)}. Use switch with an "
-            "xpath (or index) to go into a frame, parent to go up one level, and "
+            "a selector (or index) to go into a frame, parent to go up one level, and "
             "default to return to the main page.\n\n"
             "Selenium does not look inside frames: an element in one is "
             "invisible to every locator until you switch in. **The switch "
             "sticks** — every later call stays in that frame until you switch "
             "back, so if a locator that should work is failing, check "
-            "session://current for in_frame.\n\nName the frame with xpath, "
-            "css or index — one of the three, not two. parent and default take "
+            "session://current for in_frame.\n\nName the frame with a selector "
+            "or an index — one of the two, not both. parent and default take "
             "none of them."
         ),
         annotations=hints("Switch into or out of an iframe", idempotent=True),
     )
     def frame(
         action: FrameAction = "switch",
-        xpath: str | None = None,
-        css: str | None = None,
+        selector: SelectorArg = None,
         index: int | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
     ) -> dict:
@@ -332,8 +382,7 @@ def register(
             lambda s: actions.frame(
                 s,
                 action=action,
-                xpath=xpath,
-                css=css,
+                selector=selector,
                 index=index,
                 wait_timeout=wait_timeout,
             ),
@@ -384,8 +433,7 @@ def register(
 
     @mcp.tool(annotations=hints("Attach a file to a file input"))
     def upload_file(
-        xpath: str | None = None,
-        css: str | None = None,
+        selector: SelectorArg = None,
         text: str | None = None,
         filename: str | None = None,
         mime_type: str | None = None,
@@ -414,14 +462,12 @@ def register(
         it `report.csv` rather than `report`. If you give a name without an
         extension, `mime_type` is used to pick one.
 
-        Address the input with EITHER xpath OR css, never both and never
-        neither.
+        Address the input with a selector: exactly one of xpath or css.
         """
         return run(
             lambda s: actions.upload_file(
                 s,
-                xpath=xpath,
-                css=css,
+                selector=selector,
                 text=text,
                 content=content,
                 filename=filename,
@@ -436,8 +482,7 @@ def register(
     @mcp.tool(annotations=hints("Type text into a field"))
     def write(
         text: str | None = None,
-        xpath: str | None = None,
-        css: str | None = None,
+        selector: SelectorArg = None,
         url: str | None = None,
         clear: bool = True,
         submit: bool = False,
@@ -450,8 +495,7 @@ def register(
         box in one call. Returns the field's value read back off the element, so
         you can confirm the text actually landed.
 
-        Address the field with EITHER xpath OR css, never both and never
-        neither.
+        Address the field with a selector: exactly one of xpath or css.
 
         To type a secret, pass secret={"name": ..., "key": ...} instead of
         text. list_secrets shows what there is. You never see the value: the
@@ -466,8 +510,7 @@ def register(
                     lambda s: actions.write(
                     s,
                     text,
-                    xpath=xpath,
-                    css=css,
+                    selector=selector,
                     url=url,
                     clear=clear,
                     submit=submit,
@@ -484,8 +527,7 @@ def register(
                 "text": text,
                 "url": url,
                 "secret": secret,
-                "xpath": xpath,
-                "css": css,
+                "selector": selector,
                 "clear": clear,
                 "submit": submit,
                 "wait_timeout": wait_timeout,
@@ -506,28 +548,26 @@ def register(
             f"{', '.join(KEY_NAMES)}.\n\n"
             "Not a reliable way to scroll - page_down only moves the page when "
             "focus happens to be on the scrollable container. Use execute_script "
-            "to scroll.\n\nTo aim the key at an element, pass xpath or css; "
+            "to scroll.\n\nTo aim the key at an element, pass a selector; "
             "with neither, it goes wherever focus already is."
         ),
         annotations=hints("Press a named key", destructive=True),
     )
     def press_key(
         key: str,
-        xpath: str | None = None,
-        css: str | None = None,
+        selector: SelectorArg = None,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
     ) -> dict:
         return run(
             lambda s: actions.press_key(
-                s, key, xpath=xpath, css=css, url=url, wait_timeout=wait_timeout
+                s, key, selector=selector, url=url, wait_timeout=wait_timeout
             ),
         )
 
     @mcp.tool(annotations=hints("Read an element", read_only=True, idempotent=True))
     def extract(
-        xpath: str | None = None,
-        css: str | None = None,
+        selector: SelectorArg = None,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
     ) -> dict:
@@ -537,12 +577,11 @@ def register(
         costs far more. //body reads everything, but a narrower selector keeps
         the result small.
 
-        Address the element with EITHER xpath OR css, never both and never
-        neither.
+        Address the element with a selector: exactly one of xpath or css.
         """
         return run(
             lambda s: actions.extract(
-                s, xpath=xpath, css=css, url=url, wait_timeout=wait_timeout
+                s, selector=selector, url=url, wait_timeout=wait_timeout
             ),
         )
 
@@ -558,7 +597,7 @@ def register(
             "what is in the way when it cannot: hidden (an ancestor is "
             "display:none - often a menu that opens on hover), covered "
             "(blocked_by names what is on top), zero_size, offscreen, "
-            "disabled.\n\nScope it with xpath or css to one part of the page, "
+            "disabled.\n\nScope it with a selector to one part of the page, "
             "filter by text to find one thing by its label, and raise limit "
             "when 50 entries are not enough. interactive=false includes every "
             "element rather than only the ones you can act on.\n\nRead it "
@@ -568,8 +607,7 @@ def register(
         annotations=hints("Map the page's elements", read_only=True, idempotent=True),
     )
     def outline(
-        xpath: str | None = None,
-        css: str | None = None,
+        selector: SelectorArg = None,
         text: str | None = None,
         limit: int = OUTLINE_LIMIT,
         interactive: bool = True,
@@ -579,8 +617,7 @@ def register(
         return run(
             lambda s: actions.outline(
                 s,
-                xpath=xpath,
-                css=css,
+                selector=selector,
                 text=text,
                 limit=limit,
                 interactive=interactive,
@@ -661,8 +698,7 @@ def register(
     @mcp.tool(annotations=hints("Capture a screenshot"))
     def screenshot(
         url: str | None = None,
-        xpath: str | None = None,
-        css: str | None = None,
+        selector: SelectorArg = None,
         full_page: bool = False,
         width: int | None = None,
         height: int | None = None,
@@ -672,7 +708,7 @@ def register(
     ) -> Image | ToolResult:
         """Capture a PNG of the page and return it as an image you can see.
 
-        Three modes: pass xpath (or css) for one element, full_page for the
+        Three modes: pass a selector for one element, full_page for the
         whole scrollable page, or none of them for the visible viewport.
 
         Only reach for this when the *visual* result matters — layout, styling,
@@ -708,8 +744,7 @@ def register(
             lambda s: actions.screenshot(
                 s,
                 url=url,
-                xpath=xpath,
-                css=css,
+                selector=selector,
                 full_page=full_page,
                 width=width,
                 height=height,

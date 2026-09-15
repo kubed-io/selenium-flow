@@ -441,10 +441,9 @@ class Actions:
         self,
         session_id: str,
         action: str,
-        xpath=None,
+        selector=None,
         url=None,
         wait_timeout=WAIT_TIMEOUT,
-        css=None,
         glide=False,
     ) -> dict:
         """Perform a mouse action on an element.
@@ -467,10 +466,10 @@ class Actions:
                 f"unknown action {action!r}; known actions: "
                 f"{', '.join(sorted(MOUSE_ACTIONS))}"
             )
-        # Resolved before the browser is touched: a call naming both xpath and
-        # css is a mistake, and finding that out after a reconnect and a
+        # Resolved before the browser is touched: a selector naming both xpath
+        # and css is a mistake, and finding that out after a reconnect and a
         # navigation costs a page load to learn nothing.
-        target = browser.locator(xpath, css)
+        target = browser.locator(selector)
         driver = self._at(session_id, url)
         timeout = as_int(wait_timeout, 30)
 
@@ -584,10 +583,8 @@ class Actions:
     def drag(
         self,
         session_id: str,
-        xpath=None,
-        css=None,
-        to_xpath=None,
-        to_css=None,
+        selector=None,
+        to=None,
         by_x=None,
         by_y=None,
         url=None,
@@ -608,18 +605,18 @@ class Actions:
         Incremental movement is most of what a drag is for — a sortable list or
         a slider watching for `pointermove` sees a teleport otherwise.
         """
-        target = browser.locator(xpath, css)
+        target = browser.locator(selector)
         # Resolved before the browser is touched, like every other locator
         # mistake: an impossible drag should cost a 400, not a page load.
         to_target = None
         offset = None
-        if to_xpath or to_css:
+        if to is not None:
             if by_x is not None or by_y is not None:
                 raise ValueError(
-                    "give the destination as to_xpath/to_css OR as a by_x/by_y "
+                    "give the destination as `to` OR as a by_x/by_y "
                     "offset, never both"
                 )
-            to_target = browser.locator(to_xpath, to_css)
+            to_target = browser.locator(to)
         elif by_x is not None or by_y is not None:
             offset = (as_int(by_x, 0), as_int(by_y, 0))
             if offset == (0, 0):
@@ -629,7 +626,7 @@ class Actions:
                 )
         else:
             raise ValueError(
-                "the destination is required: name it with to_xpath or to_css, "
+                "the destination is required: name it with `to`, "
                 "or give a by_x/by_y offset in pixels"
             )
 
@@ -686,10 +683,9 @@ class Actions:
         self,
         session_id: str,
         action="switch",
-        xpath=None,
+        selector=None,
         index=None,
         wait_timeout=WAIT_TIMEOUT,
-        css=None,
     ) -> dict:
         """Move the session into an iframe, or back out of it.
 
@@ -706,9 +702,9 @@ class Actions:
                 f"unknown action {action!r}; known actions: "
                 f"{', '.join(sorted(FRAME_ACTIONS))}"
             )
-        if resolved == "switch" and not xpath and not css and index is None:
+        if resolved == "switch" and not selector and index is None:
             raise ValueError(
-                "switch needs xpath, css or index to say which frame"
+                "switch needs a selector or an index to say which frame"
             )
 
         driver = self.grid.reconnect(session_id)
@@ -716,10 +712,10 @@ class Actions:
             driver.switch_to.default_content()
         elif resolved == "parent":
             driver.switch_to.parent_frame()
-        elif xpath or css:
+        elif selector:
             driver.switch_to.frame(
                 browser.wait_for_element(
-                    driver, browser.locator(xpath, css), as_int(wait_timeout, 30)
+                    driver, browser.locator(selector), as_int(wait_timeout, 30)
                 )
             )
         else:
@@ -793,7 +789,7 @@ class Actions:
     def upload_file(
         self,
         session_id: str,
-        xpath=None,
+        selector=None,
         text=None,
         content=None,
         filename=None,
@@ -801,7 +797,6 @@ class Actions:
         path=None,
         url=None,
         wait_timeout=WAIT_TIMEOUT,
-        css=None,
         kept=None,
         session=None,
     ) -> dict:
@@ -883,7 +878,7 @@ class Actions:
         driver = self._at(session_id, url)
         browser.accept_local_files(driver)
         element = browser.wait_for_element(
-            driver, browser.locator(xpath, css), as_int(wait_timeout, 30)
+            driver, browser.locator(selector), as_int(wait_timeout, 30)
         )
 
         temp_dir = None
@@ -928,12 +923,11 @@ class Actions:
         self,
         session_id: str,
         text: str,
-        xpath=None,
+        selector=None,
         url=None,
         clear=True,
         submit=False,
         wait_timeout=WAIT_TIMEOUT,
-        css=None,
         read_back=True,
     ) -> dict:
         """Type ``text`` into a field.
@@ -946,7 +940,7 @@ class Actions:
         fires between the two, and in whatever the action returned before
         anything wrapped it.
         """
-        target = browser.locator(xpath, css)
+        target = browser.locator(selector)
         driver = self._at(session_id, url)
         element = browser.wait_for_clickable(driver, target, as_int(wait_timeout, 30))
         if as_bool(clear, True):
@@ -966,10 +960,9 @@ class Actions:
         self,
         session_id: str,
         key: str,
-        xpath=None,
+        selector=None,
         url=None,
         wait_timeout=WAIT_TIMEOUT,
-        css=None,
     ) -> dict:
         """Press a key or combination, at an element or wherever focus is.
 
@@ -980,9 +973,9 @@ class Actions:
         # Resolved before the browser is touched: a typo costs nothing.
         resolved = resolve_key(key)
         driver = self._at(session_id, url)
-        if xpath or css:
+        if selector:
             target = browser.wait_for_clickable(
-                driver, browser.locator(xpath, css), as_int(wait_timeout, 30)
+                driver, browser.locator(selector), as_int(wait_timeout, 30)
             )
         else:
             target = driver.find_element(By.TAG_NAME, "body")
@@ -997,8 +990,7 @@ class Actions:
     def outline(
         self,
         session_id: str,
-        xpath=None,
-        css=None,
+        selector=None,
         text=None,
         limit=probe.DEFAULT_LIMIT,
         interactive=True,
@@ -1015,9 +1007,9 @@ class Actions:
         """
         driver = self._at(session_id, url)
         scope = None
-        if xpath or css:
+        if selector:
             scope = browser.wait_for_element(
-                driver, browser.locator(xpath, css), as_int(wait_timeout, 30)
+                driver, browser.locator(selector), as_int(wait_timeout, 30)
             )
         # Both coerced here rather than in the page: an HTTP caller can send a
         # number for `text`, which reaches JavaScript as one and dies on
@@ -1187,10 +1179,10 @@ class Actions:
     # ---- reading -----------------------------------------------------------
 
     def extract(
-        self, session_id: str, xpath=None, url=None, wait_timeout=WAIT_TIMEOUT, css=None
+        self, session_id: str, selector=None, url=None, wait_timeout=WAIT_TIMEOUT
     ) -> dict:
         """Read the text and HTML of an element."""
-        target = browser.locator(xpath, css)
+        target = browser.locator(selector)
         driver = self._at(session_id, url)
         element = browser.wait_for_element(driver, target, as_int(wait_timeout, 30))
         return {
@@ -1203,14 +1195,13 @@ class Actions:
         self,
         session_id: str,
         url=None,
-        xpath=None,
+        selector=None,
         full_page=False,
         width=None,
         height=None,
         wait_timeout=WAIT_TIMEOUT,
         save=True,
         filename=None,
-        css=None,
     ) -> dict:
         """Capture a PNG and return it base64-encoded.
 
@@ -1225,9 +1216,9 @@ class Actions:
                 as_int(width, current["width"]), as_int(height, current["height"])
             )
 
-        if xpath or css:
+        if selector:
             element = browser.wait_for_element(
-                driver, browser.locator(xpath, css), as_int(wait_timeout, 30)
+                driver, browser.locator(selector), as_int(wait_timeout, 30)
             )
             image = element.screenshot_as_base64
         elif as_bool(full_page, False):

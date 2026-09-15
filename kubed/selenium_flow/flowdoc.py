@@ -142,19 +142,19 @@ ADDRESSES_AN_ELEMENT = {
 OPTIONAL_ELEMENT = {"press_key", "screenshot"}
 
 # `drag` alone needs a second address: where the thing goes. Exactly one of a
-# destination element or a by_x/by_y offset, which is the same shape as
-# xpath-or-css and equally beyond a JSON schema to say. Without this a drag
-# step with no destination saved cleanly and failed at run time, which is the
-# whole reason validation happens at save (Copilot, #31).
-DESTINATION = ("to_xpath", "to_css")
+# destination selector or a by_x/by_y offset — a shape beyond what a JSON schema
+# can say. Without this a drag step with no destination saved cleanly and failed
+# at run time, which is the whole reason validation happens at save
+# (Copilot, #31).
+DESTINATION = "to"
 OFFSET = ("by_x", "by_y")
 
 
 def _needs_an_element(tool: str, params: dict) -> bool:
     """Whether this particular call has to name one.
 
-    `frame` is not simply optional: `switch` needs xpath, css **or** index, and
-    only `parent` and `default` need nothing. Treating the whole action as
+    `frame` is not simply optional: `switch` needs a selector **or** an index,
+    and only `parent` and `default` need nothing. Treating the whole action as
     optional let `frame(action="switch")` with no target save cleanly and then
     be refused by `actions.frame` at run time, which is precisely the split
     between validation and execution that save-time checking exists to close.
@@ -435,14 +435,18 @@ def _check_params(where: str, tool: str, params: dict, bound: set[str], schema: 
                 "or give a secret for it to type"
             )
 
-    # Same shape for the element: exactly one of xpath or css, which a schema
-    # cannot say without a oneOf and `browser.locator` enforces at the boundary.
+    # The element. The selector model says "exactly one of xpath or css" for
+    # itself, so what is left here is whether this step needed one at all —
+    # `frame(action="switch")` with neither a selector nor an index saved
+    # cleanly and was refused at run time before this existed.
     if tool in ADDRESSES_AN_ELEMENT:
-        named = [k for k in ("xpath", "css") if params.get(k) or k in bound]
-        if len(named) > 1:
-            problems.append(f"{where}: {tool} takes xpath or css, not both")
-        elif not named and _needs_an_element(tool, params):
-            problems.append(f"{where}: {tool} needs an element — give xpath or css")
+        named = params.get("selector") or "selector" in bound
+        if not named and _needs_an_element(tool, params):
+            problems.append(
+                f"{where}: {tool} needs an element — give selector with xpath or css"
+            )
+        elif isinstance(params.get("selector"), dict):
+            problems += _check_selector(where, tool, params["selector"])
 
     if tool == "drag":
         problems += _check_destination(where, params)
@@ -454,22 +458,40 @@ def _check_params(where: str, tool: str, params: dict, bound: set[str], schema: 
     return problems
 
 
+def _check_selector(where: str, tool: str, selector: dict) -> list[str]:
+    """One selector names one element, the way `browser.locator` requires.
+
+    Checked here as well as by the model because a flow is YAML somebody may
+    have written by hand, and a document that saves cleanly and fails at run
+    time is the split save-time validation exists to close.
+    """
+    named = [k for k in ("xpath", "css") if selector.get(k)]
+    unknown = sorted(set(selector) - {"xpath", "css"})
+    if unknown:
+        return [f"{where}: {tool} selector takes xpath or css, not {listed(unknown)}"]
+    if len(named) > 1:
+        return [f"{where}: {tool} selector takes xpath or css, not both"]
+    if not named:
+        return [f"{where}: {tool} selector needs xpath or css"]
+    return []
+
+
 def _check_destination(where: str, params: dict) -> list[str]:
     """Where a drag ends: a destination element, or an offset. Never both."""
-    to = [k for k in DESTINATION if params.get(k)]
+    to = params.get(DESTINATION)
     by = [k for k in OFFSET if params.get(k) is not None]
-    if len(to) > 1:
-        return [f"{where}: drag takes to_xpath or to_css, not both"]
     if to and by:
         return [
-            f"{where}: drag takes a destination element ({listed(to)}) or an "
+            f"{where}: drag takes a destination element (to) or an "
             f"offset ({listed(by)}), not both"
         ]
     if not to and not by:
         return [
-            f"{where}: drag needs a destination — to_xpath or to_css for an "
+            f"{where}: drag needs a destination — `to` with a selector for an "
             "element, or by_x/by_y for an offset in pixels"
         ]
+    if isinstance(to, dict):
+        return _check_selector(where, "drag", to)
     if by and all(params.get(k) in (0, None) for k in OFFSET):
         return [
             f"{where}: drag by_x and by_y are both zero, which is a drag to "

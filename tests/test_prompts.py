@@ -264,7 +264,7 @@ def test_a_real_failed_run_carries_the_hint():
     document = {
         "steps": [
             {"tool": "navigate", "args": {"url": "https://example.test/"}},
-            {"tool": "interact", "args": {"action": "click", "css": "button.go"}},
+            {"tool": "interact", "args": {"action": "click", "selector": {"css": "button.go"}}},
         ]
     }
     report = run(_Broken(), document, "b", params={})

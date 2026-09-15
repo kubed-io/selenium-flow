@@ -450,8 +450,8 @@ test fails the build if one exists without the other.
 
 {body}
 
-Over HTTP `session_id` is always required. Over MCP it depends on whether the
-server can identify you — see [Sessions](Sessions).
+Every call names its session — an `X-Session-Key` header or `?session=` on the
+URL. There is no session id anywhere; see [Sessions](Sessions).
 
 ---
 

@@ -107,7 +107,7 @@ def test_naming_no_element_is_a_400_that_says_how_to_address_one(open_client):
 def test_naming_both_elements_is_a_400_rather_than_a_silent_choice(open_client):
     response = open_client.post(
         "/browser/interact/click",
-        json={"xpath": "//a", "css": "a"},
+        json={"selector": {"xpath": "//a", "css": "a"}},
     )
     assert response.status_code == 400
     assert "not both" in response.json()["error"]
@@ -117,7 +117,7 @@ def test_unknown_keys_are_dropped_rather_than_rejected(open_client):
     """A caller on a newer client should not hard-fail on an extra field."""
     response = open_client.post(
         "/browser/interact/click",
-        json={"xpath": "//a", "not_a_real_field": 1},
+        json={"selector": {"xpath": "//a"}, "not_a_real_field": 1},
     )
     assert response.status_code == GRID_DOWN  # reached the Grid, not a 400
 
@@ -125,7 +125,7 @@ def test_unknown_keys_are_dropped_rather_than_rejected(open_client):
 def test_interact_rejects_an_unknown_action(open_client):
     """The error names the real list, so a model can correct itself."""
     response = open_client.post(
-        "/browser/interact/karate", json={"xpath": "//a"}
+        "/browser/interact/karate", json={"selector": {"xpath": "//a"}}
     )
     assert response.status_code == 400
     error = response.json()["error"]
@@ -154,7 +154,7 @@ def test_upload_refuses_more_than_one_source(open_client):
     """Two sources for one file is a caller mistake worth naming precisely."""
     response = open_client.post(
         "/browser/upload",
-        json={"xpath": "//input", "content": "eA==", "path": "/tmp/x"},
+        json={"selector": {"xpath": "//input"}, "content": "eA==", "path": "/tmp/x"},
     )
     assert response.status_code == 400
     error = response.json()["error"]
@@ -171,7 +171,7 @@ def test_upload_takes_plain_text_as_the_file(open_client):
     response = open_client.post(
         "/browser/upload",
         json={
-            "xpath": "//input",
+            "selector": {"xpath": "//input"},
             "text": '{"generated": true}',
             "filename": "data.json",
         },
@@ -181,7 +181,7 @@ def test_upload_takes_plain_text_as_the_file(open_client):
 
 def test_upload_needs_some_kind_of_file(open_client):
     response = open_client.post(
-        "/browser/upload", json={"xpath": "//input"}
+        "/browser/upload", json={"selector": {"xpath": "//input"}}
     )
     assert response.status_code == 400
     error = response.json()["error"]
@@ -192,7 +192,7 @@ def test_upload_rejects_content_that_is_not_base64(open_client):
     """And points at the multipart form, which is the easier way over HTTP."""
     response = open_client.post(
         "/browser/upload",
-        json={"xpath": "//input", "content": "definitely not base64!"},
+        json={"selector": {"xpath": "//input"}, "content": "definitely not base64!"},
     )
     assert response.status_code == 400
     assert "base64" in response.json()["error"]
@@ -207,7 +207,7 @@ def test_upload_accepts_a_multipart_file(open_client):
     """
     response = open_client.post(
         "/browser/upload",
-        data={"xpath": "//input"},
+        data={"selector": '{"xpath": "//input"}'},
         files={"content": ("report.csv", b"a,b\n1,2\n", "text/csv")},
     )
     assert response.status_code == GRID_DOWN, response.json()
@@ -216,7 +216,7 @@ def test_upload_accepts_a_multipart_file(open_client):
 def test_a_multipart_filename_can_be_overridden(open_client):
     response = open_client.post(
         "/browser/upload",
-        data={"xpath": "//input", "filename": "renamed.csv"},
+        data={"selector": '{"xpath": "//input"}', "filename": "renamed.csv"},
         files={"content": ("original.csv", b"x", "text/csv")},
     )
     assert response.status_code == GRID_DOWN, response.json()
@@ -235,11 +235,9 @@ def test_frame_rejects_an_unknown_action(open_client):
 
 def test_frame_switch_needs_a_target(open_client):
     """Switching without saying which frame is a caller mistake, not a default."""
-    response = open_client.post(
-        "/browser/frame", json={"action": "switch"}
-    )
+    response = open_client.post("/browser/frame", json={"action": "switch"})
     assert response.status_code == 400
-    assert "xpath" in response.json()["error"]
+    assert "selector" in response.json()["error"]
 
 
 def test_frame_default_needs_no_target(open_client):

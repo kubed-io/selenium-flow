@@ -22,20 +22,21 @@ Three consequences drive everything else:
   being idle, ended by you, ended by an operator — is never something to recover
   from: `open_session()` with no arguments puts you back where you were.
 
-## Step 0: which session mode are you in?
+## Step 0: name your session
 
-Read the `session://current` resource before your first action. It is free and
-it decides how every later call is shaped.
+Every session is named by whoever calls, and the name is the whole contract:
+add `?session=<name>` to the server URL, or send an `X-Session-Key` header.
+Sending both is an error. Over stdio you are named `stdio` already.
 
-| It reports | You are | Read |
-|---|---|---|
-| `"mode": "stateless"` | you own the session id — pass it on every call | `references/STATELESS.md` |
-| `"mode": "saved"` | the server holds your browser — never pass an id | `references/SAVED_SESSIONS.md` |
+There is **no session id anywhere** — no tool takes one, no result carries one.
+Call again with the same name and you get the same browser back, after a
+reconnect or a restart.
 
-It also links the right reference in its `guidance` field, so you do not have to
-remember which. The two modes are **exclusive**: using the wrong one fails every
-call the same way. If you cannot read resources, the `current_session` tool
-returns the same object.
+Read the `session://current` resource before your first action if you want to
+know what you are holding. It is free, and it reports the session name, the
+browser, the page and whether one is open. If you cannot read resources, the
+`current_session` tool returns the same object. `references/SESSIONS.md` has
+the rest.
 
 **Either way, call `open_session` first.** Nothing opens a browser implicitly,
 because `open_session` is the only place its browser, window size and timeouts
@@ -81,7 +82,7 @@ optional `url` and navigates there first if the browser is elsewhere. One call,
 not two:
 
 ```
-extract(url="https://example.com/settings", xpath="//h1")
+extract(url="https://example.com/settings", selector={"selector": {"xpath": "//h1"}})
 ```
 
 **3. Find selectors with `outline`, not by reading HTML.** It lists what is on
@@ -105,7 +106,7 @@ Load only what the task needs.
 
 | Doing | Read |
 |---|---|
-| Deciding how to pass sessions, or recovering a dead one | `references/STATELESS.md` / `references/SAVED_SESSIONS.md` |
+| Naming a session, sharing one, or recovering a dead browser | `references/SESSIONS.md` |
 | Getting content out of a page, choosing a selector | `references/READING_PAGES.md` |
 | Clicking, hovering, typing, uploading, dialogs, scrolling, waiting | `references/INTERACTION.md` |
 | A timeout, an empty screenshot, a click that did nothing | `references/TROUBLESHOOTING.md` |
@@ -119,11 +120,11 @@ In saved mode — `open_session` once, then no `session_id` anywhere:
 
 ```
 open_session(width=1400, height=900)
-write(url="https://example.com/login", xpath="//input[@name='email']", text="a@example.com")
-write(xpath="//input[@name='password']",
+write(url="https://example.com/login", selector={"selector": {"xpath": "//input[@name='email']"}}, text="a@example.com")
+write(selector={"selector": {"xpath": "//input[@name='password']"}},
       secret={"name": "example", "key": "password"})
-interact(action="click", xpath="//button[@type='submit']")
-extract(xpath="//h1")            # confirm you landed
+interact(action="click", selector={"selector": {"xpath": "//button[@type='submit']"}})
+extract(selector={"selector": {"xpath": "//h1"}})            # confirm you landed
 end_browser()
 ```
 

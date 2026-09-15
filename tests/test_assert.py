@@ -166,7 +166,7 @@ LOGIN_GUARD = {
                 "wait_timeout": 5,
             },
         },
-        {"tool": "write", "args": {"css": "#login-username", "text": "someone"}},
+        {"tool": "write", "args": {"selector": {"css": "#login-username"}, "text": "someone"}},
     ],
 }
 
@@ -252,7 +252,7 @@ def test_a_hand_edited_flow_cannot_continue_past_one_either():
                 "onError": "continue",
                 "args": {"script": "return false"},
             },
-            {"tool": "write", "args": {"css": "#a", "text": "x"}},
+            {"tool": "write", "args": {"selector": {"css": "#a"}, "text": "x"}},
         ]
     }
     report = run(acting, document, "b")

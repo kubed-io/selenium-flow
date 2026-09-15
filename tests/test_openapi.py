@@ -203,7 +203,7 @@ async def test_the_multipart_upload_schema_accepts_every_selector(spec):
     """
     form = spec["paths"]["/browser/upload"]["post"]["requestBody"]["content"]
     properties = form["multipart/form-data"]["schema"]["properties"]
-    assert {"xpath", "css"} <= set(properties)
+    assert "selector" in properties
 
 
 async def test_the_multipart_schema_does_not_require_a_named_selector(spec):

@@ -117,7 +117,7 @@ def test_the_reserved_names_are_reserved_as_sessions_but_not_as_flow_names():
 def test_save_then_get_round_trips(store):
     document = {
         "description": "Log in",
-        "steps": [{"tool": "write", "args": {"xpath": "//input", "text": "x"}}],
+        "steps": [{"tool": "write", "args": {"selector": {"xpath": "//input"}, "text": "x"}}],
     }
     store.save("research-bot", "login", document)
     assert store.get("research-bot", "login") == {**document, "name": "login"}
@@ -457,10 +457,8 @@ def _drag_problems(args):
         "drag": {
             "type": "object",
             "properties": {
-                "xpath": {"type": "string"},
-                "css": {"type": "string"},
-                "to_xpath": {"type": "string"},
-                "to_css": {"type": "string"},
+                "selector": {"type": "object"},
+                "to": {"type": "object"},
                 "by_x": {"type": "integer"},
                 "by_y": {"type": "integer"},
             },
@@ -478,29 +476,34 @@ def test_a_drag_with_no_element_is_refused_at_save():
     """It is a registered action now, so it has to be in the set the validator
     checks — otherwise the step saves cleanly and fails at run time, which is
     the whole thing save-time validation exists to prevent (Copilot, #31)."""
-    assert "needs an element" in _drag_problems({"to_css": "#done"})
+    assert "needs an element" in _drag_problems({"to": {"css": "#done"}})
 
 
 def test_a_drag_with_no_destination_is_refused_at_save():
-    assert "needs a destination" in _drag_problems({"css": "#card"})
+    assert "needs a destination" in _drag_problems({"selector": {"css": "#card"}})
 
 
 def test_a_drag_with_two_kinds_of_destination_is_refused_at_save():
-    problems = _drag_problems({"css": "#card", "to_css": "#done", "by_x": 10})
+    problems = _drag_problems(
+        {"selector": {"css": "#card"}, "to": {"css": "#done"}, "by_x": 10}
+    )
     assert "not both" in problems
 
 
 def test_a_drag_to_where_it_already_is_is_refused_at_save():
-    assert "already is" in _drag_problems({"css": "#card", "by_x": 0, "by_y": 0})
+    assert "already is" in _drag_problems({"selector": {"css": "#card"}, "by_x": 0, "by_y": 0})
 
 
 @pytest.mark.parametrize(
     "args",
     [
-        {"css": "#card", "to_css": "#done"},
-        {"xpath": "//div[@id='card']", "to_xpath": "//div[@id='done']"},
-        {"css": "input[type=range]", "by_x": 120},
-        {"css": "input[type=range]", "by_y": -40},
+        {"selector": {"css": "#card"}, "to": {"css": "#done"}},
+        {
+            "selector": {"xpath": "//div[@id='card']"},
+            "to": {"xpath": "//div[@id='done']"},
+        },
+        {"selector": {"css": "input[type=range]"}, "by_x": 120},
+        {"selector": {"css": "input[type=range]"}, "by_y": -40},
     ],
     ids=["css to css", "xpath to xpath", "by x", "negative by y"],
 )

@@ -129,7 +129,7 @@ async def test_tools_declare_real_parameter_schemas(server):
     """
     click = await server.mcp.get_tool("interact")
     props = click.parameters["properties"]
-    assert {"xpath", "css", "url", "wait_timeout"} <= set(props)
+    assert {"selector", "url", "wait_timeout"} <= set(props)
     assert "session_id" not in props, "the Grid's id is never a parameter (§F2.12)"
     # Only `action` is required. The element is addressed by EITHER xpath OR
     # css, which a JSON schema cannot say without oneOf, so it is enforced at

@@ -187,7 +187,7 @@ async def test_execute_script_points_back_before_taking_the_job(server):
 @pytest.mark.parametrize(
     "tool,given,expected",
     [
-        ("interact", {"action": "Hover", "css": "a"}, "hover"),
+        ("interact", {"action": "Hover", "selector": {"css": "a"}}, "hover"),
         ("frame", {"action": "Default"}, "default"),
         ("dialog", {"action": " ACCEPT "}, "accept"),
     ],
@@ -221,7 +221,7 @@ async def test_a_choice_outside_the_set_is_still_refused_over_mcp(server):
 
     async with Client(server.mcp) as client:
         with pytest.raises(ToolError):
-            await client.call_tool("interact", {"action": "mouseover", "css": "a"})
+            await client.call_tool("interact", {"action": "mouseover", "selector": {"css": "a"}})
 
 
 @pytest.mark.parametrize("given", ["", "   "])

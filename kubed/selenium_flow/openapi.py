@@ -52,9 +52,12 @@ RESPONSES = {
     "open_session": {
         "type": "object",
         "properties": {
-            "session_id": {
+            "session": {
                 "type": "string",
-                "description": "Pass this to every other call.",
+                "description": (
+                    "The session this browser belongs to — the name you called "
+                    "with. There is no browser id to keep."
+                ),
             },
             "browser": {
                 "type": "string",
@@ -76,7 +79,7 @@ RESPONSES = {
         "type": "object",
         "properties": {
             "success": {"type": "boolean"},
-            "session_id": {"type": "string"},
+            "session": {"type": "string"},
         },
     },
     "navigate": _page(),
@@ -284,12 +287,13 @@ Every operation here is also an MCP tool at `/mcp`, backed by the same code —
 the request schemas in this document are generated from those tools, so the two
 surfaces cannot describe different things.
 
-Call `/browser/open` first and pass the `session_id` it returns to every other
-call; nothing is stored server-side. Call `/browser/end` when finished,
-including after a failure, or the browser holds a Grid slot until it times out.
+Name your session on every request — an `X-Session-Key` header or `?session=`
+— and every call is about that session's browser. Sending both is a 400, and so
+is sending neither on anything that touches a browser. There is no browser id
+in this API.
 
-`/browser/close` is the old name for `/browser/end` and still works. It is not
-listed here, so that this document describes one name per action.
+`POST /browser` opens yours, `DELETE /browser` ends it when you are finished —
+do that even after a failure, or it holds a Grid slot until it times out.
 """
 
 
@@ -317,14 +321,12 @@ async def build_spec(
     3.1 rather than 3.0 on purpose: it is a strict superset of JSON Schema, so
     the tool schemas can be embedded verbatim instead of being down-converted.
     """
-    # get_tool, not list_tools. A listing is shaped for whoever is asking —
-    # ShapeSessionId removes session_id when the server can identify the caller,
-    # and outside a request that is always true, so building from the listing
-    # produced a document that omitted the one field every endpoint requires.
-    # This spec describes the HTTP surface, which has no caller to adapt to.
-    # Not guarded: an action in the route table with no tool behind it is a
-    # broken build, and this document quietly missing an endpoint is how the
-    # session_id omission survived for as long as it did.
+    # get_tool, not list_tools. A listing is shaped for whoever is asking, and
+    # this document describes the surface rather than one client's view of it —
+    # building from a listing is how the spec once omitted a field every
+    # endpoint required. Not guarded: an action in the route table with no tool
+    # behind it is a broken build, and a document quietly missing an endpoint is
+    # how that omission survived as long as it did.
     tools = {action: await mcp.get_tool(action) for action in set(endpoints.values())}
 
     schemas: dict[str, dict] = {"Error": ERROR, "Health": HEALTH}
@@ -612,8 +614,15 @@ def _request_content(action: str, request_name: str) -> dict:
             "schema": {
                 "type": "object",
                 "properties": {
-                    "xpath": {"type": "string"},
-                    "css": {"type": "string"},
+                    "selector": {
+                        "type": "string",
+                        "description": (
+                            "The element, as JSON: {\"css\": \"input[type=file]\"} "
+                            "or {\"xpath\": \"//input\"}. A form field carries "
+                            "text, so this one is the object encoded rather than "
+                            "nested."
+                        ),
+                    },
                     "content": {
                         "type": "string",
                         "format": "binary",
@@ -1014,24 +1023,15 @@ _FLOW_OPERATIONS = {
     "run": (
         "runFlow",
         "Run a saved flow.",
-        "Every step, in order, server-side, against the browser named by "
-        "session_id. Stops at the first failing step unless that step says "
+        "Every step, in order, server-side, against this session's browser. "
+        "Stops at the first failing step unless that step says "
         "onError: continue, and reports which step stopped it and what page the "
         "browser was on. Returns a line per step; pass verbose for every step's "
         "full result.",
         {
             "type": "object",
-            "required": ["name", "session_id"],
+            "required": ["name"],
             "properties": {
-                **_SESSION,
-                "name": {"type": "string"},
-                "session_id": {
-                    "type": "string",
-                    "description": (
-                        "The browser to run in. Required: this surface is "
-                        "always explicit, so open one with /browser/open first."
-                    ),
-                },
                 "params": {
                     "type": "object",
                     "description": "The values this flow declares.",
@@ -1167,9 +1167,7 @@ FILE_SCHEMAS = {
                     "Present only when `kept` is false: the MCP call that "
                     "makes a copy outliving the browser. Until it is made, "
                     "this file's url stops working when the browser ends. The "
-                    "HTTP equivalent is POST /files/keep with the same name; a "
-                    "stateless MCP caller adds its session_id, as it does to "
-                    "every call."
+                    "HTTP equivalent is PUT /files/{name}/kept."
                 ),
             },
             "url": {
@@ -1188,13 +1186,9 @@ FILE_SCHEMAS = {
         "type": "object",
         "properties": {
             "component": {"type": "string"},
-            "session_id": {
-                "type": ["string", "null"],
-                "description": "The browser these downloads belong to, if any.",
-            },
             "session": {
                 "type": ["string", "null"],
-                "description": "The session whose kept files these are.",
+                "description": "The session these files belong to.",
             },
             "count": {"type": "integer"},
             "files": {
@@ -1215,16 +1209,6 @@ FILE_SCHEMAS = {
     },
 }
 
-_FILE_SESSION = {
-    "session": {
-        "type": "string",
-        "description": (
-            "Whose kept files. Defaults to the caller's session name if the "
-            "request carries one, else the shared 'global' session."
-        ),
-    }
-}
-
 # path -> (operationId, summary, description, request, response). Every one of
 # these dials the Grid, so they all carry its failure modes; deleting a kept
 # file never leaves this server, and is deliberately not here — it is an
@@ -1237,10 +1221,7 @@ _FILE_OPERATIONS = {
         "newest first, each entry saying which it is. A name in both resolves "
         "to the kept one. Works after the browser is gone, returning the kept "
         "files alone.",
-        {
-            "type": "object",
-            "properties": {**_FILE_SESSION, "session_id": {"type": "string"}},
-        },
+        {"type": "object", "properties": {}},
         "FileList",
     ),
     "keep": (
@@ -1249,18 +1230,9 @@ _FILE_OPERATIONS = {
         "Copies the file out of the Grid's store onto the server, where it "
         "survives the browser. Keeping a name that is already kept replaces it. "
         "The original download stays: the Grid offers no way to remove one file.",
-        {
-            "type": "object",
-            "required": ["session_id", "name"],
-            "properties": {
-                **_FILE_SESSION,
-                "session_id": {
-                    "type": "string",
-                    "description": "The browser holding the file to copy.",
-                },
-                "name": {"type": "string"},
-            },
-        },
+        {"type": "object", "required": ["name"], "properties": {
+            "name": {"type": "string"},
+        }},
         "FileKept",
     ),
 }

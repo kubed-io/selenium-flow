@@ -32,7 +32,7 @@ from the tools themselves, so it cannot describe a step that would not run.
 ## A step is a tool call
 
 ```json
-{"tool": "write", "args": {"css": "#email", "text": "a@example.com"}}
+{"tool": "write", "args": {"selector": {"css": "#email"}, "text": "a@example.com"}}
 ```
 
 `args` is **exactly** the arguments you would pass the tool directly. Nothing
@@ -68,10 +68,10 @@ four fields are `save_flow`'s arguments:
   },
   "steps": [
     {"tool": "navigate", "args": {"url": "https://demo.example.com/join"}},
-    {"tool": "write", "args": {"css": "#email", "text": "${email}"}},
+    {"tool": "write", "args": {"selector": {"css": "#email"}, "text": "${email}"}},
     {"tool": "interact", "id": "submit",
-     "args": {"action": "click", "css": "button[type=submit]"}},
-    {"tool": "extract", "args": {"css": "h1"}, "return": true}
+     "args": {"action": "click", "selector": {"css": "button[type=submit]"}}},
+    {"tool": "extract", "args": {"selector": {"css": "h1"}}, "return": true}
   ]
 }
 ```

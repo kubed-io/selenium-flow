@@ -1059,7 +1059,7 @@ def test_upload_sends_the_bytes_of_a_kept_file(actions, tmp_path, monkeypatch):
 
     actions.read_kept = reader
 
-    result = actions.upload_file("abc", css="input[type=file]", kept="export.csv")
+    result = actions.upload_file("abc", selector={"css": "input[type=file]"}, kept="export.csv")
 
     assert sent["bytes"] == b"id,name\n1,a\n"
     assert sent["name"] == "export.csv", "the kept name is the default filename"
@@ -1100,7 +1100,7 @@ def test_an_http_caller_can_name_the_library_its_file_was_kept_in(
         return b"x"
 
     actions.read_kept = reader
-    actions.upload_file("abc", css="input", kept="export.csv", session="desktop")
+    actions.upload_file("abc", selector={"css": "input"}, kept="export.csv", session="desktop")
     assert asked["session"] == "desktop"
 
 
@@ -1120,12 +1120,12 @@ def test_a_kept_upload_is_refused_when_there_is_nowhere_to_keep(actions):
     """Flows off means no file store, so `kept` names something that cannot
     exist. Refused with the three sources that do work."""
     with pytest.raises(ValueError, match="not available"):
-        actions.upload_file("abc", css="input", kept="export.csv")
+        actions.upload_file("abc", selector={"css": "input"}, kept="export.csv")
 
 
 def test_only_one_source_may_be_given(actions):
     with pytest.raises(ValueError, match="only one of"):
-        actions.upload_file("abc", css="input", text="hi", kept="export.csv")
+        actions.upload_file("abc", selector={"css": "input"}, text="hi", kept="export.csv")
 
 
 def test_an_unkept_file_says_what_would_keep_it(store):

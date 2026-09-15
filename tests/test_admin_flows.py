@@ -144,12 +144,14 @@ steps:
 - tool: write
   id: search
   args:
-    css: input
+    selector:
+      css: input
     text: ${term}
 - tool: extract
   id: heading
   args:
-    xpath: //h1[contains(., '${term}')]
+    selector:
+      xpath: //h1[contains(., '${term}')]
 """
 
 
