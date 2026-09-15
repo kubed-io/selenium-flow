@@ -407,6 +407,37 @@ because addressing a browser by id is exactly what E18 removed.
 from the other side: the token holder looking across sessions is the only role
 that addresses them as resources.
 
+## `ROUTE_PREFIX` mounts the whole server
+
+`routes.mount()` turns it into a path segment every tree hangs off: `""` for the
+root, and `/` means the same thing because that is what an operator types when
+they mean "no prefix". It used to rename `/browser` while `/mcp`, `/admin` and
+`/files` stayed fixed, which was backwards — nobody wants the browser endpoints
+called something else, and everybody eventually wants the server under a path
+(§F1.11).
+
+So `prefix` means **the mount** in every registrar that takes one, and each tree
+is fixed beneath it. If you find yourself passing `f"{prefix}/flows"` into
+`flowapi.register`, that is the old meaning coming back.
+
+**The UI is the mount root** and `/admin/*` is the API it calls — two different
+things that shared a name. Its views live after the hash, because every other
+path under the mount is a real endpoint and a history route would need a
+catch-all that answered mistyped API calls with HTML.
+
+**Four ops endpoints, one question each**: `/health` is liveness and says
+nothing about the Grid, `/started` is startup, `/ready` is readiness and is the
+one that dials the Grid, `/info` is what an operator asks when a call went
+somewhere unexpected. All four answer at the root **as well as** under the
+mount, because a kubelet did not choose the mount. `/openapi.json` was being
+used as a liveness probe in this cluster before they existed; it is not one.
+
+A URL this server hands out is a **server path with the mount in it**, signed
+over the **unprefixed** path — the route knows where it is mounted, and the
+signature has to mean the same thing on both sides of the wire. `absolute_url`
+puts `PUBLIC_BASE_URL`, where the server's own root is reachable, in front. The
+page resolves these against `ROOT`, what an ingress stripped, never its own path.
+
 ## A selector is one object
 
 `xpath` and `css` are fields of a `selector`, not two flat arguments (§F2.14):

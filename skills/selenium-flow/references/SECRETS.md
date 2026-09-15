@@ -42,7 +42,7 @@ there is nothing to find, and asking again will not change it.
 Give `write` a `secret` **instead of** `text`:
 
 ```
-write(selector={"selector": {"css": "#password"}}, secret={"name": "nextcloud", "key": "password"})
+write(selector={"css": "#password"}, secret={"name": "nextcloud", "key": "password"})
 ```
 
 It comes back with `"text_from": "secret"` and no value. In a flow, the same

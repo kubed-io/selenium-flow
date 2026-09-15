@@ -39,7 +39,7 @@ hold, so there is nothing to keep and nothing to get wrong.
 ```
 open_session(width=1400, height=900)     # once
 navigate(url="https://example.com")      # about your session, because of your name
-extract(selector={"selector": {"xpath": "//h1"}})
+extract(selector={"xpath": "//h1"})
 end_browser()                            # no arguments
 ```
 

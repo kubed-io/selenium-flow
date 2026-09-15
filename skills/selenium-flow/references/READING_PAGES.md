@@ -21,8 +21,8 @@ acting on whichever element one of them happened to find would hide a typo in
 the other.
 
 ```
-interact(action="click", selector={"selector": {"xpath": "//button[@type='submit']"}})
-interact(action="click", selector={"selector": {"css": "button[type=submit]"}})
+interact(action="click", selector={"xpath": "//button[@type='submit']"})
+interact(action="click", selector={"css": "button[type=submit]"})
 ```
 
 Which to reach for:
@@ -50,8 +50,8 @@ Returns `text` (visible text) and `html` (`innerHTML`) for one element, plus the
 page `url` and `title`.
 
 ```
-extract(selector={"selector": {"xpath": "//h1"}})
-extract(url="https://example.com/settings", selector={"selector": {"xpath": "//main"}})
+extract(selector={"xpath": "//h1"})
+extract(url="https://example.com/settings", selector={"xpath": "//main"})
 ```
 
 Start wide, then narrow. `//body` on an unfamiliar page is still far cheaper
@@ -61,8 +61,8 @@ selector so the result stays small.
 Cheap orientation checks worth knowing:
 
 ```
-extract(selector={"selector": {"xpath": "//title"}})   # where am I, really
-extract(selector={"selector": {"xpath": "//h1"}})      # did the expected page load
+extract(selector={"xpath": "//title"})   # where am I, really
+extract(selector={"xpath": "//h1"})      # did the expected page load
 ```
 
 ## execute_script for batches and anything computed
@@ -84,7 +84,7 @@ It is also the only reliable way to scroll — see `references/INTERACTION.md`.
 has been checked to match exactly one element**, and whether it can be used.
 
 ```
-outline(selector={"selector": {"css": "nav"}})
+outline(selector={"css": "nav"})
 → {"role": "button", "name": "HelpDesk", "selector": {"xpath": "//button[normalize-space()=\"HelpDesk\"]"},
    "visible": true, "expanded": false}
   {"role": "link", "name": "Feature Requests", "selector": {"css": "a[href=\"/extensions/feature-requests\"]"},
@@ -127,7 +127,7 @@ Three modes, in precedence order: `xpath` for one element, `full_page` for the
 whole scrollable page, otherwise the viewport.
 
 ```
-screenshot(selector={"selector": {"xpath": "//div[@class='chart']"}})     # smallest useful image
+screenshot(selector={"xpath": "//div[@class='chart']"})     # smallest useful image
 screenshot(full_page=true, width=1280)
 ```
 
@@ -151,7 +151,7 @@ no token. A server that has not been told its public address returns only the
 relative `url`; hand that over with the address you reached the server on.
 
 ```
-screenshot(selector={"selector": {"xpath": "//div[@class='chart']"}})
+screenshot(selector={"xpath": "//div[@class='chart']"})
 → file: {name: "screenshot.png", absolute_url: "https://…/files/…?exp=…&sig=…"}
 ```
 

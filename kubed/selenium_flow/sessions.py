@@ -188,7 +188,7 @@ class SessionManager:
 
     @property
     def kind(self) -> str:
-        """Which backend is in play, for /health and the config log line."""
+        """Which backend is in play, for /ready, /info and the config log line."""
         return getattr(self.store, "kind", "memory")
 
     def caller(self) -> Caller:

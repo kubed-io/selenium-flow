@@ -56,15 +56,88 @@ def open_client(open_server, monkeypatch):
     return TestClient(open_server.mcp.http_app(), headers={"X-Session-Key": SESSION})
 
 
-def test_health_needs_no_credentials(client):
-    """A kubelet has no token, so the probe must not require one."""
-    response = client.get("/health")
-    # The Grid address is unroutable in tests, so degraded is the honest answer
-    # — what matters is that the request was not rejected for auth.
-    assert response.status_code == 503
-    body = response.json()
-    assert body["status"] == "degraded"
-    assert "grid" in body
+@pytest.mark.parametrize(
+    ("probe", "status"),
+    [("/health", 200), ("/started", 200), ("/ready", GRID_DOWN), ("/info", 200)],
+)
+def test_the_ops_endpoints_need_no_credentials(client, probe, status):
+    """A kubelet has no token, so none of these may require one. `/ready` is the
+    only one that asks the Grid, and the Grid is unroutable here."""
+    assert client.get(probe).status_code == status
+
+
+def test_liveness_does_not_depend_on_the_grid(client):
+    """The split Dr K asked for. A liveness probe that failed on a Grid outage
+    would restart every replica for a fault in another service, which is why
+    this cluster was probing `/openapi.json` instead."""
+    assert client.get("/health").json() == {"status": "ok"}
+    assert client.get("/started").json() == {"status": "started"}
+
+
+def test_readiness_is_the_one_that_asks_the_grid(client):
+    """A server that cannot reach a Grid can accept a call and do nothing with
+    it, so this is where a 503 belongs: out of the Service, still running."""
+    response = client.get("/ready")
+    assert response.status_code == GRID_DOWN
+    assert response.json()["status"] == "degraded"
+
+
+def test_no_ops_endpoint_hands_out_the_grids_credentials(monkeypatch):
+    """`GRID_URL` may carry userinfo, and these answer to anyone."""
+    import requests
+
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    grid = "http://user:hunter2@[fd00::1]:4444"
+    server = SeleniumMCP(grid_url=grid)
+
+    def quotes_the_url():  # a parse or proxy error, not the HTTPError already cut
+        raise requests.exceptions.InvalidURL(f"Failed to parse: {grid}/status")
+
+    monkeypatch.setattr(server.actions.grid, "status", quotes_the_url)
+    client = TestClient(server.mcp.http_app())
+    for probe in ("/ready", "/info"):
+        body = client.get(probe).text
+        assert "hunter2" not in body and "user:" not in body, probe
+    # Still a usable address: an IPv6 host keeps its brackets (Copilot, #35).
+    assert client.get("/info").json()["grid"] == "http://[fd00::1]:4444"
+
+
+def test_readiness_asks_the_grid_off_the_event_loop(server, monkeypatch):
+    """`requests` is synchronous and a Grid that has gone away blocks until it
+    times out. On the event loop that stall takes `/health` down with it — the
+    outage this liveness/readiness split exists to survive (Copilot, #35)."""
+    import sniffio
+
+    on_loop = []
+
+    def status():
+        try:
+            sniffio.current_async_library()
+            on_loop.append(True)
+        except sniffio.AsyncLibraryNotFoundError:
+            on_loop.append(False)
+        return {"value": {"ready": True}}
+
+    monkeypatch.setattr(server.actions.grid, "status", status)
+    monkeypatch.setattr(server.actions.grid, "session_count", lambda: 0)
+    client = TestClient(server.mcp.http_app())
+    assert client.get("/ready").status_code == 200
+    assert on_loop == [False], "the Grid was dialled on the event loop"
+
+
+def test_the_probes_answer_when_the_grid_url_is_malformed():
+    """An operator's typo is not a reason for a probe to raise: a kubelet would
+    read the 500 as the process being broken, which it is not."""
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    # No closing bracket: `urlsplit().port` raises on this.
+    server = SeleniumMCP(grid_url="http://user:hunter2@[fd00::1:4444")
+    client = TestClient(server.mcp.http_app())
+    info = client.get("/info")
+    assert info.status_code == 200 and "hunter2" not in info.text
+    ready = client.get("/ready")
+    assert ready.status_code == GRID_DOWN and "hunter2" not in ready.text
 
 
 def test_endpoints_reject_a_missing_token(client):
@@ -366,3 +439,86 @@ def test_the_message_drops_the_driver_internals():
 def test_an_error_with_nothing_to_say_still_says_something():
     """Empty is worse than a class name, which at least names the kind."""
     assert errors.message(TimeoutException("")) == "TimeoutException"
+
+
+# ---- where the whole server hangs ------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "given,expected",
+    [("/", ""), ("", ""), (None, ""), ("/flow", "/flow"), ("flow/", "/flow")],
+)
+def test_the_prefix_is_a_mount_point_and_slash_means_root(given, expected):
+    """`/` and `""` both mean root: `/` is what an operator types when they mean
+    no prefix, and taking it literally would make every path start `//`."""
+    from kubed.selenium_flow.routes import mount
+
+    assert mount(given) == expected
+
+
+def test_every_tree_moves_with_the_prefix():
+    """The inversion §F1.11 asked for: `ROUTE_PREFIX` used to rename `/browser`
+    while `/mcp`, `/admin` and `/files` stayed fixed. Nobody wants the browser
+    endpoints called something else; everybody eventually wants the server
+    mounted under a path."""
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    server = SeleniumMCP(
+        grid_url="http://grid.invalid:4444", auth_token=TOKEN, route_prefix="/flow"
+    )
+    app = server.mcp.http_app(path=server.mcp_path)  # what `run` serves
+    paths = {r.path for r in app.routes if hasattr(r, "path")}
+    for tree in (
+        "/flow/browser", "/flow/flows", "/flow/files", "/flow/admin/sessions",
+        "/flow/mcp", "/flow/openapi.yaml",
+    ):
+        assert tree in paths, tree
+    assert not any(
+        p.startswith(("/browser", "/flows", "/files", "/admin", "/mcp", "/openapi"))
+        for p in paths
+    ), "something stayed behind at the root"
+
+
+def test_the_ui_is_at_the_mount_root_and_the_old_path_redirects():
+    """The UI is what a person gets for visiting the server; `/admin/*` is the
+    API that page calls. The root used to 404."""
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    server = SeleniumMCP(
+        grid_url="http://grid.invalid:4444", auth_token=TOKEN, route_prefix="/flow"
+    )
+    client = TestClient(server.mcp.http_app())
+    assert client.get("/flow/").status_code == 200
+    moved = client.get("/flow/admin", follow_redirects=False)
+    assert moved.status_code == 301
+    # Relative, so a path an ingress stripped survives the redirect.
+    assert moved.headers["location"] == "./"
+
+
+def test_the_ops_endpoints_answer_at_the_root_whatever_the_prefix():
+    """The one path whose reader did not choose the mount. A readiness probe
+    that 404s after a config change is the failure this avoids."""
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    server = SeleniumMCP(
+        grid_url="http://grid.invalid:4444", auth_token=TOKEN, route_prefix="/flow"
+    )
+    client = TestClient(server.mcp.http_app())
+    for probe in ("/health", "/started", "/ready", "/info"):
+        assert client.get(probe).status_code in (200, GRID_DOWN), probe
+        assert client.get(f"/flow{probe}").status_code in (200, GRID_DOWN), probe
+
+
+async def test_the_published_spec_describes_the_paths_actually_served():
+    """A document that names a path nothing serves is worse than no document,
+    and a prefix is exactly where the two drift apart."""
+    from kubed.selenium_flow.openapi import build_spec
+    from kubed.selenium_flow.routes import ENDPOINTS
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    server = SeleniumMCP(
+        grid_url="http://grid.invalid:4444", auth_token=TOKEN, route_prefix="/flow"
+    )
+    spec = await build_spec(server.mcp, ENDPOINTS, "/flow", authenticated=True)
+    served = {r.path for r in server.mcp.http_app().routes if hasattr(r, "path")}
+    assert set(spec["paths"]) <= served, set(spec["paths"]) - served

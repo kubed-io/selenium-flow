@@ -33,6 +33,7 @@ from starlette.requests import Request
 from starlette.responses import (
     HTMLResponse,
     JSONResponse,
+    RedirectResponse,
     Response,
     StreamingResponse,
 )
@@ -219,6 +220,7 @@ def register(
     sessions=None,
     flow_store=None,
     schemas=None,
+    prefix: str = "",
 ) -> None:
     """Mount the admin pages, their JSON API, and the two signed file routes.
 
@@ -288,11 +290,28 @@ def register(
 
         return wrapper
 
-    @mcp.custom_route("/admin", methods=["GET"], name="admin_ui")
+    @mcp.custom_route(f"{prefix}/", methods=["GET"], name="admin_ui")
     async def admin_ui(_request: Request) -> HTMLResponse:
-        """The page itself. Unauthenticated on purpose — it is the sign-in form,
-        and every byte of data it shows is fetched separately with the token."""
-        return HTMLResponse(page("admin.html", CONSOLE=console))
+        """The page itself, at the root of wherever this server is mounted.
+
+        The UI is what a person gets for visiting the server; `/admin/*` is the
+        API that page calls, which is a different thing wearing a similar name.
+        The root used to 404, so there was no landing page at all.
+
+        Unauthenticated on purpose — it is the sign-in form, and every byte of
+        data it shows is fetched separately with the token.
+        """
+        return HTMLResponse(page("admin.html", CONSOLE=console, MOUNT=prefix))
+
+    @mcp.custom_route(f"{prefix}/admin", methods=["GET"], name="admin_ui_moved")
+    async def admin_ui_moved(_request: Request) -> Response:
+        """Where the page used to be. A redirect rather than a second copy, so
+        there is one URL for the UI and one answer to "where is it".
+
+        Relative, because `/flow/admin` may be `/base/flow/admin` to the browser
+        behind an ingress that stripped `/base`; `./` lands on the UI either way.
+        """
+        return RedirectResponse("./", status_code=301)
 
     # Whether the last read of the store failed, so an outage warns once rather
     # than on every two-second poll of every open page.
@@ -438,7 +457,8 @@ def register(
             )
         return {"sessions": rows}
 
-    @mcp.custom_route("/admin/sessions", methods=["GET"], name="admin_sessions")
+    @mcp.custom_route(
+        f"{prefix}/admin/sessions", methods=["GET"], name="admin_sessions")
     @guarded
     async def admin_sessions(request: Request) -> JSONResponse:
         payload = await run_in_threadpool(sessions_payload)
@@ -448,11 +468,15 @@ def register(
         return JSONResponse(
             {
                 **payload,
-                "events_url": links.sign(EVENTS_PATH, token) if token else EVENTS_PATH,
+                # Mounted, so a caller other than the page can follow it; signed
+                # over the unprefixed path the route checks (Copilot, #35).
+                "events_url": prefix
+                + (links.sign(EVENTS_PATH, token) if token else EVENTS_PATH),
             }
         )
 
-    @mcp.custom_route("/admin/events", methods=["GET"], name="admin_events")
+    @mcp.custom_route(
+        f"{prefix}/admin/events", methods=["GET"], name="admin_events")
     async def admin_events(request: Request) -> Response:
         """The session list, pushed when it changes.
 
@@ -535,7 +559,7 @@ def register(
         return record.session_id if record and record.attached else ""
 
     @mcp.custom_route(
-        "/admin/sessions/{key}",
+        f"{prefix}/admin/sessions/{{key}}",
         methods=["DELETE"],
         name="admin_end_session",
     )
@@ -585,7 +609,7 @@ def register(
             return detail
 
     @mcp.custom_route(
-        "/admin/sessions/{key}/files",
+        f"{prefix}/admin/sessions/{{key}}/files",
         methods=["GET", "DELETE"],
         name="admin_files",
     )
@@ -634,7 +658,7 @@ def register(
             )
             listing = await run_in_threadpool(
                 files.merged, actions, flow_store, session, live_id,
-                token, "", downloads,
+                token, "", downloads, prefix,
             )
             return JSONResponse(
                 {
@@ -649,7 +673,7 @@ def register(
             return JSONResponse({"error": str(exc)}, status_code=502)
 
     @mcp.custom_route(
-        "/admin/sessions/{key}/files/{name}/keep",
+        f"{prefix}/admin/sessions/{{key}}/files/{{name}}/keep",
         methods=["POST"],
         name="admin_keep_file",
     )
@@ -675,7 +699,7 @@ def register(
         return JSONResponse(kept)
 
     @mcp.custom_route(
-        "/admin/sessions/{key}/files/{name}",
+        f"{prefix}/admin/sessions/{{key}}/files/{{name}}",
         methods=["DELETE"],
         name="admin_delete_file",
     )
@@ -720,7 +744,7 @@ def register(
             raise ValueError(flowapi.OFF)
 
     @mcp.custom_route(
-        "/admin/sessions/{key}/flows", methods=["GET"], name="admin_flows"
+        f"{prefix}/admin/sessions/{{key}}/flows", methods=["GET"], name="admin_flows"
     )
     @guarded
     async def admin_flows(request: Request) -> JSONResponse:
@@ -764,7 +788,7 @@ def register(
         )
 
     @mcp.custom_route(
-        "/admin/sessions/{key}/flows/{name}",
+        f"{prefix}/admin/sessions/{{key}}/flows/{{name}}",
         methods=["GET", "PUT", "DELETE"],
         name="admin_flow",
     )
@@ -851,7 +875,7 @@ def register(
             return refused(exc, f"flow {name} for {key}")
 
     @mcp.custom_route(
-        "/admin/sessions/{key}/flows/{name}/move",
+        f"{prefix}/admin/sessions/{{key}}/flows/{{name}}/move",
         methods=["POST"],
         name="admin_move_flow",
     )
@@ -897,7 +921,9 @@ def register(
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return refused(exc, f"moving {name} for {key}")
 
-    @mcp.custom_route("/files/{session_id}/{name}", methods=["GET"], name="file")
+    @mcp.custom_route(
+        f"{prefix}/files/{{session_id}}/{{name}}", methods=["GET"], name="file"
+    )
     async def file(request: Request) -> Response:
         """One stored file, authorised by the signature in its own URL.
 
@@ -923,7 +949,9 @@ def register(
             return JSONResponse({"error": "not found"}, status_code=404)
         return served(name, data)
 
-    @mcp.custom_route("/kept/{session}/{name}", methods=["GET"], name="kept_file")
+    @mcp.custom_route(
+        f"{prefix}/kept/{{session}}/{{name}}", methods=["GET"], name="kept_file"
+    )
     async def kept_file(request: Request) -> Response:
         """One kept file, authorised by the signature in its own URL.
 

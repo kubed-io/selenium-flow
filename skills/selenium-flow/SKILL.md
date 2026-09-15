@@ -1,6 +1,6 @@
 ---
 name: selenium-flow
-description: Drive a real Chrome or Firefox browser on Selenium Grid through the selenium-flow MCP server. Use when a task needs a live browser - logging in, filling and submitting a form, clicking through a multi-step flow, reading a page that only renders under JavaScript, capturing how something looks, checking a page in a second browser, saving a sequence to replay in one call, or logging in with a stored secret you are never shown. Start here to decide whether you must pass session_id, then read the one reference that matches what you are doing.
+description: Drive a real Chrome or Firefox browser on Selenium Grid through the selenium-flow MCP server. Use when a task needs a live browser - logging in, filling and submitting a form, clicking through a multi-step flow, reading a page that only renders under JavaScript, capturing how something looks, checking a page in a second browser, saving a sequence to replay in one call, or logging in with a stored secret you are never shown. Start here to name your session, then read the one reference that matches what you are doing.
 ---
 
 # Driving a browser with selenium-flow
@@ -57,9 +57,8 @@ the browser. `keep_file(name)` copies one out first — a kept file belongs to
 your session instead, so it survives switching, ending, and the Grid reaping an
 idle browser. `session_files` lists both kinds and marks which is which.
 
-One session holds one browser. To use both at once, open one session per
-browser and keep both ids; `session://current` reports which browser the one
-you are holding is.
+One session holds one browser. To use both at once, use two session names;
+`session://current` reports which browser the one you are holding is.
 
 ## If you are told you have no browser
 
@@ -82,7 +81,7 @@ optional `url` and navigates there first if the browser is elsewhere. One call,
 not two:
 
 ```
-extract(url="https://example.com/settings", selector={"selector": {"xpath": "//h1"}})
+extract(url="https://example.com/settings", selector={"xpath": "//h1"})
 ```
 
 **3. Find selectors with `outline`, not by reading HTML.** It lists what is on
@@ -116,24 +115,21 @@ Load only what the task needs.
 
 ## A whole task, minimally
 
-In saved mode — `open_session` once, then no `session_id` anywhere:
+Name your session once in the URL or the header, then `open_session` once:
 
 ```
 open_session(width=1400, height=900)
-write(url="https://example.com/login", selector={"selector": {"xpath": "//input[@name='email']"}}, text="a@example.com")
-write(selector={"selector": {"xpath": "//input[@name='password']"}},
+write(url="https://example.com/login", selector={"xpath": "//input[@name='email']"}, text="a@example.com")
+write(selector={"xpath": "//input[@name='password']"},
       secret={"name": "example", "key": "password"})
-interact(action="click", selector={"selector": {"xpath": "//button[@type='submit']"}})
-extract(selector={"selector": {"xpath": "//h1"}})            # confirm you landed
+interact(action="click", selector={"xpath": "//button[@type='submit']"})
+extract(selector={"xpath": "//h1"})            # confirm you landed
 end_browser()
 ```
 
 **Never put a real password in `text`.** Name a secret instead and the server
 types it without it ever passing through you — `list_secrets` shows what there
 is, and `references/SECRETS.md` covers the rest.
-
-Stateless is the same shape with `session_id` on every call. That is the only
-difference between the two modes.
 
 If you will do this again, save it as a flow and it becomes one `run_flow` call
 (`references/FLOWS.md`).
@@ -148,12 +144,12 @@ check this table twice before reaching for it.
 | `open_session` | start a browser, or come back to the one you had | `browser`: `chrome` \| `firefox`, `width`, `height`, `url`, `fresh` |
 | `end_browser` | free the Grid slot; your session survives | — |
 | `navigate` | go to a URL | `url` |
-| `interact` | a mouse gesture on an element | `action`: `click` \| `double_click` \| `right_click` \| `hover` \| `scroll_to`, `glide` |
-| `drag` | drag an element onto another, or by an offset | `to_xpath`/`to_css` or `by_x`/`by_y`, `glide` |
-| `write` | type into a field, or type a secret you never see | `text` or `secret`, `clear`, `submit` |
+| `interact` | a mouse gesture on an element | `selector`, `action`: `click` \| `double_click` \| `right_click` \| `hover` \| `scroll_to`, `glide` |
+| `drag` | drag an element onto another, or by an offset | `selector`, then `to` or `by_x`/`by_y`, `glide` |
+| `write` | type into a field, or type a secret you never see | `selector`, `text` or `secret`, `clear`, `submit` |
 | `press_key` | a key or a combination | `key`: `Enter`, `Escape`, `a`, `Control+a` |
-| `extract` | read an element's text and HTML | `xpath` or `css` |
-| `outline` | what is on the page: selectors, and what works | `css`/`xpath`, `text`, `limit`, `interactive` |
+| `extract` | read an element's text and HTML | `selector` |
+| `outline` | what is on the page: selectors, and what works | `selector`, `text`, `limit`, `interactive` |
 | `screenshot` | the viewport, one element, or the whole page — saved, with a link to share | `full_page`, `filename`, `save` |
 | `save_pdf` | print the page into your files | `filename` |
 | `upload_file` | attach a file to a file input | `text`, `content`, `kept` or `path`, `filename` |

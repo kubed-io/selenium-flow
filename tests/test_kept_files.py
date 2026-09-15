@@ -858,7 +858,7 @@ def test_a_kept_file_that_is_not_there_is_a_404(client, live):
 
 @pytest.fixture
 async def spec(kept_server):
-    return await build_spec(kept_server.mcp, ENDPOINTS, "/browser", authenticated=True)
+    return await build_spec(kept_server.mcp, ENDPOINTS, "", authenticated=True)
 
 
 async def test_every_file_endpoint_is_in_the_published_contract(spec):

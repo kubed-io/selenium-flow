@@ -85,7 +85,7 @@ GONE = (InvalidSessionIdException, NoSuchDriverException)
 
 # The Grid cannot serve this right now: unreachable, or out of free slots. Both
 # are worth retrying after a wait, which is exactly what 503 means, and neither
-# is a fault in the request. `/health` already answers 503 for the same reason.
+# is a fault in the request. `/ready` already answers 503 for the same reason.
 #
 # Two transport libraries, because this package talks to the Grid two ways and
 # they fail differently — measured, not assumed: the Selenium driver surfaces an

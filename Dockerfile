@@ -117,8 +117,7 @@ RUN python -c "from kubed.selenium_flow.server import SeleniumMCP"
 
 ENV TRANSPORT=http \
     HOST=0.0.0.0 \
-    PORT=8000 \
-    ROUTE_PREFIX=/browser
+    PORT=8000
 
 EXPOSE 8000
 # Numeric UID, not the name: with runAsNonRoot set, the kubelet cannot verify a

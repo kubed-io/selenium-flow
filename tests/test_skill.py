@@ -314,3 +314,63 @@ def test_every_tool_an_agent_can_call_has_a_row_in_the_capability_table():
     body = (SKILL_DIR / ENTRY).read_text()
     missing = sorted(t for t in tools if not re.search(rf"^\| `{t}` \|", body, re.M))
     assert not missing, f"SKILL.md's capability table has no row for {missing}"
+
+
+# ---- the examples have to work ---------------------------------------------
+
+
+def documented_selectors() -> list[tuple[str, str]]:
+    """Every `selector=` / `to=` literal the docs teach, with where it came from.
+
+    The braces are matched by counting rather than by a regex, and that is the
+    point: a pattern that stops at the first `}` cannot see a NESTED literal,
+    which is precisely the mistake this exists to catch. The first version of
+    this helper used one, skipped every broken example, and passed.
+    """
+    import re
+
+    found = []
+    root = PYPROJECT.parent
+    pages = [*SKILL_DIR.rglob("*.md"), root / "README.md", root / "AGENTS.md"]
+    for page in pages:
+        if not page.is_file():
+            continue
+        text = page.read_text()
+        for match in re.finditer(r"(?:selector|to)=\{", text):
+            start = match.end() - 1
+            depth = 0
+            for index in range(start, len(text)):
+                if text[index] == "{":
+                    depth += 1
+                elif text[index] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        found.append((page.name, text[start : index + 1]))
+                        break
+            else:
+                # Ran off the end of the page. An unclosed literal is a broken
+                # example, and skipping it is how a guard goes quiet (Copilot).
+                raise AssertionError(f"unclosed selector literal in {page.name}")
+    return found
+
+
+def test_there_are_documented_selectors_to_check():
+    """Without this the test below passes by having no cases."""
+    assert documented_selectors()
+
+
+def test_every_documented_selector_is_one_the_server_would_accept():
+    """These are copied straight into a call, so a broken one costs a round trip
+    and some confusion. A sweep over the docs once wrote `selector={"selector":
+    {...}}` into thirty of them and every test stayed green, because nothing
+    read the prose (Copilot, #34).
+    """
+    import ast
+
+    from kubed.selenium_flow.browser import locator
+
+    for _page, literal in documented_selectors():
+        # Parsed as written. Rewriting quotes to make it JSON broke every XPath
+        # with a quoted literal in it, and the skip hid half the cases (Copilot, #35).
+        parsed = ast.literal_eval(literal)
+        locator(parsed)  # raises if it is not exactly one of xpath or css

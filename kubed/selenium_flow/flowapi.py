@@ -82,7 +82,7 @@ FLOW_ROUTES = {
     "save": ("put", "/{name}"),
     "delete": ("delete", "/{name}"),
     "run": ("post", "/{name}/runs"),
-    # Absolute, not under the prefix.
+    # Its own tree beside /flows, and mounted like every other tree.
     "schema": ("get", SCHEMA_PATH),
 }
 
@@ -285,7 +285,7 @@ def run_one(
 
 
 def register(
-    mcp, store, sessions, actions, token: str | None, prefix: str = "/flows",
+    mcp, store, sessions, actions, token: str | None, prefix: str = "",
     secrets_catalogue=None, schemas=None, skill_available: bool = True,
 ) -> set[str]:
     """Register the flow resources, tools and endpoints. Returns mirror names."""
@@ -583,6 +583,9 @@ def _routes(
 ) -> None:
     """The flow library as REST (§F2.13).
 
+    ``prefix`` is where the whole server is mounted; `/flows` is fixed beneath
+    it, as is the schema route (§F1.11).
+
     A flow is a resource: ``GET /flows/{name}``, ``PUT`` to create or replace
     it, ``DELETE`` to remove it. Running one **creates a run**, so that is a
     POST to a sub-collection rather than a verb in the path.
@@ -591,6 +594,8 @@ def _routes(
     header or ``?session=`` like everything else — and a caller that names no
     session gets the shared one, which it may read and may not write.
     """
+
+    flows_root = f"{prefix}/flows"
 
     async def answer(request: Request, what: str, call) -> JSONResponse:
         body, refused = await auth.json_request(request, token)
@@ -614,7 +619,7 @@ def _routes(
                 log.info("flows/%s refused (%s): %s", what, status, text)
             return JSONResponse({"error": text}, status_code=status)
 
-    @mcp.custom_route(prefix, methods=["GET"], name="flows_list")
+    @mcp.custom_route(flows_root, methods=["GET"], name="flows_list")
     async def list_flows(request: Request) -> JSONResponse:
         """This session's flows, and the shared ones it can run."""
         return await answer(
@@ -623,7 +628,7 @@ def _routes(
             lambda _body: catalogue(store, sessions_module.library_from(request)),
         )
 
-    @mcp.custom_route(SCHEMA_PATH, methods=["GET"], name="flows_schema")
+    @mcp.custom_route(f"{prefix}{SCHEMA_PATH}", methods=["GET"], name="flows_schema")
     async def flow_schema(request: Request) -> JSONResponse:
         """What a flow document may contain — every tool that may be a step.
 
@@ -632,7 +637,7 @@ def _routes(
         """
         return await answer(request, "schema", lambda _body: _document_schema(schemas))
 
-    @mcp.custom_route(prefix + "/{name}", methods=["GET"], name="flows_get")
+    @mcp.custom_route(flows_root + "/{name}", methods=["GET"], name="flows_get")
     async def get_flow(request: Request) -> JSONResponse:
         """One flow, with its steps."""
         return await answer(
@@ -645,7 +650,7 @@ def _routes(
             ),
         )
 
-    @mcp.custom_route(prefix + "/{name}", methods=["PUT"], name="flows_save")
+    @mcp.custom_route(flows_root + "/{name}", methods=["PUT"], name="flows_save")
     async def save_flow(request: Request) -> JSONResponse:
         """Create or replace one flow. One verb for both, as §F1.5 has it."""
 
@@ -665,7 +670,7 @@ def _routes(
 
         return await answer(request, "save", call)
 
-    @mcp.custom_route(prefix + "/{name}", methods=["DELETE"], name="flows_delete")
+    @mcp.custom_route(flows_root + "/{name}", methods=["DELETE"], name="flows_delete")
     async def delete_flow(request: Request) -> JSONResponse:
         """Remove one of this session's flows."""
         return await answer(
@@ -678,7 +683,7 @@ def _routes(
             ),
         )
 
-    @mcp.custom_route(prefix + "/{name}/runs", methods=["POST"], name="flows_run")
+    @mcp.custom_route(flows_root + "/{name}/runs", methods=["POST"], name="flows_run")
     async def run_flow(request: Request) -> JSONResponse:
         """Run a flow in this session's browser. A run is created, not fetched."""
         return await answer(
