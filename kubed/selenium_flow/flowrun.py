@@ -72,24 +72,48 @@ REFERENCES = "skill://selenium-flow/references"
 REPAIR_PROMPT = "repair_flow"
 
 
-def hint_for(step: dict, flow: str) -> dict:
+def hint_for(step: dict, flow: str, skill_available: bool = True) -> dict:
     """Where to look, decided by what failed rather than guessed."""
     error = str(step.get("error") or "")
     if step.get("tool") == ASSERTION:
         # The assertion did its job. What to do next is in the message its
         # author wrote; the reference explains why the run stopped there.
-        page = "FLOWS.md#say-what-must-be-true"
+        page, section = "FLOWS.md", "say-what-must-be-true"
     elif "matched" in error:
         # A locator that found nothing, or found something that cannot be used:
         # the page has moved under the flow.
-        page = "FLOWS.md#when-a-flow-fails"
+        page, section = "FLOWS.md", "when-a-flow-fails"
     else:
-        page = "TROUBLESHOOTING.md"
-    return {
-        "read": f"{REFERENCES}/{page}",
+        page, section = "TROUBLESHOOTING.md", ""
+
+    hint = {
         "prompt": REPAIR_PROMPT,
         "arguments": {"flow": flow, "step": str(step.get("n") or "")},
     }
+    # `read` is a resource URI and nothing else: everything after
+    # `skill://selenium-flow/` is the file path, so an anchor glued on the end
+    # names a file that does not exist. The section travels beside it.
+    #
+    # And it is only there when the skill is actually being served: with
+    # `--no-skill` nothing registers those resources, and a URI that cannot be
+    # read is worse than no URI at all.
+    if skill_available:
+        hint["read"] = f"{REFERENCES}/{page}"
+        if section:
+            hint["section"] = section
+    return hint
+
+
+def with_hint(report: dict, skill_available: bool = True) -> dict:
+    """Attach the hint to a failed report, wherever it was built.
+
+    One place, because a run can fail three ways — a refused document, a stale
+    format, or a step — and two of them used to return before the hint existed.
+    """
+    steps = report.get("steps") or []
+    if report.get("status") == "failed" and steps:
+        report["hint"] = hint_for(steps[-1], report.get("flow", ""), skill_available)
+    return report
 
 # How long a whole run may take. Checked between steps rather than enforced
 # inside one: a Selenium call blocks, and the honest bound is "we will not start
@@ -246,7 +270,7 @@ def _properties(document: dict) -> dict:
     return properties if isinstance(properties, dict) else {}
 
 
-def _refused(document: dict, name: str, why: str) -> dict:
+def _refused(document: dict, name: str, why: str, skill_available: bool = True) -> dict:
     """A run that was stopped before step one, reported as a run.
 
     Preflighted rather than caught mid-loop: a bad document found at step nine
@@ -255,13 +279,16 @@ def _refused(document: dict, name: str, why: str) -> dict:
     happened.
     """
     total = len(document.get("steps") or [])
-    return {
-        "flow": name,
-        "status": "failed",
-        "steps_run": 0,
-        "steps_total": total,
-        "steps": [{"n": 1, "ok": False, "error": why}] if total else [],
-    }
+    return with_hint(
+        {
+            "flow": name,
+            "status": "failed",
+            "steps_run": 0,
+            "steps_total": total,
+            "steps": [{"n": 1, "ok": False, "error": why}] if total else [],
+        },
+        skill_available,
+    )
 
 
 def required_params(document: dict) -> list[str]:
@@ -497,6 +524,7 @@ def run(
     timeout: int = RUN_TIMEOUT,
     after_step=None,
     catalogue=None,
+    skill_available: bool = True,
 ) -> dict:
     """Run every step of ``document`` against the browser ``session_id``.
 
@@ -552,6 +580,7 @@ def run(
             "hides anything — a parameter is text and may appear in the "
             "report. A value nobody may see is a secret: give write an "
             "args.secret instead.",
+            skill_available,
         )
 
     stale = [
@@ -564,26 +593,29 @@ def run(
         # otherwise have run the first eight and then reported `steps_run: 0`,
         # which both half-runs a flow the message says was refused and misstates
         # what happened.
-        return {
-            "flow": name,
-            "status": "failed",
-            "steps_run": 0,
-            "steps_total": len(document.get("steps") or []),
-            "steps": [
-                {
-                    "n": number,
-                    "ok": False,
-                    "error": (
-                        "this flow was saved in an older format: a step's "
-                        "arguments are 'args' now, not 'params', and a secret "
-                        "is 'args.secret' rather than 'value_from'. A flow "
-                        "parameter is written ${name} in any argument. Save it "
-                        "again in the new shape."
-                    ),
-                }
-                for number in stale
-            ],
-        }
+        return with_hint(
+            {
+                "flow": name,
+                "status": "failed",
+                "steps_run": 0,
+                "steps_total": len(document.get("steps") or []),
+                "steps": [
+                    {
+                        "n": number,
+                        "ok": False,
+                        "error": (
+                            "this flow was saved in an older format: a step's "
+                            "arguments are 'args' now, not 'params', and a "
+                            "secret is 'args.secret' rather than 'value_from'. "
+                            "A flow parameter is written ${name} in any "
+                            "argument. Save it again in the new shape."
+                        ),
+                    }
+                    for number in stale
+                ],
+            },
+            skill_available,
+        )
 
     for number, step in enumerate(document.get("steps") or [], start=1):
         tool = step.get("tool")
@@ -696,10 +728,6 @@ def run(
             break
         reports.append(entry)
 
-    # Chosen from what actually failed, and only when something did.
-    failed_step = reports[-1] if status == "failed" and reports else None
-    report_hint = hint_for(failed_step, name) if failed_step else None
-
     report = {
         "flow": name,
         "status": status,
@@ -713,8 +741,8 @@ def run(
     for key in ("url", "title"):
         if last.get(key):
             report[key] = last[key]
-    if report_hint:
-        report["hint"] = report_hint
+    # Chosen from what actually failed, and only when something did.
+    with_hint(report, skill_available)
     if redacted_url:
         # Says the reported page is not the page: a caller must not store it as
         # somewhere to navigate back to.

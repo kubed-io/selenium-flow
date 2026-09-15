@@ -22,10 +22,13 @@ Find out which before editing anything.
 
 1. Read the flow: `get_flow(name="{{ flow }}")`. Note what each step addresses
    and what the flow declares as parameters.
-2. Run it and read the failure: `run_flow(name="{{ flow }}", verbose=true)`. The
-   failing step's `error` is the diagnosis — when the element is on the page but
-   cannot be used, it already says why (a hidden ancestor, an overlay, no size,
-   off-screen, disabled) and what to do about it.
+2. Run it and read the failure: `run_flow(name="{{ flow }}", verbose=true)`.
+   **If it declares required parameters**, step 1 showed you which — pass them
+   as `params`, asking me for any value you do not have, or the run is refused
+   before it reaches the step you came to look at. The failing step's `error` is
+   the diagnosis: when the element is on the page but cannot be used, it already
+   says why (a hidden ancestor, an overlay, no size, off-screen, disabled) and
+   what to do about it.
 3. Get to the page that step acts on. `navigate` there yourself, or run the
    steps before it by hand.
 4. **`outline` that page** — scope it with `css` to the region in question, or

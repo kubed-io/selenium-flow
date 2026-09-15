@@ -77,6 +77,35 @@ def test_a_required_argument_cannot_have_a_default(tmp_path):
         prompts_module.load_prompt(path)
 
 
+def test_a_malformed_arguments_block_is_refused_rather_than_fatal(tmp_path):
+    """`arguments: 1` used to raise TypeError out of the loop, which
+    `load_prompts` does not catch — so one bad file took every prompt with it
+    (Copilot, #30)."""
+    path = _write(tmp_path, "---\ndescription: x\narguments: 1\n---\nBody.\n", "bad.md")
+    with pytest.raises(ValueError, match="must be a list"):
+        prompts_module.load_prompt(path)
+    _write(tmp_path, "---\ndescription: fine\n---\nBody.\n", "fine.md")
+    assert [p.name for p in prompts_module.load_prompts(tmp_path)] == ["fine"]
+
+
+def test_every_prompt_file_is_covered_by_package_data(tmp_path):
+    """The tests load prompts from the checkout, so a wrong mapping would ship
+    an image with no prompts while everything here passed (Copilot, #30)."""
+    from pathlib import Path
+
+    import tomllib
+
+    with Path("pyproject.toml").open("rb") as handle:
+        config = tomllib.load(handle)
+    setuptools = config["tool"]["setuptools"]
+    assert "kubed.selenium_flow.prompts" in setuptools["packages"]
+    assert setuptools["package-dir"]["kubed.selenium_flow.prompts"] == "prompts"
+    patterns = setuptools["package-data"]["kubed.selenium_flow.prompts"]
+    assert any(pattern.endswith("*.md") or pattern == "*" for pattern in patterns), (
+        f"{patterns} does not cover the .md files that are the prompts"
+    )
+
+
 def test_a_file_without_frontmatter_is_refused(tmp_path):
     with pytest.raises(ValueError, match="frontmatter"):
         prompts_module.load_prompt(_write(tmp_path, "Just a body.\n"))
@@ -142,18 +171,40 @@ def test_a_failed_step_points_at_the_prompt_that_repairs_it():
 
 
 @pytest.mark.parametrize(
-    "step,expected",
+    "step,page,section",
     [
-        ({"tool": "assert", "error": "Already signed in."}, "FLOWS.md#say-what-must-be-true"),
+        ({"tool": "assert", "error": "Already signed in."}, "FLOWS.md", "say-what-must-be-true"),
         (
             {"tool": "interact", "error": "no clickable element matched 'a.x' within 30s"},
-            "FLOWS.md#when-a-flow-fails",
+            "FLOWS.md",
+            "when-a-flow-fails",
         ),
-        ({"tool": "navigate", "error": "the Grid is full"}, "TROUBLESHOOTING.md"),
+        ({"tool": "navigate", "error": "the Grid is full"}, "TROUBLESHOOTING.md", None),
     ],
 )
-def test_where_it_sends_you_depends_on_what_failed(step, expected):
-    assert hint_for(step, "login")["read"].endswith(expected)
+def test_where_it_sends_you_depends_on_what_failed(step, page, section):
+    hint = hint_for(step, "login")
+    assert hint["read"].endswith(page)
+    assert hint.get("section") == section
+
+
+def test_the_uri_is_a_resource_uri_and_nothing_else():
+    """Everything after `skill://selenium-flow/` is the file path, so an anchor
+    glued on the end names a file that does not exist. The section rides
+    beside it (Copilot, #30)."""
+    hint = hint_for({"tool": "assert", "error": "x"}, "login")
+    assert "#" not in hint["read"]
+    assert hint["read"] == "skill://selenium-flow/references/FLOWS.md"
+    assert hint["section"] == "say-what-must-be-true"
+
+
+def test_with_no_skill_served_there_is_nothing_to_read():
+    """`--no-skill` registers no skill resources, and a URI that cannot be
+    loaded is worse than no URI (Copilot, #30)."""
+    hint = hint_for({"tool": "assert", "error": "x"}, "login", skill_available=False)
+    assert "read" not in hint
+    assert "section" not in hint
+    assert hint["prompt"] == "repair_flow", "the prompt is still worth naming"
 
 
 def test_every_reference_it_can_name_exists():
@@ -180,13 +231,14 @@ def test_an_anchor_it_names_is_a_heading_that_exists():
         {"tool": "assert", "error": "x"},
         {"tool": "interact", "error": "no clickable element matched"},
     ):
-        page, _, anchor = hint_for(step, "f")["read"].rsplit("/", 1)[-1].partition("#")
+        hint = hint_for(step, "f")
+        page = hint["read"].rsplit("/", 1)[-1]
         headings = {
             line.lstrip("# ").strip().lower().replace(" ", "-").replace(",", "")
             for line in (references / page).read_text().splitlines()
             if line.startswith("#")
         }
-        assert anchor in headings, f"{page} has no heading for #{anchor}"
+        assert hint["section"] in headings, f"{page} has no heading {hint['section']}"
 
 
 def test_a_real_failed_run_carries_the_hint():
@@ -215,7 +267,35 @@ def test_a_real_failed_run_carries_the_hint():
     assert report["status"] == "failed"
     assert report["hint"]["prompt"] == "repair_flow"
     assert report["hint"]["arguments"] == {"flow": "flow", "step": "2"}
-    assert report["hint"]["read"].endswith("FLOWS.md#when-a-flow-fails")
+    assert report["hint"]["read"].endswith("FLOWS.md")
+    assert report["hint"]["section"] == "when-a-flow-fails"
+
+
+@pytest.mark.parametrize(
+    "document,because",
+    [
+        (
+            {
+                "parameters": {"properties": {"token": {"writeOnly": True}}},
+                "steps": [{"tool": "navigate", "args": {"url": "https://x/"}}],
+            },
+            "writeOnly",
+        ),
+        (
+            {"steps": [{"tool": "navigate", "params": {"url": "https://x/"}}]},
+            "older format",
+        ),
+    ],
+)
+def test_a_run_refused_before_step_one_still_says_where_to_look(document, because):
+    """Two of the three ways a run can fail returned before the hint existed
+    (Copilot, #30) — a refused document is exactly when somebody needs it."""
+    from kubed.selenium_flow.flowrun import run
+
+    report = run(object(), document, "b")
+    assert report["status"] == "failed"
+    assert because in report["steps"][0]["error"]
+    assert report["hint"]["prompt"] == "repair_flow"
 
 
 def test_a_run_that_worked_carries_no_hint():

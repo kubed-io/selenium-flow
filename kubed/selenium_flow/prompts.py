@@ -102,9 +102,16 @@ def load_prompt(path: Path) -> FilePrompt:
         raise ValueError("no YAML frontmatter")
     meta, body = split
 
+    declared = meta.get("arguments") or []
+    if not isinstance(declared, list):
+        # `arguments: 1` would otherwise raise TypeError out of the loop, which
+        # `load_prompts` does not catch — and one malformed file would take the
+        # server's whole prompt registration down with it.
+        raise ValueError(f"arguments must be a list, got {type(declared).__name__}")
+
     arguments: list[PromptArgument] = []
     defaults: dict[str, str] = {}
-    for raw in meta.get("arguments") or []:
+    for raw in declared:
         if not isinstance(raw, dict) or not raw.get("name"):
             raise ValueError(f"argument without a name: {raw!r}")
         name = str(raw["name"])

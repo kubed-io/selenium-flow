@@ -159,6 +159,9 @@ class SeleniumMCP:
             auth_token,
             secrets_catalogue=self.secrets,
             schemas=schemas,
+            # A failed run points at a skill reference, and with --no-skill
+            # there is nothing registered to point at.
+            skill_available=self.skill is not None,
         )
         mirrors |= secrets.register(self.mcp, self.secrets, self.sessions, auth_token)
         self.mcp.add_middleware(

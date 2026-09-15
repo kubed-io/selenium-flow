@@ -39,7 +39,8 @@ at step nine with a form half filled.
 7. Save it with `save_flow` — name, description, `parameters` as JSON Schema,
    and the steps you actually ran.
 8. Run it twice with `run_flow`: once in the state you built it in, and once
-   from a clean start (`open_session(fresh=true)` gives you one). A flow that
-   only works from where you happened to be is the commonest way one rots.
+   from a clean start — `end_browser()`, then `open_session(url="{{ url }}")`,
+   which gives you a new browser at a known page. A flow that only works from
+   where you happened to be is the commonest way one rots.
 
 Report the flow's name, what it takes, and both runs.

@@ -179,15 +179,17 @@ carries a `hint`:
 {
   "status": "failed",
   "hint": {
-    "read": "skill://selenium-flow/references/FLOWS.md#when-a-flow-fails",
+    "read": "skill://selenium-flow/references/FLOWS.md",
+    "section": "when-a-flow-fails",
     "prompt": "repair_flow",
     "arguments": {"flow": "sign-in", "step": "4"}
   }
 }
 ```
 
-- **`read`** is a reference to load — the section that covers this kind of
-  failure.
+- **`read`** is a resource to load, exactly as written — and `section` is the
+  heading in it that covers this kind of failure. A server started with
+  `--no-skill` serves no references, and then there is no `read` to give.
 - **`prompt`** is for a person. `repair_flow` walks a page and fixes the flow
   against what is there now; you cannot pick it yourself, but you can tell
   somebody to.
