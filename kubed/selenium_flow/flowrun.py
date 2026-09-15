@@ -674,10 +674,16 @@ def run(
 
         # Filled in before the summary, so a step reading a kept file is
         # answered by the library this run belongs to rather than by whatever
-        # the ambient caller key happens to resolve to. Never overridden: a
-        # step that named one meant it.
+        # the ambient caller key happens to resolve to.
+        #
+        # It OVERWRITES rather than filling a gap, and that is the point. The
+        # argument is not part of the saved-flow schema - `step_schemas` is
+        # built from the MCP tool, which deliberately omits it - so a document
+        # carrying one was hand-edited on disk and never passed validation. A
+        # step that could name a library would be a step that reads another
+        # session's kept files, which is not a feature (Copilot, #32).
         holder = LIBRARY_ARG.get(tool)
-        if holder and library and kwargs.get(holder) is None:
+        if holder and library:
             kwargs[holder] = library
 
         entry["summary"] = summarise(tool, kwargs, guarded)

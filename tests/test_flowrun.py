@@ -1271,8 +1271,12 @@ def test_a_flow_reads_a_kept_file_from_the_library_the_run_belongs_to():
     assert seen["session"] == "desktop"
 
 
-def test_a_step_that_names_its_own_library_is_left_alone():
-    """The run fills a gap; it does not overrule an author who said which."""
+def test_a_step_can_never_name_another_callers_library():
+    """The run OVERWRITES rather than filling a gap. `session` is not part of
+    the saved-flow schema — `step_schemas` comes from the MCP tool, which omits
+    it — so a document carrying one was hand-edited on disk and never validated.
+    A step that could name a library would read another session's kept files
+    (Copilot, #32)."""
     seen = {}
 
     class _Uploading:
@@ -1288,10 +1292,36 @@ def test_a_step_that_names_its_own_library_is_left_alone():
         flow([
             {
                 "tool": "upload_file",
-                "args": {"css": "input", "kept": "x.csv", "session": "chosen"},
+                "args": {"css": "input", "kept": "x.csv", "session": "somebody-else"},
             }
         ]),
         "b",
         library="desktop",
     )
-    assert seen["session"] == "chosen"
+    assert seen["session"] == "desktop"
+
+
+def test_a_saved_flow_cannot_carry_a_library_selector():
+    """The other half of the rule above, at the gate rather than at run time."""
+    from kubed.selenium_flow import flowdoc
+
+    schemas = {
+        "upload_file": {
+            "type": "object",
+            "properties": {"css": {"type": "string"}, "kept": {"type": "string"}},
+            "required": [],
+        }
+    }
+    with pytest.raises(flowdoc.InvalidFlow) as refused:
+        flowdoc.validate(
+            {
+                "steps": [
+                    {
+                        "tool": "upload_file",
+                        "args": {"css": "input", "kept": "x.csv", "session": "other"},
+                    }
+                ]
+            },
+            schemas,
+        )
+    assert "session" in " ".join(refused.value.problems)

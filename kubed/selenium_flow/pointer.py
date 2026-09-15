@@ -162,7 +162,7 @@ def matching(store):
     Anything that is not the shared backend is process-local, which is exactly
     what a `MemoryStore` is.
 
-    Reading ``kind``, ``ttl`` and ``client`` directly rather than through
+    Reading ``kind`` and ``client`` directly rather than through
     ``getattr(store, ..., default)``,
     because that idiom swallows an AttributeError raised *inside* the property
     and answers None — which is indistinguishable from "this store has no
@@ -170,11 +170,16 @@ def matching(store):
     through a one-word typo in the property. A store that says it is redis and
     then cannot produce a client should raise.
     """
-    # `store.ttl`, not `getattr(store, "ttl", <default>)`. Both backends expose
-    # it, and a silent default is how the memory path kept a pointer for a day
-    # on a server configured for minutes - the same swallowing-getattr trap as
-    # the client property below (Copilot, #31).
-    ttl = store.ttl
+    # `ttl` is in the `SessionStore` protocol, and the fallback is for a store
+    # written before it was - `SeleniumMCP` takes an injected store, and a
+    # direct read turned a store that merely predates this into a server that
+    # will not start (Copilot, #32).
+    #
+    # This is NOT the swallowing getattr the client read below avoids. There
+    # the attribute must exist, so a missing one is a bug worth raising; here
+    # a store may legitimately not express a retention and the default is a
+    # real answer. The difference is whether absence means "broken".
+    ttl = getattr(store, "ttl", DEFAULT_TTL_SECONDS)
     if store.kind != "redis":
         return MemoryPointers(ttl=ttl)
     return RedisPointers(store.client, prefix=store.prefix + "pointer:", ttl=ttl)

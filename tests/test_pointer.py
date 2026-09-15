@@ -716,3 +716,39 @@ def test_the_pointer_store_keeps_the_session_stores_retention():
 
     assert pointer.matching(MemoryStore(ttl=60))._ttl == 60
     assert pointer.matching(RedisStore(_Redis(), ttl=60))._ttl == 60
+
+
+def test_a_custom_store_without_a_ttl_still_starts_the_server():
+    """`SeleniumMCP` takes an injected store, and `SessionStore` is a Protocol —
+    so a store written before `ttl` joined the contract is still a valid one.
+    Reading it directly turned that into a server that would not start
+    (Copilot, #32). The contract asks for it; the fallback is for the ones that
+    predate it."""
+    from kubed.selenium_flow.server import SeleniumMCP
+    from kubed.selenium_flow.store import SessionRecord
+
+    class _Minimal:
+        """Exactly the protocol as it was: kind, and the CRUD."""
+
+        kind = "memory"
+
+        def __init__(self):
+            self._data: dict = {}
+
+        def get(self, key):
+            return self._data.get(key)
+
+        def set(self, key, record: SessionRecord):
+            self._data[key] = record
+
+        def delete(self, key):
+            self._data.pop(key, None)
+
+        def records(self):
+            return dict(self._data)
+
+        def owners(self):
+            return {}
+
+    server = SeleniumMCP(grid_url="http://grid.invalid:4444", store=_Minimal())
+    assert server.actions.pointers.kind == "memory"

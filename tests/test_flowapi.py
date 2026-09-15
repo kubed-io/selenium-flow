@@ -751,3 +751,63 @@ async def test_a_flow_that_owns_its_starting_page_is_not_warned_about(
 ):
     saved = await call(flow_server, flowapi.SAVE_TOOL, name="fine", steps=[first])
     assert "warnings" not in saved
+
+
+# ---- a kept file, through the run surface rather than the helper -------------
+
+
+async def test_a_run_reads_a_kept_file_from_the_callers_own_library(
+    flow_server, store, monkeypatch
+):
+    """Through `run_flow`, not `flowrun.run`. The forwarding lives in
+    `run_one`, so a test that hands `library=` straight to the runner proves
+    the runner and nothing about the call site that feeds it — which is exactly
+    how that call site could regress on its own (Copilot, #32)."""
+    asked = {}
+
+    def reader(name, session=None):
+        asked["name"], asked["session"] = name, session
+        return b"id,name\n1,a\n"
+
+    monkeypatch.setattr(flow_server.actions, "read_kept", reader)
+
+    sent = {}
+
+    class _Element:
+        def send_keys(self, path):
+            from pathlib import Path as _P
+
+            sent["name"] = _P(path).name
+
+    class _Driver:
+        current_url = "https://app.test/upload"
+        title = "Upload"
+
+        def execute_script(self, *_a, **_k):
+            return None
+
+    monkeypatch.setattr(flow_server.actions, "_at", lambda *a, **k: _Driver())
+    monkeypatch.setattr(
+        "kubed.selenium_flow.browser.accept_local_files", lambda _d: None
+    )
+    monkeypatch.setattr(
+        "kubed.selenium_flow.browser.wait_for_element", lambda *a, **k: _Element()
+    )
+    monkeypatch.setattr(flow_server.sessions, "resolve", lambda *a, **k: "browser-1")
+
+    await call(
+        flow_server,
+        flowapi.SAVE_TOOL,
+        name="send-export",
+        steps=[
+            {"tool": "upload_file", "args": {"css": "input", "kept": "export.csv"}}
+        ],
+    )
+    report = await call(flow_server, flowapi.RUN_TOOL, name="send-export")
+
+    assert report["status"] == "ok", report
+    assert asked["name"] == "export.csv"
+    # `desktop` is this caller's library — the one `save_flow` wrote into — not
+    # the shared `global` one the ambient key would have resolved to.
+    assert asked["session"] == "desktop"
+    assert sent["name"] == "export.csv"

@@ -9,11 +9,21 @@ Response shapes are the one hand-maintained half: the actions return plain
 dicts, so there is nothing to introspect. ``RESPONSES`` below is that
 declaration, and a test asserts every endpoint has one.
 
-One transform is applied on the way through. Saved sessions let an MCP caller
-omit ``session_id``, so the tool schema marks it optional. The HTTP endpoints
-never do that — they take a session in and give one back so the caller owns it —
-so ``_http_schema`` puts it back as required. That is the single sanctioned
-difference between the two schemas, and a test pins it.
+Three transforms are applied on the way through, and they are the only
+sanctioned differences between the two schemas. Each is pinned by a test.
+
+1. Saved sessions let an MCP caller omit ``session_id``, so the tool schema
+   marks it optional. The HTTP endpoints never do that — they take a session in
+   and give one back so the caller owns it — so ``http_schema`` puts it back as
+   required.
+2. ``SESSION_ONLY`` removes an argument that describes a *flow session*, which
+   the HTTP surface does not have: ``open_session(fresh=...)`` is the one.
+3. ``HTTP_ONLY`` adds an argument the action takes and the tool deliberately
+   does not publish, because over MCP the caller's own key answers it:
+   ``upload_file(session=...)`` is the one.
+
+The last two are opposites of each other and both deliberate. A reader who
+finds either and assumes accidental schema drift will remove a capability.
 """
 
 from __future__ import annotations

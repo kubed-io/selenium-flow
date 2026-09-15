@@ -64,7 +64,7 @@ below is ticked against it.
 3. **E18 — one session, always named** (§F2.12). Dr K's: one contract, a name
    the caller supplies, no `session_id` anywhere in the contract and no Grid id
    exposed at all. It deletes a middleware, a reference and a mode. Design
-   recorded with four questions open, not started, and big enough to want its
+   recorded with five questions open, not started, and big enough to want its
    own chapter.
 4. **A release.** The last tag is still `v0.1.0` and everything since is only in
    `:latest`. A minor version would make all of this pinnable.
@@ -777,7 +777,7 @@ the store.
 4. **The admin UI correlates on the browser id** and would keep doing so
    internally, but what it *shows* a person becomes the name.
 
-**Open, and Dr K's to answer before anything is written:**
+**Open — five, and Dr K's to answer before anything is written:**
 
 1. **Does the MCP transport id still count as a name?** It is supplied by the
    transport rather than chosen, so it is a generated name by another route. Keep
@@ -1163,7 +1163,7 @@ anywhere.
 ### E18 — One session, always named (§F2.12)
 
 Dr K's design, recorded rather than planned: §F2.12 is the work of this entry,
-and the boxes are what it implies rather than a commitment. **The four open
+and the boxes are what it implies rather than a commitment. **The five open
 questions in §F2.12 are answered before any of this is written.**
 
 - [ ] Every session has a name and the **caller** supplies it; nothing here
