@@ -62,7 +62,7 @@ drag(selector={"css": ".card:nth-child(2)"}, to={"css": ".column.done"})   # ont
 drag(selector={"css": "input[type=range]"}, by_x=120)                 # by an offset in pixels
 ```
 
-Say where it goes with **either** `to_xpath`/`to_css` **or** a `by_x`/`by_y`
+Say where it goes with **either** a `to` selector **or** a `by_x`/`by_y`
 offset — never both, never neither. It presses, travels and releases, holding
 briefly at each end because several drag libraries arm on a delay rather than on
 the press itself.

@@ -61,15 +61,10 @@ Call it once, then carry on.
 
 ## An invalid or unknown session
 
-The Grid reaped the browser.
+The Grid reaped the browser. Nothing to do: your session survives it, and the
+next call reopens a browser and returns to the last URL. Just retry.
 
-- **Server holds your session:** nothing to do. The next call reopens one and
-  returns to the last URL. Just retry.
-- **You hold the session id:** it is dead. `open_session` for a new one and
-  navigate back. Do not retry the old id.
-
-Read `session://current` to tell the two apart: `live: false` with a non-null
-`key` means a refresh is available on the next call.
+`session://current` shows `live: false` in the meantime.
 
 ## "unexpected alert open", or a null url and title
 

@@ -361,13 +361,12 @@ def test_every_documented_selector_is_one_the_server_would_accept():
     {...}}` into thirty of them and every test stayed green, because nothing
     read the prose (Copilot, #34).
     """
-    import json
+    import ast
 
     from kubed.selenium_flow.browser import locator
 
     for _page, literal in documented_selectors():
-        try:
-            parsed = json.loads(literal.replace("'", '"'))
-        except ValueError:  # not JSON — a placeholder like {...}
-            continue
+        # Parsed as written. Rewriting quotes to make it JSON broke every XPath
+        # with a quoted literal in it, and the skip hid half the cases (Copilot, #35).
+        parsed = ast.literal_eval(literal)
         locator(parsed)  # raises if it is not exactly one of xpath or css

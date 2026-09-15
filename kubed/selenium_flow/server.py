@@ -43,8 +43,8 @@ class SeleniumMCP:
     HTTP endpoint under ``/browser`` for everything else. Both call the same
     functions, so the surfaces cannot drift.
 
-    The server holds no browser state — a session lives on the Grid and the
-    caller carries its id. What it *does* hold, in the default HTTP mode, is the
+    The server holds no browser state — a browser lives on the Grid and the
+    caller's session name leads back to it. What it *does* hold, in the default HTTP mode, is the
     MCP transport session, and that lives in this process's memory. So the
     ``/browser`` surface scales to any number of replicas as-is, while the
     ``/mcp`` surface does not: a client whose next request lands on another pod
@@ -88,6 +88,7 @@ class SeleniumMCP:
         # Where this whole server hangs: "" for root. Every tree below is fixed
         # relative to it, which is the inversion §F1.11 asked for.
         self.prefix = routes.mount(route_prefix)
+        self.mcp_path = f"{self.prefix}/mcp"
         self.sessions = SessionManager(self.actions, store=self.store)
 
         # Saved flows, or None when no data directory was named — which is the
@@ -142,7 +143,11 @@ class SeleniumMCP:
         # it rather than in each path, because a signed link is signed over the
         # UNPREFIXED path — the route knows where it is mounted, and the
         # signature must mean the same thing on both sides of the wire.
-        base = apps.public_base() + self.prefix
+        base = apps.public_base()
+        # A base behind a stripping ingress already names the mount; appending
+        # it again sent every file link to `/flow/flow` (Copilot, #35).
+        if not base.endswith(self.prefix):
+            base += self.prefix
         app_config = apps.config_for(base) if apps_enabled else None
         app_tools = files.register(
             self.mcp,
@@ -234,9 +239,7 @@ class SeleniumMCP:
                 host=host,
                 port=port,
                 stateless_http=self.stateless,
-                # The MCP endpoint moves with everything else. `/health` and
-                # `/openapi.*` deliberately do not — a kubelet and a load
-                # balancer find this process through them, and a readiness probe
-                # that 404s after a config change is the failure this avoids.
-                path=f"{self.prefix}/mcp",
+                # The MCP endpoint moves with everything else, `/openapi.*`
+                # included. Only the four probes also answer at the root.
+                path=self.mcp_path,
             )

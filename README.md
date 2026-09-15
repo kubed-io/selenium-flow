@@ -279,8 +279,8 @@ docker compose up --build
 That starts the server **and** a standalone Grid for it to drive, with auth off:
 
 ```bash
-curl -X POST localhost:8000/browser/open \
-  -H 'Content-Type: application/json' \
+curl -X POST localhost:8000/browser \
+  -H 'X-Session-Key: demo' -H 'Content-Type: application/json' \
   -d '{"url":"https://example.com","width":1280,"height":800}'
 ```
 

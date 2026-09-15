@@ -375,8 +375,8 @@ async def build_spec(
     the tool schemas can be embedded verbatim instead of being down-converted.
 
     ``prefix`` is where the whole server is mounted (§F1.11). Every tree hangs
-    off it and is otherwise fixed; `/health` and `/openapi.*` stay at the root,
-    which is why they are written out below rather than built from it.
+    off it, `/openapi.*` included. Only the four probes — `/health`, `/started`,
+    `/ready`, `/info` — also answer at the root, so a probe never depends on it.
     """
     browser_root = f"{prefix}/browser"
     # get_tool, not list_tools. A listing is shaped for whoever is asking, and

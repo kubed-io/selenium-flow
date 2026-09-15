@@ -4,8 +4,8 @@ Everything that knows about WebDriver lives here: connecting, reattaching to a
 session someone else opened, waiting for elements, and the small coercions that
 keep a caller's loose JSON from crashing a handler.
 
-The browser is stateful, this process is not. A session lives on the Grid and
-the caller carries its id, which is what lets this server scale to zero, restart
+The browser is stateful, this process is not. A browser lives on the Grid and
+the caller's session name leads back to it, which is what lets this server scale to zero, restart
 mid-workflow, or run behind more than one replica without losing a browser.
 """
 
@@ -122,6 +122,8 @@ def public_url(url: str) -> str:
     """
     parts = urlsplit(url)
     host = parts.hostname or ""
+    if ":" in host:  # IPv6 — `hostname` drops the brackets the authority needs
+        host = f"[{host}]"
     if parts.port:
         host = f"{host}:{parts.port}"
     return urlunsplit((parts.scheme, host, parts.path.rstrip("/"), "", ""))

@@ -270,10 +270,9 @@ def register(
     async def end_browser(request: Request) -> JSONResponse:
         """Quit the browser, keeping the session and what it was doing."""
         def ended(name, _body):
-            # The browser that was ended is NOT reported. `end_browser` answers
-            # with the Grid's id, which is how a browser is reached and not part
-            # of what a caller is told — returning it here would have been the
-            # one place E18's own contract leaked (Copilot, #34).
+            # The browser that was ended is deliberately NOT reported: the Grid's
+            # id is how a browser is reached, not part of what a caller is told
+            # (E18). Returning it here was the one place that leaked (Copilot, #34).
             sessions.end_browser(name)
             return {"success": True, "session": name}
 

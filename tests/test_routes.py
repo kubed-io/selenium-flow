@@ -56,12 +56,14 @@ def open_client(open_server, monkeypatch):
     return TestClient(open_server.mcp.http_app(), headers={"X-Session-Key": SESSION})
 
 
-@pytest.mark.parametrize("probe", ["/health", "/started", "/ready", "/info"])
-def test_the_ops_endpoints_need_no_credentials(client, probe):
-    """A kubelet has no token, so none of these may require one. 503 is a real
-    answer from `/ready` — the Grid address is unroutable in these tests — and
-    what matters is that nothing was rejected for auth."""
-    assert client.get(probe).status_code in (200, 503)
+@pytest.mark.parametrize(
+    ("probe", "status"),
+    [("/health", 200), ("/started", 200), ("/ready", GRID_DOWN), ("/info", 200)],
+)
+def test_the_ops_endpoints_need_no_credentials(client, probe, status):
+    """A kubelet has no token, so none of these may require one. `/ready` is the
+    only one that asks the Grid, and the Grid is unroutable here."""
+    assert client.get(probe).status_code == status
 
 
 def test_liveness_does_not_depend_on_the_grid(client):
@@ -84,11 +86,13 @@ def test_no_ops_endpoint_hands_out_the_grids_credentials():
     """`GRID_URL` may carry userinfo, and these answer to anyone."""
     from kubed.selenium_flow.server import SeleniumMCP
 
-    server = SeleniumMCP(grid_url="http://user:hunter2@grid.invalid:4444")
+    server = SeleniumMCP(grid_url="http://user:hunter2@[fd00::1]:4444")
     client = TestClient(server.mcp.http_app())
     for probe in ("/ready", "/info"):
         body = client.get(probe).text
         assert "hunter2" not in body and "user:" not in body, probe
+    # Still a usable address: an IPv6 host keeps its brackets (Copilot, #35).
+    assert client.get("/info").json()["grid"] == "http://[fd00::1]:4444"
 
 
 def test_endpoints_reject_a_missing_token(client):
@@ -417,11 +421,16 @@ def test_every_tree_moves_with_the_prefix():
     server = SeleniumMCP(
         grid_url="http://grid.invalid:4444", auth_token=TOKEN, route_prefix="/flow"
     )
-    paths = {r.path for r in server.mcp.http_app().routes if hasattr(r, "path")}
-    for tree in ("/flow/browser", "/flow/flows", "/flow/files", "/flow/admin/sessions"):
+    app = server.mcp.http_app(path=server.mcp_path)  # what `run` serves
+    paths = {r.path for r in app.routes if hasattr(r, "path")}
+    for tree in (
+        "/flow/browser", "/flow/flows", "/flow/files", "/flow/admin/sessions",
+        "/flow/mcp", "/flow/openapi.yaml",
+    ):
         assert tree in paths, tree
     assert not any(
-        p.startswith(("/browser", "/flows", "/files", "/admin")) for p in paths
+        p.startswith(("/browser", "/flows", "/files", "/admin", "/mcp", "/openapi"))
+        for p in paths
     ), "something stayed behind at the root"
 
 

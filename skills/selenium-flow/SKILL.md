@@ -57,9 +57,8 @@ the browser. `keep_file(name)` copies one out first — a kept file belongs to
 your session instead, so it survives switching, ending, and the Grid reaping an
 idle browser. `session_files` lists both kinds and marks which is which.
 
-One session holds one browser. To use both at once, open one session per
-browser and keep both ids; `session://current` reports which browser the one
-you are holding is.
+One session holds one browser. To use both at once, use two session names;
+`session://current` reports which browser the one you are holding is.
 
 ## If you are told you have no browser
 
@@ -145,12 +144,12 @@ check this table twice before reaching for it.
 | `open_session` | start a browser, or come back to the one you had | `browser`: `chrome` \| `firefox`, `width`, `height`, `url`, `fresh` |
 | `end_browser` | free the Grid slot; your session survives | — |
 | `navigate` | go to a URL | `url` |
-| `interact` | a mouse gesture on an element | `action`: `click` \| `double_click` \| `right_click` \| `hover` \| `scroll_to`, `glide` |
-| `drag` | drag an element onto another, or by an offset | `to_xpath`/`to_css` or `by_x`/`by_y`, `glide` |
-| `write` | type into a field, or type a secret you never see | `text` or `secret`, `clear`, `submit` |
+| `interact` | a mouse gesture on an element | `selector`, `action`: `click` \| `double_click` \| `right_click` \| `hover` \| `scroll_to`, `glide` |
+| `drag` | drag an element onto another, or by an offset | `selector`, then `to` or `by_x`/`by_y`, `glide` |
+| `write` | type into a field, or type a secret you never see | `selector`, `text` or `secret`, `clear`, `submit` |
 | `press_key` | a key or a combination | `key`: `Enter`, `Escape`, `a`, `Control+a` |
-| `extract` | read an element's text and HTML | `xpath` or `css` |
-| `outline` | what is on the page: selectors, and what works | `css`/`xpath`, `text`, `limit`, `interactive` |
+| `extract` | read an element's text and HTML | `selector` |
+| `outline` | what is on the page: selectors, and what works | `selector`, `text`, `limit`, `interactive` |
 | `screenshot` | the viewport, one element, or the whole page — saved, with a link to share | `full_page`, `filename`, `save` |
 | `save_pdf` | print the page into your files | `filename` |
 | `upload_file` | attach a file to a file input | `text`, `content`, `kept` or `path`, `filename` |

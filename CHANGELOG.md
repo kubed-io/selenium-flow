@@ -25,33 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- **BREAKING: `ROUTE_PREFIX` mounts the whole server**, and defaults to `/`. Every tree is fixed beneath it — `/browser`, `/flows`, `/files`, `/admin`, `/mcp`, `/openapi.yaml` — where it used to rename `/browser` while everything else stayed put.
-
-- **The admin UI is at the server root**, with its views after the hash (`#/sessions/<name>`), so a view survives a reload and can be linked to. `/admin` redirects there and remains the API the page calls.
-
-- **BREAKING: every session is named by its caller.** Add `?session=<name>` to the URL or send an `X-Session-Key` header; sending both, or neither, is refused. There is no `session_id` on any tool, in any request body, or in any result — call again with the same name to get the same browser back.
-
-- **BREAKING: the HTTP surface is REST.** `GET /flows/{name}`, `PUT` to save it, `DELETE` to remove it, `POST /flows/{name}/runs` to run it; `POST /browser` opens your browser, `DELETE /browser` ends it, `GET /browser` says what you are holding; a mouse action is a path — `POST /browser/interact/click`. Files are `GET /files` and `PUT /files/{name}/kept`.
-
-- **BREAKING: `xpath` and `css` are one `selector`.** `interact(selector={"css": "button.go"})`, and `drag` takes `selector` and `to`. Exactly one of the two, never both — and never a fallback from one to the other.
-
-- **`SAVED_SESSIONS` is gone**, along with the two session modes it switched between. There is one contract now.
-
-- **A browser opened over HTTP is a session like any other** — it appears in the admin list, slides its TTL, and is reopened where it left off after the Grid reaps it.
-
 ### Added
 
 - **One endpoint per probe**: `/health` (liveness, and deliberately independent of the Grid), `/started` (startup), `/ready` (readiness, which is the one that asks the Grid) and `/info` (version, mount, what it is wired to). All four answer at the root as well as under the prefix.
-
-### Fixed
-
-- **The Grid's URL no longer appears with its credentials** in `/ready` or `/info`, which answer to anyone.
-
-- **A click on a page that repaints itself is no longer racy** — the element is found again and the action retried once, rather than failing with a stale reference. Found by the admin page's own session list, which refreshes every two seconds.
-
-### Added
 
 - **`outline` maps the page** — every element worth acting on, with a selector checked to match exactly one, and whether it can be used.
 
@@ -77,6 +53,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING: `ROUTE_PREFIX` mounts the whole server**, and defaults to `/`. Every tree is fixed beneath it — `/browser`, `/flows`, `/files`, `/admin`, `/mcp`, `/openapi.yaml` — where it used to rename `/browser` while everything else stayed put.
+
+- **The admin UI is at the server root**, with its views after the hash (`#/sessions/<name>`), so a view survives a reload and can be linked to. `/admin` redirects there and remains the API the page calls.
+
+- **BREAKING: every session is named by its caller.** Add `?session=<name>` to the URL or send an `X-Session-Key` header; sending both, or neither, is refused. There is no `session_id` on any tool, in any request body, or in any result — call again with the same name to get the same browser back.
+
+- **BREAKING: the HTTP surface is REST.** `GET /flows/{name}`, `PUT` to save it, `DELETE` to remove it, `POST /flows/{name}/runs` to run it; `POST /browser` opens your browser, `DELETE /browser` ends it, `GET /browser` says what you are holding; a mouse action is a path — `POST /browser/interact/click`. Files are `GET /files` and `PUT /files/{name}/kept`.
+
+- **BREAKING: `xpath` and `css` are one `selector`.** `interact(selector={"css": "button.go"})`, and `drag` takes `selector` and `to`. Exactly one of the two, never both — and never a fallback from one to the other.
+
+- **`SAVED_SESSIONS` is gone**, along with the two session modes it switched between. There is one contract now.
+
+- **A browser opened over HTTP is a session like any other** — it appears in the admin list, slides its TTL, and is reopened where it left off after the Grid reaps it.
+
 - **Screenshots are kept with the session's files by default**, and come back with a link anyone can open — signed and time-limited when the server has a token, a plain path when authentication is off. `screenshot(save=false)` opts out, and a page that refuses the download returns `file_error` with the image.
 
 - **BREAKING:** a stored file is now described the way `session_files` describes one — `created` instead of `creationTime`, plus `content_type`, `image`, `kept`, `url` and `absolute_url`. Affects the `file` in `screenshot` and `save_pdf` results.
@@ -92,6 +82,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A saved flow that starts on whatever page you happen to be on is warned about** — not refused.
 
 ### Fixed
+
+- **The Grid's URL no longer appears with its credentials** in `/ready` or `/info`, which answer to anyone.
+
+- **A click on a page that repaints itself is no longer racy** — the element is found again and the action retried once, rather than failing with a stale reference. Found by the admin page's own session list, which refreshes every two seconds.
 
 - **The admin page lists sessions again on Redis** — it went blank once any browser had been pointed at something.
 
