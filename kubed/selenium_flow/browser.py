@@ -29,6 +29,8 @@ from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
+from . import probe
+
 DEFAULT_GRID_URL = "http://selenium-grid-selenium-hub.flow.svc.cluster.local:4444"
 
 # The browsers this server can open. Both are plain W3C WebDriver, which is the
@@ -373,14 +375,19 @@ class Grid:
 # caller as the useless string "Message:". Every wait here re-raises with what
 # was actually being waited for, because "no element matched //x" is the whole
 # diagnosis and the bare timeout is none of it.
-def _waited(driver, condition, timeout: int, description: str):
+def _waited(driver, condition, timeout: int, description: str, target=None):
     try:
         return WebDriverWait(driver, timeout).until(condition)
     except TimeoutException as exc:
+        # When the element is there and simply cannot be used, the page knows
+        # why and a bare timeout does not. Only the clickability waits pass a
+        # target: a presence wait failed because nothing matched at all, so
+        # there is nothing to ask about (saga §F2.8).
+        why = probe.explain(driver, target) if target else ""
         raise TimeoutException(
             f"{description} within {timeout}s. The browser is at "
             f"{driver.current_url!r}; if that is not the page you expected, the "
-            f"wait is not the problem."
+            f"wait is not the problem." + (f" {why}" if why else "")
         ) from exc
 
 
@@ -444,6 +451,7 @@ def wait_for_clickable(driver, target, timeout: int = 30):
         EC.element_to_be_clickable(target),
         timeout,
         f"no clickable element matched {value!r}",
+        target=target,
     )
 
 

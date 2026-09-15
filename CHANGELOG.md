@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A failed click says why, and what to do.** When the element is on the page but cannot be used, the error names the reason — an ancestor is hidden, something is on top of it, it has no size, it is off-screen, it is disabled — and the move that fixes it.
+
 ### Fixed
 
 - **A screenshot of a page the browser will not download from no longer costs you fifteen seconds.** It says so straight away and still returns the image.
