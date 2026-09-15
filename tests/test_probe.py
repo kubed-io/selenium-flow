@@ -103,3 +103,14 @@ def test_a_wait_for_presence_says_nothing_extra():
     with pytest.raises(TimeoutException) as timed_out:
         browser.wait_for_element(driver, (By.CSS_SELECTOR, "a.gone"), timeout=0)
     assert "ul.menu-content" not in str(timed_out.value)
+
+
+def test_the_failure_and_the_map_read_the_same_answer():
+    """The error and `outline` must never disagree about one element, and the
+    way to guarantee that is not to test two copies against each other — it is
+    to have one copy. Both scripts are built from `_HELPERS`; if someone
+    inlines a second `reasonFor`, this fails (saga §F2.8)."""
+    assert probe._HELPERS in probe.USABLE_JS
+    assert probe._HELPERS in probe.OUTLINE_JS
+    assert probe.USABLE_JS.count("reasonFor = ") == 1
+    assert probe.OUTLINE_JS.count("reasonFor = ") == 1

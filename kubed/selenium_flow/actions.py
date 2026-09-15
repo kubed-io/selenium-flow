@@ -23,7 +23,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 
-from . import browser
+from . import browser, probe
 from .browser import Grid, as_bool, as_int, normalize_browser
 from .errors import AssertionFailed
 
@@ -692,6 +692,44 @@ class Actions:
         if any(submit in resolved for submit in SUBMIT_KEYS):
             browser.settled(driver, target)
         return {"key": key, **browser.page_state(driver)}
+
+    def outline(
+        self,
+        session_id: str,
+        xpath=None,
+        css=None,
+        text=None,
+        limit=probe.DEFAULT_LIMIT,
+        interactive=True,
+        url=None,
+        wait_timeout=WAIT_TIMEOUT,
+    ) -> dict:
+        """What is on the page, with a selector for each and whether it works.
+
+        The answer an agent otherwise assembles out of DOM dumps: the first
+        pilot report spent three hand-written scripts finding one sidebar link,
+        then clicked it and failed anyway, because the element existed and its
+        ancestor was `display: none`. Both halves are here - the selector and
+        the verdict - so the failure does not have to teach it.
+        """
+        driver = self._at(session_id, url)
+        scope = None
+        if xpath or css:
+            scope = browser.wait_for_element(
+                driver, browser.locator(xpath, css), as_int(wait_timeout, 30)
+            )
+        found = probe.outline(
+            driver,
+            scope,
+            text,
+            as_int(limit, probe.DEFAULT_LIMIT),
+            as_bool(interactive, True),
+        )
+        return {
+            "elements": found,
+            "count": len(found),
+            **browser.page_state(driver),
+        }
 
     def execute_script(self, session_id: str, script: str, url=None) -> dict:
         """Run JavaScript in the page and return its result.

@@ -36,6 +36,7 @@ ENDPOINTS = {
     "extract": "extract",
     "script": "execute_script",
     "assert": "assert",
+    "outline": "outline",
     "screenshot": "screenshot",
     "frame": "frame",
     "resize": "resize",

@@ -37,6 +37,7 @@ from .actions import (
 )
 from .browser import BROWSERS
 from .hints import hints
+from .probe import DEFAULT_LIMIT as OUTLINE_LIMIT
 from .sessions import NAME_PARAM, SessionManager
 
 
@@ -554,6 +555,51 @@ def register(
             session_id,
             lambda s: actions.extract(
                 s, xpath=xpath, css=css, url=url, wait_timeout=wait_timeout
+            ),
+        )
+
+    @mcp.tool(
+        description=(
+            "Map what is on the page: every element worth acting on, with a "
+            "selector for it and whether it can actually be used.\n\nThis is "
+            "how you find selectors - not by reading HTML with extract, and "
+            "not by writing a script to walk the DOM. Each entry carries one "
+            "selector, checked to match exactly one element, as css where the "
+            "page gives something stable and xpath by text where it does "
+            "not.\n\nvisible says whether it can be used now, and reason says "
+            "what is in the way when it cannot: hidden (an ancestor is "
+            "display:none - often a menu that opens on hover), covered "
+            "(blocked_by names what is on top), zero_size, offscreen, "
+            "disabled.\n\nScope it with xpath or css to one part of the page, "
+            "filter by text to find one thing by its label, and raise limit "
+            "when 50 entries are not enough. interactive=false includes every "
+            "element rather than only the ones you can act on.\n\nRead it "
+            "before acting, and again after a page changes under a flow you "
+            "are repairing."
+        ),
+        annotations=hints("Map the page's elements", read_only=True, idempotent=True),
+    )
+    def outline(
+        xpath: str | None = None,
+        css: str | None = None,
+        text: str | None = None,
+        limit: int = OUTLINE_LIMIT,
+        interactive: bool = True,
+        session_id: str | None = None,
+        url: str | None = None,
+        wait_timeout: int = WAIT_TIMEOUT,
+    ) -> dict:
+        return run(
+            session_id,
+            lambda s: actions.outline(
+                s,
+                xpath=xpath,
+                css=css,
+                text=text,
+                limit=limit,
+                interactive=interactive,
+                url=url,
+                wait_timeout=wait_timeout,
             ),
         )
 

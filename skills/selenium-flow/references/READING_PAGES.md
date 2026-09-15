@@ -78,6 +78,37 @@ execute_script(script="return getComputedStyle(document.querySelector('.cta')).b
 
 It is also the only reliable way to scroll — see `references/INTERACTION.md`.
 
+## outline, when you need a selector
+
+`outline` maps the page: every element worth acting on, with **one selector that
+has been checked to match exactly one element**, and whether it can be used.
+
+```
+outline(css="nav")
+→ {"role": "button", "name": "HelpDesk", "xpath": "//button[normalize-space()=\"HelpDesk\"]",
+   "visible": true}
+  {"role": "link", "name": "Feature Requests", "css": "a[href=\"/extensions/feature-requests\"]",
+   "visible": false, "reason": "hidden", "blocked_by": "ul.menu-content"}
+```
+
+That second entry is the whole point: the link is real, its selector works, and
+clicking it now would time out — because `ul.menu-content` is hidden. Hover the
+menu first. The reasons are `hidden`, `covered` (with `blocked_by`), `zero_size`,
+`offscreen` and `disabled`.
+
+- **Scope it** with `css` or `xpath` to one region, so you get a panel rather
+  than a page.
+- **Filter** with `text` to find one thing by its label: `outline(text="Save")`.
+- `limit` defaults to 50. `interactive=false` lists every element, not only the
+  ones you can act on.
+
+**Do not read HTML to find selectors.** `extract` is for *content*; a DOM dump
+through `execute_script` is the long way round and does not tell you whether the
+element can be used.
+
+`outline` is **not** a flow step: it is how you work out what a flow should do,
+and how you repair one when a page has changed underneath it.
+
 ## screenshot, when the visual is the point
 
 Three modes, in precedence order: `xpath` for one element, `full_page` for the

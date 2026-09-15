@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`outline` maps the page**, so an agent stops guessing selectors out of HTML. Every element worth acting on, with one selector checked to match exactly one element, and whether it can be used — or what is in the way: a hidden ancestor, an overlay, no size, off-screen, disabled. Scope it with `css`, filter it with `text`.
+
 - **A failed click says why, and what to do.** When the element is on the page but cannot be used, the error names the reason — an ancestor is hidden, something is on top of it, it has no size, it is off-screen, it is disabled — and the move that fixes it.
 
 ### Fixed

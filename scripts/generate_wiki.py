@@ -70,6 +70,7 @@ GROUPS = [
             "press_key",
             "extract",
             "assert",
+            "outline",
             "screenshot",
             "save_pdf",
             "execute_script",
