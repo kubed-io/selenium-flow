@@ -68,7 +68,7 @@ below is ticked against it.
    own chapter.
 4. **E19 — a RESTful HTTP surface** (§F2.13). Dr K's: paths and methods
    declared per route instead of generated from tool names, and the session
-   as a scope rather than a body field. Recorded, not started, and paired
+   as who is calling — a header, never a path segment or a body field. Recorded, not started, and paired
    with E18 so callers migrate once.
 5. **A release.** The last tag is still `v0.1.0` and everything since is only in
    `:latest`. A minor version would make all of this pinnable.
@@ -848,40 +848,54 @@ from it rather than from a review thread. It is a breaking contract change, it
 touches the admin UI, the skill references, the middleware and the published
 OpenAPI, and it wants its own chapter.
 
-### §F2.13 — Decision (Dr K's, recorded): the HTTP surface is RESTful, and says so per route
+### §F2.13 — Decision (Dr K's): the HTTP surface is RESTful, and the session is who is calling
 
 **What is true today.** Every browser action is `POST /browser/<action>` with
 `session_id` in the body, and every flow verb is `POST /flows/<verb>` with the
 library in the body: `get_flow` is `POST /flows/get`. The routes are generated
 from the tool list, and a tool is a verb with arguments, so the HTTP surface
-came out as RPC wearing URLs. Meanwhile the admin page has its own route set —
-`GET /admin/sessions/{key}/flows/{name}`, `DELETE …/files/{name}` — which *is*
-resource-shaped, so the server already publishes two trees describing the same
-things.
+came out as RPC wearing URLs.
 
-**Dr K's reading, and it is right:** generating both surfaces from one list
-backfired on exactly one axis. A tool and an endpoint should share *behaviour
-and schemas* — what `actions.py` does, what a request body may contain, what
-comes back. They should not share *shape*. A tool is `verb(args)`; a resource
-is a path plus a method, and deriving the second from the first is what made
-`GET /flows/{name}` into `POST /flows/get`.
+**Dr K's reading:** generating both surfaces from one list backfired on exactly
+one axis. A tool and an endpoint should share *behaviour and schemas* — what
+`actions.py` does, what a request body may contain, what comes back. They should
+not share *shape*. A tool is `verb(args)`; a resource is a path plus a method,
+and deriving the second from the first is what made `GET /flows/{name}` into
+`POST /flows/get`.
 
 **The rule.** Bodies and results stay derived from the tool schemas, so the two
 surfaces still cannot drift in what they accept. The path and the method are
 **declared**, one row per capability, in an explicit route table — and the
 existing test that every tool has a route keeps holding against that table.
 
-**The session is a scope, not a field.** Following E18 (§F2.12), a session is a
-name the caller supplies:
+**The session is not in the path.** It was proposed there first, as
+`/sessions/{name}/…`, and Dr K turned it down. A session is **who is calling**,
+closer to a user than to a folder: it is the boundary of what a caller can see,
+not a namespace a request picks. A path segment is chosen per request, so a
+series of calls from one caller could land in three sessions by editing a URL,
+and an implementor has nothing to hold the line with. A header is set once on
+the client — exactly as the MCP URL names a session once, for the connection —
+so one caller is one session by construction, and HTTP resolves a session the
+same way `/mcp` does (E18's own goal).
 
-- `X-Session-Key` header, else `?session=<name>`.
-- **Both present is a 400**, not a precedence contest. A caller that sends both
-  has two ideas about who it is, and quietly picking one hides that.
+Stated in its limits: with one bearer token, a header stops **accidents**, not
+**attackers** — any caller can send any name. Real enforcement is a credential
+per session, which is §F2.12 Q4 and not this.
+
+- `X-Session-Key` header, else `?session=<name>`. The header is the normal case.
+- **Both present is a 400**, not a precedence contest. A caller sending both has
+  two ideas about who it is, and quietly picking one hides that.
 - For the flow library, **no session means `global`** — the default the lookup
   cascade already falls back to, said out loud.
-- For a browser action, no session is a 400. There is no shared browser.
+- For anything touching a browser, no session is a 400. There is no shared
+  browser.
 
-**The shape, as proposed:**
+**The one place a session is in a path is the admin page**, and that is the
+same rule seen from the other side: the token holder looking *across*
+boundaries is the only role that addresses sessions as resources. So
+`/admin/sessions/{key}/…` stays, and nothing else grows a session segment.
+
+**The shape, as proposed** (session from the header throughout):
 
 | Today | Becomes |
 |---|---|
@@ -891,34 +905,31 @@ name the caller supplies:
 | `POST /flows/delete` | `DELETE /flows/{name}` |
 | `POST /flows/run` | `POST /flows/{name}/runs` — a run is created, not fetched |
 | `POST /flows/schema` | `GET /schemas/flow` — not under `/flows`, where `schema` would be a flow name |
-| `POST /browser/open_session` | `PUT /sessions/{name}` — idempotent by name: opens, or picks up |
-| `POST /browser/end_browser` | `DELETE /sessions/{name}/browser` — the session survives its browser |
-| `POST /browser/<action>` | `POST /sessions/{name}/actions/<action>` |
-| `/admin/sessions/{key}/…` | deleted — the admin page reads the same tree |
+| `POST /browser/open_session` | `POST /browser` — this session's browser, opened or picked up |
+| `POST /browser/end_browser` | `DELETE /browser` — the session survives its browser |
+| `session://current` | `GET /browser` |
+| `POST /browser/interact` + `action` | `POST /browser/interact/{action}` — `/browser/interact/click` |
+| `POST /browser/<action>` | `POST /browser/<action>`, with the session out of the body |
 
 **Browser actions stay commands**, and that is deliberate. `click` and
 `press_key` are not resources, and inventing one for each is worse REST than an
-honest command under the resource it acts on. The win there is the session
-moving into the path; the verb staying a verb is fine.
+honest command on the one resource they act on — *this caller's browser*.
 
 **Links.** A `PUT` or a created run answers with `Location`, and results carry a
-small `links` object — a run report links its flow and its session, a file
-links its signed URL, which it already has. HATEOAS as far as it is useful to a
-caller following one link, and no further: no HAL, no media-type negotiation.
+small `links` object — a run report links its flow, a file its signed URL, which
+it already has. HATEOAS as far as it helps a caller follow one link, and no
+further: no HAL, no media-type negotiation.
 
-**Why with E18 and not before it.** Both are breaking changes to the published
-contract, and every HTTP caller — the n8n workflows in this cluster first —
-migrates once rather than twice. Moving the session into the path is also most
-of what E18 asks of the HTTP surface, so doing them apart would mean designing
-the session parameter twice.
+**Why with E18 and not before it.** Both break the published contract, and every
+HTTP caller — the n8n workflows in this cluster first — migrates once rather
+than twice. Taking `session_id` out of every body is most of what E18 asks of
+this surface anyway.
 
 **Open, Dr K's:**
 
-1. **One tree or two for a session's flows?** `GET /flows/{name}?session=x` is
-   the form Dr K proposed; `GET /sessions/x/flows/{name}` is the form the admin
-   page uses today. The first keeps the library one resource with a scope; the
-   second makes the session the parent of everything it owns. Recommend the
-   first — one way to address a flow — and the admin page moves to it.
+1. ~~**One tree or two for a session's flows?**~~ **Closed: one.** `GET
+   /flows/{name}` with the session from the header; a session is never a path
+   segment outside the admin page.
 2. **Does `outline`/`extract` become a `GET`?** They are read-only, but they take
    a locator and wait, and a GET that can take thirty seconds surprises caches
    and proxies. Recommend **no**: every action is a POST, reads included.
@@ -1272,11 +1283,14 @@ caller should migrate once.
 
 - [ ] Paths and methods come from a declared route table, not from tool names;
       bodies and results stay derived from the tool schemas
-- [ ] The session is a header or a query parameter, and both at once is a 400
-- [ ] No session on a library route means `global`; on a browser action, a 400
+- [ ] The session is the `X-Session-Key` header or `?session=`, never a path
+      segment and never a body field; both at once is a 400
+- [ ] HTTP resolves a session through the same code `/mcp` does
+- [ ] No session on a library route means `global`; on a browser route, a 400
+- [ ] `interact`'s action is a path segment: `POST /browser/interact/click`
 - [ ] `PUT` and a created run answer with `Location`; results carry `links`
-- [ ] The admin page reads the public tree, and `/admin/sessions/{key}/…` is
-      deleted rather than kept alongside it
+- [ ] `/admin/sessions/{key}/…` stays — the admin view is the one role that
+      looks across sessions
 - [ ] The OpenAPI spec, the wiki and the skill references are regenerated from
       the new table, and the n8n workflows in this cluster are migrated
 
