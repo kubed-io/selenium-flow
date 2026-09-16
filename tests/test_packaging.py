@@ -85,6 +85,34 @@ def test_the_package_source_directories_exist():
         assert (REPO / directory).is_dir(), f"package-dir maps missing {directory}/"
 
 
+def declared_packages() -> set[str]:
+    """Every package name pyproject says ships."""
+    data = tomllib.loads(PYPROJECT.read_text())
+    return set(data["tool"]["setuptools"]["packages"])
+
+
+def source_packages() -> set[str]:
+    """Every importable package in the source tree, as a dotted name."""
+    return {
+        ".".join(init.relative_to(REPO).parent.parts)
+        for init in (REPO / "kubed").rglob("__init__.py")
+    }
+
+
+def test_every_source_package_is_declared():
+    """`packages` is an explicit list, so a package missing from it is simply
+    absent from the wheel — no error at build, none at import, and none until
+    something in an installed copy reaches for it.
+
+    Which is the whole failure: CI is green, the image builds, and the feature
+    is gone. Nothing asserted this before the package had subpackages to lose.
+    """
+    missing = source_packages() - declared_packages()
+    assert not missing, (
+        "add to [tool.setuptools] packages in pyproject.toml: " f"{sorted(missing)}"
+    )
+
+
 # --- which build wins -------------------------------------------------------
 
 
