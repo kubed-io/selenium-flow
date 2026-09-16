@@ -481,6 +481,18 @@ FLOW_SCHEMAS = {
                                 "secret."
                             ),
                         },
+                        "file": {
+                            "allOf": [
+                                {"$ref": "#/components/schemas/FileEntry"}
+                            ],
+                            "description": (
+                                "The file this step produced — a screenshot, a "
+                                "PDF — present whether or not the step is "
+                                "marked `return`, because a capture nobody can "
+                                "find cannot show anyone what it saw. Withheld "
+                                "on the same terms as `url`."
+                            ),
+                        },
                         "result": {
                             "type": "object",
                             "description": (

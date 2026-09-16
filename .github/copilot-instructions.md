@@ -28,7 +28,7 @@ hand the whole job to an agent over MCP, or drive the same actions itself with
 HTTP requests when it wants exact control. A tool with no endpoint silently takes
 that choice away.
 
-- **`actions.py` is the only place behaviour lives.** `tools.py` and `routes.py`
+- **`core/actions.py` is the only place behaviour lives.** `mcp/tools.py` and `routes.py`
   are thin wrappers. A PR that puts logic in a wrapper is a finding — say where
   it belongs.
 - **A new capability that reaches only one surface is a bug**, even when the
@@ -62,11 +62,11 @@ to ignore you.
 
 1. **Security** — a hardcoded token or Grid credential; a secret written to a
    log, response or exception message; a missing auth check on a new route. The
-   token is compared in **`auth.py`**, with `hmac.compare_digest`, and that is
+   token is compared in **`http/auth.py`**, with `hmac.compare_digest`, and that is
    the only place it may be — a new route that hand-rolls the header parse or
    uses `==` is a finding even when it looks correct, because that is exactly how
    the two copies this file replaced came to disagree. Signed file URLs are
-   `links.py`, same rule. This server is *designed* to fetch arbitrary URLs on
+   `http/links.py`, same rule. This server is *designed* to fetch arbitrary URLs on
    request — that is the product, not an SSRF bug. Flag new *undocumented* egress
    or a path that lets a caller reach the Grid's own control plane.
 2. **Surface parity** — the section above.
@@ -81,11 +81,11 @@ to ignore you.
 
 ## Python conventions specific to this repo
 
-- **Type hints in `tools.py` ARE the tool schema.** FastMCP builds the JSON
+- **Type hints in `mcp/tools.py` ARE the tool schema.** FastMCP builds the JSON
   schema from the signature, so a missing or loose annotation ships a worse tool.
   `param: str = None` instead of `param: str | None = None`, a bare `dict`, an
   untyped `**kwargs` — all are real findings here.
-- **Docstrings in `tools.py` are prompt, not documentation.** They are read by a
+- **Docstrings in `mcp/tools.py` are prompt, not documentation.** They are read by a
   model choosing a tool. Review them for that reader: what the tool does, when to
   reach for it, what the arguments mean.
 - **Coerce, don't trust.** Callers send JSON by hand, through form encoders, and
@@ -100,7 +100,7 @@ to ignore you.
 - **`errors.py` decides what an HTTP failure means, and it is the only place.**
   A handler that hardcodes a status, or a new exception type that silently falls
   through to 500 when the caller could have fixed it, is a finding. A new status
-  must also appear in the `responses` block in `openapi.py` or the published
+  must also appear in the `responses` block in `spec/schemas.py` or the published
   contract lies. Note the default is deliberately 500: for a failure we do not
   recognise, guessing "the caller's fault" is the dangerous direction.
 - Prefer `pathlib` over `os.path`, f-strings over `%`/`.format`, and
@@ -110,7 +110,7 @@ to ignore you.
 ## Project non-negotiables — do not approve changes that break these
 
 - **`openapi.yaml` is a generated build artifact and is gitignored.** Changes go
-  in `openapi.py`. A PR that commits the generated file, or edits it directly, is
+  in `spec/`. A PR that commits the generated file, or edits it directly, is
   wrong.
 - **The wiki is generated** by `scripts/generate_wiki.py` from the spec, into the
   `wiki/` submodule. Hand-written prose belongs in `wiki/notes/<tool>.notes.md`.
@@ -183,7 +183,7 @@ heading. Those rules are in `CONTRIBUTING.md` §The changelog.
   the documented escape hatch for what the other tools do not cover.
 - **The unroutable Grid address in the tests is deliberate.** Tests must not
   reach a real Grid; a test that does is an integration test and is marked one.
-- **The `run(session_id, lambda s: ...)` forwarding in `tools.py` is deliberate
+- **The `run(session_id, lambda s: ...)` forwarding in `mcp/tools.py` is deliberate
   repetition.** A decorator that forwarded arguments generically would erase the
   signature, and the signature *is* the published tool schema. Don't propose
   DRYing it.

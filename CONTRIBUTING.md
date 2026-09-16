@@ -37,17 +37,19 @@ unless `GRID_URL` and `ADMIN_ORIGIN` are set — see
 
 | Path | Holds |
 |---|---|
-| `kubed/selenium_flow/actions.py` | what the server can do, as plain functions — the single source of truth |
-| `kubed/selenium_flow/tools.py` | those actions as MCP tools |
-| `kubed/selenium_flow/routes.py` | the same actions as HTTP endpoints |
-| `kubed/selenium_flow/sessions.py` | who is calling, and which browser that resolves to |
-| `kubed/selenium_flow/settings.py` | the env / client / explicit settings cascade |
+| `kubed/selenium_flow/` | the app itself: `server.py` composes it, `main.py` starts it, `routes.py` is its own route table and the mount everything hangs beneath, `errors.py` decides what a failure means |
+| `kubed/selenium_flow/core/` | the browser and the page — `actions.py` is what the server can do, as plain functions and the single source of truth |
+| `kubed/selenium_flow/session/` | who is calling, the record they hold, and the env / client / explicit settings cascade |
+| `kubed/selenium_flow/flows/` | saved documents: `document.py` validates one, `library.py` stores it, `run.py` runs it, `api.py` serves it |
+| `kubed/selenium_flow/http/` | the request machinery: one `answer.py` for every JSON tree, auth, signed links, files, the admin API |
+| `kubed/selenium_flow/mcp/` | what an agent sees: tools, resources, prompts, the embedded skill, tool annotations, and where guidance points |
+| `kubed/selenium_flow/spec/` | the OpenAPI document — `schemas.py` is the data, `builder.py` assembles it from the live tools |
 | `skills/selenium-flow/` | the embedded Agent Skill, mapped into the package at build time |
 | `static/` | the admin UI and the MCP app components, mapped in the same way |
 | `wiki/` | the GitHub wiki, as a submodule — depth the README has no room for |
 | `wiki/notes/` | hand-written prose folded into the generated wiki pages |
 
-Adding a capability means adding one function to `actions.py` and registering it
+Adding a capability means adding one function to `core/actions.py` and registering it
 on both surfaces. A test asserts the two sets match, so a tool without an
 endpoint fails the build.
 
@@ -86,7 +88,7 @@ want one to read, lint or publish:
 python scripts/generate_openapi.py
 ```
 
-Changes go in `openapi.py`, never in the generated file. Response shapes are the
+Changes go in `spec/`, never in the generated file. Response shapes are the
 one hand-maintained half there: the actions return plain dicts, so there is
 nothing to introspect. A test asserts every endpoint has one.
 

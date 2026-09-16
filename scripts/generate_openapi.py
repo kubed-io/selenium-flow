@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Regenerate the committed openapi.yaml.
+"""Regenerate openapi.yaml, the build artifact.
 
-The spec is generated, but checked in so it can be reviewed in a pull request
-and linted like any other artifact. `test_openapi.py` fails when the file drifts
-from what the code produces, so this script is the fix for that failure.
+The spec is generated and NOT committed — `.gitignore` holds it out, CI writes
+it, lints it with redocly and uploads it. Nothing in a pull request reviews this
+file; what is reviewed is the code that produces it, which `test_openapi.py`
+holds against the live tools. Run this when you want to read the document, or
+when redocly failed in CI and you want the same input it had.
 
     python scripts/generate_openapi.py
 """
