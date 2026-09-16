@@ -26,7 +26,7 @@ from kubed.selenium_flow import resources as resources_module
 from kubed.selenium_flow.openapi import build_spec
 from kubed.selenium_flow.routes import ENDPOINTS
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.store import SessionRecord
+from kubed.selenium_flow.session.store import SessionRecord
 
 from .conftest import NAMED, TOKEN
 

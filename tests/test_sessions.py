@@ -8,9 +8,9 @@ tool call opened a browser nobody closed.
 
 import pytest
 
-from kubed.selenium_flow import sessions as sessions_module
-from kubed.selenium_flow.sessions import requested
-from kubed.selenium_flow.store import (
+from kubed.selenium_flow.session import sessions as sessions_module
+from kubed.selenium_flow.session.sessions import requested
+from kubed.selenium_flow.session.store import (
     DEFAULT_DB,
     DEFAULT_PREFIX,
     MemoryStore,
@@ -801,7 +801,7 @@ async def test_open_session_comes_back_to_the_page_it_was_on(server, monkeypatch
     """The default, and the reason a reaped browser is invisible."""
     from fastmcp import Client
 
-    from kubed.selenium_flow.store import SessionRecord
+    from kubed.selenium_flow.session.store import SessionRecord
 
     from .conftest import NAMED
 
@@ -829,7 +829,7 @@ async def test_fresh_drops_the_remembered_page_and_keeps_the_browser(
     the session was on Firefox is a silent change of shape, not a fresh start."""
     from fastmcp import Client
 
-    from kubed.selenium_flow.store import SessionRecord
+    from kubed.selenium_flow.session.store import SessionRecord
 
     from .conftest import NAMED
 
@@ -862,7 +862,7 @@ async def test_a_url_given_alongside_fresh_still_wins(server, monkeypatch):
     start has named one."""
     from fastmcp import Client
 
-    from kubed.selenium_flow.store import SessionRecord
+    from kubed.selenium_flow.session.store import SessionRecord
 
     from .conftest import NAMED
 

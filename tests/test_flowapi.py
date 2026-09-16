@@ -63,7 +63,7 @@ def acting_as(monkeypatch, server, session):
     anything touching a browser refuses it.
     """
     from kubed.selenium_flow.flows import GLOBAL_SESSION
-    from kubed.selenium_flow.sessions import UNNAMED
+    from kubed.selenium_flow.session.sessions import UNNAMED
 
     def named():
         if session is None:

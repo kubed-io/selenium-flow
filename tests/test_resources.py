@@ -81,12 +81,12 @@ async def test_the_hidden_tool_is_still_registered_and_callable(server):
 
 def saved(monkeypatch):
     monkeypatch.setattr(
-        "kubed.selenium_flow.sessions.http_request", lambda: http({"session": "d"})
+        "kubed.selenium_flow.session.sessions.http_request", lambda: http({"session": "d"})
     )
 
 
 def stateless(monkeypatch):
-    monkeypatch.setattr("kubed.selenium_flow.sessions.http_request", lambda: http())
+    monkeypatch.setattr("kubed.selenium_flow.session.sessions.http_request", lambda: http())
 
 
 async def test_saved_mode_does_not_advertise_session_id(server, monkeypatch):

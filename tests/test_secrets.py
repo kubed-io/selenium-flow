@@ -995,7 +995,7 @@ def test_a_session_in_use_is_kept_alive_even_when_its_page_is_withheld():
     that threw the refresh away. A test on the store would have passed
     throughout.
     """
-    from kubed.selenium_flow.store import MemoryStore, SessionRecord
+    from kubed.selenium_flow.session.store import MemoryStore, SessionRecord
 
     from .conftest import NAMED, manager
 

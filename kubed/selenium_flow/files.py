@@ -63,7 +63,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from . import auth, errors, flows, links
-from . import sessions as sessions_module
+from .session import sessions as sessions_module
 from .hints import hints, reads
 
 log = logging.getLogger(__name__)

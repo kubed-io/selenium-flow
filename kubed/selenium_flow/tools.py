@@ -37,7 +37,7 @@ from .core.actions import (
 from .core.browser import BROWSERS
 from .hints import hints
 from .core.probe import DEFAULT_LIMIT as OUTLINE_LIMIT
-from .sessions import NAME_PARAM, SessionManager
+from .session.sessions import NAME_PARAM, SessionManager
 
 
 def _lowered(value):

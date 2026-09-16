@@ -43,7 +43,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from . import auth, errors, flowdoc, flowrun, flows
-from . import sessions as sessions_module
+from .session import sessions as sessions_module
 from .core.browser import as_bool
 from .hints import hints, reads
 from .routes import ENDPOINTS

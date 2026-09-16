@@ -27,8 +27,8 @@ from . import (
 from .core import pointer
 from .core.actions import Actions
 from .core.browser import DEFAULT_GRID_URL, Grid
-from .sessions import SessionManager
-from .store import SessionStore, from_env
+from .session.sessions import SessionManager
+from .session.store import SessionStore, from_env
 
 # Root. `ROUTE_PREFIX` moves the WHOLE server, so the default is "no prefix"
 # rather than a name for one tree (§F1.11). `/` means the same thing and is what

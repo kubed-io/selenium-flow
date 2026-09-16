@@ -637,7 +637,7 @@ def test_the_pointer_store_is_built_from_the_session_store():
     with a memory environment would otherwise share session mappings and keep
     pointers process-local, so a glide on another replica silently starts as a
     jump (Copilot, #31)."""
-    from kubed.selenium_flow.store import MemoryStore, RedisStore
+    from kubed.selenium_flow.session.store import MemoryStore, RedisStore
 
     assert pointer.matching(MemoryStore()).kind == "memory"
 
@@ -652,7 +652,7 @@ def test_the_pointer_store_is_built_from_the_session_store():
 def test_a_server_given_a_shared_store_shares_its_pointers_too():
     """Through the constructor, which is where the mismatch actually lived."""
     from kubed.selenium_flow.server import SeleniumMCP
-    from kubed.selenium_flow.store import RedisStore
+    from kubed.selenium_flow.session.store import RedisStore
 
     server = SeleniumMCP(
         grid_url="http://grid.invalid:4444", store=RedisStore(_Redis(), prefix="sf:")
@@ -666,7 +666,7 @@ def test_an_injected_session_store_can_bring_a_matching_pointer_store():
     across replicas and keep pointers local — and a cross-replica glide would
     silently degrade to a jump (Copilot, #31)."""
     from kubed.selenium_flow.server import SeleniumMCP
-    from kubed.selenium_flow.store import MemoryStore
+    from kubed.selenium_flow.session.store import MemoryStore
 
     mine = MemoryPointers()
     server = SeleniumMCP(
@@ -712,7 +712,7 @@ def test_the_pointer_store_keeps_the_session_stores_retention():
     """Both backends expose `ttl` now. The memory path used to fall back to its
     own default, so a server configured for minutes held a pointer for a day
     (Copilot, #31)."""
-    from kubed.selenium_flow.store import MemoryStore, RedisStore
+    from kubed.selenium_flow.session.store import MemoryStore, RedisStore
 
     assert pointer.matching(MemoryStore(ttl=60))._ttl == 60
     assert pointer.matching(RedisStore(_Redis(), ttl=60))._ttl == 60
@@ -725,7 +725,7 @@ def test_a_custom_store_without_a_ttl_still_starts_the_server():
     (Copilot, #32). The contract asks for it; the fallback is for the ones that
     predate it."""
     from kubed.selenium_flow.server import SeleniumMCP
-    from kubed.selenium_flow.store import SessionRecord
+    from kubed.selenium_flow.session.store import SessionRecord
 
     class _Minimal:
         """Exactly the protocol as it was: kind, and the CRUD."""

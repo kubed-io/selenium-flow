@@ -40,8 +40,8 @@ import logging
 import time
 from dataclasses import dataclass
 
-from .core.actions import Actions
-from .core.browser import DEFAULT_BROWSER
+from ..core.actions import Actions
+from ..core.browser import DEFAULT_BROWSER
 from .store import MemoryStore, SessionRecord, SessionStore
 
 log = logging.getLogger(__name__)
@@ -121,7 +121,7 @@ def name_in(params: dict, headers: dict) -> Caller | None:
     HTTP routes — which have a Starlette request in hand — resolve a session
     through exactly this function rather than a second copy of the rule.
     """
-    from .flows import valid_session_name
+    from ..flows import valid_session_name
 
     header = str(headers.get(NAME_HEADER) or "").strip()
     param = str(params.get(NAME_PARAM) or "").strip()
@@ -164,7 +164,7 @@ def library_from(request) -> str:
     See :meth:`SessionManager.library` for why a missing name is not an error
     here.
     """
-    from .flows import GLOBAL_SESSION
+    from ..flows import GLOBAL_SESSION
 
     caller = name_in(
         dict(request.query_params),
@@ -212,7 +212,7 @@ class SessionManager:
         the shared flows and can write nowhere at all. Anything that touches a
         browser still has to say who it is (§F2.13).
         """
-        from .flows import GLOBAL_SESSION
+        from ..flows import GLOBAL_SESSION
 
         caller = requested()
         return caller.name if caller else GLOBAL_SESSION
@@ -364,7 +364,7 @@ class SessionManager:
         surfaces for the same reason :meth:`act` is.
         """
         from . import settings as settings_module
-        from .core.browser import as_bool
+        from ..core.browser import as_bool
 
         # What this session was last using. It sits between the client's
         # defaults and the explicit arguments: a caller that names nothing means
