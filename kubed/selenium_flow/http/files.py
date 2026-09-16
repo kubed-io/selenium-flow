@@ -62,10 +62,9 @@ import mimetypes
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import auth, links
-from .. import errors
+from . import answer as answer_module
+from . import links
 from ..flows import library as flows
-from ..session import sessions as sessions_module
 from ..mcp.annotations import hints, reads
 
 log = logging.getLogger(__name__)
@@ -428,25 +427,8 @@ def _routes(mcp, actions, sessions, store, token, base, prefix) -> None:
     files_root = f"{prefix}/files"
 
     async def answer(request: Request, what: str, call) -> JSONResponse:
-        body, refused = await auth.json_request(request, token)
-        if refused:
-            return refused
-        try:
-            return JSONResponse(call(sessions_module.name_from(request), body))
-        except Exception as exc:  # errors.py decides what it means
-            status = errors.status_for(exc)
-            text = errors.message(exc)
-            if status == 500:
-                # Only the status we do not understand earns a traceback. A 503
-                # is a known condition — the Grid is unreachable or refusing —
-                # and its frames carry the exception text, which for a Grid
-                # refusal is where the Grid URL lives.
-                log.exception("files/%s failed", what)
-            elif status > 500:
-                log.warning("files/%s unavailable (%s): %s", what, status, text)
-            else:
-                log.info("files/%s refused (%s): %s", what, status, text)
-            return JSONResponse({"error": text}, status_code=status)
+        """One request, answered the way every other tree answers one."""
+        return await answer_module.answer(request, token, f"files/{what}", call, log)
 
     @mcp.custom_route(files_root, methods=["GET"], name="files_list")
     async def list_files(request: Request) -> JSONResponse:

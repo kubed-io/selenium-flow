@@ -45,8 +45,7 @@ from starlette.responses import JSONResponse
 from . import document as flowdoc
 from . import library as flows
 from . import run as flowrun
-from .. import errors
-from ..http import auth
+from ..http import answer as answer_module
 from ..session import sessions as sessions_module
 from ..core.browser import as_bool
 from ..mcp.annotations import hints, reads
@@ -602,26 +601,16 @@ def _routes(
     flows_root = f"{prefix}/flows"
 
     async def answer(request: Request, what: str, call) -> JSONResponse:
-        body, refused = await auth.json_request(request, token)
-        if refused:
-            return refused
-        try:
-            result = call(body)
-            if hasattr(result, "__await__"):
-                result = await result
-            return JSONResponse(result)
-        except Exception as exc:  # errors.py decides what it means
-            status = errors.status_for(exc)
-            text = errors.message(exc)
-            if status == 500:
-                # See files.py: a traceback only for the status we cannot
-                # explain, since a Grid refusal's text carries its URL.
-                log.exception("flows/%s failed", what)
-            elif status > 500:
-                log.warning("flows/%s unavailable (%s): %s", what, status, text)
-            else:
-                log.info("flows/%s refused (%s): %s", what, status, text)
-            return JSONResponse({"error": text}, status_code=status)
+        """One request, answered the way every other tree answers one.
+
+        The calls below take the session name and ignore it: a flow resolves
+        which library it belongs to from the request itself (``library_from``,
+        not ``name_from``), and one signature is what lets one wrapper serve
+        every tree.
+        """
+        return await answer_module.answer(
+            request, token, f"flows/{what}", call, log, named=False
+        )
 
     @mcp.custom_route(flows_root, methods=["GET"], name="flows_list")
     async def list_flows(request: Request) -> JSONResponse:
@@ -629,7 +618,9 @@ def _routes(
         return await answer(
             request,
             "list",
-            lambda _body: catalogue(store, sessions_module.library_from(request)),
+            lambda _name, _body: catalogue(
+                store, sessions_module.library_from(request)
+            ),
         )
 
     @mcp.custom_route(f"{prefix}{SCHEMA_PATH}", methods=["GET"], name="flows_schema")
@@ -639,7 +630,9 @@ def _routes(
         Not under /flows, where `schema` would be indistinguishable from a flow
         of that name.
         """
-        return await answer(request, "schema", lambda _body: _document_schema(schemas))
+        return await answer(
+            request, "schema", lambda _name, _body: _document_schema(schemas)
+        )
 
     @mcp.custom_route(flows_root + "/{name}", methods=["GET"], name="flows_get")
     async def get_flow(request: Request) -> JSONResponse:
@@ -647,7 +640,7 @@ def _routes(
         return await answer(
             request,
             "get",
-            lambda _body: read_one(
+            lambda _name, _body: read_one(
                 store,
                 sessions_module.library_from(request),
                 request.path_params["name"],
@@ -658,7 +651,7 @@ def _routes(
     async def save_flow(request: Request) -> JSONResponse:
         """Create or replace one flow. One verb for both, as §F1.5 has it."""
 
-        async def call(body):
+        async def call(_name, body):
             document = {
                 key: body[key]
                 for key in ("description", "parameters", "steps")
@@ -680,7 +673,7 @@ def _routes(
         return await answer(
             request,
             "delete",
-            lambda _body: delete_one(
+            lambda _name, _body: delete_one(
                 store,
                 sessions_module.library_from(request),
                 request.path_params["name"],
@@ -693,7 +686,7 @@ def _routes(
         return await answer(
             request,
             "run",
-            lambda body: run_for(
+            lambda _name, body: run_for(
                 store,
                 actions,
                 sessions,
