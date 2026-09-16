@@ -18,11 +18,13 @@
 
 ---
 
-## Status: **OPEN — planning, answered in part** — opened 2026-09-16
+## Status: **BUILT, in one pull request** — opened and built 2026-09-16
 
-Nothing is built yet. Dr K answered five questions in the first pass (§F3.1 to
-§F3.5); §F3.6 is the one this chapter exists to settle, and it is *recommended*
-until Dr K answers it.
+Planned first, then built. Dr K answered five questions in the first pass (§F3.1
+to §F3.5) and the sixth in the second (§F3.6), and added two rules of their own
+making: **n8n reaches resources through `mcp-kb`, not through this server**, and
+**nothing here keeps backwards compatibility while Dr K is its only user** —
+which took `--stateless` with it (§F3.7). Part III is ticked against the build.
 
 What it was planned from:
 
@@ -135,10 +137,8 @@ Today a client is assumed to read resources unless it says otherwise. Instead:
   session; on `2026-07-28` it rides in every request's `_meta`. FastMCP exposes
   neither as a documented accessor; `apps.supported()` already probes the
   session for capabilities and is the precedent.
-- **`--stateless` has no transport session.** A legacy-protocol client served
-  statelessly has no `initialize` to remember, so detection finds nothing and
-  falls back to the default. That must fail toward the current behaviour, never
-  toward an error.
+- **`--stateless` had no transport session**, so a legacy-protocol client served
+  statelessly could not be identified. Moot: the flag is gone (§F3.7).
 - **Clients cache their tool list.** A listing is decided per request, so the
   first `tools/list` must already see the identity — detection cannot depend on
   anything learned later in the session.
@@ -190,7 +190,7 @@ and the published schemas stay byte-identical apart from `description`. A
 description that loses a sentence a pilot relied on is the regression to watch;
 the three pilot reports in Chapter 2 name several.
 
-### §F3.6 — Decision (recommended): two generic mirrors replace seven specific ones
+### §F3.6 — Decision (Dr K's): two generic mirrors replace seven specific ones, and every text names a URI
 
 **Proposed:** a tool-only client gets `list_resources()` and `read_resource(uri)`,
 exactly the vocabulary `mcp-kb` uses (`kubed/mcp_kb/mcp/tools.py`), instead of
@@ -266,64 +266,104 @@ resource at this URI". Whether this server's skill should one day be served from
 there — rather than embedded here, where it is guaranteed to describe this
 version — is an open question, not a proposal.
 
-**Recommendation:** adopt it, hand-written, with footguns 1–4 and 8 designed in,
-and footgun 5 measured in n8n first. If n8n cannot tell two `read_resource` tools
-apart, the choice becomes prefixing both servers' mirrors or keeping specific
-mirrors here, and that is Dr K's.
+**Recommendation, as written before it was answered:** adopt it, hand-written,
+with footguns 1–4 and 8 designed in, and footgun 5 measured in n8n first.
+
+**Answered, and wider than asked.** Dr K took the generic mirror and made it the
+rule for all text: **every description, hint, error, prompt and skill page names
+a resource by URI** — `session://current`, `flow://flows/{name}`,
+`skill://selenium-flow/references/FLOWS.md` — so a client that reads resources
+knows what to do with one, and a client that cannot is given the two tools that
+take the same URIs. And two footguns were answered by decision rather than
+design:
+
+- **Footgun 5, n8n, is not this server's.** n8n keeps resources on here, so it is
+  shown no mirror tools at all, and `mcp-kb` proxies this server's resources into
+  its own catalogue; an n8n agent is told every URI is read through `mcp-kb`.
+  There is one `read_resource` in that agent, and it is `mcp-kb`'s.
+- **Footgun 8, cached tool lists, is not worth a release of aliases** (§F3.7).
+
+**As built** (`mcp/mirror.py`): images read back as MCP image content; any other
+binary is described — its type, size, and for a session file that
+`session://files` carries its link — never base64; `ui://` is neither listed nor
+readable; a URI that is not there is answered with the templates. `session_files`
+survives only as the MCP App it also was, listed to a host that renders apps.
+The OpenAPI spec marks each read endpoint `x-mcp-resource` with its URI, and the
+wiki page for it shows the read.
+
+### §F3.7 — Decision (Dr K's): no backwards compatibility while there is one user
+
+This server, and `mcp-kb`, have one user. So a change that breaks a shape breaks
+it and updates every reference in the same pull request: no deprecation window,
+no retired name kept callable, no legacy mode kept for a deployment nobody runs.
+`CONTRIBUTING.md`'s rule on changing an argument's shape is the policy for the
+day there is a second user, and Dr K says when that is.
+
+**`--stateless` is removed** under it. It dropped MCP transport sessions so more
+than one replica could serve `/mcp` — and a transport session is where a legacy
+client's `initialize`, and so its identity (§F3.1), is remembered. One replica
+runs; the flag went.
 
 ---
 
 ## Part III — The plan
 
-One pull request, in this order, because each step changes what the next one
-reads:
+One pull request, built in this order because each step changes what the next
+one reads. Every item was proved by breaking it on purpose and watching its test
+fail.
 
 ### E22 — Who is calling (§F3.1, §F3.2)
 
-- [ ] Read `clientInfo` on both protocol generations; name the table of clients
-      that do not read resources.
-- [ ] `client_reads_resources()`: explicit value, else identified client, else
-      true. Tested per generation, and under `--stateless`.
-- [ ] Instructions per client, with the both-sentence fallback.
+- [x] `mcp/clients.py` reads `clientInfo` from `_meta` on `2026-07-28` and from
+      the session's `initialize` on `2025`; `NO_RESOURCES` names VS Code.
+- [x] `reads_resources()`: explicit value, else identified client, else true —
+      tested on both protocol generations through the real client.
+- [x] Instructions per client, answered on `initialize` and `server/discover`.
+- [x] `--stateless` removed (§F3.7).
 
 ### E23 — Stale and long descriptions (§F3.3, §F3.5)
 
-- [ ] Read every tool, resource and prompt description and every refusal that
-      names a tool; fix `selenium_flow_skill`, `build_flow`, `repair_flow`.
-- [ ] Trim tool descriptions to the budget; teaching moves to the skill. Record
-      words per tool before and after.
-- [ ] Guard: removed vocabulary never appears in a description or prompt.
+- [x] Every tool, resource and prompt description, and every refusal that named a
+      retired tool, now names a URI. Also found stale: `keep_file` told a caller
+      `upload_file(path=...)` where it means `kept=`; SKILL.md's rule 4 still
+      described flat `xpath`/`css`; `build_flow` said to scope `outline` "with
+      `css`".
+- [x] **3,156 words across 24 tools became 1,578.** The longest are now `save_flow`
+      and `outline`, around 120 each. `press_key`'s sixty key names moved to its
+      refusal, which already listed them.
+- [x] Guard: a test reads everything an agent is given from the running server —
+      descriptions, both kinds of instructions, rendered prompts, every skill
+      file — and fails on a removed name.
 
 ### E24 — Resources for people (§F3.4)
 
-- [ ] Title-case names on every resource.
-- [ ] Completions for both templates, per caller.
+- [x] Names a person reads: `Current Session`, `Saved Flows`, `Saved Flow`,
+      `Flow Document Schema`, `Session Files`, `Session File`, `Secrets`.
+- [x] Completions for `flow://flows/{name}`, `session://files/{name}` and
+      `repair_flow`'s `flow`, read from the caller's own listings.
 
-### E25 — The generic mirror (§F3.6), **if Dr K signs it off**
+### E25 — The generic mirror (§F3.6)
 
-- [ ] Measure n8n with two servers exposing `read_resource`.
-- [ ] `list_resources` / `read_resource`: no `ui://`, binary refused with a link,
-      a miss names the templates.
-- [ ] Resource descriptions carry what the retired mirror tools said.
-- [ ] Old mirror names callable and unlisted for one release; every reference
-      updated.
+- [x] ~~Measure n8n with two servers exposing `read_resource`.~~ Answered by
+      decision: n8n reads this server's resources through `mcp-kb`.
+- [x] `list_resources` / `read_resource`: no `ui://`, images as images, other
+      binary described, a miss names the templates.
+- [x] Resource descriptions carry what the retired mirror tools said.
+- [x] ~~Old mirror names callable for one release.~~ Removed outright (§F3.7);
+      every reference updated.
 
 ### Carried from #38's last review
 
-Small and real, recorded here rather than in the thread:
-
-- [ ] `write(secret=...)` beside an unrelated bad argument also says "needs
-      text": `argument_problems` passes an empty `bound`, so it cannot see the
-      secret the call already carries.
-- [ ] Chapter 2's §F2.14 still shows `outline` answering `selector: {"css": …}`.
-      What shipped is `css` or `xpath` on the entry; the record should say so.
+- [x] `write(secret=...)` beside an unrelated bad argument no longer also says
+      "needs text".
+- [x] Chapter 2's §F2.14 says what `outline` shipped.
 
 ---
 
 ## Open questions
 
-1. **§F3.6 — adopt the generic mirror?** Recommended, subject to the n8n
-   measurement.
+1. ~~**§F3.6 — adopt the generic mirror?**~~ **Closed: yes, and every text names
+   a URI.** n8n reads through `mcp-kb`.
 2. **Why does `#selenium-flow` offer `assert`?** Believed to be VS Code labelling
    a tool set by its first tool. Worth one check in VS Code: does
    `#selenium-flow` in a prompt enable the whole server?
@@ -331,6 +371,8 @@ Small and real, recorded here rather than in the thread:
    `repair_flow`. `mcp-kb` answers with `?prompts=off` and FastMCP's
    `PromptsAsTools`. VS Code does support prompts, as slash commands. Wanted
    here, or is a person always in a client that has them?
-4. **Should this server's skill be served by `mcp-kb` one day?**
+4. **Should this server's skill be served by `mcp-kb` one day?** Nearer now:
+   `mcp-kb` will proxy this server's resources for n8n anyway, `skill://` among
+   them.
 5. **Which other clients belong in §F3.1's table?** Only VS Code is measured.
    ChatGPT, Cursor and n8n are candidates; none goes in without a measurement.

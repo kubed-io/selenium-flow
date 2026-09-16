@@ -19,10 +19,10 @@ what the first agent flying a real app reported — discoverable capabilities, a
 pointer that can glide, `drag`, `assert` steps that stop a run with instructions,
 and `outline`.
 
-[Chapter 3 — Other Aircraft](saga/Chapter_3_Other_Aircraft.md) is the current
-plan: what clients other than Claude Code can reach — VS Code Copilot above all,
-whose model cannot read resources — and whether two generic resource mirrors
-should replace seven specific ones.
+[Chapter 3 — Other Aircraft](saga/Chapter_3_Other_Aircraft.md) is the latest:
+what clients other than Claude Code can reach — VS Code Copilot above all, whose
+model cannot read resources — and why everything to read is named by URI, with
+two tools that read one for the clients that cannot.
 
 
 This repo ships **an image and nothing else**. It does not deploy itself — unlike the
