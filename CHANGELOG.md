@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`run_flow` reports progress** — the step it is on, and a heartbeat while one waits — so a long run stays alive in clients that abort a silent call, and shows as a progress bar where the client draws one.
+
+- **A flow can declare its own `timeout`**, in seconds, for a run that exists to wait longer than the default.
+
 - **A refused tool call says what shape it wanted** — `css="button.go"` is told `selector={"css": "button.go"}`, in the same words `save_flow` uses for a step.
 
 - **`outline` lists a page's content before its navigation, header, footer and sidebars**, says which `region` each entry is in, and reports a `total` so a cut-short map says so.
@@ -39,19 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Cancelling `run_flow` stops the run** instead of leaving it to drive the browser to the end.
+
 - **Error messages keep their XPath.** `//input[@name='q']` was cut to `//name='q']` by the credential scrub.
 
 - **The flow document schema resolves its selectors**; every step's `selector` referenced a definition the schema did not include.
-
-### Added
-
-- **A flow can declare its own `timeout`**, in seconds, for a run that exists to wait longer than the default 300.
-
-- **`run_flow` reports progress** — the step it is on, and a heartbeat while one waits — so a long run stays alive in clients that abort a silent call, and shows as a progress bar where the client draws one.
-
-### Fixed
-
-- **Cancelling `run_flow` stops the run** instead of leaving it to drive the browser to the end.
 
 ## [0.2.0] - 2026-09-16
 

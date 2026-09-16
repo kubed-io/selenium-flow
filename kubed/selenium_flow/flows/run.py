@@ -77,14 +77,17 @@ REPAIR_PROMPT = "repair_flow"
 def hint_for(step: dict, flow: str, skill_available: bool = True) -> dict:
     """Where to look, decided by what failed rather than guessed."""
     error = str(step.get("error") or "")
-    if step.get("tool") == ASSERTION:
-        # The assertion did its job. What to do next is in the message its
-        # author wrote; the reference explains why the run stopped there.
-        page, section = "FLOWS.md", "say-what-must-be-true"
-    elif OUT_OF_TIME in error:
+    # Before the assertion case: a run that ran out of time before an `assert`
+    # did not fail that assertion, and pointing at how to write one would send
+    # the reader to fix something that never ran (Copilot, #38).
+    if OUT_OF_TIME in error:
         # Not a broken page: the flow took longer than it was allowed. Either
         # it means to wait and should say so, or the step before stalled.
         page, section = "FLOWS.md", "how-long-a-run-may-take"
+    elif step.get("tool") == ASSERTION:
+        # The assertion did its job. What to do next is in the message its
+        # author wrote; the reference explains why the run stopped there.
+        page, section = "FLOWS.md", "say-what-must-be-true"
     elif "matched" in error:
         # A locator that found nothing, or found something that cannot be used:
         # the page has moved under the flow.

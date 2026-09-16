@@ -128,11 +128,33 @@ def test_every_section_a_hint_names_is_a_heading_on_its_page():
         assert hint["section"] in slugs, f"{page} has no heading for {hint['section']}"
 
 
-def test_a_run_out_of_time_points_at_the_budget_not_at_troubleshooting():
-    from kubed.selenium_flow.flows.run import hint_for
+@pytest.mark.parametrize("tool", ["navigate", "assert"])
+def test_a_run_out_of_time_points_at_the_budget_whatever_step_was_next(tool):
+    """An `assert` that never ran did not fail, so it must not be pointed at the
+    advice for writing assertions (Copilot, #38). Through a real run."""
+    from kubed.selenium_flow.flows import run as flowrun
 
-    hint = hint_for(
-        {"tool": "navigate", "error": "the run passed its 120s budget before this step", "n": 2},
-        "demo",
-    )
-    assert hint["section"] == "how-long-a-run-may-take"
+    class Clock:
+        now = 0.0
+
+        def monotonic(self):
+            Clock.now += 1.0
+            return Clock.now
+
+    class Navigates:
+        def navigate(self, session_id, **kwargs):
+            return {"url": kwargs.get("url")}
+
+    steps = [
+        {"tool": "navigate", "args": {"url": "a"}},
+        {"tool": "navigate", "args": {"url": "b"}},
+        {"tool": tool, "args": {"url": "c"} if tool == "navigate" else {"script": "return true"}},
+    ]
+    original = flowrun.time
+    flowrun.time = Clock()
+    try:
+        report = flowrun.run(Navigates(), {"name": "f", "timeout": 3, "steps": steps}, "b")
+    finally:
+        flowrun.time = original
+    assert report["steps"][-1]["tool"] == tool
+    assert report["hint"]["section"] == "how-long-a-run-may-take"

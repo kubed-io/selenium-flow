@@ -170,3 +170,13 @@ async def test_a_callers_mistake_is_one_warning_line_not_a_traceback(server, log
     assert level == logging.WARNING
     assert "timeout must be a whole number" in text
     assert "Traceback" not in text
+
+
+async def test_a_refused_argument_shape_is_one_warning_line_too(server, log):
+    """FastMCP logs an argument refusal itself, as a warning with no traceback,
+    before this module's filter could see it - so it must stay that way rather
+    than be read as a fault (Copilot, #38)."""
+    await refused(server, "interact", {"action": "click", "css": "button.go"})
+    assert log, "nothing was logged for the refusal"
+    assert all(level == logging.WARNING for level, _ in log)
+    assert not any("Traceback" in text for _, text in log)
