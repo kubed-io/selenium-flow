@@ -989,7 +989,9 @@ which is given.
   `selector` and `to`, and `to` is plainly the same kind of thing as `selector`
   — the `to_` prefix was a flat schema doing the work of a type.
 - **`outline` can hand back what a step takes.** Its result can carry
-  `selector: {"css": …}`, pasted into a step unchanged.
+  `selector: {"css": …}`, pasted into a step unchanged. *(Not what shipped: an
+  entry carries `css` or `xpath` directly, and the caller wraps it. Recorded in
+  Chapter 3.)*
 
 **Against, and why it does not decide it:** to a model, one level of nesting is
 a small cost and not zero — flat arguments are the easiest shape there is. A
