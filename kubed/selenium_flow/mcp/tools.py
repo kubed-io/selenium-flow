@@ -20,6 +20,7 @@ from collections.abc import Callable
 from typing import Annotated, Literal
 
 from fastmcp import FastMCP
+from fastmcp.server.middleware import Middleware
 from fastmcp.tools import ToolResult
 from fastmcp.utilities.types import Image
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
@@ -37,6 +38,7 @@ from ..core.actions import (
 from ..core.browser import BROWSERS
 from ..core.probe import DEFAULT_LIMIT as OUTLINE_LIMIT
 from ..session.sessions import NAME_PARAM, SessionManager
+from . import clients
 from .annotations import hints
 
 
@@ -185,14 +187,59 @@ execute_script for anything the other tools do not cover, scrolling included.
 SKILL_POINTER = """
 How to drive this well — when to screenshot rather than extract, what a timeout \
 on a good XPath usually means, how to write a flow — is at \
-skill://selenium-flow/SKILL.md. Read it before your first call; it ships with \
-this server, so it describes this version of it.
+skill://selenium-flow/SKILL.md. Read it{how} before your first call; it ships \
+with this server, so it describes this version of it.
+"""
+
+# For a client whose model cannot read resources (§F3.2). Everything to read is
+# still named by URI, so it is told how to read one rather than handed a
+# different vocabulary.
+READING_POINTER = """
+Everything this server has to read is a URI — session://current, flow://flows, \
+secret://secrets and the like, wherever a hint or an error names one. Read one \
+with read_resource(uri); list_resources shows them all.
 """
 
 
-def instructions(skill_available: bool = True) -> str:
-    """What every client reads at connect, for the server it actually got."""
-    return INSTRUCTIONS + SKILL_POINTER if skill_available else INSTRUCTIONS
+def instructions(skill_available: bool = True, reads_resources: bool = True) -> str:
+    """What a client reads at connect, for the server it got and what it can read."""
+    text = INSTRUCTIONS
+    if not reads_resources:
+        text += READING_POINTER
+    if skill_available:
+        how = "" if reads_resources else " with read_resource"
+        text += SKILL_POINTER.format(how=how)
+    return text
+
+
+class InstructionsFor(Middleware):
+    """Answer the handshake with the instructions for the client it came from.
+
+    One server object serves every client, so the text is chosen per handshake
+    rather than fixed at construction: a client that cannot read resources is
+    told to use read_resource, which a client that can would only be confused by.
+    """
+
+    def __init__(self, skill_available: bool):
+        self.skill_available = skill_available
+
+    def _text(self, context) -> str:
+        client = clients.named_in(context.message)
+        return instructions(self.skill_available, clients.reads_resources(client))
+
+    async def on_initialize(self, context, call_next):
+        result = await call_next(context)
+        if result is not None:
+            result.instructions = self._text(context)
+        return result
+
+    async def on_discover(self, context, call_next):
+        result = await call_next(context)
+        if isinstance(result, dict):
+            result["instructions"] = self._text(context)
+        elif result is not None:
+            result.instructions = self._text(context)
+        return result
 
 
 

@@ -158,3 +158,26 @@ def test_a_run_out_of_time_points_at_the_budget_whatever_step_was_next(tool):
         flowrun.time = original
     assert report["steps"][-1]["tool"] == tool
     assert report["hint"]["section"] == "how-long-a-run-may-take"
+
+
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+async def test_a_client_that_cannot_read_resources_is_told_how_to_read_one(mode):
+    """The instructions name skill:// and every hint names a URI. VS Code's
+    model cannot read one, so its instructions say read_resource — on the
+    handshake of either protocol generation (§F3.2)."""
+    from fastmcp import Client
+    from mcp.types import Implementation
+
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    server = SeleniumMCP(grid_url="http://grid.invalid:4444")
+
+    async def told(name):
+        info = Implementation(name=name, version="1")
+        async with Client(server.mcp, client_info=info, mode=mode) as client:
+            return client.instructions or ""
+
+    vscode = await told("Visual Studio Code")
+    assert "read_resource" in vscode and "skill://selenium-flow/SKILL.md" in vscode
+    reader = await told("Claude Code")
+    assert "read_resource" not in reader and "skill://selenium-flow/SKILL.md" in reader

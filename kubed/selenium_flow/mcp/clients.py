@@ -74,9 +74,33 @@ def name() -> str:
         return ""
 
 
-def reads_resources() -> bool:
-    """Whether this caller's model can be expected to read MCP resources."""
+def named_in(message) -> str:
+    """The client name a handshake message carries, before any session holds it.
+
+    `initialize` has it in `params.clientInfo`; `server/discover` in the
+    request's `_meta`. Needed because the instructions are answered by exactly
+    those two messages — the moment a client is being introduced, and before
+    `name()` has anywhere to look.
+    """
+    params = getattr(message, "params", None)
+    info = getattr(params, "client_info", None)
+    if info is not None and getattr(info, "name", None):
+        return str(info.name)
+    meta = getattr(params, "meta", None)
+    if isinstance(meta, dict):
+        info = meta.get(CLIENT_INFO_META)
+        if isinstance(info, dict) and info.get("name"):
+            return str(info["name"])
+    return ""
+
+
+def reads_resources(client: str | None = None) -> bool:
+    """Whether this caller's model can be expected to read MCP resources.
+
+    ``client`` is the calling client's name when the caller already knows it —
+    a handshake does — and is otherwise looked up.
+    """
     said = declared()
     if said is not None:
         return said
-    return not name().startswith(NO_RESOURCES)
+    return not (name() if client is None else client).startswith(NO_RESOURCES)

@@ -197,6 +197,7 @@ class SeleniumMCP:
             self.mcp, self.secrets, self.sessions, auth_token, prefix=self.prefix
         )
         self.mcp.add_middleware(mirror.HideMirrors(app_tools, apps_enabled))
+        self.mcp.add_middleware(tools.InstructionsFor(self.skill is not None))
         failures.install(self.mcp)
         # The same sessions the MCP surface uses: one contract, one resolver,
         # and the HTTP surface inherits the reopen-after-reap it never had.
