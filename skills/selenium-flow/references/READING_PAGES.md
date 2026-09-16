@@ -85,12 +85,15 @@ has been checked to match exactly one element**, and whether it can be used.
 
 ```
 outline(selector={"css": "nav"})
-→ {"role": "button", "name": "HelpDesk", "selector": {"xpath": "//button[normalize-space()=\"HelpDesk\"]"},
-   "visible": true, "expanded": false}
-  {"role": "link", "name": "Feature Requests", "selector": {"css": "a[href=\"/extensions/feature-requests\"]"},
-   "visible": false, "reason": "hidden", "blocked_by": "ul.menu-content",
+→ {"role": "button", "name": "HelpDesk", "xpath": "//button[normalize-space()=\"HelpDesk\"]",
+   "region": "navigation", "visible": true, "expanded": false}
+  {"role": "link", "name": "Feature Requests", "css": "a[href=\"/extensions/feature-requests\"]",
+   "region": "navigation", "visible": false, "reason": "hidden", "blocked_by": "ul.menu-content",
    "revealed_by": "button[aria-controls=\"menu\"]", "open_with": "click"}
 ```
+
+Each entry carries `css` or `xpath`, whichever was checked; hand it on as
+`selector={"css": ...}`.
 
 That second entry is the whole point: the link is real, its selector works, and
 clicking it now would time out — because `ul.menu-content` is hidden. The reasons
@@ -108,11 +111,12 @@ on `revealed_by`, and use the gesture `open_with` names:
 Neither appears when nothing visible above the element has a checked selector,
 because `body` is a true answer and useless advice.
 
-- **Scope it** with a `selector` to one region, so you get a panel rather than a
-  page. Do this first on any real application: a page with a persistent navbar
-  and menus spends the default 50 entries on chrome and never reaches the form
-  you came for. `outline(selector={"css": "main"})`, or whatever wraps the
-  content, answers the question you actually asked.
+- **The content comes first.** Elements in the page's navigation, banner,
+  footer and sidebars are listed after everything else, and each entry's
+  `region` says which landmark it sits in. Nothing is left out for being chrome.
+- **`total` above `count` means the list was cut.** Scope it with a `selector`
+  to one region — `outline(selector={"css": "main"})`, or whatever wraps the
+  content — so you get a panel rather than a page.
 - **Filter** with `text` to find one thing by its label: `outline(text="Save")`.
 - `limit` defaults to 50. `interactive=false` lists every element, not only the
   ones you can act on.

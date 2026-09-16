@@ -86,8 +86,8 @@ declares for itself — proved against Claude Code before any of it was written.
 **What is left.** One epic, half of E21, and the callers of the old contract.
 
 1. **E17 — the admin UI's carried items.** Wants a Penpot pass before any code.
-2. **E21's other half** — a refusal that names the shape it wanted, and
-   `outline` ranking content above chrome.
+2. ~~**E21's other half**~~ **Built** (§F2.16): refusals that name the shape,
+   and `outline` ranking content above chrome.
 3. ~~**E5 — `ROUTE_PREFIX` as the global mount.**~~ **Built in #35**, but for
    its cluster-repo half, which has to ship with the release that carries it.
 4. **The callers of the old contract.** The n8n workflows in this cluster and
@@ -1093,7 +1093,7 @@ keeps working; and stopping that task cancels the request.
    open — server-sent events on that route, for a caller that asks with
    `Accept: text/event-stream` — and nothing has asked for it.
 
-**Deferred to the next pull request:** a refusal that names the expected shape,
+**Built in the next pull request** (§F2.16): a refusal that names the expected shape,
 built once from each field's own schema rather than per tool, and `outline`
 ranking content above chrome without dropping anything.
 
@@ -1103,6 +1103,48 @@ accepted at 17:49 and refused at 18:05, because the client's cached schemas kept
 the old shape. `notifications/tools/list_changed` exists and caching clients
 ignore it. So an argument never changes shape in one step — both forms for a
 release, or a new name. That rule is in `CONTRIBUTING.md`.
+
+### §F2.16 — Built: a refusal names the shape, `outline` puts content first, and what fixing them found
+
+**Refusals.** A call FastMCP refuses for its arguments is answered by the same
+checker `save_flow` refuses a step with, because a step's arguments *are* a
+tool call's arguments — one mistake, one sentence, whichever door. The checker
+learned two things on the way: an argument that belongs inside another says so
+(`css` → `selector={"css": "button.go"}`, from the schema, not a table), and a
+type mismatch quotes what the argument's own description says it wants. Only
+what the checker cannot see falls back to pydantic's messages, without the type
+codes and links.
+
+**`outline`.** Every match is sorted before any is described: content first,
+then `navigation`, `banner`, `contentinfo` and `complementary`, each in document
+order, and nothing dropped. A `<header>` inside an article heads the article.
+Each entry says its `region`, and `total` says when `limit` cut the list. The
+expensive part — a checked selector and a verdict — is now paid only for what
+is returned. Proved against real Chrome on the Grid, and proved to fail with
+the order reversed.
+
+**The run budget's default is 120 seconds** (Dr K): longer than nearly any flow
+needs, short enough that one stuck on the wrong page gives up before it wastes
+much. A run that runs out now points at `FLOWS.md#how-long-a-run-may-take`.
+
+**What building it found**, none of which a pilot had reported:
+
+- **The credential scrub ate XPaths.** `//` then `@` is a URL's userinfo and an
+  XPath attribute test, so since `v0.2.0` every timeout quoting
+  `//input[@name='q']` said `//name='q']`. The pattern is anchored to a scheme
+  now, and brackets cannot match.
+- **The MCP surface never asked `errors.py`.** A caller read `str(exc)` —
+  Selenium's `Message:` prefix and native stack dump — and every caller mistake
+  logged a full traceback; #36's scrub had reached HTTP only. A middleware
+  answers in `errors.message`'s words, and a filter on FastMCP's logger turns a
+  4xx into one warning line and scrubs a 5xx's traceback.
+- **The flow document schema had ten dangling references.** Step schemas are
+  copied out of tool schemas whose `$defs` stayed behind, so every `selector`
+  pointed at nothing. They are inlined.
+- **`Selector`'s docstring was developer prose citing this saga**, published as
+  the description of every selector in ten tools. A model's docstring is its
+  schema description; it is written for the model now, and a test keeps `§` out
+  of every published schema.
 
 ### §F2.11 — Measured: Firefox interpolates, and a pointer drag is a real HTML5 drag on Chrome
 
@@ -1548,12 +1590,12 @@ request.
    client and by cancellation, not by new tools** (§F2.15). After an abort there
    was no way to ask whether the run was still going, and no way to stop it. A
    run id in the result, plus `run_status` and `cancel_run`, closes that.
-3. **A refused call should say what shape it wanted.** When the arguments are
+3. ~~**A refused call should say what shape it wanted.**~~ **Built** (§F2.16). When the arguments are
    wrong the caller gets a raw pydantic dump and a link to pydantic's docs. One
    sentence — *address elements with `selector={"css": …}` or
    `selector={"xpath": …}`* — would have saved the pilot six wasted calls.
-4. **`outline` could rank content above chrome** rather than leaving scoping to
-   the caller. Documented for now; ranking is the real fix.
+4. ~~**`outline` could rank content above chrome**~~ **Built** (§F2.16) rather
+   than leaving scoping to the caller.
 
 **A lesson worth keeping, not an item** — now a rule in `CONTRIBUTING.md`. The selector change (§F2.14) landed
 *while that session was live*: the same call worked at 17:49 and was refused at

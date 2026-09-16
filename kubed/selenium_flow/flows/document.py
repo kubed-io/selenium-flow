@@ -48,6 +48,7 @@ every ``${name}`` is checked against the declared parameters here.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 
@@ -387,11 +388,72 @@ def _is_whole_reference(value) -> bool:
     return whole is not None and whole.group(1) is not None
 
 
-def _check_params(where: str, tool: str, params: dict, bound: set[str], schema: dict):
-    """A step's literal arguments, against the tool's own published schema."""
+def _branches(schema: dict) -> list[dict]:
+    """A property's schema and each alternative inside an optional `anyOf`."""
+    if not isinstance(schema, dict):
+        return []
+    return [schema, *(b for b in schema.get("anyOf") or [] if isinstance(b, dict))]
+
+
+def _described(schema: dict) -> str:
+    """What a property's own schema says it wants, if it says anything."""
+    for branch in _branches(schema):
+        if branch.get("description"):
+            return str(branch["description"]).strip()
+    return ""
+
+
+def _home_of(name: str, properties: dict) -> str | None:
+    """The argument ``name`` belongs inside, when it is a key of one of them.
+
+    `interact(css="button.go")` is the shape `selector` replaced (§F2.14), and a
+    client that cached the old schema keeps sending it. "No parameter 'css'" is
+    true and useless; the schema knows where `css` went, so the refusal says.
+    """
+    for argument, schema in sorted(properties.items()):
+        for branch in _branches(schema):
+            if name in (branch.get("properties") or {}):
+                return argument
+    return None
+
+
+def argument_problems(tool: str, arguments: dict, schema: dict) -> list[str]:
+    """What is wrong with a direct tool call, in the words `save_flow` uses.
+
+    A step's arguments *are* a tool call's arguments, so a refused call and a
+    refused step are the same mistake and get the same sentence. Without this
+    the call got pydantic's own dump — a type code, the input echoed back and a
+    link to pydantic's documentation — and a pilot spent six calls finding out
+    what shape `selector` wanted (§F2.15).
+    """
+    return [
+        problem.removeprefix(": ")
+        for problem in _check_params(
+            "", tool, arguments, set(), inlined(schema), in_flow=False
+        )
+    ]
+
+
+def _check_params(
+    where: str,
+    tool: str,
+    params: dict,
+    bound: set[str],
+    schema: dict,
+    in_flow: bool = True,
+):
+    """A step's literal arguments, against the tool's own published schema.
+
+    ``in_flow`` is False for a direct call, where nothing is substituted and
+    there is no `args` to point at.
+    """
     problems = []
     properties = schema.get("properties") or {}
     known = set(properties)
+    # Arguments already told which argument they belong inside. Saying "needs
+    # an element" as well, after naming the selector to send, is the same fix
+    # twice.
+    routed = set()
 
     for name, value in sorted(params.items()):
         if name in RESERVED_PARAMS:
@@ -401,6 +463,15 @@ def _check_params(where: str, tool: str, params: dict, bound: set[str], schema: 
             )
             continue
         if name not in known:
+            home = _home_of(name, properties)
+            if home:
+                routed.add(home)
+                shape = json.dumps({name: value}, default=str)
+                problems.append(
+                    f"{where}: {tool} has no parameter {name!r}; it goes inside "
+                    f"{home}: {home}={shape}"
+                )
+                continue
             close = ", ".join(sorted(known)) or "it takes none"
             problems.append(
                 f"{where}: {tool} has no parameter {name!r}. Takes: {close}"
@@ -412,13 +483,14 @@ def _check_params(where: str, tool: str, params: dict, bound: set[str], schema: 
         # `wait_timeout: "${secs}"` for being a string, when at run time it is
         # the integer the caller passed. The reference is checked instead:
         # `_check_references` has already required the name to be declared.
-        if _is_whole_reference(value):
+        if in_flow and _is_whole_reference(value):
             continue
         if not _type_fits(value, _types(properties[name])):
             accepted = " or ".join(sorted(_types(properties[name])))
+            wanted = _described(properties[name])
             problems.append(
                 f"{where}: {tool}.{name} should be {accepted}, got "
-                f"{type(value).__name__}"
+                f"{type(value).__name__}" + (f". {wanted}" if wanted else "")
             )
         # A closed set is checked here too, or `action: mouseover` saves cleanly
         # and fails at step nine. Compared without case because the action layer
@@ -428,7 +500,7 @@ def _check_params(where: str, tool: str, params: dict, bound: set[str], schema: 
         if (
             allowed
             and isinstance(value, str)
-            and not references(value)
+            and not (in_flow and references(value))
             and value.strip().lower() not in {str(a).lower() for a in allowed}
         ):
             problems.append(
@@ -456,8 +528,9 @@ def _check_params(where: str, tool: str, params: dict, bound: set[str], schema: 
         # save cleanly and have `Actions.write` type the string "None" into
         # the field.
         if params.get(argument) is None and argument not in bound:
+            where_to = f"give it in {ARGS}" if in_flow else "give it"
             problems.append(
-                f"{where}: {tool} needs {argument!r} — give it in {ARGS}, "
+                f"{where}: {tool} needs {argument!r} — {where_to}, "
                 "or give a secret for it to type"
             )
 
@@ -466,7 +539,7 @@ def _check_params(where: str, tool: str, params: dict, bound: set[str], schema: 
     # `frame(action="switch")` with neither a selector nor an index saved
     # cleanly and was refused at run time before this existed.
     if tool in ADDRESSES_AN_ELEMENT:
-        named = params.get("selector") or "selector" in bound
+        named = params.get("selector") or "selector" in bound or "selector" in routed
         if not named and _needs_an_element(tool, params):
             problems.append(
                 f"{where}: {tool} needs an element — give selector with xpath or css"
@@ -720,6 +793,32 @@ def concerns(document) -> list[str]:
     ]
 
 
+def inlined(schema: dict) -> dict:
+    """``schema`` with every local ``$ref`` replaced by the definition it names.
+
+    FastMCP publishes a model argument — `Selector`, `SecretRef` — as a `$ref`
+    into the tool schema's own `$defs`. Copy a property out of that schema and
+    the reference dangles: the flow document schema carried ten of them, each
+    pointing at a `$defs` it did not have. Inlined, a property means the same
+    thing wherever it is copied to, and a checker reading it can see inside.
+    """
+    defs = schema.get("$defs") or {}
+
+    def walk(node, seen=()):
+        if isinstance(node, list):
+            return [walk(item, seen) for item in node]
+        if not isinstance(node, dict):
+            return node
+        ref = node.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/$defs/"):
+            name = ref.rsplit("/", 1)[-1]
+            if name in defs and name not in seen:
+                return walk(defs[name], (*seen, name))
+        return {k: walk(v, seen) for k, v in node.items() if k != "$defs"}
+
+    return walk(schema)
+
+
 def step_schemas(tools: dict) -> dict:
     """The tool schemas a step's ``params`` are checked against.
 
@@ -736,6 +835,7 @@ def step_schemas(tools: dict) -> dict:
     for name, schema in tools.items():
         if name in NOT_STEPS:
             continue
+        schema = inlined(schema)
         properties = {
             key: value
             for key, value in (schema.get("properties") or {}).items()

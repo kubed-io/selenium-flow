@@ -81,6 +81,10 @@ def hint_for(step: dict, flow: str, skill_available: bool = True) -> dict:
         # The assertion did its job. What to do next is in the message its
         # author wrote; the reference explains why the run stopped there.
         page, section = "FLOWS.md", "say-what-must-be-true"
+    elif OUT_OF_TIME in error:
+        # Not a broken page: the flow took longer than it was allowed. Either
+        # it means to wait and should say so, or the step before stalled.
+        page, section = "FLOWS.md", "how-long-a-run-may-take"
     elif "matched" in error:
         # A locator that found nothing, or found something that cannot be used:
         # the page has moved under the flow.
@@ -121,7 +125,14 @@ def with_hint(report: dict, skill_available: bool = True) -> dict:
 # steps rather than enforced inside one: a Selenium call blocks, and the honest
 # bound is "we will not start another step after this". Each step still has its
 # own wait_timeout, and a flow that exists to wait declares its own `timeout`.
-RUN_TIMEOUT = 300
+#
+# Two minutes (Dr K). Longer than nearly any flow needs, so an ordinary one never
+# meets it, and short enough that a flow stuck on the wrong page gives up before
+# it has wasted much — the one that means to wait says so (§F2.15).
+RUN_TIMEOUT = 120
+
+# How a run that ran out of budget reports it; `hint_for` reads it back.
+OUT_OF_TIME = "budget before this step"
 
 # Parameter values that may appear in a step's summary. Everything else is
 # omitted rather than redacted, which is the structural version of not leaking:
@@ -601,7 +612,7 @@ def _run(
     last: dict = {}
     status = "ok"
     # `is None`, not `or`: an explicit 0 means "no budget" and must not be read
-    # as "unset" and silently given the full five minutes.
+    # as "unset" and silently given the full default budget.
     if timeout is None:
         # Saving refuses a bad one; a document edited on disk never went
         # through saving, and is refused here on the same terms.
@@ -685,7 +696,7 @@ def _run(
         if time.monotonic() >= deadline:
             entry.update(
                 ok=False,
-                error=f"the run passed its {budget}s budget before this step",
+                error=f"the run passed its {budget}s {OUT_OF_TIME}",
             )
             reports.append(entry)
             status = "failed"

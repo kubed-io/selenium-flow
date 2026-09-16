@@ -53,19 +53,63 @@ const accessibleName = (el) => {
   return textOf(el).slice(0, 80);
 };
 
+// Which landmark an element sits in. A page's chrome - its navigation, banner,
+// footer and sidebars - comes first in the document and repeats on every page,
+// so in document order it spent a fifty-entry map before the content began: on
+// a real application the pilot got the navbar and nothing else (saga §F2.15).
+// Nothing is dropped for being chrome; it is listed after the content.
+const REGIONS = [
+  ['navigation', 'nav, [role=navigation]'],
+  ['banner', 'header, [role=banner]'],
+  ['contentinfo', 'footer, [role=contentinfo]'],
+  ['complementary', 'aside, [role=complementary]'],
+  ['search', 'search, [role=search]'],
+  ['main', 'main, [role=main]'],
+];
+const CHROME = new Set(['navigation', 'banner', 'contentinfo', 'complementary']);
+const ANY_REGION = REGIONS.map(([, css]) => css).join(', ');
+// A <header> or <footer> inside an article or section heads that content, not
+// the page - the same rule the ARIA mapping uses before calling one a banner.
+const SECTIONING = 'article, section, main, [role=main], aside, nav';
+
+const regionOf = (el) => {
+  let node = el.closest(ANY_REGION);
+  while (node) {
+    const tag = node.tagName.toLowerCase();
+    const scoped = !node.getAttribute('role')
+      && (tag === 'header' || tag === 'footer')
+      && node.parentElement && node.parentElement.closest(SECTIONING);
+    if (!scoped) {
+      for (const [name, css] of REGIONS) if (node.matches(css)) return name;
+    }
+    node = node.parentElement && node.parentElement.closest(ANY_REGION);
+  }
+  return null;
+};
+
 // Unique *and* this element. Counting alone is not enough: an attribute value
 // carrying a quote or a backslash can build a selector that matches exactly one
 // element which is not the one it was built from, and handing that out would
 // point a later click at the wrong node - the precise failure a checked
 // selector exists to prevent.
-const seen = [];
+// Two passes. The first only sorts, so every match is counted and `total` can
+// say when the map was cut short; the second pays for a selector and a verdict,
+// which are the expensive part, only for what is returned.
+const content = [];
+const chrome = [];
 for (const el of root.querySelectorAll(interactiveOnly ? selector : '*')) {
-  if (seen.length >= limit) break;
   const name = accessibleName(el);
   if (wanted && !name.toLowerCase().includes(wanted)) continue;
+  const region = regionOf(el);
+  (CHROME.has(region) ? chrome : content).push([el, name, region]);
+}
+
+const seen = [];
+for (const [el, name, region] of content.concat(chrome).slice(0, limit)) {
   const verdict = reasonFor(el);
   const entry = {role: roleOf(el), name: name, visible: verdict.reason === null,
                  ...selectorFor(el)};
+  if (region) entry.region = region;
   if (verdict.reason) {
     entry.reason = verdict.reason;
     if (verdict.reason === 'hidden' || verdict.reason === 'covered') {
@@ -83,4 +127,4 @@ for (const el of root.querySelectorAll(interactiveOnly ? selector : '*')) {
   if (expanded !== null) entry.expanded = expanded === 'true';
   seen.push(entry);
 }
-return seen;
+return {elements: seen, total: content.length + chrome.length};

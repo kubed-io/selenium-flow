@@ -108,7 +108,19 @@ UNAVAILABLE = (
 # text is quoted into logs and into the error a caller reads — so it is stripped
 # from every message, not only from the one failure known to print a URL
 # (Copilot, #36). `core.browser` imports this rather than keeping a second copy.
-USERINFO = re.compile(r"//[^/@\s]*@")
+#
+# Anchored to a scheme, and blind to brackets. Unanchored, `//` then `@` is also
+# an XPath attribute test: `//input[@name='q']` came out as `//name='q']` in
+# every timeout that quoted one, which is most of them. A URL's userinfo can
+# contain neither `[` nor `]`, and an XPath has no `scheme:` before its `//`.
+USERINFO = re.compile(
+    r"(?P<scheme>[A-Za-z][A-Za-z0-9+.\-]*:)//(?P<userinfo>[^/@\s\[\]]*)@"
+)
+
+
+def without_userinfo(text: str) -> str:
+    """``text`` with the credentials of every URL in it removed."""
+    return USERINFO.sub(r"\g<scheme>//", text)
 
 
 def formatted(exc: BaseException) -> str:
@@ -120,7 +132,7 @@ def formatted(exc: BaseException) -> str:
     for what the logger writes as well (Copilot, #36).
     """
     text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-    return USERINFO.sub("//", text)
+    return without_userinfo(text)
 
 
 def status_for(exc: BaseException) -> int:
@@ -174,11 +186,11 @@ def message(exc: BaseException) -> str:
     """
     if isinstance(exc, requests.HTTPError):
         text = str(exc).split(" for url:", 1)[0].strip()
-        return USERINFO.sub("//", text) or "the grid refused the request"
+        return without_userinfo(text) or "the grid refused the request"
     text = str(getattr(exc, "msg", None) or exc)
     text = text.split("Stacktrace:", 1)[0].strip()
     if text.lower().startswith("message:"):
         text = text[len("message:") :].strip()
     # A connection failure quotes the whole URL — `status_for` calls those 503
     # and nothing truncated them, so the credential travelled with the message.
-    return USERINFO.sub("//", text) or type(exc).__name__
+    return without_userinfo(text) or type(exc).__name__

@@ -164,13 +164,21 @@ def usable(driver, element) -> dict:
 
 
 def outline(driver, scope=None, text="", limit=DEFAULT_LIMIT, interactive=True):
-    """Every element worth acting on under ``scope``, with a checked selector."""
-    return (
-        driver.execute_script(
-            OUTLINE_JS, scope, text or "", int(limit), bool(interactive), INTERACTIVE
-        )
-        or []
+    """Every element worth acting on under ``scope``, with a checked selector.
+
+    Returns ``(elements, total)``: the page's content before its chrome, cut to
+    ``limit``, and how many matched before the cut.
+    """
+    found = driver.execute_script(
+        OUTLINE_JS, scope, text or "", int(limit), bool(interactive), INTERACTIVE
     )
+    if isinstance(found, dict):
+        elements = found.get("elements") or []
+        return elements, int(found.get("total") or len(elements))
+    # A list is what the script answered before it counted; a driver double
+    # that still returns one is answered the same way.
+    elements = found or []
+    return elements, len(elements)
 
 
 def explain(driver, target) -> str:

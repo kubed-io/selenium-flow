@@ -27,6 +27,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A refused tool call says what shape it wanted** — `css="button.go"` is told `selector={"css": "button.go"}`, in the same words `save_flow` uses for a step.
+
+- **`outline` lists a page's content before its navigation, header, footer and sidebars**, says which `region` each entry is in, and reports a `total` so a cut-short map says so.
+
+### Changed
+
+- **A flow run's default budget is 120 seconds**, down from 300. A flow meant to wait longer sets `timeout`.
+
+- **A failed MCP call reads like a failed HTTP call** — no Selenium stack dump for the caller, and a caller's mistake is one warning line in the log rather than a traceback.
+
+### Fixed
+
+- **Error messages keep their XPath.** `//input[@name='q']` was cut to `//name='q']` by the credential scrub.
+
+- **The flow document schema resolves its selectors**; every step's `selector` referenced a definition the schema did not include.
+
+### Added
+
 - **A flow can declare its own `timeout`**, in seconds, for a run that exists to wait longer than the default 300.
 
 - **`run_flow` reports progress** — the step it is on, and a heartbeat while one waits — so a long run stays alive in clients that abort a silent call, and shows as a progress bar where the client draws one.

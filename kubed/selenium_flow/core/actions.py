@@ -1055,7 +1055,7 @@ class Actions:
         # Both coerced here rather than in the page: an HTTP caller can send a
         # number for `text`, which reaches JavaScript as one and dies on
         # `.toLowerCase()`, and a negative `limit` would bound nothing.
-        found = probe.outline(
+        found, total = probe.outline(
             driver,
             scope,
             "" if text is None else str(text),
@@ -1065,6 +1065,9 @@ class Actions:
         return {
             "elements": found,
             "count": len(found),
+            # More than `count` is the map saying it was cut short, which an
+            # unscoped call on a real application usually is.
+            "total": total,
             **browser.page_state(driver),
         }
 

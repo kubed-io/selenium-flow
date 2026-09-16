@@ -48,7 +48,14 @@ is renamed and nothing is added. A step may also carry:
 To bound one slow step, set `wait_timeout` in its `args` — the same argument
 the tool takes directly.
 
-**A run starts no step after 300 seconds.** A flow that exists to wait — for an
+**Not steps:** `open_session` and `end_browser`. A flow runs in the browser the
+caller already holds, which is what lets the same flow run on Firefox unedited.
+There is no `session_id` to put in a step: a run happens in the browser your
+session already holds.
+
+## How long a run may take
+
+**A run starts no step after 120 seconds.** A flow that exists to wait — for an
 order to ship, a build to finish — says so at the top, beside `steps`, and
 `save_flow` takes it the same way:
 
@@ -66,10 +73,9 @@ steps:
 `timeout` bounds *starting* a step; the step already running is bounded by its
 own `wait_timeout`. So give the run more than its longest wait.
 
-**Not steps:** `open_session` and `end_browser`. A flow runs in the browser the
-caller already holds, which is what lets the same flow run on Firefox unedited.
-There is no `session_id` to put in a step: a run happens in the browser your
-session already holds.
+A run that ran out says `the run passed its 120s budget before this step`. If
+the flow was meant to take that long, give it a `timeout`; if it was not, the
+step before is where it got stuck.
 
 ## Parameters: what varies between runs
 

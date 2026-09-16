@@ -98,3 +98,41 @@ def test_the_emitted_shapes_are_exactly_what_they_were():
     assert hint["read"] == "skill://selenium-flow/references/FLOWS.md"
     assert hint["section"] == "say-what-must-be-true"
     assert hint["prompt"] == "repair_flow"
+
+
+def test_every_section_a_hint_names_is_a_heading_on_its_page():
+    """A pointer to a section that is not there costs the reader a scroll through
+    the page for nothing, and nothing else checks the anchors."""
+    import re
+
+    from kubed.selenium_flow.flows.run import hint_for
+    from kubed.selenium_flow.mcp import skill
+
+    failures = [
+        {"tool": "assert", "error": "", "n": 1},
+        {"tool": "interact", "error": "no element matched '//x'", "n": 1},
+        {"tool": "navigate", "error": "the run passed its 120s budget before this step", "n": 2},
+        {"tool": "navigate", "error": "boom", "n": 1},
+    ]
+    references = skill.skill_path() / "references"
+    for step in failures:
+        hint = hint_for(step, "demo")
+        if "section" not in hint:
+            continue
+        page = hint["read"].rsplit("/", 1)[-1]
+        slugs = {
+            re.sub(r"[^a-z0-9 -]", "", line.lstrip("#").strip().lower()).replace(" ", "-")
+            for line in (references / page).read_text().splitlines()
+            if line.startswith("#")
+        }
+        assert hint["section"] in slugs, f"{page} has no heading for {hint['section']}"
+
+
+def test_a_run_out_of_time_points_at_the_budget_not_at_troubleshooting():
+    from kubed.selenium_flow.flows.run import hint_for
+
+    hint = hint_for(
+        {"tool": "navigate", "error": "the run passed its 120s budget before this step", "n": 2},
+        "demo",
+    )
+    assert hint["section"] == "how-long-a-run-may-take"
