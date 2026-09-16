@@ -15,7 +15,6 @@ from __future__ import annotations
 import base64
 import io
 import json
-import re
 import time
 import zipfile
 from urllib.parse import urlsplit, urlunsplit
@@ -32,6 +31,7 @@ from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
+from ..errors import USERINFO
 from . import probe
 
 DEFAULT_GRID_URL = "http://selenium-grid-selenium-hub.flow.svc.cluster.local:4444"
@@ -113,10 +113,6 @@ def normalize_url(url: str) -> str:
     return urlunsplit(
         (parts.scheme, parts.netloc, parts.path.rstrip("/"), parts.query, "")
     )
-
-
-# The userinfo of a URL, by pattern, for when parsing it is not on offer.
-USERINFO = re.compile(r"//[^/@\s]*@")
 
 
 def public_url(url: str) -> str:

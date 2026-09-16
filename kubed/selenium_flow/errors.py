@@ -22,6 +22,8 @@ Only HTTP has status codes to get right.
 
 from __future__ import annotations
 
+import re
+
 import requests
 import urllib3.exceptions
 from selenium.common.exceptions import (
@@ -101,6 +103,13 @@ UNAVAILABLE = (
 )
 
 
+# The userinfo of a URL. `GRID_URL` may carry credentials, and an exception's
+# text is quoted into logs and into the error a caller reads — so it is stripped
+# from every message, not only from the one failure known to print a URL
+# (Copilot, #36). `core.browser` imports this rather than keeping a second copy.
+USERINFO = re.compile(r"//[^/@\s]*@")
+
+
 def status_for(exc: BaseException) -> int:
     """The HTTP status that tells the truth about ``exc``."""
     if isinstance(exc, GONE):
@@ -152,9 +161,11 @@ def message(exc: BaseException) -> str:
     """
     if isinstance(exc, requests.HTTPError):
         text = str(exc).split(" for url:", 1)[0].strip()
-        return text or "the grid refused the request"
+        return USERINFO.sub("//", text) or "the grid refused the request"
     text = str(getattr(exc, "msg", None) or exc)
     text = text.split("Stacktrace:", 1)[0].strip()
     if text.lower().startswith("message:"):
         text = text[len("message:") :].strip()
-    return text or type(exc).__name__
+    # A connection failure quotes the whole URL — `status_for` calls those 503
+    # and nothing truncated them, so the credential travelled with the message.
+    return USERINFO.sub("//", text) or type(exc).__name__

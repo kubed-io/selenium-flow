@@ -31,9 +31,9 @@ import sys
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-from kubed.selenium_flow.spec import build_spec
 from kubed.selenium_flow.routes import ENDPOINTS
 from kubed.selenium_flow.server import SeleniumMCP
+from kubed.selenium_flow.spec import build_spec
 
 WIKI = REPO / "wiki"
 NOTES = WIKI / "notes"

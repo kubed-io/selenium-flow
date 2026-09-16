@@ -21,14 +21,14 @@ import requests
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow import errors
-from kubed.selenium_flow.http import admin, files, links
-from kubed.selenium_flow.flows import library as flows
 from kubed.selenium_flow.core import browser
+from kubed.selenium_flow.flows import library as flows
+from kubed.selenium_flow.http import admin, files, links
 from kubed.selenium_flow.mcp import resources as resources_module
-from kubed.selenium_flow.spec import build_spec
 from kubed.selenium_flow.routes import ENDPOINTS
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.session.store import SessionRecord
+from kubed.selenium_flow.spec import build_spec
 
 from .conftest import NAMED, TOKEN
 

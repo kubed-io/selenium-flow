@@ -13,7 +13,6 @@ while a builder is followed.
 
 from __future__ import annotations
 
-
 # Fields every action echoes back, so a caller always knows where the browser
 # ended up without a second call.
 PAGE_STATE = {

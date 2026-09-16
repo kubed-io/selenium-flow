@@ -14,9 +14,9 @@ import pytest
 import yaml
 from starlette.testclient import TestClient
 
+from kubed.selenium_flow.routes import ACTION_IN_PATH, ENDPOINTS
 from kubed.selenium_flow.spec import PLACEHOLDER_VERSION, RESPONSES, build_spec
 from kubed.selenium_flow.spec.builder import _hoisted
-from kubed.selenium_flow.routes import ACTION_IN_PATH, ENDPOINTS
 
 
 def route_for(path: str, action: str) -> str:

@@ -512,9 +512,9 @@ def test_the_ops_endpoints_answer_at_the_root_whatever_the_prefix():
 async def test_the_published_spec_describes_the_paths_actually_served():
     """A document that names a path nothing serves is worse than no document,
     and a prefix is exactly where the two drift apart."""
-    from kubed.selenium_flow.spec import build_spec
     from kubed.selenium_flow.routes import ENDPOINTS
     from kubed.selenium_flow.server import SeleniumMCP
+    from kubed.selenium_flow.spec import build_spec
 
     server = SeleniumMCP(
         grid_url="http://grid.invalid:4444", auth_token=TOKEN, route_prefix="/flow"

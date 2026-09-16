@@ -25,7 +25,6 @@ from fastmcp.utilities.skills import get_skill_manifest, list_skills
 from kubed.selenium_flow.mcp import resources as resources_module
 from kubed.selenium_flow.mcp import skill as skill_module
 from kubed.selenium_flow.mcp.resources import STATUS_TOOL
-from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.mcp.skill import (
     ENTRY,
     MANIFEST,
@@ -34,6 +33,7 @@ from kubed.selenium_flow.mcp.skill import (
     SKILL_NAME,
     SKILL_TOOL,
 )
+from kubed.selenium_flow.server import SeleniumMCP
 
 # tomllib is 3.11+; on 3.10 the reader is tomli, which the `test` extra pulls in
 # under that marker. This used to fall back to None and skip the test below —
@@ -296,8 +296,8 @@ def test_every_tool_an_agent_can_call_has_a_row_in_the_capability_table():
     One row per tool, on the page it always reads. See saga §F2.2.
     """
     from kubed.selenium_flow import secrets
-    from kubed.selenium_flow.http import files
     from kubed.selenium_flow.flows import api as flowapi
+    from kubed.selenium_flow.http import files
     from kubed.selenium_flow.routes import ENDPOINTS
 
     # The resource mirrors count: a client that cannot read resources lists and

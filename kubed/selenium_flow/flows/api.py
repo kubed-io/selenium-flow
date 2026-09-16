@@ -42,15 +42,15 @@ import logging
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from ..core.browser import as_bool
+from ..http import answer as answer_module
+from ..mcp.annotations import hints, reads
+from ..mcp.tools import SecretRef
+from ..routes import ENDPOINTS
+from ..session import sessions as sessions_module
 from . import document as flowdoc
 from . import library as flows
 from . import run as flowrun
-from ..http import answer as answer_module
-from ..session import sessions as sessions_module
-from ..core.browser import as_bool
-from ..mcp.annotations import hints, reads
-from ..routes import ENDPOINTS
-from ..mcp.tools import SecretRef
 
 log = logging.getLogger(__name__)
 

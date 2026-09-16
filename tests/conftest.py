@@ -14,10 +14,10 @@ anything that needs a live Grid is an integration test and is marked as one.
 
 import pytest
 
-from kubed.selenium_flow.session import sessions as sessions_module
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.core.browser import Grid
 from kubed.selenium_flow.server import SeleniumMCP
+from kubed.selenium_flow.session import sessions as sessions_module
 from kubed.selenium_flow.session.sessions import SessionManager
 from kubed.selenium_flow.session.store import MemoryStore
 

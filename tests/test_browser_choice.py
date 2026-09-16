@@ -9,13 +9,13 @@ reopening on the default instead of the one that was asked for.
 import pytest
 from selenium import webdriver
 
-from kubed.selenium_flow.session import settings as settings_module
 from kubed.selenium_flow.core.browser import (
     BROWSERS,
     Grid,
     is_partial,
     normalize_browser,
 )
+from kubed.selenium_flow.session import settings as settings_module
 
 pytestmark = pytest.mark.unit
 

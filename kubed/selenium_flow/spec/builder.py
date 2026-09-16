@@ -30,28 +30,26 @@ served.
 """
 
 from __future__ import annotations
+
 import copy
 from importlib.metadata import PackageNotFoundError, version
+
 from fastmcp import FastMCP
 
 from .schemas import (
+    _FILE_OPERATIONS,
+    _FLOW_OPERATIONS,
     ERROR,
     FILE_SCHEMAS,
     FLOW_SCHEMAS,
-    FLOW_STEP,
     HEALTH,
     INFO,
-    PAGE_STATE,
     READY,
     RESPONSES,
     SESSION_PARAMETERS,
     STARTED,
-    _FILE_OPERATIONS,
-    _FLOW_OPERATIONS,
-    _SESSION,
-    _WRITE_SESSION,
-    _page,
 )
+
 # One schema per question, because the ops endpoints answer different ones.
 DESCRIPTION = """\
 Drive a persistent browser on Selenium Grid over plain HTTP.
@@ -576,8 +574,8 @@ def _mcp_tools() -> tuple[dict, dict]:
     names is how the wiki ends up generating a page called ``saveFlow`` for a
     tool nobody can call.
     """
-    from ..http import files as files_module
     from ..flows import api as flowapi
+    from ..http import files as files_module
 
     return (
         {

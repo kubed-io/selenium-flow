@@ -18,9 +18,9 @@ import yaml
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from kubed.selenium_flow.spec import PLACEHOLDER_VERSION, build_spec
 from kubed.selenium_flow.routes import ENDPOINTS
 from kubed.selenium_flow.server import SeleniumMCP
+from kubed.selenium_flow.spec import PLACEHOLDER_VERSION, build_spec
 
 OUT = pathlib.Path(__file__).resolve().parent.parent / "openapi.yaml"
 

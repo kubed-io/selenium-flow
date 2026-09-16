@@ -269,7 +269,7 @@ class SessionManager:
             # Only worth a round trip when there is a live browser to ask, and
             # one reconnect answers both questions.
             try:
-                from .core import browser as browser_module
+                from ..core import browser as browser_module
 
                 driver = self.actions.grid.reconnect(record.session_id)
                 status["in_frame"] = browser_module.in_frame(driver)
@@ -364,8 +364,8 @@ class SessionManager:
         be chosen, which is why it is never done implicitly. Shared by both
         surfaces for the same reason :meth:`act` is.
         """
-        from . import settings as settings_module
         from ..core.browser import as_bool
+        from . import settings as settings_module
 
         # What this session was last using. It sits between the client's
         # defaults and the explicit arguments: a caller that names nothing means

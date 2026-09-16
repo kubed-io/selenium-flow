@@ -44,6 +44,8 @@ import time
 from urllib.parse import quote, quote_plus
 
 from .. import secrets
+from ..mcp import guidance
+from ..routes import ENDPOINTS, method_for
 from .document import (
     ARGS,
     ASSERTION,
@@ -52,8 +54,6 @@ from .document import (
     SECRET_ARG,
     listed,
 )
-from ..mcp import guidance
-from ..routes import ENDPOINTS, method_for
 
 # The only attributes a step may dispatch to. `getattr(actions, tool)` alone
 # accepts any callable on the object — `clear_files` would wipe the session's
