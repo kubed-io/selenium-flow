@@ -41,7 +41,7 @@ from .core import browser
 from . import secrets as secrets_module
 from .session import sessions as sessions_module
 from .core.actions import Actions
-from .openapi import build_spec
+from .spec import build_spec
 from .session.sessions import SessionManager
 
 log = logging.getLogger(__name__)
@@ -221,7 +221,7 @@ def register(
         unexpected. The Grid is named without its credentials, which `GRID_URL`
         may carry and which this answers to anyone (`browser.public_url`).
         """
-        from .openapi import _version
+        from .spec.builder import _version
 
         return JSONResponse(
             {

@@ -27,7 +27,7 @@ def _spec() -> dict:
     """The live spec, built the way the generator builds it."""
     import asyncio
 
-    from kubed.selenium_flow.openapi import build_spec
+    from kubed.selenium_flow.spec import build_spec
     from kubed.selenium_flow.routes import ENDPOINTS
     from kubed.selenium_flow.server import SeleniumMCP
 

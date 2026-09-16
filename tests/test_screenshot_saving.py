@@ -196,7 +196,7 @@ def test_the_published_file_shape_matches_what_describe_returns():
     """A generated client hides or rejects fields the document does not declare,
     and the two drifted the moment this was written by hand (Copilot, #28)."""
     from kubed.selenium_flow.http import files
-    from kubed.selenium_flow.openapi import FILE_SCHEMAS
+    from kubed.selenium_flow.spec import FILE_SCHEMAS
 
     entry = FILE_SCHEMAS["FileEntry"]["properties"]
     described = files.describe(

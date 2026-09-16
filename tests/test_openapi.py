@@ -14,12 +14,8 @@ import pytest
 import yaml
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow.openapi import (
-    PLACEHOLDER_VERSION,
-    RESPONSES,
-    _hoisted,
-    build_spec,
-)
+from kubed.selenium_flow.spec import PLACEHOLDER_VERSION, RESPONSES, build_spec
+from kubed.selenium_flow.spec.builder import _hoisted
 from kubed.selenium_flow.routes import ACTION_IN_PATH, ENDPOINTS
 
 
