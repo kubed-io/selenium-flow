@@ -199,14 +199,32 @@ RESPONSES = {
     ),
     "outline": _page(
         count={"type": "integer", "description": "How many elements are listed."},
+        total={
+            "type": "integer",
+            "description": (
+                "How many matched before limit cut the list. More than count "
+                "means scope it with selector, filter by text, or raise limit."
+            ),
+        },
         elements={
             "type": "array",
-            "description": "What is on the page, in document order.",
+            "description": (
+                "What is on the page: its content first, then its navigation, "
+                "banner, footer and sidebars, each in document order."
+            ),
             "items": {
                 "type": "object",
                 "properties": {
                     "role": {"type": "string"},
                     "name": {"type": "string"},
+                    "region": {
+                        "type": "string",
+                        "description": (
+                            "The landmark it sits in: navigation, banner, "
+                            "contentinfo, complementary, search or main. Absent "
+                            "outside one."
+                        ),
+                    },
                     "css": {"type": "string"},
                     "xpath": {"type": "string"},
                     "visible": {"type": "boolean"},
@@ -370,7 +388,7 @@ FLOW_TIMEOUT = {
     "minimum": 1,
     "description": (
         "Seconds the whole run may take before no further step starts. Defaults "
-        "to 300; a step already running is bounded by its own wait_timeout."
+        "to 120; a step already running is bounded by its own wait_timeout."
     ),
 }
 

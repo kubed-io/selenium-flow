@@ -21,7 +21,7 @@ from .core.browser import DEFAULT_GRID_URL, Grid
 from .flows import api as flowapi
 from .flows import library as flows
 from .http import admin, files
-from .mcp import apps, prompts, resources, skill, tools
+from .mcp import apps, failures, prompts, resources, skill, tools
 from .session.sessions import SessionManager
 from .session.store import SessionStore, from_env
 
@@ -206,6 +206,7 @@ class SeleniumMCP:
         self.mcp.add_middleware(
             resources.HideMirrorTools(mirrors, app_tools if apps_enabled else set())
         )
+        failures.install(self.mcp)
         # The same sessions the MCP surface uses: one contract, one resolver,
         # and the HTTP surface inherits the reopen-after-reap it never had.
         routes.register(

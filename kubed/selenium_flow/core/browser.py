@@ -31,7 +31,7 @@ from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-from ..errors import USERINFO
+from ..errors import USERINFO, without_userinfo
 from . import probe
 
 DEFAULT_GRID_URL = "http://selenium-grid-selenium-hub.flow.svc.cluster.local:4444"
@@ -134,7 +134,7 @@ def public_url(url: str) -> str:
         # A malformed GRID_URL — a bad port, an unclosed IPv6 literal — reaches
         # the probes like any other, and a probe answers rather than raises. The
         # credentials still have to go, so they go by pattern (Copilot, #35).
-        return USERINFO.sub("//", url.split("?", 1)[0])
+        return without_userinfo(url.split("?", 1)[0])
 
 
 def scrub(text: str, url: str) -> str:
@@ -148,7 +148,7 @@ def scrub(text: str, url: str) -> str:
         secrets = (parts.netloc.rpartition("@")[0], parts.password)
     except ValueError:  # same malformed URL, same credentials to remove
         found = USERINFO.search(url)
-        secrets = (found.group(0)[2:-1] if found else "",)
+        secrets = (found.group("userinfo") if found else "",)
     for secret in secrets:
         if secret:
             text = text.replace(secret, "***")

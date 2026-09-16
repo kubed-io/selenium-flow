@@ -221,3 +221,56 @@ def test_a_covered_click_says_what_is_on_top(browser_page):
             session, "click", selector={"css": "#under"}, url="data:text/html," + quote(covered)
         )
     assert "div#cover is on top of it" in str(refused.value)
+
+
+CHROME_FIRST = (
+    "<header><a href='/home'>Home</a><a href='/docs'>Docs</a></header>"
+    "<nav>" + "".join(f"<a href='/n{i}'>Nav {i}</a>" for i in range(8)) + "</nav>"
+    "<main><article><header><a href='/post'>Post title</a></header>"
+    "<button>Buy</button><input name=qty placeholder=Quantity></article></main>"
+    "<aside><a href='/related'>Related</a></aside>"
+    "<footer><a href='/legal'>Legal</a></footer>"
+)
+
+
+@pytest.fixture
+def chrome_page():
+    from kubed.selenium_flow.core.actions import Actions
+    from kubed.selenium_flow.core.browser import Grid
+
+    actions = Actions(Grid(GRID_URL))
+    session = actions.open_session(
+        url="data:text/html," + quote(CHROME_FIRST), width=900, height=700
+    )["session_id"]
+    try:
+        yield actions, session
+    finally:
+        actions.end_browser(session)
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not GRID_URL, reason="needs a Selenium Grid; set GRID_URL")
+def test_the_content_comes_before_the_chrome_and_nothing_is_dropped(chrome_page):
+    """In document order a navbar spent the whole map before the content began
+    (saga §F2.15). A header inside an article heads the article, not the page."""
+    actions, session = chrome_page
+    mapped = actions.outline(session)
+    names = [entry["name"] for entry in mapped["elements"]]
+
+    assert names[:3] == ["Post title", "Buy", "Quantity"]
+    assert {"Home", "Nav 0", "Related", "Legal"} <= set(names)
+    by_name = {entry["name"]: entry for entry in mapped["elements"]}
+    assert by_name["Post title"]["region"] == "main"
+    assert by_name["Nav 3"]["region"] == "navigation"
+    assert by_name["Home"]["region"] == "banner"
+    assert by_name["Legal"]["region"] == "contentinfo"
+    assert mapped["total"] == mapped["count"] == len(names)
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not GRID_URL, reason="needs a Selenium Grid; set GRID_URL")
+def test_a_map_cut_short_says_how_much_there_was(chrome_page):
+    actions, session = chrome_page
+    mapped = actions.outline(session, limit=3)
+    assert [e["name"] for e in mapped["elements"]] == ["Post title", "Buy", "Quantity"]
+    assert mapped["count"] == 3 and mapped["total"] > 3

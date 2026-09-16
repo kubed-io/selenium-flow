@@ -96,14 +96,16 @@ def _as_selector(value):
     return value
 
 
+# One object rather than two flat arguments because they are one choice
+# (§F2.14): every tool that takes one takes the other, for the same element,
+# under the same rule — which used to be written out in a dozen descriptions
+# and is now said once, here.
+#
+# The docstring below is NOT a note for this file's reader. Pydantic publishes
+# it as the schema's description in every tool that takes a selector, and a
+# refusal quotes it, so it is written for a model filling the argument.
 class Selector(BaseModel):
-    """Which element to act on: xpath or css, exactly one.
-
-    One object rather than two flat arguments because they are one choice
-    (§F2.14): every tool that takes one takes the other, for the same element,
-    under the same rule — which used to be written out in a dozen descriptions
-    and is now said once, here.
-    """
+    """Which element: {"css": "button.go"} or {"xpath": "//button[@type='submit']"} - exactly one of the two."""  # noqa: E501 - one line, as a schema description
 
     # Refused rather than dropped, as `SecretRef` does: an unknown key is a
     # caller's mistake, and ignoring it silently runs a different request.
@@ -613,9 +615,12 @@ def register(
             "what is in the way when it cannot: hidden (an ancestor is "
             "display:none - often a menu that opens on hover), covered "
             "(blocked_by names what is on top), zero_size, offscreen, "
-            "disabled.\n\nScope it with a selector to one part of the page, "
-            "filter by text to find one thing by its label, and raise limit "
-            "when 50 entries are not enough. interactive=false includes every "
+            "disabled.\n\nThe page's content is listed before its navigation, "
+            "header, footer and sidebars, and region names the landmark each "
+            "entry is in. total counts every match, so a total above count "
+            "means the list was cut: scope it with a selector to one part of "
+            "the page, filter by text to find one thing by its label, or raise "
+            "limit. interactive=false includes every "
             "element rather than only the ones you can act on.\n\nRead it "
             "before acting, and again after a page changes under a flow you "
             "are repairing."

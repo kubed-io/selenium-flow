@@ -50,3 +50,29 @@ def test_the_scrub_keeps_a_message_that_carries_no_url():
 def test_an_error_with_no_text_still_says_something():
     """An empty message is worse than a class name."""
     assert errors.message(ValueError("")) == "ValueError"
+
+
+@pytest.mark.parametrize(
+    "xpath",
+    [
+        "//input[@name='q']",
+        "//a[@href]",
+        "//div[@id='x']//span[@class='y']",
+        "//button[@type='submit' and @disabled]",
+    ],
+)
+def test_an_xpath_in_a_message_survives_the_credential_scrub(xpath):
+    """`//` then `@` is an XPath attribute test as well as a URL's userinfo, and
+    the scrub read it as the second: every timeout quoting one reached the
+    caller with its `tag[@` cut out, naming a selector nobody wrote."""
+    said = errors.message(ValueError(f"no element matched {xpath!r}"))
+    assert xpath in said
+
+
+def test_a_url_and_an_xpath_in_one_message_lose_only_the_credential():
+    said = errors.message(
+        ValueError(f"{GRID}/session failed looking for //input[@name='q']")
+    )
+    assert "hunter2" not in said and "user:" not in said
+    assert "http://grid.internal:4444/session" in said
+    assert "//input[@name='q']" in said

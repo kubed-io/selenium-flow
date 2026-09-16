@@ -98,3 +98,63 @@ def test_the_emitted_shapes_are_exactly_what_they_were():
     assert hint["read"] == "skill://selenium-flow/references/FLOWS.md"
     assert hint["section"] == "say-what-must-be-true"
     assert hint["prompt"] == "repair_flow"
+
+
+def test_every_section_a_hint_names_is_a_heading_on_its_page():
+    """A pointer to a section that is not there costs the reader a scroll through
+    the page for nothing, and nothing else checks the anchors."""
+    import re
+
+    from kubed.selenium_flow.flows.run import hint_for
+    from kubed.selenium_flow.mcp import skill
+
+    failures = [
+        {"tool": "assert", "error": "", "n": 1},
+        {"tool": "interact", "error": "no element matched '//x'", "n": 1},
+        {"tool": "navigate", "error": "the run passed its 120s budget before this step", "n": 2},
+        {"tool": "navigate", "error": "boom", "n": 1},
+    ]
+    references = skill.skill_path() / "references"
+    for step in failures:
+        hint = hint_for(step, "demo")
+        if "section" not in hint:
+            continue
+        page = hint["read"].rsplit("/", 1)[-1]
+        slugs = {
+            re.sub(r"[^a-z0-9 -]", "", line.lstrip("#").strip().lower()).replace(" ", "-")
+            for line in (references / page).read_text().splitlines()
+            if line.startswith("#")
+        }
+        assert hint["section"] in slugs, f"{page} has no heading for {hint['section']}"
+
+
+@pytest.mark.parametrize("tool", ["navigate", "assert"])
+def test_a_run_out_of_time_points_at_the_budget_whatever_step_was_next(tool):
+    """An `assert` that never ran did not fail, so it must not be pointed at the
+    advice for writing assertions (Copilot, #38). Through a real run."""
+    from kubed.selenium_flow.flows import run as flowrun
+
+    class Clock:
+        now = 0.0
+
+        def monotonic(self):
+            Clock.now += 1.0
+            return Clock.now
+
+    class Navigates:
+        def navigate(self, session_id, **kwargs):
+            return {"url": kwargs.get("url")}
+
+    steps = [
+        {"tool": "navigate", "args": {"url": "a"}},
+        {"tool": "navigate", "args": {"url": "b"}},
+        {"tool": tool, "args": {"url": "c"} if tool == "navigate" else {"script": "return true"}},
+    ]
+    original = flowrun.time
+    flowrun.time = Clock()
+    try:
+        report = flowrun.run(Navigates(), {"name": "f", "timeout": 3, "steps": steps}, "b")
+    finally:
+        flowrun.time = original
+    assert report["steps"][-1]["tool"] == tool
+    assert report["hint"]["section"] == "how-long-a-run-may-take"
