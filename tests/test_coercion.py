@@ -7,8 +7,8 @@ through LLM tool calls. Each of the cases below has actually reached a handler.
 import pytest
 from selenium.webdriver.common.by import By
 
-from kubed.selenium_flow.actions import _safe_name
-from kubed.selenium_flow.browser import (
+from kubed.selenium_flow.core.actions import _safe_name
+from kubed.selenium_flow.core.browser import (
     as_bool,
     as_int,
     locator,

@@ -44,7 +44,7 @@ from starlette.responses import JSONResponse
 
 from . import auth, errors, flowdoc, flowrun, flows
 from . import sessions as sessions_module
-from .browser import as_bool
+from .core.browser import as_bool
 from .hints import hints, reads
 from .routes import ENDPOINTS
 from .tools import SecretRef

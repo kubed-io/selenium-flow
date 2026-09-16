@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from kubed.selenium_flow import actions as actions_module
+from kubed.selenium_flow.core import actions as actions_module
 
 pytestmark = pytest.mark.unit
 

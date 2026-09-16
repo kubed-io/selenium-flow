@@ -9,7 +9,7 @@ be used. See saga §F2.8.
 
 import pytest
 
-from kubed.selenium_flow import probe
+from kubed.selenium_flow.core import probe
 from kubed.selenium_flow.flowdoc import InvalidFlow, step_schemas, validate
 from kubed.selenium_flow.routes import ENDPOINTS, method_for
 
@@ -89,7 +89,7 @@ def test_the_whole_page_is_the_default_scope(actions, monkeypatch):
 def test_a_scope_is_waited_for_like_any_other_element(actions, monkeypatch):
     """A scope is an element, so it gets the same wait every element gets —
     otherwise outlining a panel that has not rendered yet answers about nothing."""
-    from kubed.selenium_flow import actions as actions_module
+    from kubed.selenium_flow.core import actions as actions_module
 
     page = _Page()
     waited = []

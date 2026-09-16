@@ -9,7 +9,7 @@ import pytest
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.by import By
 
-from kubed.selenium_flow import browser, probe
+from kubed.selenium_flow.core import browser, probe
 
 pytestmark = pytest.mark.unit
 
@@ -158,7 +158,7 @@ def test_the_failure_and_the_map_read_the_same_answer():
     way to guarantee that is not to test two copies against each other — it is
     to have one copy. Both scripts are built from `_HELPERS`; if someone
     inlines a second `reasonFor`, this fails (saga §F2.8)."""
-    from kubed.selenium_flow import js
+    from kubed.selenium_flow.core import js
 
     helpers = js.read(probe._HELPERS_FILE)
     # The TEXT, not the file name: comparing the constant would pass whatever

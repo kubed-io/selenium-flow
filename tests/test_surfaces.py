@@ -288,7 +288,7 @@ def test_only_a_key_that_can_submit_waits_for_a_navigation(
     """Sending keys is not specified to wait for a navigation it causes, so
     `press_key("enter")` reported the page it was submitting FROM. `settled`
     fixes that, and this pins which keys pay for it."""
-    from kubed.selenium_flow import actions as actions_module
+    from kubed.selenium_flow.core import actions as actions_module
 
     called = []
     monkeypatch.setattr(actions_module.browser, "settled", lambda *a, **k: called.append(a))

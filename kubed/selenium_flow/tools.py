@@ -25,7 +25,7 @@ from fastmcp.utilities.types import Image
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 from . import secrets as secrets_module
-from .actions import (
+from .core.actions import (
     DIALOG_ACTIONS,
     DIALOG_TIMEOUT,
     FRAME_ACTIONS,
@@ -34,9 +34,9 @@ from .actions import (
     WAIT_TIMEOUT,
     Actions,
 )
-from .browser import BROWSERS
+from .core.browser import BROWSERS
 from .hints import hints
-from .probe import DEFAULT_LIMIT as OUTLINE_LIMIT
+from .core.probe import DEFAULT_LIMIT as OUTLINE_LIMIT
 from .sessions import NAME_PARAM, SessionManager
 
 

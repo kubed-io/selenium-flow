@@ -367,7 +367,7 @@ def test_every_documented_selector_is_one_the_server_would_accept():
     """
     import ast
 
-    from kubed.selenium_flow.browser import locator
+    from kubed.selenium_flow.core.browser import locator
 
     for _page, literal in documented_selectors():
         # Parsed as written. Rewriting quotes to make it JSON broke every XPath

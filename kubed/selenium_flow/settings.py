@@ -61,7 +61,7 @@ def _as_browser(value) -> str | None:
     """
     if value is None or value == "":
         return None
-    from .browser import normalize_browser  # local: keeps this module importable
+    from .core.browser import normalize_browser  # local: keeps this module importable
 
     try:
         return normalize_browser(value)
@@ -153,7 +153,7 @@ def resolve(
             # costs nothing; an explicit argument is this caller naming a
             # browser for this session, and quietly running it on a different
             # one is not a fallback, it is the wrong answer.
-            from .browser import normalize_browser
+            from .core.browser import normalize_browser
 
             merged[name] = normalize_browser(value)
             continue

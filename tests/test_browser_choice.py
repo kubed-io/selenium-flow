@@ -10,7 +10,7 @@ import pytest
 from selenium import webdriver
 
 from kubed.selenium_flow import settings as settings_module
-from kubed.selenium_flow.browser import (
+from kubed.selenium_flow.core.browser import (
     BROWSERS,
     Grid,
     is_partial,
@@ -239,7 +239,7 @@ def test_ending_a_browser_the_grid_no_longer_has_is_success():
     from unittest.mock import Mock, patch
 
     gone = Mock(status_code=404)
-    with patch("kubed.selenium_flow.browser.requests.delete", return_value=gone):
+    with patch("kubed.selenium_flow.core.browser.requests.delete", return_value=gone):
         Grid("http://grid.invalid:4444").quit("already-gone")
     gone.raise_for_status.assert_not_called()
 

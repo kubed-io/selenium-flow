@@ -739,7 +739,7 @@ def bound_http(tmp_path, monkeypatch):
     # Patched on the CLASS, before the server is built: `routes.py` binds each
     # method at registration time, so patching the instance afterwards is too
     # late and the real one dials the Grid.
-    from kubed.selenium_flow.actions import Actions
+    from kubed.selenium_flow.core.actions import Actions
 
     monkeypatch.setattr(Actions, "write", write)
     monkeypatch.setattr(

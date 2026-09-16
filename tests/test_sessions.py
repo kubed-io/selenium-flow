@@ -466,7 +466,7 @@ def test_the_pointer_beside_a_session_does_not_empty_the_history():
     the session prefix, `records()` read its `[x, y]` as a record, raised, and
     the page rendered the failure as "No sessions yet." Built through the real
     pointer store, so a pointer namespace that moves is still covered."""
-    from kubed.selenium_flow import pointer
+    from kubed.selenium_flow.core import pointer
 
     fake = FakeRedis()
     store = RedisStore(fake, prefix="p:")
@@ -692,7 +692,7 @@ def test_only_an_invalid_session_id_counts_as_gone(monkeypatch, response, alive,
     decided the session was reaped, reopened, and abandoned the real browser
     with its dialog still up — leaking a Grid slot on every confirm().
     """
-    from kubed.selenium_flow import browser as browser_module
+    from kubed.selenium_flow.core import browser as browser_module
 
     monkeypatch.setattr(
         browser_module.requests, "get", lambda *a, **k: response
@@ -702,7 +702,7 @@ def test_only_an_invalid_session_id_counts_as_gone(monkeypatch, response, alive,
 
 
 def test_an_unreachable_grid_does_not_strand_the_session(monkeypatch):
-    from kubed.selenium_flow import browser as browser_module
+    from kubed.selenium_flow.core import browser as browser_module
 
     def boom(*a, **k):
         raise browser_module.requests.RequestException("down")

@@ -39,7 +39,7 @@ from starlette.responses import (
 )
 
 from . import auth, errors, files, flowapi, flowdoc, flows, links
-from .browser import DEFAULT_BROWSER, is_partial
+from .core.browser import DEFAULT_BROWSER, is_partial
 
 log = logging.getLogger(__name__)
 

@@ -20,7 +20,8 @@ import pytest
 import requests
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow import admin, browser, errors, files, flows, links
+from kubed.selenium_flow import admin, errors, files, flows, links
+from kubed.selenium_flow.core import browser
 from kubed.selenium_flow import resources as resources_module
 from kubed.selenium_flow.openapi import build_spec
 from kubed.selenium_flow.routes import ENDPOINTS
@@ -1049,7 +1050,7 @@ def test_upload_sends_the_bytes_of_a_kept_file(actions, tmp_path, monkeypatch):
     monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
     monkeypatch.setattr(browser, "accept_local_files", lambda _d: None)
     monkeypatch.setattr(
-        "kubed.selenium_flow.browser.wait_for_element", lambda *a, **k: _Element()
+        "kubed.selenium_flow.core.browser.wait_for_element", lambda *a, **k: _Element()
     )
     asked = {}
 
@@ -1092,7 +1093,7 @@ def test_an_http_caller_can_name_the_library_its_file_was_kept_in(
     monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
     monkeypatch.setattr(browser, "accept_local_files", lambda _d: None)
     monkeypatch.setattr(
-        "kubed.selenium_flow.browser.wait_for_element", lambda *a, **k: _Element()
+        "kubed.selenium_flow.core.browser.wait_for_element", lambda *a, **k: _Element()
     )
 
     def reader(name, session=None):
@@ -1110,7 +1111,7 @@ def test_the_upload_endpoint_accepts_the_library_name():
     if it is really there."""
     import inspect
 
-    from kubed.selenium_flow.actions import Actions
+    from kubed.selenium_flow.core.actions import Actions
 
     accepted = set(inspect.signature(Actions.upload_file).parameters)
     assert {"kept", "session"} <= accepted

@@ -40,8 +40,8 @@ import logging
 import time
 from dataclasses import dataclass
 
-from .actions import Actions
-from .browser import DEFAULT_BROWSER
+from .core.actions import Actions
+from .core.browser import DEFAULT_BROWSER
 from .store import MemoryStore, SessionRecord, SessionStore
 
 log = logging.getLogger(__name__)
@@ -268,7 +268,7 @@ class SessionManager:
             # Only worth a round trip when there is a live browser to ask, and
             # one reconnect answers both questions.
             try:
-                from . import browser as browser_module
+                from .core import browser as browser_module
 
                 driver = self.actions.grid.reconnect(record.session_id)
                 status["in_frame"] = browser_module.in_frame(driver)
@@ -364,7 +364,7 @@ class SessionManager:
         surfaces for the same reason :meth:`act` is.
         """
         from . import settings as settings_module
-        from .browser import as_bool
+        from .core.browser import as_bool
 
         # What this session was last using. It sits between the client's
         # defaults and the explicit arguments: a caller that names nothing means

@@ -13,7 +13,7 @@ import argparse
 import logging
 import os
 
-from .browser import DEFAULT_GRID_URL
+from .core.browser import DEFAULT_GRID_URL
 from .server import DEFAULT_ROUTE_PREFIX, SeleniumMCP
 
 

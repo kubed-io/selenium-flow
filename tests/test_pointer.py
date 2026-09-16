@@ -19,8 +19,8 @@ from urllib.parse import quote
 import pytest
 from selenium.webdriver.remote.webelement import WebElement
 
-from kubed.selenium_flow import pointer
-from kubed.selenium_flow.pointer import MemoryPointers, RedisPointers
+from kubed.selenium_flow.core import pointer
+from kubed.selenium_flow.core.pointer import MemoryPointers, RedisPointers
 
 pytestmark = pytest.mark.unit
 
@@ -181,10 +181,10 @@ def moving(actions, monkeypatch):
 
     monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
     monkeypatch.setattr(
-        "kubed.selenium_flow.browser.wait_for_element", lambda *a, **k: _Element()
+        "kubed.selenium_flow.core.browser.wait_for_element", lambda *a, **k: _Element()
     )
     monkeypatch.setattr(
-        "kubed.selenium_flow.browser.wait_for_clickable", lambda *a, **k: _Element()
+        "kubed.selenium_flow.core.browser.wait_for_clickable", lambda *a, **k: _Element()
     )
 
     def fake_move(driver, element, start=None, glide=False):
@@ -205,7 +205,7 @@ def test_a_click_leaves_the_pointer_on_what_it_clicked(actions, moving, monkeypa
     leaves the pointer where it was, measured on the live Grid (§F2.3)."""
     clicked = []
     monkeypatch.setattr(
-        "kubed.selenium_flow.browser.wait_for_clickable",
+        "kubed.selenium_flow.core.browser.wait_for_clickable",
         lambda *a, **k: type("E", (), {"click": lambda self: clicked.append(1)})(),
     )
     actions.interact("abc", "click", selector={"css": "#go"})
@@ -261,7 +261,7 @@ def test_a_move_that_cannot_be_sent_costs_the_position_and_not_the_gesture(
 
     monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
     monkeypatch.setattr(
-        "kubed.selenium_flow.browser.wait_for_clickable",
+        "kubed.selenium_flow.core.browser.wait_for_clickable",
         lambda *a, **k: type("E", (), {"click": lambda self: clicked.append(1)})(),
     )
     actions.pointers.set("abc", 5, 5)
@@ -308,9 +308,9 @@ def test_a_hover_falls_back_to_the_old_gesture_when_the_move_fails(
 
     monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
     monkeypatch.setattr(
-        "kubed.selenium_flow.browser.wait_for_element", lambda *a, **k: _Element()
+        "kubed.selenium_flow.core.browser.wait_for_element", lambda *a, **k: _Element()
     )
-    monkeypatch.setattr("kubed.selenium_flow.actions.ActionChains", _Chain)
+    monkeypatch.setattr("kubed.selenium_flow.core.actions.ActionChains", _Chain)
     monkeypatch.setattr(
         pointer, "move", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no"))
     )
@@ -369,7 +369,7 @@ def test_a_source_the_pointer_cannot_reach_is_the_callers_to_fix(actions, monkey
 
     monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
     monkeypatch.setattr(
-        "kubed.selenium_flow.browser.wait_for_clickable", lambda *a, **k: _Element()
+        "kubed.selenium_flow.core.browser.wait_for_clickable", lambda *a, **k: _Element()
     )
     monkeypatch.setattr(actions, "_move_onto", lambda *a, **k: None)
 
@@ -425,8 +425,8 @@ DRAG_PAGE = (
 @pytest.fixture
 def live(request):
     """A real browser on a page that logs every pointer event it receives."""
-    from kubed.selenium_flow.actions import Actions
-    from kubed.selenium_flow.browser import Grid
+    from kubed.selenium_flow.core.actions import Actions
+    from kubed.selenium_flow.core.browser import Grid
 
     page = getattr(request, "param", LIVE_PAGE)
     actions = Actions(Grid(GRID_URL))
@@ -695,7 +695,7 @@ def test_a_dead_browser_during_a_move_is_not_reported_as_bad_geometry(
 
     monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
     monkeypatch.setattr(
-        "kubed.selenium_flow.browser.wait_for_clickable", lambda *a, **k: _Element()
+        "kubed.selenium_flow.core.browser.wait_for_clickable", lambda *a, **k: _Element()
     )
     monkeypatch.setattr(
         pointer,
@@ -816,9 +816,9 @@ def test_an_element_replaced_under_the_action_is_found_again(
 
     monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
     monkeypatch.setattr(actions, "_move_onto", lambda *a, **k: None)
-    monkeypatch.setattr("kubed.selenium_flow.browser.wait_for_element", finding)
-    monkeypatch.setattr("kubed.selenium_flow.browser.wait_for_clickable", finding)
-    monkeypatch.setattr("kubed.selenium_flow.browser.settled", lambda *a, **k: None)
+    monkeypatch.setattr("kubed.selenium_flow.core.browser.wait_for_element", finding)
+    monkeypatch.setattr("kubed.selenium_flow.core.browser.wait_for_clickable", finding)
+    monkeypatch.setattr("kubed.selenium_flow.core.browser.settled", lambda *a, **k: None)
 
     call(actions)
     assert len(found) == 2, "it reused the dead reference instead of finding it again"
@@ -845,7 +845,7 @@ def test_an_element_that_keeps_going_stale_is_reported_rather_than_looped(
     monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
     monkeypatch.setattr(actions, "_move_onto", lambda *a, **k: None)
     monkeypatch.setattr(
-        "kubed.selenium_flow.browser.wait_for_clickable", lambda *a, **k: _AlwaysStale()
+        "kubed.selenium_flow.core.browser.wait_for_clickable", lambda *a, **k: _AlwaysStale()
     )
     with pytest.raises(StaleElementReferenceException):
         actions.interact("abc", "click", selector={"css": "#row"})

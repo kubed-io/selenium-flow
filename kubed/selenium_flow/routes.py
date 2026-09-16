@@ -34,10 +34,11 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from . import auth, browser, errors, settings
+from . import auth, errors, settings
+from .core import browser
 from . import secrets as secrets_module
 from . import sessions as sessions_module
-from .actions import Actions
+from .core.actions import Actions
 from .openapi import build_spec
 from .sessions import SessionManager
 

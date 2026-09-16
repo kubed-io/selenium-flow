@@ -701,10 +701,10 @@ async def test_a_run_reads_a_kept_file_from_the_callers_own_library(
 
     monkeypatch.setattr(flow_server.actions, "_at", lambda *a, **k: _Driver())
     monkeypatch.setattr(
-        "kubed.selenium_flow.browser.accept_local_files", lambda _d: None
+        "kubed.selenium_flow.core.browser.accept_local_files", lambda _d: None
     )
     monkeypatch.setattr(
-        "kubed.selenium_flow.browser.wait_for_element", lambda *a, **k: _Element()
+        "kubed.selenium_flow.core.browser.wait_for_element", lambda *a, **k: _Element()
     )
     monkeypatch.setattr(flow_server.sessions, "resolve", lambda *a, **k: "browser-1")
 

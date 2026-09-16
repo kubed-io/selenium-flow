@@ -17,7 +17,6 @@ from . import (
     files,
     flowapi,
     flows,
-    pointer,
     prompts,
     resources,
     routes,
@@ -25,8 +24,9 @@ from . import (
     skill,
     tools,
 )
-from .actions import Actions
-from .browser import DEFAULT_GRID_URL, Grid
+from .core import pointer
+from .core.actions import Actions
+from .core.browser import DEFAULT_GRID_URL, Grid
 from .sessions import SessionManager
 from .store import SessionStore, from_env
 

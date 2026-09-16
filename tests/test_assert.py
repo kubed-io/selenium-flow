@@ -7,7 +7,7 @@ failure costs a turn and a confident green costs ten. See saga §F2.5.
 
 import pytest
 
-from kubed.selenium_flow import actions as actions_module
+from kubed.selenium_flow.core import actions as actions_module
 from kubed.selenium_flow.errors import status_for
 from kubed.selenium_flow.routes import ENDPOINTS, method_for
 

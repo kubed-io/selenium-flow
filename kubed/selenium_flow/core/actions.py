@@ -30,7 +30,7 @@ from selenium.webdriver.common.keys import Keys
 
 from . import browser, pointer, probe
 from .browser import Grid, as_bool, as_int, normalize_browser
-from .errors import GONE, UNAVAILABLE, AssertionFailed
+from ..errors import GONE, UNAVAILABLE, AssertionFailed
 
 # What a failed pointer move must never be mistaken for. See `_move_onto`.
 INFRASTRUCTURE = (*GONE, *UNAVAILABLE)
