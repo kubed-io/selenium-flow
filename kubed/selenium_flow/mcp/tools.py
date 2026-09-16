@@ -174,6 +174,11 @@ instead of clicking a path to it.
 
 Prefer extract to read a page — it is far cheaper than a screenshot. Use \
 execute_script for anything the other tools do not cover, scrolling included.
+
+How to drive this well — when to screenshot rather than extract, what a timeout \
+on a good XPath usually means, how to write a flow — is at \
+skill://selenium-flow/SKILL.md. Read it before your first call; it ships with \
+this server, so it describes this version of it.
 """
 
 

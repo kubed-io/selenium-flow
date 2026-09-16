@@ -42,6 +42,7 @@ from dataclasses import dataclass
 
 from ..core.actions import Actions
 from ..core.browser import DEFAULT_BROWSER
+from ..mcp import guidance
 from .store import MemoryStore, SessionRecord, SessionStore
 
 log = logging.getLogger(__name__)
@@ -239,7 +240,7 @@ class SessionManager:
             "window": None,
             "store": self.kind,
             "settings": {},
-            "guidance": "skill://selenium-flow/references/SESSIONS.md",
+            "guidance": guidance.pointer("SESSIONS.md"),
         }
         record = self.store.get(caller.name)
         if record is None:

@@ -52,6 +52,7 @@ from .document import (
     SECRET_ARG,
     listed,
 )
+from ..mcp import guidance
 from ..routes import ENDPOINTS, method_for
 
 # The only attributes a step may dispatch to. `getattr(actions, tool)` alone
@@ -68,7 +69,6 @@ log = logging.getLogger(__name__)
 # for the agent, which reads resources when it decides to; the prompt is for a
 # person, because an agent cannot invoke one - it can only say which to pick
 # (§F2.6).
-REFERENCES = "skill://selenium-flow/references"
 REPAIR_PROMPT = "repair_flow"
 
 
@@ -98,7 +98,7 @@ def hint_for(step: dict, flow: str, skill_available: bool = True) -> dict:
     # `--no-skill` nothing registers those resources, and a URI that cannot be
     # read is worse than no URI at all.
     if skill_available:
-        hint["read"] = f"{REFERENCES}/{page}"
+        hint["read"] = guidance.pointer(page)
         if section:
             hint["section"] = section
     return hint
