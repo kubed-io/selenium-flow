@@ -248,6 +248,14 @@ class Grid:
                 # Same popup, different trigger: Chrome warns about a password it
                 # believes was breached.
                 "profile.password_manager_leak_detection": False,
+                # A PDF saved from a plain-http page is held as an "insecure
+                # download" nobody is there to keep, so it never reaches the
+                # store and save_pdf timed out on every internal http app. Chrome
+                # ties allowing those to the insecure-content setting — measured
+                # on Chrome 152, where no flag or Safe Browsing pref did it. The
+                # cost is that an https page's http subresources load too, which
+                # is what a person clicking "allow" would get.
+                "profile.default_content_setting_values.mixed_script": 1,
             },
         )
         return options
@@ -675,7 +683,29 @@ def save_to_downloads(
             if entry["name"] not in before:
                 return entry
         time.sleep(0.25)
-    raise TimeoutError(f"{name} did not appear in the session's downloads")
+    raise TimeoutError(_not_saved(driver, name))
+
+
+# Chrome lets a page with no origin — about:blank, a data: URL — download once,
+# and refuses every download after that with nobody to ask. The automatic-
+# downloads setting does not reach an opaque origin (measured, Chrome 152), and
+# the only other way round it is a second tab, which is not this server's to
+# open. So the refusal says what happened and what to do.
+_NO_ORIGIN = "return window.origin === 'null'"
+
+
+def _not_saved(driver, name: str) -> str:
+    try:
+        opaque = bool(driver.execute_script(_NO_ORIGIN))
+    except Exception:  # noqa: BLE001 - the message is a courtesy on a failure path
+        opaque = False
+    if opaque:
+        return (
+            f"{name} was not saved: this page has no origin (about:blank or a "
+            "data: URL), and Chrome allows such a page one download. Navigate "
+            "to a real page, then save again"
+        )
+    return f"{name} did not appear in the session's downloads"
 
 
 def ensure_url(driver, url: str) -> bool:

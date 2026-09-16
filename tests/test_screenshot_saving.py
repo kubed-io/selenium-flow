@@ -279,3 +279,42 @@ async def test_the_prompt_does_not_promise_a_signature_auth_off_cannot_give(serv
     for name in ("screenshot", "save_pdf"):
         description = (await server.mcp.get_tool(name)).description or ""
         assert "signed" not in description or "when this server has a token" in description
+
+
+def test_chrome_is_allowed_to_keep_a_pdf_from_an_http_page():
+    """An http page's PDF was held as an insecure download and never stored, so
+    save_pdf failed on every internal app (measured on the Grid, Chrome 152)."""
+    from kubed.selenium_flow.core.browser import Grid
+
+    prefs = Grid("http://grid.invalid:4444")._options("chrome").experimental_options["prefs"]
+    assert prefs["profile.default_content_setting_values.mixed_script"] == 1
+    assert prefs["profile.default_content_setting_values.automatic_downloads"] == 1
+
+
+class _Page:
+    session_id = "abc"
+
+    def __init__(self, opaque):
+        self.opaque = opaque
+
+    def execute_script(self, script, *args):
+        if "window.origin" in script:
+            return self.opaque
+        return None
+
+
+class _EmptyStore:
+    def files(self, session_id):
+        return []
+
+
+def test_a_save_refused_on_a_page_with_no_origin_says_why(monkeypatch):
+    """Chrome allows about:blank or a data: page one download. A 15-second
+    'did not appear' said nothing about that, or about what to do."""
+    from kubed.selenium_flow.core import browser
+
+    monkeypatch.setattr(browser.time, "sleep", lambda s: None)
+    with pytest.raises(TimeoutError, match="Navigate to a real page"):
+        browser.save_to_downloads(_EmptyStore(), _Page(True), "s.png", b"x", "image/png", timeout=0)
+    with pytest.raises(TimeoutError, match="did not appear"):
+        browser.save_to_downloads(_EmptyStore(), _Page(False), "s.png", b"x", "image/png", timeout=0)
