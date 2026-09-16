@@ -225,6 +225,11 @@ def save_one(store, session: str, name: str, document: dict, schemas: dict) -> d
     document.pop("session", None)
     document.pop("shared", None)
     flowdoc.validate(document, schemas)
+    # Stored as the integer it was accepted as. `"900"` is coerced on the way
+    # in, as every boundary value is, and keeping the string would publish a
+    # document that does not match its own schema (Copilot, #37).
+    if document.get(flowdoc.TIMEOUT) is not None:
+        document[flowdoc.TIMEOUT] = flowdoc.declared_timeout(document)
     stored = store.save(session, name, document)
     steps = len(stored.get("steps") or [])
     log.info("flow %s/%s saved (%s steps)", session, name, steps)

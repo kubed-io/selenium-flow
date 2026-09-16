@@ -13,7 +13,11 @@ come of sending them:
   step it is on. The model never sees any of it — it reads the final report.
 
 So the ticker reports when the step changes *and* on a heartbeat inside a step,
-because the run that was lost was one step long. A client that sent no token
+because the run that was lost was one step long. It samples rather than queues:
+steps that start and finish inside one look are coalesced into the next report,
+so a bar jumps past them. That is deliberate — a notification per step of a
+fast fifty-step flow is traffic nobody reads, and neither keeping a call alive
+nor drawing a bar needs every one. A client that sent no token
 gets nothing: `Context.report_progress` returns without sending.
 
 This is an MCP concern only. `POST /flows/{name}/runs` answers once when the run

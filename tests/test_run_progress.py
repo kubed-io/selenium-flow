@@ -223,6 +223,29 @@ def test_a_budget_saved_over_http_is_kept_too(slow_server):
     assert slow_server.flows.get(NAMED, "patient")["timeout"] == 900
 
 
+async def test_a_budget_given_as_text_is_stored_as_the_number_it_means(slow_server):
+    """Coerced on the way in, so it must be kept as what it was coerced to — a
+    read would otherwise hand back a string where the schema promises an
+    integer (Copilot, #37)."""
+    tool = await slow_server.mcp.get_tool(flowapi.SAVE_TOOL)
+    slow_server.sessions.library = lambda: NAMED
+    saved = await tool.fn(name="patient", steps=STEPS[:1], timeout="900")
+    assert saved["timeout"] == 900
+    assert slow_server.flows.get(NAMED, "patient")["timeout"] == 900
+
+
+async def test_the_published_save_request_takes_a_budget(slow_server):
+    """The HTTP save accepts it, so its published request body has to say so,
+    or a generated client can never send one (Copilot, #37)."""
+    from kubed.selenium_flow.routes import ENDPOINTS
+    from kubed.selenium_flow.spec import build_spec
+
+    spec = await build_spec(slow_server.mcp, ENDPOINTS, "", authenticated=True)
+    body = spec["paths"]["/flows/{name}"]["put"]["requestBody"]["content"]
+    schema = body["application/json"]["schema"]
+    assert schema["properties"]["timeout"]["type"] == "integer"
+
+
 def test_the_published_default_is_the_real_one():
     """The spec's schemas are written by hand; the number in them is not allowed
     to drift from the one the engine uses."""

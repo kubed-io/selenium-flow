@@ -362,6 +362,18 @@ FLOW_STEP = {
     },
 }
 
+# Said once, because a flow's document is described twice — as what a read
+# returns and as what a save takes — and the save side is the one that forgot it
+# (Copilot, #37).
+FLOW_TIMEOUT = {
+    "type": "integer",
+    "minimum": 1,
+    "description": (
+        "Seconds the whole run may take before no further step starts. Defaults "
+        "to 300; a step already running is bounded by its own wait_timeout."
+    ),
+}
+
 FLOW_SCHEMAS = {
     "FlowStep": FLOW_STEP,
     "Flow": {
@@ -374,15 +386,7 @@ FLOW_SCHEMAS = {
                 "type": "object",
                 "description": "JSON Schema for the values a run accepts.",
             },
-            "timeout": {
-                "type": "integer",
-                "minimum": 1,
-                "description": (
-                    "Seconds the whole run may take before no further step "
-                    "starts. Defaults to 300; a step already running is bounded "
-                    "by its own wait_timeout."
-                ),
-            },
+            "timeout": FLOW_TIMEOUT,
             "steps": {
                 "type": "array",
                 "minItems": 1,
@@ -593,6 +597,7 @@ _FLOW_OPERATIONS = {
                 "name": {"type": "string"},
                 "description": {"type": "string"},
                 "parameters": {"type": "object"},
+                "timeout": FLOW_TIMEOUT,
                 "steps": {
                     "type": "array",
                     "minItems": 1,

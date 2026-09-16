@@ -1068,7 +1068,8 @@ keeps working; and stopping that task cancels the request.
 **Decided:**
 
 1. **Progress, not a `get_progress` tool.** `run_flow` reports the step it is on
-   as each starts, and a **heartbeat inside a step** every fifteen seconds —
+   when it changes — sampled, so steps quicker than a look are coalesced — and a
+   **heartbeat inside a step** every fifteen seconds —
    because the run that was lost was *one step long*, and a report per step
    would not have saved it. The count is steps done out of the total, with a
    fraction inside a step that rises and never reaches the next. The message is
