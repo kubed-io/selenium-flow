@@ -40,13 +40,10 @@ The listing is offered three ways, because clients differ in what they accept:
 - ``session://files/{name}`` — one file, as bytes, with its real media type. A
   client that reads resources can therefore display a screenshot without a URL,
   a token, or a round trip through the model.
-- ``session_files`` — a tool returning the same listing, for clients with no
-  notion of resources at all. It carries an app config, so a host that can
-  render UI draws the file grid instead of printing JSON.
-
-The tool is hidden from clients that read resources, exactly as the session
-status is — unless the client can also render apps, in which case the tool is
-the only way it gets one, and hiding it would trade a picture for a duplicate.
+- ``session_files`` — a tool returning the same listing, carrying an app config,
+  so a host that renders MCP Apps draws the file grid. It is listed only to such
+  a host; every other client reads ``session://files``, directly or through
+  ``read_resource`` (§F3.6).
 
 Everything carries a signed URL as well, because the most common destination is
 somewhere that can do none of the above: a chat transcript that renders markdown
@@ -305,7 +302,7 @@ def read_kept(sessions, store, name: str, session: str | None = None) -> bytes:
         # outage. `upload_file(path=...)` already answers 400 for exactly this
         # (`no file at ...`), and the sibling source must not disagree.
         raise ValueError(
-            f"no kept file called {wanted!r}. session_files lists what is kept; "
+            f"no kept file called {wanted!r}. session://files lists what is kept; "
             "keep_file(name) is what keeps one before the browser goes"
         ) from exc
 
@@ -340,7 +337,12 @@ def register(
     visible to every client.
     """
 
-    @mcp.resource(LIST_URI, description=DESCRIPTION, mime_type="application/json")
+    @mcp.resource(
+        LIST_URI,
+        name="Session Files",
+        description=DESCRIPTION,
+        mime_type="application/json",
+    )
     def files_resource() -> dict:
         return listing(
             actions, sessions, store, token, sessions.name(), base=base, mount=prefix
@@ -348,6 +350,7 @@ def register(
 
     @mcp.resource(
         FILE_URI,
+        name="Session File",
         description=(
             "One file from this session, as bytes. The name comes from the "
             f"{LIST_URI} listing, which also carries each file's real media "
@@ -378,7 +381,11 @@ def register(
 
     @mcp.tool(
         name=FILES_TOOL,
-        description=DESCRIPTION,
+        description=(
+            "Show every file this session has: downloads, saved screenshots and "
+            "PDFs, and kept files, each marked kept or not, with a link that "
+            "opens in a browser. A file that is not kept goes with the browser."
+        ),
         app=app_config,
         annotations=reads("Files this session has"),
     )
@@ -390,16 +397,12 @@ def register(
     @mcp.tool(
         name=KEEP_TOOL,
         description=(
-            "Keep one of this session's files beyond the browser that made "
-            "it.\n\n"
-            "Downloads belong to the browser and the Grid deletes them with it, "
-            "including when you switch browser. Keeping copies the file to the "
-            "server, where it survives — and where upload_file(path=...) can "
-            "attach it to a page in a later session.\n\n"
-            "Takes the name exactly as session_files lists it. Keeping a name "
-            "that is already kept replaces it, so this is safe to repeat. The "
-            "original download stays where it is: the Grid offers no way to "
-            "remove a single file."
+            "Keep one of this session's files, so it survives the browser "
+            "ending, switching or being reaped. A download otherwise goes with "
+            "the browser.\n\n"
+            "name is as session://files lists it. Keeping it again replaces the "
+            "kept copy, so this is safe to repeat. upload_file(kept=name) puts "
+            "a kept file back into a page."
         ),
         annotations=hints("Keep a file beyond the browser", idempotent=True),
     )

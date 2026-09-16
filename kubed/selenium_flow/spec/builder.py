@@ -255,14 +255,15 @@ async def build_spec(
             },
         }
 
-    status_tool = await mcp.get_tool("current_session")
+    from ..mcp import resources as status
+
     schemas["SessionStatus"] = RESPONSES["current_session"]
     paths.setdefault(browser_root, {})["get"] = {
         "operationId": "currentSession",
-        "x-mcp-tool": "current_session",
+        "x-mcp-resource": status.RESOURCE_URI,
         "parameters": list(SESSION_PARAMETERS),
         "summary": "What this session is, and whether it holds a browser.",
-        "description": status_tool.description or "",
+        "description": status.DESCRIPTION,
         "tags": ["browser"],
         "responses": {
             "200": {
@@ -564,29 +565,36 @@ def _camel(name: str) -> str:
 # coming. It is still not `required`, because a caller naming itself through
 # the X-Session-Key header legitimately omits it.
 def _mcp_tools() -> tuple[dict, dict]:
-    """The MCP tool behind each ``/flows`` and ``/files`` endpoint.
+    """The MCP side of each ``/flows`` and ``/files`` endpoint.
+
+    Each is an extension key and its value: ``x-mcp-tool`` for an action, and
+    ``x-mcp-resource`` for a read, which over MCP is a resource at that URI —
+    read directly, or through ``read_resource`` by a client that cannot
+    (§F3.6).
 
     Imported here rather than at module scope because the import runs the other
     way at load time: ``routes`` imports ``build_spec`` from this module and
     ``flowapi`` imports ``ENDPOINTS`` from ``routes``, so naming either one up
-    top closes the loop. Reading the constants is still the point — an endpoint
-    and its tool are one action, and a second hand-written copy of these six
-    names is how the wiki ends up generating a page called ``saveFlow`` for a
-    tool nobody can call.
+    top closes the loop. Reading the constants is still the point — a second
+    hand-written copy of these names is how the wiki ends up generating a page
+    for a tool nobody can call.
     """
     from ..flows import api as flowapi
     from ..http import files as files_module
 
     return (
         {
-            "list": flowapi.LIST_TOOL,
-            "get": flowapi.GET_TOOL,
-            "save": flowapi.SAVE_TOOL,
-            "delete": flowapi.DELETE_TOOL,
-            "run": flowapi.RUN_TOOL,
-            "schema": flowapi.SCHEMA_TOOL,
+            "list": ("x-mcp-resource", flowapi.LIST_URI),
+            "get": ("x-mcp-resource", flowapi.FLOW_URI),
+            "save": ("x-mcp-tool", flowapi.SAVE_TOOL),
+            "delete": ("x-mcp-tool", flowapi.DELETE_TOOL),
+            "run": ("x-mcp-tool", flowapi.RUN_TOOL),
+            "schema": ("x-mcp-resource", flowapi.SCHEMA_URI),
         },
-        {"list": files_module.FILES_TOOL, "keep": files_module.KEEP_TOOL},
+        {
+            "list": ("x-mcp-resource", files_module.LIST_URI),
+            "keep": ("x-mcp-tool", files_module.KEEP_TOOL),
+        },
     )
 
 
@@ -612,7 +620,7 @@ def _flow_paths(prefix: str = "") -> dict:
         has_body = method in ("post", "put")
         operation = {
             "operationId": op,
-            "x-mcp-tool": tools[path],
+            tools[path][0]: tools[path][1],
             "parameters": [*_named_in_path(template), *SESSION_PARAMETERS],
             "summary": summary,
             "description": description,
@@ -688,7 +696,7 @@ def _file_paths(prefix: str = "") -> dict:
         method, template = FILE_ROUTES[path]
         operation = {
             "operationId": op,
-            "x-mcp-tool": tools[path],
+            tools[path][0]: tools[path][1],
             "parameters": [*_named_in_path(template), *SESSION_PARAMETERS],
             "summary": summary,
             "description": description,

@@ -2,7 +2,7 @@
 description: Fix a saved selenium-flow flow that has stopped working, by looking at the page it fails on.
 arguments:
 - name: flow
-  description: The flow's name, as list_flows shows it.
+  description: The flow's name, as flow://flows lists it.
   required: true
 - name: step
   description: Which step failed, if you know. Leave empty to find out by running it.
@@ -20,12 +20,10 @@ A flow breaks for one of two reasons, and they have different fixes: the page
 changed under it, or the flow is being run somewhere it was not written for.
 Find out which before editing anything.
 
-1. **Check how this server hands you sessions.** Read `session://current` (or
-   call `current_session`). In *saved* mode you never pass a `session_id`; in
-   *stateless* mode every call needs the one `open_session` returns. And a flow
-   never opens a browser: if yours was reaped or ended, `open_session()` first —
-   with no arguments it comes back where it was.
-2. Read the flow: `get_flow(name="{{ flow }}")`. Note what each step addresses
+1. **Check what you are holding.** Read `session://current`. A flow never opens
+   a browser: if yours was reaped or ended, `open_session()` first — with no
+   arguments it comes back where it was.
+2. Read the flow: `flow://flows/{{ flow }}`. Note what each step addresses
    and what the flow declares as parameters.
 3. Run it and read the failure: `run_flow(name="{{ flow }}", verbose=true)`.
    **If it declares required parameters**, step 1 showed you which — pass them

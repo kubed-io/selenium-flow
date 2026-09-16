@@ -9,7 +9,7 @@ import pytest
 
 from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.http import files as files_module
-from kubed.selenium_flow.mcp import resources as resources_module
+from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.routes import ENDPOINTS, method_for
 
 pytestmark = pytest.mark.unit
@@ -17,10 +17,10 @@ pytestmark = pytest.mark.unit
 # Named separately from ENDPOINTS so a typo in the route table cannot make this
 # test agree with itself.
 #
-# The resource-mirror tools (`current_session`, `selenium_flow_skill`) are
-# deliberately absent: neither is a browser action, neither has an HTTP
-# counterpart, and both are hidden from tools/list unless a client declares it
-# cannot read resources. See test_resources.py and test_skill.py.
+# The reading tools (`list_resources`, `read_resource`) are deliberately absent:
+# neither is a browser action, neither has an HTTP counterpart, and both are
+# hidden from tools/list unless the client cannot read resources. See
+# test_resources.py.
 # Saved flows are a layer ABOVE the browser actions, not more of them: they are
 # about documents that contain actions, they live under /flows rather than
 # /browser, and they have their own route table. So they are subtracted from
@@ -30,9 +30,6 @@ FLOW_TOOLS = {
     flowapi.RUN_TOOL,
     flowapi.SAVE_TOOL,
     flowapi.DELETE_TOOL,
-    flowapi.LIST_TOOL,
-    flowapi.GET_TOOL,
-    flowapi.SCHEMA_TOOL,
 }
 
 
@@ -150,13 +147,12 @@ async def test_every_tool_declares_its_safety_hints(server, monkeypatch, resourc
     does not need. Every tool must say what it is.
 
     Parametrised over `resources` because that switch CHANGES THE TOOL LIST: a
-    client that cannot read resources is also given the mirror tools
-    (`current_session`, `session_files`, `selenium_flow_skill`), and checking
-    only the default mode left all three unannotated — advertised as destructive
-    when every one of them merely reads.
+    client that cannot read resources is also given the reading tools, and
+    checking only the default mode once left the mirrors unannotated —
+    advertised as destructive when every one of them merely reads.
     """
     monkeypatch.setattr(
-        resources_module, "_http", lambda: ({"resources": resources}, {})
+        clients_module, "_http", lambda: ({"resources": resources}, {})
     )
     tools = await server.mcp.list_tools()
     assert tools, "no tools listed, so this proves nothing"
@@ -164,20 +160,6 @@ async def test_every_tool_declares_its_safety_hints(server, monkeypatch, resourc
         hints = tool.annotations
         assert hints is not None, f"{tool.name} declares no annotations"
         assert hints.title, f"{tool.name} has no display title"
-
-
-async def test_the_mirror_tools_are_reads(server, monkeypatch):
-    """They exist so a client with no resource support can still ask a question.
-
-    Asking a question changes nothing, and `selenium_flow_skill` does not even
-    leave the process — it is answered from files inside the installed package.
-    """
-    monkeypatch.setattr(resources_module, "_http", lambda: ({"resources": "off"}, {}))
-    tools = {t.name: t for t in await server.mcp.list_tools()}
-    for name in ("current_session", "session_files", "selenium_flow_skill"):
-        assert tools[name].annotations.read_only_hint is True, name
-
-    assert tools["selenium_flow_skill"].annotations.open_world_hint is False
 
 
 async def test_only_reading_the_page_is_marked_read_only(server):
@@ -235,12 +217,16 @@ async def test_resize_writes_the_new_size_back_to_the_session(server, monkeypatc
     assert server.sessions.store.get(NAMED).window == "1024x768"
 
 
-async def test_press_key_lists_its_keys_in_the_description(server):
-    """The key names are a closed set, so the model should be told them."""
-    press_key = await server.mcp.get_tool("press_key")
-    description = press_key.description
-    assert "enter" in description and "escape" in description
-    assert "{keys}" not in description, "the placeholder was never filled in"
+def test_a_key_name_that_is_not_one_is_refused_with_every_name(actions, monkeypatch):
+    """The names used to be listed in press_key's description — sixty of them,
+    read on every call by a model that needed none. They are in the refusal
+    instead, which is where a model that guessed wrong is looking (§F3.5)."""
+    from kubed.selenium_flow.core.actions import KEY_NAMES
+
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
+    with pytest.raises(ValueError) as refused:
+        actions.press_key("abc", "Enterr")
+    assert all(name in str(refused.value) for name in KEY_NAMES)
 
 
 def test_actions_reject_a_missing_session_id(actions):
@@ -296,23 +282,3 @@ def test_only_a_key_that_can_submit_waits_for_a_navigation(
 
     actions.press_key("abc", key)
     assert bool(called) is waits
-
-
-async def test_stateless_mode_keeps_both_surfaces_intact(server):
-    """Statelessness is a transport setting, not a capability change.
-
-    It exists so more than one replica can serve the /mcp surface — MCP sessions
-    otherwise live in one process's memory. The browser is unaffected either
-    way: the session is a name the caller supplies on every request, and the
-    record behind it is in the shared store rather than in this process.
-    """
-    from kubed.selenium_flow.server import SeleniumMCP
-
-    stateless = SeleniumMCP(
-        grid_url="http://grid.invalid:4444", auth_token="t", stateless=True
-    )
-    assert stateless.stateless is True
-    assert server.stateless is False
-    assert browser_tools(await stateless.mcp.list_tools()) == (
-        EXPECTED | RESOURCE_ACTIONS
-    )

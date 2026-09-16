@@ -35,11 +35,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`outline` lists a page's content before its navigation, header, footer and sidebars**, says which `region` each entry is in, and reports a `total` so a cut-short map says so.
 
+- **VS Code Copilot can read everything without `?resources=off`.** A client whose model cannot read resources is recognised and given `list_resources` and `read_resource(uri)`, and told so in its instructions.
+
+- **Resources have readable names, and flow and file names complete** in a client's resource and prompt pickers.
+
 ### Changed
 
 - **A flow run's default budget is 120 seconds**, down from 300. A flow meant to wait longer sets `timeout`.
 
 - **A failed MCP call reads like a failed HTTP call** — no Selenium stack dump for the caller, and a caller's mistake is one warning line in the log rather than a traceback.
+
+- **BREAKING: `current_session`, `selenium_flow_skill`, `list_flows`, `get_flow`, `flow_schema` and `list_secrets` are gone.** Everything they returned is a resource — `session://current`, `skill://selenium-flow/SKILL.md`, `flow://flows`, `flow://flows/{name}`, `flow://schema`, `secret://secrets` — read directly or with `read_resource`. `session_files` is listed only to hosts that render MCP Apps.
+
+- **BREAKING: `--stateless` / `STATELESS_HTTP` is removed.** Run one replica.
+
+- **Tool descriptions are half as long**, and hints, errors, prompts and the skill name what to read by URI.
 
 ### Fixed
 

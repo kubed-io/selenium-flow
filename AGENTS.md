@@ -14,10 +14,15 @@ Start with [Chapter 1 — The Flight Plan](saga/Chapter_1_The_Flight_Plan.md) if
 you are picking up the **flows** feature: saved sequences of tool calls, run
 server-side on one clearance. It closed with `v0.1.0`.
 
-[Chapter 2 — Pilot Reports](saga/Chapter_2_Pilot_Reports.md) is the current one:
+[Chapter 2 — Pilot Reports](saga/Chapter_2_Pilot_Reports.md) is still open for E17:
 what the first agent flying a real app reported — discoverable capabilities, a
 pointer that can glide, `drag`, `assert` steps that stop a run with instructions,
 and `outline`.
+
+[Chapter 3 — Other Aircraft](saga/Chapter_3_Other_Aircraft.md) is the latest:
+what clients other than Claude Code can reach — VS Code Copilot above all, whose
+model cannot read resources — and why everything to read is named by URI, with
+two tools that read one for the clients that cannot.
 
 
 This repo ships **an image and nothing else**. It does not deploy itself — unlike the
@@ -96,8 +101,8 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   `press_key`, `dialog`, `execute_script`. A click is not destructive in itself and can
   place an order, and this server cannot tell which. Of the browser actions `extract` is
   the only read-only one; `screenshot` is not, because it writes a file, and a
-  tool cannot be read-only only sometimes. The three mirror tools are reads too, and are
-  the ones easiest to forget — they only appear for a client that declares it cannot read
+  tool cannot be read-only only sometimes. `list_resources` and `read_resource` are reads
+  too, and are the ones easiest to forget — they only appear for a client that cannot read
   resources, so a listing taken in the default mode proves nothing about them.
   `tests/test_surfaces.py` pins all of this, parametrised over both modes.
 
@@ -359,7 +364,7 @@ A stored mapping can name a browser the Grid has already reaped. `resolve` check
 package runs a cleanup loop: the Grid expires idle browsers via `SE_NODE_SESSION_TIMEOUT`,
 and the store expires mappings via its own TTL. Do not add a scheduler.
 
-### The status resource, and why it is also a tool
+### Everything to read is a resource, named by its URI
 
 `session://current` is the natural shape for "what browser am I holding" — state to read,
 not an action, so a client can pull it into context without spending a tool call. It must
@@ -367,14 +372,18 @@ stay side-effect free: `describe()` peeks at the store rather than going through
 because a status read that opens a browser would be the original leak wearing a hat. It
 reports the session **name** and never the Grid's id.
 
-Resources are the least implemented part of MCP, so the same status is a `current_session`
-tool as well. That tool is **hidden from `tools/list` by default and still callable** — the
-decision is made per request in `on_list_tools` middleware, because it depends on who is
-asking, and one server object serves every client. Registering it conditionally at startup
-would bake one client's capabilities into a shared process.
+The same goes for the skill, the flow library, the kept files and the secrets catalogue:
+each is a resource, and **every piece of text an agent reads names it by URI** — a hint, an
+error, a prompt, SKILL.md. A client whose model cannot read resources gets two tools that
+take those URIs, `list_resources` and `read_resource` (`mcp/mirror.py`), never a tool per
+resource (§F3.6). Do not add one: a name the text has to use instead of the URI is the
+second vocabulary that was removed.
 
-This is the general pattern for anything that has to vary by client: filter the listing,
-keep the capability. `?resources=off` / `X-MCP-Resources: off` is how a client declares it.
+Who counts as unable is decided in `mcp/clients.py`: `?resources=` / `X-MCP-Resources`
+when given, else the client's own `clientInfo.name` against a table of measured clients,
+else yes (§F3.1). The listing is filtered per request, in middleware, and the tools stay
+callable — one server object serves every client, so a decision about who is asking can
+only be made when someone asks. The handshake's instructions vary the same way (§F3.2).
 
 ## One contract, and no id in it
 
@@ -553,20 +562,17 @@ it may as well not ship.
 Write for a model deciding what to do next, not for a developer reading reference
 docs; the tool descriptions already say what each tool takes.
 
-## Scaling: replicas > 1 requires --stateless
+## Scaling: one replica
 
-The `/browser` surface is replica-safe as it stands. The `/mcp` surface is **not** by
-default: FastMCP keeps MCP sessions in process memory, so a client whose next request is
-balanced to another pod is told its session does not exist.
+The `/mcp` surface keeps MCP transport sessions in process memory, and relies on
+them: a client's `initialize` — its name and capabilities, which decide what it
+is shown (§F3.1) — is remembered there. A second replica would answer a client
+it never met. There used to be a `--stateless` flag trading that away; it was
+removed rather than kept for a scaling nobody runs.
 
-`--stateless` / `STATELESS_HTTP=true` drops MCP sessions entirely - no `Mcp-Session-Id` is
-issued and every request stands alone. Both surfaces are then replica-safe. The browser is
-unaffected either way, because its session was never here.
-
-So: `replicas: 1` needs nothing; more than one requires the flag, and Redis —
-which is no longer optional in the way it was: every caller has a session record
-now, and a memory store means a caller's browser is only found again when its
-request lands on the pod that opened it.
+The browser is unaffected: its session lives on the Grid, and the record naming
+it lives in the session store. Use Redis for that record if the pod should come
+back from a restart holding its callers' browsers.
 
 ## Gotchas
 

@@ -15,7 +15,6 @@ from starlette.testclient import TestClient
 
 from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.flows.library import GLOBAL_SESSION, STDIO_SESSION
-from kubed.selenium_flow.mcp import resources as resources_module
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import NAMED, TOKEN
@@ -52,6 +51,14 @@ async def call(server, tool_name, /, **kwargs):
     return result
 
 
+async def resource(server, uri: str):
+    """Read a flow resource the way any client does, and decode its JSON."""
+    import json
+
+    result = await server.mcp.read_resource(uri)
+    return json.loads(result.contents[0].content)
+
+
 def acting_as(monkeypatch, server, session):
     """Make every surface agree about who is calling.
 
@@ -77,41 +84,24 @@ def acting_as(monkeypatch, server, session):
 # ---- the surface itself -----------------------------------------------------
 
 
-async def test_a_client_with_resources_sees_only_the_write_tools(flow_server):
-    """Five operations, two tools. The reads are resources, and mirroring them
-    into the listing as well would be noise (§F1.5)."""
+async def test_the_reads_are_resources_and_the_writes_are_tools(flow_server):
+    """Reading the library is a resource at a URI; a client that cannot read
+    resources reads the same URIs through read_resource (§F3.6)."""
     names = {t.name for t in await flow_server.mcp.list_tools()}
-    assert flowapi.SAVE_TOOL in names
-    assert flowapi.DELETE_TOOL in names
-    assert flowapi.LIST_TOOL not in names
-    assert flowapi.GET_TOOL not in names
-
-
-async def test_a_client_without_resources_gets_the_reads_as_tools(
-    flow_server, monkeypatch
-):
-    monkeypatch.setattr(resources_module, "_http", lambda: ({"resources": "off"}, {}))
-    names = {t.name for t in await flow_server.mcp.list_tools()}
-    assert {flowapi.LIST_TOOL, flowapi.GET_TOOL, flowapi.SCHEMA_TOOL} <= names
-
-
-async def test_the_hidden_reads_are_still_callable(flow_server):
-    """Hiding a tool from a listing is presentation; refusing to run it would
-    be a different and worse contract."""
-    assert await call(flow_server, flowapi.LIST_TOOL) == {
+    assert {flowapi.SAVE_TOOL, flowapi.DELETE_TOOL, flowapi.RUN_TOOL} <= names
+    uris = {str(r.uri) for r in await flow_server.mcp.list_resources()}
+    assert {flowapi.LIST_URI, flowapi.SCHEMA_URI} <= uris
+    assert await resource(flow_server, flowapi.LIST_URI) == {
         "session": "desktop",
         "count": 0,
         "flows": [],
     }
 
 
-async def test_every_flow_tool_declares_honest_annotations(flow_server, monkeypatch):
-    monkeypatch.setattr(resources_module, "_http", lambda: ({"resources": "off"}, {}))
+async def test_every_flow_tool_declares_honest_annotations(flow_server):
     tools = {t.name: t for t in await flow_server.mcp.list_tools()}
-    for name in (flowapi.LIST_TOOL, flowapi.GET_TOOL, flowapi.SCHEMA_TOOL):
-        assert tools[name].annotations.read_only_hint is True, name
-    assert tools[flowapi.SCHEMA_TOOL].annotations.open_world_hint is False
     assert tools[flowapi.DELETE_TOOL].annotations.destructive_hint is True
+    assert tools[flowapi.RUN_TOOL].annotations.destructive_hint is True
 
 
 # ---- saving -----------------------------------------------------------------
@@ -121,7 +111,7 @@ async def test_a_flow_saves_and_reads_back(flow_server, store):
     await call(flow_server, flowapi.SAVE_TOOL, name="login", steps=GOOD,
                description="Log in")
     assert store.names("desktop") == ["login"]
-    read = await call(flow_server, flowapi.GET_TOOL, name="login")
+    read = await resource(flow_server, "flow://flows/login")
     assert read["description"] == "Log in"
     assert read["steps"] == GOOD
     assert read["shared"] is False
@@ -153,21 +143,21 @@ async def test_saving_the_same_name_replaces_it(flow_server, store):
 
 async def test_reads_see_the_shared_library(flow_server, store):
     store.save(GLOBAL_SESSION, "cookie-banner", {"steps": GOOD, "description": "shared"})
-    listing = await call(flow_server, flowapi.LIST_TOOL)
+    listing = await resource(flow_server, flowapi.LIST_URI)
     assert [f["name"] for f in listing["flows"]] == ["cookie-banner"]
     assert listing["flows"][0]["shared"] is True
-    assert (await call(flow_server, flowapi.GET_TOOL, name="cookie-banner"))["shared"]
+    assert (await resource(flow_server, "flow://flows/cookie-banner"))["shared"]
 
 
 async def test_your_own_flow_wins_a_name_collision(flow_server, store):
     store.save(GLOBAL_SESSION, "login", {"steps": GOOD, "description": "shared"})
     await call(flow_server, flowapi.SAVE_TOOL, name="login", steps=GOOD,
                description="mine")
-    listing = await call(flow_server, flowapi.LIST_TOOL)
+    listing = await resource(flow_server, flowapi.LIST_URI)
     assert listing["count"] == 1
     assert listing["flows"][0]["description"] == "mine"
     assert listing["flows"][0]["shared"] is False
-    assert (await call(flow_server, flowapi.GET_TOOL, name="login"))["description"] == "mine"
+    assert (await resource(flow_server, "flow://flows/login"))["description"] == "mine"
     # Shadowed, not overwritten.
     assert store.get(GLOBAL_SESSION, "login")["description"] == "shared"
 
@@ -207,9 +197,9 @@ async def test_an_unnamed_caller_still_reads_and_runs_the_shared_library(
     caller is for, and losing it would make this a regression, not a fix."""
     store.save(GLOBAL_SESSION, "login", {"steps": GOOD, "description": "shared"})
     acting_as(monkeypatch, flow_server, None)
-    listing = await call(flow_server, flowapi.LIST_TOOL)
+    listing = await resource(flow_server, flowapi.LIST_URI)
     assert [f["name"] for f in listing["flows"]] == ["login"]
-    assert (await call(flow_server, flowapi.GET_TOOL, name="login"))["steps"] == GOOD
+    assert (await resource(flow_server, "flow://flows/login"))["steps"] == GOOD
 
 
 async def test_a_flow_in_the_shared_library_is_marked_shared_to_everyone(
@@ -224,9 +214,9 @@ async def test_a_flow_in_the_shared_library_is_marked_shared_to_everyone(
     """
     store.save(GLOBAL_SESSION, "login", {"steps": GOOD})
     acting_as(monkeypatch, flow_server, None)
-    listing = await call(flow_server, flowapi.LIST_TOOL)
+    listing = await resource(flow_server, flowapi.LIST_URI)
     assert listing["flows"][0]["shared"] is True
-    assert (await call(flow_server, flowapi.GET_TOOL, name="login"))["shared"] is True
+    assert (await resource(flow_server, "flow://flows/login"))["shared"] is True
 
 
 async def test_an_unnamed_caller_cannot_delete_from_it_either(
@@ -258,7 +248,7 @@ async def test_a_stdio_caller_still_reads_the_shared_library(
     """Its own library is additional to `global`, not instead of it."""
     store.save(GLOBAL_SESSION, "shared", {"steps": GOOD})
     acting_as(monkeypatch, flow_server, STDIO_SESSION)
-    listing = await call(flow_server, flowapi.LIST_TOOL)
+    listing = await resource(flow_server, flowapi.LIST_URI)
     assert [f["name"] for f in listing["flows"]] == ["shared"]
     assert listing["flows"][0]["shared"] is True
 
@@ -290,7 +280,7 @@ async def test_the_write_tool_prompts_do_not_lie_to_a_stdio_caller(flow_server):
 
 
 async def test_the_schema_is_derived_from_the_live_tools(flow_server):
-    schema = await call(flow_server, flowapi.SCHEMA_TOOL)
+    schema = await resource(flow_server, flowapi.SCHEMA_URI)
     steps = schema["properties"]["steps"]["items"]["properties"]["tool"]["enum"]
     assert "write" in steps and "interact" in steps
     # Lifecycle is not a step, so it cannot appear in the shape we publish.
@@ -308,8 +298,10 @@ async def test_with_no_data_directory_the_tools_say_so(monkeypatch):
     server = SeleniumMCP(grid_url="http://grid.invalid:4444")
     acting_as(monkeypatch, server, NAMED)
     assert server.flows is None
-    with pytest.raises(ValueError, match="FLOW_DATA_DIR"):
-        await call(server, flowapi.LIST_TOOL)
+    from fastmcp.exceptions import ResourceError
+
+    with pytest.raises(ResourceError, match="FLOW_DATA_DIR"):
+        await resource(server, flowapi.LIST_URI)
 
 
 # ---- the HTTP half -----------------------------------------------------------
@@ -428,7 +420,7 @@ def test_a_traversing_session_name_is_a_400(client):
 def test_a_missing_flow_is_a_400_that_says_where_to_look(client):
     response = client.get("/flows/nope", headers=named("workflow"))
     assert response.status_code == 400
-    assert "list_flows" in response.json()["error"]
+    assert "flow://flows" in response.json()["error"]
 
 
 def test_the_schema_endpoint_serves_the_document_shape(client):
@@ -521,7 +513,7 @@ async def test_running_a_shared_flow_works_and_says_it_was_shared(ran):
 
 async def test_running_a_flow_that_is_not_there_says_where_to_look(ran):
     server, _ = ran
-    with pytest.raises(ValueError, match="list_flows"):
+    with pytest.raises(ValueError, match="flow://flows"):
         await call(server, flowapi.RUN_TOOL, name="nope")
 
 
@@ -605,7 +597,7 @@ async def test_a_resize_step_is_written_back_to_the_session(flow_server, monkeyp
 async def test_the_schema_says_how_a_parameter_reaches_an_argument(flow_server):
     """Not guessable from any tool schema: a parameter is written into a string,
     and nothing in `write`'s signature says so."""
-    schema = await call(flow_server, flowapi.SCHEMA_TOOL)
+    schema = await resource(flow_server, flowapi.SCHEMA_URI)
     described = schema["x-parameters"]["description"]
     assert "${name}" in described
     assert "single-pass" in described
@@ -616,7 +608,7 @@ async def test_the_schema_publishes_the_secret_shape_from_the_model(flow_server)
     """The MCP tool's own model rather than a copy of it, and closed — JSON
     Schema allows extra properties by default, so a consumer building from this
     could produce a misspelt reference that it accepts and save_flow refuses."""
-    schema = await call(flow_server, flowapi.SCHEMA_TOOL)
+    schema = await resource(flow_server, flowapi.SCHEMA_URI)
     secret = schema["x-secret"]["schema"]
     assert set(secret["required"]) == {"name", "key"}
     assert secret.get("additionalProperties") is False

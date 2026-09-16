@@ -446,7 +446,6 @@ def from_env(env: dict | None = None) -> Catalogue | None:
 # it chose.
 
 LIST_URI = "secret://secrets"
-LIST_TOOL = "list_secrets"
 
 LIST_DESCRIPTION = (
     "The secrets you can bind to a field, by name.\n\n"
@@ -464,31 +463,25 @@ LIST_DESCRIPTION = (
 )
 
 
-def register(mcp, catalogue, sessions, token: str | None, prefix: str = "") -> set[str]:
-    """Serve the catalogue as a resource, a mirroring tool and one endpoint."""
+def register(mcp, catalogue, sessions, token: str | None, prefix: str = "") -> None:
+    """Serve the catalogue as a resource and one endpoint."""
     from starlette.responses import JSONResponse
 
     from . import errors
     from .http import auth
-    from .mcp.annotations import reads
 
     def listing() -> dict:
         if catalogue is None:
             raise ValueError(OFF)
         return catalogue.listing(sessions.name())
 
-    @mcp.resource(LIST_URI, description=LIST_DESCRIPTION, mime_type="application/json")
-    def secrets_resource() -> dict:
-        return listing()
-
-    @mcp.tool(
-        name=LIST_TOOL,
+    @mcp.resource(
+        LIST_URI,
+        name="Secrets",
         description=LIST_DESCRIPTION,
-        # Reads a directory this server can already see. It never reaches the
-        # browser, the Grid or the network.
-        annotations=reads("Secrets you can bind", open_world=False),
+        mime_type="application/json",
     )
-    def list_secrets() -> dict:
+    def secrets_resource() -> dict:
         return listing()
 
     @mcp.custom_route(f"{prefix}/secrets", methods=["GET"], name="secrets")
@@ -501,8 +494,6 @@ def register(mcp, catalogue, sessions, token: str | None, prefix: str = "") -> s
             return JSONResponse(
                 {"error": errors.message(exc)}, status_code=errors.status_for(exc)
             )
-
-    return {LIST_TOOL}
 
 
 # ---------------------------------------------------------------------------
@@ -576,7 +567,7 @@ def bind(catalogue, reference, url: str, tool: str = "write") -> str:
     entry = catalogue.entry(name)
     if entry is None:
         raise Refused(
-            f"there is no secret called {name!r}. list_secrets shows what there is."
+            f"there is no secret called {name!r}. secret://secrets shows what there is."
         )
     if key not in entry["keys"]:
         raise Refused(

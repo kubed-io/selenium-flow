@@ -180,3 +180,16 @@ async def test_a_refused_argument_shape_is_one_warning_line_too(server, log):
     assert log, "nothing was logged for the refusal"
     assert all(level == logging.WARNING for level, _ in log)
     assert not any("Traceback" in text for _, text in log)
+
+
+async def test_a_call_that_carries_a_secret_is_not_told_it_needs_text(server):
+    """The secret is its text. A refusal for an unrelated mistake used to add
+    "needs 'text'" too, and sent the caller to fix the one thing that was right
+    (#38's last review)."""
+    said = await refused(
+        server,
+        "write",
+        {"selector": "input", "secret": {"name": "nc", "key": "password"}},
+    )
+    assert "selector" in said
+    assert "needs 'text'" not in said

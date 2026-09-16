@@ -58,14 +58,6 @@ def build_parser() -> argparse.ArgumentParser:
         "the UI extension render inline (env: APPS_ENABLED)",
     )
     parser.add_argument(
-        "--stateless",
-        action="store_true",
-        default=os.environ.get("STATELESS_HTTP", "").strip().lower()
-        in ("1", "true", "yes", "on"),
-        help="drop MCP transport sessions so any replica can serve any request; "
-        "required to run more than one replica (env: STATELESS_HTTP)",
-    )
-    parser.add_argument(
         "--flow-data-dir",
         default=os.environ.get("FLOW_DATA_DIR", ""),
         help="directory holding each session's saved flows and kept files. "
@@ -112,18 +104,16 @@ def main(argv: list[str] | None = None) -> None:
         grid_url=args.grid_url,
         auth_token=args.auth_token or None,
         route_prefix=args.route_prefix,
-        stateless=args.stateless,
         skill_enabled=args.skill_enabled,
         apps_enabled=args.apps_enabled,
         flow_data_dir=args.flow_data_dir or None,
         secrets_dirs=args.secrets_dirs or None,
     )
     logging.getLogger(__name__).info(
-        "grid=%s auth=%s sessions=%s stateless=%s skill=%s flows=%s secrets=%s",
+        "grid=%s auth=%s sessions=%s skill=%s flows=%s secrets=%s",
         args.grid_url,
         "on" if args.auth_token else "off",
         server.sessions.kind,
-        args.stateless,
         server.skill.skill_info.name if server.skill else "off",
         server.flows.kind if server.flows else "off",
         len(server.secrets.sources) if server.secrets else "off",

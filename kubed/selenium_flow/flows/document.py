@@ -426,10 +426,14 @@ def argument_problems(tool: str, arguments: dict, schema: dict) -> list[str]:
     link to pydantic's documentation — and a pilot spent six calls finding out
     what shape `selector` wanted (§F2.15).
     """
+    # What a secret supplies, exactly as for a step: a call carrying one has
+    # its text, and saying "needs text" beside another mistake sent the caller
+    # to fix the one thing that was right (#38).
+    bound = {"text"} if arguments.get(SECRET_ARG) is not None else set()
     return [
         problem.removeprefix(": ")
         for problem in _check_params(
-            "", tool, arguments, set(), inlined(schema), in_flow=False
+            "", tool, arguments, bound, inlined(schema), in_flow=False
         )
     ]
 

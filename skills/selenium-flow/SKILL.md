@@ -7,7 +7,7 @@ description: Drive a real Chrome or Firefox browser on Selenium Grid through the
 
 The browser is **real and persistent**. It lives on Selenium Grid, not in the
 server, and it keeps its page, cookies, storage and scroll position between your
-calls. You are steering one tab, not making stateless requests.
+calls. You are steering one tab, not sending independent requests.
 
 Three consequences drive everything else:
 
@@ -32,11 +32,14 @@ There is **no session id anywhere** — no tool takes one, no result carries one
 Call again with the same name and you get the same browser back, after a
 reconnect or a restart.
 
-Read the `session://current` resource before your first action if you want to
-know what you are holding. It is free, and it reports the session name, the
-browser, the page and whether one is open. If you cannot read resources, the
-`current_session` tool returns the same object. `references/SESSIONS.md` has
-the rest.
+Read `session://current` before your first action if you want to know what you
+are holding. It reports the session name, the browser, the page and whether one
+is open. `skill://selenium-flow/references/SESSIONS.md` has the rest.
+
+**Everything here to read is a URI** — `session://`, `flow://`, `secret://`,
+`skill://` — whether this page, a hint in a failed run or an error names it. Read
+it the way your client reads MCP resources. If your client cannot, this server
+gives you `read_resource(uri)` and `list_resources()` instead, for the same URIs.
 
 **Either way, call `open_session` first.** Nothing opens a browser implicitly,
 because `open_session` is the only place its browser, window size and timeouts
@@ -55,7 +58,7 @@ are holding is ended for you first, so do not close and reopen. **The files it
 had go with it**: the Grid keeps a file store per browser and deletes it with
 the browser. `keep_file(name)` copies one out first — a kept file belongs to
 your session instead, so it survives switching, ending, and the Grid reaping an
-idle browser. `session_files` lists both kinds and marks which is which.
+idle browser. `session://files` lists both kinds and marks which is which.
 
 One session holds one browser. To use both at once, use two session names;
 `session://current` reports which browser the one you are holding is.
@@ -89,10 +92,11 @@ the page with a checked selector for each, and says whether an element can be
 used or what is in the way — a hidden ancestor, an overlay, no size, off-screen,
 disabled. `extract` is for *content*.
 
-**4. Address elements with `xpath` or `css`, never both.** `css` is shorter for
-ids, classes and attributes; `xpath` is the only one that can match visible text
-(`//button[contains(., 'Save')]`) or walk up to an ancestor. Passing both is an
-error rather than a preference — see `references/READING_PAGES.md`.
+**4. Address an element with one `selector`: `{"css": …}` or `{"xpath": …}`.**
+`css` is shorter for ids, classes and attributes; `xpath` is the only one that
+can match visible text (`//button[contains(., 'Save')]`) or walk up to an
+ancestor. Giving both is an error rather than a preference — see
+`skill://selenium-flow/references/READING_PAGES.md`.
 
 **5. Always end the browser.** Including on failure paths. `end_browser()`
 frees the slot; skipping it makes the next person wait. It ends the *browser*,
@@ -105,13 +109,13 @@ Load only what the task needs.
 
 | Doing | Read |
 |---|---|
-| Naming a session, sharing one, or recovering a dead browser | `references/SESSIONS.md` |
-| Getting content out of a page, choosing a selector | `references/READING_PAGES.md` |
-| Clicking, hovering, typing, uploading, dialogs, scrolling, waiting | `references/INTERACTION.md` |
-| A timeout, an empty screenshot, a click that did nothing | `references/TROUBLESHOOTING.md` |
-| Setting the server up, connecting a client, which env var to change | `references/CONFIGURATION.md` |
-| Doing a sequence you or another agent will repeat — save it once, run it in one call | `references/FLOWS.md` |
-| Typing a password, token or anything else you must not see | `references/SECRETS.md` |
+| Naming a session, sharing one, or recovering a dead browser | `skill://selenium-flow/references/SESSIONS.md` |
+| Getting content out of a page, choosing a selector | `skill://selenium-flow/references/READING_PAGES.md` |
+| Clicking, hovering, typing, uploading, dialogs, scrolling, waiting | `skill://selenium-flow/references/INTERACTION.md` |
+| A timeout, an empty screenshot, a click that did nothing | `skill://selenium-flow/references/TROUBLESHOOTING.md` |
+| Setting the server up, connecting a client, which env var to change | `skill://selenium-flow/references/CONFIGURATION.md` |
+| Doing a sequence you or another agent will repeat — save it once, run it in one call | `skill://selenium-flow/references/FLOWS.md` |
+| Typing a password, token or anything else you must not see | `skill://selenium-flow/references/SECRETS.md` |
 
 ## A whole task, minimally
 
@@ -128,11 +132,11 @@ end_browser()
 ```
 
 **Never put a real password in `text`.** Name a secret instead and the server
-types it without it ever passing through you — `list_secrets` shows what there
-is, and `references/SECRETS.md` covers the rest.
+types it without it ever passing through you — `secret://secrets` shows what
+there is, and `skill://selenium-flow/references/SECRETS.md` covers the rest.
 
 If you will do this again, save it as a flow and it becomes one `run_flow` call
-(`references/FLOWS.md`).
+(`skill://selenium-flow/references/FLOWS.md`).
 
 ## Every tool
 
@@ -158,20 +162,23 @@ check this table twice before reaching for it.
 | `resize` | change the window size | `width`, `height` |
 | `execute_script` | run JavaScript — only for what nothing above does | `script` |
 | `assert` | JavaScript that must return true, or the call fails | `script`, `message`, `stable_for` |
-| `session_files` | what the browser downloaded and what you kept | — |
 | `keep_file` | keep a file past the browser | `name` |
-| `list_secrets` | the secrets you may type — never their values | — |
-| `list_flows` | the saved flows you can run | — |
-| `get_flow` | one flow's parameters and steps | `name` |
-| `flow_schema` | what a step may contain | — |
-| `save_flow` | save a sequence of steps under a name | `name`, `parameters`, `steps` |
+| `save_flow` | save a sequence of steps under a name | `name`, `parameters`, `steps`, `timeout` |
 | `run_flow` | run a saved flow in one call | `name`, `params` |
 | `delete_flow` | delete one of your flows | `name` |
-| `current_session` | what you are holding — the same as `session://current` | — |
-| `selenium_flow_skill` | this page and its references — the same as `skill://selenium-flow` | `file` |
 
-The last two are mirrors of resources, and your client only lists them if it
-cannot read resources. Everything else is always there.
+And everything to read:
+
+| URI | Is |
+|---|---|
+| `session://current` | what you are holding |
+| `session://files` | what the browser downloaded and what you kept, each with a link |
+| `session://files/{name}` | one of those files |
+| `secret://secrets` | the secrets you may type — never their values |
+| `flow://flows` | the saved flows you can run |
+| `flow://flows/{name}` | one flow's parameters and steps |
+| `flow://schema` | what a step may contain |
+| `skill://selenium-flow/SKILL.md` | this page; its references are beside it |
 
 Every tool that names an element waits for it in the background and carries on
 the moment it appears. `wait_timeout` is only how long it may take, never a
@@ -184,4 +191,4 @@ say which to pick.
 
 `hover` leaves the pointer where it put it, so a `:hover` menu stays open for the
 next call — and it is the only way to open one. `press_key` is **not** a reliable
-way to scroll; `execute_script` is. The detail is in `references/INTERACTION.md`.
+way to scroll; `execute_script` is. The detail is in `skill://selenium-flow/references/INTERACTION.md`.

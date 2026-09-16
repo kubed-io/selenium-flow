@@ -36,7 +36,7 @@ If the URL is right and the element still is not found, in order of likelihood:
    `frame(action="default")` to come back.
 2. **It has not rendered yet** and the wait was too short — raise `wait_timeout`.
 3. **It is off-screen in a virtualised list** — scroll it into view first
-   (`references/INTERACTION.md`).
+   (`skill://selenium-flow/references/INTERACTION.md`).
 4. **The XPath is brittle** — positional paths break on any layout change; match
    on an attribute or on visible text instead.
 
@@ -52,7 +52,7 @@ two names is two ideas about who is calling. Send whichever one you control and
 drop the other.
 
 Neither is transient; retrying unchanged will not help. There is no `session_id`
-to pass on any call — see `references/SESSIONS.md`.
+to pass on any call — see `skill://selenium-flow/references/SESSIONS.md`.
 
 ## "no browser is open for you yet"
 
@@ -77,7 +77,7 @@ it will have told you so:
 ```
 
 Answer it with `dialog` — `accept`, `dismiss`, or `send_text` for a prompt — and
-carry on. See `references/INTERACTION.md`. Nothing else will work until you do.
+carry on. See `skill://selenium-flow/references/INTERACTION.md`. Nothing else will work until you do.
 
 ## A dialog does not mean the session died
 

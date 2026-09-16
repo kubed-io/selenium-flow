@@ -24,7 +24,6 @@ from kubed.selenium_flow import errors
 from kubed.selenium_flow.core import browser
 from kubed.selenium_flow.flows import library as flows
 from kubed.selenium_flow.http import admin, files, links
-from kubed.selenium_flow.mcp import resources as resources_module
 from kubed.selenium_flow.routes import ENDPOINTS
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.session.store import SessionRecord
@@ -381,11 +380,12 @@ def test_deleting_refuses_when_keeping_is_off():
 
 # ---- the two surfaces --------------------------------------------------------
 
-# Which tool answers which endpoint. Written out rather than derived, so a typo
-# in either table cannot make the parity test agree with itself.
-TOOL_FOR = {
-    "list": files.FILES_TOOL,
-    "keep": files.KEEP_TOOL,
+# What answers each endpoint over MCP: a resource for a read, a tool for an
+# action (§F3.6). Written out rather than derived, so a typo in either table
+# cannot make the parity test agree with itself.
+MCP_FOR = {
+    "list": ("resource", "session://files"),
+    "keep": ("tool", files.KEEP_TOOL),
 }
 
 
@@ -399,21 +399,21 @@ async def test_every_file_action_is_reachable_from_both_surfaces(
     their own route table. So this is where the one-to-one is actually held, and
     subtracting them there is a narrowing rather than an excuse.
 
-    Resources are turned off so the listing includes `session_files`, which is a
-    resource mirror and hidden from a client that can read the resource itself.
+    A read is a resource over MCP and an action is a tool; either way both
+    doors exist.
     """
-    assert set(TOOL_FOR) == set(files.FILE_ENDPOINTS), (
-        "an endpoint has no tool named for it, or the other way round"
+    assert set(MCP_FOR) == set(files.FILE_ENDPOINTS), (
+        "an endpoint has nothing named for it over MCP, or the other way round"
     )
-    monkeypatch.setattr(resources_module, "_http", lambda: ({"resources": "off"}, {}))
     names = {t.name for t in await kept_server.mcp.list_tools()}
-    for path, tool in TOOL_FOR.items():
+    uris = {str(r.uri) for r in await kept_server.mcp.list_resources()}
+    for path, (kind, target) in MCP_FOR.items():
         method, template = files.FILE_ROUTES[path]
         route = f"/files{template}".replace("{name}", "report.pdf")
-        assert tool in names, f"{route} has no tool"
+        assert target in (names if kind == "tool" else uris), f"{route} has no {kind}"
         # 401 rather than 404: the route exists and refused the credential,
         # which is what proves it is bound.
-        assert getattr(client, method)(route).status_code == 401, f"{tool} has no route"
+        assert getattr(client, method)(route).status_code == 401, f"{target} has no route"
 
 
 async def test_the_file_actions_are_not_counted_as_browser_actions(kept_server):
@@ -441,9 +441,9 @@ async def test_deleting_a_kept_file_is_not_offered_to_an_agent(
     an operator action on the admin surface — which is also why there is no
     endpoint: one without a tool is the half-a-capability this project forbids.
     """
-    monkeypatch.setattr(resources_module, "_http", lambda: ({"resources": "off"}, {}))
     names = {t.name for t in await kept_server.mcp.list_tools()}
     assert "delete_file" not in names
+    assert await kept_server.mcp.get_tool("delete_file") is None
     assert "delete" not in files.FILE_ENDPOINTS
 
 
@@ -1009,9 +1009,9 @@ def test_reading_a_name_nobody_kept_says_what_to_call_instead(store):
         files.read_kept(_Sessions(), store, "nope.csv")
     message = str(missing.value)
     assert "no kept file called 'nope.csv'" in message
-    assert "session_files" in message and "keep_file" in message
+    assert "session://files" in message and "keep_file" in message
     # The path on this server's disk answers a question nobody asked.
-    assert "/" not in message.split("session_files")[0]
+    assert "/" not in message.split("session://files")[0]
 
 
 def test_a_name_nobody_kept_is_the_callers_mistake_not_the_servers(store):

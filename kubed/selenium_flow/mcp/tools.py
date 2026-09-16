@@ -20,6 +20,7 @@ from collections.abc import Callable
 from typing import Annotated, Literal
 
 from fastmcp import FastMCP
+from fastmcp.server.middleware import Middleware
 from fastmcp.tools import ToolResult
 from fastmcp.utilities.types import Image
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
@@ -29,7 +30,6 @@ from ..core.actions import (
     DIALOG_ACTIONS,
     DIALOG_TIMEOUT,
     FRAME_ACTIONS,
-    KEY_NAMES,
     MOUSE_ACTIONS,
     WAIT_TIMEOUT,
     Actions,
@@ -37,6 +37,7 @@ from ..core.actions import (
 from ..core.browser import BROWSERS
 from ..core.probe import DEFAULT_LIMIT as OUTLINE_LIMIT
 from ..session.sessions import NAME_PARAM, SessionManager
+from . import clients
 from .annotations import hints
 
 
@@ -185,14 +186,59 @@ execute_script for anything the other tools do not cover, scrolling included.
 SKILL_POINTER = """
 How to drive this well — when to screenshot rather than extract, what a timeout \
 on a good XPath usually means, how to write a flow — is at \
-skill://selenium-flow/SKILL.md. Read it before your first call; it ships with \
-this server, so it describes this version of it.
+skill://selenium-flow/SKILL.md. Read it{how} before your first call; it ships \
+with this server, so it describes this version of it.
+"""
+
+# For a client whose model cannot read resources (§F3.2). Everything to read is
+# still named by URI, so it is told how to read one rather than handed a
+# different vocabulary.
+READING_POINTER = """
+Everything this server has to read is a URI — session://current, flow://flows, \
+secret://secrets and the like, wherever a hint or an error names one. Read one \
+with read_resource(uri); list_resources shows them all.
 """
 
 
-def instructions(skill_available: bool = True) -> str:
-    """What every client reads at connect, for the server it actually got."""
-    return INSTRUCTIONS + SKILL_POINTER if skill_available else INSTRUCTIONS
+def instructions(skill_available: bool = True, reads_resources: bool = True) -> str:
+    """What a client reads at connect, for the server it got and what it can read."""
+    text = INSTRUCTIONS
+    if not reads_resources:
+        text += READING_POINTER
+    if skill_available:
+        how = "" if reads_resources else " with read_resource"
+        text += SKILL_POINTER.format(how=how)
+    return text
+
+
+class InstructionsFor(Middleware):
+    """Answer the handshake with the instructions for the client it came from.
+
+    One server object serves every client, so the text is chosen per handshake
+    rather than fixed at construction: a client that cannot read resources is
+    told to use read_resource, which a client that can would only be confused by.
+    """
+
+    def __init__(self, skill_available: bool):
+        self.skill_available = skill_available
+
+    def _text(self, context) -> str:
+        client = clients.named_in(context.message)
+        return instructions(self.skill_available, clients.reads_resources(client))
+
+    async def on_initialize(self, context, call_next):
+        result = await call_next(context)
+        if result is not None:
+            result.instructions = self._text(context)
+        return result
+
+    async def on_discover(self, context, call_next):
+        result = await call_next(context)
+        if isinstance(result, dict):
+            result["instructions"] = self._text(context)
+        elif result is not None:
+            result.instructions = self._text(context)
+        return result
 
 
 
@@ -220,39 +266,18 @@ def register(
         script_timeout: int | None = None,
         fresh: bool = False,
     ) -> dict:
-        """Start a browser session. Do this first.
+        """Start this session's browser, or come back to the one it had. Call it before
+        anything else: nothing opens a browser for you.
 
-        This is the only place a browser is created, and the only place its
-        settings can be chosen, so it is never done implicitly for you.
+        With no arguments it returns to the same browser, window and page, which is
+        the right call after a browser was reaped or ended. Calling it while you
+        hold a browser ends that one first, which is how you switch:
+        open_session(browser="firefox"). Files that browser had and you did not keep
+        go with it.
 
-        Called with nothing, it carries on where this session left off: the same
-        browser, the same window, back to the page it was last on. So after a
-        browser is reaped or ended, a bare open_session() is usually right.
-
-        Safe to call while you already have a browser: the one you are holding
-        is ended for you first, so you never need to close before opening. That
-        is how you switch browser — open_session(browser="firefox") — and the
-        files the old browser had go with it, because the Grid keeps them per
-        browser and deletes them with it.
-
-        browser is "chrome" (the default) or "firefox". Every other tool works
-        the same on either, so pick Firefox only when the task is about
-        Firefox — checking a rendering difference, or a site that treats the two
-        differently. A session cannot change browser later: open another one.
-
-        Set width and height when layout matters — the headless default is
-        narrow and varies between Grid nodes. page_load_timeout bounds how long
-        a navigation may hang; without one a stuck page holds a scarce Grid slot
-        until the Grid reaps it.
-
-        fresh=true opens on about:blank instead of going back to the page this
-        session was last on. Use it to run something from a known start — a
-        login flow you want to exercise signed out. It keeps the browser and
-        window this session was using; only the page is dropped.
-
-        Returns the session name and the settings the browser was opened with.
-        There is no browser id to keep: every later call is about this session
-        because of how you named yourself, not because of anything you pass.
+        Set width and height when layout matters; the headless default is narrow.
+        fresh=true starts on about:blank. page_load_timeout bounds a navigation that
+        hangs.
         """
         return sessions.open_browser(
             sessions.name(),
@@ -267,15 +292,12 @@ def register(
 
     @mcp.tool(annotations=hints("End browser", destructive=True, idempotent=True))
     def end_browser() -> dict:
-        """Quit the browser and free its Grid slot. Do this when finished.
+        """Quit this session's browser and free its Grid slot.
 
-        Ends the *browser*, not your session. The session keeps the browser
-        choice and the page you were on, so a later open_session() with no
-        arguments picks up exactly where this left off — and any files the
-        browser had are gone with it, because the Grid keeps them per browser.
-
-        Call it on failure paths too. Browsers are scarce and an abandoned one
-        holds a Grid slot until it is reaped.
+        Call it when finished, and on failure paths too: browsers are scarce, and an
+        abandoned one holds its slot until the Grid reaps it. The session survives,
+        so a later open_session() comes back to the same page. Files the browser had
+        and you did not keep go with it.
         """
         name = sessions.name()
         sessions.end_browser(name)
@@ -283,10 +305,10 @@ def register(
 
     @mcp.tool(annotations=hints("Navigate to URL", idempotent=True))
     def navigate(url: str) -> dict:
-        """Go to a URL. Returns the resulting URL and page title.
+        """Go to a URL. Returns the URL and title the browser ended on.
 
-        Use this to move somewhere unconditionally. To act on a page in one
-        step, prefer passing url to click, write, extract or screenshot.
+        Every other action also takes url, and navigates there first only if the
+        browser is somewhere else, so you rarely need this as a separate call.
         """
         return run(lambda s: actions.navigate(s, url))
 
@@ -294,23 +316,17 @@ def register(
     # action layer validates against.
     @mcp.tool(
         description=(
-            "Perform a mouse action on an element.\n\n"
-            f"action is one of: {', '.join(MOUSE_ACTIONS)}.\n\n"
-            "click is the common case. hover opens menus that only appear on "
-            "mouse-over, and leaves the pointer there, so such a menu stays open "
-            "for the next call: hover it, then click the item inside. right_click "
-            "opens context menus. scroll_to brings an "
-            "off-screen element into view, which is often what a click on a "
-            "long page needs first.\n\n"
-            "The pointer moves onto the element first, so after a click it is "
-            "on what you clicked, the way a person's would be. That move is an "
-            "instant jump unless you set glide=true, which sends many small "
-            "moves instead - set it for an interface that watches movement "
-            "rather than arrival: sliders, sortable lists, drag thresholds, and "
-            "menus that track which way the pointer came from. To drag "
+            f"A mouse action on an element: {', '.join(MOUSE_ACTIONS[:-1])} or "
+            f"{MOUSE_ACTIONS[-1]}.\n\n"
+            "hover leaves the pointer where it put it, so a menu that opens "
+            "on hover stays open for the next call: hover it, then click "
+            "inside. scroll_to brings an off-screen element into view.\n\n"
+            "The pointer jumps onto the element unless glide=true, which "
+            "moves it in small steps, for interfaces that react to movement: "
+            "sliders, sortable lists, menus that track direction. To drag "
             "something, use drag.\n\n"
-            "Returns the URL and title *after* the action, so any navigation it "
-            "caused is visible in the result.\n\n" + SELECTOR
+            "Returns the URL and title after the action, so a navigation it "
+            "caused shows."
         ),
         annotations=hints("Mouse action on an element", destructive=True),
     )
@@ -334,21 +350,13 @@ def register(
 
     @mcp.tool(
         description=(
-            "Drag one element onto another, or by an offset in pixels.\n\n"
-            "Address the thing being dragged with selector. Say "
-            "where it goes with EITHER to - a destination element "
-            "- OR by_x and by_y, a distance from where it started. A range "
-            "slider is the by_x case; a card into a column is the element "
-            "case.\n\n"
-            "The pointer presses, travels and releases, holding briefly at "
-            "each end because several drag libraries arm on a delay rather than "
-            "on the press. glide defaults to true here: incremental movement is "
-            "most of what a drag is for, and a library watching pointermove "
-            "sees nothing without it.\n\n"
-            "This drives pointer events, and on Chrome that is also enough for "
-            "native HTML5 drag-and-drop (dragstart through drop). On Firefox "
-            "the native drop does not complete - measured, not assumed - so a "
-            "draggable=true element there may need the page's own fallback."
+            "Drag an element onto another element (to), or by an offset in "
+            "pixels (by_x, by_y); give one or the other. A range slider is "
+            "by_x; a card into a column is to.\n\n"
+            "The pointer presses, glides and releases with short holds at "
+            "each end, which drag libraries need. On Chrome this also "
+            "completes native HTML5 drag-and-drop; on Firefox it does not, so "
+            "a draggable=true element there may need the page's own fallback."
         ),
         annotations=hints("Drag an element", destructive=True),
     )
@@ -376,17 +384,12 @@ def register(
 
     @mcp.tool(
         description=(
-            "Move into an iframe, or back out of it.\n\n"
-            f"action is one of: {', '.join(FRAME_ACTIONS)}. Use switch with an "
-            "a selector (or index) to go into a frame, parent to go up one level, and "
-            "default to return to the main page.\n\n"
-            "Selenium does not look inside frames: an element in one is "
-            "invisible to every locator until you switch in. **The switch "
-            "sticks** — every later call stays in that frame until you switch "
-            "back, so if a locator that should work is failing, check "
-            "session://current for in_frame.\n\nName the frame with a selector "
-            "or an index — one of the two, not both. parent and default take "
-            "none of them."
+            "Move into an iframe (switch, with a selector or an index), up "
+            "one level (parent), or back to the page (default).\n\n"
+            "Elements inside a frame are invisible to every tool until you "
+            "switch in, and the switch sticks for every later call. If a "
+            "selector that should work keeps failing, read session://current: "
+            "in_frame says where you are."
         ),
         annotations=hints("Switch into or out of an iframe", idempotent=True),
     )
@@ -413,14 +416,9 @@ def register(
     ) -> dict:
         """Resize the browser window.
 
-        Use this when layout matters and the browser was opened for you, or
-        when you need a different size partway through. The headless default is
-        small and varies between Grid nodes, so set it explicitly before
-        judging anything visual.
-
-        The new size sticks to the session, so a browser the Grid reaps and
-        reopens comes back the size you last set rather than the size it was
-        opened at.
+        Set a size before judging anything visual: the headless default is small and
+        varies between Grid nodes. The size sticks to the session, so a browser
+        reopened after the Grid reaps it comes back at this size.
         """
         return run(
             lambda s: actions.resize(s, width=width, height=height),
@@ -429,12 +427,11 @@ def register(
 
     @mcp.tool(
         description=(
-            "Answer a native alert, confirm or prompt dialog.\n\n"
-            f"action is one of: {', '.join(DIALOG_ACTIONS)}. Use read to see the "
-            "message without answering, accept to confirm, dismiss to cancel, "
-            "and send_text with text to fill a prompt and accept it.\n\n"
-            "An open dialog blocks every other command, so if a call fails "
-            "complaining about an unexpected alert, this is how you clear it."
+            "Answer a native alert, confirm or prompt: accept, dismiss, read "
+            "(see the message without answering), or send_text (fill a prompt "
+            "with text and accept it).\n\n"
+            "An open dialog blocks every other command, so if a call fails on "
+            "an unexpected alert, clear it here."
         ),
         annotations=hints("Answer a native dialog", destructive=True),
     )
@@ -461,26 +458,16 @@ def register(
         wait_timeout: int = WAIT_TIMEOUT,
         kept: str | None = None,
     ) -> dict:
-        """Attach a file to a file input.
+        """Attach a file to a file input (selector). Give exactly one source:
 
-        For anything you wrote yourself — JSON, CSV, YAML, markdown, plain text
-        — put it straight in `text` and give it a `filename`. There is no need
-        to encode it; the server writes the real file and sends it to the
-        browser, which runs on another machine.
+        - text, for anything you wrote (JSON, CSV, markdown), with a filename;
+        - kept, the name of a file keep_file kept, to upload a download without its
+          bytes passing through you (session://files lists them);
+        - content, base64, for other binary;
+        - path, a file already on the server.
 
-        `kept` takes the name of a file keep_file has kept, which is how you
-        give a page back something a browser downloaded — an export from one
-        site uploaded to another, without the bytes passing through you.
-        session_files lists what is there.
-
-        Use `content` (base64) only for binary, and `path` only for a file
-        already on the server's filesystem. Pass exactly one of the four.
-
-        The page reads the file's type from the **filename extension**, so name
-        it `report.csv` rather than `report`. If you give a name without an
-        extension, `mime_type` is used to pick one.
-
-        Address the input with a selector: exactly one of xpath or css.
+        The page reads the type from the filename's extension, so name it
+        report.csv, not report; without one, mime_type picks it.
         """
         return run(
             lambda s: actions.upload_file(
@@ -507,19 +494,14 @@ def register(
         wait_timeout: int = WAIT_TIMEOUT,
         secret: SecretRef | None = None,
     ) -> dict:
-        """Type text into an input, textarea or contenteditable.
+        """Type into an input, textarea or contenteditable, and read the value back so
+        you can see it landed. clear (default true) replaces what is there;
+        submit=true presses Enter afterwards.
 
-        Set submit to press Enter afterwards, which fills and submits a search
-        box in one call. Returns the field's value read back off the element, so
-        you can confirm the text actually landed.
-
-        Address the field with a selector: exactly one of xpath or css.
-
-        To type a secret, pass secret={"name": ..., "key": ...} instead of
-        text. list_secrets shows what there is. You never see the value: the
-        server reads it and types it, and the result comes back with
-        value: null. A secret may only be used on the sites its owner allowed,
-        checked against the page you are on, so navigate there first.
+        To type a secret, pass secret={"name": ..., "key": ...} instead of text;
+        secret://secrets lists them. The server types it and you never see it: value
+        comes back null. A secret works only on the sites it allows, checked against
+        the page you are on, so navigate there first.
         """
         if secret is None and text is None:
             raise ValueError("write needs text, or a secret to supply it")
@@ -552,22 +534,20 @@ def register(
             },
         )
 
-    # The description is passed rather than left as a docstring so the real key
-    # list is interpolated in — a model guessing key names gets a 400, and the
-    # list cannot drift from the mapping it is generated from.
+    # The key names are not listed here: a name that is not one is refused with
+    # every name there is, generated from the mapping itself, which is where a
+    # model that guessed wrong is looking anyway (§F3.5).
     @mcp.tool(
         description=(
-            "Press a key, at an element or wherever focus currently is.\n\n"
-            "key is a name, one character, or a combination joined with +. "
-            "Names take the browser's spelling or Selenium's, in any case: "
-            "Enter, Tab, Escape, Backspace, ArrowLeft, PageDown, F5 - or enter, "
-            "arrow_left, page_down. A combination holds each modifier for the "
-            "keys after it: Control+a, Shift+Tab. Every name: "
-            f"{', '.join(KEY_NAMES)}.\n\n"
-            "Not a reliable way to scroll - page_down only moves the page when "
-            "focus happens to be on the scrollable container. Use execute_script "
-            "to scroll.\n\nTo aim the key at an element, pass a selector; "
-            "with neither, it goes wherever focus already is."
+            "Press a key or a combination, at an element (selector) or "
+            "wherever focus already is.\n\n"
+            "key is a name, a single character, or keys joined with +: Enter, "
+            "Tab, Escape, ArrowLeft, PageDown, F5, Control+a, Shift+Tab. The "
+            "browser's spelling (ArrowLeft) and Selenium's (arrow_left) both "
+            "work, in any case.\n\n"
+            "Not a reliable way to scroll: PageDown moves the page only when "
+            "focus is on the thing that scrolls. Use execute_script to "
+            "scroll."
         ),
         annotations=hints("Press a named key", destructive=True),
     )
@@ -589,13 +569,11 @@ def register(
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
     ) -> dict:
-        """Read an element's visible text and innerHTML.
+        """Read an element's visible text and HTML.
 
-        The primary way to read a page — prefer it over a screenshot, which
-        costs far more. //body reads everything, but a narrower selector keeps
-        the result small.
-
-        Address the element with a selector: exactly one of xpath or css.
+        The cheapest way to read a page; prefer it to a screenshot. //body reads
+        everything, and a narrower selector keeps the result small. To find a
+        selector, use outline.
         """
         return run(
             lambda s: actions.extract(
@@ -605,25 +583,18 @@ def register(
 
     @mcp.tool(
         description=(
-            "Map what is on the page: every element worth acting on, with a "
-            "selector for it and whether it can actually be used.\n\nThis is "
-            "how you find selectors - not by reading HTML with extract, and "
-            "not by writing a script to walk the DOM. Each entry carries one "
-            "selector, checked to match exactly one element, as css where the "
-            "page gives something stable and xpath by text where it does "
-            "not.\n\nvisible says whether it can be used now, and reason says "
-            "what is in the way when it cannot: hidden (an ancestor is "
-            "display:none - often a menu that opens on hover), covered "
-            "(blocked_by names what is on top), zero_size, offscreen, "
-            "disabled.\n\nThe page's content is listed before its navigation, "
-            "header, footer and sidebars, and region names the landmark each "
-            "entry is in. total counts every match, so a total above count "
-            "means the list was cut: scope it with a selector to one part of "
-            "the page, filter by text to find one thing by its label, or raise "
-            "limit. interactive=false includes every "
-            "element rather than only the ones you can act on.\n\nRead it "
-            "before acting, and again after a page changes under a flow you "
-            "are repairing."
+            "Map the page: the elements worth acting on, each with a selector "
+            "checked to match exactly one element, and whether it can be used "
+            "now.\n\n"
+            "Use it to find selectors instead of reading HTML. When visible "
+            "is false, reason says why: hidden (often a closed menu; "
+            "revealed_by and open_with say what opens it), covered "
+            "(blocked_by names what is on top), zero_size, offscreen or "
+            "disabled.\n\n"
+            "Content is listed before navigation, header, footer and "
+            "sidebars, and region names each entry's landmark. A total above "
+            "count means the list was cut: scope it with selector, filter by "
+            "text, or raise limit. interactive=false lists every element."
         ),
         annotations=hints("Map the page's elements", read_only=True, idempotent=True),
     )
@@ -651,21 +622,13 @@ def register(
     def execute_script(
         script: str, url: str | None = None
     ) -> dict:
-        """Run JavaScript in the page and return its result.
+        """Run JavaScript in the page and return what it returns.
 
-        Check the other tools first: reaching for a script usually means a
-        cheaper one exists. interact clicks, double-clicks, right-clicks, hovers
-        and scrolls to an element - and only its hover opens a menu that appears
-        on :hover, because a script's synthetic events never set :hover. Every
-        tool that names an element already waits for it.
-
-        What is left is this: scrolling the page (window.scrollTo(0, 2000)),
-        computed styles, reading many things at once, direct DOM access,
-        setting a value on an input `write` cannot reach. Use `return` to send
-        a value back.
-
-        Not drag and drop - `drag` does that with real pointer input, which a
-        script cannot produce.
+        Check the other tools first: interact, write, extract and outline cover most
+        needs, and only interact's hover opens a menu that appears on :hover, which
+        script events never trigger. Use this for what is left: scrolling
+        (window.scrollTo), computed styles, reading many values at once, direct DOM
+        work. Not for drag and drop; drag uses real pointer input.
         """
         return run(lambda s: actions.execute_script(s, script, url=url))
 
@@ -674,27 +637,16 @@ def register(
     @mcp.tool(
         name="assert",
         description=(
-            "Assert that the page is what you expect, with JavaScript that must "
-            "return true.\n\nLike execute_script, except the answer has to be a "
-            "boolean: return a comparison, not the thing itself - "
-            "`return !!document.querySelector('#total')`, not the element. "
-            "Anything else is refused.\n\nIt asks again until the answer is "
-            "true or wait_timeout passes, so an assertion straight after a click "
-            "does not have to know how long a route change takes. "
-            "wait_timeout=0 asks once.\n\n"
-            "**For a guard - something that must be true BEFORE the flow acts "
-            "- set stable_for.** Asking until true means EVENTUALLY true, and "
-            "an app that paints its signed-in shell for a moment before "
-            "redirecting to the login page satisfies 'am I signed in' during "
-            "that moment. stable_for=1 makes the answer hold for a second "
-            "before it counts. Both it and wait_timeout are in seconds.\n\n"
-            "Give message the sentence whoever "
-            "reads the failure should see - in a flow it becomes the failing "
-            "step's error, and a flow cannot continue past one. Without a "
-            "message the failure names only the page it was false on.\n\n"
-            "Use it to make a flow say what must be "
-            "true: the page it landed on, that a form saved, or that it should "
-            "not run at all because you are already signed in."
+            "Check the page with JavaScript that must return true; otherwise "
+            "the call fails. Return a boolean, not the thing itself: return "
+            "!!document.querySelector('#total').\n\n"
+            "It asks again until the answer is true or wait_timeout passes (0 "
+            "asks once), so it can follow a click without knowing how long "
+            "the page takes. For a guard that must hold before acting, set "
+            "stable_for: the answer has to stay true that many seconds, which "
+            "catches a page that is true for a moment before it redirects.\n\n"
+            "message is the sentence a failure shows, and in a flow it "
+            "becomes the failing step's error."
         ),
         annotations=hints("Assert the page is what you expect", destructive=True),
     )
@@ -727,39 +679,18 @@ def register(
         save: bool = True,
         filename: str | None = None,
     ) -> Image | ToolResult:
-        """Capture a PNG of the page and return it as an image you can see.
+        """Capture a PNG of the viewport, of one element (selector), or of the whole
+        page (full_page), returned as an image. Use it only when the look is the
+        answer; extract reads content far more cheaply.
 
-        Three modes: pass a selector for one element, full_page for the
-        whole scrollable page, or none of them for the visible viewport.
+        By default the capture is also saved with the session's files. To show a
+        person what you saw, give them the file's absolute_url: it opens in any
+        browser without a token, and ![](absolute_url) works. Do not describe the
+        image instead.
 
-        Only reach for this when the *visual* result matters — layout, styling,
-        a rendered chart. To read content, extract is far cheaper.
-
-        By default it is also kept with the session's files, where it has a URL
-        that opens in a browser and shows up in the admin page - so a person can
-        see what you saw, whether or not your client can display an image. The
-        result then carries the file's name, which is what keep_file and
-        session_files take.
-
-        When it could not be stored - a page the browser will not download from,
-        say - the result carries file_error instead of file, and the image still
-        comes back. There is no name to keep in that case.
-
-        **To show a person what you saw, give them the file's absolute_url.**
-        It opens in any browser, needs no bearer token, and is the only form of
-        this they can actually look at - do not paste the image back into your
-        reply and do not describe it instead. Markdown works: ![](absolute_url).
-        The link is signed and time-limited when this server has a token; with
-        authentication off there is nothing to sign and the plain path is the
-        answer.
-
-        A server that has not been told its public address has no absolute_url
-        to give: the file carries a relative url instead, which needs the
-        address you reached this server on.
-
-        Those files die with the browser. keep_file(name) is what makes one
-        outlive it. Pass save=false for a capture nobody should even be able to
-        look at later - a flow taking thirty frames it will never reopen.
+        A saved capture goes with the browser unless keep_file keeps it. save=false
+        stores nothing; file_error says why a save failed, and the image still comes
+        back.
         """
         result = run(
             lambda s: actions.screenshot(
@@ -802,16 +733,13 @@ def register(
         url: str | None = None,
         filename: str | None = None,
     ) -> dict:
-        """Print the current page to PDF and keep it with the session's files.
+        """Print the page to PDF and save it with the session's files. It is the
+        browser's own print output, so the text stays selectable and the whole
+        document is included.
 
-        This is the browser's own print output, so text stays selectable and the
-        whole document is included rather than just the viewport.
-
-        Returns the stored file. **Give a person its absolute_url** - a link
-        that opens in any browser and needs no bearer token, signed and
-        time-limited when this server has a token to sign with. That is how
-        somebody reads the PDF; nothing else in this result is any use to them.
-        Without a public address configured the file carries a relative url.
+        To give it to a person, give them the file's absolute_url: it opens in any
+        browser without a token. A server with no public address configured returns
+        a relative url instead.
         """
         return run(
             lambda s: actions.save_pdf(s, url=url, filename=filename),

@@ -185,7 +185,7 @@ it just as well as a good one.
 ## Writing a test
 
 `tests/conftest.py` owns the shared doubles — `RecordingActions`, `FakeGrid`,
-`manager()`, and the `named_caller` / `stateless_caller` fixtures that make the
+`manager()`, and the `named_caller` / `unnamed_caller` fixtures that make the
 ambient request look like one kind of client or the other. Import them from
 there rather than writing another copy; two copies of `RecordingActions` had
 already drifted apart, and which behaviours a test could assert depended on
@@ -234,4 +234,4 @@ started this directory existed only on Redis.
 
 `AGENTS.md` carries the design rules that are easy to break by accident — why
 the browser must never answer a dialog, why waits re-raise with a message, why
-session_id is shaped per request. Read it before changing any of those.
+everything to read is a resource named by URI. Read it before changing any of those.

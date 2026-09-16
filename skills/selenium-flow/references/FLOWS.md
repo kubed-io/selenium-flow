@@ -18,7 +18,7 @@ a check you repeat on Chrome and then on Firefox.
 1. **Discover.** Drive it once by hand. Use `outline` to find each selector —
    it returns one per element, already checked to match exactly one, and says
    whether the element can be used. `extract` is for reading *content*
-   (`references/READING_PAGES.md`).
+   (`skill://selenium-flow/references/READING_PAGES.md`).
 2. **Build.** Write each call down as a step. Anything that changes between runs
    becomes a parameter.
 3. **Save.** `save_flow`, once. It validates every step against the live tool
@@ -26,7 +26,7 @@ a check you repeat on Chrome and then on Firefox.
    through a form.
 4. **Run.** `run_flow` forever after.
 
-Read `flow://schema` (or call `flow_schema`) before writing one. It is derived
+Read `flow://schema` before writing one. It is derived
 from the tools themselves, so it cannot describe a step that would not run.
 
 ## A step is a tool call
@@ -159,7 +159,7 @@ the demo site without being told to.
 **A parameter is never secret.** There is no `writeOnly`: everything you pass
 may appear in the report. For a password, do not use a parameter at all — name a
 secret, which is a different mechanism on purpose
-(`references/SECRETS.md`).
+(`skill://selenium-flow/references/SECRETS.md`).
 
 ## Finding the selectors to put in one
 
@@ -167,7 +167,7 @@ Use `outline` while you are writing or repairing a flow — it lists what is on
 the page with a checked selector for each, and says whether an element can
 actually be used. It is deliberately not a step: a saved flow already knows its
 selectors, and a flow that had to look around first would be a program rather
-than a wizard (`references/READING_PAGES.md`).
+than a wizard (`skill://selenium-flow/references/READING_PAGES.md`).
 
 ## Say what must be true
 
@@ -304,7 +304,7 @@ would never look again. Over stdio you already have one — a stdio server is on
 process serving one client, so it gets its own library without asking. Only an
 operator moves a flow into `global`, from the admin UI.
 
-Where a name exists in both, yours wins, and `list_flows` marks each entry
+Where a name exists in both, yours wins, and `flow://flows` marks each entry
 `shared: true` or `false` so you can tell which one will run.
 
 ## Running one
@@ -348,11 +348,11 @@ URL shown is scrubbed and is not a real address. Do not navigate back to it.
 
 ## The reads
 
-| Resource | Tool | Gives |
-|---|---|---|
-| `flow://flows` | `list_flows` | every flow you can run: name, description, parameters, step count |
-| `flow://flows/{name}` | `get_flow` | one flow with its steps |
-| `flow://schema` | `flow_schema` | the document shape and every step tool's parameters |
+| Resource | Gives |
+|---|---|
+| `flow://flows` | every flow you can run: name, description, parameters, step count |
+| `flow://flows/{name}` | one flow with its steps |
+| `flow://schema` | the document shape and every step tool's parameters |
 
 Writes are tools only: `save_flow` creates or replaces, `delete_flow` removes,
 `run_flow` runs.
