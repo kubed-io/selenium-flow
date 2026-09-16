@@ -7,6 +7,7 @@ package, so they are in the wheel and therefore in the image — while
 deployed image silently kept the old one.
 """
 
+import ast
 import pathlib
 import sys
 
@@ -83,6 +84,34 @@ def test_the_package_source_directories_exist():
     """A mapping to a directory that is gone is a wheel missing a feature."""
     for directory in packaged_directories():
         assert (REPO / directory).is_dir(), f"package-dir maps missing {directory}/"
+
+
+def declared_packages() -> set[str]:
+    """Every package name pyproject says ships."""
+    data = tomllib.loads(PYPROJECT.read_text())
+    return set(data["tool"]["setuptools"]["packages"])
+
+
+def source_packages() -> set[str]:
+    """Every importable package in the source tree, as a dotted name."""
+    return {
+        ".".join(init.relative_to(REPO).parent.parts)
+        for init in (REPO / "kubed").rglob("__init__.py")
+    }
+
+
+def test_every_source_package_is_declared():
+    """`packages` is an explicit list, so a package missing from it is simply
+    absent from the wheel — no error at build, none at import, and none until
+    something in an installed copy reaches for it.
+
+    Which is the whole failure: CI is green, the image builds, and the feature
+    is gone. Nothing asserted this before the package had subpackages to lose.
+    """
+    missing = source_packages() - declared_packages()
+    assert not missing, (
+        "add to [tool.setuptools] packages in pyproject.toml: " f"{sorted(missing)}"
+    )
 
 
 # --- which build wins -------------------------------------------------------
@@ -294,3 +323,83 @@ def test_pip_does_not_ship_inside_the_copied_venv():
     # Last, or the steps after it have no pip to run with.
     removal = builder.index("pip uninstall --yes pip")
     assert not [ln for ln in builder[removal + 1:] if ln.startswith("pip ")]
+
+
+# --- what a wheel has to contain, beyond the modules ------------------------
+
+# Each module that resolves a sibling data directory, and the directory it
+# reads. The packaged lookup is `Path(__file__).parent / <dir>`, so a wheel has
+# to place that directory BESIDE the module — which is what package-dir decides.
+DATA_DIRS = {
+    "kubed/selenium_flow/core/js.py": "js",
+    "kubed/selenium_flow/mcp/skill.py": "skills",
+    "kubed/selenium_flow/mcp/prompts.py": "prompts",
+    "kubed/selenium_flow/http/admin.py": "static",
+}
+
+
+@pytest.mark.parametrize(("module", "directory"), sorted(DATA_DIRS.items()))
+def test_a_data_directory_is_packaged_beside_the_module_that_reads_it(module, directory):
+    """Move the module, move the mapping — or the installed server has no files.
+
+    This is invisible to every other test. In a source checkout the fallback
+    lands on the repo root and everything works; in a wheel the packaged path is
+    the only one, and the fallback resolves to site-packages. So the admin UI
+    404s its own page, or the server serves no skill, with nothing failing until
+    somebody installs it (Copilot, #36).
+    """
+    package = ".".join(pathlib.Path(module).parent.parts)
+    key = f"{package}.{directory}"
+    data = tomllib.loads(PYPROJECT.read_text())
+    mapping = data["tool"]["setuptools"]["package-dir"]
+    assert (REPO / module).is_file(), f"{module} moved — update DATA_DIRS"
+    assert key in mapping, (
+        f"{module} reads ./{directory} beside itself, so package-dir needs "
+        f"'{key}' — otherwise the wheel puts it somewhere the module cannot look"
+    )
+    assert mapping[key] == directory
+    assert key in set(data["tool"]["setuptools"]["packages"])
+    # package-dir says WHERE it goes; package-data says whether anything inside
+    # it ships at all. Without a pattern the wheel carries an empty directory
+    # and the module finds nothing in it (Copilot, #36).
+    patterns = data["tool"]["setuptools"]["package-data"].get(key)
+    assert patterns, f"[tool.setuptools.package-data] needs a pattern for '{key}'"
+
+
+def test_every_relative_import_in_the_package_resolves():
+    """A relative import inside a function is not checked until it runs.
+
+    `session/sessions.py` carried `from .core import browser` after the move —
+    which names `session.core`, a package that does not exist. It sat in the
+    live-session branch, where the tests mock the reconnect, so the status
+    quietly stopped reporting in_frame and the real window size instead of
+    failing (Copilot, #36).
+    """
+    root = REPO / "kubed" / "selenium_flow"
+    broken = []
+    for path in sorted(root.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not isinstance(node, ast.ImportFrom) or not node.level:
+                continue
+            base = path.parent
+            for _ in range(node.level - 1):
+                base = base.parent
+            dots = "." * node.level
+            # `from . import x` has module=None and names its targets in the
+            # aliases. Skipping that form skipped every sibling import in the
+            # new subpackages — the guard passed while naming nothing (Copilot).
+            if node.module:
+                heads = [(node.module.split(".")[0], f"{dots}{node.module}")]
+            else:
+                heads = [(a.name, f"{dots}{a.name}") for a in node.names]
+            for head, shown in heads:
+                if (base / head).is_dir() or (base / f"{head}.py").is_file():
+                    continue
+                # A `from . import name` may also import a symbol from the
+                # package __init__ rather than a module; only flag it when the
+                # package does not define it either.
+                init = base / "__init__.py"
+                if not node.module and init.is_file() and head in init.read_text():
+                    continue
+                broken.append(f"{path.relative_to(REPO)}:{node.lineno} {shown}")
+    assert not broken, "relative imports that name nothing: " + "; ".join(broken)

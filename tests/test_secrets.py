@@ -249,7 +249,7 @@ def test_origin_keeps_scheme_host_and_port_and_nothing_else(url, expected):
 
 
 def test_a_secret_name_cannot_escape_its_directory(source):
-    from kubed.selenium_flow.flows import InvalidName
+    from kubed.selenium_flow.flows.library import InvalidName
 
     with pytest.raises(InvalidName):
         source._dir("../../etc")
@@ -316,7 +316,7 @@ def secret_server(tmp_path, monkeypatch):
 
 async def test_the_catalogue_is_a_resource_with_a_tool_mirroring_it(secret_server,
                                                                     monkeypatch):
-    from kubed.selenium_flow import resources as resources_module
+    from kubed.selenium_flow.mcp import resources as resources_module
 
     names = {t.name for t in await secret_server.mcp.list_tools()}
     assert secrets.LIST_TOOL not in names  # hidden from a client with resources
@@ -344,7 +344,7 @@ async def test_no_tool_on_this_server_returns_a_secret_value(secret_server,
     may produce the value. If a future tool ever grows a way to read one, this
     is what should fail.
     """
-    from kubed.selenium_flow import resources as resources_module
+    from kubed.selenium_flow.mcp import resources as resources_module
 
     monkeypatch.setattr(resources_module, "_http", lambda: ({"resources": "off"}, {}))
     # A saved flow that BINDS the secret is the case that matters most: the
@@ -379,7 +379,7 @@ async def test_no_tool_on_this_server_returns_a_secret_value(secret_server,
 
 
 async def test_the_listing_tool_says_it_only_reads(secret_server, monkeypatch):
-    from kubed.selenium_flow import resources as resources_module
+    from kubed.selenium_flow.mcp import resources as resources_module
 
     monkeypatch.setattr(resources_module, "_http", lambda: ({"resources": "off"}, {}))
     tools = {t.name: t for t in await secret_server.mcp.list_tools()}
@@ -739,7 +739,7 @@ def bound_http(tmp_path, monkeypatch):
     # Patched on the CLASS, before the server is built: `routes.py` binds each
     # method at registration time, so patching the instance afterwards is too
     # late and the real one dials the Grid.
-    from kubed.selenium_flow.actions import Actions
+    from kubed.selenium_flow.core.actions import Actions
 
     monkeypatch.setattr(Actions, "write", write)
     monkeypatch.setattr(
@@ -868,7 +868,7 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
     the credential URL went into the session record — from where a reattach
     would have navigated back to it.
     """
-    from kubed.selenium_flow import flowrun
+    from kubed.selenium_flow.flows import run as flowrun
     from kubed.selenium_flow.server import SeleniumMCP
 
     from .conftest import NAMED, TOKEN
@@ -995,7 +995,7 @@ def test_a_session_in_use_is_kept_alive_even_when_its_page_is_withheld():
     that threw the refresh away. A test on the store would have passed
     throughout.
     """
-    from kubed.selenium_flow.store import MemoryStore, SessionRecord
+    from kubed.selenium_flow.session.store import MemoryStore, SessionRecord
 
     from .conftest import NAMED, manager
 

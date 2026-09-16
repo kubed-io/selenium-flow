@@ -92,6 +92,21 @@ including in the middle of a longer string:
     url: ${site}/orders/${id}
 ```
 
+**Text reaches a typed field as that type.** `${name}` is substituted as text and
+the step's own schema then decides what it becomes, so a numeric parameter works
+where a tool wants a number:
+
+```yaml
+- tool: assert
+  args:
+    script: return document.querySelector('#done') !== null
+    wait_timeout: ${seconds}
+```
+
+That step receives `wait_timeout` as an integer. The placeholder is accepted when
+the flow is saved, and a value that cannot become what the field wants is refused
+when the run reaches that step.
+
 Substitution is **single pass**: a value you pass is never re-scanned, so
 `params={"note": "${admin}"}` types that text and resolves nothing. Write `$${`
 for a literal `${`.
@@ -279,6 +294,11 @@ The report has one line per step plus where the browser ended up:
  "steps": [{"n": 1, "tool": "navigate", "summary": "...", "ok": true}, "..."],
  "url": "https://demo.example.com/welcome", "title": "Welcome"}
 ```
+
+**A step that produced a file says where it went** — a screenshot, a PDF — and
+carries that file's link in its own line whether or not it is marked
+`return: true`. A capture nobody can find cannot show anyone what it saw, which
+is usually why the flow took it.
 
 It stops at the first failing step unless that step says `onError: continue`.
 A failed run says which step stopped it, the error, and the page it was on — so

@@ -27,7 +27,7 @@
 
 ---
 
-## Status: **OPEN — E17 left** — opened 2026-09-14, built 2026-09-14/15
+## Status: **OPEN — E17 and E21 left** — opened 2026-09-14, built 2026-09-14/15
 
 It opened as planning only — nothing built until Dr K signed the forks off,
 which is how Chapter 1 ran and why its reasoning survived the build. The forks
@@ -62,6 +62,21 @@ every session is named by its caller and no browser id is in the contract
 (§F2.12), the HTTP surface is REST with paths declared per capability (§F2.13),
 and `xpath` and `css` are one `selector` (§F2.14). The four questions §F2.12
 held open were answered in the course of it and are recorded there.
+
+**Built since, in one refit.** `#36` reorganised 29 flat modules into rooms —
+`core/`, `session/`, `flows/`, `http/`, `mcp/`, `spec/`, with the app itself
+(`server`, `main`, `routes`, `errors`, `secrets`) on top — collapsed four
+request wrappers into one `http.answer`, and split `openapi.py`'s 1,443 lines
+into schema data and a builder. No endpoint, tool signature or result shape
+moved: the regenerated spec is byte-identical to the one `main` produces, and
+every existing test assertion is untouched.
+
+Three things it fixed that no test could see, each now guarded: a data directory
+has to be packaged beside the module that reads it (an installed admin UI could
+not find its own page), every relative import has to resolve (a `.core` inside
+`session/` silently stopped the status reporting `in_frame`), and
+`errors.message` strips credentials on every path, not only from the one failure
+known to quote a URL.
 
 **What is left.** One epic, the cluster half of E5, and a release.
 
@@ -1400,6 +1415,70 @@ process, probes included. The admin handlers already use `run_in_threadpool`
 and are the shape to copy. Not touched here because it is not this change's
 fault and the fix belongs with its own tests — but it is the next thing worth
 doing, and it is why `/ready` alone is not enough to survive a Grid outage.
+
+---
+
+### E21 — The third pilot: four hours against a real SPA
+
+A pilot flew `helpdesk-duplo` for about four hours against an Angular
+application, wrote two flows and ran two more many times. The report is the most
+useful one yet because it is mostly about *long* runs, which the earlier sorties
+never exercised.
+
+**Fixed in #36.**
+
+- **A step that makes a file says where it went.** A `screenshot` step reported
+  `ok` and nothing else, so the capture existed and the report could not point
+  at it — the pilot found their own screenshots by querying the application's
+  API. The file's link now rides in the step's line, scrubbed on the same terms
+  the step's URL is, without needing `return: true`.
+- **Parameter coercion is documented**, because it works and the docs implied it
+  would not: `wait_timeout: ${seconds}` reaches the tool as an integer.
+  Substitution is text; the step's own schema decides what it becomes.
+- **`outline`'s scoping advice is louder**, and the line recommending it no
+  longer names the `css`/`xpath` arguments §F2.14 removed. An unscoped call on a
+  real application spends its fifty entries on the navbar.
+- **The admin flow panel unwraps a selector** instead of printing
+  `{"css":"button.go"}`. The server's own step summary already did.
+
+**Owed, and the first is the big one.**
+
+1. **`run_flow` must report progress.** A flow whose job is to wait — an
+   `assert` with `wait_timeout: 900` — is exactly what flows are for, and the
+   client aborted at 300 seconds with no response. *The flow had succeeded*: the
+   work completed, the application advanced, and the caller was told it failed.
+   The pilot then capped every run under the client's idle timeout, which
+   defeats the point, or abandoned flows for "fire it and poll the app's API".
+   One MCP progress notification per step keeps the channel alive and turns a
+   twenty-step run from a black box into something watchable.
+2. **A run needs an identity and a way to ask about it.** After an abort there
+   was no way to ask whether the run was still going, and no way to stop it. A
+   run id in the result, plus `run_status` and `cancel_run`, closes that.
+3. **A refused call should say what shape it wanted.** When the arguments are
+   wrong the caller gets a raw pydantic dump and a link to pydantic's docs. One
+   sentence — *address elements with `selector={"css": …}` or
+   `selector={"xpath": …}`* — would have saved the pilot six wasted calls.
+4. **`outline` could rank content above chrome** rather than leaving scoping to
+   the caller. Documented for now; ranking is the real fix.
+
+**A lesson worth keeping, not an item.** The selector change (§F2.14) landed
+*while that session was live*: the same call worked at 17:49 and was refused at
+18:05, the rollout was not simultaneous across tools, and the client's cached
+schemas kept serving the old shape. Any future change to an argument's shape
+wants a deprecation window in which both forms work, or it wants to be a new
+tool name — because a client that caches schemas cannot be told to re-read them.
+
+**What worked, and must not regress.** The pilot was specific, which makes this
+the most valuable half of the report: `assert` with `stable_for` (it solved an
+SPA that paints its authenticated shell *before* redirecting, which nothing else
+would have caught); `note` fields surviving into the run report, which turned a
+failure at step 22 into a self-explaining artifact — the note, the error, and the
+URL that proved the author's assumption wrong; `save_flow` validating every step
+against the real tool schemas at save time rather than halfway through a filled
+form; flows running in the browser the caller already holds, so hand-driven
+exploration and flow runs interleave against one page state; and the
+`hint`/`repair_flow` pointer, correctly framed as for a person rather than for
+the agent.
 
 ---
 

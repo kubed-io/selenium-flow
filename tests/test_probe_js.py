@@ -60,8 +60,8 @@ PAGE = (
 @pytest.fixture
 def browser_page():
     """A real browser on a page with one of everything the probe classifies."""
-    from kubed.selenium_flow.actions import Actions
-    from kubed.selenium_flow.browser import Grid
+    from kubed.selenium_flow.core.actions import Actions
+    from kubed.selenium_flow.core.browser import Grid
 
     grid = Grid(GRID_URL)
     actions = Actions(grid)

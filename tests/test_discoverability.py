@@ -14,8 +14,8 @@ from pathlib import Path
 import pytest
 from selenium.webdriver.common.keys import Keys
 
-from kubed.selenium_flow import actions as actions_module
-from kubed.selenium_flow.actions import (
+from kubed.selenium_flow.core import actions as actions_module
+from kubed.selenium_flow.core.actions import (
     DIALOG_ACTIONS,
     FRAME_ACTIONS,
     KEY_NAMES,
@@ -23,7 +23,7 @@ from kubed.selenium_flow.actions import (
     MOUSE_ACTIONS,
     resolve_key,
 )
-from kubed.selenium_flow.browser import BROWSERS
+from kubed.selenium_flow.core.browser import BROWSERS
 
 pytestmark = pytest.mark.unit
 

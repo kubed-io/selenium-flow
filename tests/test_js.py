@@ -16,7 +16,7 @@ import subprocess
 
 import pytest
 
-from kubed.selenium_flow import js, pointer, probe
+from kubed.selenium_flow.core import js, pointer, probe
 
 pytestmark = pytest.mark.unit
 

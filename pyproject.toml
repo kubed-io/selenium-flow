@@ -88,10 +88,16 @@ selenium-flow = "kubed.selenium_flow.main:main"
 [tool.setuptools]
 packages = [
   "kubed.selenium_flow",
-  "kubed.selenium_flow.js",
-  "kubed.selenium_flow.prompts",
-  "kubed.selenium_flow.skills",
-  "kubed.selenium_flow.static",
+  "kubed.selenium_flow.core",
+  "kubed.selenium_flow.flows",
+  "kubed.selenium_flow.http",
+  "kubed.selenium_flow.mcp",
+  "kubed.selenium_flow.session",
+  "kubed.selenium_flow.spec",
+  "kubed.selenium_flow.core.js",
+  "kubed.selenium_flow.mcp.prompts",
+  "kubed.selenium_flow.mcp.skills",
+  "kubed.selenium_flow.http.static",
 ]
 
 # The skill lives at the repo root, where it reads as documentation rather than
@@ -108,13 +114,13 @@ packages = [
 # as triple-quoted Python strings it had no highlighting, nothing could lint it,
 # and every regular expression had to be double-escaped to survive the Python
 # parser. As files it is source. See `js.py`.
-"kubed.selenium_flow.js" = "js"
+"kubed.selenium_flow.core.js" = "js"
 # `prompts/` is mapped for the same reason as the skill below: it reads as
 # documentation at the repo root and has to install inside the package, or a
 # wheel serves no prompts and says nothing about it.
-"kubed.selenium_flow.prompts" = "prompts"
-"kubed.selenium_flow.skills" = "skills"
-"kubed.selenium_flow.static" = "static"
+"kubed.selenium_flow.mcp.prompts" = "prompts"
+"kubed.selenium_flow.mcp.skills" = "skills"
+"kubed.selenium_flow.http.static" = "static"
 
 # Everything under it, not just *.md: a supporting file of any other type would
 # otherwise be missing from the wheel with no error at build or import time, and
@@ -123,10 +129,10 @@ packages = [
 # The directory name IS the skill name — FastMCP's SkillProvider takes it from
 # the folder, not the frontmatter, and publishes skill://<folder>/SKILL.md.
 [tool.setuptools.package-data]
-"kubed.selenium_flow.js" = ["*.js"]
-"kubed.selenium_flow.prompts" = ["*.md"]
-"kubed.selenium_flow.skills" = ["*", "**/*"]
-"kubed.selenium_flow.static" = ["*"]
+"kubed.selenium_flow.core.js" = ["*.js"]
+"kubed.selenium_flow.mcp.prompts" = ["*.md"]
+"kubed.selenium_flow.mcp.skills" = ["*", "**/*"]
+"kubed.selenium_flow.http.static" = ["*"]
 
 [tool.pytest.ini_options]
 minversion = "6.0"

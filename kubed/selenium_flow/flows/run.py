@@ -43,8 +43,10 @@ import logging
 import time
 from urllib.parse import quote, quote_plus
 
-from . import secrets
-from .flowdoc import (
+from .. import secrets
+from ..mcp import guidance
+from ..routes import ENDPOINTS, method_for
+from .document import (
     ARGS,
     ASSERTION,
     NOT_STEPS,
@@ -52,7 +54,6 @@ from .flowdoc import (
     SECRET_ARG,
     listed,
 )
-from .routes import ENDPOINTS, method_for
 
 # The only attributes a step may dispatch to. `getattr(actions, tool)` alone
 # accepts any callable on the object — `clear_files` would wipe the session's
@@ -68,7 +69,6 @@ log = logging.getLogger(__name__)
 # for the agent, which reads resources when it decides to; the prompt is for a
 # person, because an agent cannot invoke one - it can only say which to pick
 # (§F2.6).
-REFERENCES = "skill://selenium-flow/references"
 REPAIR_PROMPT = "repair_flow"
 
 
@@ -98,7 +98,7 @@ def hint_for(step: dict, flow: str, skill_available: bool = True) -> dict:
     # `--no-skill` nothing registers those resources, and a URI that cannot be
     # read is worse than no URI at all.
     if skill_available:
-        hint["read"] = f"{REFERENCES}/{page}"
+        hint["read"] = guidance.pointer(page)
         if section:
             hint["section"] = section
     return hint
@@ -735,6 +735,13 @@ def run(
                 if not redacted_url and "url" not in guarded:
                     entry["url"] = went_to
                 was_at = went_to
+            # A step that produced a file says so, even when the report is
+            # not verbose. A screenshot whose link appears nowhere cannot show
+            # anybody what it saw, which is most of why a flow took it — and a
+            # person reading the report is exactly who it was for (pilot, §F2.15).
+            made = raw.get("file") if isinstance(raw, dict) else None
+            if made and not taints(str(made), hidden):
+                entry["file"] = made
             last = result
             if after_step is not None:
                 after_step(tool, raw)

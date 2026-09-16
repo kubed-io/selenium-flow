@@ -53,6 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The server's instructions name the embedded skill**, so a client is told where the how-to lives when it connects rather than after its first failure. Omitted when the skill is not being served.
+
 - **BREAKING: `ROUTE_PREFIX` mounts the whole server**, and defaults to `/`. Every tree is fixed beneath it — `/browser`, `/flows`, `/files`, `/admin`, `/mcp`, `/openapi.yaml` — where it used to rename `/browser` while everything else stayed put.
 
 - **The admin UI is at the server root**, with its views after the hash (`#/sessions/<name>`), so a view survives a reload and can be linked to. `/admin` redirects there and remains the API the page calls.
@@ -82,6 +84,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A saved flow that starts on whatever page you happen to be on is warned about** — not refused.
 
 ### Fixed
+
+- **An unreachable Grid no longer writes its credentials into the log.** The URL is stripped from every failure message and from the traceback, not only from the one failure known to quote it.
+
+- **A flow step that captures a file says where it went.** A screenshot's link is in the run report without needing `return: true` — a capture nobody can find cannot show anyone what it saw.
+
+- **The admin flow panel shows a selector as one expression** — `css button.go` — instead of a raw JSON object.
 
 - **The Grid's URL no longer appears with its credentials** in `/ready` or `/info`, which answer to anyone.
 

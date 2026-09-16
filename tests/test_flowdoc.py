@@ -7,7 +7,7 @@ author can fix while they are still looking at the thing they wrote.
 
 import pytest
 
-from kubed.selenium_flow.flowdoc import InvalidFlow, step_schemas, validate
+from kubed.selenium_flow.flows.document import InvalidFlow, step_schemas, validate
 
 pytestmark = pytest.mark.unit
 
@@ -569,7 +569,7 @@ def _documented():
     import json
     import re
 
-    from kubed.selenium_flow import skill as skill_module
+    from kubed.selenium_flow.mcp import skill as skill_module
 
     root = skill_module.skill_path()
     found = []
@@ -590,7 +590,7 @@ def test_every_json_example_in_the_skill_parses():
     import json
     import re
 
-    from kubed.selenium_flow import skill as skill_module
+    from kubed.selenium_flow.mcp import skill as skill_module
 
     for path in skill_module.skill_path().rglob("*.md"):
         for block in re.findall(r"```json\n(.*?)```", path.read_text(), re.S):
@@ -616,7 +616,7 @@ async def test_every_flow_the_skill_teaches_would_save(step_schema_map, where, d
     exist. A skill is documentation an agent *acts on*, so its examples are
     tested rather than trusted.
     """
-    from kubed.selenium_flow.flows import valid_name
+    from kubed.selenium_flow.flows.library import valid_name
 
     document = dict(document)
     name = document.pop("name", None)
@@ -628,7 +628,7 @@ async def test_every_flow_the_skill_teaches_would_save(step_schema_map, where, d
 async def test_a_document_with_integer_keys_is_refused_with_every_problem(step_schema_map):
     """The save path of the same YAML hazard: every key a refusal lists is made a
     string first, so a malformed document is described rather than crashing."""
-    from kubed.selenium_flow.flowdoc import InvalidFlow
+    from kubed.selenium_flow.flows.document import InvalidFlow
 
     document = {
         "steps": [

@@ -271,7 +271,7 @@ def test_every_runnable_action_has_a_glyph(page):
     with no identity at all. The unknown glyph is reserved for a flow naming an
     action that does not exist — which the runner refuses, and which is meant
     to look wrong."""
-    from kubed.selenium_flow.flowrun import RUNNABLE
+    from kubed.selenium_flow.flows.run import RUNNABLE
 
     icons = page.split("const TOOL_ICON = {")[1].split("};")[0]
     for tool in RUNNABLE:

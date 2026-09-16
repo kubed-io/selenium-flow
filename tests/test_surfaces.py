@@ -7,9 +7,9 @@ other breaks that quietly, so it is asserted here rather than trusted.
 
 import pytest
 
-from kubed.selenium_flow import files as files_module
-from kubed.selenium_flow import flowapi
-from kubed.selenium_flow import resources as resources_module
+from kubed.selenium_flow.flows import api as flowapi
+from kubed.selenium_flow.http import files as files_module
+from kubed.selenium_flow.mcp import resources as resources_module
 from kubed.selenium_flow.routes import ENDPOINTS, method_for
 
 pytestmark = pytest.mark.unit
@@ -288,7 +288,7 @@ def test_only_a_key_that_can_submit_waits_for_a_navigation(
     """Sending keys is not specified to wait for a navigation it causes, so
     `press_key("enter")` reported the page it was submitting FROM. `settled`
     fixes that, and this pins which keys pay for it."""
-    from kubed.selenium_flow import actions as actions_module
+    from kubed.selenium_flow.core import actions as actions_module
 
     called = []
     monkeypatch.setattr(actions_module.browser, "settled", lambda *a, **k: called.append(a))

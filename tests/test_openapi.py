@@ -14,13 +14,9 @@ import pytest
 import yaml
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow.openapi import (
-    PLACEHOLDER_VERSION,
-    RESPONSES,
-    _hoisted,
-    build_spec,
-)
 from kubed.selenium_flow.routes import ACTION_IN_PATH, ENDPOINTS
+from kubed.selenium_flow.spec import PLACEHOLDER_VERSION, RESPONSES, build_spec
+from kubed.selenium_flow.spec.builder import _hoisted
 
 
 def route_for(path: str, action: str) -> str:
@@ -237,7 +233,7 @@ async def test_every_flow_endpoint_is_in_the_published_contract(spec):
     """The guard the multipart upload schema did not have until it had already
     drifted: these paths are written by hand, so the list is held against the
     one the server actually binds."""
-    from kubed.selenium_flow.flowapi import FLOW_ROUTES
+    from kubed.selenium_flow.flows.api import FLOW_ROUTES
 
     published = {
         (method, path)

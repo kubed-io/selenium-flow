@@ -11,8 +11,8 @@ import yaml
 from fastmcp import Client
 from fastmcp.exceptions import PromptError
 
-from kubed.selenium_flow import prompts as prompts_module
-from kubed.selenium_flow.flowrun import hint_for
+from kubed.selenium_flow.flows.run import hint_for
+from kubed.selenium_flow.mcp import prompts as prompts_module
 
 pytestmark = pytest.mark.unit
 
@@ -103,9 +103,9 @@ def test_every_prompt_file_is_covered_by_package_data(tmp_path):
     with Path("pyproject.toml").open("rb") as handle:
         config = tomllib.load(handle)
     setuptools = config["tool"]["setuptools"]
-    assert "kubed.selenium_flow.prompts" in setuptools["packages"]
-    assert setuptools["package-dir"]["kubed.selenium_flow.prompts"] == "prompts"
-    patterns = setuptools["package-data"]["kubed.selenium_flow.prompts"]
+    assert "kubed.selenium_flow.mcp.prompts" in setuptools["packages"]
+    assert setuptools["package-dir"]["kubed.selenium_flow.mcp.prompts"] == "prompts"
+    patterns = setuptools["package-data"]["kubed.selenium_flow.mcp.prompts"]
     assert any(pattern.endswith("*.md") or pattern == "*" for pattern in patterns), (
         f"{patterns} does not cover the .md files that are the prompts"
     )
@@ -214,7 +214,7 @@ def test_with_no_skill_served_there_is_nothing_to_read():
 
 def test_every_reference_it_can_name_exists():
     """A hint that points at a page nobody wrote is worse than no hint."""
-    from kubed.selenium_flow import skill
+    from kubed.selenium_flow.mcp import skill
 
     references = skill.skill_path() / "references"
     for step in (
@@ -229,7 +229,7 @@ def test_every_reference_it_can_name_exists():
 def test_an_anchor_it_names_is_a_heading_that_exists():
     """A `#section` that no heading matches drops a reader at the top of the
     page, which is the same as not saying anything."""
-    from kubed.selenium_flow import skill
+    from kubed.selenium_flow.mcp import skill
 
     references = skill.skill_path() / "references"
     for step in (
@@ -249,7 +249,7 @@ def test_an_anchor_it_names_is_a_heading_that_exists():
 def test_a_real_failed_run_carries_the_hint():
     """Through `run()`, not the helper: the helper staying right while nothing
     calls it is the failure this kind of test exists to catch."""
-    from kubed.selenium_flow.flowrun import run
+    from kubed.selenium_flow.flows.run import run
 
     class _Broken:
         def navigate(self, session_id, **kwargs):
@@ -295,7 +295,7 @@ def test_a_real_failed_run_carries_the_hint():
 def test_a_run_refused_before_step_one_still_says_where_to_look(document, because):
     """Two of the three ways a run can fail returned before the hint existed
     (Copilot, #30) — a refused document is exactly when somebody needs it."""
-    from kubed.selenium_flow.flowrun import run
+    from kubed.selenium_flow.flows.run import run
 
     report = run(object(), document, "b")
     assert report["status"] == "failed"
@@ -305,7 +305,7 @@ def test_a_run_refused_before_step_one_still_says_where_to_look(document, becaus
 
 def test_a_run_that_worked_carries_no_hint():
     """Nothing to repair, nothing to say."""
-    from kubed.selenium_flow.flowrun import run
+    from kubed.selenium_flow.flows.run import run
 
     class _Fine:
         def navigate(self, session_id, **kwargs):

@@ -40,8 +40,9 @@ import logging
 import time
 from dataclasses import dataclass
 
-from .actions import Actions
-from .browser import DEFAULT_BROWSER
+from ..core.actions import Actions
+from ..core.browser import DEFAULT_BROWSER
+from ..mcp import guidance
 from .store import MemoryStore, SessionRecord, SessionStore
 
 log = logging.getLogger(__name__)
@@ -121,7 +122,7 @@ def name_in(params: dict, headers: dict) -> Caller | None:
     HTTP routes — which have a Starlette request in hand — resolve a session
     through exactly this function rather than a second copy of the rule.
     """
-    from .flows import valid_session_name
+    from ..flows.library import valid_session_name
 
     header = str(headers.get(NAME_HEADER) or "").strip()
     param = str(params.get(NAME_PARAM) or "").strip()
@@ -164,7 +165,7 @@ def library_from(request) -> str:
     See :meth:`SessionManager.library` for why a missing name is not an error
     here.
     """
-    from .flows import GLOBAL_SESSION
+    from ..flows.library import GLOBAL_SESSION
 
     caller = name_in(
         dict(request.query_params),
@@ -182,9 +183,18 @@ class SessionManager:
     only identifier a caller ever sees.
     """
 
-    def __init__(self, actions: Actions, store: SessionStore | None = None):
+    def __init__(
+        self,
+        actions: Actions,
+        store: SessionStore | None = None,
+        skill_available: bool = True,
+    ):
         self.actions = actions
         self.store = store if store is not None else MemoryStore()
+        # Whether this server serves the skill. The status points at a reference
+        # for the caller to read, and a skill:// URI nobody can read teaches an
+        # agent the manual is broken (Copilot, #36).
+        self.skill_available = skill_available
 
     @property
     def kind(self) -> str:
@@ -212,7 +222,7 @@ class SessionManager:
         the shared flows and can write nowhere at all. Anything that touches a
         browser still has to say who it is (§F2.13).
         """
-        from .flows import GLOBAL_SESSION
+        from ..flows.library import GLOBAL_SESSION
 
         caller = requested()
         return caller.name if caller else GLOBAL_SESSION
@@ -239,8 +249,9 @@ class SessionManager:
             "window": None,
             "store": self.kind,
             "settings": {},
-            "guidance": "skill://selenium-flow/references/SESSIONS.md",
         }
+        if self.skill_available:
+            status["guidance"] = guidance.pointer("SESSIONS.md")
         record = self.store.get(caller.name)
         if record is None:
             return status
@@ -268,7 +279,7 @@ class SessionManager:
             # Only worth a round trip when there is a live browser to ask, and
             # one reconnect answers both questions.
             try:
-                from . import browser as browser_module
+                from ..core import browser as browser_module
 
                 driver = self.actions.grid.reconnect(record.session_id)
                 status["in_frame"] = browser_module.in_frame(driver)
@@ -363,8 +374,8 @@ class SessionManager:
         be chosen, which is why it is never done implicitly. Shared by both
         surfaces for the same reason :meth:`act` is.
         """
+        from ..core.browser import as_bool
         from . import settings as settings_module
-        from .browser import as_bool
 
         # What this session was last using. It sits between the client's
         # defaults and the explicit arguments: a caller that names nothing means

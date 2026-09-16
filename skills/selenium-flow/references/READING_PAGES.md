@@ -108,8 +108,11 @@ on `revealed_by`, and use the gesture `open_with` names:
 Neither appears when nothing visible above the element has a checked selector,
 because `body` is a true answer and useless advice.
 
-- **Scope it** with `css` or `xpath` to one region, so you get a panel rather
-  than a page.
+- **Scope it** with a `selector` to one region, so you get a panel rather than a
+  page. Do this first on any real application: a page with a persistent navbar
+  and menus spends the default 50 entries on chrome and never reaches the form
+  you came for. `outline(selector={"css": "main"})`, or whatever wraps the
+  content, answers the question you actually asked.
 - **Filter** with `text` to find one thing by its label: `outline(text="Save")`.
 - `limit` defaults to 50. `interactive=false` lists every element, not only the
   ones you can act on.

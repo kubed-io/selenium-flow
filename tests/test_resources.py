@@ -7,8 +7,8 @@ shapes and the switch between them.
 
 import pytest
 
-from kubed.selenium_flow import resources as resources_module
-from kubed.selenium_flow.resources import (
+from kubed.selenium_flow.mcp import resources as resources_module
+from kubed.selenium_flow.mcp.resources import (
     RESOURCE_URI,
     STATUS_TOOL,
     client_reads_resources,
@@ -81,12 +81,12 @@ async def test_the_hidden_tool_is_still_registered_and_callable(server):
 
 def saved(monkeypatch):
     monkeypatch.setattr(
-        "kubed.selenium_flow.sessions.http_request", lambda: http({"session": "d"})
+        "kubed.selenium_flow.session.sessions.http_request", lambda: http({"session": "d"})
     )
 
 
 def stateless(monkeypatch):
-    monkeypatch.setattr("kubed.selenium_flow.sessions.http_request", lambda: http())
+    monkeypatch.setattr("kubed.selenium_flow.session.sessions.http_request", lambda: http())
 
 
 async def test_saved_mode_does_not_advertise_session_id(server, monkeypatch):

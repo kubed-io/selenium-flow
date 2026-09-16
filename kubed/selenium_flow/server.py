@@ -12,23 +12,18 @@ from fastmcp import FastMCP
 from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 
 from . import (
-    admin,
-    apps,
-    files,
-    flowapi,
-    flows,
-    pointer,
-    prompts,
-    resources,
     routes,
     secrets,
-    skill,
-    tools,
 )
-from .actions import Actions
-from .browser import DEFAULT_GRID_URL, Grid
-from .sessions import SessionManager
-from .store import SessionStore, from_env
+from .core import pointer
+from .core.actions import Actions
+from .core.browser import DEFAULT_GRID_URL, Grid
+from .flows import api as flowapi
+from .flows import library as flows
+from .http import admin, files
+from .mcp import apps, prompts, resources, skill, tools
+from .session.sessions import SessionManager
+from .session.store import SessionStore, from_env
 
 # Root. `ROUTE_PREFIX` moves the WHOLE server, so the default is "no prefix"
 # rather than a name for one tree (§F1.11). `/` means the same thing and is what
@@ -90,7 +85,13 @@ class SeleniumMCP:
         # relative to it, which is the inversion §F1.11 asked for.
         self.prefix = routes.mount(route_prefix)
         self.mcp_path = f"{self.prefix}/mcp"
-        self.sessions = SessionManager(self.actions, store=self.store)
+        # Loaded before anything is told about it: the instructions and the
+        # session status both name the skill, and neither may name a resource
+        # this server is not serving (Copilot, #36).
+        self.skill = skill.load() if skill_enabled else None
+        self.sessions = SessionManager(
+            self.actions, store=self.store, skill_available=self.skill is not None
+        )
 
         # Saved flows, or None when no data directory was named — which is the
         # default, and is the feature being off rather than a degraded mode.
@@ -120,7 +121,11 @@ class SeleniumMCP:
                 tokens={auth_token: {"client_id": "selenium-flow", "scopes": []}}
             )
 
-        self.mcp = FastMCP("Selenium", instructions=tools.INSTRUCTIONS, auth=auth)
+        self.mcp = FastMCP(
+            "Selenium",
+            instructions=tools.instructions(self.skill is not None),
+            auth=auth,
+        )
         tools.register(self.mcp, self.actions, self.sessions, self.secrets)
 
         # Resources, each with a tool that mirrors it for clients which cannot
@@ -132,7 +137,6 @@ class SeleniumMCP:
         self.prompts = prompts.register(self.mcp)
 
         mirrors = resources.register(self.mcp, self.sessions)
-        self.skill = skill.load() if skill_enabled else None
         if self.skill is not None:
             mirrors |= skill.register(self.mcp, self.skill)
 

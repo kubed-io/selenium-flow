@@ -34,7 +34,7 @@ from pathlib import Path
 
 from fastmcp.server.providers.skills.skill_provider import SkillProvider
 
-from .hints import reads
+from .annotations import reads
 
 log = logging.getLogger(__name__)
 
@@ -59,7 +59,8 @@ def skill_path() -> Path:
     packaged = Path(__file__).parent / SKILLS_DIR / SKILL_NAME
     if packaged.is_dir():
         return packaged
-    return Path(__file__).parents[2] / SKILLS_DIR / SKILL_NAME
+    # parents[3] because this module lives in mcp/: package, kubed, repo root.
+    return Path(__file__).parents[3] / SKILLS_DIR / SKILL_NAME
 
 
 def enabled(env: dict | None = None) -> bool:

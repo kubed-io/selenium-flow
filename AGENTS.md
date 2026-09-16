@@ -79,11 +79,11 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   MCP image block to a tool caller and base64 JSON to an HTTP caller, because that is what
   each can actually use. That is the only sanctioned kind of divergence.
 
-- **`actions.py` is the only place behaviour lives.** `tools.py` and `routes.py` are thin
+- **`core/actions.py` is the only place behaviour lives.** `mcp/tools.py` and `routes.py` are thin
   wrappers over it. Adding a capability to one surface and not the other is the failure
   this design exists to prevent, and `tests/test_surfaces.py` asserts they match — if that
   test fails, add the missing half rather than editing the assertion.
-- **Every tool declares its MCP annotations, and they must be honest.** `hints.py` builds
+- **Every tool declares its MCP annotations, and they must be honest.** `mcp/annotations.py` builds
   them, and has no intra-package imports so every surface that registers a tool can use it
   without closing a cycle. A client reads `readOnlyHint` / `destructiveHint` to decide
   whether to ask the user before running a tool — ChatGPT skips the confirmation prompt
@@ -114,19 +114,19 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   Anything unrecognised stays **500**, deliberately: "the caller's fault" is the dangerous
   guess about a failure we do not understand, because it tells a client to stop retrying
   something that may be ours. Add a new status only alongside the `responses` block in
-  `openapi.py`, or the published contract starts lying.
+  `spec/`, or the published contract starts lying.
 
-- **One place decides whether a request is authorised: `auth.py`.** It is used by the
+- **One place decides whether a request is authorised: `http/auth.py`.** It is used by the
   action endpoints, the admin API and the event stream. The comparison is
   `hmac.compare_digest`, because these routes are reachable by anyone who can reach the
   port and `==` leaks the length of a correct prefix. There used to be two hand-rolled
-  copies of this check, both using `==`. If a third door appears, it calls `auth.py`.
+  copies of this check, both using `==`. If a third door appears, it calls `http/auth.py`.
 
-- **Type hints in `tools.py` are the tool schema.** FastMCP builds the JSON schema from the
+- **Type hints in `mcp/tools.py` are the tool schema.** FastMCP builds the JSON schema from the
   signature, so a missing or loose annotation is a worse tool, not a style nit. This is the
   whole reason the server exists: the n8n MCP trigger advertised every tool as a single
   opaque `input` string and silently dropped every argument.
-- **Docstrings in `tools.py` are prompt.** They are read by a model choosing a tool, not by
+- **Docstrings in `mcp/tools.py` are prompt.** They are read by a model choosing a tool, not by
   a developer reading source. Write them for that reader.
 - **Coerce, don't trust.** Callers send JSON by hand, through form encoders and through LLM
   tool calls. `as_bool` exists because `bool("false")` is `True`; `as_int` exists because
@@ -179,9 +179,9 @@ part that matters:
 
 | Part of the document | Where it comes from |
 |---|---|
-| **request** schemas | the MCP tool schemas verbatim, which FastMCP derives from the signatures in `tools.py` |
-| **response** shapes | `RESPONSES` in `openapi.py`, by hand — the actions return plain dicts, so there is nothing to introspect |
-| info, servers, tags, `/health`, error shape | `openapi.py`, by hand |
+| **request** schemas | the MCP tool schemas verbatim, which FastMCP derives from the signatures in `mcp/tools.py` |
+| **response** shapes | `RESPONSES` in `spec/schemas.py`, by hand — the actions return plain dicts, so there is nothing to introspect |
+| info, servers, tags, `/health`, error shape | `spec/schemas.py`, by hand |
 
 So adding a *parameter* to a tool updates the spec on its own; adding a *return field* does
 not, and `test_every_action_declares_a_response_shape` is what stops that being forgotten.
@@ -191,7 +191,7 @@ cause, so a request body here is exactly the tool's schema. What this document
 adds that no tool schema carries is the session itself, as the header and query
 parameter every operation takes.
 
-**`openapi.py` is where a change goes**, always. Both renderings come out of `build_spec`:
+**`spec/` is where a change goes**, always. Both renderings come out of `build_spec`:
 
 | | Where | Built |
 |---|---|---|
@@ -314,7 +314,7 @@ The tell was the shape of the key: the server's real ids are undashed hex
 (`131c43cc…`) while the ones in the log were dashed UUIDs (`bf532044-b55e-…`) — a value
 FastMCP had invented, not one the transport negotiated.
 
-`sessions.py` therefore reads what the request carries itself, via
+`session/sessions.py` therefore reads what the request carries itself, via
 `get_http_request()`. A missing name then shows up as a missing name, which is
 the whole point — and under §F2.12 it is an error with a message rather than a
 silent new identity.

@@ -24,8 +24,8 @@ from fastmcp.tools import ToolResult
 from fastmcp.utilities.types import Image
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
-from . import secrets as secrets_module
-from .actions import (
+from .. import secrets as secrets_module
+from ..core.actions import (
     DIALOG_ACTIONS,
     DIALOG_TIMEOUT,
     FRAME_ACTIONS,
@@ -34,10 +34,10 @@ from .actions import (
     WAIT_TIMEOUT,
     Actions,
 )
-from .browser import BROWSERS
-from .hints import hints
-from .probe import DEFAULT_LIMIT as OUTLINE_LIMIT
-from .sessions import NAME_PARAM, SessionManager
+from ..core.browser import BROWSERS
+from ..core.probe import DEFAULT_LIMIT as OUTLINE_LIMIT
+from ..session.sessions import NAME_PARAM, SessionManager
+from .annotations import hints
 
 
 def _lowered(value):
@@ -174,7 +174,23 @@ instead of clicking a path to it.
 
 Prefer extract to read a page — it is far cheaper than a screenshot. Use \
 execute_script for anything the other tools do not cover, scrolling included.
+
 """
+
+# Appended only when the skill is actually being served. With --no-skill (or
+# package data missing) nothing registers those resources, and telling a client
+# to read a URI that cannot be read is worse than saying nothing (Copilot, #36).
+SKILL_POINTER = """
+How to drive this well — when to screenshot rather than extract, what a timeout \
+on a good XPath usually means, how to write a flow — is at \
+skill://selenium-flow/SKILL.md. Read it before your first call; it ships with \
+this server, so it describes this version of it.
+"""
+
+
+def instructions(skill_available: bool = True) -> str:
+    """What every client reads at connect, for the server it actually got."""
+    return INSTRUCTIONS + SKILL_POINTER if skill_available else INSTRUCTIONS
 
 
 

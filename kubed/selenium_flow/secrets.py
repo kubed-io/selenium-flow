@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Protocol
 from urllib.parse import urlsplit
 
-from .flows import InvalidName, valid_name
+from .flows.library import InvalidName, valid_name
 
 log = logging.getLogger(__name__)
 
@@ -468,8 +468,9 @@ def register(mcp, catalogue, sessions, token: str | None, prefix: str = "") -> s
     """Serve the catalogue as a resource, a mirroring tool and one endpoint."""
     from starlette.responses import JSONResponse
 
-    from . import auth, errors
-    from .hints import reads
+    from . import errors
+    from .http import auth
+    from .mcp.annotations import reads
 
     def listing() -> dict:
         if catalogue is None:
@@ -550,7 +551,7 @@ def bind(catalogue, reference, url: str, tool: str = "write") -> str:
     # passes raw JSON straight in, so a bare string reached `.get` and
     # raised AttributeError, which `errors.status_for` could only read as a 500
     # — our failure, for a caller's malformed request.
-    from .flowdoc import reference_problems
+    from .flows.document import reference_problems
 
     # The validator's rule, not a copy of it: a reference with a field this
     # reads nothing from is a request for a different binding than the one that
@@ -634,7 +635,7 @@ def perform_write(catalogue, actions, sessions, name: str, kwargs: dict) -> dict
     it. Everything else about a write is identical, which is exactly why this
     lives in one place: two copies of a redaction are one copy that is older.
     """
-    from . import flowrun
+    from .flows import run as flowrun
 
     resolved = sessions.resolve(name)
     given, _guarded = prepare_write(catalogue, actions, resolved, kwargs)

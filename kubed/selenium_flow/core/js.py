@@ -37,7 +37,8 @@ def js_path() -> Path:
     packaged = Path(__file__).parent / JS_DIR
     if packaged.is_dir():
         return packaged
-    return Path(__file__).parents[2] / JS_DIR
+    # parents[3] because this module lives in core/: package, kubed, repo root.
+    return Path(__file__).parents[3] / JS_DIR
 
 
 @cache

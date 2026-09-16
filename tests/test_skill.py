@@ -22,11 +22,10 @@ import yaml
 from fastmcp import Client
 from fastmcp.utilities.skills import get_skill_manifest, list_skills
 
-from kubed.selenium_flow import resources as resources_module
-from kubed.selenium_flow import skill as skill_module
-from kubed.selenium_flow.resources import STATUS_TOOL
-from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.skill import (
+from kubed.selenium_flow.mcp import resources as resources_module
+from kubed.selenium_flow.mcp import skill as skill_module
+from kubed.selenium_flow.mcp.resources import STATUS_TOOL
+from kubed.selenium_flow.mcp.skill import (
     ENTRY,
     MANIFEST,
     MANIFEST_URI,
@@ -34,6 +33,7 @@ from kubed.selenium_flow.skill import (
     SKILL_NAME,
     SKILL_TOOL,
 )
+from kubed.selenium_flow.server import SeleniumMCP
 
 # tomllib is 3.11+; on 3.10 the reader is tomli, which the `test` extra pulls in
 # under that marker. This used to fall back to None and skip the test below —
@@ -107,10 +107,10 @@ def test_every_skill_file_is_covered_by_package_data():
     """
     config = tomllib.loads(PYPROJECT.read_text())
     setuptools = config["tool"]["setuptools"]
-    assert setuptools["package-dir"]["kubed.selenium_flow.skills"] == "skills", (
+    assert setuptools["package-dir"]["kubed.selenium_flow.mcp.skills"] == "skills", (
         "the root skills/ directory must map into the package, or it does not ship"
     )
-    patterns = setuptools["package-data"]["kubed.selenium_flow.skills"]
+    patterns = setuptools["package-data"]["kubed.selenium_flow.mcp.skills"]
     assert patterns, "no package-data patterns for the skill directory"
 
     # Patterns are relative to the mapped root, which is skills/ itself.
@@ -295,7 +295,9 @@ def test_every_tool_an_agent_can_call_has_a_row_in_the_capability_table():
     rather than an interaction question — so it never learned `hover` existed.
     One row per tool, on the page it always reads. See saga §F2.2.
     """
-    from kubed.selenium_flow import files, flowapi, secrets
+    from kubed.selenium_flow import secrets
+    from kubed.selenium_flow.flows import api as flowapi
+    from kubed.selenium_flow.http import files
     from kubed.selenium_flow.routes import ENDPOINTS
 
     # The resource mirrors count: a client that cannot read resources lists and
@@ -367,7 +369,7 @@ def test_every_documented_selector_is_one_the_server_would_accept():
     """
     import ast
 
-    from kubed.selenium_flow.browser import locator
+    from kubed.selenium_flow.core.browser import locator
 
     for _page, literal in documented_selectors():
         # Parsed as written. Rewriting quotes to make it JSON broke every XPath

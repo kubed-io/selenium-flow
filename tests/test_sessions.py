@@ -8,9 +8,9 @@ tool call opened a browser nobody closed.
 
 import pytest
 
-from kubed.selenium_flow import sessions as sessions_module
-from kubed.selenium_flow.sessions import requested
-from kubed.selenium_flow.store import (
+from kubed.selenium_flow.session import sessions as sessions_module
+from kubed.selenium_flow.session.sessions import requested
+from kubed.selenium_flow.session.store import (
     DEFAULT_DB,
     DEFAULT_PREFIX,
     MemoryStore,
@@ -466,7 +466,7 @@ def test_the_pointer_beside_a_session_does_not_empty_the_history():
     the session prefix, `records()` read its `[x, y]` as a record, raised, and
     the page rendered the failure as "No sessions yet." Built through the real
     pointer store, so a pointer namespace that moves is still covered."""
-    from kubed.selenium_flow import pointer
+    from kubed.selenium_flow.core import pointer
 
     fake = FakeRedis()
     store = RedisStore(fake, prefix="p:")
@@ -692,7 +692,7 @@ def test_only_an_invalid_session_id_counts_as_gone(monkeypatch, response, alive,
     decided the session was reaped, reopened, and abandoned the real browser
     with its dialog still up — leaking a Grid slot on every confirm().
     """
-    from kubed.selenium_flow import browser as browser_module
+    from kubed.selenium_flow.core import browser as browser_module
 
     monkeypatch.setattr(
         browser_module.requests, "get", lambda *a, **k: response
@@ -702,7 +702,7 @@ def test_only_an_invalid_session_id_counts_as_gone(monkeypatch, response, alive,
 
 
 def test_an_unreachable_grid_does_not_strand_the_session(monkeypatch):
-    from kubed.selenium_flow import browser as browser_module
+    from kubed.selenium_flow.core import browser as browser_module
 
     def boom(*a, **k):
         raise browser_module.requests.RequestException("down")
@@ -801,7 +801,7 @@ async def test_open_session_comes_back_to_the_page_it_was_on(server, monkeypatch
     """The default, and the reason a reaped browser is invisible."""
     from fastmcp import Client
 
-    from kubed.selenium_flow.store import SessionRecord
+    from kubed.selenium_flow.session.store import SessionRecord
 
     from .conftest import NAMED
 
@@ -829,7 +829,7 @@ async def test_fresh_drops_the_remembered_page_and_keeps_the_browser(
     the session was on Firefox is a silent change of shape, not a fresh start."""
     from fastmcp import Client
 
-    from kubed.selenium_flow.store import SessionRecord
+    from kubed.selenium_flow.session.store import SessionRecord
 
     from .conftest import NAMED
 
@@ -862,7 +862,7 @@ async def test_a_url_given_alongside_fresh_still_wins(server, monkeypatch):
     start has named one."""
     from fastmcp import Client
 
-    from kubed.selenium_flow.store import SessionRecord
+    from kubed.selenium_flow.session.store import SessionRecord
 
     from .conftest import NAMED
 

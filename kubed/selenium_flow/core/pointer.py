@@ -137,7 +137,7 @@ def from_env(env: dict | None = None):
     between replicas wants to share this too, and a second variable to forget is
     a second way for one replica to plot a path from another's stale origin.
     """
-    from . import store as store_module
+    from ..session import store as store_module
 
     env = os.environ if env is None else env
     ttl = int(env.get("SESSION_TTL", DEFAULT_TTL_SECONDS))
@@ -185,7 +185,7 @@ def matching(store):
     ttl = getattr(store, "ttl", DEFAULT_TTL_SECONDS)
     if store.kind != "redis":
         return MemoryPointers(ttl=ttl)
-    from .store import POINTER_NAMESPACE
+    from ..session.store import POINTER_NAMESPACE
 
     return RedisPointers(
         store.client, prefix=store.prefix + POINTER_NAMESPACE, ttl=ttl

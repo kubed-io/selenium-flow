@@ -13,9 +13,9 @@ contract has to protect:
 import pytest
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow import flowapi
-from kubed.selenium_flow import resources as resources_module
-from kubed.selenium_flow.flows import GLOBAL_SESSION, STDIO_SESSION
+from kubed.selenium_flow.flows import api as flowapi
+from kubed.selenium_flow.flows.library import GLOBAL_SESSION, STDIO_SESSION
+from kubed.selenium_flow.mcp import resources as resources_module
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import NAMED, TOKEN
@@ -62,8 +62,8 @@ def acting_as(monkeypatch, server, session):
     `None` is the caller that named no session: it gets the shared library, and
     anything touching a browser refuses it.
     """
-    from kubed.selenium_flow.flows import GLOBAL_SESSION
-    from kubed.selenium_flow.sessions import UNNAMED
+    from kubed.selenium_flow.flows.library import GLOBAL_SESSION
+    from kubed.selenium_flow.session.sessions import UNNAMED
 
     def named():
         if session is None:
@@ -701,10 +701,10 @@ async def test_a_run_reads_a_kept_file_from_the_callers_own_library(
 
     monkeypatch.setattr(flow_server.actions, "_at", lambda *a, **k: _Driver())
     monkeypatch.setattr(
-        "kubed.selenium_flow.browser.accept_local_files", lambda _d: None
+        "kubed.selenium_flow.core.browser.accept_local_files", lambda _d: None
     )
     monkeypatch.setattr(
-        "kubed.selenium_flow.browser.wait_for_element", lambda *a, **k: _Element()
+        "kubed.selenium_flow.core.browser.wait_for_element", lambda *a, **k: _Element()
     )
     monkeypatch.setattr(flow_server.sessions, "resolve", lambda *a, **k: "browser-1")
 

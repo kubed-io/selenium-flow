@@ -34,12 +34,14 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from . import auth, browser, errors, settings
+from . import errors
 from . import secrets as secrets_module
-from . import sessions as sessions_module
-from .actions import Actions
-from .openapi import build_spec
-from .sessions import SessionManager
+from .core import browser
+from .core.actions import Actions
+from .http import answer as answer_module
+from .session import settings
+from .session.sessions import SessionManager
+from .spec import build_spec
 
 log = logging.getLogger(__name__)
 
@@ -218,7 +220,7 @@ def register(
         unexpected. The Grid is named without its credentials, which `GRID_URL`
         may carry and which this answers to anyone (`browser.public_url`).
         """
-        from .openapi import _version
+        from .spec.builder import _version
 
         return JSONResponse(
             {
@@ -304,39 +306,11 @@ def register(
 async def _answer(request, token, what, call) -> JSONResponse:
     """Authorise, name the session, run ``call``, and turn a failure into JSON.
 
-    Every handler here shares it, so a refusal reads the same whichever endpoint
-    produced it — and `errors.py` stays the one place that decides what a
-    failure means.
+    The decision itself lives in ``http.answer``, shared with the flows and
+    files trees so a refusal reads the same whichever one produced it. This
+    passes our own logger, so a record still names this module.
     """
-    if not auth.authorized(request, token):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    try:
-        body = await _body(request)
-    except ValueError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=400)
-    if not isinstance(body, dict):
-        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
-    try:
-        name = sessions_module.name_from(request)
-        return JSONResponse(call(name, body))
-    except Exception as exc:
-        # errors.py decides what the failure means; see it for why a timeout is
-        # the caller's problem and an unknown one is ours.
-        status = errors.status_for(exc)
-        text = errors.message(exc)
-        if status >= 500:
-            if status != 500:
-                # No traceback for a condition we DO recognise — a Grid that is
-                # unreachable or refusing — whose text is where the Grid URL,
-                # credentials included, lives.
-                log.error("%s failed (%s): %s", what, status, text)
-            else:
-                log.exception("%s failed", what)
-        else:
-            # A refused request is not an incident. Logging a mistyped XPath
-            # with a full traceback buried the real failures.
-            log.info("%s refused (%s): %s", what, status, text)
-        return JSONResponse({"error": text}, status_code=status)
+    return await answer_module.answer(request, token, what, call, log)
 
 
 def _add(mcp, actions, sessions, token, prefix, path, method_name, catalogue) -> None:
@@ -386,30 +360,3 @@ def _add(mcp, actions, sessions, token, prefix, path, method_name, catalogue) ->
 
     return handler
 
-
-async def _body(request: Request) -> dict:
-    """The request body as kwargs, from JSON or a multipart form.
-
-    Multipart exists for one reason: uploading a file over HTTP should be a
-    normal file upload, not base64 wrapped in JSON. A file part arrives as raw
-    bytes in ``content`` with its ``filename`` alongside, which is exactly what
-    the upload action already accepts — so the action needs no special case.
-    """
-    content_type = request.headers.get("content-type", "")
-    if content_type.startswith("multipart/form-data"):
-        form = await request.form()
-        body: dict = {}
-        for key, value in form.multi_items():
-            filename = getattr(value, "filename", None)
-            if filename is not None:
-                body["content"] = await value.read()
-                # An explicit filename field wins, so a caller can rename it.
-                body.setdefault("filename", filename)
-            else:
-                body[key] = value
-        return body
-
-    try:
-        return await request.json()
-    except Exception:  # noqa: BLE001 - an empty body is legitimate for an open
-        return {}
