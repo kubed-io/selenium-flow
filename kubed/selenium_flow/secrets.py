@@ -475,7 +475,12 @@ def register(mcp, catalogue, sessions, token: str | None, prefix: str = "") -> N
             raise ValueError(OFF)
         return catalogue.listing(sessions.name())
 
-    @mcp.resource(LIST_URI, description=LIST_DESCRIPTION, mime_type="application/json")
+    @mcp.resource(
+        LIST_URI,
+        name="Secrets",
+        description=LIST_DESCRIPTION,
+        mime_type="application/json",
+    )
     def secrets_resource() -> dict:
         return listing()
 

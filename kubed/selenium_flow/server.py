@@ -21,7 +21,7 @@ from .core.browser import DEFAULT_GRID_URL, Grid
 from .flows import api as flowapi
 from .flows import library as flows
 from .http import admin, files
-from .mcp import apps, failures, mirror, prompts, resources, skill, tools
+from .mcp import apps, completions, failures, mirror, prompts, resources, skill, tools
 from .session.sessions import SessionManager
 from .session.store import SessionStore, from_env
 
@@ -134,6 +134,7 @@ class SeleniumMCP:
         if self.skill is not None:
             skill.register(self.mcp, self.skill)
         mirror.register(self.mcp)
+        completions.register(self.mcp)
 
         # A session's files: a resource, and a tool that draws them for a host
         # that renders MCP Apps — for that host the tool is the only route to a

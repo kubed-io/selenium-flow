@@ -207,3 +207,35 @@ async def test_open_session_is_the_same_named_or_not(server, monkeypatch):
     assert "session_id" not in a["properties"]
 
 
+
+
+# ---- for a person picking one --------------------------------------------------
+
+
+async def test_a_person_picking_a_flow_is_offered_the_names_they_can_read(reader):
+    """VS Code asks for completions when a template or a prompt is picked
+    (§F3.4). They are the caller's listing read back, so they cannot offer a
+    flow the caller could not open."""
+    from mcp.types import PromptReference, ResourceTemplateReference
+
+    for name in ("login", "logout", "checkout"):
+        reader.flows.save(NAMED, name, {"steps": [{"tool": "navigate", "args": {"url": "u"}}]})
+    reader.flows.save("someone-else", "log-secret", {"steps": [{"tool": "navigate", "args": {"url": "u"}}]})
+    async with Client(reader.mcp) as c:
+        template = await c.complete(
+            ResourceTemplateReference(type="ref/resource", uri="flow://flows/{name}"),
+            {"name": "name", "value": "log"},
+        )
+        prompt = await c.complete(
+            PromptReference(type="ref/prompt", name="repair_flow"),
+            {"name": "flow", "value": ""},
+        )
+    assert sorted(template.values) == ["login", "logout"]
+    assert sorted(prompt.values) == ["checkout", "login", "logout"]
+
+
+async def test_resources_are_named_for_a_person_to_read(reader):
+    names = {str(r.uri): r.name for r in await reader.mcp.list_resources()}
+    assert names["flow://flows"] == "Saved Flows"
+    assert names[RESOURCE_URI] == "Current Session"
+    assert not any(n.endswith("_resource") for n in names.values())

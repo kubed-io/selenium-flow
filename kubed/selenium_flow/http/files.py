@@ -337,7 +337,12 @@ def register(
     visible to every client.
     """
 
-    @mcp.resource(LIST_URI, description=DESCRIPTION, mime_type="application/json")
+    @mcp.resource(
+        LIST_URI,
+        name="Session Files",
+        description=DESCRIPTION,
+        mime_type="application/json",
+    )
     def files_resource() -> dict:
         return listing(
             actions, sessions, store, token, sessions.name(), base=base, mount=prefix
@@ -345,6 +350,7 @@ def register(
 
     @mcp.resource(
         FILE_URI,
+        name="Session File",
         description=(
             "One file from this session, as bytes. The name comes from the "
             f"{LIST_URI} listing, which also carries each file's real media "

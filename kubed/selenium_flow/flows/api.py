@@ -320,12 +320,18 @@ def register(
 
     # ---- resources ---------------------------------------------------------
 
-    @mcp.resource(LIST_URI, description=LIST_DESCRIPTION, mime_type="application/json")
+    @mcp.resource(
+        LIST_URI,
+        name="Saved Flows",
+        description=LIST_DESCRIPTION,
+        mime_type="application/json",
+    )
     def flows_resource() -> dict:
         return catalogue(store, session_of(sessions))
 
     @mcp.resource(
         FLOW_URI,
+        name="Saved Flow",
         description=(
             "One saved flow, with its steps. The name comes from the "
             f"{LIST_URI} listing."
@@ -337,6 +343,7 @@ def register(
 
     @mcp.resource(
         SCHEMA_URI,
+        name="Flow Document Schema",
         description=(
             "The shape of a flow document: every tool that may be a step and "
             "the parameters it takes. Read this before writing a flow."
