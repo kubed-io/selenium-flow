@@ -359,6 +359,11 @@ def test_a_data_directory_is_packaged_beside_the_module_that_reads_it(module, di
     )
     assert mapping[key] == directory
     assert key in set(data["tool"]["setuptools"]["packages"])
+    # package-dir says WHERE it goes; package-data says whether anything inside
+    # it ships at all. Without a pattern the wheel carries an empty directory
+    # and the module finds nothing in it (Copilot, #36).
+    patterns = data["tool"]["setuptools"]["package-data"].get(key)
+    assert patterns, f"[tool.setuptools.package-data] needs a pattern for '{key}'"
 
 
 def test_every_relative_import_in_the_package_resolves():
@@ -374,13 +379,27 @@ def test_every_relative_import_in_the_package_resolves():
     broken = []
     for path in sorted(root.rglob("*.py")):
         for node in ast.walk(ast.parse(path.read_text())):
-            if not isinstance(node, ast.ImportFrom) or not node.level or not node.module:
+            if not isinstance(node, ast.ImportFrom) or not node.level:
                 continue
             base = path.parent
             for _ in range(node.level - 1):
                 base = base.parent
-            head = node.module.split(".")[0]
-            if not (base / head).is_dir() and not (base / f"{head}.py").is_file():
-                dots = "." * node.level
-                broken.append(f"{path.relative_to(REPO)}:{node.lineno} {dots}{node.module}")
+            dots = "." * node.level
+            # `from . import x` has module=None and names its targets in the
+            # aliases. Skipping that form skipped every sibling import in the
+            # new subpackages — the guard passed while naming nothing (Copilot).
+            if node.module:
+                heads = [(node.module.split(".")[0], f"{dots}{node.module}")]
+            else:
+                heads = [(a.name, f"{dots}{a.name}") for a in node.names]
+            for head, shown in heads:
+                if (base / head).is_dir() or (base / f"{head}.py").is_file():
+                    continue
+                # A `from . import name` may also import a symbol from the
+                # package __init__ rather than a module; only flag it when the
+                # package does not define it either.
+                init = base / "__init__.py"
+                if not node.module and init.is_file() and head in init.read_text():
+                    continue
+                broken.append(f"{path.relative_to(REPO)}:{node.lineno} {shown}")
     assert not broken, "relative imports that name nothing: " + "; ".join(broken)

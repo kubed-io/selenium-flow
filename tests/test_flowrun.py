@@ -1325,3 +1325,45 @@ def test_a_saved_flow_cannot_carry_a_library_selector():
             schemas,
         )
     assert "session" in " ".join(refused.value.problems)
+
+
+def test_a_step_that_makes_a_file_says_where_it_went():
+    """A screenshot's link has to reach the report without `return: true`.
+
+    A flow takes one so somebody can see what it saw; a report that mentions no
+    file cannot do that, and the pilot flying this found out only by querying
+    the app's own API. The whole result still needs `return: true` — this is the
+    file object alone (pilot report).
+    """
+
+    class Shoots(FakeActions):
+        def screenshot(self, session_id, **kwargs):
+            return {
+                "url": "https://x.test/shot",
+                "file": {
+                    "name": "shot.png",
+                    "absolute_url": "https://x.test/files/abc/shot.png?sig=1",
+                },
+            }
+
+    report = run(Shoots(), flow([{"tool": "screenshot", "args": {}}]), "b")
+    entry = report["steps"][0]
+    assert entry["file"]["name"] == "shot.png"
+    assert entry["file"]["absolute_url"].endswith("sig=1")
+    assert "result" not in entry, "the full result still belongs to return: true"
+
+
+def test_a_file_named_after_a_secret_is_not_reported():
+    """Same terms the step's URL is withheld on: a value that must not be seen
+    does not become visible by being a filename."""
+
+    class ShootsASecret(FakeActions):
+        def screenshot(self, session_id, **kwargs):
+            return {"url": "https://x.test/", "file": {"name": "hunter2.png"}}
+
+    steps = [
+        {"tool": "write", "args": {"selector": {"css": "#q"}, "secret": SECRET_STEP}},
+        {"tool": "screenshot", "args": {}},
+    ]
+    report = guarded(steps, actions=ShootsASecret())
+    assert "hunter2" not in str(report)

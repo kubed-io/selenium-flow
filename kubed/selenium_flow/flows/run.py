@@ -735,6 +735,13 @@ def run(
                 if not redacted_url and "url" not in guarded:
                     entry["url"] = went_to
                 was_at = went_to
+            # A step that produced a file says so, even when the report is
+            # not verbose. A screenshot whose link appears nowhere cannot show
+            # anybody what it saw, which is most of why a flow took it — and a
+            # person reading the report is exactly who it was for (pilot, §F2.15).
+            made = raw.get("file") if isinstance(raw, dict) else None
+            if made and not taints(str(made), hidden):
+                entry["file"] = made
             last = result
             if after_step is not None:
                 after_step(tool, raw)

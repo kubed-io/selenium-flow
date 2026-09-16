@@ -686,14 +686,31 @@ const pair = (k, v) =>
    more than an empty cell would. Everything else is printed exactly as
    written, `${name}` references included, because seeing which arguments a
    parameter reaches is the point of reading the step at all. */
+/* A selector is an object carrying exactly one of `css` or `xpath` (§F2.14),
+   and JSON.stringify renders it as `{"css":"button.go"}` — a payload, when the
+   thing itself is one expression. The server's own step summary unwraps it the
+   same way (`flows.run.summarise`), so the panel and the run report say the
+   same thing about the same step. Anything else object-shaped still prints as
+   JSON, because it genuinely is a structure. */
+const SELECTOR_KEYS = ['css', 'xpath'];
+const selectorText = (v) => {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const named = SELECTOR_KEYS.filter((k) => own(v, k));
+  return named.length === 1 && Object.keys(v).length === 1
+    ? named[0] + ' ' + v[named[0]]
+    : null;
+};
+
 function argsOf(step) {
   const args = mapping(step.args);
   const keys = Object.keys(args);
   if (!keys.length) return '<div class="hint">This step takes nothing.</div>';
   return '<div class="pairs">' + keys.map((k) => {
     const v = args[k];
+    const selector = selectorText(v);
     return pair(k, k === 'secret'
       ? (v && v.name ? v.name + ' / ' + v.key : 'a secret')
+      : selector !== null ? selector
       : (v !== null && typeof v === 'object' ? JSON.stringify(v) : String(v)));
   }).join('') + '</div>';
 }

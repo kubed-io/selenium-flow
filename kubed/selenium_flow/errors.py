@@ -23,6 +23,7 @@ Only HTTP has status codes to get right.
 from __future__ import annotations
 
 import re
+import traceback
 
 import requests
 import urllib3.exceptions
@@ -108,6 +109,18 @@ UNAVAILABLE = (
 # from every message, not only from the one failure known to print a URL
 # (Copilot, #36). `core.browser` imports this rather than keeping a second copy.
 USERINFO = re.compile(r"//[^/@\s]*@")
+
+
+def formatted(exc: BaseException) -> str:
+    """The traceback, with any credential stripped out of it.
+
+    `log.exception` writes the frames verbatim, and a requests or urllib3
+    failure quotes the whole Grid URL — userinfo included — inside them. So the
+    sanitising that :func:`message` does for what a caller reads has to happen
+    for what the logger writes as well (Copilot, #36).
+    """
+    text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    return USERINFO.sub("//", text)
 
 
 def status_for(exc: BaseException) -> int:

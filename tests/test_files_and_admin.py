@@ -497,3 +497,19 @@ def test_the_event_stream_signature_is_bound_to_its_own_path(client):
         ).json()["events_url"]
     query = url.split("?", 1)[1]
     assert client.get(f"/files/abc/shot.png?{query}").status_code == 403
+
+
+def test_the_flow_panel_shows_a_selector_as_one_expression():
+    """`{"css": "button.go"}` is how a selector travels, not how it reads.
+
+    The server's step summary already unwraps it — `summarise` prints
+    `css='button.go'` — so a panel that stringifies the object makes the same
+    step look like two different things depending on where you read it.
+    """
+    from kubed.selenium_flow.http import admin
+
+    page = admin.read("admin.html")
+    assert "const selectorText" in page, "the panel still dumps the raw object"
+    assert "selectorText(v)" in page, "argsOf does not consult it"
+    # Still JSON for anything genuinely structured — a `parameters` object, say.
+    assert "JSON.stringify(v)" in page

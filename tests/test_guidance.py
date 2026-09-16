@@ -58,9 +58,34 @@ def test_the_instructions_name_the_skill():
     manual after it had already gone wrong. The skill is published correctly and
     a client listing resources can see it; nothing told it to read it.
     """
-    from kubed.selenium_flow.mcp.tools import INSTRUCTIONS
+    from kubed.selenium_flow.mcp.tools import instructions
 
-    assert "skill://selenium-flow/SKILL.md" in INSTRUCTIONS
+    assert "skill://selenium-flow/SKILL.md" in instructions(True)
+
+
+def test_the_instructions_do_not_name_a_skill_that_is_not_served():
+    """`--no-skill` is a supported mode, and it registers no skill:// resource.
+
+    Telling that client to read the manual points it at a URI nothing answers,
+    which is the same failure as naming a reference the skill does not ship —
+    it teaches an agent the manual is broken (Copilot, #36).
+    """
+    from kubed.selenium_flow.mcp.tools import instructions
+
+    assert "skill://" not in instructions(False)
+
+
+def test_the_session_status_omits_guidance_when_no_skill_is_served():
+    """Same rule, the other emitter."""
+    from kubed.selenium_flow.core.actions import Actions
+    from kubed.selenium_flow.core.browser import Grid
+    from kubed.selenium_flow.session.sessions import SessionManager
+
+    actions = Actions(Grid("http://grid.invalid:4444"))
+    served = SessionManager(actions, skill_available=True)
+    silent = SessionManager(actions, skill_available=False)
+    assert "SESSIONS.md" in served.describe("someone")["guidance"]
+    assert "guidance" not in silent.describe("someone")
 
 
 def test_the_emitted_shapes_are_exactly_what_they_were():

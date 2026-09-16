@@ -183,9 +183,18 @@ class SessionManager:
     only identifier a caller ever sees.
     """
 
-    def __init__(self, actions: Actions, store: SessionStore | None = None):
+    def __init__(
+        self,
+        actions: Actions,
+        store: SessionStore | None = None,
+        skill_available: bool = True,
+    ):
         self.actions = actions
         self.store = store if store is not None else MemoryStore()
+        # Whether this server serves the skill. The status points at a reference
+        # for the caller to read, and a skill:// URI nobody can read teaches an
+        # agent the manual is broken (Copilot, #36).
+        self.skill_available = skill_available
 
     @property
     def kind(self) -> str:
@@ -240,8 +249,9 @@ class SessionManager:
             "window": None,
             "store": self.kind,
             "settings": {},
-            "guidance": guidance.pointer("SESSIONS.md"),
         }
+        if self.skill_available:
+            status["guidance"] = guidance.pointer("SESSIONS.md")
         record = self.store.get(caller.name)
         if record is None:
             return status

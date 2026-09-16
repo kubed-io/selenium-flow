@@ -70,11 +70,11 @@ def as_response(exc: Exception, what: str, log: logging.Logger) -> JSONResponse:
     status = errors.status_for(exc)
     text = errors.message(exc)
     if status == 500:
-        # Only the status we do not understand earns a traceback. A 503 is a
-        # known condition — the Grid is unreachable or refusing — and its frames
-        # carry the exception text, which for a Grid refusal is where the Grid
-        # URL, credentials included, lives.
-        log.exception("%s failed", what)
+        # Only the status we do not understand earns a traceback — and it is
+        # written through `errors.formatted`, not `log.exception`, because the
+        # frames quote the Grid URL with its credentials and nothing sanitises
+        # what the logger writes otherwise (Copilot, #36).
+        log.error("%s failed\n%s", what, errors.formatted(exc))
     elif status > 500:
         log.warning("%s unavailable (%s): %s", what, status, text)
     else:
