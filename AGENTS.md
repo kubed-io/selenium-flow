@@ -14,10 +14,15 @@ Start with [Chapter 1 — The Flight Plan](saga/Chapter_1_The_Flight_Plan.md) if
 you are picking up the **flows** feature: saved sequences of tool calls, run
 server-side on one clearance. It closed with `v0.1.0`.
 
-[Chapter 2 — Pilot Reports](saga/Chapter_2_Pilot_Reports.md) is the current one:
+[Chapter 2 — Pilot Reports](saga/Chapter_2_Pilot_Reports.md) is still open for E17:
 what the first agent flying a real app reported — discoverable capabilities, a
 pointer that can glide, `drag`, `assert` steps that stop a run with instructions,
 and `outline`.
+
+[Chapter 3 — Other Aircraft](saga/Chapter_3_Other_Aircraft.md) is the current
+plan: what clients other than Claude Code can reach — VS Code Copilot above all,
+whose model cannot read resources — and whether two generic resource mirrors
+should replace seven specific ones.
 
 
 This repo ships **an image and nothing else**. It does not deploy itself — unlike the
