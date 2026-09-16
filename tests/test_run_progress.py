@@ -276,6 +276,22 @@ async def test_every_field_a_save_or_read_returns_is_published(slow_server):
         assert not undeclared, f"{schema} does not declare {sorted(undeclared)}"
 
 
+def test_a_null_budget_over_http_means_unset_and_is_not_stored(slow_server):
+    """An MCP caller that omits `timeout` sends nothing; an HTTP caller may send
+    `null`. Both mean the default, and neither leaves a null in the file."""
+    from starlette.testclient import TestClient
+
+    client = TestClient(slow_server.mcp.http_app())
+    response = client.put(
+        "/flows/patient",
+        json={"steps": STEPS[:1], "timeout": None},
+        headers={"Authorization": f"Bearer {TOKEN}", "X-Session-Key": NAMED},
+    )
+    assert response.status_code == 200, response.text
+    assert "timeout" not in response.json()
+    assert "timeout" not in slow_server.flows.get(NAMED, "patient")
+
+
 def test_the_published_default_is_the_real_one():
     """The spec's schemas are written by hand; the number in them is not allowed
     to drift from the one the engine uses."""

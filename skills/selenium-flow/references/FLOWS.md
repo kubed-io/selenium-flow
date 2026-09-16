@@ -73,8 +73,9 @@ session already holds.
 
 ## Parameters: what varies between runs
 
-Declare them as JSON Schema and write `${name}` where the value goes. These
-four fields are `save_flow`'s arguments:
+Declare them as JSON Schema and write `${name}` where the value goes. The
+fields below are `save_flow`'s arguments, and `timeout` is the one this example
+does not need:
 
 ```json
 {

@@ -1541,8 +1541,9 @@ request.
    work completed, the application advanced, and the caller was told it failed.
    The pilot then capped every run under the client's idle timeout, which
    defeats the point, or abandoned flows for "fire it and poll the app's API".
-   One MCP progress notification per step keeps the channel alive and turns a
-   twenty-step run from a black box into something watchable.
+   The pilot asked for one MCP progress notification per step. What was built
+   samples the step a run is on and adds a heartbeat inside a long one, which
+   is what actually keeps the channel alive (§F2.15).
 2. ~~**A run needs an identity and a way to ask about it.**~~ **Answered by the
    client and by cancellation, not by new tools** (§F2.15). After an abort there
    was no way to ask whether the run was still going, and no way to stop it. A

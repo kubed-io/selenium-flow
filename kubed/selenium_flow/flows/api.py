@@ -224,6 +224,11 @@ def save_one(store, session: str, name: str, document: dict, schemas: dict) -> d
     document = dict(document or {})
     document.pop("session", None)
     document.pop("shared", None)
+    # `null` means unset, as it does for every optional argument an MCP caller
+    # leaves out. Kept, it would be saved and read back as a null where the
+    # schema promises an integer (Copilot, #37).
+    if document.get(flowdoc.TIMEOUT, 0) is None:
+        del document[flowdoc.TIMEOUT]
     flowdoc.validate(document, schemas)
     # Stored as the integer it was accepted as. `"900"` is coerced on the way
     # in, as every boundary value is, and keeping the string would publish a
