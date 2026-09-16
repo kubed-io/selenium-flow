@@ -237,7 +237,7 @@ async def test_every_flow_endpoint_is_in_the_published_contract(spec):
     """The guard the multipart upload schema did not have until it had already
     drifted: these paths are written by hand, so the list is held against the
     one the server actually binds."""
-    from kubed.selenium_flow.flowapi import FLOW_ROUTES
+    from kubed.selenium_flow.flows.api import FLOW_ROUTES
 
     published = {
         (method, path)

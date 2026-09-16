@@ -38,7 +38,10 @@ from starlette.responses import (
     StreamingResponse,
 )
 
-from . import auth, errors, files, flowapi, flowdoc, flows, links
+from . import auth, errors, files, links
+from .flows import api as flowapi
+from .flows import document as flowdoc
+from .flows import library as flows
 from .core.browser import DEFAULT_BROWSER, is_partial
 
 log = logging.getLogger(__name__)

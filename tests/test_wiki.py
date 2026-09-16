@@ -111,7 +111,7 @@ def test_every_action_with_an_endpoint_has_a_page():
     route table of its own fails here rather than going undocumented.
     """
     from kubed.selenium_flow import files as files_module
-    from kubed.selenium_flow import flowapi
+    from kubed.selenium_flow.flows import api as flowapi
     from kubed.selenium_flow.routes import ENDPOINTS
 
     spec = _spec()

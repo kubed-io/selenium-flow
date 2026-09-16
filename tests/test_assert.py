@@ -190,7 +190,7 @@ class _AlreadySignedIn:
 def test_a_failing_assert_stops_the_run_and_carries_the_message():
     """The whole point, through `run()`: no new status, and the step's error is
     the sentence its author wrote (saga §F2.5)."""
-    from kubed.selenium_flow.flowrun import run
+    from kubed.selenium_flow.flows.run import run
 
     report = run(_AlreadySignedIn(), LOGIN_GUARD, "b")
 
@@ -204,7 +204,7 @@ def test_a_failing_assert_stops_the_run_and_carries_the_message():
 async def test_an_assert_cannot_be_continued_past(server):
     """`onError: continue` on an assertion is the confident green again: the run
     would carry on and report `ok` (Copilot, #26)."""
-    from kubed.selenium_flow.flowdoc import InvalidFlow, step_schemas, validate
+    from kubed.selenium_flow.flows.document import InvalidFlow, step_schemas, validate
     from kubed.selenium_flow.routes import ENDPOINTS as ROUTES
 
     tools = {}
@@ -228,7 +228,7 @@ async def test_an_assert_cannot_be_continued_past(server):
 def test_a_hand_edited_flow_cannot_continue_past_one_either():
     """Saving refuses the pairing, and a document edited on disk never passed
     through saving — so the runner refuses it too, rather than trusting it."""
-    from kubed.selenium_flow.flowrun import run
+    from kubed.selenium_flow.flows.run import run
 
     class _Acting:
         def __init__(self):
@@ -262,7 +262,7 @@ def test_a_hand_edited_flow_cannot_continue_past_one_either():
 
 async def test_a_flow_with_an_assert_step_saves(server):
     """Save-time validation knows the tool, so an author finds a typo now."""
-    from kubed.selenium_flow.flowdoc import step_schemas, validate
+    from kubed.selenium_flow.flows.document import step_schemas, validate
     from kubed.selenium_flow.routes import ENDPOINTS as ROUTES
 
     tools = {}

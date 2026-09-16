@@ -121,7 +121,7 @@ def name_in(params: dict, headers: dict) -> Caller | None:
     HTTP routes — which have a Starlette request in hand — resolve a session
     through exactly this function rather than a second copy of the rule.
     """
-    from ..flows import valid_session_name
+    from ..flows.library import valid_session_name
 
     header = str(headers.get(NAME_HEADER) or "").strip()
     param = str(params.get(NAME_PARAM) or "").strip()
@@ -164,7 +164,7 @@ def library_from(request) -> str:
     See :meth:`SessionManager.library` for why a missing name is not an error
     here.
     """
-    from ..flows import GLOBAL_SESSION
+    from ..flows.library import GLOBAL_SESSION
 
     caller = name_in(
         dict(request.query_params),
@@ -212,7 +212,7 @@ class SessionManager:
         the shared flows and can write nowhere at all. Anything that touches a
         browser still has to say who it is (§F2.13).
         """
-        from ..flows import GLOBAL_SESSION
+        from ..flows.library import GLOBAL_SESSION
 
         caller = requested()
         return caller.name if caller else GLOBAL_SESSION

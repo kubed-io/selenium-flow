@@ -295,7 +295,8 @@ def test_every_tool_an_agent_can_call_has_a_row_in_the_capability_table():
     rather than an interaction question — so it never learned `hover` existed.
     One row per tool, on the page it always reads. See saga §F2.2.
     """
-    from kubed.selenium_flow import files, flowapi, secrets
+    from kubed.selenium_flow import files, secrets
+    from kubed.selenium_flow.flows import api as flowapi
     from kubed.selenium_flow.routes import ENDPOINTS
 
     # The resource mirrors count: a client that cannot read resources lists and

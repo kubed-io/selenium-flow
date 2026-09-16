@@ -16,8 +16,8 @@ from urllib.parse import quote
 import pytest
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow import flows
-from kubed.selenium_flow.flows import GLOBAL_SESSION
+from kubed.selenium_flow.flows import library as flows
+from kubed.selenium_flow.flows.library import GLOBAL_SESSION
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.session.store import SessionRecord
 

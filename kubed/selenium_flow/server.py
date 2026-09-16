@@ -15,8 +15,6 @@ from . import (
     admin,
     apps,
     files,
-    flowapi,
-    flows,
     prompts,
     resources,
     routes,
@@ -25,6 +23,8 @@ from . import (
     tools,
 )
 from .core import pointer
+from .flows import api as flowapi
+from .flows import library as flows
 from .core.actions import Actions
 from .core.browser import DEFAULT_GRID_URL, Grid
 from .session.sessions import SessionManager

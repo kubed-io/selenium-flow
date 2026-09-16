@@ -13,9 +13,9 @@ contract has to protect:
 import pytest
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow import flowapi
+from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow import resources as resources_module
-from kubed.selenium_flow.flows import GLOBAL_SESSION, STDIO_SESSION
+from kubed.selenium_flow.flows.library import GLOBAL_SESSION, STDIO_SESSION
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import NAMED, TOKEN
@@ -62,7 +62,7 @@ def acting_as(monkeypatch, server, session):
     `None` is the caller that named no session: it gets the shared library, and
     anything touching a browser refuses it.
     """
-    from kubed.selenium_flow.flows import GLOBAL_SESSION
+    from kubed.selenium_flow.flows.library import GLOBAL_SESSION
     from kubed.selenium_flow.session.sessions import UNNAMED
 
     def named():

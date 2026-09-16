@@ -1175,7 +1175,7 @@ def _mcp_tools() -> tuple[dict, dict]:
     tool nobody can call.
     """
     from . import files as files_module
-    from . import flowapi
+    from .flows import api as flowapi
 
     return (
         {
@@ -1192,7 +1192,7 @@ def _mcp_tools() -> tuple[dict, dict]:
 
 def _flow_paths(prefix: str = "") -> dict:
     """The flow library as resources, from `flowapi.FLOW_ROUTES`."""
-    from .flowapi import FLOW_ROUTES
+    from .flows.api import FLOW_ROUTES
 
     tools, _ = _mcp_tools()
     paths: dict = {}

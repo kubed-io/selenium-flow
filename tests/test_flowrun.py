@@ -7,8 +7,8 @@ calls to find out why, which loses more than the flow ever saved.
 
 import pytest
 
-from kubed.selenium_flow import flowrun
-from kubed.selenium_flow.flowrun import FlowError, run
+from kubed.selenium_flow.flows import run as flowrun
+from kubed.selenium_flow.flows.run import FlowError, run
 
 pytestmark = pytest.mark.unit
 
@@ -1303,7 +1303,7 @@ def test_a_step_can_never_name_another_callers_library():
 
 def test_a_saved_flow_cannot_carry_a_library_selector():
     """The other half of the rule above, at the gate rather than at run time."""
-    from kubed.selenium_flow import flowdoc
+    from kubed.selenium_flow.flows import document as flowdoc
 
     schemas = {
         "upload_file": {

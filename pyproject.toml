@@ -89,6 +89,7 @@ selenium-flow = "kubed.selenium_flow.main:main"
 packages = [
   "kubed.selenium_flow",
   "kubed.selenium_flow.core",
+  "kubed.selenium_flow.flows",
   "kubed.selenium_flow.session",
   "kubed.selenium_flow.core.js",
   "kubed.selenium_flow.prompts",

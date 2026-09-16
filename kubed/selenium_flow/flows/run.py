@@ -43,8 +43,8 @@ import logging
 import time
 from urllib.parse import quote, quote_plus
 
-from . import secrets
-from .flowdoc import (
+from .. import secrets
+from .document import (
     ARGS,
     ASSERTION,
     NOT_STEPS,
@@ -52,7 +52,7 @@ from .flowdoc import (
     SECRET_ARG,
     listed,
 )
-from .routes import ENDPOINTS, method_for
+from ..routes import ENDPOINTS, method_for
 
 # The only attributes a step may dispatch to. `getattr(actions, tool)` alone
 # accepts any callable on the object — `clear_files` would wipe the session's

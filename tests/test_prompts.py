@@ -12,7 +12,7 @@ from fastmcp import Client
 from fastmcp.exceptions import PromptError
 
 from kubed.selenium_flow import prompts as prompts_module
-from kubed.selenium_flow.flowrun import hint_for
+from kubed.selenium_flow.flows.run import hint_for
 
 pytestmark = pytest.mark.unit
 
@@ -249,7 +249,7 @@ def test_an_anchor_it_names_is_a_heading_that_exists():
 def test_a_real_failed_run_carries_the_hint():
     """Through `run()`, not the helper: the helper staying right while nothing
     calls it is the failure this kind of test exists to catch."""
-    from kubed.selenium_flow.flowrun import run
+    from kubed.selenium_flow.flows.run import run
 
     class _Broken:
         def navigate(self, session_id, **kwargs):
@@ -295,7 +295,7 @@ def test_a_real_failed_run_carries_the_hint():
 def test_a_run_refused_before_step_one_still_says_where_to_look(document, because):
     """Two of the three ways a run can fail returned before the hint existed
     (Copilot, #30) — a refused document is exactly when somebody needs it."""
-    from kubed.selenium_flow.flowrun import run
+    from kubed.selenium_flow.flows.run import run
 
     report = run(object(), document, "b")
     assert report["status"] == "failed"
@@ -305,7 +305,7 @@ def test_a_run_refused_before_step_one_still_says_where_to_look(document, becaus
 
 def test_a_run_that_worked_carries_no_hint():
     """Nothing to repair, nothing to say."""
-    from kubed.selenium_flow.flowrun import run
+    from kubed.selenium_flow.flows.run import run
 
     class _Fine:
         def navigate(self, session_id, **kwargs):

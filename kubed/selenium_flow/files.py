@@ -62,7 +62,8 @@ import mimetypes
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import auth, errors, flows, links
+from . import auth, errors, links
+from .flows import library as flows
 from .session import sessions as sessions_module
 from .hints import hints, reads
 
