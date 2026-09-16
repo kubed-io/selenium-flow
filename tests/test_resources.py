@@ -239,3 +239,44 @@ async def test_resources_are_named_for_a_person_to_read(reader):
     assert names["flow://flows"] == "Saved Flows"
     assert names[RESOURCE_URI] == "Current Session"
     assert not any(n.endswith("_resource") for n in names.values())
+
+
+async def test_a_person_picking_a_file_is_offered_their_own_files(reader):
+    from mcp.types import ResourceTemplateReference
+
+    reader.flows.write_file(NAMED, "report.pdf", b"%PDF")
+    reader.flows.write_file(NAMED, "shot.png", b"png")
+    reader.flows.write_file("someone-else", "report-secret.pdf", b"%PDF")
+    async with Client(reader.mcp) as c:
+        offered = await c.complete(
+            ResourceTemplateReference(type="ref/resource", uri="session://files/{name}"),
+            {"name": "name", "value": "rep"},
+        )
+    assert offered.values == ["report.pdf"]
+
+
+async def test_an_svg_reads_back_as_the_text_it_is(reader):
+    """An image to a browser, XML to a model — which cannot view it as a picture
+    (Copilot, #39)."""
+    _serving(reader, b"<svg xmlns='http://www.w3.org/2000/svg'><rect/></svg>")
+    result = await read(reader, "session://files/chart.svg")
+    assert result.content[0].type == "text"
+    assert result.content[0].text.startswith("<svg")
+
+
+async def test_a_flow_that_is_not_there_says_where_the_flows_are(reader):
+    """A URI that matches a template reaches the resource, whose own refusal
+    names the listing — better advice than the templates the caller already
+    used."""
+    with pytest.raises(ToolError) as refused:
+        await read(reader, "flow://flows/nope")
+    assert "no flow called 'nope'" in str(refused.value)
+    assert "flow://flows" in str(refused.value)
+
+
+async def test_the_listing_publishes_both_row_shapes(reader):
+    """A tool-only client learns from the output schema which rows have a uri
+    and which a uri_template (Copilot, #39)."""
+    tool = await reader.mcp.get_tool(mirror.LIST_TOOL)
+    schema = json.dumps(tool.output_schema)
+    assert "uri_template" in schema and "mime_type" in schema

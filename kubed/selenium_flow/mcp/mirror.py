@@ -30,6 +30,7 @@ from fastmcp.server.middleware import Middleware
 from fastmcp.tools import ToolResult
 from fastmcp.utilities.types import Image
 from mcp.types import TextContent
+from pydantic import BaseModel
 
 from . import apps, clients
 from .annotations import reads
@@ -45,6 +46,28 @@ NOT_FOR_READING = ("ui://",)
 # is described instead of dumped: base64 of a downloaded PDF is megabytes of
 # text a model can do nothing with, and it would spend the context doing it.
 VIEWABLE = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
+
+# Served as bytes and readable as text. SVG is an image to a browser and XML to
+# a model, which cannot view one as a picture, so it is returned as the text it
+# is rather than described as a file it cannot open (Copilot, #39).
+TEXTUAL = frozenset({"image/svg+xml"})
+
+
+class ResourceRow(BaseModel):
+    """A resource to read as it stands: pass uri to read_resource."""
+
+    uri: str
+    name: str
+    description: str = ""
+    mime_type: str | None = None
+
+
+class TemplateRow(BaseModel):
+    """A family of resources: fill in uri_template's {placeholders}, then read."""
+
+    uri_template: str
+    name: str
+    description: str = ""
 
 
 def _listed(uri: str) -> bool:
@@ -86,6 +109,11 @@ def _media_type(uri: str, declared: str | None) -> str:
 
 
 def _binary(uri: str, data: bytes, media: str) -> TextContent | Image:
+    if media in TEXTUAL or media.startswith("text/"):
+        try:
+            return TextContent(type="text", text=data.decode("utf-8"))
+        except UnicodeDecodeError:
+            pass
     if media in VIEWABLE:
         return Image(data=data, format=media.split("/", 1)[1]).to_image_content()
     return TextContent(
@@ -120,8 +148,12 @@ def register(mcp) -> frozenset[str]:
         ),
         annotations=reads("List resources", open_world=False),
     )
-    async def list_resources() -> list[dict]:
-        return await _rows(get_context().fastmcp)
+    async def list_resources() -> list[ResourceRow | TemplateRow]:
+        rows = await _rows(get_context().fastmcp)
+        return [
+            TemplateRow(**row) if "uri_template" in row else ResourceRow(**row)
+            for row in rows
+        ]
 
     @mcp.tool(
         name=READ_TOOL,

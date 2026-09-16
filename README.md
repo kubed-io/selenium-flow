@@ -24,7 +24,7 @@ workflow  ──── HTTP /browser ──▶ └──────────
                                                             lives here
 ```
 
-**This server holds no browser.** The session lives on the Grid, so the server can restart or scale to zero without anyone losing a tab. 🪄
+**This server holds no browser.** The browser lives on the Grid, and with `SESSION_STORE=redis` the record naming it does too — so the server can restart or scale to zero without anyone losing a tab. With the default in-memory store, a restart forgets which browser was whose. 🪄
 
 ---
 
