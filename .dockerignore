@@ -10,8 +10,14 @@ dist/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
-.github/
 *.log
-# The wiki is a submodule of prose. It has no part in the build, and it only
-# grows, so keeping it out of the context keeps that growth free.
-wiki/
+
+# `.github/` and `wiki/` are NOT ignored, and that is deliberate. Both are
+# tracked — wiki/ as a gitlink — so leaving them out of the context while `.git`
+# stays in it makes git inside the build see deleted files, call the tree dirty,
+# and setuptools_scm then bumps PAST the tag: v0.2.0 shipped an image whose
+# /info reported 0.2.1.dev0+gd5bf435d4.d20260916.
+#
+# They cost nothing to carry. In CI the wiki submodule is not checked out, so it
+# is an empty directory, and `.github/` is a handful of YAML that lands in the
+# final COPY layer — after the dependency layer that actually takes the time.
