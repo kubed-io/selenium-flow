@@ -22,7 +22,7 @@
 
 Nothing is built yet. Dr K answered five questions in the first pass (§F3.1 to
 §F3.5); §F3.6 is the one this chapter exists to settle, and it is *recommended*
-until he answers it.
+until Dr K answers it.
 
 What it was planned from:
 
