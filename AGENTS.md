@@ -558,20 +558,17 @@ it may as well not ship.
 Write for a model deciding what to do next, not for a developer reading reference
 docs; the tool descriptions already say what each tool takes.
 
-## Scaling: replicas > 1 requires --stateless
+## Scaling: one replica
 
-The `/browser` surface is replica-safe as it stands. The `/mcp` surface is **not** by
-default: FastMCP keeps MCP sessions in process memory, so a client whose next request is
-balanced to another pod is told its session does not exist.
+The `/mcp` surface keeps MCP transport sessions in process memory, and relies on
+them: a client's `initialize` — its name and capabilities, which decide what it
+is shown (§F3.1) — is remembered there. A second replica would answer a client
+it never met. There used to be a `--stateless` flag trading that away; it was
+removed rather than kept for a scaling nobody runs.
 
-`--stateless` / `STATELESS_HTTP=true` drops MCP sessions entirely - no `Mcp-Session-Id` is
-issued and every request stands alone. Both surfaces are then replica-safe. The browser is
-unaffected either way, because its session was never here.
-
-So: `replicas: 1` needs nothing; more than one requires the flag, and Redis —
-which is no longer optional in the way it was: every caller has a session record
-now, and a memory store means a caller's browser is only found again when its
-request lands on the pod that opened it.
+The browser is unaffected: its session lives on the Grid, and the record naming
+it lives in the session store. Use Redis for that record if the pod should come
+back from a restart holding its callers' browsers.
 
 ## Gotchas
 

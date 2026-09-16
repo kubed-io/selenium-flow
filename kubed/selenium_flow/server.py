@@ -39,13 +39,10 @@ class SeleniumMCP:
     functions, so the surfaces cannot drift.
 
     The server holds no browser state — a browser lives on the Grid and the
-    caller's session name leads back to it. What it *does* hold, in the default
-    HTTP mode, is the MCP transport session, and that lives in this process's
-    memory. So the
-    ``/browser`` surface scales to any number of replicas as-is, while the
-    ``/mcp`` surface does not: a client whose next request lands on another pod
-    is told its session does not exist. Set ``stateless`` to drop MCP sessions
-    entirely and make both surfaces replica-safe.
+    caller's session name leads back to it. What it *does* hold is the MCP
+    transport session, in this process's memory, and it relies on it: that is
+    where a client's `initialize` — who it is, what it can do — is remembered.
+    So it runs as one replica.
     """
 
     def __init__(
@@ -53,7 +50,6 @@ class SeleniumMCP:
         grid_url: str = DEFAULT_GRID_URL,
         auth_token: str | None = None,
         route_prefix: str = DEFAULT_ROUTE_PREFIX,
-        stateless: bool = False,
         store: SessionStore | None = None,
         pointers=None,
         skill_enabled: bool = True,
@@ -80,7 +76,6 @@ class SeleniumMCP:
             pointers=pointers if pointers is not None else pointer.matching(self.store),
         )
         self.auth_token = auth_token
-        self.stateless = stateless
         # Where this whole server hangs: "" for root. Every tree below is fixed
         # relative to it, which is the inversion §F1.11 asked for.
         self.prefix = routes.mount(route_prefix)
@@ -242,7 +237,6 @@ class SeleniumMCP:
                 transport="http",
                 host=host,
                 port=port,
-                stateless_http=self.stateless,
                 # The MCP endpoint moves with everything else, `/openapi.*`
                 # included. Only the four probes also answer at the root.
                 path=self.mcp_path,

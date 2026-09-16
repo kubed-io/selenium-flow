@@ -88,7 +88,6 @@ will notice.
 | `MCP_AUTH_TOKEN` | unset | Sets the bearer token for both surfaces. Unset means **no auth** |
 | `SESSION_STORE` | `memory` | `redis` to share a caller's browser across replicas or a restart |
 | `SESSION_TTL` | `3600` | How long a caller's mapping is kept. Not the browser's lifetime |
-| `STATELESS_HTTP` | `false` | Required for more than one replica |
 | `FLOW_DATA_DIR` | unset | A directory to keep saved flows in. Unset means no flows |
 | `SECRETS_DIRS` | unset | Colon-separated directories of secrets. Unset means none to bind |
 | `SKILL_ENABLED` | `true` | `false` serves only the bare tools, no guidance |

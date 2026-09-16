@@ -20,11 +20,11 @@ Open a browser once. It stays alive — same page, same cookies, same scroll pos
    agent  ──── MCP  /mcp ─────▶  ┌───────────────┐        ┌───────────────┐
                                  │ selenium-flow │ ─────▶ │ Selenium Grid │ ──▶ 🌐
 workflow  ──── HTTP /browser ──▶ └───────────────┘        └───────────────┘
-                                    stateless               the browser
+                                  holds no browser          the browser
                                                             lives here
 ```
 
-**This server holds no browser.** The session lives on the Grid, so the server can restart, scale to zero, or run several replicas without anyone losing a tab. 🪄
+**This server holds no browser.** The session lives on the Grid, so the server can restart or scale to zero without anyone losing a tab. 🪄
 
 ---
 
@@ -241,7 +241,6 @@ Every flag has an environment fallback: containers are configured with env vars,
 | `WINDOW_WIDTH` / `WINDOW_HEIGHT` | — | node default | Default window size for new sessions |
 | `PAGE_LOAD_TIMEOUT` | — | unbounded | Seconds a navigation may take. **Worth setting** — a hung page holds a Grid slot |
 | `SCRIPT_TIMEOUT` | — | driver default | Seconds `execute_script` may take |
-| `STATELESS_HTTP` | `--stateless` | `false` | Drop MCP transport sessions. Required for >1 replica |
 | `TRANSPORT` | `--transport` | `http` | `http` or `stdio` |
 | `HOST` / `PORT` | `--host` / `--port` | `0.0.0.0` / `8000` | |
 | `LOG_LEVEL` | `--log-level` | `INFO` | `DEBUG` logs which key each call resolved to, and how |

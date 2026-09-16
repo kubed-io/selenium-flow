@@ -79,29 +79,29 @@ async def test_the_hidden_tool_is_still_registered_and_callable(server):
 # ---- session_id is advertised per mode --------------------------------------
 
 
-def saved(monkeypatch):
+def named(monkeypatch):
     monkeypatch.setattr(
         "kubed.selenium_flow.session.sessions.http_request", lambda: http({"session": "d"})
     )
 
 
-def stateless(monkeypatch):
+def unnamed(monkeypatch):
     monkeypatch.setattr("kubed.selenium_flow.session.sessions.http_request", lambda: http())
 
 
-async def test_saved_mode_does_not_advertise_session_id(server, monkeypatch):
+async def test_no_tool_advertises_a_session_id(server, monkeypatch):
     """A model cannot pass what it cannot see, which is the point."""
-    saved(monkeypatch)
+    named(monkeypatch)
     tools = {t.name: t for t in await server.mcp.list_tools()}
     for name in ("navigate", "extract", "interact", "end_browser"):
         assert "session_id" not in tools[name].parameters["properties"], name
 
 
-async def test_open_session_is_the_same_in_both_modes(server, monkeypatch):
-    """It has no session_id to shape, and both modes call it identically."""
-    saved(monkeypatch)
+async def test_open_session_is_the_same_named_or_not(server, monkeypatch):
+    """It has no session_id to shape, whoever calls it."""
+    named(monkeypatch)
     a = {t.name: t for t in await server.mcp.list_tools()}["open_session"].parameters
-    stateless(monkeypatch)
+    unnamed(monkeypatch)
     b = {t.name: t for t in await server.mcp.list_tools()}["open_session"].parameters
     assert a == b
     assert "session_id" not in a["properties"]

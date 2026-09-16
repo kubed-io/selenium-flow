@@ -220,8 +220,8 @@ const SF = (() => {
       group('session', [
         // Neither the name nor the key when there is a name: the heading above
         // is the name, and the key is only ever `named:<that same name>`. Shown
-        // for the others, where the heading is a kind — "mcp client",
-        // "stateless" — and the key is the only thing saying *which* one.
+        // for the others, where the heading is a kind rather than a name, and
+        // the key is the only thing saying *which* one.
         ['key', s.name ? null : s.key],
         ['held by', s.name ? null : s.owner],
         ['browser', s.browser],

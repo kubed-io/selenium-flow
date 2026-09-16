@@ -296,23 +296,3 @@ def test_only_a_key_that_can_submit_waits_for_a_navigation(
 
     actions.press_key("abc", key)
     assert bool(called) is waits
-
-
-async def test_stateless_mode_keeps_both_surfaces_intact(server):
-    """Statelessness is a transport setting, not a capability change.
-
-    It exists so more than one replica can serve the /mcp surface — MCP sessions
-    otherwise live in one process's memory. The browser is unaffected either
-    way: the session is a name the caller supplies on every request, and the
-    record behind it is in the shared store rather than in this process.
-    """
-    from kubed.selenium_flow.server import SeleniumMCP
-
-    stateless = SeleniumMCP(
-        grid_url="http://grid.invalid:4444", auth_token="t", stateless=True
-    )
-    assert stateless.stateless is True
-    assert server.stateless is False
-    assert browser_tools(await stateless.mcp.list_tools()) == (
-        EXPECTED | RESOURCE_ACTIONS
-    )
