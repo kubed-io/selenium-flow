@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-16
+
 ### Added
 
 - **One endpoint per probe**: `/health` (liveness, and deliberately independent of the Grid), `/started` (startup), `/ready` (readiness, which is the one that asks the Grid) and `/info` (version, mount, what it is wired to). All four answer at the root as well as under the prefix.
