@@ -80,6 +80,33 @@ def test_everything_in_the_wheel_rebuilds_the_image(directory):
         )
 
 
+# The files that decide what the image IS, as opposed to the directories that
+# ship inside it. Each one changes the built image without changing any of the
+# paths the rules above watch.
+BUILD_CONTEXT_FILES = (
+    ".dockerignore",
+    "Dockerfile",
+    "docker-compose.yaml",
+    "pyproject.toml",
+)
+
+
+@pytest.mark.parametrize("path", BUILD_CONTEXT_FILES)
+def test_a_file_that_shapes_the_build_rebuilds_the_image(path):
+    """Changing one of these changes the image, so it has to trigger a build.
+
+    `.dockerignore` is the one that proved it: it decides which files reach the
+    build context, a change to it altered the version the image reported, and
+    nothing rebuilt because this list did not watch it.
+    """
+    assert (REPO / path).is_file(), f"{path} is gone — update BUILD_CONTEXT_FILES"
+    for paths in image_trigger_paths():
+        assert path in paths, (
+            f"{path} shapes the image but image.yml will not rebuild when it "
+            f"changes. Add '{path}' to every paths filter in it."
+        )
+
+
 def test_the_package_source_directories_exist():
     """A mapping to a directory that is gone is a wheel missing a feature."""
     for directory in packaged_directories():

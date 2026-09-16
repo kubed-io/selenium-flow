@@ -29,6 +29,12 @@ on:
     branches: [main]
     paths:
     - Dockerfile
+    # What reaches the build context, which is as much a part of the image as
+    # the Dockerfile that reads it: stripping a tracked path from here made
+    # setuptools_scm call the tree dirty, and v0.2.0 shipped an image reporting
+    # 0.2.1.dev0. That change did not rebuild anything, because this list did
+    # not watch the file that caused it.
+    - .dockerignore
     - docker-compose.yaml
     - pyproject.toml
     - .github/workflows/image.yml
