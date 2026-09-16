@@ -1,22 +1,20 @@
 """Saved flows, offered every way a client might reach them.
 
-The same split `files.py` makes, for the same reason: a listing is *state to
-read*, so it is a resource, and it is mirrored as a tool for the clients — n8n
-among them — with no notion of resources. Writes are only ever tools, because a
-resource cannot write.
+A listing is *state to read*, so it is a resource; writes are only ever tools,
+because a resource cannot write.
 
-| Verb | Surface | Visible to a client that reads resources? |
-|---|---|---|
-| list | `flow://flows` + `list_flows` | resource only |
-| get one | `flow://flows/{name}` + `get_flow` | resource only |
-| the step schema | `flow://schema` + `flow_schema` | resource only |
-| save | `save_flow` | yes |
-| delete | `delete_flow` | yes |
+| Verb | Surface |
+|---|---|
+| list | `flow://flows` |
+| get one | `flow://flows/{name}` |
+| the step schema | `flow://schema` |
+| save | `save_flow` |
+| run | `run_flow` |
+| delete | `delete_flow` |
 
-So a client with resources sees **two** new tools and reads the library for
-free; one without sees five and loses nothing. That is saga §F1.5, and it is the
-answer to "how do we avoid five CRUD tools" — not by overloading one verb, but
-by putting reads where reads belong.
+A client that cannot read resources reads the same URIs with `read_resource`
+(§F3.6). That is the answer to "how do we avoid five CRUD tools" (§F1.5) — not
+by overloading one verb, but by putting reads where reads belong.
 
 **`/flows` is a layer above `/browser`, not more of it.** The browser endpoints
 are single actions; these are about documents that *contain* them. They get
@@ -45,7 +43,7 @@ from starlette.responses import JSONResponse
 from ..core.browser import as_bool
 from ..http import answer as answer_module
 from ..mcp import progress
-from ..mcp.annotations import hints, reads
+from ..mcp.annotations import hints
 from ..mcp.tools import SecretRef
 from ..routes import ENDPOINTS
 from ..session import sessions as sessions_module
@@ -59,9 +57,6 @@ LIST_URI = "flow://flows"
 FLOW_URI = "flow://flows/{name}"
 SCHEMA_URI = "flow://schema"
 
-LIST_TOOL = "list_flows"
-GET_TOOL = "get_flow"
-SCHEMA_TOOL = "flow_schema"
 RUN_TOOL = "run_flow"
 SAVE_TOOL = "save_flow"
 DELETE_TOOL = "delete_flow"
@@ -99,7 +94,7 @@ LIST_DESCRIPTION = (
     "The flows this session can run: saved sequences of tool calls that run "
     "server-side in one call.\n\n"
     "Each entry has a name, a description, the parameters it takes and how many "
-    "steps it has — never the steps themselves, which get_flow returns.\n\n"
+    "steps it has — never the steps themselves, which flow://flows/{name} returns.\n\n"
     "Flows named by this session come first; anything in the shared 'global' "
     "library is also listed, and a flow of your own with the same name wins."
 )
@@ -168,7 +163,7 @@ def read_one(store, session: str, name: str) -> dict:
     if flow is None:
         raise ValueError(
             f"no flow called {name!r} in {session} or the shared library. "
-            "list_flows shows what there is."
+            "flow://flows lists what there is."
         )
     return {
         **flow,
@@ -315,8 +310,8 @@ def run_one(
 def register(
     mcp, store, sessions, actions, token: str | None, prefix: str = "",
     secrets_catalogue=None, schemas=None, skill_available: bool = True,
-) -> set[str]:
-    """Register the flow resources, tools and endpoints. Returns mirror names."""
+) -> None:
+    """Register the flow resources, tools and endpoints."""
     # Shared with the admin surface when the server hands one in, so the editor
     # there validates against the same step schemas these tools do. Two
     # instances would only mean building the same thing twice, but two
@@ -352,38 +347,6 @@ def register(
         return await _document_schema(schemas)
 
     # ---- tools -------------------------------------------------------------
-
-    @mcp.tool(
-        name=LIST_TOOL,
-        description=LIST_DESCRIPTION,
-        annotations=reads("Flows this session can run"),
-    )
-    def list_flows() -> dict:
-        return catalogue(store, session_of(sessions))
-
-    @mcp.tool(
-        name=GET_TOOL,
-        description=(
-            "One saved flow, with its steps — what it does, what it takes, and "
-            "what it would run. Use list_flows to see what there is."
-        ),
-        annotations=reads("Read one saved flow"),
-    )
-    def get_flow(name: str) -> dict:
-        return read_one(store, session_of(sessions), name)
-
-    @mcp.tool(
-        name=SCHEMA_TOOL,
-        description=(
-            "The shape of a flow document: every tool that may be a step and "
-            "the parameters each takes.\n\nRead this before writing a flow — it "
-            "is derived from the live tools, so it cannot describe a step that "
-            "would not run."
-        ),
-        annotations=reads("The shape of a flow document", open_world=False),
-    )
-    async def flow_schema() -> dict:
-        return await _document_schema(schemas)
 
     @mcp.tool(
         name=SAVE_TOOL,
@@ -442,7 +405,7 @@ def register(
             "It runs in the browser you already have — call open_session first. "
             "That is also how you run the same flow on a different browser: open "
             "Firefox and run it again, unchanged.\n\n"
-            "params supplies the values the flow declares; list_flows shows what "
+            "params supplies the values the flow declares; flow://flows shows what "
             "each one takes. Returns a line per step plus the final page; pass "
             "verbose for every step's full result, or mark a step with "
             "return: true when only that one matters.\n\n"
@@ -503,7 +466,6 @@ def register(
         mcp, store, sessions, actions, schemas, token, prefix, secrets_catalogue,
         skill_available,
     )
-    return {LIST_TOOL, GET_TOOL, SCHEMA_TOOL}
 
 
 async def _document_schema(schemas: Schemas) -> dict:

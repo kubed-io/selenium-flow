@@ -105,8 +105,9 @@ def test_every_action_with_an_endpoint_has_a_page():
     come from tool docstrings. The wiki became internally inconsistent by
     working correctly.
 
-    The rule is now the spec's own `x-mcp-tool`: an operation that is one half
-    of an action a caller can also reach over MCP gets a page. Asserted against
+    The rule is now the spec's own `x-mcp-tool` or `x-mcp-resource`: an
+    operation that is one half of something a caller can also reach over MCP —
+    a tool, or for a read, a resource — gets a page. Asserted against
     the live spec rather than against the generator, so adding a surface with a
     route table of its own fails here rather than going undocumented.
     """
@@ -120,10 +121,15 @@ def test_every_action_with_an_endpoint_has_a_page():
         for method, op in item.items():
             if "x-mcp-tool" in op:
                 tagged[path, method] = op["x-mcp-tool"]
+            elif "x-mcp-resource" in op:
+                # A read has no tool; its page is named for the operation.
+                tagged[path, method] = re.sub(
+                    r"(?<!^)(?=[A-Z])", "_", op["operationId"]
+                ).lower()
 
     # Counted against the route tables, not against a list of names written out
     # here. Naming a couple of tools as sentinels looked like a check and was
-    # not: drop `x-mcp-tool` from an operation and it simply leaves the set, so
+    # not: drop `x-mcp-tool` or `x-mcp-resource` from an operation and it simply leaves the set, so
     # the page stops being generated, stops being checked for staleness, and
     # nothing fails. Counting catches that AND a seventh flow endpoint added
     # without a tool behind it.
@@ -140,7 +146,7 @@ def test_every_action_with_an_endpoint_has_a_page():
     ):
         found = {t for (p, _), t in tagged.items() if p.startswith(prefix)}
         assert len(found) == len(set(endpoints)), (
-            f"{prefix} has {len(found)} operations carrying x-mcp-tool, "
+            f"{prefix} has {len(found)} operations with an MCP side, "
             f"but {len(set(endpoints))} endpoints"
         )
 

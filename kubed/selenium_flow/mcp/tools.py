@@ -471,7 +471,7 @@ def register(
         `kept` takes the name of a file keep_file has kept, which is how you
         give a page back something a browser downloaded — an export from one
         site uploaded to another, without the bytes passing through you.
-        session_files lists what is there.
+        session://files lists what is there.
 
         Use `content` (base64) only for binary, and `path` only for a file
         already on the server's filesystem. Pass exactly one of the four.
@@ -516,7 +516,7 @@ def register(
         Address the field with a selector: exactly one of xpath or css.
 
         To type a secret, pass secret={"name": ..., "key": ...} instead of
-        text. list_secrets shows what there is. You never see the value: the
+        text. secret://secrets shows what there is. You never see the value: the
         server reads it and types it, and the result comes back with
         value: null. A secret may only be used on the sites its owner allowed,
         checked against the page you are on, so navigate there first.
@@ -738,8 +738,8 @@ def register(
         By default it is also kept with the session's files, where it has a URL
         that opens in a browser and shows up in the admin page - so a person can
         see what you saw, whether or not your client can display an image. The
-        result then carries the file's name, which is what keep_file and
-        session_files take.
+        result then carries the file's name, which is what keep_file takes and
+        session://files lists.
 
         When it could not be stored - a page the browser will not download from,
         say - the result carries file_error instead of file, and the image still

@@ -26,6 +26,7 @@ import argparse
 import asyncio
 import json
 import pathlib
+import re
 import sys
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -100,7 +101,7 @@ GROUPS = [
         "Files",
         "What a session has produced, and how to keep one past the browser "
         "that made it. See [Files](Files).",
-        ["session_files", "keep_file"],
+        ["list_files", "keep_file"],
     ),
 ]
 
@@ -269,7 +270,7 @@ def sample_of(spec: dict, field: dict, depth: int = 0) -> object:
 
 
 def example(
-    spec: dict, tool: str, method: str, path: str, schema: dict, in_path=()
+    spec: dict, tool: str, method: str, path: str, schema: dict, in_path=(), uri=""
 ) -> str:
     """A call in both shapes, using only the parameters that are required.
 
@@ -305,8 +306,15 @@ def example(
         lines[-1] += " \\"
         lines += ["  -H 'Content-Type: application/json' \\", f"  -d '{payload}'"]
     body = "\n".join(lines)
+    if uri:
+        # A read is a resource over MCP. A client that cannot read resources
+        # reads the same URI through `read_resource` (§F3.6).
+        read = uri.replace("{name}", "my-flow")
+        mcp = f"read {read}\n\nread_resource(uri=\"{read}\")"
+    else:
+        mcp = f"{tool}({mcp_args})"
     return (
-        f"**MCP**\n\n```\n{tool}({mcp_args})\n```\n\n"
+        f"**MCP**\n\n```\n{mcp}\n```\n\n"
         f"**HTTP**\n\n```bash\n{body}\n```"
     )
 
@@ -334,6 +342,7 @@ def failures(op: dict) -> str:
 
 
 def render(spec: dict, tool: str, method: str, path: str, op: dict) -> str:
+    uri = op.get("x-mcp-resource", "")
     # A GET or a DELETE has no body: what it takes is in the path and the
     # session header, so there is nothing to resolve.
     body = op.get("requestBody")
@@ -374,13 +383,13 @@ def render(spec: dict, tool: str, method: str, path: str, op: dict) -> str:
 
     return f"""{BANNER.format(name=tool)}
 
-# `{tool}`
+# `{uri or tool}`
 
 > {summary}
 
 |  |  |
 |---|---|
-| **MCP tool** | `{tool}` |
+| {"**MCP resource**" if uri else "**MCP tool**"} | `{uri or tool}` |
 | **HTTP** | `{method} {path}` |
 
 {description}
@@ -398,12 +407,23 @@ Sending both is refused. See [Sessions](Sessions).
 {failures(op)}
 ## Example
 
-{example(spec, tool, method, path, request, [p["name"] for p in in_path])}
+{example(spec, tool, method, path, request, [p["name"] for p in in_path], uri)}
 {extra}
 ---
 
 [← All actions](Actions) · [Installing](Installing) · [Deployment](Deployment)
 """
+
+
+def page_name(op: dict) -> str:
+    """What an operation's page is called: its tool, or for a read — which is a
+    resource over MCP and has no tool — its operationId in the same snake case.
+    """
+    if op.get("x-mcp-tool"):
+        return op["x-mcp-tool"]
+    if op.get("x-mcp-resource"):
+        return re.sub(r"(?<!^)(?=[A-Z])", "_", op["operationId"]).lower()
+    return ""
 
 
 def pages(spec: dict) -> dict[str, str]:
@@ -416,7 +436,7 @@ def pages(spec: dict) -> dict[str, str]:
             # leaves /health out without naming it. Filtering on `/browser/`
             # was what kept flows and kept files out of the wiki entirely
             # while every other page went on referring to them.
-            tool = op.get("x-mcp-tool")
+            tool = page_name(op)
             if tool:
                 by_tool[tool] = (method.upper(), path, op)
 
@@ -437,7 +457,7 @@ def pages(spec: dict) -> dict[str, str]:
     for title, blurb, tools in GROUPS:
         rows = [
             [
-                f"[`{tool}`]({tool})",
+                f"[`{by_tool[tool][2].get('x-mcp-resource') or tool}`]({tool})",
                 f"`{by_tool[tool][0]} {by_tool[tool][1]}`",
                 clean(by_tool[tool][2].get("summary")),
             ]
@@ -446,7 +466,7 @@ def pages(spec: dict) -> dict[str, str]:
         ]
         if rows:
             sections.append(
-                f"## {title}\n\n{blurb}\n\n{table(rows, ['Tool', 'Endpoint', 'Does'])}"
+                f"## {title}\n\n{blurb}\n\n{table(rows, ['MCP', 'Endpoint', 'Does'])}"
             )
 
     body = "\n\n".join(sections)
@@ -454,8 +474,10 @@ def pages(spec: dict) -> dict[str, str]:
 
 # Actions
 
-Every action is an MCP tool **and** an HTTP endpoint with the same parameters. A
-test fails the build if one exists without the other.
+Every action is an MCP tool **and** an HTTP endpoint with the same parameters,
+and every read is an MCP resource **and** an HTTP endpoint. A test fails the
+build if one exists without the other. A client that cannot read resources reads
+the same URIs with `read_resource`.
 
 {body}
 

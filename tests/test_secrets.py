@@ -314,21 +314,21 @@ def secret_server(tmp_path, monkeypatch):
     return server
 
 
-async def test_the_catalogue_is_a_resource_with_a_tool_mirroring_it(secret_server,
-                                                                    monkeypatch):
-    from kubed.selenium_flow.mcp import resources as resources_module
+async def _read(server, uri):
+    import json
 
-    names = {t.name for t in await secret_server.mcp.list_tools()}
-    assert secrets.LIST_TOOL not in names  # hidden from a client with resources
+    result = await server.mcp.read_resource(uri)
+    return json.loads(result.contents[0].content)
 
-    monkeypatch.setattr(resources_module, "_http", lambda: ({"resources": "off"}, {}))
-    names = {t.name for t in await secret_server.mcp.list_tools()}
-    assert secrets.LIST_TOOL in names
+
+async def test_the_catalogue_is_a_resource(secret_server):
+    uris = {str(r.uri) for r in await secret_server.mcp.list_resources()}
+    assert secrets.LIST_URI in uris
+    assert await secret_server.mcp.get_tool("list_secrets") is None
 
 
 async def test_listing_secrets_never_returns_a_value(secret_server):
-    tool = await secret_server.mcp.get_tool(secrets.LIST_TOOL)
-    result = tool.fn()
+    result = await _read(secret_server, secrets.LIST_URI)
     assert result["count"] == 1
     entry = result["secrets"][0]
     assert entry["keys"] == ["password", "username"]
@@ -336,17 +336,14 @@ async def test_listing_secrets_never_returns_a_value(secret_server):
     assert "hunter2" not in str(result)
 
 
-async def test_no_tool_on_this_server_returns_a_secret_value(secret_server,
-                                                             monkeypatch):
-    """The hard rule, asserted across the whole surface rather than assumed.
-
-    Every tool that can be called without a browser is called, and none of them
-    may produce the value. If a future tool ever grows a way to read one, this
+async def test_nothing_readable_on_this_server_returns_a_secret_value(secret_server):
+    """The hard rule, asserted across everything there is to read rather than
+    assumed: every resource the server lists, read the way a client that cannot
+    read resources reads it. If one ever grows a way to produce the value, this
     is what should fail.
     """
-    from kubed.selenium_flow.mcp import resources as resources_module
+    from fastmcp import Client
 
-    monkeypatch.setattr(resources_module, "_http", lambda: ({"resources": "off"}, {}))
     # A saved flow that BINDS the secret is the case that matters most: the
     # document names it, and must never carry it.
     save = await secret_server.mcp.get_tool("save_flow")
@@ -359,45 +356,25 @@ async def test_no_tool_on_this_server_returns_a_secret_value(secret_server,
             }
         ],
     )
-
-    readable = {
-        secrets.LIST_TOOL,
-        "current_session",
-        "selenium_flow_skill",
-        "list_flows",
-        "flow_schema",
-    }
-    for name in readable:
-        tool = await secret_server.mcp.get_tool(name)
-        result = tool.fn()
-        if hasattr(result, "__await__"):
-            result = await result
-        assert "hunter2" not in str(result), name
-
-    read = await secret_server.mcp.get_tool("get_flow")
-    assert "hunter2" not in str(read.fn(name="login"))
+    async with Client(secret_server.mcp) as client:
+        rows = (await client.call_tool("list_resources", {})).structured_content["result"]
+        uris = [row["uri"] for row in rows if "uri" in row] + ["flow://flows/login"]
+        assert secrets.LIST_URI in uris
+        for uri in uris:
+            result = await client.call_tool("read_resource", {"uri": uri})
+            assert "hunter2" not in str(result.content), uri
 
 
-async def test_the_listing_tool_says_it_only_reads(secret_server, monkeypatch):
-    from kubed.selenium_flow.mcp import resources as resources_module
+async def test_with_no_directories_the_catalogue_says_so(monkeypatch):
+    from fastmcp.exceptions import ResourceError
 
-    monkeypatch.setattr(resources_module, "_http", lambda: ({"resources": "off"}, {}))
-    tools = {t.name: t for t in await secret_server.mcp.list_tools()}
-    hints = tools[secrets.LIST_TOOL].annotations
-    assert hints.read_only_hint is True
-    # It reads a directory this server can already see: no browser, no Grid.
-    assert hints.open_world_hint is False
-
-
-async def test_with_no_directories_the_tool_says_so(monkeypatch):
     from kubed.selenium_flow.server import SeleniumMCP
 
     monkeypatch.delenv("SECRETS_DIRS", raising=False)
     server = SeleniumMCP(grid_url="http://grid.invalid:4444")
     assert server.secrets is None
-    tool = await server.mcp.get_tool(secrets.LIST_TOOL)
-    with pytest.raises(ValueError, match="SECRETS_DIRS"):
-        tool.fn()
+    with pytest.raises(ResourceError, match="SECRETS_DIRS"):
+        await server.mcp.read_resource(secrets.LIST_URI)
 
 
 def test_the_endpoint_serves_the_catalogue_and_needs_the_token(secret_server):
@@ -570,7 +547,7 @@ def test_upload_file_says_not_yet_rather_than_never(bindable):
 
 
 def test_a_missing_secret_or_key_says_what_there_is(bindable):
-    with pytest.raises(secrets.Refused, match="list_secrets"):
+    with pytest.raises(secrets.Refused, match="secret://secrets"):
         secrets.bind(bindable, {"name": "nope", "key": "k"},
                      "https://x.test/")
     with pytest.raises(secrets.Refused, match="has no key") as caught:

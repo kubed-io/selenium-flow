@@ -40,13 +40,10 @@ The listing is offered three ways, because clients differ in what they accept:
 - ``session://files/{name}`` — one file, as bytes, with its real media type. A
   client that reads resources can therefore display a screenshot without a URL,
   a token, or a round trip through the model.
-- ``session_files`` — a tool returning the same listing, for clients with no
-  notion of resources at all. It carries an app config, so a host that can
-  render UI draws the file grid instead of printing JSON.
-
-The tool is hidden from clients that read resources, exactly as the session
-status is — unless the client can also render apps, in which case the tool is
-the only way it gets one, and hiding it would trade a picture for a duplicate.
+- ``session_files`` — a tool returning the same listing, carrying an app config,
+  so a host that renders MCP Apps draws the file grid. It is listed only to such
+  a host; every other client reads ``session://files``, directly or through
+  ``read_resource`` (§F3.6).
 
 Everything carries a signed URL as well, because the most common destination is
 somewhere that can do none of the above: a chat transcript that renders markdown
@@ -305,7 +302,7 @@ def read_kept(sessions, store, name: str, session: str | None = None) -> bytes:
         # outage. `upload_file(path=...)` already answers 400 for exactly this
         # (`no file at ...`), and the sibling source must not disagree.
         raise ValueError(
-            f"no kept file called {wanted!r}. session_files lists what is kept; "
+            f"no kept file called {wanted!r}. session://files lists what is kept; "
             "keep_file(name) is what keeps one before the browser goes"
         ) from exc
 
@@ -396,7 +393,7 @@ def register(
             "including when you switch browser. Keeping copies the file to the "
             "server, where it survives — and where upload_file(path=...) can "
             "attach it to a page in a later session.\n\n"
-            "Takes the name exactly as session_files lists it. Keeping a name "
+            "Takes the name exactly as session://files lists it. Keeping a name "
             "that is already kept replaces it, so this is safe to repeat. The "
             "original download stays where it is: the Grid offers no way to "
             "remove a single file."

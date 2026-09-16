@@ -22,16 +22,13 @@ import yaml
 from fastmcp import Client
 from fastmcp.utilities.skills import get_skill_manifest, list_skills
 
-from kubed.selenium_flow.mcp import resources as resources_module
 from kubed.selenium_flow.mcp import skill as skill_module
-from kubed.selenium_flow.mcp.resources import STATUS_TOOL
 from kubed.selenium_flow.mcp.skill import (
     ENTRY,
     MANIFEST,
     MANIFEST_URI,
     RESOURCE_URI,
     SKILL_NAME,
-    SKILL_TOOL,
 )
 from kubed.selenium_flow.server import SeleniumMCP
 
@@ -172,11 +169,6 @@ async def test_each_reference_is_its_own_resource(server):
         assert f"skill://{SKILL_NAME}/{path}" in uris
 
 
-async def test_a_reference_can_be_read_through_the_tool(server):
-    body = skill_module.read(server.skill, "references/SESSIONS.md")
-    assert body and body.startswith("#")
-
-
 # ---- the FastMCP skill convention ------------------------------------------
 
 
@@ -222,21 +214,6 @@ def test_the_served_text_keeps_its_frontmatter(server):
     assert skill_module.read(server.skill, ENTRY).startswith("---")
 
 
-def test_the_manifest_lists_what_ships(server):
-    assert ENTRY in skill_module.read(server.skill, MANIFEST)
-
-
-def test_reading_a_file_that_does_not_exist_returns_none(server):
-    assert skill_module.read(server.skill, "nope.md") is None
-
-
-@pytest.mark.parametrize(
-    "path", ["../server.py", "/etc/passwd", "a/../../server.py", "../../pyproject.toml"]
-)
-def test_only_files_on_the_manifest_can_be_read(server, path):
-    assert skill_module.read(server.skill, path) is None
-
-
 @pytest.mark.parametrize(
     "env,expected",
     [
@@ -254,68 +231,39 @@ def test_the_skill_is_on_unless_switched_off(env, expected):
 # ---- how it is served ------------------------------------------------------
 
 
-async def test_the_skill_tool_is_hidden_from_clients_that_read_resources(server):
-    assert SKILL_TOOL not in {t.name for t in await server.mcp.list_tools()}
-
-
-async def test_the_skill_tool_appears_for_a_client_that_cannot(server, monkeypatch):
-    monkeypatch.setattr(resources_module, "_http", lambda: http({"resources": "off"}))
-    names = {t.name for t in await server.mcp.list_tools()}
-    assert SKILL_TOOL in names
-    assert STATUS_TOOL in names, "both mirrors are revealed by the same switch"
-
-
-async def test_the_hidden_skill_tool_is_still_callable(server):
-    assert await server.mcp.get_tool(SKILL_TOOL) is not None
-
-
-async def test_switching_the_skill_off_removes_both_shapes():
+async def test_switching_the_skill_off_removes_its_resources():
     off = SeleniumMCP(
         grid_url="http://grid.invalid:4444", auth_token="t", skill_enabled=False
     )
     assert off.skill is None
     uris = {str(r.uri) for r in await off.mcp.list_resources()}
     assert RESOURCE_URI not in uris and MANIFEST_URI not in uris
-    assert SKILL_TOOL not in {t.name for t in await off.mcp.list_tools()}
 
 
-async def test_the_status_mirror_still_works_with_the_skill_off():
-    """Turning one feature off must not take the other's mirror with it."""
-    off = SeleniumMCP(
-        grid_url="http://grid.invalid:4444", auth_token="t", skill_enabled=False
-    )
-    assert await off.mcp.get_tool(STATUS_TOOL) is not None
-
-
-def test_every_tool_an_agent_can_call_has_a_row_in_the_capability_table():
+async def test_every_tool_and_resource_has_a_row_on_the_page_it_always_reads(server):
     """An agent that misreads its own task skips a router but scans a table.
 
     The first agent to fly a real app read FLOWS.md and never opened
     INTERACTION.md, because it thought it had a "this menu won't open" problem
     rather than an interaction question — so it never learned `hover` existed.
-    One row per tool, on the page it always reads. See saga §F2.2.
-    """
-    from kubed.selenium_flow import secrets
-    from kubed.selenium_flow.flows import api as flowapi
-    from kubed.selenium_flow.http import files
-    from kubed.selenium_flow.routes import ENDPOINTS
+    One row per tool and per resource, on the page it always reads (§F2.2).
 
-    # The resource mirrors count: a client that cannot read resources lists and
-    # calls them like any other tool (Copilot, #25).
-    tools = {STATUS_TOOL, skill_module.SKILL_TOOL} | set(ENDPOINTS.values()) | {
-        flowapi.LIST_TOOL,
-        flowapi.GET_TOOL,
-        flowapi.SCHEMA_TOOL,
-        flowapi.RUN_TOOL,
-        flowapi.SAVE_TOOL,
-        flowapi.DELETE_TOOL,
-        files.FILES_TOOL,
-        files.KEEP_TOOL,
-        secrets.LIST_TOOL,
-    }
+    Taken from the live server, with the two reading tools left out: they are
+    how a client reads the resource rows, and the page says so in prose.
+    """
+    from kubed.selenium_flow.mcp import mirror
+
     body = (SKILL_DIR / ENTRY).read_text()
+    tools = {t.name for t in await server.mcp.list_tools()} - set(mirror.MIRROR_TOOLS)
     missing = sorted(t for t in tools if not re.search(rf"^\| `{t}` \|", body, re.M))
-    assert not missing, f"SKILL.md's capability table has no row for {missing}"
+    assert not missing, f"SKILL.md's tool table has no row for {missing}"
+
+    reads = {str(r.uri) for r in await server.mcp.list_resources()} | {
+        t.uri_template for t in await server.mcp.list_resource_templates()
+    }
+    reads = {u for u in reads if not u.startswith(("ui://", "skill://"))}
+    missing = sorted(u for u in reads if not re.search(rf"^\| `{re.escape(u)}` \|", body, re.M))
+    assert not missing, f"SKILL.md's resource table has no row for {missing}"
 
 
 # ---- the examples have to work ---------------------------------------------

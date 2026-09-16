@@ -9,7 +9,7 @@ import pytest
 
 from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.http import files as files_module
-from kubed.selenium_flow.mcp import resources as resources_module
+from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.routes import ENDPOINTS, method_for
 
 pytestmark = pytest.mark.unit
@@ -17,10 +17,10 @@ pytestmark = pytest.mark.unit
 # Named separately from ENDPOINTS so a typo in the route table cannot make this
 # test agree with itself.
 #
-# The resource-mirror tools (`current_session`, `selenium_flow_skill`) are
-# deliberately absent: neither is a browser action, neither has an HTTP
-# counterpart, and both are hidden from tools/list unless a client declares it
-# cannot read resources. See test_resources.py and test_skill.py.
+# The reading tools (`list_resources`, `read_resource`) are deliberately absent:
+# neither is a browser action, neither has an HTTP counterpart, and both are
+# hidden from tools/list unless the client cannot read resources. See
+# test_resources.py.
 # Saved flows are a layer ABOVE the browser actions, not more of them: they are
 # about documents that contain actions, they live under /flows rather than
 # /browser, and they have their own route table. So they are subtracted from
@@ -30,9 +30,6 @@ FLOW_TOOLS = {
     flowapi.RUN_TOOL,
     flowapi.SAVE_TOOL,
     flowapi.DELETE_TOOL,
-    flowapi.LIST_TOOL,
-    flowapi.GET_TOOL,
-    flowapi.SCHEMA_TOOL,
 }
 
 
@@ -150,13 +147,12 @@ async def test_every_tool_declares_its_safety_hints(server, monkeypatch, resourc
     does not need. Every tool must say what it is.
 
     Parametrised over `resources` because that switch CHANGES THE TOOL LIST: a
-    client that cannot read resources is also given the mirror tools
-    (`current_session`, `session_files`, `selenium_flow_skill`), and checking
-    only the default mode left all three unannotated — advertised as destructive
-    when every one of them merely reads.
+    client that cannot read resources is also given the reading tools, and
+    checking only the default mode once left the mirrors unannotated —
+    advertised as destructive when every one of them merely reads.
     """
     monkeypatch.setattr(
-        resources_module, "_http", lambda: ({"resources": resources}, {})
+        clients_module, "_http", lambda: ({"resources": resources}, {})
     )
     tools = await server.mcp.list_tools()
     assert tools, "no tools listed, so this proves nothing"
@@ -164,20 +160,6 @@ async def test_every_tool_declares_its_safety_hints(server, monkeypatch, resourc
         hints = tool.annotations
         assert hints is not None, f"{tool.name} declares no annotations"
         assert hints.title, f"{tool.name} has no display title"
-
-
-async def test_the_mirror_tools_are_reads(server, monkeypatch):
-    """They exist so a client with no resource support can still ask a question.
-
-    Asking a question changes nothing, and `selenium_flow_skill` does not even
-    leave the process — it is answered from files inside the installed package.
-    """
-    monkeypatch.setattr(resources_module, "_http", lambda: ({"resources": "off"}, {}))
-    tools = {t.name: t for t in await server.mcp.list_tools()}
-    for name in ("current_session", "session_files", "selenium_flow_skill"):
-        assert tools[name].annotations.read_only_hint is True, name
-
-    assert tools["selenium_flow_skill"].annotations.open_world_hint is False
 
 
 async def test_only_reading_the_page_is_marked_read_only(server):

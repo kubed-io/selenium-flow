@@ -21,7 +21,7 @@ from .core.browser import DEFAULT_GRID_URL, Grid
 from .flows import api as flowapi
 from .flows import library as flows
 from .http import admin, files
-from .mcp import apps, failures, prompts, resources, skill, tools
+from .mcp import apps, failures, mirror, prompts, resources, skill, tools
 from .session.sessions import SessionManager
 from .session.store import SessionStore, from_env
 
@@ -123,22 +123,21 @@ class SeleniumMCP:
         )
         tools.register(self.mcp, self.actions, self.sessions, self.secrets)
 
-        # Resources, each with a tool that mirrors it for clients which cannot
-        # read resources. The mirrors are collected rather than hidden
-        # individually so one middleware makes the whole decision, per request.
+        # Everything to read is a resource. A client that cannot read them gets
+        # `mirror`'s two tools, which read the same URIs (§F3.6).
         # Templates a person picks, rather than instructions the model reads.
         # A failed run's hint names one, which is how an agent that cannot
         # invoke a prompt still points somebody at the right one (§F2.6).
         self.prompts = prompts.register(self.mcp)
 
-        mirrors = resources.register(self.mcp, self.sessions)
+        resources.register(self.mcp, self.sessions)
         if self.skill is not None:
-            mirrors |= skill.register(self.mcp, self.skill)
+            skill.register(self.mcp, self.skill)
+        mirror.register(self.mcp)
 
-        # A session's files, and the Grid's running sessions: each a resource
-        # with a tool that mirrors it. Those tools also carry the app config,
-        # which is why they are exempt from hiding for a client that can render
-        # one — for that client the tool is the only route to a picture.
+        # A session's files: a resource, and a tool that draws them for a host
+        # that renders MCP Apps — for that host the tool is the only route to a
+        # picture, and for every other client it is listed nowhere.
         # Where the server's own root is publicly reachable, or "" when nobody
         # said — never the bare mount, which made a relative path look absolute
         # (Copilot, #35). Links carry the mount themselves, signed over the
@@ -173,7 +172,6 @@ class SeleniumMCP:
             apps.register(self.mcp, self.actions, auth_token) if apps_enabled else set()
         )
         app_tools |= self.apps
-        mirrors |= app_tools
         # Saved flows. Registered whether or not there is a store, so a client
         # that asks is told flows are not enabled here rather than finding the
         # tool absent — a missing capability and a disabled one look identical
@@ -182,7 +180,7 @@ class SeleniumMCP:
         # editor validates a document against exactly what `save_flow` does,
         # rather than against a second copy that could drift from it.
         schemas = flowapi.Schemas(self.mcp)
-        mirrors |= flowapi.register(
+        flowapi.register(
             self.mcp,
             self.flows,
             self.sessions,
@@ -195,12 +193,10 @@ class SeleniumMCP:
             # there is nothing registered to point at.
             skill_available=self.skill is not None,
         )
-        mirrors |= secrets.register(
+        secrets.register(
             self.mcp, self.secrets, self.sessions, auth_token, prefix=self.prefix
         )
-        self.mcp.add_middleware(
-            resources.HideMirrorTools(mirrors, app_tools if apps_enabled else set())
-        )
+        self.mcp.add_middleware(mirror.HideMirrors(app_tools, apps_enabled))
         failures.install(self.mcp)
         # The same sessions the MCP surface uses: one contract, one resolver,
         # and the HTTP surface inherits the reopen-after-reap it never had.

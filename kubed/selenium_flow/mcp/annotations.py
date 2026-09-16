@@ -8,9 +8,8 @@ HONEST about what the tool does.
 
 Leaving them off is not neutral. MCP's defaults are ``readOnlyHint: false`` and
 ``destructiveHint: true``, so an unannotated tool is presented as the most
-dangerous thing on the server — which is how the three mirror tools here
-(``current_session``, ``session_files``, ``selenium_flow_skill``) came to be
-advertised as destructive when every one of them only reads.
+dangerous thing on the server — which is how the resource mirrors here once
+came to be advertised as destructive when every one of them only reads.
 
 This module has no intra-package imports on purpose: every surface that
 registers a tool needs it, so it must not be able to close an import cycle.

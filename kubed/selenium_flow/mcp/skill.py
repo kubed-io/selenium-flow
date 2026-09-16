@@ -21,8 +21,8 @@ prettier URI and the skill is invisible to every one of them.
 not the frontmatter, so ``skills/selenium-flow/`` is what makes the URI
 ``skill://selenium-flow/SKILL.md``. Renaming that directory renames the skill.
 
-A client that cannot read resources gets the same material from one tool
-instead; see ``resources.py`` for how that swap is decided.
+A client that cannot read resources reads the same URIs through
+``mirror.read_resource``.
 """
 
 from __future__ import annotations
@@ -34,15 +34,12 @@ from pathlib import Path
 
 from fastmcp.server.providers.skills.skill_provider import SkillProvider
 
-from .annotations import reads
-
 log = logging.getLogger(__name__)
 
 SKILLS_DIR = "skills"
 SKILL_NAME = "selenium-flow"
 ENTRY = "SKILL.md"
 MANIFEST = "_manifest"
-SKILL_TOOL = "selenium_flow_skill"
 
 RESOURCE_URI = f"skill://{SKILL_NAME}/{ENTRY}"
 MANIFEST_URI = f"skill://{SKILL_NAME}/{MANIFEST}"
@@ -123,33 +120,6 @@ def manifest_json(provider: SkillProvider) -> str:
     )
 
 
-def register(mcp, provider: SkillProvider) -> set[str]:
-    """Serve the skill's resources, plus one tool that mirrors them.
-
-    Returns the mirror tool names, for the caller to hide from clients that read
-    resources.
-    """
+def register(mcp, provider: SkillProvider) -> None:
+    """Serve the skill's resources."""
     mcp.add_provider(provider)
-
-    @mcp.tool(
-        name=SKILL_TOOL,
-        description=(
-            "How to drive this browser well: when to extract rather than "
-            "screenshot, whether you must pass session_id, how to reach a page "
-            "in one call, how to scroll, and what a timeout usually means.\n\n"
-            "Read this before a multi-step browser task. Call with no arguments "
-            "for the guidance; pass file to read a supporting file, or "
-            f"'{MANIFEST}' to list what ships."
-        ),
-        # open_world=False: this is answered from files inside the installed
-        # package. It never reaches the browser, the Grid or the network.
-        annotations=reads("How to drive this browser well", open_world=False),
-    )
-    def selenium_flow_skill(file: str = ENTRY) -> str:
-        content = read(provider, file)
-        if content is None:
-            available = ", ".join(f.path for f in provider.skill_info.files)
-            return f"No file '{file}' in this skill. Available: {available}."
-        return content
-
-    return {SKILL_TOOL}
