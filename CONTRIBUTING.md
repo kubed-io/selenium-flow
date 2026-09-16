@@ -92,6 +92,17 @@ Changes go in `spec/`, never in the generated file. Response shapes are the
 one hand-maintained half there: the actions return plain dicts, so there is
 nothing to introspect. A test asserts every endpoint has one.
 
+### Changing an argument's shape
+
+A client caches tool schemas and cannot be told to read them again —
+`notifications/tools/list_changed` exists and caching clients ignore it. When
+`selector` became one object, a session that was live across the rollout had
+the same call accepted at 17:49 and refused at 18:05 (saga §F2.15).
+
+So an argument never changes shape in one step. Either accept both forms for a
+release and say which one is going, or give the new shape a new name. Adding an
+optional argument is safe; renaming, retyping or removing one is not.
+
 ## The embedded skill
 
 `skills/` sits at the repo root and is mapped into the package by

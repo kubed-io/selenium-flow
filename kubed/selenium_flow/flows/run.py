@@ -44,6 +44,7 @@ import time
 from urllib.parse import quote, quote_plus
 
 from .. import secrets
+from ..core import cancel
 from ..mcp import guidance
 from ..routes import ENDPOINTS, method_for
 from .document import (
@@ -52,6 +53,7 @@ from .document import (
     NOT_STEPS,
     PARAM_REFERENCE,
     SECRET_ARG,
+    declared_timeout,
     listed,
 )
 
@@ -115,9 +117,10 @@ def with_hint(report: dict, skill_available: bool = True) -> dict:
         report["hint"] = hint_for(steps[-1], report.get("flow", ""), skill_available)
     return report
 
-# How long a whole run may take. Checked between steps rather than enforced
-# inside one: a Selenium call blocks, and the honest bound is "we will not start
-# another step after this". Each step still has its own wait_timeout.
+# How long a whole run may take when the flow does not say. Checked between
+# steps rather than enforced inside one: a Selenium call blocks, and the honest
+# bound is "we will not start another step after this". Each step still has its
+# own wait_timeout, and a flow that exists to wait declares its own `timeout`.
 RUN_TIMEOUT = 300
 
 # Parameter values that may appear in a step's summary. Everything else is
@@ -538,11 +541,13 @@ def run(
     session_id: str,
     params: dict | None = None,
     verbose: bool = False,
-    timeout: int = RUN_TIMEOUT,
+    timeout: int | None = None,
     after_step=None,
     catalogue=None,
     skill_available: bool = True,
     library: str = "",
+    before_step=None,
+    stop=None,
 ) -> dict:
     """Run every step of ``document`` against the browser ``session_id``.
 
@@ -556,7 +561,28 @@ def run(
     resized without telling the session would come back the old size the next
     time the Grid reaped the browser — exactly the silent shape change
     `sessions.reshape` was written to prevent.
+
+    ``before_step`` is called with ``(entry, total)`` as each step is about to
+    act, where ``entry`` carries its number, tool, id and safe summary. It is
+    how a caller watches a long run; it must not change anything.
+
+    ``stop`` is a `threading.Event`. Once it is set no further step starts, and
+    a step that is waiting gives up at its next poll (see `core.cancel`).
+
+    ``timeout`` overrides the budget the document declares, which overrides
+    `RUN_TIMEOUT`.
     """
+    with cancel.watching(stop):
+        return _run(
+            actions, document, session_id, params, verbose, timeout, after_step,
+            catalogue, skill_available, library, before_step,
+        )
+
+
+def _run(
+    actions, document, session_id, params, verbose, timeout, after_step,
+    catalogue, skill_available, library, before_step,
+) -> dict:
     # Checked against what the CALLER passed, then filled. The other order lets
     # a `default` satisfy `required`, which would make `required` mean nothing —
     # and "needs term: pass them in params" is advice the caller can act on,
@@ -576,8 +602,16 @@ def run(
     status = "ok"
     # `is None`, not `or`: an explicit 0 means "no budget" and must not be read
     # as "unset" and silently given the full five minutes.
+    if timeout is None:
+        # Saving refuses a bad one; a document edited on disk never went
+        # through saving, and is refused here on the same terms.
+        try:
+            timeout = declared_timeout(document)
+        except ValueError as exc:
+            return _refused(document, name, str(exc), skill_available)
     budget = RUN_TIMEOUT if timeout is None else max(int(timeout), 0)
     deadline = time.monotonic() + budget
+    total = len(document.get("steps") or [])
 
     # A document the validator would refuse, reaching here anyway because
     # `LocalFlowStore` reads YAML that may never have been saved through it.
@@ -651,8 +685,14 @@ def run(
         if time.monotonic() >= deadline:
             entry.update(
                 ok=False,
-                error=f"the run passed its {timeout}s budget before this step",
+                error=f"the run passed its {budget}s budget before this step",
             )
+            reports.append(entry)
+            status = "failed"
+            break
+
+        if cancel.cancelled():
+            entry.update(ok=False, error="the run was cancelled before this step")
             reports.append(entry)
             status = "failed"
             break
@@ -710,6 +750,8 @@ def run(
                 # both did this; the flow path — the main one — did not, and
                 # the end-to-end test missed it because its action is a double.
                 kwargs = {**kwargs, "read_back": False}
+            if before_step is not None:
+                before_step(dict(entry), total)
             raw = method(session_id, **kwargs)
             result = _clean(raw, guarded, hidden)
             entry["ok"] = True
@@ -777,7 +819,11 @@ def run(
             # says. Saving refuses the pairing; this is the second half, for a
             # flow edited on disk - without it a false assertion could still
             # end `ok`, which is the whole failure this action exists to stop.
-            if step.get("onError") == "continue" and tool != ASSERTION:
+            if (
+                step.get("onError") == "continue"
+                and tool != ASSERTION
+                and not isinstance(exc, cancel.Cancelled)
+            ):
                 continue
             status = "failed"
             break
@@ -787,7 +833,7 @@ def run(
         "flow": name,
         "status": status,
         "steps_run": len(reports),
-        "steps_total": len(document.get("steps") or []),
+        "steps_total": total,
         "steps": reports,
     }
     # Where the browser ended up. Taken from the last step that produced it

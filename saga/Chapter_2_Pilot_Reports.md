@@ -27,7 +27,7 @@
 
 ---
 
-## Status: **OPEN — E17 and E21 left** — opened 2026-09-14, built 2026-09-14/15
+## Status: **OPEN — E17 and half of E21 left** — opened 2026-09-14, built 2026-09-14/15
 
 It opened as planning only — nothing built until Dr K signed the forks off,
 which is how Chapter 1 ran and why its reasoning survived the build. The forks
@@ -78,17 +78,22 @@ not find its own page), every relative import has to resolve (a `.core` inside
 `errors.message` strips credentials on every path, not only from the one failure
 known to quote a URL.
 
-**What is left.** One epic, the cluster half of E5, and a release.
+**Released as `v0.2.0`**, and then **built since, for long runs** (§F2.15): the
+third pilot's lost run became progress notifications with a heartbeat inside a
+step, cancellation that reaches a waiting `assert`, and a `timeout` a flow
+declares for itself — proved against Claude Code before any of it was written.
+
+**What is left.** One epic, half of E21, and the callers of the old contract.
 
 1. **E17 — the admin UI's carried items.** Wants a Penpot pass before any code.
-2. ~~**E5 — `ROUTE_PREFIX` as the global mount.**~~ **Built in #35**, but for
+2. **E21's other half** — a refusal that names the shape it wanted, and
+   `outline` ranking content above chrome.
+3. ~~**E5 — `ROUTE_PREFIX` as the global mount.**~~ **Built in #35**, but for
    its cluster-repo half, which has to ship with the release that carries it.
-3. **The callers of the old contract.** The n8n workflows in this cluster and
+4. **The callers of the old contract.** The n8n workflows in this cluster and
    the flows on its NFS share both break the moment this ships — they are live
    data in another repo's deployment, not files in this one.
-4. **A release, and it is the one that matters.** The last tag is still `v0.1.0`
-   and everything since is only in `:latest`. This is a breaking change, so the
-   version is what tells a caller which contract it is holding.
+5. ~~**A release, and it is the one that matters.**~~ **Shipped as `v0.2.0`.**
 
 Three smaller things are deliberately still open, each recorded on its own line
 in Part IV rather than hidden here: a flow used as a contract in `FLOWS.md`
@@ -1015,6 +1020,90 @@ It stays beside `selector` rather than inside it.
 arguments. That is why it belongs in the same release as E18 and E19: one
 migration for flows on disk, n8n workflows and HTTP bodies, not three.
 
+### §F2.15 — Decision (Dr K's): a long run reports progress; it does not grow status tools
+
+**The failure.** The third pilot (E21) ran a flow whose job was to wait: one
+`assert` with `wait_timeout: 900`. The client aborted at 300 seconds with no
+response, and *the flow had succeeded* — it finished for nobody, and the caller
+was told it failed. The pilot asked for three things: progress, a run id with
+`run_status` and `cancel_run`, and a refusal that names the shape it wanted.
+
+**What MCP actually offers**, read from the spec before anything was designed:
+
+- A `tools/call` has **one** result. Nothing streams a result.
+- While it is open, the server may send `notifications/progress` on the same
+  request — a rising `progress`, an optional `total` and `message` — **only** if
+  the client put a `progressToken` on the call. FastMCP's
+  `ctx.report_progress` is a no-op without one, so a client that did not ask is
+  unaffected.
+- **The model never sees any of it.** Progress is for the client's UI and its
+  timers; the agent reads the final report.
+- The lifecycle spec lets a client reset its timeout on progress, and says it
+  should still enforce a maximum.
+- *Tasks* — call now, fetch later — shipped experimental in 2025-11-25 and is an
+  extension in 2026-07-28. FastMCP supports it behind a Redis-backed package;
+  no client in use here was found to.
+
+**What the clients do with it** (September 2026):
+
+| Client | Resets its timer on progress | Shows progress |
+|---|---|---|
+| Claude Code | yes — the 5-minute idle abort for HTTP servers | reported regressed (claude-code#51713) |
+| VS Code Copilot | — | message, and a bar since September 2025 |
+| Cursor | its ACP client does not | yes |
+| ChatGPT | — | not supported |
+| n8n | fixed, configurable timeout | no evidence |
+
+**The pilot's 300 seconds is Claude Code's idle window**, and a spike proved the
+fix before it was built: a throwaway FastMCP server, `claude -p` 2.1.270 with the
+idle window shortened. A 45-second tool call that sent nothing was aborted —
+*"sent no response or progress for 30s; aborting"* — and the same call sending a
+notification every five seconds finished. Claude Code put a `progressToken` on
+every call, and cancelled the silent call on the server when it gave up.
+
+Two further Claude Code facts shaped the rest: a call still running after two
+minutes is moved to a background task, so the agent already gets an id and
+keeps working; and stopping that task cancels the request.
+
+**Decided:**
+
+1. **Progress, not a `get_progress` tool.** `run_flow` reports the step it is on
+   when it changes — sampled, so steps quicker than a look are coalesced — and a
+   **heartbeat inside a step** every fifteen seconds —
+   because the run that was lost was *one step long*, and a report per step
+   would not have saved it. The count is steps done out of the total, with a
+   fraction inside a step that rises and never reaches the next. The message is
+   the step's safe summary, so it can say nothing the report would not.
+2. **No `run_status` or `cancel_run`.** The client already owns the handle —
+   Claude Code's backgrounding is exactly that, and *Tasks* is the protocol's
+   version when clients adopt it. What was missing was the server *honouring* a
+   cancel: the run executes in a thread, and cancelling the request cancelled
+   the coroutine waiting on it, not the thread. Now a cancelled run starts no
+   further step and an `assert` that is waiting lets go at its next poll
+   (`core/cancel.py`).
+3. **The budget belongs to the flow.** Fixing the client exposed a second 300 —
+   `RUN_TIMEOUT`, which no caller of `run_flow` could change. A flow now
+   declares `timeout` at the top, because its author is who knows it exists to
+   wait; `save_flow` and `PUT /flows/{name}` take it, and a bad one is refused
+   at save and, for a hand-edited file, at run. It still bounds starting a
+   step, as the default always did.
+4. **HTTP gets none of it, for now.** Progress is a property of the MCP
+   protocol, not a capability: `POST /flows/{name}/runs` answers once when the
+   run ends, and an HTTP caller sets its own client timeout. The door is left
+   open — server-sent events on that route, for a caller that asks with
+   `Accept: text/event-stream` — and nothing has asked for it.
+
+**Deferred to the next pull request:** a refusal that names the expected shape,
+built once from each field's own schema rather than per tool, and `outline`
+ranking content above chrome without dropping anything.
+
+**A lesson from the same report, recorded as a rule rather than a feature.** The
+selector change (§F2.14) landed while that session was live: the same call was
+accepted at 17:49 and refused at 18:05, because the client's cached schemas kept
+the old shape. `notifications/tools/list_changed` exists and caching clients
+ignore it. So an argument never changes shape in one step — both forms for a
+release, or a new name. That rule is in `CONTRIBUTING.md`.
+
 ### §F2.11 — Measured: Firefox interpolates, and a pointer drag is a real HTML5 drag on Chrome
 
 §F2.4 said *verify in the pod before promising anything*, and Part I left
@@ -1441,17 +1530,22 @@ never exercised.
 - **The admin flow panel unwraps a selector** instead of printing
   `{"css":"button.go"}`. The server's own step summary already did.
 
-**Owed, and the first is the big one.**
+**Owed, and the first is the big one.** The first two are built and the second
+was answered differently than asked (§F2.15); three and four are the next pull
+request.
 
-1. **`run_flow` must report progress.** A flow whose job is to wait — an
+1. ~~**`run_flow` must report progress.**~~ **Built:** per step and on a
+   heartbeat inside one, and a flow declares its own `timeout`. A flow whose job is to wait — an
    `assert` with `wait_timeout: 900` — is exactly what flows are for, and the
    client aborted at 300 seconds with no response. *The flow had succeeded*: the
    work completed, the application advanced, and the caller was told it failed.
    The pilot then capped every run under the client's idle timeout, which
    defeats the point, or abandoned flows for "fire it and poll the app's API".
-   One MCP progress notification per step keeps the channel alive and turns a
-   twenty-step run from a black box into something watchable.
-2. **A run needs an identity and a way to ask about it.** After an abort there
+   The pilot asked for one MCP progress notification per step. What was built
+   samples the step a run is on and adds a heartbeat inside a long one, which
+   is what actually keeps the channel alive (§F2.15).
+2. ~~**A run needs an identity and a way to ask about it.**~~ **Answered by the
+   client and by cancellation, not by new tools** (§F2.15). After an abort there
    was no way to ask whether the run was still going, and no way to stop it. A
    run id in the result, plus `run_status` and `cancel_run`, closes that.
 3. **A refused call should say what shape it wanted.** When the arguments are
@@ -1461,7 +1555,7 @@ never exercised.
 4. **`outline` could rank content above chrome** rather than leaving scoping to
    the caller. Documented for now; ranking is the real fix.
 
-**A lesson worth keeping, not an item.** The selector change (§F2.14) landed
+**A lesson worth keeping, not an item** — now a rule in `CONTRIBUTING.md`. The selector change (§F2.14) landed
 *while that session was live*: the same call worked at 17:49 and was refused at
 18:05, the rollout was not simultaneous across tools, and the client's cached
 schemas kept serving the old shape. Any future change to an argument's shape

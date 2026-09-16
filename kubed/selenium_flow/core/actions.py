@@ -29,7 +29,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 
 from ..errors import GONE, UNAVAILABLE, AssertionFailed
-from . import browser, pointer, probe
+from . import browser, cancel, pointer, probe
 from .browser import Grid, as_bool, as_int, normalize_browser
 
 # What a failed pointer move must never be mistaken for. See `_move_onto`.
@@ -1184,6 +1184,10 @@ class Actions:
             if remaining <= 0:
                 break
             time.sleep(min(ASSERT_POLL, remaining))
+            # The one wait here long enough to outlive its caller: a flow that
+            # waits fifteen minutes for an order to ship. Looked at every poll,
+            # so a cancelled run lets go of the browser within one.
+            cancel.check()
             if time.monotonic() > deadline:
                 # A sleep can wake late. Without this, the answer that arrived
                 # after the caller stopped waiting would still be accepted, so

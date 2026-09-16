@@ -25,6 +25,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A flow can declare its own `timeout`**, in seconds, for a run that exists to wait longer than the default 300.
+
+- **`run_flow` reports progress** — the step it is on, and a heartbeat while one waits — so a long run stays alive in clients that abort a silent call, and shows as a progress bar where the client draws one.
+
+### Fixed
+
+- **Cancelling `run_flow` stops the run** instead of leaving it to drive the browser to the end.
+
 ## [0.2.0] - 2026-09-16
 
 ### Added
