@@ -10,12 +10,12 @@ call, and whatever your host logs. A password you *name* is in none of them.
 
 ## The loop
 
-1. **Find the secret.** `list_secrets` (or read `secret://secrets`). Read the
-   names, the keys and the sites each may be used on.
+1. **Find the secret.** Read `secret://secrets`: the names, the keys and the
+   sites each may be used on.
 2. **Find the selectors.** Drive the login page by hand once and `extract` to
-   find the fields (`references/READING_PAGES.md`). Type nothing real yet.
+   find the fields (`skill://selenium-flow/references/READING_PAGES.md`). Type nothing real yet.
 3. **Build the flow.** The password step names the secret instead of a value.
-4. **Save it.** `save_flow`, once (`references/FLOWS.md`).
+4. **Save it.** `save_flow`, once (`skill://selenium-flow/references/FLOWS.md`).
 5. **Run it.** `run_flow`, forever after, with no credential anywhere.
 
 ## What the listing tells you

@@ -234,4 +234,4 @@ started this directory existed only on Redis.
 
 `AGENTS.md` carries the design rules that are easy to break by accident — why
 the browser must never answer a dialog, why waits re-raise with a message, why
-session_id is shaped per request. Read it before changing any of those.
+everything to read is a resource named by URI. Read it before changing any of those.

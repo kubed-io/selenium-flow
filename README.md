@@ -115,7 +115,7 @@ Browser lifetime is the Grid's (`SE_NODE_SESSION_TIMEOUT`, 300s here); how long 
 
 `session://current` reports the session name, which browser it is running, the page it is on, whether one is open at all, whether you are inside a frame, and the window size. Reading it never opens a browser.
 
-The same status is also a `current_session` **tool**, hidden unless a client declares `?resources=off` or `X-MCP-Resources: off` — resources being the least implemented corner of MCP.
+Everything there is to read is a resource like this one, and a client whose model cannot read resources — VS Code Copilot, or anything declaring `?resources=off` — gets two tools instead: `list_resources` and `read_resource(uri)`.
 
 ### 📖 It teaches you how to use it
 
@@ -142,9 +142,8 @@ which one applies.
 Those URIs are FastMCP's convention, served by its own `SkillProvider`, so
 `list_skills` and `download_skill` work here with no special casing.
 
-Same fallback as the session status: clients that cannot read resources get a
-`selenium_flow_skill` tool instead, hidden otherwise. `SKILL_ENABLED=false` turns
-both shapes off.
+A client that cannot read resources reads the same URIs with `read_resource`.
+`SKILL_ENABLED=false` turns the skill off.
 
 ---
 
@@ -181,7 +180,6 @@ the image.
 |---|---|
 | a resource | `session://files` — the listing |
 | a resource | `session://files/{name}` — one file, as bytes |
-| a tool | `session_files` — same listing, where there are no resources |
 | a link | `GET /files/{session}/{name}?exp=…&sig=…` — signed when the server has a token, a plain path when authentication is off |
 
 That last one travels: signed over path and expiry, because an `<img>` tag cannot send an `Authorization` header.

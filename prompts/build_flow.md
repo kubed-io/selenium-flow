@@ -19,13 +19,11 @@ Build a selenium-flow flow for: **{{ task }}**
 Do it by hand first, then save what worked. A flow written from guesswork fails
 at step nine with a form half filled.
 
-1. **Check how this server hands you sessions.** Read `session://current` (or
-   call `current_session`): in *saved* mode you never pass a `session_id`, and
-   in *stateless* mode every call needs the one `open_session` returns — carry
-   it through every step below, including `end_browser`.
+1. **Check what you are holding.** Read `session://current`. Your session is
+   the name you connected with; no call takes a session id.
 2. `open_session()`, then `navigate` to {{ url }}.
-3. **`outline` the page** before each action, scoped with `css` or filtered with
-   `text`. Take the selector it gives you — each one is checked to match exactly
+3. **`outline` the page** before each action, scoped with a `selector` or
+   filtered with `text`. Take the selector it gives you — each one is checked to match exactly
    one element — and note whether the element can be used. That is the whole
    reason not to read HTML for selectors.
 4. Carry out the task one call at a time: `interact`, `write`, `press_key`,

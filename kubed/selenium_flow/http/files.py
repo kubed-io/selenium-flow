@@ -381,7 +381,11 @@ def register(
 
     @mcp.tool(
         name=FILES_TOOL,
-        description=DESCRIPTION,
+        description=(
+            "Show every file this session has: downloads, saved screenshots and "
+            "PDFs, and kept files, each marked kept or not, with a link that "
+            "opens in a browser. A file that is not kept goes with the browser."
+        ),
         app=app_config,
         annotations=reads("Files this session has"),
     )
@@ -393,16 +397,12 @@ def register(
     @mcp.tool(
         name=KEEP_TOOL,
         description=(
-            "Keep one of this session's files beyond the browser that made "
-            "it.\n\n"
-            "Downloads belong to the browser and the Grid deletes them with it, "
-            "including when you switch browser. Keeping copies the file to the "
-            "server, where it survives — and where upload_file(path=...) can "
-            "attach it to a page in a later session.\n\n"
-            "Takes the name exactly as session://files lists it. Keeping a name "
-            "that is already kept replaces it, so this is safe to repeat. The "
-            "original download stays where it is: the Grid offers no way to "
-            "remove a single file."
+            "Keep one of this session's files, so it survives the browser "
+            "ending, switching or being reaped. A download otherwise goes with "
+            "the browser.\n\n"
+            "name is as session://files lists it. Keeping it again replaces the "
+            "kept copy, so this is safe to repeat. upload_file(kept=name) puts "
+            "a kept file back into a page."
         ),
         annotations=hints("Keep a file beyond the browser", idempotent=True),
     )

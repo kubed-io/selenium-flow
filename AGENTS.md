@@ -101,8 +101,8 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   `press_key`, `dialog`, `execute_script`. A click is not destructive in itself and can
   place an order, and this server cannot tell which. Of the browser actions `extract` is
   the only read-only one; `screenshot` is not, because it writes a file, and a
-  tool cannot be read-only only sometimes. The three mirror tools are reads too, and are
-  the ones easiest to forget — they only appear for a client that declares it cannot read
+  tool cannot be read-only only sometimes. `list_resources` and `read_resource` are reads
+  too, and are the ones easiest to forget — they only appear for a client that cannot read
   resources, so a listing taken in the default mode proves nothing about them.
   `tests/test_surfaces.py` pins all of this, parametrised over both modes.
 
@@ -364,7 +364,7 @@ A stored mapping can name a browser the Grid has already reaped. `resolve` check
 package runs a cleanup loop: the Grid expires idle browsers via `SE_NODE_SESSION_TIMEOUT`,
 and the store expires mappings via its own TTL. Do not add a scheduler.
 
-### The status resource, and why it is also a tool
+### Everything to read is a resource, named by its URI
 
 `session://current` is the natural shape for "what browser am I holding" — state to read,
 not an action, so a client can pull it into context without spending a tool call. It must
@@ -372,14 +372,18 @@ stay side-effect free: `describe()` peeks at the store rather than going through
 because a status read that opens a browser would be the original leak wearing a hat. It
 reports the session **name** and never the Grid's id.
 
-Resources are the least implemented part of MCP, so the same status is a `current_session`
-tool as well. That tool is **hidden from `tools/list` by default and still callable** — the
-decision is made per request in `on_list_tools` middleware, because it depends on who is
-asking, and one server object serves every client. Registering it conditionally at startup
-would bake one client's capabilities into a shared process.
+The same goes for the skill, the flow library, the kept files and the secrets catalogue:
+each is a resource, and **every piece of text an agent reads names it by URI** — a hint, an
+error, a prompt, SKILL.md. A client whose model cannot read resources gets two tools that
+take those URIs, `list_resources` and `read_resource` (`mcp/mirror.py`), never a tool per
+resource (§F3.6). Do not add one: a name the text has to use instead of the URI is the
+second vocabulary that was removed.
 
-This is the general pattern for anything that has to vary by client: filter the listing,
-keep the capability. `?resources=off` / `X-MCP-Resources: off` is how a client declares it.
+Who counts as unable is decided in `mcp/clients.py`: `?resources=` / `X-MCP-Resources`
+when given, else the client's own `clientInfo.name` against a table of measured clients,
+else yes (§F3.1). The listing is filtered per request, in middleware, and the tools stay
+callable — one server object serves every client, so a decision about who is asking can
+only be made when someone asks. The handshake's instructions vary the same way (§F3.2).
 
 ## One contract, and no id in it
 

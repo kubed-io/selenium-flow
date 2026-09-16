@@ -217,12 +217,16 @@ async def test_resize_writes_the_new_size_back_to_the_session(server, monkeypatc
     assert server.sessions.store.get(NAMED).window == "1024x768"
 
 
-async def test_press_key_lists_its_keys_in_the_description(server):
-    """The key names are a closed set, so the model should be told them."""
-    press_key = await server.mcp.get_tool("press_key")
-    description = press_key.description
-    assert "enter" in description and "escape" in description
-    assert "{keys}" not in description, "the placeholder was never filled in"
+def test_a_key_name_that_is_not_one_is_refused_with_every_name(actions, monkeypatch):
+    """The names used to be listed in press_key's description — sixty of them,
+    read on every call by a model that needed none. They are in the refusal
+    instead, which is where a model that guessed wrong is looking (§F3.5)."""
+    from kubed.selenium_flow.core.actions import KEY_NAMES
+
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
+    with pytest.raises(ValueError) as refused:
+        actions.press_key("abc", "Enterr")
+    assert all(name in str(refused.value) for name in KEY_NAMES)
 
 
 def test_actions_reject_a_missing_session_id(actions):

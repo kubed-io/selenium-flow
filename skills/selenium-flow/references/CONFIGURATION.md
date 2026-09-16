@@ -2,7 +2,7 @@
 
 This is the operator's half: what the server needs, how a client connects, and
 which knob to reach for. If you are here because a *browser* call failed, you
-probably want `references/TROUBLESHOOTING.md` instead.
+probably want `skill://selenium-flow/references/TROUBLESHOOTING.md` instead.
 
 ## What it needs
 
@@ -72,10 +72,10 @@ the URL is written by whoever wires up the call.
 | Switch | Header | Parameter | Does |
 |---|---|---|---|
 | Session name | `X-Session-Key` | `?session=<name>` | Lets the server hold your browser, and survive a reconnect |
-| Resources off | `X-MCP-Resources: off` | `?resources=off` | Reveals `current_session` and `selenium_flow_skill` as tools, for clients that cannot read MCP resources |
+| Resources | `X-MCP-Resources: off` or `on` | `?resources=off` or `on` | Whether this client is given `list_resources` and `read_resource`. Unset, VS Code gets them and other clients do not |
 
 Setting a session name is what turns on the ergonomic mode described in
-`references/SESSIONS.md`. Without a name a caller is refused, with a message
+`skill://selenium-flow/references/SESSIONS.md`. Without a name a caller is refused, with a message
 saying how to set one.
 
 ## Server settings worth knowing

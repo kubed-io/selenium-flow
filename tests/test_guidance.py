@@ -181,3 +181,66 @@ async def test_a_client_that_cannot_read_resources_is_told_how_to_read_one(mode)
     assert "read_resource" in vscode and "skill://selenium-flow/SKILL.md" in vscode
     reader = await told("Claude Code")
     assert "read_resource" not in reader and "skill://selenium-flow/SKILL.md" in reader
+
+
+# What earlier chapters removed. Each was once the name an agent was told to
+# use, and every one of them turned up again in text after it was gone (§F3.3).
+REMOVED = (
+    "current_session",
+    "selenium_flow_skill",
+    "list_flows",
+    "get_flow",
+    "flow_schema",
+    "list_secrets",
+    "saved mode",
+    "*saved* mode",
+    "stateless",
+    "session_id=",
+    "to_xpath",
+    "to_css",
+)
+
+
+async def test_nothing_an_agent_reads_names_what_was_removed():
+    """Tool and resource descriptions, the instructions for either kind of
+    client, the prompts and every skill file: an agent reads all of them, so a
+    removed name in any is an instruction to call something that is not there.
+    Read from the running server rather than the source, because that is what
+    an agent is actually given."""
+    import tempfile
+
+    from fastmcp import Client
+    from mcp.types import Implementation
+
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    server = SeleniumMCP(
+        grid_url="http://grid.invalid:4444",
+        flow_data_dir=tempfile.mkdtemp(),
+        secrets_dirs=tempfile.mkdtemp(),
+    )
+    texts = {}
+    for client in ("Claude Code", "Visual Studio Code"):
+        info = Implementation(name=client, version="1")
+        async with Client(server.mcp, client_info=info) as c:
+            texts[f"instructions for {client}"] = c.instructions or ""
+            for tool in await c.list_tools():
+                texts[f"tool {tool.name}"] = tool.description or ""
+            for prompt in await c.list_prompts():
+                rendered = await c.get_prompt(
+                    prompt.name,
+                    {a.name: "x" for a in prompt.arguments or [] if a.required},
+                )
+                texts[f"prompt {prompt.name}"] = " ".join(
+                    getattr(m.content, "text", "") for m in rendered.messages
+                ) + " ".join(a.description or "" for a in prompt.arguments or [])
+            for resource in await c.list_resources():
+                texts[f"resource {resource.uri}"] = resource.description or ""
+                if str(resource.uri).startswith("skill://"):
+                    body = await c.read_resource(resource.uri)
+                    texts[f"file {resource.uri}"] = getattr(body[0], "text", "")
+    assert any(k.startswith("file skill://") for k in texts), "no skill files read"
+    found = [
+        (where, word) for where, text in texts.items() for word in REMOVED if word in text
+    ]
+    assert not found, found

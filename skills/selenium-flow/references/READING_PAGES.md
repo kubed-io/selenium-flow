@@ -76,7 +76,7 @@ execute_script(script="return {url: location.href, rows: document.querySelectorA
 execute_script(script="return getComputedStyle(document.querySelector('.cta')).backgroundColor")
 ```
 
-It is also the only reliable way to scroll — see `references/INTERACTION.md`.
+It is also the only reliable way to scroll — see `skill://selenium-flow/references/INTERACTION.md`.
 
 ## outline, when you need a selector
 
@@ -174,4 +174,4 @@ and `save=false` skips saving for a capture nobody will ever reopen.
   `//table[@id='results']//tr[2]/td[1]`.
 
 If an XPath fails, suspect the page before the expression — see
-`references/TROUBLESHOOTING.md`.
+`skill://selenium-flow/references/TROUBLESHOOTING.md`.

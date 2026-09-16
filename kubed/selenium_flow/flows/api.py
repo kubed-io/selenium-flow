@@ -358,31 +358,19 @@ def register(
     @mcp.tool(
         name=SAVE_TOOL,
         description=(
-            "Save a flow under a name, creating it or replacing it.\n\n"
-            "steps is a list of {tool, args} objects — one tool call each, in "
-            "order, where args is exactly the arguments of that call. A step "
-            "may also carry id, note, onError ('abort' or 'continue') and "
-            "return (include its full result in the run report). To bound one "
-            "step, set wait_timeout in its args. A run starts no step after "
-            f"{flowrun.RUN_TIMEOUT} seconds; a flow that exists to wait longer "
-            "sets timeout, in seconds, for the whole run.\n\n"
-            "A value that varies between runs is a PARAMETER: declare it in "
-            "parameters and write ${name} in any argument, anywhere in the "
-            "string. A value nobody may see is a SECRET: give write an args."
-            "secret of {'name': 'x', 'key': 'password'} and the server types "
-            "it without showing you. Only write takes a secret, and a secret "
-            "is never written into a string.\n\n"
-            "open_session and end_browser are not steps: a flow runs in the "
-            "browser you already have, which is what lets one flow run on "
-            "Chrome and then on Firefox unchanged.\n\n"
-            "The whole document is checked now, against the real tools, and a "
-            "refusal lists every problem at once.\n\n"
-            "Saves into the library your session name owns. A caller that "
-            "named no session has only the shared 'global' library, which every "
-            "session runs and none may change — the refusal says how to get one "
-            "of your own.\n\nThe result may carry warnings: things that are "
-            "valid and probably not what you meant, such as a flow whose first "
-            "step acts on whatever page the browser happens to be on."
+            "Save a flow, a sequence of tool calls run server-side in one call, "
+            "creating or replacing it by name.\n\n"
+            "steps is a list of {tool, args}, where args are exactly that "
+            "tool's arguments; a step may also carry id, note, onError (abort "
+            "or continue) and return. open_session and end_browser are not "
+            "steps: a flow runs in the browser you already hold.\n\n"
+            "Declare what varies between runs in parameters and write ${name} "
+            "in any argument. A value nobody may see is a secret: write's "
+            "args.secret, never a string. timeout (seconds, default "
+            f"{flowrun.RUN_TIMEOUT}) bounds the run.\n\n"
+            "The whole document is checked against the live tools, and every "
+            "problem is listed at once. flow://schema has the full shape; "
+            "skill://selenium-flow/references/FLOWS.md explains writing one."
         ),
         annotations=hints("Save a flow", idempotent=True),
     )
@@ -405,22 +393,16 @@ def register(
     @mcp.tool(
         name=RUN_TOOL,
         description=(
-            "Run a saved flow: every step, in order, server-side, in one call.\n\n"
-            "This is the point of flows. A twelve-step form becomes one call and "
-            "one decision instead of twelve of each, and it replays a sequence "
-            "somebody already got right rather than re-deriving it.\n\n"
-            "It runs in the browser you already have — call open_session first. "
-            "That is also how you run the same flow on a different browser: open "
-            "Firefox and run it again, unchanged.\n\n"
-            "params supplies the values the flow declares; flow://flows shows what "
-            "each one takes. Returns a line per step plus the final page; pass "
-            "verbose for every step's full result, or mark a step with "
-            "return: true when only that one matters.\n\n"
-            "Stops at the first failing step unless that step says "
-            "onError: continue, and reports which step stopped it and what page "
-            "the browser was on.\n\n"
-            "A long run reports progress while it works — the step it is on — "
-            "to a client that asks for it, and stops if the call is cancelled."
+            "Run a saved flow in one call: every step, in order, in the browser "
+            "you already hold. Call open_session first, and open Firefox to run "
+            "the same flow there.\n\n"
+            "params supplies what the flow declares; flow://flows lists them. "
+            "The result has a line per step and the final page, and "
+            "verbose=true adds every step's full result. It stops at the first "
+            "failing step unless that step says onError: continue, and says "
+            "where.\n\n"
+            "A long run reports progress while it works, and stops if the call "
+            "is cancelled."
         ),
         annotations=hints("Run a saved flow", destructive=True),
     )
@@ -456,13 +438,11 @@ def register(
     @mcp.tool(
         name=DELETE_TOOL,
         description=(
-            "Delete one of this session's saved flows. Deleting one that is not "
-            "there is not an error.\n\n"
-            "It deletes from your own library only. A flow in the shared "
-            "'global' library is not yours to remove — every session runs those, "
-            "so one vanishing mid-run would break somebody else's work — and "
-            "trying is refused. A caller that named no session has no library "
-            "of its own and so nothing here to delete."
+            "Delete one of your saved flows. Deleting one that is not there is "
+            "not an error.\n\n"
+            "A flow in the shared 'global' library cannot be deleted here, and "
+            "a caller that named no session has no library of its own to delete "
+            "from."
         ),
         annotations=hints("Delete a flow", destructive=True, idempotent=True),
     )
