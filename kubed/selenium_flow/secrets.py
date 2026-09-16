@@ -470,7 +470,7 @@ def register(mcp, catalogue, sessions, token: str | None, prefix: str = "") -> s
 
     from . import errors
     from .http import auth
-    from .hints import reads
+    from .mcp.annotations import reads
 
     def listing() -> dict:
         if catalogue is None:

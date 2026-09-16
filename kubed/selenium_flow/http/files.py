@@ -66,7 +66,7 @@ from . import auth, links
 from .. import errors
 from ..flows import library as flows
 from ..session import sessions as sessions_module
-from ..hints import hints, reads
+from ..mcp.annotations import hints, reads
 
 log = logging.getLogger(__name__)
 

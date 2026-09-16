@@ -27,9 +27,9 @@ from . import apps
 
 # Imported under the old name: this module (and its tests) patch _http to
 # simulate a request, and the alias keeps one seam rather than two.
-from .hints import reads
-from .session.sessions import SessionManager
-from .session.sessions import http_request as _http
+from .annotations import reads
+from ..session.sessions import SessionManager
+from ..session.sessions import http_request as _http
 
 log = logging.getLogger(__name__)
 

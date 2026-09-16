@@ -49,9 +49,9 @@ from .. import errors
 from ..http import auth
 from ..session import sessions as sessions_module
 from ..core.browser import as_bool
-from ..hints import hints, reads
+from ..mcp.annotations import hints, reads
 from ..routes import ENDPOINTS
-from ..tools import SecretRef
+from ..mcp.tools import SecretRef
 
 log = logging.getLogger(__name__)
 

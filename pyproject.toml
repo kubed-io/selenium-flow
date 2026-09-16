@@ -91,10 +91,11 @@ packages = [
   "kubed.selenium_flow.core",
   "kubed.selenium_flow.flows",
   "kubed.selenium_flow.http",
+  "kubed.selenium_flow.mcp",
   "kubed.selenium_flow.session",
   "kubed.selenium_flow.core.js",
-  "kubed.selenium_flow.prompts",
-  "kubed.selenium_flow.skills",
+  "kubed.selenium_flow.mcp.prompts",
+  "kubed.selenium_flow.mcp.skills",
   "kubed.selenium_flow.static",
 ]
 
@@ -116,8 +117,8 @@ packages = [
 # `prompts/` is mapped for the same reason as the skill below: it reads as
 # documentation at the repo root and has to install inside the package, or a
 # wheel serves no prompts and says nothing about it.
-"kubed.selenium_flow.prompts" = "prompts"
-"kubed.selenium_flow.skills" = "skills"
+"kubed.selenium_flow.mcp.prompts" = "prompts"
+"kubed.selenium_flow.mcp.skills" = "skills"
 "kubed.selenium_flow.static" = "static"
 
 # Everything under it, not just *.md: a supporting file of any other type would
@@ -128,8 +129,8 @@ packages = [
 # the folder, not the frontmatter, and publishes skill://<folder>/SKILL.md.
 [tool.setuptools.package-data]
 "kubed.selenium_flow.core.js" = ["*.js"]
-"kubed.selenium_flow.prompts" = ["*.md"]
-"kubed.selenium_flow.skills" = ["*", "**/*"]
+"kubed.selenium_flow.mcp.prompts" = ["*.md"]
+"kubed.selenium_flow.mcp.skills" = ["*", "**/*"]
 "kubed.selenium_flow.static" = ["*"]
 
 [tool.pytest.ini_options]

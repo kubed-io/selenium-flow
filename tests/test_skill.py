@@ -22,11 +22,11 @@ import yaml
 from fastmcp import Client
 from fastmcp.utilities.skills import get_skill_manifest, list_skills
 
-from kubed.selenium_flow import resources as resources_module
-from kubed.selenium_flow import skill as skill_module
-from kubed.selenium_flow.resources import STATUS_TOOL
+from kubed.selenium_flow.mcp import resources as resources_module
+from kubed.selenium_flow.mcp import skill as skill_module
+from kubed.selenium_flow.mcp.resources import STATUS_TOOL
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.skill import (
+from kubed.selenium_flow.mcp.skill import (
     ENTRY,
     MANIFEST,
     MANIFEST_URI,
@@ -107,10 +107,10 @@ def test_every_skill_file_is_covered_by_package_data():
     """
     config = tomllib.loads(PYPROJECT.read_text())
     setuptools = config["tool"]["setuptools"]
-    assert setuptools["package-dir"]["kubed.selenium_flow.skills"] == "skills", (
+    assert setuptools["package-dir"]["kubed.selenium_flow.mcp.skills"] == "skills", (
         "the root skills/ directory must map into the package, or it does not ship"
     )
-    patterns = setuptools["package-data"]["kubed.selenium_flow.skills"]
+    patterns = setuptools["package-data"]["kubed.selenium_flow.mcp.skills"]
     assert patterns, "no package-data patterns for the skill directory"
 
     # Patterns are relative to the mapped root, which is skills/ itself.

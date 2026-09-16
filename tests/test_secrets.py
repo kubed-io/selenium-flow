@@ -316,7 +316,7 @@ def secret_server(tmp_path, monkeypatch):
 
 async def test_the_catalogue_is_a_resource_with_a_tool_mirroring_it(secret_server,
                                                                     monkeypatch):
-    from kubed.selenium_flow import resources as resources_module
+    from kubed.selenium_flow.mcp import resources as resources_module
 
     names = {t.name for t in await secret_server.mcp.list_tools()}
     assert secrets.LIST_TOOL not in names  # hidden from a client with resources
@@ -344,7 +344,7 @@ async def test_no_tool_on_this_server_returns_a_secret_value(secret_server,
     may produce the value. If a future tool ever grows a way to read one, this
     is what should fail.
     """
-    from kubed.selenium_flow import resources as resources_module
+    from kubed.selenium_flow.mcp import resources as resources_module
 
     monkeypatch.setattr(resources_module, "_http", lambda: ({"resources": "off"}, {}))
     # A saved flow that BINDS the secret is the case that matters most: the
@@ -379,7 +379,7 @@ async def test_no_tool_on_this_server_returns_a_secret_value(secret_server,
 
 
 async def test_the_listing_tool_says_it_only_reads(secret_server, monkeypatch):
-    from kubed.selenium_flow import resources as resources_module
+    from kubed.selenium_flow.mcp import resources as resources_module
 
     monkeypatch.setattr(resources_module, "_http", lambda: ({"resources": "off"}, {}))
     tools = {t.name: t for t in await secret_server.mcp.list_tools()}

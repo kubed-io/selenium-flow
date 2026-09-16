@@ -7,8 +7,8 @@ shapes and the switch between them.
 
 import pytest
 
-from kubed.selenium_flow import resources as resources_module
-from kubed.selenium_flow.resources import (
+from kubed.selenium_flow.mcp import resources as resources_module
+from kubed.selenium_flow.mcp.resources import (
     RESOURCE_URI,
     STATUS_TOOL,
     client_reads_resources,

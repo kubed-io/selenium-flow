@@ -76,7 +76,8 @@ def prompts_path() -> Path:
     packaged = Path(__file__).parent / PROMPTS_DIR
     if packaged.is_dir():
         return packaged
-    return Path(__file__).parents[2] / PROMPTS_DIR
+    # parents[3] because this module lives in mcp/: package, kubed, repo root.
+    return Path(__file__).parents[3] / PROMPTS_DIR
 
 
 def _split(text: str) -> tuple[dict, str] | None:

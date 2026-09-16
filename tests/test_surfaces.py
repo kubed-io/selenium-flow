@@ -9,7 +9,7 @@ import pytest
 
 from kubed.selenium_flow.http import files as files_module
 from kubed.selenium_flow.flows import api as flowapi
-from kubed.selenium_flow import resources as resources_module
+from kubed.selenium_flow.mcp import resources as resources_module
 from kubed.selenium_flow.routes import ENDPOINTS, method_for
 
 pytestmark = pytest.mark.unit

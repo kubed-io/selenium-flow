@@ -569,7 +569,7 @@ def _documented():
     import json
     import re
 
-    from kubed.selenium_flow import skill as skill_module
+    from kubed.selenium_flow.mcp import skill as skill_module
 
     root = skill_module.skill_path()
     found = []
@@ -590,7 +590,7 @@ def test_every_json_example_in_the_skill_parses():
     import json
     import re
 
-    from kubed.selenium_flow import skill as skill_module
+    from kubed.selenium_flow.mcp import skill as skill_module
 
     for path in skill_module.skill_path().rglob("*.md"):
         for block in re.findall(r"```json\n(.*?)```", path.read_text(), re.S):

@@ -14,7 +14,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow.flows import api as flowapi
-from kubed.selenium_flow import resources as resources_module
+from kubed.selenium_flow.mcp import resources as resources_module
 from kubed.selenium_flow.flows.library import GLOBAL_SESSION, STDIO_SESSION
 from kubed.selenium_flow.server import SeleniumMCP
 
