@@ -77,6 +77,32 @@ STEP_KEYS = {
 
 ON_ERROR = ("abort", "continue")
 
+# A whole run's budget in seconds, declared by the flow rather than chosen by
+# whoever runs it. The author is the one who knows a flow exists to wait — for
+# an order to ship, a build to finish — and a caller running somebody else's
+# flow has no way to know it needs fifteen minutes (pilot, §F2.15). Like the
+# default it replaces, it bounds *starting* a step: a Selenium call blocks, so
+# the step already running is bounded by its own `wait_timeout`.
+TIMEOUT = "timeout"
+
+
+def declared_timeout(document: dict) -> int | None:
+    """The run budget ``document`` declares, or None when it declares none.
+
+    Raises ValueError with the sentence to show an author. A bool is refused
+    even though it is an int to Python: `timeout: true` is a typo, not a second.
+    """
+    if not isinstance(document, dict) or document.get(TIMEOUT) is None:
+        return None
+    value = document[TIMEOUT]
+    if isinstance(value, str) and value.strip().isdigit():
+        value = int(value.strip())
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(
+            f"timeout must be a whole number of seconds, at least 1; got {value!r}"
+        )
+    return value
+
 # The one step `onError: continue` may never be paired with. Named here rather
 # than in `flowrun` so saving and running read the same constant.
 ASSERTION = "assert"
@@ -602,6 +628,11 @@ def validate(document, schemas: dict) -> dict:
     problems = []
     if "description" in document and not isinstance(document["description"], str):
         problems.append("description must be a string")
+
+    try:
+        declared_timeout(document)
+    except ValueError as exc:
+        problems.append(str(exc))
 
     parameters = document.get("parameters") or {}
     if not isinstance(parameters, dict):

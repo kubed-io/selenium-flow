@@ -374,6 +374,15 @@ FLOW_SCHEMAS = {
                 "type": "object",
                 "description": "JSON Schema for the values a run accepts.",
             },
+            "timeout": {
+                "type": "integer",
+                "minimum": 1,
+                "description": (
+                    "Seconds the whole run may take before no further step "
+                    "starts. Defaults to 300; a step already running is bounded "
+                    "by its own wait_timeout."
+                ),
+            },
             "steps": {
                 "type": "array",
                 "minItems": 1,

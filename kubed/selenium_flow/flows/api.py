@@ -44,6 +44,7 @@ from starlette.responses import JSONResponse
 
 from ..core.browser import as_bool
 from ..http import answer as answer_module
+from ..mcp import progress
 from ..mcp.annotations import hints, reads
 from ..mcp.tools import SecretRef
 from ..routes import ENDPOINTS
@@ -115,6 +116,16 @@ def _require(store):
 # the HTTP one cannot answer it differently.
 def session_of(sessions) -> str:
     return sessions.library()
+
+
+def _context():
+    """The MCP request being answered, or None outside one."""
+    from fastmcp.server.dependencies import get_context
+
+    try:
+        return get_context()
+    except RuntimeError:
+        return None
 
 
 def catalogue(store, session: str) -> dict:
@@ -268,6 +279,8 @@ def run_one(
     after_step=None,
     secrets_catalogue=None,
     skill_available: bool = True,
+    before_step=None,
+    stop=None,
 ) -> dict:
     """Run one flow against an already-resolved browser."""
     document = read_one(store, session, name)
@@ -278,6 +291,8 @@ def run_one(
         params=params,
         verbose=verbose,
         after_step=after_step,
+        before_step=before_step,
+        stop=stop,
         catalogue=secrets_catalogue,
         skill_available=skill_available,
         # The CALLER's library, not `document["session"]`: a flow read from the
@@ -368,7 +383,9 @@ def register(
             "order, where args is exactly the arguments of that call. A step "
             "may also carry id, note, onError ('abort' or 'continue') and "
             "return (include its full result in the run report). To bound one "
-            "step, set wait_timeout in its args.\n\n"
+            "step, set wait_timeout in its args. A run starts no step after "
+            f"{flowrun.RUN_TIMEOUT} seconds; a flow that exists to wait longer "
+            "sets timeout, in seconds, for the whole run.\n\n"
             "A value that varies between runs is a PARAMETER: declare it in "
             "parameters and write ${name} in any argument, anywhere in the "
             "string. A value nobody may see is a SECRET: give write an args."
@@ -394,10 +411,13 @@ def register(
         steps: list,
         description: str = "",
         parameters: dict | None = None,
+        timeout: int | None = None,
     ) -> dict:
         document = {"description": description, "steps": steps}
         if parameters:
             document["parameters"] = parameters
+        if timeout is not None:
+            document[flowdoc.TIMEOUT] = timeout
         return save_one(
             store, session_of(sessions), name, document, await schemas.get()
         )
@@ -418,26 +438,40 @@ def register(
             "return: true when only that one matters.\n\n"
             "Stops at the first failing step unless that step says "
             "onError: continue, and reports which step stopped it and what page "
-            "the browser was on."
+            "the browser was on.\n\n"
+            "A long run reports progress while it works — the step it is on — "
+            "to a client that asks for it, and stops if the call is cancelled."
         ),
         annotations=hints("Run a saved flow", destructive=True),
     )
-    def run_flow(
+    async def run_flow(
         name: str, params: dict | None = None, verbose: bool = False
     ) -> dict:
         # `name()`, not `library()`: a run drives a browser, so this is one of
-        # the calls that has to know who is asking.
-        return run_for(
-            store,
-            actions,
-            sessions,
-            sessions.name(),
-            name,
-            params=params,
-            verbose=verbose,
-            secrets_catalogue=secrets_catalogue,
-            skill_available=skill_available,
-        )
+        # the calls that has to know who is asking. Asked here, on the request,
+        # before the run moves to a thread.
+        session = sessions.name()
+        watch = progress.Watch()
+
+        def work():
+            return run_for(
+                store,
+                actions,
+                sessions,
+                session,
+                name,
+                params=params,
+                verbose=verbose,
+                secrets_catalogue=secrets_catalogue,
+                skill_available=skill_available,
+                before_step=watch.step,
+                stop=watch.stop,
+            )
+
+        # Async so the run can report progress while it works (§F2.15). The
+        # context is looked up rather than declared, so the tool's published
+        # signature is exactly what it was.
+        return await progress.reporting(_context(), work, watch)
 
     @mcp.tool(
         name=DELETE_TOOL,
@@ -478,6 +512,14 @@ async def _document_schema(schemas: Schemas) -> dict:
             "parameters": {
                 "type": "object",
                 "description": "JSON Schema for the values run_flow accepts.",
+            },
+            flowdoc.TIMEOUT: {
+                "type": "integer",
+                "minimum": 1,
+                "description": (
+                    "Seconds the whole run may take before no further step "
+                    f"starts. Defaults to {flowrun.RUN_TIMEOUT}."
+                ),
             },
             "steps": {
                 "type": "array",
@@ -536,6 +578,7 @@ def run_for(
     store, actions, sessions, session: str, name: str,
     params=None, verbose: bool = False,
     secrets_catalogue=None, skill_available: bool = True,
+    before_step=None, stop=None,
 ) -> dict:
     """Run a saved flow in ``session``'s browser, and keep the record honest.
 
@@ -563,6 +606,8 @@ def run_for(
         verbose=verbose,
         session_id=resolved,
         after_step=remember,
+        before_step=before_step,
+        stop=stop,
         secrets_catalogue=secrets_catalogue,
         skill_available=skill_available,
     )
@@ -654,7 +699,7 @@ def _routes(
         async def call(_name, body):
             document = {
                 key: body[key]
-                for key in ("description", "parameters", "steps")
+                for key in ("description", "parameters", flowdoc.TIMEOUT, "steps")
                 if key in body
             }
             return save_one(

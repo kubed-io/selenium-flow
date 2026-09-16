@@ -48,6 +48,24 @@ is renamed and nothing is added. A step may also carry:
 To bound one slow step, set `wait_timeout` in its `args` — the same argument
 the tool takes directly.
 
+**A run starts no step after 300 seconds.** A flow that exists to wait — for an
+order to ship, a build to finish — says so at the top, beside `steps`, and
+`save_flow` takes it the same way:
+
+```yaml
+name: wait-for-shipping
+timeout: 1200        # seconds for the whole run
+steps:
+  - tool: assert
+    args:
+      script: return document.querySelector('.status')?.textContent === 'Shipped'
+      wait_timeout: 900
+    note: shipping takes up to fifteen minutes
+```
+
+`timeout` bounds *starting* a step; the step already running is bounded by its
+own `wait_timeout`. So give the run more than its longest wait.
+
 **Not steps:** `open_session` and `end_browser`. A flow runs in the browser the
 caller already holds, which is what lets the same flow run on Firefox unedited.
 There is no `session_id` to put in a step: a run happens in the browser your
@@ -299,6 +317,12 @@ The report has one line per step plus where the browser ended up:
 carries that file's link in its own line whether or not it is marked
 `return: true`. A capture nobody can find cannot show anyone what it saw, which
 is usually why the flow took it.
+
+**A long run reports progress while it works**: which step it is on, and how
+long that step has been waiting. A client that shows progress shows it, and the
+reports keep a waiting call from looking idle to one that gives up on silence.
+Cancel the call and the run stops — at the next step, or at the next poll of an
+`assert` that is waiting.
 
 It stops at the first failing step unless that step says `onError: continue`.
 A failed run says which step stopped it, the error, and the page it was on — so
