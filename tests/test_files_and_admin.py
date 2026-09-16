@@ -11,7 +11,8 @@ from unittest.mock import patch
 import pytest
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow import apps, files, links
+from kubed.selenium_flow import apps
+from kubed.selenium_flow.http import files, links
 from kubed.selenium_flow.core import browser
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.session.store import SessionRecord

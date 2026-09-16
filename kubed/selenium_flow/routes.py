@@ -34,7 +34,8 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from . import auth, errors
+from . import errors
+from .http import auth
 from .session import settings
 from .core import browser
 from . import secrets as secrets_module

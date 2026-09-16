@@ -12,9 +12,7 @@ from fastmcp import FastMCP
 from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 
 from . import (
-    admin,
     apps,
-    files,
     prompts,
     resources,
     routes,
@@ -24,6 +22,7 @@ from . import (
 )
 from .core import pointer
 from .flows import api as flowapi
+from .http import admin, files
 from .flows import library as flows
 from .core.actions import Actions
 from .core.browser import DEFAULT_GRID_URL, Grid

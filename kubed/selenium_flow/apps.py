@@ -37,7 +37,7 @@ from urllib.parse import urlsplit
 from fastmcp.apps import UI_EXTENSION_ID, AppConfig, ResourceCSP
 from fastmcp.server.dependencies import get_context
 
-from . import admin
+from .http import admin
 
 log = logging.getLogger(__name__)
 

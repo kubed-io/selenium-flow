@@ -1174,7 +1174,7 @@ def _mcp_tools() -> tuple[dict, dict]:
     names is how the wiki ends up generating a page called ``saveFlow`` for a
     tool nobody can call.
     """
-    from . import files as files_module
+    from .http import files as files_module
     from .flows import api as flowapi
 
     return (
@@ -1353,7 +1353,7 @@ _FILE_OPERATIONS = {
 
 def _file_paths(prefix: str = "") -> dict:
     """A session's files as resources, from `files.FILE_ROUTES`."""
-    from .files import FILE_ROUTES
+    from .http.files import FILE_ROUTES
 
     _, tools = _mcp_tools()
     paths = {}

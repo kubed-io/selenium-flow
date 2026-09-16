@@ -468,7 +468,8 @@ def register(mcp, catalogue, sessions, token: str | None, prefix: str = "") -> s
     """Serve the catalogue as a resource, a mirroring tool and one endpoint."""
     from starlette.responses import JSONResponse
 
-    from . import auth, errors
+    from . import errors
+    from .http import auth
     from .hints import reads
 
     def listing() -> dict:

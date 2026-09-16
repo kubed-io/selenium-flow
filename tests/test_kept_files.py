@@ -20,7 +20,8 @@ import pytest
 import requests
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow import admin, errors, files, links
+from kubed.selenium_flow import errors
+from kubed.selenium_flow.http import admin, files, links
 from kubed.selenium_flow.flows import library as flows
 from kubed.selenium_flow.core import browser
 from kubed.selenium_flow import resources as resources_module

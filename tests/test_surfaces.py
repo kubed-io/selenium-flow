@@ -7,7 +7,7 @@ other breaks that quietly, so it is asserted here rather than trusted.
 
 import pytest
 
-from kubed.selenium_flow import files as files_module
+from kubed.selenium_flow.http import files as files_module
 from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow import resources as resources_module
 from kubed.selenium_flow.routes import ENDPOINTS, method_for

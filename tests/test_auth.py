@@ -11,7 +11,7 @@ question there is whether the route is guarded, not how the comparison works.
 import pytest
 from starlette.requests import Request
 
-from kubed.selenium_flow import auth
+from kubed.selenium_flow.http import auth
 
 from .conftest import TOKEN
 

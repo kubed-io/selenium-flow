@@ -38,11 +38,12 @@ from starlette.responses import (
     StreamingResponse,
 )
 
-from . import auth, errors, files, links
-from .flows import api as flowapi
-from .flows import document as flowdoc
-from .flows import library as flows
-from .core.browser import DEFAULT_BROWSER, is_partial
+from . import auth, files, links
+from .. import errors
+from ..flows import api as flowapi
+from ..flows import document as flowdoc
+from ..flows import library as flows
+from ..core.browser import DEFAULT_BROWSER, is_partial
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +70,8 @@ def static_path() -> Path:
     packaged = Path(__file__).parent / STATIC_DIR
     if packaged.is_dir():
         return packaged
-    return Path(__file__).parents[2] / STATIC_DIR
+    # parents[3] because this module lives in http/: package, kubed, repo root.
+    return Path(__file__).parents[3] / STATIC_DIR
 
 
 def read(name: str) -> str:
