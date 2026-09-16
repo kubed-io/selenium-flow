@@ -246,6 +246,36 @@ async def test_the_published_save_request_takes_a_budget(slow_server):
     assert schema["properties"]["timeout"]["type"] == "integer"
 
 
+async def test_every_field_a_save_or_read_returns_is_published(slow_server):
+    """The /flows schemas are written by hand, and this pull request forgot
+    `timeout` in two of them before a reviewer noticed each (Copilot, #37).
+    So the guard is the real responses, not a list: save a flow carrying every
+    document key over HTTP, read it back, and every key that comes out must be
+    declared by the schema that describes that response."""
+    from starlette.testclient import TestClient
+
+    from kubed.selenium_flow.routes import ENDPOINTS
+    from kubed.selenium_flow.spec import build_spec
+
+    client = TestClient(slow_server.mcp.http_app())
+    headers = {"Authorization": f"Bearer {TOKEN}", "X-Session-Key": NAMED}
+    document = {
+        "description": "everything a flow may say",
+        "parameters": {"type": "object", "properties": {"q": {"type": "string"}}},
+        "timeout": 900,
+        "steps": [{"tool": "navigate", "args": {"url": "https://example.test/${q}"}}],
+    }
+    saved = client.put("/flows/whole", json=document, headers=headers)
+    read = client.get("/flows/whole", headers=headers)
+    assert saved.status_code == 200 and read.status_code == 200, (saved.text, read.text)
+
+    spec = await build_spec(slow_server.mcp, ENDPOINTS, "", authenticated=True)
+    schemas = spec["components"]["schemas"]
+    for response, schema in ((saved, "FlowSaved"), (read, "Flow")):
+        undeclared = set(response.json()) - set(schemas[schema]["properties"])
+        assert not undeclared, f"{schema} does not declare {sorted(undeclared)}"
+
+
 def test_the_published_default_is_the_real_one():
     """The spec's schemas are written by hand; the number in them is not allowed
     to drift from the one the engine uses."""

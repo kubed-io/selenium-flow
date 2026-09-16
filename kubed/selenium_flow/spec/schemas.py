@@ -381,6 +381,14 @@ FLOW_SCHEMAS = {
         "required": ["name", "steps"],
         "properties": {
             "name": {"type": "string"},
+            "session": {
+                "type": "string",
+                "description": "The library it was read from.",
+            },
+            "shared": {
+                "type": "boolean",
+                "description": "True when it came from the shared global library.",
+            },
             "description": {"type": "string"},
             "parameters": {
                 "type": "object",
@@ -426,6 +434,9 @@ FLOW_SCHEMAS = {
             "saved": {"type": "boolean"},
             "session": {"type": "string"},
             "name": {"type": "string"},
+            "description": {"type": "string"},
+            "parameters": {"type": "object"},
+            "timeout": FLOW_TIMEOUT,
             "warnings": {
                 "type": "array",
                 "description": (
