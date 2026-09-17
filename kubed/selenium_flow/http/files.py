@@ -14,7 +14,10 @@ worth knowing because it decides what may be done to each:
   that store is *list, read-one, delete-all* — there is no write and no per-file
   delete — so those are the only operations offered for them.
 - **Kept files belong to the session**, which outlives any browser. They are
-  ours, under ``FLOW_DATA_DIR``, so they can be deleted one at a time.
+  ours, under ``FLOW_DATA_DIR``, so they can be deleted one at a time. Every
+  screenshot and print is kept from the start: those bytes are this server's,
+  and handing them to the browser as a download only to copy them back ran into
+  every download Chrome refuses (§F3.8).
 
 Everything follows from that asymmetry. **Keeping is a copy, never a move**,
 because one file cannot be removed from the Grid's store. Which in turn makes
@@ -94,8 +97,7 @@ OFF = (
 
 DESCRIPTION = (
     "Every file this browsing session has: what the site downloaded, what "
-    "screenshot(save=True) and save_pdf saved, and anything kept with "
-    "keep_file.\n\n"
+    "screenshot and print saved, and anything kept with keep_file.\n\n"
     "Each entry says whether it is kept. A file that is not kept belongs to the "
     "browser and goes when the browser does; a kept one belongs to the session "
     "and outlives it.\n\n"
@@ -269,6 +271,32 @@ def keep_one(actions, store, session: str, session_id: str, name: str) -> dict:
     entry = store.write_file(session, wanted, data)
     log.info("kept %s/%s (%s bytes)", session, wanted, len(data))
     return {"kept": True, "session": session, **entry}
+
+
+def keep_made(
+    sessions, store, name: str, data: bytes, token, base: str = "", mount: str = ""
+) -> dict:
+    """Keep bytes this server made — a screenshot, a print — for the caller.
+
+    Never a replacement: a second `screenshot.png` lands as
+    `screenshot (1).png`, the way a browser names a second download, because
+    overwriting would silently take away a file somebody was handed a link to.
+    The name that was used comes back, and it is the one to pass on.
+    """
+    if store is None:
+        raise ValueError(OFF)
+    session = owner(store, sessions.name())
+    wanted = flows.valid_file_name(name)
+    taken = {entry["name"] for entry in store.files(session)}
+    stem, dot, suffix = wanted.rpartition(".")
+    if not dot or not stem:
+        stem, suffix = wanted, ""
+    free, n = wanted, 0
+    while free in taken:
+        n += 1
+        free = f"{stem} ({n}).{suffix}" if suffix else f"{stem} ({n})"
+    entry = store.write_file(session, free, data)
+    return describe_kept(session, entry, token, base, mount)
 
 
 def read_kept(sessions, store, name: str, session: str | None = None) -> bytes:

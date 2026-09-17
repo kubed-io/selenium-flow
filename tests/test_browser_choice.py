@@ -74,8 +74,8 @@ def test_both_browsers_carry_the_two_capabilities_that_matter(name):
 def test_firefox_is_told_to_save_downloads_without_asking():
     """Firefox's analogue of Chrome's automatic-downloads prompt.
 
-    `save_pdf` is the one that would hang without it: Firefox opens a PDF in its
-    own viewer rather than saving, so the file never reaches the Grid's store.
+    A PDF a site serves would hang without it: Firefox opens a PDF in its own
+    viewer rather than saving, so the file never reaches the Grid's store.
     """
     caps = Grid("http://grid.invalid:4444")._options("firefox").to_capabilities()
     prefs = caps["moz:firefoxOptions"]["prefs"]

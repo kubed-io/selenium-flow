@@ -271,14 +271,15 @@ RESPONSES = {
         file_error={
             "type": "string",
             "description": (
-                "Present instead of file when the capture could not be stored. "
+                "Present instead of file when the capture could not be kept. "
                 "The image is still returned."
             ),
         },
     ),
-    "save_pdf": _page(
+    "print": _page(
         file={"$ref": "#/components/schemas/FileEntry"},
-        bytes={"type": "integer", "description": "Size of the PDF in bytes."},
+        format={"type": "string", "enum": ["pdf", "html"]},
+        bytes={"type": "integer", "description": "Size of the file in bytes."},
     ),
 }
 

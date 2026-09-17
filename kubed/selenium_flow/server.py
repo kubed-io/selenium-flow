@@ -157,11 +157,11 @@ class SeleniumMCP:
             base,
             prefix=self.prefix,
         )
-        # What an action hands back when it stores a file. Wired here because
-        # this is where the token and the public base both exist; the behaviour
+        # How an action keeps a file it made. Wired here because this is where
+        # the store, the token and the public base all exist; the behaviour
         # layer takes the function and never the key (§F2.9).
-        self.actions.describe_file = lambda session_id, entry: files.describe(
-            session_id, entry, auth_token, base, self.prefix
+        self.actions.keep = lambda name, data: files.keep_made(
+            self.sessions, self.flows, name, data, auth_token, base, self.prefix
         )
         # And how it reads one back, for `upload_file(kept=...)`. Wired here for
         # the same reason: which flow session owns a kept file is a question

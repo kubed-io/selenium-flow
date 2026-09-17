@@ -71,7 +71,7 @@ EXPECTED = {
     "extract",
     "execute_script",
     "screenshot",
-    "save_pdf",
+    "print",
     "assert",
     "outline",
 }

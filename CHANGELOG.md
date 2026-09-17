@@ -39,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Resources have readable names, and flow and file names complete** in a client's resource and prompt pickers.
 
+- **`print` keeps the page as a PDF or as HTML**, with `landscape` and `background` for a PDF.
+
+- **`open_session(insecure=true)` accepts a self-signed certificate**, for that session's browser.
+
 ### Changed
 
 - **A flow run's default budget is 120 seconds**, down from 300. A flow meant to wait longer sets `timeout`.
@@ -48,6 +52,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING: `current_session`, `selenium_flow_skill`, `list_flows`, `get_flow`, `flow_schema` and `list_secrets` are gone.** Everything they returned is a resource — `session://current`, `skill://selenium-flow/SKILL.md`, `flow://flows`, `flow://flows/{name}`, `flow://schema`, `secret://secrets` — read directly or with `read_resource`. `session_files` is listed only to hosts that render MCP Apps.
 
 - **BREAKING: `--stateless` / `STATELESS_HTTP` is removed.** Run one replica.
+
+- **BREAKING: `save_pdf` is `print`**, at `POST /browser/print`.
+
+- **Screenshots and prints are kept with the session from the start**, on any page, and outlive the browser. They need `FLOW_DATA_DIR`; a second of the same name is kept as `name (1)`.
 
 - **Tool descriptions are half as long**, and hints, errors, prompts and the skill name what to read by URI.
 
@@ -59,9 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The flow document schema resolves its selectors**; every step's `selector` referenced a definition the schema did not include.
 
-- **`open_session(insecure=true)` accepts self-signed certificates and lets Chrome save PDFs from http pages**; without it the save says so.
-
-- **A save refused on `about:blank` or a `data:` page says to navigate to a real page.**
+- **A PDF saved from a plain-http page, or a second screenshot on `about:blank` or a `data:` page, is no longer lost.**
 
 - **A failed resource read no longer quotes the Grid's internal URL**, and a caller's bad read is one warning line in the log.
 

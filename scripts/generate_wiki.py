@@ -75,7 +75,7 @@ GROUPS = [
             "assert",
             "outline",
             "screenshot",
-            "save_pdf",
+            "print",
             "execute_script",
             "frame",
             "dialog",

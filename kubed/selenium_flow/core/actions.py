@@ -27,6 +27,7 @@ from selenium.common.exceptions import (
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.print_page_options import PrintOptions
 
 from ..errors import GONE, UNAVAILABLE, AssertionFailed
 from . import browser, cancel, pointer, probe
@@ -84,17 +85,17 @@ _COMBINATION = re.compile(r"\+(?=.)")
 
 
 def _why_unsaved(exc: BaseException) -> str:
-    """Why a capture could not be stored, without quoting the Grid at it.
+    """Why a capture could not be kept, without quoting the server's disk at it.
 
-    Storing goes through the Grid's HTTP API, and `requests` puts the whole URL
-    into its message - a URL this deployment is allowed to put credentials in
-    (`GRID_URL`). The one message worth repeating is ours, which names the file
-    and says it never arrived; everything else is reported by type, and the
-    detail stays in the log where it belongs.
+    Our own refusals — nowhere to keep files, an unusable name — are written to
+    be read and are repeated. Anything else, an `OSError` above all, carries a
+    path under `FLOW_DATA_DIR` that answers a question nobody asked, so it is
+    reported by type and the detail stays in the log.
     """
-    if isinstance(exc, TimeoutError):
+    if isinstance(exc, ValueError):
         return str(exc)
-    return f"the capture could not be stored ({type(exc).__name__})"
+    log.warning("a capture could not be kept", exc_info=exc)
+    return f"the capture could not be kept ({type(exc).__name__})"
 
 
 def _shape(value) -> str:
@@ -196,17 +197,11 @@ POINTER_ACTIONS = ("click", "double_click", "right_click", "hover")
 # is going to take seconds.
 ASSERT_POLL = 0.2
 
-# How long to wait for a screenshot to appear in the download store. Shorter
-# than `save_to_downloads`'s own default, which is right for a file the caller
-# asked for and wrong for a save that happens on every capture: a flow taking
-# thirty frames on a page that cannot download would otherwise spend thirty full
-# timeouts discovering the same thing.
-SAVE_TIMEOUT = 5
-
-# Pages the browser will not download from at all, so there is nothing to wait
-# for. Chrome refuses a data: URL outright - which is exactly what a synthetic
-# test page is - and about: pages have no origin to download to.
-UNDOWNLOADABLE = ("data:", "about:")
+# What `print` can make of a page. `pdf` is the browser's own print; `html` is
+# the document as it stands now, after its scripts ran. MHTML — the page with
+# its images in one file — is Chrome-only, and every tool here behaves the same
+# on both browsers, so it waits for someone who needs it.
+PRINT_FORMATS = ("pdf", "html")
 
 # What can be done with a native dialog. "read" deliberately leaves it open.
 DIALOG_ACTIONS = ("accept", "dismiss", "read", "send_text")
@@ -306,14 +301,16 @@ def _generated_name(filename, extension: str) -> str:
 class Actions:
     """The browser operations, bound to one Grid."""
 
-    def __init__(self, grid: Grid, describe_file=None, pointers=None, read_kept=None):
+    def __init__(self, grid: Grid, keep=None, pointers=None, read_kept=None):
         self.grid = grid
-        # How a stored file is described on the way out: the server injects a
-        # function that signs a URL for it. A function rather than the token,
-        # because this layer should be able to hand out a link without ever
-        # holding the key that makes one (§F2.9). Absent - an open server with
-        # no public base - a file is reported exactly as the Grid lists it.
-        self.describe_file = describe_file
+        # How bytes this server made — a screenshot, a print — are kept with the
+        # caller's session: `keep(name, data)` writes them and returns the file
+        # as every listing describes it, link included. A function rather than
+        # the store and the token, because which session owns the file is a
+        # question about the caller, and this layer should hand out a link
+        # without holding the key that signs one (§F2.9). Absent, nothing can be
+        # kept, and a save says so.
+        self.keep = keep
         # Where the pointer is in each browser, keyed by the Grid's session id.
         # Injected so a deployment can share it between replicas, and defaulted
         # so this class is still usable on its own.
@@ -324,9 +321,21 @@ class Actions:
         # cannot see one. Absent, naming a kept file is refused with a reason.
         self.read_kept = read_kept
 
-    def _stored(self, session_id: str, entry: dict) -> dict:
-        """One saved file, described the same way wherever it was saved."""
-        return self.describe_file(session_id, entry) if self.describe_file else entry
+    def _kept(self, name: str, data: bytes) -> dict:
+        """Keep bytes this server made with the caller's session.
+
+        Straight to the session's files, never through the browser. They used to
+        be handed back to the page as a download so they would land in the
+        Grid's store beside the site's own downloads, and every refusal Chrome
+        has for a download became a lost screenshot: plain-http pages, pages
+        with no origin, a second download from `about:blank` (§F3.8).
+        """
+        if self.keep is None:
+            raise ValueError(
+                "keeping files is not enabled on this server: it was started "
+                "with no FLOW_DATA_DIR, so there is nowhere to save one"
+            )
+        return self.keep(name, data)
 
     def _pointer(self, session_id: str):
         """Where the pointer is in this browser, or None if we never sent it."""
@@ -1296,35 +1305,15 @@ class Actions:
         # Saved by default. It used to be opt-in, which made the *agent* decide
         # whether a person would ever want to look at this one — and the answer
         # is usually no, so an operator watching the admin UI saw nothing and
-        # had nothing to open. A session's files die with the browser and cost
-        # nothing while it lives, so the cheap thing is to keep them all and let
-        # `keep_file` be the only decision anybody makes (§F2.9).
+        # had nothing to open. So the cheap thing is to keep them all (§F2.9).
         if as_bool(save, True):
-            name = _generated_name(filename or "screenshot", ".png")
-            page = result.get("url") or ""
             try:
-                if page.startswith(UNDOWNLOADABLE):
-                    scheme = page.split(":", 1)[0]
-                    raise TimeoutError(
-                        f"the browser does not download from {scheme}: pages, so "
-                        f"{name} was not stored"
-                    )
-                result["file"] = self._stored(
-                    session_id,
-                    browser.save_to_downloads(
-                        self.grid,
-                        driver,
-                        name,
-                        raw,
-                        "image/png",
-                        timeout=SAVE_TIMEOUT,
-                    ),
+                result["file"] = self._kept(
+                    _generated_name(filename or "screenshot", ".png"), raw
                 )
             except Exception as exc:  # noqa: BLE001 - the picture outranks the file
-                # Saving happens on every screenshot now, so it must never be
-                # able to take one away. A page whose policy blocks a download,
-                # or a Grid that never lists the file, costs the file and not
-                # the capture — said out loud rather than silently.
+                # It must never be able to take the capture away: a full disk or
+                # a server keeping nothing costs the file, said out loud.
                 result["file_error"] = _why_unsaved(exc)
         return result
 
@@ -1349,21 +1338,41 @@ class Actions:
         self.grid.clear_files(session_id)
         return {"success": True, "session_id": session_id}
 
-    def save_pdf(self, session_id: str, url=None, filename=None) -> dict:
-        """Print the current page to PDF and keep it with the session's files.
+    def print_(
+        self,
+        session_id: str,
+        url=None,
+        format="pdf",
+        filename=None,
+        landscape=False,
+        background=False,
+    ) -> dict:
+        """Print the page into the session's files, as a PDF or as HTML.
 
-        W3C ``print``, not a Chrome-only DevTools call, so this is the same
-        rendering a user gets from Ctrl+P rather than a screenshot of the
-        viewport — text stays selectable and the whole document is included.
+        A PDF is W3C ``print``, the rendering a person gets from Ctrl+P: text
+        stays selectable and the whole document is included. HTML is the
+        document as the browser holds it now, scripts and all already run.
+        ``landscape`` and ``background`` shape a PDF and mean nothing to HTML.
         """
-        name = _generated_name(filename or "page", ".pdf")
+        kind = str(format or "pdf").strip().lower()
+        if kind not in PRINT_FORMATS:
+            raise ValueError(
+                f"format must be one of {', '.join(PRINT_FORMATS)}, not {format!r}"
+            )
         driver = self._at(session_id, url)
-        data = base64.b64decode(driver.print_page())
-        entry = browser.save_to_downloads(
-            self.grid, driver, name, data, "application/pdf"
-        )
+        if kind == "pdf":
+            options = PrintOptions()
+            if as_bool(landscape, False):
+                options.orientation = "landscape"
+            # Off by default in every browser's print, which is why a PDF of a
+            # page built on coloured panels comes out as bare text.
+            options.background = as_bool(background, False)
+            data = base64.b64decode(driver.print_page(options))
+        else:
+            data = driver.page_source.encode("utf-8")
         return {
-            "file": self._stored(session_id, entry),
+            "file": self._kept(_generated_name(filename or "page", f".{kind}"), data),
+            "format": kind,
             "bytes": len(data),
             **browser.page_state(driver),
         }

@@ -146,10 +146,9 @@ Over MCP you get an image block you can see. Over HTTP you get base64 plus real
 pixel dimensions and a `bytes` count — a `bytes` value near zero means a blank
 capture, which almost always means the page had not rendered yet.
 
-**A screenshot is saved** with the session's files by default, and the result
-carries that file's link. `save=false` opts out, and if the page blocked the
-download there is no file at all — the result says `file_error` instead and you
-still get the image.
+**A screenshot is kept** with the session's files by default, on any page, and
+the result carries that file's link. `save=false` opts out; a server with
+nowhere to keep files says `file_error` instead, and you still get the image.
 
 **Give a person the link, not the picture.** They cannot see a tool result, many
 clients cannot render an image block at all, and describing it is worse than
@@ -162,8 +161,22 @@ screenshot(selector={"xpath": "//div[@class='chart']"})
 → file: {name: "screenshot.png", absolute_url: "https://…/files/…?exp=…&sig=…"}
 ```
 
-Those files go when the browser goes. `keep_file(name)` makes one outlive it,
-and `save=false` skips saving for a capture nobody will ever reopen.
+It outlives the browser, and a second `screenshot.png` is kept as
+`screenshot (1).png` — use the name the result gives. `save=false` skips saving
+for a capture nobody will ever reopen.
+
+## print, when a person wants the page itself
+
+`print` keeps the page as a file and returns its link, with no image for you to
+look at. `format="pdf"` is the browser's own print — selectable text, the whole
+document; `landscape=true` turns it, and `background=true` keeps the colours and
+images a print leaves out. `format="html"` is the page as it stands now, after
+its scripts ran.
+
+```
+print(format="pdf", background=true, filename="invoice")
+→ file: {name: "invoice.pdf", absolute_url: "https://…/kept/…?exp=…&sig=…"}
+```
 
 ## XPath that keeps working
 

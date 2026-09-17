@@ -15,7 +15,6 @@ from __future__ import annotations
 import base64
 import io
 import json
-import time
 import zipfile
 from urllib.parse import urlsplit, urlunsplit
 
@@ -31,7 +30,7 @@ from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-from ..errors import USERINFO, DownloadRefused, without_userinfo
+from ..errors import USERINFO, without_userinfo
 from . import probe
 
 DEFAULT_GRID_URL = "http://selenium-grid-selenium-hub.flow.svc.cluster.local:4444"
@@ -206,10 +205,10 @@ class Grid:
         # is the whole file store — listed, read and reaped by the Grid itself.
         # Without this the browser downloads into a directory nothing can reach.
         options.set_capability("se:downloadsEnabled", True)
-        # `open_session(insecure=true)`: the caller knows this site is served
-        # the insecure way — a self-signed certificate, plain http — and says
-        # so for this one browser. Chosen per browser and never server-wide,
-        # because only the caller knows which site it is about to drive.
+        # `open_session(insecure=true)`: the caller knows this site's
+        # certificate is self-signed, and says so for this one browser. Chosen
+        # per browser and never server-wide, because only the caller knows which
+        # site it is about to drive.
         if insecure:
             options.accept_insecure_certs = True
 
@@ -221,8 +220,8 @@ class Grid:
             options.set_preference("browser.download.useDownloadDir", True)
             # Firefox's equivalent of Chrome's automatic-downloads prompt: it
             # asks what to do with a type it does not recognise, and nobody is
-            # there to answer. `save_pdf` is the one that would hang without
-            # this, since Firefox opens PDFs in its own viewer by default.
+            # there to answer. A PDF a site serves would hang without this,
+            # since Firefox opens PDFs in its own viewer by default.
             options.set_preference(
                 "browser.helperApps.neverAsk.saveToDisk",
                 "application/pdf,image/png,application/octet-stream",
@@ -260,18 +259,6 @@ class Grid:
                 "profile.password_manager_leak_detection": False,
             },
         )
-        if insecure:
-            # A PDF saved from a plain-http page is held as an "insecure
-            # download" nobody is there to keep, so it never reaches the store.
-            # Chrome ties allowing those to the insecure-content setting —
-            # measured on Chrome 152, where no flag or Safe Browsing pref did it.
-            #
-            # Never the default, because the same setting lets an https page
-            # load http scripts, and a script is what could read a secret this
-            # server types into that page (Copilot, #40).
-            options.experimental_options["prefs"][
-                "profile.default_content_setting_values.mixed_script"
-            ] = 1
         return options
 
     def open(
@@ -658,81 +645,6 @@ def accept_local_files(driver) -> None:
     """
     driver.file_detector = LocalFileDetector()
 
-
-_SAVE_JS = """
-const [name, b64, mime] = arguments;
-const bin = atob(b64);
-const bytes = new Uint8Array(bin.length);
-for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-const url = URL.createObjectURL(new Blob([bytes], {type: mime}));
-const a = document.createElement('a');
-a.href = url;
-a.download = name;
-(document.body || document.documentElement).appendChild(a);
-a.click();
-setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 0);
-return name;
-"""
-
-
-def save_to_downloads(
-    grid, driver, name: str, data: bytes, mime: str, timeout: int = 15
-) -> dict:
-    """Put bytes into the session's download store, by having the page save them.
-
-    There is no API for writing into the Grid's store — it only lists, reads and
-    deletes. But it is fed by whatever the *browser* downloads, so a page that
-    downloads a blob puts a file there through the ordinary path. That keeps one
-    store for everything: a PDF the site served and a screenshot this server
-    rendered land side by side, with the same lifecycle.
-
-    Chrome deduplicates names by appending " (1)", so the filename is discovered
-    by diffing the listing rather than assumed. The download is asynchronous,
-    hence the poll.
-    """
-    before = {f["name"] for f in grid.files(driver.session_id)}
-    driver.execute_script(_SAVE_JS, name, base64.b64encode(data).decode(), mime)
-
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        for entry in grid.files(driver.session_id):
-            if entry["name"] not in before:
-                return entry
-        time.sleep(0.25)
-    raise _not_saved(driver, name)
-
-
-# Chrome lets a page with no origin — about:blank, a data: URL — download once,
-# and refuses every download after that with nobody to ask. The automatic-
-# downloads setting does not reach an opaque origin (measured, Chrome 152), and
-# the only other way round it is a second tab, which is not this server's to
-# open. So the refusal says what happened and what to do. Both refusals are
-# Chrome's, so a Firefox save that never arrived is not sent to fix something
-# that was never in its way (Copilot, #40).
-_PAGE = "return [window.origin === 'null', location.protocol, navigator.userAgent]"
-
-
-def _not_saved(driver, name: str) -> TimeoutError:
-    try:
-        opaque, protocol, agent = driver.execute_script(_PAGE)
-    except Exception:  # noqa: BLE001 - the message is a courtesy on a failure path
-        opaque, protocol, agent = False, "", ""
-    chrome = "Chrome" in str(agent)
-    if chrome and opaque:
-        return DownloadRefused(
-            f"{name} was not saved: this page has no origin (about:blank or a "
-            "data: URL), and Chrome allows such a page one download. Navigate "
-            "to a real page, then save again"
-        )
-    # A browser opened insecure is not held to this, so a Chrome that still
-    # refused on an http page was not opened that way.
-    if chrome and protocol == "http:":
-        return DownloadRefused(
-            f"{name} was not saved: Chrome holds a file saved from a plain-http "
-            "page as an insecure download. Save it from an https page, or reopen "
-            "with open_session(insecure=true)"
-        )
-    return TimeoutError(f"{name} did not appear in the session's downloads")
 
 
 def ensure_url(driver, url: str) -> bool:

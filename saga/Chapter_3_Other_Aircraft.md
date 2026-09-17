@@ -369,19 +369,38 @@ were built in the next pull request:
   with Chrome 152. A PDF saved from a plain-http page was held as an *insecure
   download* — Chrome's own words, read off `chrome://downloads` — and never
   reached the store, while PNGs were not held; no feature flag or Safe Browsing
-  preference releases it, and the insecure-content setting does. **That setting
-  is per browser, `open_session(insecure=true)`**, which also accepts a
-  self-signed certificate. It lets an https page load http scripts, and a script
-  is what could read a secret this server types (Copilot, #40) — so it was never
-  a default, and **Dr K ruled out a server-wide switch too**: only the caller
-  knows the site it is about to drive needs it. A save refused on an http page
-  names the argument. Separately, a
-  page with no origin (`about:blank`, `data:`) is allowed exactly one download,
-  and the automatic-downloads preference — which *is* applied, as
+  preference releases it, and only the insecure-content setting does, which
+  also lets an https page load http scripts that could read a secret this
+  server types (Copilot, #40). Separately, a page with no origin
+  (`about:blank`, `data:`) is allowed exactly one download, and the
+  automatic-downloads preference — which *is* applied, as
   `chrome://prefs-internals` shows — does not reach an opaque origin. A second
   tab would get round it, and **Dr K ruled that out: switching tabs is not this
-  server's to do**, since it would also drop the session out of a frame. That
-  case now fails with a sentence saying so. Firefox saved correctly everywhere.
+  server's to do**, since it would also drop the session out of a frame.
+  Firefox saved correctly everywhere.
+
+  **Both were the same mistake, and the fix was to stop making it.** A
+  screenshot and a PDF are bytes this server already holds — WebDriver's
+  `print` and screenshot commands hand them back, they are never files in the
+  browser. They were given *back* to the page as a download only so they would
+  land in the Grid's store beside the site's own downloads (§F2.9), and so
+  inherited every download Chrome refuses. First the insecure-content setting
+  was made an opt-in, then a per-browser argument — **Dr K: "shouldn't this be on
+  the call that needs it?"** — and asking why a download was involved at all
+  ended it. **Screenshots and prints are written straight to the session's kept
+  files**; the Grid's store holds only what a site downloads. The cost is
+  accepted: they need `FLOW_DATA_DIR`, and they stay until an operator deletes
+  them. A second file of the same name is kept as `name (1)`, the way a browser
+  names a second download, since overwriting would break a link already handed
+  out. `open_session(insecure=true)` survives with the one job no setting
+  covered, a self-signed certificate.
+
+  **`save_pdf` became `print(format=…)`**, with `pdf` and `html` — Dr K's framing,
+  a browser's "print as…". Screenshot stayed its own tool: its output is an
+  image for the model to see, a print's is a file for a person, and of
+  screenshot's eight arguments only `url` and `filename` mean anything to a
+  print. A print takes the two print options that change what comes out,
+  `landscape` and `background`; MHTML is Chrome-only and waits for a need.
 - **A failed resource read quoted the Grid's internal URL.** FastMCP wraps a
   resource's exception verbatim before any middleware sees it; the rewrite and
   the log filter #38 built for tool calls now cover reads too.
