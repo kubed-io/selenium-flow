@@ -103,6 +103,12 @@ GROUPS = [
         "that made it. See [Files](Files).",
         ["list_files", "keep_file"],
     ),
+    (
+        "Secrets",
+        "The secrets a caller may type into a field without ever seeing them. "
+        "See [Secrets](Secrets).",
+        ["list_secrets"],
+    ),
 ]
 
 ORDER = [tool for _, _, tools in GROUPS for tool in tools]

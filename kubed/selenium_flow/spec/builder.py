@@ -46,6 +46,7 @@ from .schemas import (
     INFO,
     READY,
     RESPONSES,
+    SECRET_SCHEMAS,
     SESSION_PARAMETERS,
     STARTED,
 )
@@ -283,6 +284,8 @@ async def build_spec(
     paths.update(_flow_paths(prefix))
     schemas.update(FILE_SCHEMAS)
     paths.update(_file_paths(prefix))
+    schemas.update(SECRET_SCHEMAS)
+    paths.update(_secret_paths(prefix))
 
     # The ops endpoints. One per question a probe asks — `/openapi.json` was
     # standing in for a liveness probe in this cluster, which it is not (Dr K).
@@ -399,6 +402,13 @@ async def build_spec(
                 "description": (
                     "What a session has downloaded, and what it has kept "
                     "beyond the browser that downloaded it."
+                ),
+            },
+            {
+                "name": "secrets",
+                "description": (
+                    "The secrets a caller may bind to a field, by name. Values "
+                    "never leave the server."
                 ),
             },
             {"name": "ops", "description": "Operational endpoints."},
@@ -714,6 +724,44 @@ def _file_paths(prefix: str = "") -> dict:
             }
         paths.setdefault(f"{prefix}/files{template}", {})[method] = operation
     return paths
+
+
+def _secret_paths(prefix: str = "") -> dict:
+    """The secrets catalogue: one read, which is `secret://secrets` over MCP.
+
+    Missing from this document from the day the route was added, and so from
+    the wiki too — the one readable resource an HTTP caller could not discover
+    (Copilot, #39).
+    """
+    from .. import secrets
+
+    return {
+        f"{prefix}/secrets": {
+            "get": {
+                "operationId": "listSecrets",
+                "x-mcp-resource": secrets.LIST_URI,
+                "parameters": list(SESSION_PARAMETERS),
+                "summary": "The secrets this caller may bind.",
+                "description": secrets.LIST_DESCRIPTION,
+                "tags": ["secrets"],
+                "responses": {
+                    "200": {
+                        "description": "Names, keys and sites. Never a value.",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/SecretList"}
+                            }
+                        },
+                    },
+                    "400": _error(
+                        "This server was started with no SECRETS_DIRS, so there "
+                        "are no secrets to list."
+                    ),
+                    "401": _error("Missing or wrong bearer token."),
+                },
+            }
+        }
+    }
 
 
 def _hoisted(schema: dict) -> tuple[dict, dict]:

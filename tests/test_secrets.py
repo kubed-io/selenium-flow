@@ -1078,3 +1078,28 @@ def test_an_http_reference_with_an_unknown_field_is_a_400(bound_http):
     assert response.status_code == 400
     assert "does not take namespace" in response.json()["error"]
     assert typed == []
+
+
+async def test_the_http_catalogue_is_in_the_published_contract(secret_server):
+    """The route shipped without an operation in the spec, so an HTTP caller
+    could not discover it and the wiki had no page (Copilot, #39). Held to the
+    real response: every field the catalogue returns is declared."""
+    from starlette.testclient import TestClient
+
+    from kubed.selenium_flow.routes import ENDPOINTS
+    from kubed.selenium_flow.spec import build_spec
+
+    from .conftest import TOKEN
+
+    spec = await build_spec(secret_server.mcp, ENDPOINTS, "", authenticated=True)
+    operation = spec["paths"]["/secrets"]["get"]
+    assert operation["x-mcp-resource"] == secrets.LIST_URI
+
+    body = TestClient(secret_server.mcp.http_app()).get(
+        "/secrets", headers={"Authorization": f"Bearer {TOKEN}"}
+    ).json()
+    schemas = spec["components"]["schemas"]
+    assert not set(body) - set(schemas["SecretList"]["properties"])
+    for entry in body["secrets"]:
+        undeclared = set(entry) - set(schemas["SecretEntry"]["properties"])
+        assert not undeclared, undeclared
