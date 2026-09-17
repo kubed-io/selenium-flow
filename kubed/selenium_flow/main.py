@@ -57,14 +57,6 @@ def build_parser() -> argparse.ArgumentParser:
         "the UI extension render inline (env: APPS_ENABLED)",
     )
     parser.add_argument(
-        "--allow-insecure-content",
-        action="store_true",
-        default=os.environ.get("ALLOW_INSECURE_CONTENT", "").strip().lower()
-        in ("1", "true", "yes", "on"),
-        help="let Chrome keep files saved from plain-http pages; https pages may "
-        "then load http scripts too (env: ALLOW_INSECURE_CONTENT)",
-    )
-    parser.add_argument(
         "--flow-data-dir",
         default=os.environ.get("FLOW_DATA_DIR", ""),
         help="directory holding each session's saved flows and kept files. "
@@ -113,7 +105,6 @@ def main(argv: list[str] | None = None) -> None:
         route_prefix=args.route_prefix,
         skill_enabled=args.skill_enabled,
         apps_enabled=args.apps_enabled,
-        allow_insecure_content=args.allow_insecure_content,
         flow_data_dir=args.flow_data_dir or None,
         secrets_dirs=args.secrets_dirs or None,
     )

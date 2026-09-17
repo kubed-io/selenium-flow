@@ -370,9 +370,12 @@ were built in the next pull request:
   download* — Chrome's own words, read off `chrome://downloads` — and never
   reached the store, while PNGs were not held; no feature flag or Safe Browsing
   preference releases it, and the insecure-content setting does. **That setting
-  is opt-in**, `ALLOW_INSECURE_CONTENT`: it also lets an https page load http
-  scripts, and a script is what could read a secret this server types (Copilot,
-  #40). Off, a save refused on an http page names the setting. Separately, a
+  is per browser, `open_session(insecure=true)`**, which also accepts a
+  self-signed certificate. It lets an https page load http scripts, and a script
+  is what could read a secret this server types (Copilot, #40) — so it was never
+  a default, and **Dr K ruled out a server-wide switch too**: only the caller
+  knows the site it is about to drive needs it. A save refused on an http page
+  names the argument. Separately, a
   page with no origin (`about:blank`, `data:`) is allowed exactly one download,
   and the automatic-downloads preference — which *is* applied, as
   `chrome://prefs-internals` shows — does not reach an opaque origin. A second

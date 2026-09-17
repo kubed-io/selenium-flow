@@ -233,7 +233,6 @@ Every flag has an environment fallback: containers are configured with env vars,
 | `SECRETS_DIRS` | `--secrets-dirs` | unset | Colon-separated directories of secrets, first match wins. Unset turns secrets off |
 | `SKILL_ENABLED` | `--no-skill` | `true` | Serve the embedded skill as `skill://selenium-flow` resources |
 | `APPS_ENABLED` | `--no-apps` | `true` | Offer the MCP Apps components to hosts that render them |
-| `ALLOW_INSECURE_CONTENT` | `--allow-insecure-content` | `false` | Let Chrome keep files saved from plain-http pages. https pages may then load http scripts, which could read a typed secret — turn it on only where browsers reach your own http apps |
 | `PUBLIC_BASE_URL` | — | unset | Externally reachable root, e.g. `https://selenium.example.com/flow`. Needed for file links and the app CSP |
 | `GRID_CONSOLE_URL` | — | `/` | Where the admin UI frames the Grid console from |
 | `DEFAULT_BROWSER` | — | `chrome` | `chrome` or `firefox` for new sessions. Not `BROWSER`, which many environments already set |

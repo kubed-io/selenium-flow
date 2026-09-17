@@ -264,6 +264,7 @@ def register(
         height: int | None = None,
         page_load_timeout: int | None = None,
         script_timeout: int | None = None,
+        insecure: bool | None = None,
         fresh: bool = False,
     ) -> dict:
         """Start this session's browser, or come back to the one it had. Call it before
@@ -277,7 +278,9 @@ def register(
 
         Set width and height when layout matters; the headless default is narrow.
         fresh=true starts on about:blank. page_load_timeout bounds a navigation that
-        hangs.
+        hangs. insecure=true accepts a self-signed certificate and lets Chrome keep
+        files saved from plain-http pages; it also lets https pages load http
+        scripts, so use it only for a site you know needs it.
         """
         return sessions.open_browser(
             sessions.name(),
@@ -288,6 +291,7 @@ def register(
             height=height,
             page_load_timeout=page_load_timeout,
             script_timeout=script_timeout,
+            insecure=insecure,
         )
 
     @mcp.tool(annotations=hints("End browser", destructive=True, idempotent=True))

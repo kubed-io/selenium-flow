@@ -281,33 +281,72 @@ async def test_the_prompt_does_not_promise_a_signature_auth_off_cannot_give(serv
         assert "signed" not in description or "when this server has a token" in description
 
 
-def test_insecure_content_is_allowed_only_when_the_server_is_told_to():
+def test_an_insecure_browser_is_asked_for_and_never_the_default():
     """It lets Chrome keep a PDF saved from an http page — and lets an https page
-    load http scripts, which could read a secret typed into it. So it is an
-    opt-in (Copilot, #40), measured on Chrome 152."""
+    load http scripts, which could read a secret typed into it. So it is per
+    browser (Copilot and Dr K, #40), measured on Chrome 152."""
     from kubed.selenium_flow.core.browser import Grid
 
     key = "profile.default_content_setting_values.mixed_script"
-    default = Grid("http://grid.invalid:4444")._options("chrome").experimental_options
-    allowed = Grid("http://grid.invalid:4444", allow_insecure_content=True)._options(
-        "chrome"
-    ).experimental_options
-    assert key not in default["prefs"]
-    assert allowed["prefs"][key] == 1
-    assert default["prefs"]["profile.default_content_setting_values.automatic_downloads"] == 1
-
-
-def test_the_setting_reaches_the_grid_from_the_environment(monkeypatch):
-    from kubed.selenium_flow.main import build_parser
-    from kubed.selenium_flow.server import SeleniumMCP
-
-    monkeypatch.setenv("ALLOW_INSECURE_CONTENT", "true")
-    args = build_parser().parse_args([])
-    server = SeleniumMCP(
-        grid_url="http://grid.invalid:4444",
-        allow_insecure_content=args.allow_insecure_content,
+    grid = Grid("http://grid.invalid:4444")
+    default = grid._options("chrome")
+    insecure = grid._options("chrome", insecure=True)
+    assert key not in default.experimental_options["prefs"]
+    assert not default.accept_insecure_certs
+    assert insecure.experimental_options["prefs"][key] == 1
+    assert insecure.accept_insecure_certs
+    assert grid._options("firefox", insecure=True).accept_insecure_certs
+    assert (
+        default.experimental_options["prefs"][
+            "profile.default_content_setting_values.automatic_downloads"
+        ]
+        == 1
     )
-    assert server.grid.allow_insecure_content is True
+
+
+def test_open_session_opens_insecure_only_when_asked_and_remembers_it(server, monkeypatch):
+    """Through the tool: no env var, parameter or header turns it on, and a
+    reopen after the browser went keeps it, like every other setting."""
+    import asyncio
+
+    from fastmcp import Client
+
+    from kubed.selenium_flow.session import settings
+
+    monkeypatch.setenv("INSECURE", "true")
+    assert "insecure" not in settings.from_env()
+    assert "insecure" not in settings.from_client({"insecure": "true"}, {"x-insecure": "true"})
+
+    asked = []
+
+    class _Driver:
+        session_id = "abc"
+        current_url = "about:blank"
+        title = ""
+
+        def get_window_size(self):
+            return {"width": 800, "height": 600}
+
+        def get(self, url):
+            self.current_url = url
+
+    def opening(browser=None, insecure=False):
+        asked.append(insecure)
+        return _Driver()
+
+    monkeypatch.setattr(server.grid, "open", opening)
+    monkeypatch.setattr(server.grid, "quit", lambda *_: None)
+
+    async def go():
+        async with Client(server.mcp) as client:
+            await client.call_tool("open_session", {})
+            await client.call_tool("open_session", {"insecure": True})
+            opened = await client.call_tool("open_session", {})
+            return opened.structured_content
+
+    last = asyncio.run(go())
+    assert asked == [False, True, True]
+    assert last["settings"]["insecure"] is True
 
 
 class _Page:
@@ -323,8 +362,6 @@ class _Page:
 
 
 class _EmptyStore:
-    allow_insecure_content = False
-
     def files(self, session_id):
         return []
 
@@ -347,15 +384,12 @@ def test_a_save_refused_on_a_page_with_no_origin_says_why():
     assert "Navigate to a real page" in _refused(_Page(opaque=True))
 
 
-def test_a_save_refused_on_an_http_page_names_the_setting():
+def test_a_save_refused_on_an_http_page_names_the_argument():
     said = _refused(_Page(protocol="http:"))
-    assert "ALLOW_INSECURE_CONTENT" in said and "https page" in said
+    assert "open_session(insecure=true)" in said and "https page" in said
 
 
-def test_with_the_setting_on_an_http_refusal_does_not_blame_it():
-    store = _EmptyStore()
-    store.allow_insecure_content = True
-    assert "did not appear" in _refused(_Page(protocol="http:"), store)
+def test_a_firefox_http_save_is_not_told_to_open_insecure():
     assert "did not appear" in _refused(_Page(protocol="http:", agent="Firefox/150"))
 
 

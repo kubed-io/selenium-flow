@@ -90,7 +90,6 @@ will notice.
 | `SESSION_TTL` | `3600` | How long a caller's mapping is kept. Not the browser's lifetime |
 | `FLOW_DATA_DIR` | unset | A directory to keep saved flows in. Unset means no flows |
 | `SECRETS_DIRS` | unset | Colon-separated directories of secrets. Unset means none to bind |
-| `ALLOW_INSECURE_CONTENT` | `false` | Chrome keeps files saved from plain-http pages. https pages may then load http scripts |
 | `SKILL_ENABLED` | `true` | `false` serves only the bare tools, no guidance |
 | `LOG_LEVEL` | `INFO` | `DEBUG` logs which key each call resolved to, and how |
 
@@ -113,6 +112,11 @@ server default (env)   <   client default (URL param / header)   <   open_sessio
 
 The header beats the parameter, as everywhere else here, because the header is
 in the credential an admin controls.
+
+`insecure` has no default anywhere: only `open_session(insecure=true)` sets it,
+for that session's browser. It accepts a self-signed certificate and lets Chrome
+keep files saved from plain-http pages — and lets https pages load http scripts,
+which could read a secret typed into them. Use it for the site that needs it.
 
 **`PAGE_LOAD_TIMEOUT` is the one worth setting.** Without it a navigation can
 hang indefinitely, holding one of the Grid's few slots until the Grid reaps it.

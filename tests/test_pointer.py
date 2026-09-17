@@ -330,7 +330,7 @@ def test_opening_a_browser_forgets_where_the_pointer_was(actions, monkeypatch):
         def set_window_size(self, *_):
             pass
 
-    monkeypatch.setattr(actions.grid, "open", lambda name=None: _Driver())
+    monkeypatch.setattr(actions.grid, "open", lambda name=None, **_: _Driver())
     actions.pointers.set("new", 400, 300)
     actions.open_session()
     assert actions.pointers.get("new") is None

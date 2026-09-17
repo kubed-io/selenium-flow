@@ -59,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The flow document schema resolves its selectors**; every step's `selector` referenced a definition the schema did not include.
 
-- **`ALLOW_INSECURE_CONTENT=true` lets Chrome save PDFs from http pages**; without it the save says so. It also lets https pages load http scripts, so it is off by default.
+- **`open_session(insecure=true)` accepts self-signed certificates and lets Chrome save PDFs from http pages**; without it the save says so.
 
 - **A save refused on `about:blank` or a `data:` page says to navigate to a real page.**
 

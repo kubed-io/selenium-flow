@@ -356,6 +356,7 @@ class Actions:
         height=None,
         page_load_timeout=None,
         script_timeout=None,
+        insecure=None,
     ) -> dict:
         """Start a browser session with the settings it should run under.
 
@@ -366,7 +367,8 @@ class Actions:
         that is a different browser, so it is a different session.
         """
         name = normalize_browser(browser)
-        driver = self.grid.open(name)
+        insecure = as_bool(insecure, False)
+        driver = self.grid.open(name, insecure=insecure)
         session_id = driver.session_id
 
         if width or height:
@@ -410,6 +412,8 @@ class Actions:
             applied["page_load_timeout"] = as_int(page_load_timeout, 0)
         if script_timeout:
             applied["script_timeout"] = as_int(script_timeout, 0)
+        if insecure:
+            applied["insecure"] = True
         return {
             "session_id": session_id,
             "browser": name,

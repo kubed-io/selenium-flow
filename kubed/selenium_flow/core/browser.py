@@ -180,15 +180,11 @@ class Grid:
         self,
         url: str = DEFAULT_GRID_URL,
         timeout: int = 30,
-        allow_insecure_content: bool = False,
     ):
         self.url = url.rstrip("/")
         self.timeout = timeout
-        # Off by default, because it is a security setting and not a download
-        # one: see the Chrome prefs below (Copilot, #40).
-        self.allow_insecure_content = allow_insecure_content
 
-    def _options(self, browser: str | None = None):
+    def _options(self, browser: str | None = None, insecure: bool = False):
         """Capabilities for a new session of ``browser``.
 
         The two capabilities that matter are W3C standard and identical for
@@ -210,6 +206,12 @@ class Grid:
         # is the whole file store — listed, read and reaped by the Grid itself.
         # Without this the browser downloads into a directory nothing can reach.
         options.set_capability("se:downloadsEnabled", True)
+        # `open_session(insecure=true)`: the caller knows this site is served
+        # the insecure way — a self-signed certificate, plain http — and says
+        # so for this one browser. Chosen per browser and never server-wide,
+        # because only the caller knows which site it is about to drive.
+        if insecure:
+            options.accept_insecure_certs = True
 
         if name == FIREFOX:
             # 2 = the directory the Grid node set for this session. Firefox
@@ -258,25 +260,26 @@ class Grid:
                 "profile.password_manager_leak_detection": False,
             },
         )
-        if self.allow_insecure_content:
+        if insecure:
             # A PDF saved from a plain-http page is held as an "insecure
             # download" nobody is there to keep, so it never reaches the store.
             # Chrome ties allowing those to the insecure-content setting —
             # measured on Chrome 152, where no flag or Safe Browsing pref did it.
             #
-            # Opt-in, because the same setting lets an https page load http
-            # scripts, and a script is what could read a secret this server
-            # types into that page (Copilot, #40). A deployment whose browsers
-            # only reach its own http apps may reasonably turn it on.
+            # Never the default, because the same setting lets an https page
+            # load http scripts, and a script is what could read a secret this
+            # server types into that page (Copilot, #40).
             options.experimental_options["prefs"][
                 "profile.default_content_setting_values.mixed_script"
             ] = 1
         return options
 
-    def open(self, browser: str | None = None) -> RemoteWebDriver:
+    def open(
+        self, browser: str | None = None, insecure: bool = False
+    ) -> RemoteWebDriver:
         """Create a session on ``browser`` and return its driver."""
         return webdriver.Remote(
-            command_executor=self.url, options=self._options(browser)
+            command_executor=self.url, options=self._options(browser, insecure)
         )
 
     def reconnect(self, session_id: str) -> RemoteWebDriver:
@@ -696,7 +699,7 @@ def save_to_downloads(
             if entry["name"] not in before:
                 return entry
         time.sleep(0.25)
-    raise _not_saved(driver, name, grid)
+    raise _not_saved(driver, name)
 
 
 # Chrome lets a page with no origin — about:blank, a data: URL — download once,
@@ -709,7 +712,7 @@ def save_to_downloads(
 _PAGE = "return [window.origin === 'null', location.protocol, navigator.userAgent]"
 
 
-def _not_saved(driver, name: str, grid=None) -> TimeoutError:
+def _not_saved(driver, name: str) -> TimeoutError:
     try:
         opaque, protocol, agent = driver.execute_script(_PAGE)
     except Exception:  # noqa: BLE001 - the message is a courtesy on a failure path
@@ -721,12 +724,13 @@ def _not_saved(driver, name: str, grid=None) -> TimeoutError:
             "data: URL), and Chrome allows such a page one download. Navigate "
             "to a real page, then save again"
         )
-    insecure_allowed = bool(getattr(grid, "allow_insecure_content", False))
-    if chrome and protocol == "http:" and not insecure_allowed:
+    # A browser opened insecure is not held to this, so a Chrome that still
+    # refused on an http page was not opened that way.
+    if chrome and protocol == "http:":
         return DownloadRefused(
             f"{name} was not saved: Chrome holds a file saved from a plain-http "
-            "page as an insecure download. Save it from an https page, or start "
-            "this server with ALLOW_INSECURE_CONTENT=true"
+            "page as an insecure download. Save it from an https page, or reopen "
+            "with open_session(insecure=true)"
         )
     return TimeoutError(f"{name} did not appear in the session's downloads")
 
