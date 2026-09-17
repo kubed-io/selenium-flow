@@ -245,10 +245,14 @@ def test_a_second_file_of_the_same_name_does_not_replace_the_first(keeping_serve
 def test_two_saves_racing_for_one_name_do_not_overwrite_each_other(
     keeping_server, monkeypatch
 ):
-    """The listing can be stale by the time the file is written: another save
-    took the name in between. The create is what claims it (Copilot, #40)."""
+    """Another save can take the name between looking and writing, so nothing
+    looks: the create is what claims it (Copilot, #40)."""
     first = keeping_server.actions.keep("shot.png", b"one")
-    monkeypatch.setattr(keeping_server.flows, "files", lambda session: [])
+
+    def unlisted(session):
+        raise AssertionError("a name is claimed by creating it, not by listing")
+
+    monkeypatch.setattr(keeping_server.flows, "files", unlisted)
     second = keeping_server.actions.keep("shot.png", b"two")
     assert second["name"] == "shot (1).png"
     assert keeping_server.flows.read_file("stdio", first["name"]) == b"one"

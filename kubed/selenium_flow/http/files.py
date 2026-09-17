@@ -96,8 +96,8 @@ OFF = (
 )
 
 DESCRIPTION = (
-    "Every file this browsing session has: what the site downloaded, what "
-    "screenshot and print saved, and anything kept with keep_file.\n\n"
+    "Every file this browsing session has: what the site downloaded, every "
+    "screenshot and print, and anything kept with keep_file.\n\n"
     "Each entry says whether it is kept. A file that is not kept belongs to the "
     "browser and goes when the browser does; a kept one belongs to the session "
     "and outlives it.\n\n"
@@ -290,22 +290,20 @@ def keep_made(
     stem, dot, suffix = wanted.rpartition(".")
     if not dot or not stem:
         stem, suffix = wanted, ""
-    # The listing only says where to start looking; the exclusive create is
-    # what claims a name, so a concurrent save that got there first moves this
-    # one along instead of being overwritten (Copilot, #40).
-    taken = {entry["name"] for entry in store.files(session)}
+    # The exclusive create is what claims a name, so a concurrent save that got
+    # there first moves this one along instead of being overwritten — and no
+    # listing is read first, which would cost a walk of the directory on every
+    # screenshot to learn what the create already says (Copilot, #40).
     n = 0
     while True:
         free = wanted if n == 0 else (
             f"{stem} ({n}).{suffix}" if suffix else f"{stem} ({n})"
         )
-        if free not in taken:
-            try:
-                entry = store.create_file(session, free, data)
-                break
-            except FileExistsError:
-                pass
-        n += 1
+        try:
+            entry = store.create_file(session, free, data)
+            break
+        except FileExistsError:
+            n += 1
     return describe_kept(session, entry, token, base, mount)
 
 
