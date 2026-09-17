@@ -65,8 +65,19 @@ class AssertionFailed(Exception):
     """
 
 
+class DownloadRefused(TimeoutError):
+    """The browser would not save a file, for a reason the caller can change.
+
+    A page with no origin, or a plain-http page in Chrome: the refusal names the
+    fix, so it is a bad request and not a server fault (Copilot, #40). A save
+    that simply never arrived stays a bare `TimeoutError`, because nobody knows
+    whose fault that is.
+    """
+
+
 CALLER = (
     AssertionFailed,
+    DownloadRefused,
     TimeoutException,
     InvalidSelectorException,
     NoSuchElementException,

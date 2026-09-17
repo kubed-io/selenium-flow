@@ -329,12 +329,16 @@ class _EmptyStore:
         return []
 
 
-def _refused(page, store=None):
+def _raised(page, store=None):
     from kubed.selenium_flow.core import browser
 
     with pytest.raises(TimeoutError) as refused:
         browser.save_to_downloads(store or _EmptyStore(), page, "s.pdf", b"x", "application/pdf", timeout=0)
-    return str(refused.value)
+    return refused.value
+
+
+def _refused(page, store=None):
+    return str(_raised(page, store))
 
 
 def test_a_save_refused_on_a_page_with_no_origin_says_why():
@@ -353,3 +357,20 @@ def test_with_the_setting_on_an_http_refusal_does_not_blame_it():
     store.allow_insecure_content = True
     assert "did not appear" in _refused(_Page(protocol="http:"), store)
     assert "did not appear" in _refused(_Page(protocol="http:", agent="Firefox/150"))
+
+
+def test_a_refusal_the_caller_can_fix_is_a_bad_request_and_a_lost_save_is_not():
+    """Answered 500 on POST /browser/pdf, and logged as a server fault, while the
+    message told the caller what to change (Copilot, #40)."""
+    from kubed.selenium_flow import errors
+
+    assert errors.status_for(_raised(_Page(opaque=True))) == 400
+    assert errors.status_for(_raised(_Page(protocol="http:"))) == 400
+    assert errors.status_for(_raised(_Page())) == 500
+
+
+def test_firefox_is_never_blamed_for_chrome_s_refusals():
+    """Firefox has neither limit, so a save of its that never arrived gets no
+    Chrome remedy (Copilot, #40)."""
+    said = _refused(_Page(opaque=True, protocol="about:", agent="Firefox/150"))
+    assert said == "s.pdf did not appear in the session's downloads"

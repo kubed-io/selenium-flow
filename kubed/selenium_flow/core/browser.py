@@ -31,7 +31,7 @@ from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-from ..errors import USERINFO, without_userinfo
+from ..errors import USERINFO, DownloadRefused, without_userinfo
 from . import probe
 
 DEFAULT_GRID_URL = "http://selenium-grid-selenium-hub.flow.svc.cluster.local:4444"
@@ -696,39 +696,39 @@ def save_to_downloads(
             if entry["name"] not in before:
                 return entry
         time.sleep(0.25)
-    raise TimeoutError(_not_saved(driver, name, grid))
+    raise _not_saved(driver, name, grid)
 
 
 # Chrome lets a page with no origin — about:blank, a data: URL — download once,
 # and refuses every download after that with nobody to ask. The automatic-
 # downloads setting does not reach an opaque origin (measured, Chrome 152), and
 # the only other way round it is a second tab, which is not this server's to
-# open. So the refusal says what happened and what to do.
-_NO_ORIGIN = "return window.origin === 'null'"
-
-
+# open. So the refusal says what happened and what to do. Both refusals are
+# Chrome's, so a Firefox save that never arrived is not sent to fix something
+# that was never in its way (Copilot, #40).
 _PAGE = "return [window.origin === 'null', location.protocol, navigator.userAgent]"
 
 
-def _not_saved(driver, name: str, grid=None) -> str:
+def _not_saved(driver, name: str, grid=None) -> TimeoutError:
     try:
         opaque, protocol, agent = driver.execute_script(_PAGE)
     except Exception:  # noqa: BLE001 - the message is a courtesy on a failure path
         opaque, protocol, agent = False, "", ""
-    if opaque:
-        return (
+    chrome = "Chrome" in str(agent)
+    if chrome and opaque:
+        return DownloadRefused(
             f"{name} was not saved: this page has no origin (about:blank or a "
             "data: URL), and Chrome allows such a page one download. Navigate "
             "to a real page, then save again"
         )
     insecure_allowed = bool(getattr(grid, "allow_insecure_content", False))
-    if protocol == "http:" and "Chrome" in str(agent) and not insecure_allowed:
-        return (
+    if chrome and protocol == "http:" and not insecure_allowed:
+        return DownloadRefused(
             f"{name} was not saved: Chrome holds a file saved from a plain-http "
             "page as an insecure download. Save it from an https page, or start "
             "this server with ALLOW_INSECURE_CONTENT=true"
         )
-    return f"{name} did not appear in the session's downloads"
+    return TimeoutError(f"{name} did not appear in the session's downloads")
 
 
 def ensure_url(driver, url: str) -> bool:
