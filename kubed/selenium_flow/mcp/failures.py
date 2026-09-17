@@ -26,16 +26,17 @@ from __future__ import annotations
 
 import logging
 
-from fastmcp.exceptions import FastMCPError, ToolError, ValidationError
+from fastmcp.exceptions import FastMCPError, ResourceError, ToolError, ValidationError
 from fastmcp.server.middleware import Middleware
 from pydantic import ValidationError as PydanticValidationError
 
 from .. import errors
 from ..flows.document import argument_problems
 
-# Where FastMCP logs a failed call, and the words it opens that line with.
+# Where FastMCP logs a failed call or read, and the words it opens each with.
 FASTMCP_LOGGER = "fastmcp.server.server"
 FAILED_CALL = "Error calling tool"
+FAILED_READ = "Error reading resource"
 
 
 def _pydantic_lines(exc: Exception) -> list[str]:
@@ -82,6 +83,24 @@ class Explained(Middleware):
             said = errors.message(cause)
             raise ToolError(f"{FAILED_CALL} {name!r}: {said}") from cause
 
+    async def on_read_resource(self, context, call_next):
+        """A read's failure, in `errors`' words — the same rule as a call's.
+
+        FastMCP wraps whatever a resource raised as "Error reading resource
+        'uri': <str(exc)>", and a Grid failure quotes the Grid's own URL in that
+        text. `read_resource` reads through this too, so the tool and a client's
+        own resource reader get the same sentence (#39's live check).
+        """
+        try:
+            return await call_next(context)
+        except ResourceError as exc:
+            cause = exc.__cause__
+            if cause is None or isinstance(cause, FastMCPError):
+                raise
+            uri = str(getattr(context.message, "uri", ""))
+            said = errors.message(cause)
+            raise ResourceError(f"{FAILED_READ} {uri!r}: {said}") from cause
+
 
 class QuietCallerMistakes(logging.Filter):
     """One warning line for a caller's mistake; a scrubbed traceback for ours.
@@ -92,7 +111,7 @@ class QuietCallerMistakes(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         exc = record.exc_info[1] if record.exc_info else None
-        if exc is None or not str(record.msg).startswith(FAILED_CALL):
+        if exc is None or not str(record.msg).startswith((FAILED_CALL, FAILED_READ)):
             return True
         said = record.getMessage()
         if errors.status_for(exc) < 500:
