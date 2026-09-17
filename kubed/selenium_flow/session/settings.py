@@ -50,11 +50,16 @@ def _as_int(value) -> int | None:
         return None
 
 
-def _as_true(value) -> bool | None:
-    """True, or None: an insecure browser is asked for, never defaulted off."""
+def _as_flag(value) -> bool | None:
+    """True or False when said, None when not.
+
+    False is kept, not dropped: an explicit `insecure=false` has to beat a
+    remembered true, or a session that once accepted a bad certificate could
+    never stop (Copilot, #40).
+    """
     from ..core.browser import as_bool  # local: keeps this module importable
 
-    return True if value not in (None, "") and as_bool(value, False) else None
+    return None if value in (None, "") else as_bool(value, False)
 
 
 def _as_browser(value) -> str | None:
@@ -99,7 +104,7 @@ SETTINGS = {
     # site it is about to drive is self-signed or plain http, and a default
     # would weaken every browser for the sake of one (§F3.8). Remembered like
     # the rest, so a reaped browser comes back able to reach the same site.
-    "insecure": (None, None, None, _as_true),
+    "insecure": (None, None, None, _as_flag),
 }
 
 

@@ -287,15 +287,25 @@ def keep_made(
         raise ValueError(OFF)
     session = owner(store, sessions.name())
     wanted = flows.valid_file_name(name)
-    taken = {entry["name"] for entry in store.files(session)}
     stem, dot, suffix = wanted.rpartition(".")
     if not dot or not stem:
         stem, suffix = wanted, ""
-    free, n = wanted, 0
-    while free in taken:
+    # The listing only says where to start looking; the exclusive create is
+    # what claims a name, so a concurrent save that got there first moves this
+    # one along instead of being overwritten (Copilot, #40).
+    taken = {entry["name"] for entry in store.files(session)}
+    n = 0
+    while True:
+        free = wanted if n == 0 else (
+            f"{stem} ({n}).{suffix}" if suffix else f"{stem} ({n})"
+        )
+        if free not in taken:
+            try:
+                entry = store.create_file(session, free, data)
+                break
+            except FileExistsError:
+                pass
         n += 1
-        free = f"{stem} ({n}).{suffix}" if suffix else f"{stem} ({n})"
-    entry = store.write_file(session, free, data)
     return describe_kept(session, entry, token, base, mount)
 
 

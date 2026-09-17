@@ -158,7 +158,7 @@ relative `url`; hand that over with the address you reached the server on.
 
 ```
 screenshot(selector={"xpath": "//div[@class='chart']"})
-→ file: {name: "screenshot.png", absolute_url: "https://…/files/…?exp=…&sig=…"}
+→ file: {name: "screenshot.png", absolute_url: "https://…/kept/…?exp=…&sig=…"}
 ```
 
 It outlives the browser, and a second `screenshot.png` is kept as

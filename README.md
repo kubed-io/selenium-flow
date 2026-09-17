@@ -177,9 +177,10 @@ the server has a token, a plain path when authentication is off.
 |---|---|
 | a resource | `session://files` — the listing |
 | a resource | `session://files/{name}` — one file, as bytes |
-| a link | `GET /files/{session}/{name}?exp=…&sig=…` — signed when the server has a token, a plain path when authentication is off |
+| a link to a download | `GET /files/{session}/{name}?exp=…&sig=…` — signed when the server has a token, a plain path when authentication is off |
+| a link to a kept file, screenshot or print | `GET /kept/{session}/{name}?exp=…&sig=…` — the same |
 
-That last one travels: signed over path and expiry, because an `<img>` tag cannot send an `Authorization` header.
+The links travel: signed over path and expiry, because an `<img>` tag cannot send an `Authorization` header.
 
 ---
 

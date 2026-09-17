@@ -185,12 +185,24 @@ def test_a_print_is_named_as_what_it_is(acting, keeper, fmt, given, expected):
     assert keeper.kept[0][0] == expected
 
 
-def test_an_unknown_format_is_a_bad_request_that_names_the_choices(acting, keeper):
+@pytest.mark.parametrize("fmt", ["mhtml", None, "", False])
+def test_an_unknown_format_is_a_bad_request_that_names_the_choices(acting, keeper, fmt):
+    """`null` and `""` over HTTP included: the tool's enum refuses them, and
+    quietly printing a PDF instead would make the two surfaces disagree."""
     with pytest.raises(ValueError) as refused:
-        acting.print_("abc", format="mhtml")
+        acting.print_("abc", format=fmt)
     assert "pdf, html" in str(refused.value)
     assert errors.status_for(refused.value) == 400
     assert keeper.kept == []
+
+
+def test_a_print_that_cannot_be_kept_does_not_quote_the_disk(acting):
+    acting.keep = _Keeper(OSError(13, "Permission denied", "/data/flows/x/files/p.pdf"))
+    with pytest.raises(RuntimeError) as failed:
+        acting.print_("abc")
+    assert str(failed.value) == "the print could not be kept (PermissionError)"
+    assert "/data" not in errors.message(failed.value)
+    assert errors.status_for(failed.value) == 500
 
 
 # ---- through the real server: the store, the name, the link -------------------
@@ -230,6 +242,18 @@ def test_a_second_file_of_the_same_name_does_not_replace_the_first(keeping_serve
     ]
 
 
+def test_two_saves_racing_for_one_name_do_not_overwrite_each_other(
+    keeping_server, monkeypatch
+):
+    """The listing can be stale by the time the file is written: another save
+    took the name in between. The create is what claims it (Copilot, #40)."""
+    first = keeping_server.actions.keep("shot.png", b"one")
+    monkeypatch.setattr(keeping_server.flows, "files", lambda session: [])
+    second = keeping_server.actions.keep("shot.png", b"two")
+    assert second["name"] == "shot (1).png"
+    assert keeping_server.flows.read_file("stdio", first["name"]) == b"one"
+
+
 def test_a_server_with_no_data_dir_refuses_to_keep_with_the_reason():
     from kubed.selenium_flow.server import SeleniumMCP
 
@@ -266,6 +290,50 @@ def test_a_mounted_server_hands_out_links_it_serves(
         assert "absolute_url" not in described
     else:
         assert described["absolute_url"].startswith(absolute)
+
+
+def test_print_over_http_keeps_the_file_for_the_session_that_asked(
+    keeping_server, monkeypatch, tmp_path
+):
+    """The other surface, end to end: the alias, the body, the caller's name
+    and the response shape (Copilot, #40)."""
+    from starlette.testclient import TestClient
+
+    driver = _Driver()
+    monkeypatch.setattr(keeping_server.actions, "_at", lambda *a, **k: driver)
+    monkeypatch.setattr(keeping_server.sessions, "resolve", lambda name: "abc")
+    client = TestClient(
+        keeping_server.mcp.http_app(),
+        headers={"Authorization": "Bearer tok", "X-Session-Key": "desk"},
+    )
+    response = client.post(
+        "/browser/print", json={"format": "pdf", "landscape": True, "filename": "q3"}
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["format"] == "pdf"
+    assert body["file"]["name"] == "q3.pdf"
+    assert "/kept/desk/q3.pdf" in body["file"]["url"]
+    assert driver.printed[0].orientation == "landscape"
+    assert [p.read_bytes() for p in tmp_path.rglob("q3.pdf")] == [b"%PDF-1.7 pretend"]
+    refused = client.post("/browser/print", json={"format": None})
+    assert refused.status_code == 400
+
+
+def test_a_kept_page_opens_without_its_scripts(keeping_server):
+    """A printed page is a site's HTML. Served inline on this origin, its
+    scripts would run beside the admin UI and its token (Copilot, #40)."""
+    from starlette.testclient import TestClient
+
+    from kubed.selenium_flow.http import links
+
+    client = TestClient(keeping_server.mcp.http_app())
+    for name, sandboxed in (("page.html", True), ("shot.svg", True), ("page.pdf", False)):
+        keeping_server.flows.write_file("stdio", name, b"<script>alert(1)</script>")
+        response = client.get(links.kept_url("stdio", name, "tok"))
+        assert response.status_code == 200
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert (response.headers.get("content-security-policy") == "sandbox") is sandboxed
 
 
 async def test_print_is_a_tool_that_keeps_the_file(keeping_server, monkeypatch):
@@ -382,8 +450,11 @@ def test_open_session_opens_insecure_only_when_asked_and_remembers_it(server, mo
             await client.call_tool("open_session", {})
             await client.call_tool("open_session", {"insecure": True})
             opened = await client.call_tool("open_session", {})
+            # And an explicit false beats the remembered true (Copilot, #40).
+            await client.call_tool("open_session", {"insecure": False})
+            await client.call_tool("open_session", {})
             return opened.structured_content
 
     last = asyncio.run(go())
-    assert asked == [False, True, True]
+    assert asked == [False, True, True, False, False]
     assert last["settings"]["insecure"] is True

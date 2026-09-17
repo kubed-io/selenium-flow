@@ -287,6 +287,8 @@ class FlowStore(Protocol):
 
     def write_file(self, session: str, name: str, data: bytes) -> dict: ...
 
+    def create_file(self, session: str, name: str, data: bytes) -> dict: ...
+
     def delete_file(self, session: str, name: str) -> bool: ...
 
 
@@ -592,6 +594,18 @@ class LocalFlowStore:
         path = self._file_path(session, name)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
+        return self._entry(path)
+
+    def create_file(self, session: str, name: str, data: bytes) -> dict:
+        """Keep one file under a name nothing has. `FileExistsError` if taken.
+
+        The claim is the create itself (`O_EXCL`), so two saves racing for one
+        name cannot both win and the second silently replace the first.
+        """
+        path = self._file_path(session, name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("xb") as file:
+            file.write(data)
         return self._entry(path)
 
     def delete_file(self, session: str, name: str) -> bool:

@@ -1354,7 +1354,9 @@ class Actions:
         document as the browser holds it now, scripts and all already run.
         ``landscape`` and ``background`` shape a PDF and mean nothing to HTML.
         """
-        kind = str(format or "pdf").strip().lower()
+        # No default here: an omitted format arrives as "pdf" already, and a
+        # `null` or `""` over HTTP is refused, as the tool's enum refuses it.
+        kind = str(format).strip().lower()
         if kind not in PRINT_FORMATS:
             raise ValueError(
                 f"format must be one of {', '.join(PRINT_FORMATS)}, not {format!r}"
@@ -1370,8 +1372,17 @@ class Actions:
             data = base64.b64decode(driver.print_page(options))
         else:
             data = driver.page_source.encode("utf-8")
+        try:
+            kept = self._kept(_generated_name(filename or "page", f".{kind}"), data)
+        except OSError as exc:
+            # A full disk or a permission names a path under FLOW_DATA_DIR,
+            # which is nobody's business but the log's. Still a server fault.
+            log.error("a print could not be kept", exc_info=exc)
+            raise RuntimeError(
+                f"the print could not be kept ({type(exc).__name__})"
+            ) from None
         return {
-            "file": self._kept(_generated_name(filename or "page", f".{kind}"), data),
+            "file": kept,
             "format": kind,
             "bytes": len(data),
             **browser.page_state(driver),
