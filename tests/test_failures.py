@@ -193,3 +193,76 @@ async def test_a_call_that_carries_a_secret_is_not_told_it_needs_text(server):
     )
     assert "selector" in said
     assert "needs 'text'" not in said
+
+
+# ---- reading a resource fails the same way -------------------------------------
+
+
+async def test_a_failed_read_says_it_in_errors_words_to_either_reader(server, log):
+    """FastMCP quotes a resource's exception verbatim, and a Grid failure names
+    the Grid's URL — which reached a caller in #39's live check. A client's own
+    resource reader and read_resource must both get the scrubbed sentence."""
+    from fastmcp import Client
+    from fastmcp.exceptions import ToolError
+
+    def boom() -> str:
+        raise ConnectionError("could not reach http://user:hunter2@grid:4444/session/x/se/files")
+
+    server.sessions.name = lambda: "reader"
+    server.mcp.resource("test://boom")(boom)
+    async with Client(server.mcp) as client:
+        with pytest.raises(Exception) as direct:
+            await client.read_resource("test://boom")
+        with pytest.raises(ToolError) as through_tool:
+            await client.call_tool("read_resource", {"uri": "test://boom"})
+    for said in (str(direct.value), str(through_tool.value)):
+        assert "hunter2" not in said and "user:" not in said, said
+        assert "Error reading resource 'test://boom'" in said
+    assert not any("hunter2" in text for _, text in log)
+
+
+async def test_a_read_the_caller_got_wrong_is_one_warning_line(server, log):
+    from fastmcp import Client
+
+    server.sessions.name = lambda: "reader"
+    server.sessions.library = lambda: "reader"
+    from mcp.shared.exceptions import MCPError
+
+    async with Client(server.mcp) as client:
+        with pytest.raises(MCPError):
+            await client.read_resource("flow://flows/nope")
+    reads = [(level, text) for level, text in log if "Error reading resource" in text]
+    assert reads, log
+    level, text = reads[-1]
+    assert level == logging.WARNING and "Traceback" not in text
+
+
+
+async def test_a_credential_in_the_requested_uri_is_scrubbed_from_the_refusal(server, log):
+    """The URI is the caller's, and it was quoted verbatim into the error and
+    into FastMCP's log line (Copilot, #40).
+
+    A URI matching nothing is refused by the protocol layer before any of this
+    runs, and that refusal echoes the URI to the caller who sent it — nobody
+    else. What is held here is every sentence this server composes, and the
+    log, which is read by everyone else."""
+    from fastmcp import Client
+    from fastmcp.exceptions import ToolError
+    from mcp.shared.exceptions import MCPError
+
+    def broken(name: str) -> str:
+        raise ConnectionError("upstream refused")
+
+    server.sessions.name = lambda: "reader"
+    server.mcp.resource("test://{name}")(broken)
+    async with Client(server.mcp) as client:
+        with pytest.raises(MCPError) as found:
+            await client.read_resource("test://user:hunter2@host")
+        with pytest.raises(MCPError) as missing:
+            await client.read_resource("nope://user:hunter2@host/x")
+        with pytest.raises(ToolError) as through_tool:
+            await client.call_tool("read_resource", {"uri": "nope://user:hunter2@host/x"})
+    assert missing.value is not None
+    for said in (str(found.value), str(through_tool.value)):
+        assert "hunter2" not in said, said
+    assert not any("hunter2" in text for _, text in log), log

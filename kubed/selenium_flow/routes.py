@@ -68,7 +68,7 @@ ENDPOINTS = {
     "resize": "resize",
     "dialog": "dialog",
     "upload": "upload_file",
-    "pdf": "save_pdf",
+    "print": "print",
 }
 
 # `interact` is the one action whose choice is a path segment rather than a body
@@ -76,12 +76,13 @@ ENDPOINTS = {
 # already closed (§F2.1). The action layer still validates it.
 ACTION_IN_PATH = "interact"
 
-# `assert` is a Python keyword, so the one action whose tool name cannot also be
-# its method name. The tool, the route and a flow step all say `assert`; the
-# method is `assert_`. One alias, in one place, read by everything that
-# dispatches — `flowrun` and `tests/test_surfaces.py` included — because two
-# places that map a name to a method is how the two surfaces drift apart.
-METHOD_ALIASES = {"assert": "assert_"}
+# `assert` is a Python keyword and `print` a builtin, so the two actions whose
+# tool name cannot also be their method name. The tool, the route and a flow
+# step all say `assert` and `print`; the methods are `assert_` and `print_`. One
+# table, in one place, read by everything that dispatches — `flowrun` and
+# `tests/test_surfaces.py` included — because two places that map a name to a
+# method is how the two surfaces drift apart.
+METHOD_ALIASES = {"assert": "assert_", "print": "print_"}
 
 # What `resize` changes outlives the page, so the record has to hear about it.
 RESHAPES = "resize"

@@ -45,8 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=os.environ.get("SKILL_ENABLED", "true").strip().lower()
         not in ("0", "false", "no", "off"),
         help="do not serve the embedded skill, which is otherwise offered as "
-        "the skill://selenium-flow resource and a mirroring tool "
-        "(env: SKILL_ENABLED)",
+        "the skill://selenium-flow resources (env: SKILL_ENABLED)",
     )
     parser.add_argument(
         "--no-apps",

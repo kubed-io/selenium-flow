@@ -203,18 +203,27 @@ def served(name: str, data: bytes) -> Response:
     from. Two copies of this is how one of them ends up without the
     ``Content-Disposition`` and downloads as ``shot.png`` called ``name``.
     """
-    return Response(
-        data,
-        media_type=files.content_type(name),
-        headers={
-            # Named for download, but shown inline when the browser can: the
-            # common case is looking at a screenshot, not saving it.
-            "Content-Disposition": disposition(name),
-            # Safe to cache hard — the signature already bounds the lifetime,
-            # and a stored file never changes under its own name.
-            "Cache-Control": "private, max-age=3600",
-        },
-    )
+    kind = files.content_type(name)
+    headers = {
+        # Named for download, but shown inline when the browser can: the
+        # common case is looking at a screenshot, not saving it.
+        "Content-Disposition": disposition(name),
+        # Safe to cache hard — the signature already bounds the lifetime,
+        # and a stored file never changes under its own name.
+        "Cache-Control": "private, max-age=3600",
+        # Served as what its name says and nothing a browser sniffs instead.
+        "X-Content-Type-Options": "nosniff",
+    }
+    if kind != "application/pdf":
+        # These bytes are a site's: a page kept by `print(format="html")`, an
+        # SVG, an .html some site downloaded. Opened inline on this origin,
+        # their scripts would run beside the admin UI and could read its token
+        # (Copilot, #40). `sandbox` gives the document an opaque origin and no
+        # scripts, so it still shows and cannot act. Every type rather than a
+        # list of dangerous ones, because a list is what misses `.xht`; a PDF
+        # is the exception, since Chrome's viewer does not load under it.
+        headers["Content-Security-Policy"] = "sandbox"
+    return Response(data, media_type=kind, headers=headers)
 
 
 def register(

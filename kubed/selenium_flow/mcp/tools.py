@@ -31,6 +31,7 @@ from ..core.actions import (
     DIALOG_TIMEOUT,
     FRAME_ACTIONS,
     MOUSE_ACTIONS,
+    PRINT_FORMATS,
     WAIT_TIMEOUT,
     Actions,
 )
@@ -66,6 +67,7 @@ def _blank_is_unset(value):
 MouseAction = Annotated[Literal[MOUSE_ACTIONS], BeforeValidator(_lowered)]
 DialogAction = Annotated[Literal[DIALOG_ACTIONS], BeforeValidator(_lowered)]
 FrameAction = Annotated[Literal[FRAME_ACTIONS], BeforeValidator(_lowered)]
+PrintFormat = Annotated[Literal[PRINT_FORMATS], BeforeValidator(_lowered)]
 Browser = Annotated[Literal[BROWSERS] | None, BeforeValidator(_blank_is_unset)]
 
 # Said the same way everywhere, because the one new way to get a call wrong is
@@ -264,6 +266,7 @@ def register(
         height: int | None = None,
         page_load_timeout: int | None = None,
         script_timeout: int | None = None,
+        insecure: bool | None = None,
         fresh: bool = False,
     ) -> dict:
         """Start this session's browser, or come back to the one it had. Call it before
@@ -277,7 +280,8 @@ def register(
 
         Set width and height when layout matters; the headless default is narrow.
         fresh=true starts on about:blank. page_load_timeout bounds a navigation that
-        hangs.
+        hangs. insecure=true accepts a self-signed certificate; use it only for a site
+        you know has one.
         """
         return sessions.open_browser(
             sessions.name(),
@@ -288,6 +292,7 @@ def register(
             height=height,
             page_load_timeout=page_load_timeout,
             script_timeout=script_timeout,
+            insecure=insecure,
         )
 
     @mcp.tool(annotations=hints("End browser", destructive=True, idempotent=True))
@@ -683,14 +688,13 @@ def register(
         page (full_page), returned as an image. Use it only when the look is the
         answer; extract reads content far more cheaply.
 
-        By default the capture is also saved with the session's files. To show a
+        By default the capture is also kept with the session's files. To show a
         person what you saw, give them the file's absolute_url: it opens in any
         browser without a token, and ![](absolute_url) works. Do not describe the
         image instead.
 
-        A saved capture goes with the browser unless keep_file keeps it. save=false
-        stores nothing; file_error says why a save failed, and the image still comes
-        back.
+        save=false stores nothing; file_error says why a save failed, and the image
+        still comes back.
         """
         result = run(
             lambda s: actions.screenshot(
@@ -718,29 +722,40 @@ def register(
                 content=[image.to_image_content()],
                 structured_content={"file_error": unsaved},
             )
-        # A saved screenshot has a name, and the name is the whole point: it is
-        # the argument keep_file takes. Chrome deduplicates, so `shot.png` can
-        # land as `shot (1).png` and the caller cannot derive it — returning the
-        # image alone left the one thing you have to know discoverable only by
-        # listing the files and guessing which entry was yours. The HTTP surface
-        # always returned it; this is the tool catching up.
+        # A saved screenshot has a name, and the caller cannot derive it: a
+        # second `shot.png` is kept as `shot (1).png`. Returning the image alone
+        # left the link discoverable only by listing the files and guessing
+        # which entry was yours.
         return ToolResult(
             content=[image.to_image_content()], structured_content={"file": entry}
         )
 
-    @mcp.tool(annotations=hints("Save the page as PDF"))
-    def save_pdf(
+    @mcp.tool(name="print", annotations=hints("Print the page"))
+    def print_page(
         url: str | None = None,
+        format: PrintFormat = "pdf",
         filename: str | None = None,
+        landscape: bool = False,
+        background: bool = False,
     ) -> dict:
-        """Print the page to PDF and save it with the session's files. It is the
-        browser's own print output, so the text stays selectable and the whole
-        document is included.
+        """Print the page into the session's files, kept past the browser.
+
+        format="pdf" is the browser's own print: selectable text, the whole
+        document. landscape turns the page and background keeps colours and images
+        a print drops. format="html" is the page as it stands now, after its
+        scripts ran.
 
         To give it to a person, give them the file's absolute_url: it opens in any
         browser without a token. A server with no public address configured returns
         a relative url instead.
         """
         return run(
-            lambda s: actions.save_pdf(s, url=url, filename=filename),
+            lambda s: actions.print_(
+                s,
+                url=url,
+                format=format,
+                filename=filename,
+                landscape=landscape,
+                background=background,
+            ),
         )

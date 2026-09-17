@@ -21,6 +21,7 @@ from kubed.selenium_flow.core.actions import (
     KEY_NAMES,
     KEYS,
     MOUSE_ACTIONS,
+    PRINT_FORMATS,
     resolve_key,
 )
 from kubed.selenium_flow.core.browser import BROWSERS
@@ -37,6 +38,7 @@ CLOSED_SETS = [
     ("interact", "action", "MOUSE_ACTIONS", MOUSE_ACTIONS),
     ("dialog", "action", "DIALOG_ACTIONS", DIALOG_ACTIONS),
     ("frame", "action", "FRAME_ACTIONS", FRAME_ACTIONS),
+    ("print", "format", "PRINT_FORMATS", PRINT_FORMATS),
     ("open_session", "browser", "BROWSERS", BROWSERS),
 ]
 

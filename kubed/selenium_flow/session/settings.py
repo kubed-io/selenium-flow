@@ -1,8 +1,9 @@
 """Session settings, and where a value for one comes from.
 
-Five things can be set when a browser opens: which browser it is, its window
-size, and the two timeouts WebDriver lets you change after creation. Each can
-come from three places, and the useful part is the order:
+Six things can be set when a browser opens: which browser it is, its window
+size, the two timeouts WebDriver lets you change after creation, and whether it
+accepts an insecure site. Each but the last can come from three places, and the
+useful part is the order:
 
     server default (env)  <  client default (param/header)  <  this session's
     last values  <  explicit
@@ -49,6 +50,18 @@ def _as_int(value) -> int | None:
         return None
 
 
+def _as_flag(value) -> bool | None:
+    """True or False when said, None when not.
+
+    False is kept, not dropped: an explicit `insecure=false` has to beat a
+    remembered true, or a session that once accepted a bad certificate could
+    never stop (Copilot, #40).
+    """
+    from ..core.browser import as_bool  # local: keeps this module importable
+
+    return None if value in (None, "") else as_bool(value, False)
+
+
 def _as_browser(value) -> str | None:
     """A supported browser name, or None for anything unusable.
 
@@ -87,6 +100,11 @@ SETTINGS = {
         "x-script-timeout",
         _as_int,
     ),
+    # Explicit only: no env var, parameter or header. Only the caller knows the
+    # site it is about to drive is self-signed or plain http, and a default
+    # would weaken every browser for the sake of one (§F3.8). Remembered like
+    # the rest, so a reaped browser comes back able to reach the same site.
+    "insecure": (None, None, None, _as_flag),
 }
 
 
@@ -95,6 +113,8 @@ def from_env(env: dict | None = None) -> dict:
     env = os.environ if env is None else env
     resolved = {}
     for name, (var, _param, _header, coerce) in SETTINGS.items():
+        if var is None:
+            continue
         value = coerce(env.get(var))
         if value is not None:
             resolved[name] = value
@@ -112,6 +132,8 @@ def from_client(params: dict | None, headers: dict | None) -> dict:
     headers = headers or {}
     resolved = {}
     for name, (_var, param, header, coerce) in SETTINGS.items():
+        if header is None:
+            continue
         value = coerce(headers.get(header))
         if value is None:
             value = coerce(params.get(param))

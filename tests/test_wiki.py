@@ -143,6 +143,7 @@ def test_every_action_with_an_endpoint_has_a_page():
         ),
         (("/flows", "/schemas/flow"), flowapi.FLOW_ENDPOINTS),
         ("/files", files_module.FILE_ENDPOINTS),
+        ("/secrets", ("list",)),
     ):
         found = {t for (p, _), t in tagged.items() if p.startswith(prefix)}
         assert len(found) == len(set(endpoints)), (

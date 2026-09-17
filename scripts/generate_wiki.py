@@ -75,7 +75,7 @@ GROUPS = [
             "assert",
             "outline",
             "screenshot",
-            "save_pdf",
+            "print",
             "execute_script",
             "frame",
             "dialog",
@@ -102,6 +102,12 @@ GROUPS = [
         "What a session has produced, and how to keep one past the browser "
         "that made it. See [Files](Files).",
         ["list_files", "keep_file"],
+    ),
+    (
+        "Secrets",
+        "The secrets a caller may type into a field without ever seeing them. "
+        "See [Secrets](Secrets).",
+        ["list_secrets"],
     ),
 ]
 

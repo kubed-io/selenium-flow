@@ -59,7 +59,7 @@ Seventeen actions, each a tool **and** an endpoint with identical parameters —
 | [`outline`](https://github.com/kubed-io/selenium-flow/wiki/outline) | `POST /browser/outline` | What is on the page: a checked selector each, and what works 🗺️ |
 | [`assert`](https://github.com/kubed-io/selenium-flow/wiki/assert) | `POST /browser/assert` | JavaScript that must come back true, or the call fails ✅ |
 | [`screenshot`](https://github.com/kubed-io/selenium-flow/wiki/screenshot) | `POST /browser/screenshot` | Capture a PNG, viewport or full page 📸 |
-| [`save_pdf`](https://github.com/kubed-io/selenium-flow/wiki/save_pdf) | `POST /browser/pdf` | Print the page with the browser's print engine 📄 |
+| [`print`](https://github.com/kubed-io/selenium-flow/wiki/print) | `POST /browser/print` | Keep the page as a PDF or as HTML 📄 |
 | [`execute_script`](https://github.com/kubed-io/selenium-flow/wiki/execute_script) | `POST /browser/script` | Run JavaScript — the escape hatch 🧪 |
 | [`frame`](https://github.com/kubed-io/selenium-flow/wiki/frame) | `POST /browser/frame` | Enter and leave an iframe 🖼️ |
 | [`dialog`](https://github.com/kubed-io/selenium-flow/wiki/dialog) | `POST /browser/dialog` | Answer a native alert, confirm or prompt 💬 |
@@ -169,20 +169,18 @@ The server types it; it never passes through the model, the transcript or a log.
 
 ## 🗂 What a session leaves behind
 
-Everything a session downloads is kept **by the Grid**, in a per-session store beside the browser — created with the session, deleted with it. Two kinds of file land there, undistinguished: whatever the **site** served to a download, and whatever **you** produced with `screenshot` or `save_pdf`. Both save there by
-default and come back with a link to hand someone — signed and time-limited when
+Whatever the **site** downloads is kept **by the Grid**, beside the browser, and goes with it unless `keep_file` keeps it. Whatever **you** make with `screenshot` or `print` is kept with the session in `FLOW_DATA_DIR` from the start, and outlives the browser. Both come back with a link to hand someone — signed and time-limited when
 the server has a token, a plain path when authentication is off.
-`screenshot(save=false)` opts out when a capture is not worth keeping even that
-long, and a page the browser refuses to download from returns `file_error` and
-the image.
+`screenshot(save=false)` opts out when a capture is not worth keeping.
 
 | Read it as | URI / path |
 |---|---|
 | a resource | `session://files` — the listing |
 | a resource | `session://files/{name}` — one file, as bytes |
-| a link | `GET /files/{session}/{name}?exp=…&sig=…` — signed when the server has a token, a plain path when authentication is off |
+| a link to a download | `GET /files/{session}/{name}?exp=…&sig=…` — signed when the server has a token, a plain path when authentication is off |
+| a link to a kept file, screenshot or print | `GET /kept/{session}/{name}?exp=…&sig=…` — the same |
 
-That last one travels: signed over path and expiry, because an `<img>` tag cannot send an `Authorization` header.
+The links travel: signed over path and expiry, because an `<img>` tag cannot send an `Authorization` header.
 
 ---
 
@@ -231,7 +229,7 @@ Every flag has an environment fallback: containers are configured with env vars,
 | `REDIS_PREFIX` | — | `selenium-flow:session:` | Key namespace, so sharing a database is safe |
 | `FLOW_DATA_DIR` | `--flow-data-dir` | unset | Where saved flows live, one folder per session name. Unset turns flows off |
 | `SECRETS_DIRS` | `--secrets-dirs` | unset | Colon-separated directories of secrets, first match wins. Unset turns secrets off |
-| `SKILL_ENABLED` | `--no-skill` | `true` | Serve the embedded skill as a resource, and as a tool where there are none |
+| `SKILL_ENABLED` | `--no-skill` | `true` | Serve the embedded skill as `skill://selenium-flow` resources |
 | `APPS_ENABLED` | `--no-apps` | `true` | Offer the MCP Apps components to hosts that render them |
 | `PUBLIC_BASE_URL` | — | unset | Externally reachable root, e.g. `https://selenium.example.com/flow`. Needed for file links and the app CSP |
 | `GRID_CONSOLE_URL` | — | `/` | Where the admin UI frames the Grid console from |

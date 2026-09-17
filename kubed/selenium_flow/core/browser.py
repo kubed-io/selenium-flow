@@ -15,7 +15,6 @@ from __future__ import annotations
 import base64
 import io
 import json
-import time
 import zipfile
 from urllib.parse import urlsplit, urlunsplit
 
@@ -176,11 +175,15 @@ def png_size(b64: str) -> tuple[int, int]:
 class Grid:
     """A Selenium Grid endpoint, and the operations this server needs from it."""
 
-    def __init__(self, url: str = DEFAULT_GRID_URL, timeout: int = 30):
+    def __init__(
+        self,
+        url: str = DEFAULT_GRID_URL,
+        timeout: int = 30,
+    ):
         self.url = url.rstrip("/")
         self.timeout = timeout
 
-    def _options(self, browser: str | None = None):
+    def _options(self, browser: str | None = None, insecure: bool = False):
         """Capabilities for a new session of ``browser``.
 
         The two capabilities that matter are W3C standard and identical for
@@ -202,6 +205,12 @@ class Grid:
         # is the whole file store — listed, read and reaped by the Grid itself.
         # Without this the browser downloads into a directory nothing can reach.
         options.set_capability("se:downloadsEnabled", True)
+        # `open_session(insecure=true)`: the caller knows this site's
+        # certificate is self-signed, and says so for this one browser. Chosen
+        # per browser and never server-wide, because only the caller knows which
+        # site it is about to drive.
+        if insecure:
+            options.accept_insecure_certs = True
 
         if name == FIREFOX:
             # 2 = the directory the Grid node set for this session. Firefox
@@ -211,8 +220,8 @@ class Grid:
             options.set_preference("browser.download.useDownloadDir", True)
             # Firefox's equivalent of Chrome's automatic-downloads prompt: it
             # asks what to do with a type it does not recognise, and nobody is
-            # there to answer. `save_pdf` is the one that would hang without
-            # this, since Firefox opens PDFs in its own viewer by default.
+            # there to answer. A PDF a site serves would hang without this,
+            # since Firefox opens PDFs in its own viewer by default.
             options.set_preference(
                 "browser.helperApps.neverAsk.saveToDisk",
                 "application/pdf,image/png,application/octet-stream",
@@ -252,10 +261,12 @@ class Grid:
         )
         return options
 
-    def open(self, browser: str | None = None) -> RemoteWebDriver:
+    def open(
+        self, browser: str | None = None, insecure: bool = False
+    ) -> RemoteWebDriver:
         """Create a session on ``browser`` and return its driver."""
         return webdriver.Remote(
-            command_executor=self.url, options=self._options(browser)
+            command_executor=self.url, options=self._options(browser, insecure)
         )
 
     def reconnect(self, session_id: str) -> RemoteWebDriver:
@@ -634,48 +645,6 @@ def accept_local_files(driver) -> None:
     """
     driver.file_detector = LocalFileDetector()
 
-
-_SAVE_JS = """
-const [name, b64, mime] = arguments;
-const bin = atob(b64);
-const bytes = new Uint8Array(bin.length);
-for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-const url = URL.createObjectURL(new Blob([bytes], {type: mime}));
-const a = document.createElement('a');
-a.href = url;
-a.download = name;
-(document.body || document.documentElement).appendChild(a);
-a.click();
-setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 0);
-return name;
-"""
-
-
-def save_to_downloads(
-    grid, driver, name: str, data: bytes, mime: str, timeout: int = 15
-) -> dict:
-    """Put bytes into the session's download store, by having the page save them.
-
-    There is no API for writing into the Grid's store — it only lists, reads and
-    deletes. But it is fed by whatever the *browser* downloads, so a page that
-    downloads a blob puts a file there through the ordinary path. That keeps one
-    store for everything: a PDF the site served and a screenshot this server
-    rendered land side by side, with the same lifecycle.
-
-    Chrome deduplicates names by appending " (1)", so the filename is discovered
-    by diffing the listing rather than assumed. The download is asynchronous,
-    hence the poll.
-    """
-    before = {f["name"] for f in grid.files(driver.session_id)}
-    driver.execute_script(_SAVE_JS, name, base64.b64encode(data).decode(), mime)
-
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        for entry in grid.files(driver.session_id):
-            if entry["name"] not in before:
-                return entry
-        time.sleep(0.25)
-    raise TimeoutError(f"{name} did not appear in the session's downloads")
 
 
 def ensure_url(driver, url: str) -> bool:

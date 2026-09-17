@@ -154,8 +154,8 @@ check this table twice before reaching for it.
 | `press_key` | a key or a combination | `key`: `Enter`, `Escape`, `a`, `Control+a` |
 | `extract` | read an element's text and HTML | `selector` |
 | `outline` | what is on the page: selectors, and what works | `selector`, `text`, `limit`, `interactive` |
-| `screenshot` | the viewport, one element, or the whole page — saved, with a link to share | `full_page`, `filename`, `save` |
-| `save_pdf` | print the page into your files | `filename` |
+| `screenshot` | the viewport, one element, or the whole page — kept, with a link to share | `full_page`, `filename`, `save` |
+| `print` | the page as a PDF or HTML, kept in your files | `format`: `pdf` \| `html`, `landscape`, `background`, `filename` |
 | `upload_file` | attach a file to a file input | `text`, `content`, `kept` or `path`, `filename` |
 | `frame` | move into or out of an iframe | `action`: `switch` \| `parent` \| `default` |
 | `dialog` | answer an alert, confirm or prompt | `action`: `accept` \| `dismiss` \| `read` \| `send_text` |

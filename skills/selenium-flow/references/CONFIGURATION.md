@@ -113,6 +113,10 @@ server default (env)   <   client default (URL param / header)   <   open_sessio
 The header beats the parameter, as everywhere else here, because the header is
 in the credential an admin controls.
 
+`insecure` has no default anywhere: only `open_session(insecure=true)` sets it,
+for that session's browser, and all it does is accept a self-signed certificate.
+Use it for the site that needs it.
+
 **`PAGE_LOAD_TIMEOUT` is the one worth setting.** Without it a navigation can
 hang indefinitely, holding one of the Grid's few slots until the Grid reaps it.
 An unusable value is ignored rather than fatal, and `open_session` reports the

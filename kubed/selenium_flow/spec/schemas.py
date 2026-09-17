@@ -271,14 +271,15 @@ RESPONSES = {
         file_error={
             "type": "string",
             "description": (
-                "Present instead of file when the capture could not be stored. "
+                "Present instead of file when the capture could not be kept. "
                 "The image is still returned."
             ),
         },
     ),
-    "save_pdf": _page(
+    "print": _page(
         file={"$ref": "#/components/schemas/FileEntry"},
-        bytes={"type": "integer", "description": "Size of the PDF in bytes."},
+        format={"type": "string", "enum": ["pdf", "html"]},
+        bytes={"type": "integer", "description": "Size of the file in bytes."},
     ),
 }
 
@@ -681,6 +682,55 @@ _FLOW_OPERATIONS = {
     ),
 }
 
+
+SECRET_SCHEMAS = {
+    "SecretEntry": {
+        "type": "object",
+        "description": "One secret a caller may bind. Never its value.",
+        "properties": {
+            "name": {"type": "string"},
+            "keys": {"type": "array", "items": {"type": "string"}},
+            "description": {"type": "string"},
+            "allowed_urls": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "The sites it may be typed on. Empty means anywhere only "
+                    "when restricted is false; a declaration that named no "
+                    "usable site allows nowhere."
+                ),
+            },
+            "restricted": {
+                "type": "boolean",
+                "description": (
+                    "Whether the secret declares where it may be used. True with "
+                    "no allowed_urls is usable nowhere."
+                ),
+            },
+            "allowed_urls_rejected": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Declared sites that did not parse. Present only when there "
+                    "are any, and the secret cannot be used until they are fixed."
+                ),
+            },
+            "source": {"type": "string"},
+            "location": {"type": "string"},
+        },
+    },
+    "SecretList": {
+        "type": "object",
+        "properties": {
+            "count": {"type": "integer"},
+            "session": {"type": "string"},
+            "secrets": {
+                "type": "array",
+                "items": {"$ref": "#/components/schemas/SecretEntry"},
+            },
+        },
+    },
+}
 
 FILE_SCHEMAS = {
     "FileEntry": {

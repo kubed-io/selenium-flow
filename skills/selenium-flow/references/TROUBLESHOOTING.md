@@ -131,6 +131,12 @@ Then it is a menu that opens on **click**. `outline` says which: an entry's
 `open_with` is `click` when the trigger carries `aria-expanded`, and the trigger
 itself is in `revealed_by`. Click that.
 
+## A certificate error
+
+The browser refuses a self-signed certificate. When you know the site is served
+with one, reopen with `open_session(insecure=true)`. It is remembered for the
+session, so do not use it for a site that does not need it.
+
 ## Everything is slow or a session will not open
 
 The Grid runs a small, fixed number of browsers. If they are all held, a new
