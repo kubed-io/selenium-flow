@@ -59,9 +59,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The flow document schema resolves its selectors**; every step's `selector` referenced a definition the schema did not include.
 
-- **`save_pdf` works on http pages in Chrome.** The PDF was held as an insecure download and never stored.
+- **`ALLOW_INSECURE_CONTENT=true` lets Chrome save PDFs from http pages**; without it the save says so. It also lets https pages load http scripts, so it is off by default.
 
-- **A save refused on `about:blank` or a `data:` page says why** — Chrome allows such a page one download — instead of timing out silently.
+- **A save refused on `about:blank` or a `data:` page says to navigate to a real page.**
 
 - **A failed resource read no longer quotes the Grid's internal URL**, and a caller's bad read is one warning line in the log.
 

@@ -56,8 +56,9 @@ class SeleniumMCP:
         apps_enabled: bool = True,
         flow_data_dir: str | None = None,
         secrets_dirs: str | None = None,
+        allow_insecure_content: bool = False,
     ):
-        self.grid = Grid(grid_url)
+        self.grid = Grid(grid_url, allow_insecure_content=allow_insecure_content)
         # Redis or memory per SESSION_STORE. The store is only ever a
         # key -> session record map; the browser is on the Grid either way.
         # Resolved before the actions, because the pointer store is derived

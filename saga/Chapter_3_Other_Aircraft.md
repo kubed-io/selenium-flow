@@ -369,7 +369,10 @@ were built in the next pull request:
   with Chrome 152. A PDF saved from a plain-http page was held as an *insecure
   download* — Chrome's own words, read off `chrome://downloads` — and never
   reached the store, while PNGs were not held; no feature flag or Safe Browsing
-  preference releases it, and the insecure-content setting does. Separately, a
+  preference releases it, and the insecure-content setting does. **That setting
+  is opt-in**, `ALLOW_INSECURE_CONTENT`: it also lets an https page load http
+  scripts, and a script is what could read a secret this server types (Copilot,
+  #40). Off, a save refused on an http page names the setting. Separately, a
   page with no origin (`about:blank`, `data:`) is allowed exactly one download,
   and the automatic-downloads preference — which *is* applied, as
   `chrome://prefs-internals` shows — does not reach an opaque origin. A second

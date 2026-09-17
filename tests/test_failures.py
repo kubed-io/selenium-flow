@@ -235,3 +235,34 @@ async def test_a_read_the_caller_got_wrong_is_one_warning_line(server, log):
     assert reads, log
     level, text = reads[-1]
     assert level == logging.WARNING and "Traceback" not in text
+
+
+
+async def test_a_credential_in_the_requested_uri_is_scrubbed_from_the_refusal(server, log):
+    """The URI is the caller's, and it was quoted verbatim into the error and
+    into FastMCP's log line (Copilot, #40).
+
+    A URI matching nothing is refused by the protocol layer before any of this
+    runs, and that refusal echoes the URI to the caller who sent it — nobody
+    else. What is held here is every sentence this server composes, and the
+    log, which is read by everyone else."""
+    from fastmcp import Client
+    from fastmcp.exceptions import ToolError
+    from mcp.shared.exceptions import MCPError
+
+    def broken(name: str) -> str:
+        raise ConnectionError("upstream refused")
+
+    server.sessions.name = lambda: "reader"
+    server.mcp.resource("test://{name}")(broken)
+    async with Client(server.mcp) as client:
+        with pytest.raises(MCPError) as found:
+            await client.read_resource("test://user:hunter2@host")
+        with pytest.raises(MCPError) as missing:
+            await client.read_resource("nope://user:hunter2@host/x")
+        with pytest.raises(ToolError) as through_tool:
+            await client.call_tool("read_resource", {"uri": "nope://user:hunter2@host/x"})
+    assert missing.value is not None
+    for said in (str(found.value), str(through_tool.value)):
+        assert "hunter2" not in said, said
+    assert not any("hunter2" in text for _, text in log), log

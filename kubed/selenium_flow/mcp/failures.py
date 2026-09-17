@@ -26,7 +26,13 @@ from __future__ import annotations
 
 import logging
 
-from fastmcp.exceptions import FastMCPError, ResourceError, ToolError, ValidationError
+from fastmcp.exceptions import (
+    FastMCPError,
+    NotFoundError,
+    ResourceError,
+    ToolError,
+    ValidationError,
+)
 from fastmcp.server.middleware import Middleware
 from pydantic import ValidationError as PydanticValidationError
 
@@ -93,11 +99,16 @@ class Explained(Middleware):
         """
         try:
             return await call_next(context)
+        except NotFoundError as exc:
+            # "Unknown resource: '<uri>'" quotes the caller's URI too.
+            raise NotFoundError(errors.without_userinfo(str(exc))) from None
         except ResourceError as exc:
             cause = exc.__cause__
             if cause is None or isinstance(cause, FastMCPError):
                 raise
-            uri = str(getattr(context.message, "uri", ""))
+            # The URI is the caller's, and a caller can put credentials in one;
+            # it is scrubbed on the same terms as the exception (Copilot, #40).
+            uri = errors.without_userinfo(str(getattr(context.message, "uri", "")))
             said = errors.message(cause)
             raise ResourceError(f"{FAILED_READ} {uri!r}: {said}") from cause
 
@@ -113,7 +124,9 @@ class QuietCallerMistakes(logging.Filter):
         exc = record.exc_info[1] if record.exc_info else None
         if exc is None or not str(record.msg).startswith((FAILED_CALL, FAILED_READ)):
             return True
-        said = record.getMessage()
+        # FastMCP wrote this line before any middleware ran, so it quotes the
+        # requested URI as sent — scrubbed here, whichever branch it takes.
+        said = errors.without_userinfo(record.getMessage())
         if errors.status_for(exc) < 500:
             record.levelno, record.levelname = logging.WARNING, "WARNING"
             record.msg = f"{said}: {errors.message(exc)}"

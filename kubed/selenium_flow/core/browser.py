@@ -176,9 +176,17 @@ def png_size(b64: str) -> tuple[int, int]:
 class Grid:
     """A Selenium Grid endpoint, and the operations this server needs from it."""
 
-    def __init__(self, url: str = DEFAULT_GRID_URL, timeout: int = 30):
+    def __init__(
+        self,
+        url: str = DEFAULT_GRID_URL,
+        timeout: int = 30,
+        allow_insecure_content: bool = False,
+    ):
         self.url = url.rstrip("/")
         self.timeout = timeout
+        # Off by default, because it is a security setting and not a download
+        # one: see the Chrome prefs below (Copilot, #40).
+        self.allow_insecure_content = allow_insecure_content
 
     def _options(self, browser: str | None = None):
         """Capabilities for a new session of ``browser``.
@@ -248,16 +256,21 @@ class Grid:
                 # Same popup, different trigger: Chrome warns about a password it
                 # believes was breached.
                 "profile.password_manager_leak_detection": False,
-                # A PDF saved from a plain-http page is held as an "insecure
-                # download" nobody is there to keep, so it never reaches the
-                # store and save_pdf timed out on every internal http app. Chrome
-                # ties allowing those to the insecure-content setting — measured
-                # on Chrome 152, where no flag or Safe Browsing pref did it. The
-                # cost is that an https page's http subresources load too, which
-                # is what a person clicking "allow" would get.
-                "profile.default_content_setting_values.mixed_script": 1,
             },
         )
+        if self.allow_insecure_content:
+            # A PDF saved from a plain-http page is held as an "insecure
+            # download" nobody is there to keep, so it never reaches the store.
+            # Chrome ties allowing those to the insecure-content setting —
+            # measured on Chrome 152, where no flag or Safe Browsing pref did it.
+            #
+            # Opt-in, because the same setting lets an https page load http
+            # scripts, and a script is what could read a secret this server
+            # types into that page (Copilot, #40). A deployment whose browsers
+            # only reach its own http apps may reasonably turn it on.
+            options.experimental_options["prefs"][
+                "profile.default_content_setting_values.mixed_script"
+            ] = 1
         return options
 
     def open(self, browser: str | None = None) -> RemoteWebDriver:
@@ -683,7 +696,7 @@ def save_to_downloads(
             if entry["name"] not in before:
                 return entry
         time.sleep(0.25)
-    raise TimeoutError(_not_saved(driver, name))
+    raise TimeoutError(_not_saved(driver, name, grid))
 
 
 # Chrome lets a page with no origin — about:blank, a data: URL — download once,
@@ -694,16 +707,26 @@ def save_to_downloads(
 _NO_ORIGIN = "return window.origin === 'null'"
 
 
-def _not_saved(driver, name: str) -> str:
+_PAGE = "return [window.origin === 'null', location.protocol, navigator.userAgent]"
+
+
+def _not_saved(driver, name: str, grid=None) -> str:
     try:
-        opaque = bool(driver.execute_script(_NO_ORIGIN))
+        opaque, protocol, agent = driver.execute_script(_PAGE)
     except Exception:  # noqa: BLE001 - the message is a courtesy on a failure path
-        opaque = False
+        opaque, protocol, agent = False, "", ""
     if opaque:
         return (
             f"{name} was not saved: this page has no origin (about:blank or a "
             "data: URL), and Chrome allows such a page one download. Navigate "
             "to a real page, then save again"
+        )
+    insecure_allowed = bool(getattr(grid, "allow_insecure_content", False))
+    if protocol == "http:" and "Chrome" in str(agent) and not insecure_allowed:
+        return (
+            f"{name} was not saved: Chrome holds a file saved from a plain-http "
+            "page as an insecure download. Save it from an https page, or start "
+            "this server with ALLOW_INSECURE_CONTENT=true"
         )
     return f"{name} did not appear in the session's downloads"
 

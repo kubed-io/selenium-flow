@@ -693,11 +693,18 @@ SECRET_SCHEMAS = {
             "allowed_urls": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "The sites it may be typed on. Empty is anywhere.",
+                "description": (
+                    "The sites it may be typed on. Empty means anywhere only "
+                    "when restricted is false; a declaration that named no "
+                    "usable site allows nowhere."
+                ),
             },
             "restricted": {
                 "type": "boolean",
-                "description": "Whether the secret declares where it may be used.",
+                "description": (
+                    "Whether the secret declares where it may be used. True with "
+                    "no allowed_urls is usable nowhere."
+                ),
             },
             "allowed_urls_rejected": {
                 "type": "array",

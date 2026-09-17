@@ -281,40 +281,75 @@ async def test_the_prompt_does_not_promise_a_signature_auth_off_cannot_give(serv
         assert "signed" not in description or "when this server has a token" in description
 
 
-def test_chrome_is_allowed_to_keep_a_pdf_from_an_http_page():
-    """An http page's PDF was held as an insecure download and never stored, so
-    save_pdf failed on every internal app (measured on the Grid, Chrome 152)."""
+def test_insecure_content_is_allowed_only_when_the_server_is_told_to():
+    """It lets Chrome keep a PDF saved from an http page — and lets an https page
+    load http scripts, which could read a secret typed into it. So it is an
+    opt-in (Copilot, #40), measured on Chrome 152."""
     from kubed.selenium_flow.core.browser import Grid
 
-    prefs = Grid("http://grid.invalid:4444")._options("chrome").experimental_options["prefs"]
-    assert prefs["profile.default_content_setting_values.mixed_script"] == 1
-    assert prefs["profile.default_content_setting_values.automatic_downloads"] == 1
+    key = "profile.default_content_setting_values.mixed_script"
+    default = Grid("http://grid.invalid:4444")._options("chrome").experimental_options
+    allowed = Grid("http://grid.invalid:4444", allow_insecure_content=True)._options(
+        "chrome"
+    ).experimental_options
+    assert key not in default["prefs"]
+    assert allowed["prefs"][key] == 1
+    assert default["prefs"]["profile.default_content_setting_values.automatic_downloads"] == 1
+
+
+def test_the_setting_reaches_the_grid_from_the_environment(monkeypatch):
+    from kubed.selenium_flow.main import build_parser
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    monkeypatch.setenv("ALLOW_INSECURE_CONTENT", "true")
+    args = build_parser().parse_args([])
+    server = SeleniumMCP(
+        grid_url="http://grid.invalid:4444",
+        allow_insecure_content=args.allow_insecure_content,
+    )
+    assert server.grid.allow_insecure_content is True
 
 
 class _Page:
     session_id = "abc"
 
-    def __init__(self, opaque):
-        self.opaque = opaque
+    def __init__(self, opaque=False, protocol="https:", agent="Chrome/152"):
+        self.answer = [opaque, protocol, agent]
 
     def execute_script(self, script, *args):
         if "window.origin" in script:
-            return self.opaque
+            return self.answer
         return None
 
 
 class _EmptyStore:
+    allow_insecure_content = False
+
     def files(self, session_id):
         return []
 
 
-def test_a_save_refused_on_a_page_with_no_origin_says_why(monkeypatch):
-    """Chrome allows about:blank or a data: page one download. A 15-second
-    'did not appear' said nothing about that, or about what to do."""
+def _refused(page, store=None):
     from kubed.selenium_flow.core import browser
 
-    monkeypatch.setattr(browser.time, "sleep", lambda s: None)
-    with pytest.raises(TimeoutError, match="Navigate to a real page"):
-        browser.save_to_downloads(_EmptyStore(), _Page(True), "s.png", b"x", "image/png", timeout=0)
-    with pytest.raises(TimeoutError, match="did not appear"):
-        browser.save_to_downloads(_EmptyStore(), _Page(False), "s.png", b"x", "image/png", timeout=0)
+    with pytest.raises(TimeoutError) as refused:
+        browser.save_to_downloads(store or _EmptyStore(), page, "s.pdf", b"x", "application/pdf", timeout=0)
+    return str(refused.value)
+
+
+def test_a_save_refused_on_a_page_with_no_origin_says_why():
+    """Chrome allows about:blank or a data: page one download. A 15-second
+    'did not appear' said nothing about that, or about what to do."""
+    assert "Navigate to a real page" in _refused(_Page(opaque=True))
+
+
+def test_a_save_refused_on_an_http_page_names_the_setting():
+    said = _refused(_Page(protocol="http:"))
+    assert "ALLOW_INSECURE_CONTENT" in said and "https page" in said
+
+
+def test_with_the_setting_on_an_http_refusal_does_not_blame_it():
+    store = _EmptyStore()
+    store.allow_insecure_content = True
+    assert "did not appear" in _refused(_Page(protocol="http:"), store)
+    assert "did not appear" in _refused(_Page(protocol="http:", agent="Firefox/150"))
