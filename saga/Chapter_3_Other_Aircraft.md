@@ -358,6 +358,30 @@ fail.
       "needs text".
 - [x] Chapter 2's §F2.14 says what `outline` shipped.
 
+### §F3.8 — Flying it: what the live check of #39 found
+
+Everything #39 promised held against the deployed pod, read as Claude Code and
+as VS Code — a real PNG came back an image, a real PDF was described in 233
+characters. Three faults turned up beside it, none of them #39's, and all three
+were built in the next pull request:
+
+- **Saved files went missing, for two unrelated reasons**, measured on the Grid
+  with Chrome 152. A PDF saved from a plain-http page was held as an *insecure
+  download* — Chrome's own words, read off `chrome://downloads` — and never
+  reached the store, while PNGs were not held; no feature flag or Safe Browsing
+  preference releases it, and the insecure-content setting does. Separately, a
+  page with no origin (`about:blank`, `data:`) is allowed exactly one download,
+  and the automatic-downloads preference — which *is* applied, as
+  `chrome://prefs-internals` shows — does not reach an opaque origin. A second
+  tab would get round it, and **Dr K ruled that out: switching tabs is not this
+  server's to do**, since it would also drop the session out of a frame. That
+  case now fails with a sentence saying so. Firefox saved correctly everywhere.
+- **A failed resource read quoted the Grid's internal URL.** FastMCP wraps a
+  resource's exception verbatim before any middleware sees it; the rewrite and
+  the log filter #38 built for tool calls now cover reads too.
+- **`GET /secrets` was never in the OpenAPI spec**, so the one readable
+  resource had no HTTP documentation and no wiki page.
+
 ---
 
 ## Open questions

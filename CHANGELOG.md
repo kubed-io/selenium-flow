@@ -59,6 +59,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The flow document schema resolves its selectors**; every step's `selector` referenced a definition the schema did not include.
 
+- **`save_pdf` works on http pages in Chrome.** The PDF was held as an insecure download and never stored.
+
+- **A save refused on `about:blank` or a `data:` page says why** — Chrome allows such a page one download — instead of timing out silently.
+
+- **A failed resource read no longer quotes the Grid's internal URL**, and a caller's bad read is one warning line in the log.
+
+- **`GET /secrets` is in the OpenAPI spec and the wiki.**
+
 ## [0.2.0] - 2026-09-16
 
 ### Added
