@@ -209,12 +209,6 @@ def test_a_file_name_is_not_trimmed(store):
     assert store.delete_file(SESSION, name) is True
 
 
-def test_keeping_asks_the_grid_for_the_name_it_was_given(store):
-    grid = FakeGrid([], b"x")
-    files.keep_one(FakeActions(grid), store, SESSION, "abc", " report.pdf ")
-    assert grid.reads == [("abc", " report.pdf ")]
-
-
 def test_a_kept_file_cannot_escape_the_data_directory(store, tmp_path):
     """The name arrives from a URL path parameter as well as from the Grid, so
     traversal is refused by the name rule and again by `_resolved`."""
@@ -234,47 +228,14 @@ def test_a_name_on_disk_that_could_not_be_addressed_is_skipped(store, tmp_path):
     assert [f["name"] for f in store.files(SESSION)] == ["real.pdf"]
 
 
-# ---- one list, out of two sources -------------------------------------------
+# ---- three sections, not one list --------------------------------------------
 
-
-def test_both_halves_appear_in_one_list(store):
-    store.write_file(SESSION, "kept.pdf", b"x")
-    actions = FakeActions(FakeGrid(DOWNLOADS))
-    listed = files.merged(actions, store, SESSION, "abc", TOKEN)
-    assert {f["name"] for f in listed} == {"report.pdf", "shot.png", "kept.pdf"}
-    assert {f["name"]: f["kept"] for f in listed} == {
-        "report.pdf": False,
-        "shot.png": False,
-        "kept.pdf": True,
-    }
-
-
-def test_a_kept_file_wins_a_name_collision(store):
-    """The same report.pdf downloaded twice, or kept and then downloaded again.
-    The kept one wins because it is the one that will still be there — and the
-    only one with a per-file delete."""
-    store.write_file(SESSION, "report.pdf", b"x")
-    actions = FakeActions(FakeGrid(DOWNLOADS))
-    listed = files.merged(actions, store, SESSION, "abc", TOKEN)
-    assert [f["name"] for f in listed].count("report.pdf") == 1
-    report = next(f for f in listed if f["name"] == "report.pdf")
-    assert report["kept"] is True
-    assert "/kept/" in report["url"], "the kept copy is what the link points at"
-
-
-def test_the_list_is_newest_first(store):
-    actions = FakeActions(FakeGrid(DOWNLOADS))
-    listed = files.merged(actions, store, SESSION, "abc", TOKEN)
-    assert [f["name"] for f in listed] == ["report.pdf", "shot.png"]
-
-
-def test_the_list_survives_the_browser(store):
-    """The point of keeping one. A listing that emptied when the Grid reaped a
-    browser would make the durable half look lost."""
-    store.write_file(SESSION, "kept.pdf", b"x")
-    actions = FakeActions(FakeGrid(DOWNLOADS))
-    listed = files.merged(actions, store, SESSION, "", TOKEN)
-    assert [f["name"] for f in listed] == ["kept.pdf"]
+# The behaviour these used to hold — a name in both places, the newest-first
+# order, keeping being a copy — is `test_file_sections.py` territory now: two
+# folders never merge, so "which one wins a collision" is not a question
+# `sections` is ever asked. What is still this module's to prove is the part
+# that only makes sense with a session record in front of it: a Grid failure
+# is surfaced, a reaped browser is never dialled, and a live one still is.
 
 
 def test_a_grid_failure_is_not_hidden(store):
@@ -287,84 +248,53 @@ def test_a_grid_failure_is_not_hidden(store):
             raise RuntimeError("grid is down")
 
     with pytest.raises(RuntimeError):
-        files.merged(FakeActions(Broken()), store, SESSION, "abc", TOKEN)
+        files.sections(
+            FakeActions(Broken()), Sessions(session_id="abc", live=True), store, TOKEN, SESSION
+        )
 
 
 def test_the_listing_ignores_a_browser_the_grid_has_reaped(store):
     """A reaped browser stays in the session record until something refreshes
     it, and `describe` reports that id beside `live: false`. Trusting it dials
     the Grid for a browser that is gone and fails the whole listing — in exactly
-    the state kept files exist to survive."""
+    the state a kept file exists to survive."""
     store.write_file(SESSION, "kept.pdf", b"x")
 
     class Reaped(FakeGrid):
         def files(self, session_id):
             raise AssertionError(f"dialled the Grid for reaped {session_id!r}")
 
-    listed = files.listing(
-        FakeActions(Reaped()),
-        Sessions(session_id="dead", live=False),
-        store,
-        TOKEN,
-        SESSION,
+    got = files.sections(
+        FakeActions(Reaped()), Sessions(session_id="dead", live=False), store, TOKEN, SESSION
     )
-    assert [f["name"] for f in listed["files"]] == ["kept.pdf"]
+    assert [f["name"] for f in got["files"]] == ["kept.pdf"]
+    assert got["downloads"] == []
 
 
 def test_the_listing_still_uses_a_browser_that_is_live(store):
-    listed = files.listing(
+    got = files.sections(
         FakeActions(FakeGrid(DOWNLOADS)),
         Sessions(session_id="abc", live=True),
         store,
         TOKEN,
         SESSION,
     )
-    assert [f["name"] for f in listed["files"]] == ["report.pdf", "shot.png"]
+    assert [f["name"] for f in got["downloads"]] == ["report.pdf", "shot.png"]
 
 
 def test_with_no_store_only_downloads_are_listed():
-    actions = FakeActions(FakeGrid(DOWNLOADS))
-    listed = files.merged(actions, None, "", "abc", TOKEN)
-    assert [f["name"] for f in listed] == ["report.pdf", "shot.png"]
-    assert all(f["kept"] is False for f in listed)
+    got = files.sections(
+        FakeActions(FakeGrid(DOWNLOADS)),
+        Sessions(session_id="abc", live=True),
+        None,
+        TOKEN,
+        SESSION,
+    )
+    assert got["files"] == []
+    assert [f["name"] for f in got["downloads"]] == ["report.pdf", "shot.png"]
 
 
-# ---- keeping and deleting ----------------------------------------------------
-
-
-def test_keeping_copies_the_bytes_out_of_the_grid(store):
-    grid = FakeGrid(DOWNLOADS, b"PDF bytes")
-    kept = files.keep_one(FakeActions(grid), store, SESSION, "abc", "report.pdf")
-    assert kept["kept"] is True and kept["session"] == SESSION
-    assert store.read_file(SESSION, "report.pdf") == b"PDF bytes"
-    assert grid.reads == [("abc", "report.pdf")]
-
-
-def test_keeping_is_a_copy_and_never_a_move(store):
-    """The Grid has no per-file delete, so the original necessarily stays. This
-    is not a choice, and the UI says so by keeping the download visible."""
-    grid = FakeGrid(DOWNLOADS)
-    files.keep_one(FakeActions(grid), store, SESSION, "abc", "report.pdf")
-    assert [e["name"] for e in grid.files("abc")] == ["report.pdf", "shot.png"]
-
-
-def test_keeping_refuses_when_there_is_nowhere_to_keep():
-    with pytest.raises(ValueError, match="FLOW_DATA_DIR"):
-        files.keep_one(FakeActions(FakeGrid()), None, "", "abc", "report.pdf")
-
-
-def test_keeping_refuses_a_bad_name_before_dialling_the_grid(store):
-    """An unusable name should cost nothing and say what was wrong with it,
-    rather than surfacing as a download failure from the Grid."""
-    grid = FakeGrid(DOWNLOADS)
-    with pytest.raises(flows.InvalidName):
-        files.keep_one(FakeActions(grid), store, SESSION, "abc", "../passwd")
-    assert grid.reads == [], "the Grid was dialled for a name we had already refused"
-
-
-def test_keeping_needs_a_browser_to_copy_from(store):
-    with pytest.raises(ValueError, match="session_id is required"):
-        files.keep_one(FakeActions(FakeGrid()), store, SESSION, "", "report.pdf")
+# ---- deleting -----------------------------------------------------------------
 
 
 def test_deleting_a_kept_file_is_idempotent(store):
@@ -989,45 +919,12 @@ def test_the_file_stamp_cannot_be_forged_by_a_files_own_name(client, live):
 
 # ---- giving a kept file back to a page ---------------------------------------
 
-
-class _Sessions:
-    """A session manager that names one flow session, the way `owner` asks."""
-
-    def name(self):
-        return NAMED
-
-
-def test_a_kept_file_can_be_read_back_by_name(store):
-    """The loop the file store never closed: a browser could download a file
-    and keep it, and there was no way to hand it back to a page (§F1.41)."""
-    store.write_file(SESSION, "export.csv", b"id,name\n1,a\n")
-    assert files.read_kept(_Sessions(), store, "export.csv") == b"id,name\n1,a\n"
-
-
-def test_reading_a_name_nobody_kept_says_what_to_call_instead(store):
-    with pytest.raises(ValueError) as missing:
-        files.read_kept(_Sessions(), store, "nope.csv")
-    message = str(missing.value)
-    assert "no kept file called 'nope.csv'" in message
-    assert "session://files" in message and "keep_file" in message
-    # The path on this server's disk answers a question nobody asked.
-    assert "/" not in message.split("session://files")[0]
-
-
-def test_a_name_nobody_kept_is_the_callers_mistake_not_the_servers(store):
-    """400, beside `upload_file(path=...)` naming a file that is not there.
-    A 500 tells an n8n node with Retry-On-Fail to send the same wrong name
-    again, and an alert on the 5xx rate to count it as an outage (Copilot,
-    #31)."""
-    try:
-        files.read_kept(_Sessions(), store, "nope.csv")
-    except Exception as exc:  # noqa: BLE001 - the status is the assertion
-        assert errors.status_for(exc) == 400
-
-
-def test_reading_a_kept_file_refuses_a_name_that_is_not_one_segment(store):
-    with pytest.raises(ValueError):
-        files.read_kept(_Sessions(), store, "../../etc/passwd")
+# `read_kept` is gone with the merged listing it served; `read_file` reading a
+# file by its URI, and refusing a name nobody has, is `test_file_sections.py`
+# territory now (`test_any_file_can_be_read_back_by_its_uri`,
+# `test_reading_a_name_nobody_has_is_the_callers_mistake`). What is left here
+# is `upload_file`'s own behaviour, which reads through `actions.read_kept`
+# rather than calling the domain function directly.
 
 
 def test_upload_sends_the_bytes_of_a_kept_file(actions, tmp_path, monkeypatch):
@@ -1131,20 +1028,7 @@ def test_only_one_source_may_be_given(actions):
         actions.upload_file("abc", selector={"css": "input"}, text="hi", kept="export.csv")
 
 
-def test_an_unkept_file_says_what_would_keep_it(store):
-    """`kept: false` has always meant "this link dies with the browser", and a
-    pilot still handed somebody one — because what it read was the result, not
-    the tool description (§F2.10)."""
-    actions = FakeActions(FakeGrid(DOWNLOADS))
-    listed = files.merged(actions, store, SESSION, "abc", TOKEN)
-    entry = next(f for f in listed if f["name"] == "shot.png")
-    assert entry["kept"] is False
-    assert entry["keep_with"] == 'keep_file("shot.png")'
-
-
-def test_a_kept_file_has_nothing_to_keep(store):
-    store.write_file(SESSION, "report.pdf", b"x")
-    actions = FakeActions(FakeGrid([]))
-    entry = files.merged(actions, store, SESSION, "abc", TOKEN)[0]
-    assert entry["kept"] is True
-    assert "keep_with" not in entry
+# The `kept` flag is gone — the folder says that now — and `keep_with` on a
+# download versus its absence in Files is `test_file_sections.py` territory
+# (`test_every_entry_carries_its_own_uri_and_no_kept_flag`,
+# `test_a_file_in_files_has_nothing_to_keep`).

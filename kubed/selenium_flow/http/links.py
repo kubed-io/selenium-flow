@@ -110,3 +110,16 @@ def kept_url(
 ) -> str:
     """A URL for one file kept beyond its browser."""
     return _url(kept_path(session, name), token, base, ttl)
+
+
+def screenshot_path(session: str, name: str) -> str:
+    """The unsigned path of one screenshot. Keyed by session name, like a kept
+    file, because a screenshot outlives the browser that took it."""
+    return f"/screenshots/{quote(session, safe='')}/{quote(name, safe='')}"
+
+
+def screenshot_url(
+    session: str, name: str, token: str | None, mount: str = "", ttl: int = DEFAULT_TTL
+) -> str:
+    """A URL for one screenshot."""
+    return _url(screenshot_path(session, name), token, mount, ttl)

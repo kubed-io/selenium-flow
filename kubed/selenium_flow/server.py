@@ -166,9 +166,20 @@ class SeleniumMCP:
         # And how it reads one back, for `upload_file(kept=...)`. Wired here for
         # the same reason: which flow session owns a kept file is a question
         # about the caller, which the behaviour layer deliberately cannot see.
-        self.actions.read_kept = lambda name, session=None: files.read_kept(
-            self.sessions, self.flows, name, session
-        )
+        #
+        # TEMPORARY (Task 2 shim, Task 4 owns the real change): `read_kept` is
+        # gone along with the merged listing it served. `upload_file(kept=name)`
+        # still calls this with a bare name, always meaning a file in Files, so
+        # this adapts it into the URI `read_file` now wants and drops the leaf
+        # name `read_file` also returns, keeping this lambda's old bytes-only
+        # shape.
+        self.actions.read_kept = lambda name, session=None: files.read_file(
+            self.actions,
+            self.sessions,
+            self.flows,
+            files.uri_of(files.FILES, name),
+            session,
+        )[1]
         self.apps = (
             apps.register(self.mcp, self.actions, auth_token) if apps_enabled else set()
         )
