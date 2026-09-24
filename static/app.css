@@ -107,6 +107,12 @@ input[type=password], input[type=text] {
 
 .tabs button[aria-selected=true] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
 
+/* The session's own Files/Flows tabs sit under the header rather than flush
+   against the top bar's tabs, so the two levels read as nested rather than as
+   one long row. */
+.subtabs { margin-top: var(--gap); }
+.tabs .count { color: var(--muted); margin-left: 4px; }
+
 .card {
   background: var(--panel);
   border: 1px solid var(--line);

@@ -154,7 +154,7 @@ def test_both_destructive_actions_ask_first_and_report_a_failure(client):
     both say something when they fail.
     """
     page = client.get("/admin").text
-    for button in ("clearFiles", "endBrowser"):
+    for button in ("clearDownloads", "endBrowser"):
         assert f'id="{button}" class="danger"' in page, button
 
     # Ending the browser keeps the shared helper, which owns its confirm,
@@ -164,7 +164,7 @@ def test_both_destructive_actions_ask_first_and_report_a_failure(client):
     assert "'/admin/sessions/' + encodeURIComponent(key) + path, 'DELETE'" in page
 
     # Clearing goes through the modal, which asks and reports the same way.
-    assert "$('clearFiles').onclick" in page
+    assert "$('clearDownloads').onclick" in page
     assert "title: 'Clear downloads'" in page
     assert "alert(err.message)" in page, "the modal swallows failures"
 
@@ -172,15 +172,17 @@ def test_both_destructive_actions_ask_first_and_report_a_failure(client):
 def test_neither_toolbar_action_is_offered_without_a_browser(client):
     """A control that does nothing is worse than one that is visibly off.
 
-    Both act on the browser — and a detached session has no files either, since
-    the Grid deletes the file store with the browser. Asserted on `showDetail`,
-    which is the one place the header is drawn, from a fetch and from a pushed
-    update alike, so neither can be left enabled on a session that went idle
-    while someone was looking at it.
+    Ending the browser only needs it attached; clearing downloads needs it
+    actually LIVE, a stricter check — the Grid deletes its download store with
+    the browser, so an attached-but-dead session has nothing left to clear.
+    Asserted on `showDetail`, which is the one place the header is drawn, from
+    a fetch and from a pushed update alike, so neither can be left enabled on a
+    session that went idle while someone was looking at it.
     """
     page = client.get("/admin").text
     assert "function showDetail(row)" in page
-    assert "$('endBrowser').disabled = $('clearFiles').disabled = !row.attached;" in page
+    assert "$('endBrowser').disabled = !row.attached;" in page
+    assert "$('clearDownloads').disabled = !row.live;" in page
 
 
 def test_the_detail_view_is_updated_by_the_event_stream(client):
@@ -194,11 +196,14 @@ def test_the_detail_view_is_updated_by_the_event_stream(client):
 
 def test_a_changed_browser_clears_the_file_grid(client):
     """The Grid keeps a file store per browser and deletes it with the browser,
-    so after a switch the files on screen do not merely look stale — they are
-    gone. Leaving them up for the length of a fetch offers files that 404."""
+    so after a switch downloads and screenshots on screen do not merely look
+    stale — they are gone. Leaving them up for the length of a fetch offers
+    files that 404. Files is untouched: it belongs to the session, not the
+    browser, and survives the switch."""
     page = client.get("/admin").text
     assert "(row.session_id || null) !== shownBrowser" in page
-    assert "SF.fileGrid($('files'), {files: []})" in page
+    assert "SF.fileGrid($('downloads'), [], {base: ROOT" in page
+    assert "SF.fileGrid($('screenshots'), [], {base: ROOT" in page
 
 
 def test_the_file_grid_is_not_redrawn_on_every_heartbeat(client):

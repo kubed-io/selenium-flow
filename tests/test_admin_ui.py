@@ -34,25 +34,61 @@ def components(page):
 # ---- the shape of the detail view -------------------------------------------
 
 
-def test_the_detail_view_is_two_accordions(page):
-    """Dr K's shape, and the reason the page stays a single column: files and
-    flows are the two things a session accumulates."""
-    for section in ("filesSection", "flowsSection"):
-        assert f'id="{section}"' in page, section
-        assert f'data-toggle="{section}"' in page, f"{section} has no header to click"
-    assert "box.setAttribute('data-open', String(!open));" in page
+def test_files_and_flows_are_tabs(page):
+    """§F4.8: the page is one tab's column at a time."""
+    for id_ in ("sessionTabs", "tabFiles", "tabFlows", "paneFiles", "paneFlows"):
+        assert f'id="{id_}"' in page, id_
 
 
-def test_an_accordion_can_be_opened_without_a_mouse(page):
+def test_the_files_tab_is_three_rows_in_order(page):
+    at = [page.index(f'id="{s}Section"') for s in ("downloads", "screenshots", "kept")]
+    assert at == sorted(at), "Downloads, Screenshots, Files — in that order (§F4.5)"
+    assert ">Files<" in page.split('id="keptSection"')[1][:600]
+
+
+def test_each_row_that_clears_has_its_own_button(page):
+    assert 'id="clearDownloads"' in page and 'id="clearScreenshots"' in page
+    assert 'id="clearKept"' not in page, "Files is never cleared wholesale (§F4.1)"
+
+
+def test_clear_downloads_needs_a_live_browser_not_an_attached_one(page):
+    assert "$('clearDownloads').disabled = !row.live" in page
+
+
+def test_the_tab_is_in_the_hash(page):
+    assert "'/flows'" in page and "#/sessions/" in page
+
+
+def test_clearing_screenshots_confirms_with_the_names(page):
+    handler = page.split("$('clearScreenshots').onclick")[1][:1800]
+    assert "modal(" in handler and "'/files/screenshots'" in handler and "'DELETE'" in handler
+
+
+def test_keeping_posts_to_the_folder_it_came_from(page):
+    assert "'/keep'" in page and "encodeURIComponent(folder)" in page
+
+
+def test_a_section_can_be_opened_without_a_mouse(page):
     """It is the only way to open or close the section, so a styled span was a
     control keyboard and screen-reader users could not reach at all. A real
     button gets focus and Enter/Space for free; the state has to be announced
     rather than left to a caret nobody hears."""
-    for section in ("filesSection", "flowsSection"):
+    for section, body in (
+        ("downloadsSection", "downloadsBody"),
+        ("screenshotsSection", "screenshotsBody"),
+        ("keptSection", "keptBody"),
+    ):
         assert f'<button type="button" class="title" data-toggle="{section}"' in page
-    assert 'aria-expanded="true" aria-controls="filesBody"' in page
-    assert 'aria-expanded="true" aria-controls="flowsBody"' in page
+        assert f'aria-expanded="true" aria-controls="{body}"' in page
+    assert "box.setAttribute('data-open', String(!open));" in page
     assert "tab.setAttribute('aria-expanded', String(!open));" in page
+
+
+def test_flows_has_no_accordion_left_to_toggle(page):
+    """The Flows tab holds the whole width now — it is no longer sharing the
+    column with Files, so there is nothing left worth collapsing."""
+    assert 'data-toggle="flowsSection"' not in page
+    assert 'id="flowsSection"' not in page
 
 
 def test_the_file_action_is_a_button_rather_than_a_span_that_acts(page):
@@ -176,16 +212,16 @@ def test_the_shared_library_renders_the_action_but_never_wires_it(components):
 def test_clearing_downloads_lists_the_names_it_will_remove(page):
     """"Delete 12 files?" without saying which twelve is an assertion rather
     than a disclosure. The scope is shown."""
-    assert "downloads.map((n) => '<li>' + SF.esc(n)" in page
+    handler = page.split("$('clearDownloads').onclick")[1].split("$('clearScreenshots')")[0]
+    assert "downloads.map((n) => '<li>' + SF.esc(n)" in handler
 
 
-def test_the_clear_confirm_does_not_build_its_list_from_the_merged_files(page):
-    """`data.files` is de-duplicated: a download sharing a name with a kept file
-    loses to it and vanishes from that list. The DELETE clears it regardless, so
-    filtering the merge would name eleven of the twelve files it takes. The
-    server sends the Grid's own listing for this."""
-    assert "downloads = data.downloads || [];" in page
-    assert "filter((f) => !f.kept)" not in page
+def test_the_clear_confirm_names_every_download_the_grid_holds(page):
+    """The Grid has no per-file delete, so the DELETE always takes every one of
+    them — the list has to say so for all of them, not a subset."""
+    handler = page.split("$('clearDownloads').onclick")[1].split("$('clearScreenshots')")[0]
+    assert "filesData.downloads.map((f) => f.name)" in handler
+    assert "filter(" not in handler
 
 
 def test_clearing_says_what_happens_to_each_name(page):
@@ -194,17 +230,18 @@ def test_clearing_says_what_happens_to_each_name(page):
     in the deletion list, because its download really is deleted — and the file
     really does survive. Omitting those names would under-report what the
     button does, so the fate is said per row instead."""
-    assert "keptNames.indexOf(n) === -1" in page
-    assert "— gone" in page
-    assert "kept copy stays" in page
-    # And the list is still every download, because every download is deleted.
-    assert "filter((f) => !f.kept)" not in page
+    handler = page.split("$('clearDownloads').onclick")[1].split("$('clearScreenshots')")[0]
+    assert "kept.indexOf(n) === -1" in handler
+    assert "— gone" in handler
+    assert "copy in Files stays" in handler
 
 
-def test_the_kept_names_come_from_the_merged_listing(page):
-    """`data.downloads` is what the Grid holds; which of those also survive is
-    only knowable from the merged list's `kept` flag."""
-    assert "(data.files || []).filter((f) => f.kept).map((f) => f.name)" in page
+def test_the_kept_names_come_from_files_itself(page):
+    """There is no merged listing any more, and no `kept` flag on an entry —
+    the Files folder's own listing IS the kept files, so naming them is just
+    reading its names."""
+    handler = page.split("$('clearDownloads').onclick")[1].split("$('clearScreenshots')")[0]
+    assert "filesData.files.map((f) => f.name)" in handler
 
 
 # ---- flows ------------------------------------------------------------------
