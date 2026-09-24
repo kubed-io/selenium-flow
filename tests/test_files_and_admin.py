@@ -321,17 +321,22 @@ def test_a_partial_download_is_never_served(client):
 
 
 def test_the_admin_api_lists_files_with_signed_urls(client, flow_session):
-    with patch.object(browser.Grid, "files", return_value=ENTRIES):
+    """`server` keeps no flows (no `FLOW_DATA_DIR`), so Downloads is the only
+    section with anything in it — and it still has to list, signed, with flows
+    off entirely."""
+    with (
+        patch.object(browser.Grid, "is_alive", return_value=True),
+        patch.object(browser.Grid, "files", return_value=ENTRIES),
+    ):
         body = client.get(
             f"/admin/sessions/{KEY}/files",
             headers={"Authorization": f"Bearer {TOKEN}"},
         ).json()
-    # Newest first. The listing merges the browser's downloads with the session's
-    # kept files, and a merged list needs a total order of its own rather than
-    # inheriting either source's — so it sorts on creation time, and report.pdf
-    # is the later of the two fixtures.
-    assert [f["name"] for f in body["files"]] == ["report.pdf", "shot.png"]
-    assert all("sig=" in f["url"] for f in body["files"])
+    # Newest first — the Grid's own listing has no order of its own to inherit,
+    # and report.pdf is the later of the two fixtures.
+    assert [f["name"] for f in body["downloads"]] == ["report.pdf", "shot.png"]
+    assert all("sig=" in f["url"] for f in body["downloads"])
+    assert body["files"] == [], "no store, nothing to keep into"
 
 
 def test_the_listing_shows_flow_sessions_not_grid_sessions(client, server):
@@ -388,14 +393,17 @@ def test_the_stdio_session_is_listed_and_labelled(client, server):
 
 
 def test_a_detached_session_has_no_files_rather_than_an_error(client, server):
-    """It had them; the Grid deleted them with the browser. That is not a fault."""
+    """It had them; the Grid deleted them with the browser. That is not a
+    fault — and neither is having no store at all, which `server` also has
+    none of."""
     server.sessions.store.set("idle", SessionRecord(session_id=""))
     body = client.get(
         "/admin/sessions/idle/files",
         headers={"Authorization": f"Bearer {TOKEN}"},
     )
     assert body.status_code == 200
-    assert body.json()["files"] == []
+    payload = body.json()
+    assert payload["downloads"] == payload["screenshots"] == payload["files"] == []
 
 
 # --- the three renderings -------------------------------------------------

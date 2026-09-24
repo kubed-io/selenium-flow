@@ -400,40 +400,53 @@ def register(
             session = flows.library_of(key)
             stores = flow_store is not None and session is not None
             flow_names = named(flow_store.names, session) if stores else []
+            # Screenshots and Files are the session's own — countable whenever
+            # there is a store and a usable name, independent of whether a
+            # browser is attached. Downloads are the Grid's and countable only
+            # while one is live, which is why that count alone can be None for
+            # a reason `stores` never causes.
+            shots = (
+                named(lambda s: flow_store.files(s, flows.SCREENSHOTS_DIR), session)
+                if stores
+                else []
+            )
             kept = named(flow_store.files, session) if stores else []
-            count = None
-            files_rev = ""
-            if live or stores:
-                # Distinct NAMES, not the two lengths added. Keeping a file is a
-                # copy, so a kept file whose download still exists is one file
-                # that was being counted twice — the list said 5 where the grid
-                # below it showed 3, and `files.merged` de-duplicates exactly
-                # this way. The page also keys its refresh off this number, so a
-                # wrong count was a wrong change signal as well as a wrong
-                # label.
-                count = len(set(downloads or []) | set(kept))
-                # And the stamp the page actually watches. A count cannot tell
-                # two of these apart: delete the kept copy of a name that is
-                # also a download and the union is still one file, while the
-                # grid switches from the kept entry to the download — different
-                # marks, different URL, different lifetime. So the state of each
-                # name goes in, not just how many there are (§F1.39).
-                #
-                # JSON rather than joining on a delimiter, because a FILE name
-                # is not ours to choose — `valid_file_name` permits `:` and `;`
-                # deliberately, since the site's Content-Disposition picked it.
-                # A kept file called `a:d;b` and the pair (download `a`, kept
-                # `b`) both flatten to `a:d;b:k`, so two different grids shared
-                # one token and the later one would not repaint. Flow names
-                # cannot do this — `NAME` has no punctuation to collide with —
-                # which is why `revision` may join and this may not.
-                kept_names = set(kept)
-                files_rev = json.dumps(
-                    sorted(
-                        [name, name in kept_names]
-                        for name in set(downloads or []) | kept_names
+            counts = {
+                "downloads": len(downloads) if downloads is not None else None,
+                "screenshots": len(shots) if stores else None,
+                "files": len(kept) if stores else None,
+            }
+            known = [v for v in counts.values() if v is not None]
+            # The sum of what is known, not "unknown treated as zero": a live,
+            # empty browser and an empty store must still show 0 rather than the
+            # None that would claim nothing here can be counted. Only every
+            # section being unknown earns the None.
+            files_count = sum(known) if known else None
+            # The stamp the page actually watches. A count cannot tell two
+            # states apart: a name moving between folders — kept out of
+            # Screenshots and into Files — leaves the total the same while the
+            # tile for that name switches folder, mark and URL. So which name is
+            # in which folder goes in, not just how many there are (§F1.39).
+            #
+            # JSON rather than joining on a delimiter, because a FILE name is
+            # not ours to choose — `valid_file_name` permits `:` and `;`
+            # deliberately, since the site's Content-Disposition picked it. A
+            # file called `a:d;b` in one folder and the pair (`a`, `b`) split
+            # across two would both flatten to the same joined string, so two
+            # different sessions shared one token and the later one would not
+            # repaint. Flow names cannot do this — `NAME` has no punctuation to
+            # collide with — which is why `revision` may join and this may not.
+            files_rev = json.dumps(
+                sorted(
+                    [folder_name, name]
+                    for folder_name, names in (
+                        ("downloads", downloads or []),
+                        ("screenshots", shots),
+                        ("files", kept),
                     )
+                    for name in names
                 )
+            )
             rows.append(
                 {
                     # The store key addresses the session on this API. It is not
@@ -450,8 +463,12 @@ def register(
                     # what this session is running, and how big.
                     "window": record.window,
                     "started": record.opened_at or None,
-                    "files_count": count,
+                    "files_count": files_count,
                     "files_rev": files_rev,
+                    # Named per section, so a row can say "one screenshot" and
+                    # "no browser to have downloads at all" instead of one
+                    # number that means both.
+                    "counts": counts,
                     # Beside the file count because it is the same kind of fact:
                     # what this session has accumulated, and the other reason to
                     # click into it. None when flows are off, which is not zero.
@@ -465,7 +482,6 @@ def register(
                     "flows_rev": (
                         revision(session) + "+" + shared_rev if stores else None
                     ),
-                    "kept_count": len(kept) if stores else None,
                     **_grid_facts(running.get(sid, {})),
                 }
             )
@@ -623,33 +639,27 @@ def register(
             return detail
 
     @mcp.custom_route(
-        f"{prefix}/admin/sessions/{{key}}/files",
-        methods=["GET", "DELETE"],
-        name="admin_files",
+        f"{prefix}/admin/sessions/{{key}}/files", methods=["GET"], name="admin_files"
     )
     @guarded
     async def admin_files(request: Request) -> JSONResponse:
+        """The three sections at once: Downloads, Screenshots and Files.
+
+        Clearing and deleting have their own route now — one per name, below —
+        because DELETE on this same path used to mean only one thing (clear the
+        Grid's store) and the admin now offers three different erasures that a
+        single boolean could not tell apart.
+        """
         key = request.path_params["key"]
         # A session whose name cannot be a directory keeps nothing, so it has no
-        # kept files to merge — and must not be shown the shared library's.
+        # kept files to list — and must not be shown the shared library's.
         session = flows.library_of(key) or ""
         try:
-            if request.method == "DELETE":
-                session_id = attached_id(key)
-                # Clears the DOWNLOADS, which is all the Grid offers: its store
-                # has no per-file delete. Kept files are ours and elsewhere, so
-                # they are untouched — which is exactly what makes this safe to
-                # put behind a button (§F1.10).
-                if session_id:
-                    await run_in_threadpool(actions.grid.clear_files, session_id)
-                return JSONResponse(
-                    {"success": True, "key": key, "session_id": session_id or None}
-                )
             # Whether there are downloads to list depends on whether the browser
             # is still on the Grid. The record can name one the Grid already
             # reaped — an ordinary state, not a broken one — and handing that
-            # dead id to `merged` would fail the whole view in exactly the case
-            # kept files exist to survive.
+            # dead id to `sections` would fail the whole view in exactly the
+            # case kept files exist to survive.
             #
             # `is_alive` is the right question, and the header's `live` is not:
             # that comes from a best-effort bulk listing which reports
@@ -662,53 +672,72 @@ def register(
                 actions.grid.is_alive, attached
             )
             live_id = attached if alive else ""
-            # Fetched here rather than inside `merged` because the page needs
-            # this list *unmerged*: DELETE above clears the Grid's store whole,
-            # and a download whose name a kept file shadows is absent from the
-            # merge but still gets cleared. Telling the operator "these will go"
-            # from the merged list would omit exactly those.
             downloads = (
                 await run_in_threadpool(actions.grid.files, live_id) if live_id else []
             )
-            listing = await run_in_threadpool(
-                files.merged, actions, flow_store, session, live_id,
-                token, "", downloads, prefix,
-            )
-            return JSONResponse(
-                {
-                    "key": key,
-                    "session": await header(key, attached),
-                    "files": listing,
-                    "downloads": [entry.get("name", "") for entry in downloads],
+            if not live_id and flow_store is None:
+                # Genuinely nothing: no store configured, and no browser to ask.
+                # `files.sections` raises for this — the right answer for a
+                # caller asking "what do I have" (`session_files`), and the
+                # wrong one for a page rendering an (empty) tab of its own.
+                listing = {
+                    "component": "fileSections",
+                    "session": None,
+                    "browser": False,
+                    "downloads": [],
+                    "screenshots": [],
+                    "files": [],
                 }
+            else:
+                listing = await run_in_threadpool(
+                    files.sections,
+                    actions,
+                    sessions,
+                    flow_store,
+                    token,
+                    session,
+                    mount=prefix,
+                    session_id=live_id,
+                    downloads=downloads,
+                )
+            return JSONResponse(
+                {**listing, "key": key, "session": await header(key, attached)}
             )
         except Exception as exc:  # noqa: BLE001 - usually a session that ended
             log.info("files for %s failed: %s", key, exc)
             return JSONResponse({"error": str(exc)}, status_code=502)
 
     @mcp.custom_route(
-        f"{prefix}/admin/sessions/{{key}}/files/{{name}}/keep",
+        f"{prefix}/admin/sessions/{{key}}/files/{{folder}}/{{name}}/keep",
         methods=["POST"],
         name="admin_keep_file",
     )
     @guarded
     async def admin_keep_file(request: Request) -> JSONResponse:
-        """Copy one download into the session's own store, so it outlives the
-        browser. There is no matching unkeep: see ``files.py``."""
+        """Move a screenshot, or copy a download, into the session's own Files
+        — so it outlives the browser. There is no matching unkeep: see
+        ``files.py``."""
         key = request.path_params["key"]
+        folder = request.path_params["folder"]
         name = request.path_params["name"]
         try:
+            if folder not in (files.SCREENSHOTS, files.DOWNLOADS):
+                raise ValueError(
+                    f"{folder!r} is not something to keep from: use "
+                    f"{files.SCREENSHOTS} or {files.DOWNLOADS}"
+                )
             kept = await run_in_threadpool(
-                files.keep_one,
+                files.keep,
                 actions,
+                sessions,
                 flow_store,
-                library(key),
-                attached_id(key),
-                name,
+                files.uri_of(folder, name),
+                name=key,
+                session_id=attached_id(key),
             )
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             status = errors.status_for(exc)
-            log.info("keeping %s for %s refused (%s)", name, key, status)
+            log.info("keeping %s/%s for %s refused (%s)", folder, name, key, status)
             return JSONResponse({"error": errors.message(exc)}, status_code=status)
         return JSONResponse(kept)
 
@@ -719,19 +748,39 @@ def register(
     )
     @guarded
     async def admin_delete_file(request: Request) -> JSONResponse:
-        """Delete one KEPT file. A download cannot be deleted singly — the Grid
-        offers no such operation — so this refuses rather than pretending."""
+        """Clear a whole section, or delete one file from Files — the name in
+        the path decides which, since ``downloads`` and ``screenshots`` are
+        reserved names Files itself can never hold (§F4.6)."""
         key = request.path_params["key"]
         name = request.path_params["name"]
         try:
+            if name == files.DOWNLOADS:
+                # Clears the Grid's whole store, which is all it offers: no
+                # per-file delete. Screenshots and Files are ours and
+                # elsewhere, so they are untouched — which is exactly what
+                # makes this safe to put behind a button (§F1.10).
+                session_id = attached_id(key)
+                alive = session_id and await run_in_threadpool(
+                    actions.grid.is_alive, session_id
+                )
+                if alive:
+                    await run_in_threadpool(actions.grid.clear_files, session_id)
+                return JSONResponse(
+                    {"success": True, "key": key, "cleared": files.DOWNLOADS}
+                )
+            if name == files.SCREENSHOTS:
+                got = await run_in_threadpool(
+                    files.clear_screenshots, flow_store, library(key)
+                )
+                return JSONResponse({"success": True, "key": key, **got})
             removed = await run_in_threadpool(
                 files.delete_one, flow_store, library(key), name
             )
+            return JSONResponse(removed)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             status = errors.status_for(exc)
-            log.info("deleting %s for %s refused (%s)", name, key, status)
+            log.info("clearing/deleting %s for %s refused (%s)", name, key, status)
             return JSONResponse({"error": errors.message(exc)}, status_code=status)
-        return JSONResponse(removed)
 
     # ---- flows, for a person rather than an agent --------------------------
     #
@@ -989,5 +1038,39 @@ def register(
             data = await run_in_threadpool(flow_store.read_file, session, name)
         except Exception as exc:  # noqa: BLE001 - gone, or never existed
             log.info("read kept %s/%s failed: %s", session, name, exc)
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return served(name, data)
+
+    @mcp.custom_route(
+        f"{prefix}/screenshots/{{session}}/{{name}}",
+        methods=["GET"],
+        name="screenshot_file",
+    )
+    async def screenshot_file(request: Request) -> Response:
+        """One screenshot, authorised by the signature in its own URL.
+
+        A route of its own rather than a flag on ``kept_file``, for the same
+        reason that one is not a flag on ``file``: the signature is minted over
+        one exact path, and a screenshot outlives the browser that took it the
+        same way a kept file does, but it is not a kept file — it lives in its
+        own folder until someone keeps or clears it (§F4.6).
+        """
+        session = request.path_params["session"]
+        name = request.path_params["name"]
+        if token and not links.valid(
+            links.screenshot_path(session, name),
+            request.query_params.get("exp"),
+            request.query_params.get("sig"),
+            token,
+        ):
+            return JSONResponse({"error": "invalid or expired link"}, status_code=403)
+        if flow_store is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        try:
+            data = await run_in_threadpool(
+                flow_store.read_file, session, name, flows.SCREENSHOTS_DIR
+            )
+        except Exception as exc:  # noqa: BLE001 - gone, or never existed
+            log.info("read screenshot %s/%s failed: %s", session, name, exc)
             return JSONResponse({"error": "not found"}, status_code=404)
         return served(name, data)

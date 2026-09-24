@@ -557,99 +557,13 @@ async def test_an_mcp_caller_is_told_why_the_file_is_missing(live, named_caller)
 
 
 # ---- the admin surface -------------------------------------------------------
-
-
-def test_the_admin_api_keeps_a_file(client, live):
-    with (
-        patch.object(browser.Grid, "read_file", return_value=b"PDF"),
-        patch.object(browser.Grid, "files", return_value=DOWNLOADS),
-    ):
-        response = client.post(
-            f"/admin/sessions/{KEY}/files/report.pdf/keep", headers=AUTH
-        )
-    assert response.status_code == 200, response.text
-    assert live.flows.read_file(SESSION, "report.pdf") == b"PDF"
-
-
-def test_the_admin_keep_and_delete_need_the_token(client, live):
-    assert client.post(f"/admin/sessions/{KEY}/files/x.pdf/keep").status_code == 401
-    assert client.delete(f"/admin/sessions/{KEY}/files/x.pdf").status_code == 401
-
-
-def test_the_admin_api_deletes_a_kept_file(client, live):
-    live.flows.write_file(SESSION, "report.pdf", b"PDF")
-    response = client.delete(f"/admin/sessions/{KEY}/files/report.pdf", headers=AUTH)
-    assert response.status_code == 200
-    assert response.json()["deleted"] is True
-    assert live.flows.files(SESSION) == []
-
-
-def test_deleting_a_download_does_nothing_rather_than_lying(client, live):
-    """There is no per-file delete for a download — the Grid offers none — so a
-    trash on one would be a button that cannot work. The UI only draws it on
-    kept files; the API says plainly that nothing was removed."""
-    with patch.object(browser.Grid, "files", return_value=DOWNLOADS):
-        body = client.delete(
-            f"/admin/sessions/{KEY}/files/report.pdf", headers=AUTH
-        ).json()
-        assert body["deleted"] is False
-        listed = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH).json()
-    assert "report.pdf" in [f["name"] for f in listed["files"]], "the download stayed"
-
-
-def test_clearing_downloads_leaves_kept_files_alone(client, live):
-    """The objection that condemned the old Clear files button — that it takes
-    the kept ones with it — cannot happen once keeping is a copy. This is what
-    makes the button safe to offer at all (§F1.10)."""
-    live.flows.write_file(SESSION, "report.pdf", b"PDF")
-    with (
-        patch.object(browser.Grid, "files", return_value=[]),
-        patch.object(browser.Grid, "clear_files") as clear,
-    ):
-        assert client.delete(f"/admin/sessions/{KEY}/files", headers=AUTH).status_code == 200
-        body = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH).json()
-    clear.assert_called_once_with("abc")
-    assert [f["name"] for f in body["files"]] == ["report.pdf"]
-    assert body["files"][0]["kept"] is True
-
-
-def test_the_download_names_are_reported_unmerged(client, live):
-    """What Clear downloads removes is the Grid's whole store, and the merged
-    listing cannot describe it: a download loses to a kept file of the same
-    name and disappears from `files` while staying very much on the Grid. A
-    confirmation built from the merge would name one of the two files it takes,
-    so the response carries the Grid's own list beside the merged one."""
-    live.flows.write_file(SESSION, "report.pdf", b"kept copy")
-    with (
-        patch.object(browser.Grid, "is_alive", return_value=True),
-        patch.object(browser.Grid, "files", return_value=DOWNLOADS),
-    ):
-        body = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH).json()
-
-    # The merge hides the shadowed download, correctly — one tile per name.
-    assert [f["name"] for f in body["files"]] == ["report.pdf", "shot.png"]
-    assert [f["kept"] for f in body["files"]] == [True, False]
-    # The clear list does not.
-    assert body["downloads"] == ["report.pdf", "shot.png"]
-
-
-def test_a_session_with_no_browser_has_nothing_to_clear(client, kept_server):
-    """No browser, no Grid store — and the kept files are not downloads, so the
-    list stays empty rather than offering to clear something it cannot."""
-    kept_server.sessions.store.set("idle", SessionRecord(session_id=""))
-    kept_server.flows.write_file("idle", "report.pdf", b"PDF")
-    body = client.get("/admin/sessions/idle/files", headers=AUTH).json()
-    assert body["downloads"] == []
-
-
-def test_a_detached_session_still_lists_its_kept_files(client, kept_server):
-    """It has no browser and therefore no downloads — but keeping exists exactly
-    so that is not the end of the answer."""
-    kept_server.sessions.store.set("idle", SessionRecord(session_id=""))
-    kept_server.flows.write_file("idle", "report.pdf", b"PDF")
-    body = client.get("/admin/sessions/idle/files", headers=AUTH).json()
-    assert [f["name"] for f in body["files"]] == ["report.pdf"]
-    assert body["session"]["attached"] is False
+#
+# Keeping, deleting, clearing, the three-section listing and the file stamp are
+# `tests/test_admin_files.py` territory now — one module per HTTP surface, the
+# way `test_file_sections.py` already split the domain functions out of here.
+# What is still this module's to prove is what only makes sense with a session
+# record and the Grid's own opinion in front of it: a reaped browser, a Grid
+# outage, and a session whose name cannot own a library at all.
 
 
 def test_the_admin_listing_survives_a_reaped_browser(client, live):
@@ -695,17 +609,15 @@ BAD_KEY = "my bot"
 
 
 def test_a_session_whose_name_is_not_a_directory_keeps_nothing(client, kept_server):
-    """`session_for` hands such a caller `global`, which is right for a browser
-    — the key is opaque there — and catastrophic for storage: this session's
-    private file would land in the shared library, where every unnamed caller
-    can list it and fetch it through a signed URL. It is the same mistake E6
-    fixed for flows, arriving on the file side through the admin surface."""
+    """`library_of` hands such a caller nothing to write into rather than the
+    shared one — the same mistake E6 fixed for flows, arriving on the file side
+    through the admin surface. Every write path here refuses through
+    `library(key)`, so nothing can land in `global` for a key that cannot own a
+    directory of its own."""
     kept_server.sessions.store.set(BAD_KEY, SessionRecord(session_id="abc"))
-    with patch.object(browser.Grid, "read_file", return_value=b"PDF"):
-        response = client.post(
-            f"/admin/sessions/{quote(BAD_KEY, safe='')}/files/report.pdf/keep",
-            headers=AUTH,
-        )
+    response = client.delete(
+        f"/admin/sessions/{quote(BAD_KEY, safe='')}/files/report.pdf", headers=AUTH
+    )
     assert response.status_code == 400
     assert "cannot keep files" in response.json()["error"]
     assert kept_server.flows.files(flows.GLOBAL_SESSION) == [], "it leaked to global"
@@ -722,23 +634,8 @@ def test_such_a_session_shows_unknown_counts_not_the_shared_librarys(
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get("/admin/sessions", headers=AUTH).json()
     row = next(r for r in body["sessions"] if r["key"] == BAD_KEY)
-    assert row["kept_count"] is None and row["flows_count"] is None
-
-
-def test_the_session_list_counts_flows_and_kept_files(client, live):
-    """The count is the reason to click into a session, and a detached one still
-    has things worth counting."""
-    live.flows.write_file(SESSION, "report.pdf", b"PDF")
-    live.flows.save(SESSION, "login", {"steps": []})
-    with (
-        patch.object(browser.Grid, "sessions", return_value=[]),
-        patch.object(browser.Grid, "files", return_value=[]),
-    ):
-        body = client.get("/admin/sessions", headers=AUTH).json()
-    row = next(r for r in body["sessions"] if r["key"] == KEY)
-    assert row["kept_count"] == 1
-    assert row["flows_count"] == 1
-    assert row["files_count"] == 1
+    assert row["counts"] == {"downloads": None, "screenshots": None, "files": None}
+    assert row["files_count"] is None and row["flows_count"] is None
 
 
 # ---- the signed link ---------------------------------------------------------
@@ -854,82 +751,6 @@ async def test_every_file_operation_declares_the_grids_failure_modes(spec):
     for method, template in files.FILE_ROUTES.values():
         responses = spec["paths"][f"/files{template}"][method]["responses"]
         assert set(responses) == {"200", "400", "401", "404", "500", "503"}, template
-
-
-def test_the_session_row_counts_distinct_files_not_both_lists(client, live):
-    """Keeping is a copy, so a kept file and its download share a name. Adding
-    the two lengths counted it twice — the list said 5 where the grid below it
-    showed 3 — and the page keys its refresh off this number, so a wrong count
-    was a wrong change signal as well as a wrong label."""
-    live.flows.write_file(SESSION, "report.pdf", b"kept copy")
-    with (
-        patch.object(browser.Grid, "sessions", return_value=[{"session_id": "abc"}]),
-        patch.object(browser.Grid, "is_alive", return_value=True),
-        patch.object(browser.Grid, "files", return_value=DOWNLOADS),
-    ):
-        row = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
-        body = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH).json()
-
-    # Two downloads, one of them kept under the same name: two files, not three.
-    assert row["files_count"] == 2
-    assert row["kept_count"] == 1
-    assert row["files_count"] == len(body["files"]), "the row and the grid disagree"
-
-
-def test_the_file_stamp_notices_a_kept_copy_being_deleted(client, live):
-    """A count cannot tell these apart. `report.pdf` exists as a download and
-    as a kept copy; deleting the kept one leaves the union at two files while
-    the grid switches that tile from a pin to a bubble — different marks, a
-    different URL, a different lifetime. The page would have gone on showing a
-    kept file that no longer existed."""
-    live.flows.write_file(SESSION, "report.pdf", b"kept copy")
-    with (
-        patch.object(browser.Grid, "sessions", return_value=[{"session_id": "abc"}]),
-        patch.object(browser.Grid, "files", return_value=DOWNLOADS),
-    ):
-        before = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
-        live.flows.delete_file(SESSION, "report.pdf")
-        after = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
-
-    assert before["files_count"] == after["files_count"], "the count is why it is not enough"
-    assert before["files_rev"] != after["files_rev"]
-
-
-def test_the_file_stamp_cannot_be_forged_by_a_files_own_name(client, live):
-    """`valid_file_name` permits `:` and `;` on purpose — the site's
-    Content-Disposition chose the name, not us — so a delimiter-joined token is
-    not injective. A kept file called `a:d;b` and the pair (download `a`, kept
-    `b`) both flatten to `a:d;b:k`: two different grids, one token, and the
-    second one never repaints."""
-    live.flows.write_file(SESSION, "a:d;b", b"x")
-    with (
-        patch.object(browser.Grid, "sessions", return_value=[{"session_id": "abc"}]),
-        patch.object(browser.Grid, "files", return_value=[]),
-    ):
-        forged = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
-
-    live.flows.delete_file(SESSION, "a:d;b")
-    live.flows.write_file(SESSION, "b", b"x")
-    with (
-        patch.object(browser.Grid, "sessions", return_value=[{"session_id": "abc"}]),
-        patch.object(
-            browser.Grid, "files",
-            return_value=[{"name": "a", "size": 1, "creationTime": 1}],
-        ),
-    ):
-        real = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
-
-    # The delimiter-joined form these replaced: same token for both grids.
-    def joined(row_kept, row_downloads):
-        return ";".join(
-            sorted(f"{n}:{'k' if k else 'd'}" for n, k in row_kept + row_downloads)
-        )
-
-    assert joined([("a:d;b", True)], []) == joined([("b", True)], [("a", False)])
-    # And the tokens actually served, which do not. `filesStamp` is built from
-    # this alone — the count is not in it — so a collision here is a panel that
-    # never repaints, whatever the counts happen to be.
-    assert forged["files_rev"] != real["files_rev"]
 
 
 # ---- giving a kept file back to a page ---------------------------------------
