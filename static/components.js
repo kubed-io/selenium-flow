@@ -303,6 +303,11 @@ const SF = (() => {
       if (opts.onclose) opts.onclose();
     }
     function onKey(e) {
+      // A modal (the delete confirm) opens ON TOP of the lightbox and has its
+      // own document-level Escape handler. Without this, Escape closed both at
+      // once, and an arrow key stepped the lightbox behind a confirm that was
+      // still on screen.
+      if (document.querySelector('.modal')) return;
       if (e.key === 'Escape') close();
       else if (e.key === 'ArrowLeft') step(-1);
       else if (e.key === 'ArrowRight') step(1);

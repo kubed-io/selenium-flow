@@ -200,6 +200,38 @@ def test_keep_in_the_lightbox_moves_on_to_the_next_screenshot(page):
     assert "oncancel" in body, "closing the confirm any way must release the button"
 
 
+def test_the_lightbox_refresh_does_not_reload_a_session_the_operator_has_left(page):
+    """`loadFiles` shares `filesSeq` with every other load of this row, so an
+    unconditional reload here for A — once the operator has moved to B — would
+    claim a sequence number ABOVE B's own in-flight load and strand B on
+    "Loading…" forever. The `gone(key)` check has to come BEFORE the reload, not
+    only after it, the same as every other reload site on this page."""
+    refresh = page.split("refresh: async (at) => {")[1].split("\n    },\n")[0]
+    assert refresh.index("gone(key)") < refresh.index("await loadFiles(key)")
+    assert refresh.count("gone(key)") == 2
+
+
+def test_open_lightbox_reads_filesdata_directly(page):
+    """No call site passes `'kept'` — only `'downloads'`, `'screenshots'` and
+    `'files'` — so mapping it to `'files'` was dead code."""
+    body = page.split("function openLightbox(")[1][:600]
+    assert "filesData[folder]" in body
+    assert "'kept'" not in body
+
+
+def test_the_lightbox_ignores_keys_while_a_modal_is_open_above_it(components):
+    """The delete confirm opens ON TOP of the lightbox, and both have their own
+    document-level `keydown` listener. Without a guard, Escape closed both at
+    once, and an arrow key stepped the lightbox behind a confirm still on
+    screen. The guard has to sit at the TOP of `onKey`, before Escape and the
+    arrow keys are handled, or it protects nothing."""
+    on_key = components.split("function onKey(e) {")[1].split("\n    }\n")[0]
+    guard = "if (document.querySelector('.modal')) return;"
+    assert guard in on_key
+    assert on_key.index(guard) < on_key.index("e.key === 'Escape'")
+    assert on_key.index(guard) < on_key.index("e.key === 'ArrowLeft'")
+
+
 def test_the_app_draws_three_read_only_rows(components):
     assert "function fileSections(" in components
     for title in ("'Downloads'", "'Screenshots'", "'Files'"):

@@ -459,7 +459,7 @@ async function loadFiles(key) {
    from Files works the same way, after its confirm. */
 function openLightbox(folder, index) {
   const key = current;
-  const list = () => (filesData && filesData[folder === 'kept' ? 'files' : folder]) || [];
+  const list = () => (filesData && filesData[folder]) || [];
   const keepable = folder === 'screenshots' || folder === 'downloads';
   SF.lightbox(list(), index, {
     base: ROOT,
@@ -478,6 +478,12 @@ function openLightbox(folder, index) {
     // the list, so the next one slides into its place; a kept download is a
     // copy and stays, so the lightbox stays on it.
     refresh: async (at) => {
+      // Before AND after: `loadFiles` shares `filesSeq` with every other load of
+      // this row, so an unconditional reload here for A, once the operator has
+      // moved to B, would claim a sequence number ABOVE B's own in-flight load
+      // and strand B on "Loading…" with nothing left to fetch again — the same
+      // race the other reload sites on this page guard against.
+      if (gone(key)) return null;
       await loadFiles(key);
       if (gone(key)) return null;
       return {files: list(), index: at};
