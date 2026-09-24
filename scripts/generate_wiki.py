@@ -101,7 +101,7 @@ GROUPS = [
         "Files",
         "What a session has produced, and how to keep one past the browser "
         "that made it. See [Files](Files).",
-        ["list_files", "keep_file"],
+        ["list_files", "list_screenshots", "list_downloads", "keep_file"],
     ),
     (
         "Secrets",
@@ -298,7 +298,11 @@ def example(
     # perfectly valid JSON string and reads like a mistake.
     # The session is a header on both surfaces — never a body field and never a
     # path segment — so every example shows it (§F2.13).
-    url = path.replace("{name}", "my-flow").replace("{action}", "click")
+    url = (
+        path.replace("{name}", "my-flow")
+        .replace("{action}", "click")
+        .replace("{folder}", "screenshots")
+    )
     lines = [
         f"curl -X {method} $SELENIUM_FLOW{url} \\",
         '  -H "Authorization: Bearer $TOKEN" \\',

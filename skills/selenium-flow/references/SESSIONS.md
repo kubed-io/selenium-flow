@@ -80,13 +80,15 @@ slots until it times out.
 page you were on, so `open_session()` with no arguments later comes back on the
 same browser at the same page.
 
-What *is* gone is the browser's files. The Grid keeps a file store per browser
-and deletes it with the browser, so keep anything you still need first — see
-`keep_file`.
+What *is* gone is the browser's downloads. The Grid keeps that store per
+browser and deletes it with the browser, so `keep_file` anything you still
+need first. Screenshots and prints are never at risk this way — they land in
+your session's own files, `session://files/screenshots` and `session://files`,
+from the moment they are taken.
 
 ## Your library is your name too
 
-The flow library and the kept files you own are the directory your session name
+The flow library and Files are the directory your session name
 points at. A caller that names no session gets the shared `global` library,
 which everyone may read and run and nobody may write — so naming yourself is
 also how you get somewhere to save a flow.

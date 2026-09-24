@@ -55,11 +55,11 @@ leave it alone.
 
 To switch, just call `open_session(browser="firefox")` again — the browser you
 are holding is ended for you first, so do not close and reopen. **The files it
-had go with it**: the Grid keeps a file store per browser and deletes it with
-the browser. `keep_file(uri)` copies one into Files first — a kept file belongs
-to your session instead, so it survives switching, ending, and the Grid
-reaping an idle browser. `session://files` lists what is kept, and names
-`session://files/screenshots` and `session://files/downloads` beside it.
+had go with it** — the downloads, which the Grid deletes with the browser.
+Screenshots and prints are your session's already: `session://files` lists
+what is in Files and names two folders, `session://files/screenshots` and
+`session://files/downloads`. `keep_file(uri)` moves a screenshot into Files, or
+copies a download there before the browser goes.
 
 One session holds one browser. To use both at once, use two session names;
 `session://current` reports which browser the one you are holding is.
@@ -155,7 +155,7 @@ check this table twice before reaching for it.
 | `press_key` | a key or a combination | `key`: `Enter`, `Escape`, `a`, `Control+a` |
 | `extract` | read an element's text and HTML | `selector` |
 | `outline` | what is on the page: selectors, and what works | `selector`, `text`, `limit`, `interactive` |
-| `screenshot` | the viewport, one element, or the whole page — kept, with a link to share | `full_page`, `filename`, `save` |
+| `screenshot` | the viewport, one element, or the whole page — kept in session://files/screenshots, with a link to share | `full_page`, `filename`, `save` |
 | `print` | the page as a PDF or HTML, kept in your files | `format`: `pdf` \| `html`, `landscape`, `background`, `filename` |
 | `upload_file` | attach a file to a file input | `text`, `content`, `file` or `path`, `filename` |
 | `frame` | move into or out of an iframe | `action`: `switch` \| `parent` \| `default` |

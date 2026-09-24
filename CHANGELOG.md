@@ -43,6 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`open_session(insecure=true)` accepts a self-signed certificate**, for that session's browser.
 
+- **The admin UI's session page has Files and Flows tabs**, and Files is three rows — Downloads, Screenshots and Files — each cleared the way that fits it.
+
+- **The lightbox steps** with ‹ Prev / Next › and the arrow keys, and Keep in it moves on to the next screenshot.
+
+- **A Secrets tab** lists every secret's keys and where it may be used — never a value — and the flows that type it, including names no secret answers to.
+
 ### Changed
 
 - **A flow run's default budget is 120 seconds**, down from 300. A flow meant to wait longer sets `timeout`.
@@ -58,6 +64,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Screenshots and prints are kept with the session from the start**, on any page, and outlive the browser. They need `FLOW_DATA_DIR`; a second of the same name is kept as `name (1)`.
 
 - **Tool descriptions are half as long**, and hints, errors, prompts and the skill name what to read by URI.
+
+- **BREAKING:** screenshots are kept in `session://files/screenshots` until kept or cleared; `session://files` lists Files and names the screenshots and downloads folders, and entries carry a `uri` instead of `kept`.
+
+- **BREAKING:** `keep_file` takes a file's `uri` — a screenshot moves into Files, a download is copied — and `upload_file(kept=)` is `upload_file(file=uri)`, for any file.
+
+- **BREAKING:** `PUT /files/{name}/kept` is `PUT /files/screenshots/{name}/kept` or `PUT /files/downloads/{name}/kept`, beside `GET /files/screenshots` and `GET /files/downloads`.
 
 - **BREAKING:** a server configured for Redis that cannot reach it now refuses to start, rather than running on in-memory sessions until someone notices.
 
