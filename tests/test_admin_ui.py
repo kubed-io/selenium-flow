@@ -820,3 +820,27 @@ def test_the_screenshot_clear_comment_matches_what_it_lists(page):
     claim the opposite."""
     comment = page.split("$('clearScreenshots').onclick")[0][-500:]
     assert "only by count" not in comment
+
+
+# ---- the Secrets tab (§F4.10) ------------------------------------------------
+
+
+def test_secrets_sit_beside_sessions(page):
+    tabs = page.split('<div class="tabs">')[1][:600]
+    assert tabs.index('id="tabSessions"') < tabs.index('id="tabSecrets"') < tabs.index('id="tabConsole"')
+    assert 'id="paneSecrets"' in page and "'#/secrets'" in page
+
+
+def test_a_secret_card_links_to_the_flow_that_types_it(page):
+    body = page.split("function renderSecrets(")[1][:3000]
+    assert "'#/sessions/'" in body and "'/flows/'" in body
+    assert "u.shared" in body, "a shared flow belongs to no one session and is not linked"
+
+
+def test_the_secrets_page_never_renders_a_value(page):
+    body = page.split("function renderSecrets(")[1][:3000]
+    assert ".value" not in body
+
+
+def test_a_name_no_secret_answers_to_is_shown(page):
+    assert "Named by a flow, not defined" in page

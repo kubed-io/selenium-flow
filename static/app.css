@@ -466,3 +466,12 @@ textarea.yaml {
 .names .fate { font-size: 12px; }
 .names .fate.gone { color: var(--warn); }
 .names .fate.stays { color: var(--muted); }
+
+/* ---- secrets (§F4.10) -----------------------------------------------------
+   One card per secret. Narrower than `.fact .k` elsewhere on the page — these
+   labels (keys, allowed, from) are shorter than the session header's. */
+.card.secret .fact { display: flex; gap: var(--gap); margin-top: 6px; }
+.card.secret .fact .k { width: 72px; flex: none; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.card.secret .used { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.card.secret .used .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 6px; }
+.secret .use { display: flex; gap: var(--gap); align-items: center; padding: 3px 0; }

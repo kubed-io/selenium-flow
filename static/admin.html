@@ -44,6 +44,7 @@
 <main id="app" class="wrap" hidden>
   <div class="tabs">
     <button id="tabSessions" aria-selected="true">Sessions</button>
+    <button id="tabSecrets" aria-selected="false">Secrets</button>
     <button id="tabConsole" aria-selected="false">Grid console</button>
   </div>
 
@@ -130,6 +131,10 @@
         <div class="section"><div class="body"><div id="flows"></div></div></div>
       </div>
     </div>
+  </section>
+
+  <section id="paneSecrets" hidden>
+    <div id="secrets"></div>
   </section>
 
   <section id="paneConsole" hidden>
@@ -1261,10 +1266,81 @@ function sessionTab(tab) {
 $('tabFiles').onclick = () => go('#/sessions/' + encodeURIComponent(current));
 $('tabFlows').onclick = () => go('#/sessions/' + encodeURIComponent(current) + '/flows');
 
-const selectTab = (sessions) => {
-  $('tabSessions').setAttribute('aria-selected', sessions);
-  $('tabConsole').setAttribute('aria-selected', !sessions);
-  show($('paneSessions'), sessions); show($('paneConsole'), !sessions);
+/* ---- secrets (§F4.10) ------------------------------------------------------
+   Read-only: a card per secret, its keys, where it may be used, and — only
+   for a flow stored on disk, never the shared one — a backlink to the flow
+   that types it. Rendered here rather than in components.js because only the
+   admin page has secrets to show (§F1.36, §F1.40). */
+
+// Guards a late reply the same way filesSeq/flowsSeq do: a slow /admin/secrets
+// answer must not paint over whatever the operator has since navigated to.
+let secretsSeq = 0;
+
+async function loadSecrets() {
+  const mine = ++secretsSeq;
+  const box = $('secrets');
+  if (!box.childElementCount) box.innerHTML = '<div class="empty">Loading…</div>';
+  let data;
+  try {
+    data = await api('/admin/secrets');
+  } catch (e) {
+    if (mine !== secretsSeq) return;
+    box.innerHTML = '<div class="empty error">' + SF.esc(e.message) + '</div>';
+    return;
+  }
+  if (mine !== secretsSeq) return;
+  renderSecrets(data);
+}
+
+/* Read-only. A card per secret: what it is for, its keys, where it may be
+   used, where it came from, and the stored flows that type it (§F4.10). Never
+   a value — the server has none to send. Rendered here rather than in the
+   shared library because only the admin page has secrets to show. */
+function renderSecrets(data) {
+  const box = $('secrets');
+  if (!data.enabled) { box.innerHTML = '<div class="empty">No secrets are configured on this server.</div>'; return; }
+  const uses = (list) => list.length
+    ? list.map((u) => '<div class="use"><span class="pill name">' + SF.esc(u.flow) + '</span>'
+        + '<span class="small muted">step' + (u.steps.length === 1 ? ' ' : 's ') + u.steps.join(', ') + '</span>'
+        + '<span class="grow"></span>'
+        + (u.shared ? '<span class="small muted">&#127760; shared</span>'
+           : '<a href="' + SF.esc('#/sessions/' + encodeURIComponent(u.session) + '/flows/' + encodeURIComponent(u.flow)) + '">'
+             + SF.esc(u.session) + ' &rarr;</a>') + '</div>').join('')
+    : '<div class="small muted">No flow uses it.</div>';
+  const card = (s, warn, reason) => '<div class="card secret">'
+    + '<div class="row"><span>&#128273;</span><strong class="grow">' + SF.esc(s.name) + '</strong>'
+    + (warn ? '<span class="pill warn">' + SF.esc(warn) + '</span>' : '') + '</div>'
+    + (s.description ? '<div>' + SF.esc(s.description) + '</div>' : '')
+    + (reason ? '<div class="small error">' + SF.esc(reason) + '</div>' : '')
+    + (s.keys ? '<div class="fact"><span class="k">keys</span>' + s.keys.map((k) => '<span class="pill">' + SF.esc(k) + '</span>').join('') + '</div>' : '')
+    + (s.keys ? '<div class="fact"><span class="k">allowed</span>' + SF.esc(s.restricted ? (s.allowed_urls || []).join(', ') || '—' : 'any site') + '</div>' : '')
+    + (s.source ? '<div class="fact"><span class="k">from</span><span class="small muted">' + SF.esc(s.source + ' · ' + (s.location || '')) + '</span></div>' : '')
+    + '<div class="used"><div class="k">USED BY</div>' + uses(s.uses || []) + '</div></div>';
+  box.innerHTML =
+    '<h2>Secrets</h2><p class="small muted">What flows can type without anyone seeing it. Read-only here: '
+    + 'names, keys and where each may be used — never a value.</p>'
+    + data.secrets.map((s) => card(s,
+        s.allowed_urls_rejected ? 'unusable until fixed' : (s.restricted ? '' : 'any site'),
+        s.allowed_urls_rejected ? 'allowed_urls: ' + [].concat(s.allowed_urls_rejected).join(', ') : '')).join('')
+    + (data.undefined.length
+        ? '<h3>Named by a flow, not defined</h3><p class="small muted">These flows will fail at the step that types the secret.</p>'
+          + data.undefined.map((u) => card({name: u.name, uses: u.uses}, 'not defined',
+              'A flow names this secret and the catalogue has no such entry, so the step will fail when it runs.')).join('')
+        : '');
+}
+
+$('tabSecrets').onclick = () => go('#/secrets');
+
+/* Three tabs, one pane at a time. Session detail nests its own Files/Flows
+   tabs beneath this one (`sessionTab`), which is a separate, narrower switch
+   and untouched by this one. */
+const selectTab = (name) => {
+  $('tabSessions').setAttribute('aria-selected', String(name === 'sessions'));
+  $('tabSecrets').setAttribute('aria-selected', String(name === 'secrets'));
+  $('tabConsole').setAttribute('aria-selected', String(name === 'console'));
+  show($('paneSessions'), name === 'sessions');
+  show($('paneSecrets'), name === 'secrets');
+  show($('paneConsole'), name === 'console');
 };
 
 /* Views live after the hash — `#/`, `#/console`, `#/sessions/<name>`.
@@ -1285,15 +1361,14 @@ function showList() {
 
 function route() {
   // `#/sessions/<key>`, `#/sessions/<key>/flows`, `#/sessions/<key>/flows/<flow>`.
+  // `#/secrets` is its own branch — read only from the hash, no session
+  // involved — rather than folded into the session route.
   const [view, key, tab, flow] = location.hash.replace(/^#\/?/, '').split('/');
   if (view === 'console' && !$('tabConsole').hidden) {
-    selectTab(true); showList(); selectTab(false); return;
+    selectTab('sessions'); showList(); selectTab('console'); return;
   }
-  // A `secrets` view slots in here (Task 10) as its own branch below this one
-  // — read only from the hash, no session involved — rather than folding into
-  // the session route, which is why `view` is switched on rather than only
-  // ever tested for `sessions`.
-  selectTab(true);
+  if (view === 'secrets') { selectTab('secrets'); loadSecrets(); return; }
+  selectTab('sessions');
   if (view === 'sessions' && key) {
     // A pasted or reloaded deep link never passed through the list, which is
     // where the live stream starts; without this it sat at `connecting…`.
