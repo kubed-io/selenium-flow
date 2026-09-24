@@ -13,7 +13,13 @@
 
 ---
 
-## Status: **PLANNING** — opened 2026-09-24
+## Status: **BUILT, in one pull request** — opened, planned, drawn and built 2026-09-24
+
+Planned in chat (§F4.1–§F4.10), drawn in Penpot (§F4.11), then built from
+`docs/superpowers/plans/2026-09-24-the-hangar.md` by subagent-driven
+development: a fresh implementer per task, a spec-and-quality review after
+each, a whole-branch review at the end. Part III is ticked against the build;
+§F4.13 is what building it decided that the spec had not.
 
 Planned first, drawn in Penpot second, then built. Nothing is built until Dr K
 approves the drawing (§F1.40: *the design follows the app, except where Dr K
@@ -391,6 +397,61 @@ Redis. The pointer store shares the same connection and the same rule.
 
 The deploy that ships this chapter restarts the pod, which puts the live server
 back on Redis db 2; no separate restart (Dr K's call).
+
+### §F4.13 — What building it decided
+
+Rulings taken during the build, each recorded when it was made:
+
+- **The admin's keep never opens a browser.** `files.keep` takes the browser id
+  from the admin (`attached_id`), and an agent's keep of a download reads from
+  the browser it holds — neither ever reopens a reaped one, which could not hold
+  the download anyway.
+- **A screenshot keep moves the file or changes nothing.** If removing the
+  original fails, or a concurrent keep or clear got there first, the copy just
+  made in Files is removed and the call fails.
+- **`keep_file` is `destructive`** — a kept download replaces a same-named file
+  in Files, and AGENTS.md's honest-annotations rule outranks the extra prompt.
+- **The lightbox ignores keys while a confirm is open above it**, so Esc backs
+  out of "delete this?" without closing the lightbox.
+- **An empty Downloads row *can* fold** (its caret); it does not fold itself.
+  §F4.8's wording allowed either — Dr K to say if it should.
+- **A name a flow uses that no secret answers to is shown even when a hand edit
+  made it a `${…}` reference**: such a flow really fails, so the card is true.
+
+**Found by the reviews, not the tests.** The page's tests are string
+assertions, so every UI task was reviewed by hand-tracing the JavaScript: a
+deep-linked flow opening in the session you had just left, a bulk confirm that
+listed one session's files while deleting another's, a lightbox refresh that
+stranded the next session on "Loading…", an Esc that closed two overlays.
+The whole-branch review found the new integration flow could never pass
+(`stable_for` is seconds, not milliseconds — the plan's own mistake) and that
+its XPath matched the grid, not the tile. None of that fails a unit test.
+
+**Flown before the PR**, 2026-09-24: this branch's server run in the pod
+against the real Grid, a session seeded with four screenshots, a print and a
+download, and its admin page driven from a Grid browser — lightbox stepping
+with the arrow keys, Keep moving on to the next screenshot (3 / 4 → 3 / 3),
+Clear screenshots leaving Files untouched, a download kept as a copy through
+the tile's 📌 (hover, then click, as the integration flow does), the Secrets
+tab with its backlink landing on the flow. 44 requests, no errors.
+
+---
+
+## Part III — The plan, ticked against the build
+
+- [x] Two file folders in the store (§F4.7)
+- [x] Three sections addressed by path; keep moves a screenshot, copies a download (§F4.6, §F4.7)
+- [x] `session://files` a folder; `keep_file(uri)`; REST mirror; spec (§F4.6)
+- [x] Screenshots keep into `screenshots/`; `upload_file(file=uri)` (§F4.7)
+- [x] Admin API: per-section listing, clears, keep from either, counts, signed screenshot route (§F4.9)
+- [x] `GET /admin/secrets` with backlinks and undefined names (§F4.10)
+- [x] Shared components: one action per tile, three read-only rows, a stepping lightbox (§F4.9)
+- [x] Session page: Files | Flows tabs in the hash, three rows, confirms (§F4.5, §F4.8)
+- [x] Lightbox keep and delete; keep moves on (§F4.3, §F4.9)
+- [x] Secrets tab (§F4.10)
+- [x] Docs, skill, wiki, changelog, and one new integration flow
+- [x] Redis configured and unusable stops the boot (§F4.12)
+- [ ] After the deploy: the one-off move of each session's existing `files/*.png` into `screenshots/`, list shown to Dr K first (§F4.4)
 
 ---
 
