@@ -1600,3 +1600,21 @@ steps:
 - [ ] **Step 3: Saga** — status line, a Part III checklist of Tasks 1–11 ticked, and anything the build decided that the spec did not (from the SDD ledger's `Ruling:` lines).
 - [ ] **Step 4: Commit, push the branch and the wiki submodule, open the PR** with `gh pr create` — title "The Hangar: Downloads, Screenshots and Files, tabs, a stepping lightbox, and Secrets"; body: what changed for a user, the breaking changes, the Penpot file and version, the saga chapter, the one-off move still to do after deploy (§F4.4), and the attribution line.
 - [ ] **Step 5: After CI** — read and answer Copilot and code-scanning threads with `gh` (memory: they have found real bugs), resolve them, and report.
+
+---
+
+### Task 13: A Redis that is configured and unusable stops the boot (§F4.12)
+
+**Files:**
+- Modify: `kubed/selenium_flow/session/store.py` (`from_env`, `redis_client`, their docstrings); `kubed/selenium_flow/core/pointer.py` (~146, its `from_env`-style builder and comment)
+- Test: `tests/test_sessions.py` (~554-600), `tests/test_pointer.py` (~90-140)
+
+**Interfaces:**
+- Produces: `class StoreUnavailable(RuntimeError)` in `session/store.py`; `redis_client(env)` returns a connected client or raises `StoreUnavailable` with the reason (unreachable: the host/port or URL **without any password**, and the exception class and message; missing package: `pip install kubed-selenium-flow[redis]`); `from_env(env)` returns `MemoryStore` **only** when Redis is not configured and `SESSION_STORE` is unset or `memory`, and raises `StoreUnavailable` for an unknown `SESSION_STORE`.
+
+- [ ] **Step 1: Failing tests** — rewrite `test_an_unknown_backend_falls_back_to_memory`, `test_unreachable_redis_falls_back_to_memory_rather_than_failing_to_boot` and `test_a_missing_redis_package_falls_back_to_memory` as `test_an_unknown_backend_stops_the_boot`, `test_an_unreachable_redis_stops_the_boot_with_the_reason`, `test_a_missing_redis_package_stops_the_boot` — each `with pytest.raises(store.StoreUnavailable, match=...)` — plus `test_the_reason_never_quotes_the_redis_password` (a `REDIS_URL` of `redis://:s3cret@nowhere:6379/2` → the message has no `s3cret`) and `test_memory_is_used_when_nothing_asked_for_redis` (unchanged behaviour). In `tests/test_pointer.py` change the unreachable-redis pointer tests to expect `StoreUnavailable` from the pointer builder.
+- [ ] **Step 2: Run** — FAIL.
+- [ ] **Step 3: Implement** — `redis_client` raises `StoreUnavailable(f"Redis is configured but unreachable at {where} ({type(exc).__name__}: {exc}); refusing to start on in-memory sessions")` where `where` is `host:port/db` or the URL with its userinfo stripped; the exception message itself must be scrubbed the same way (`errors.message` already strips credentials — use it). `from_env` lets it propagate. Rewrite both docstrings with the §F4.12 reasoning (a server that will not start is restarted until Redis answers; one that started on the wrong store is never corrected). The pointer builder follows the same rule — no separate fallback.
+- [ ] **Step 4: Run** — `t tests/test_sessions.py tests/test_pointer.py tests/test_routes.py tests/test_http_answer.py tests/test_files_and_admin.py`, then `t`, `lint`. Check `docker-compose.yaml` and `CONFIGURATION.md` (skills reference) for any sentence promising a fallback, and fix it.
+- [ ] **Step 5: CHANGELOG** — under `### Changed`: `- **BREAKING:** a server configured for Redis that cannot reach it now refuses to start, rather than running on in-memory sessions until someone notices.`
+- [ ] **Step 6: Commit** — `git commit -am "A Redis that is configured and unusable stops the boot"`

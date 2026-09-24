@@ -372,3 +372,22 @@ start.
 
 The check that belongs in the method from now on, beside reachability: **no
 dead ends, and no flow on a page that nobody named.**
+
+### §F4.12 — Decision (Dr K's): a Redis that is configured and unusable stops the boot
+
+Found by another agent on 2026-09-24, and confirmed in the code: on 21 Sep the
+pod started while Redis was refusing connections, `redis_client` pinged once,
+logged a warning and handed back nothing, and `from_env` kept session records
+**in memory for the life of the process** — three days, with nothing but one
+log line saying so. The docstring's reasoning, *"a mapping that resolves
+locally beats a server that will not start"*, was the mistake: a server that
+will not start is restarted by Kubernetes until Redis answers, while a server
+that started on the wrong store is never corrected at all.
+
+So: **Redis configured and unreachable, or configured with the `redis`
+package missing, or a `SESSION_STORE` naming no known backend, is a startup
+error with the reason in it.** Memory is used only when nothing asked for
+Redis. The pointer store shares the same connection and the same rule.
+
+The deploy that ships this chapter restarts the pod, which puts the live server
+back on Redis db 2; no separate restart (Dr K's call).
