@@ -128,6 +128,7 @@ input[type=password], input[type=text] {
 }
 
 .pill.live { color: var(--ok); border-color: currentColor; }
+.pill.warn { color: var(--warn); border-color: currentColor; }
 
 .files { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--gap); }
 
@@ -201,14 +202,30 @@ iframe.console { width: 100%; height: 72vh; border: 1px solid var(--line); borde
 }
 
 .lightbox .head a { color: #cfe0ff; }
+.lightbox .head .name { font-weight: 600; }
+.lightbox .pos { opacity: 0.7; }
 .lightbox .body { display: grid; place-items: center; padding: 0 16px 16px; overflow: auto; }
 .lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; background: #fff; border-radius: 6px; }
+.lightbox iframe { width: 100%; height: 100%; border: 0; background: #fff; border-radius: 6px; }
 
 .lightbox button {
   background: rgba(255, 255, 255, 0.14);
   color: #fff;
   border-color: transparent;
 }
+.lightbox button:disabled { opacity: 0.35; }
+
+/* A file with nothing to preview — the download stays reachable both here
+   and in the head, since this is the only content in the body. */
+.lightbox .nopreview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: #f2f2f7;
+}
+.lightbox .nopreview .glyph { font-size: 48px; }
+.lightbox .nopreview a { color: #cfe0ff; }
 
 /* ---- the session header, grouped by lifetime ----------------------------
    The old header put seven facts in one row and buried the two that matter.
@@ -234,8 +251,8 @@ iframe.console { width: 100%; height: 72vh; border: 1px solid var(--line); borde
 
 /* ---- accordions ---------------------------------------------------------- */
 
-.section { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); margin-bottom: 12px; }
-.section > .head { display: flex; align-items: center; gap: var(--gap); padding: 11px 14px; }
+.section, section.row { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); margin-bottom: 12px; }
+.section > .head, section.row > .head { display: flex; align-items: center; gap: var(--gap); padding: 11px 14px; }
 /* A real <button>, stripped back to looking like a heading. Keeping the element
    semantic is what gives it keyboard focus and an announced expanded state; the
    styling is the part that was ever in question. */
@@ -246,64 +263,16 @@ iframe.console { width: 100%; height: 72vh; border: 1px solid var(--line); borde
 }
 .section > .head .title:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .section > .head .title .caret { display: inline-block; width: 12px; color: var(--muted); }
-.section > .body { padding: 0 14px 14px; }
+.section > .body, section.row > .body { padding: 0 14px 14px; }
 .section[data-open=false] > .body { display: none; }
 
-/* ---- file marks ----------------------------------------------------------
-   Two corners, two jobs, and keeping them apart is the whole point.
-
-   RIGHT is status and is inert: a bubble for a download, a pin for a kept
-   file. LEFT is the action and is a real button: keep, or delete.
-
-   One mark used to be both — a pin that turned into a trash on hover — which
-   put an irreversible delete behind the icon of a reversible toggle. Keeping
-   is a copy and there is no unpin, so a pin here can never mean what a pin
-   means anywhere else. See the note in components.js.
-
-   Each glyph has exactly one meaning and one corner, across every state: 🔵
-   and 📌 are what the file IS, ➕ and 🗑️ are what you can DO to it. A pin that
-   was status on the right and an action on the left would appear to jump
-   sides when you clicked it. */
+/* ---- the file action ------------------------------------------------------
+   One action, top-left, visible on hover — always on touch, since there is no
+   pointer to hover with there. No status mark: what a file IS used to sit in
+   the opposite corner, and named a state nobody could act on. */
 
 .file { position: relative; }
 
-/* Status and action are centred on the same offset from their own edge, so a
-   download and a kept file put their marks on the same line even though the
-   bubble is smaller than the glyphs. */
-.mark {
-  position: absolute;
-  top: 8px;
-  right: 12px;
-  width: 16px;
-  height: 16px;
-  display: grid;
-  place-items: center;
-  font-size: 13px;
-  line-height: 1;
-  z-index: 1;
-}
-
-/* Ephemeral. A gradient rather than a flat dot so it reads as a bubble — a
-   thing that will pop — rather than as a status light. Smaller than the glyphs
-   beside it, hence its own offsets: same centre, different size. */
-.mark.bubble {
-  top: 10px;
-  right: 14px;
-  width: 12px;
-  height: 12px;
-  border-radius: 999px;
-  background: radial-gradient(circle at 32% 28%,
-    color-mix(in srgb, var(--accent) 55%, #fff),
-    var(--accent) 62%,
-    color-mix(in srgb, var(--accent) 78%, #000));
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
-}
-
-/* The action, opposite the status it acts on. Quiet until the tile is hovered
-   or the button is focused: it is one of two marks on a small tile, and the
-   tile is mostly there to be looked at. Never hidden outright — `opacity`
-   rather than `display`, so it keeps its place in the tab order and a keyboard
-   user reaches it in the order they see it. */
 .file .act {
   position: absolute;
   top: 8px;

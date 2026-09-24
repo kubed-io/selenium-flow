@@ -127,36 +127,38 @@ def test_the_header_groups_the_two_lifetimes(components):
 # ---- files ------------------------------------------------------------------
 
 
-def test_a_download_and_a_kept_file_carry_different_marks(components):
-    """One list with a property saying which (§F1.10): a bubble for a download,
-    a pin for a kept file. The mark says what the file IS and never acts, so it
-    carries no data attribute for the page to wire — and it is labelled, so the
-    state reaches someone who cannot see a pin."""
-    assert 'class="mark bubble" role="img" aria-label="Download"' in components
-    assert 'class="mark pin" role="img" aria-label="Kept"' in components
-    assert 'class="mark bubble" data-keep=' not in components
-    assert 'class="mark pin" data-delete=' not in components
+def test_a_tile_carries_one_action_and_no_status_mark(components):
+    """The row says what a file is, so the corner marks went (§F4.9)."""
+    assert "mark pin" not in components and "mark bubble" not in components
+    assert 'class="act keep" data-keep="' in components
+    assert 'class="act drop" data-delete="' in components
+    assert "&#128204;" in components  # the pin is the keep action now
 
 
-def test_the_action_is_omitted_without_a_surface_that_can_act(components):
-    """These tiles also render inside an MCP app holding no credential, where a
-    live control would be a button that cannot work. The page that *can* act
-    opts in; the library never assumes it. The STATUS mark is drawn either way,
-    because what a file is stays true on every surface."""
-    grid = components.split("function fileGrid")[1].split("function ")[0]
-    assert "(opts.actions\n" in grid, "the action is gated"
-    assert "grid.className = 'files';" in grid, "the status mark is not"
+def test_the_lightbox_steps_and_says_where_it_is(components):
+    for needed in ("‹ Prev", "Next ›", "ArrowLeft", "ArrowRight", "data-prev", "data-next", " / "):
+        assert needed in components, needed
 
 
-def test_each_glyph_has_one_meaning_and_one_corner(components):
-    """Status right, action left — and never the same glyph in both. A pin was
-    the kept mark on the right AND the keep button on the left, so clicking it
-    looked like one mark jumping sides. The keep action is a plus: it is what
-    produces the pin rather than another copy of it."""
-    grid = components.split("function fileGrid")[1].split("function ")[0]
-    assert "&#10133;" in grid, "keep is a plus"
-    assert "&#128465;" in grid, "delete is a trash"
-    assert grid.count("\U0001f4cc") == 1, "the pin appears once, as status"
+def test_the_lightbox_disables_its_ends_rather_than_wrapping(components):
+    assert "index === 0" in components and "index === files.length - 1" in components
+
+
+def test_a_cancelled_lightbox_action_does_not_alert(components):
+    """opts.action.run may reject with 'cancelled' — a confirm dismissed rather
+    than a real failure — and that message is swallowed instead of alerted."""
+    lightbox_src = components.split("function lightbox(")[1].split("\n  }\n")[0]
+    assert "cancelled" in lightbox_src
+
+
+def test_the_app_draws_three_read_only_rows(components):
+    assert "function fileSections(" in components
+    for title in ("'Downloads'", "'Screenshots'", "'Files'"):
+        assert title in components, title
+
+
+def test_the_session_card_names_each_count(components):
+    assert "' download'" in components and "' screenshot'" in components
 
 
 def test_the_shared_library_renders_the_action_but_never_wires_it(components):
@@ -169,18 +171,6 @@ def test_the_shared_library_renders_the_action_but_never_wires_it(components):
     # The one listener here is the thumbnail's, which only opens a link.
     assert grid.count("addEventListener") == 1
     assert "item.querySelector('.thumb').addEventListener" in grid
-
-
-def test_only_a_kept_file_offers_a_delete(page):
-    """The Grid's store has no per-file delete, so a trash on a download would
-    be a control with nothing behind it. A download's action keeps it; a kept
-    file's is the delete."""
-    grid = page.split("function fileGrid")[1].split("function ")[0]
-    # `f.kept ? <delete> : <keep>` — one branch each, and neither borrows the
-    # other's verb.
-    kept, download = grid.split("? '<button")[1].split(": '<button")
-    assert "data-delete" in kept and "data-keep" not in kept
-    assert "data-keep" in download and "data-delete" not in download
 
 
 def test_clearing_downloads_lists_the_names_it_will_remove(page):
