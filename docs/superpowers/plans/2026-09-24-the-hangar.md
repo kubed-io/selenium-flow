@@ -230,7 +230,7 @@ Update the `FlowStore` protocol signatures to match, and its docstring's last pa
   - `root(actions, sessions, store, token, name, base="", mount="") -> dict` → `{session, count, files, folders: [{name, uri, count, browser?}]}`
   - `folder(actions, sessions, store, token, name, which, base="", mount="") -> dict` → `{session, folder, uri, count, files, browser?}`
   - `sections(actions, sessions, store, token, name, base="", mount="", session_id=None, downloads=None) -> dict` → `{component: "fileSections", session, browser, downloads, screenshots, files}`
-  - `keep(actions, sessions, store, uri, name=None) -> dict` → `{kept: True, from, uri, name, size, created}`
+  - `keep(actions, sessions, store, uri, name=None, session_id=None) -> dict` → `{kept: True, from, uri, name, size, created}` — `session_id`, when given, is the browser to read a download from and is never resolved (the admin passes it so it can never open a browser); when None, the caller's browser is resolved as today
   - `keep_made(sessions, store, name, data, token, base="", mount="", folder=FILES) -> dict` (a described entry)
   - `read_file(actions, sessions, store, uri, name=None) -> tuple[str, bytes]`
   - `delete_one(store, session, name) -> dict`; `clear_screenshots(store, session) -> dict`
@@ -605,7 +605,7 @@ def _claim(store, session: str, name: str, data: bytes, folder: str) -> dict:
 `keep`:
 
 ```python
-def keep(actions, sessions, store, uri, name=None) -> dict:
+def keep(actions, sessions, store, uri, name=None, session_id=None) -> dict:
     """Put one file in Files. A screenshot moves; a download is copied, because
     the Grid cannot delete one file (§F1.10); a Files URI answers with itself."""
     if store is None:
@@ -628,7 +628,8 @@ def keep(actions, sessions, store, uri, name=None) -> dict:
         landed = _claim(store, session, leaf, data, FILES)
         store.delete_file(session, leaf, SCREENSHOTS)
     else:
-        session_id = sessions.resolve(name or sessions.name())
+        if session_id is None:
+            session_id = sessions.resolve(name or sessions.name())
         if not session_id:
             raise ValueError("a download is read from a browser, and none is open")
         data = actions.grid.read_file(session_id, leaf)
@@ -921,7 +922,7 @@ Every endpoint above also gets a no-token case returning 401 (one parametrised t
         return JSONResponse(removed)
 ```
 
-(Wrap each in the existing `errors.status_for` / `errors.message` refusal pattern.) Keep: route `…/files/{folder}/{name}/keep`, `POST`; refuse a folder outside `(SCREENSHOTS, DOWNLOADS)` with `ValueError` → 400; call `files.keep(actions, sessions, flow_store, files.uri_of(folder, name), name=key)`. **Delete** the old `…/files` DELETE and the old `…/files/{name}/keep` route. Signed route `GET {prefix}/screenshots/{session}/{name}` copying `kept_file`, validating against `links.screenshot_path` and reading `flow_store.read_file(session, name, flows.SCREENSHOTS_DIR)`.
+(Wrap each in the existing `errors.status_for` / `errors.message` refusal pattern.) Keep: route `…/files/{folder}/{name}/keep`, `POST`; refuse a folder outside `(SCREENSHOTS, DOWNLOADS)` with `ValueError` → 400; call `files.keep(actions, sessions, flow_store, files.uri_of(folder, name), name=key, session_id=attached_id(key))`. **Delete** the old `…/files` DELETE and the old `…/files/{name}/keep` route. Signed route `GET {prefix}/screenshots/{session}/{name}` copying `kept_file`, validating against `links.screenshot_path` and reading `flow_store.read_file(session, name, flows.SCREENSHOTS_DIR)`.
 
 `sessions_payload`: replace `kept = named(flow_store.files, session)` with names per folder (`lambda s: flow_store.files(s, flows.SCREENSHOTS_DIR)` and the Files default), compute `counts`, `files_count = sum(v for v in counts.values() if v is not None)` or None, and `files_rev = json.dumps(sorted([f, n] for f, names in (("downloads", downloads or []), ("screenshots", shots), ("files", kept)) for n in names))`. Keep the comments that explain *why* the stamp is names-with-folders and not a count (reword "kept copy" to "a name moving between folders"). Remove `kept_count`.
 
