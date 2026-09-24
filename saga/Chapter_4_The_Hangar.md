@@ -352,3 +352,23 @@ carries a link, no link on any page is dead, every board on every page is
 reachable from that page's start, and `File.validate()` is clean. Versions
 *before hangar restructure (Chapter 4)* and *Chapter 4 design — for Dr K's
 review* bracket the work.
+
+**Second pass, the same day — Dr K: *"it was quite hard to click around."*** The
+first pass had been checked for *reachability*, and reachability was not the
+question. Walked link by link, the Files page had dead ends on every result
+screen, a lightbox chain that stopped at 3 of 6, tiles that did nothing, and
+five stray flows Penpot had made on its own for boards a link started from.
+The Flows page carried a slip from the original drawing — the secret step's
+un-pick sat on the row next to the picked one — and a move nothing could undo.
+
+Rebuilt as **stories**, each playable end to end: browse a row through its
+lightbox, keep a screenshot (a move, then the 5-item list), keep a download (a
+copy), clear, delete, pick, move and move back. Keep and delete are shown on
+one file each, so every result screen stays true of what came before it; the
+other tiles draw those buttons without wiring them. Every result screen
+carries a yellow *Prototype* note saying what just happened, and a click on it,
+the logo or the current tab starts over. Each page has a guide board beside its
+start.
+
+The check that belongs in the method from now on, beside reachability: **no
+dead ends, and no flow on a page that nobody named.**
