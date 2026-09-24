@@ -391,3 +391,21 @@ Redis. The pointer store shares the same connection and the same rule.
 
 The deploy that ships this chapter restarts the pod, which puts the live server
 back on Redis db 2; no separate restart (Dr K's call).
+
+---
+
+## Open questions
+
+1. **A frontend framework for the admin page?** Dr K, 2026-09-24: *"there is no
+   frontend framework … wouldn't it be easier to use vue.js or something — a bit
+   more modern than a giant single admin.html"* — filed for later, deliberately
+   not this chapter. What is known: FastMCP offers nothing for an admin page (its
+   only UI is MCP Apps, which `app.html` uses to draw a tool result in a client);
+   the page is static files served by Starlette. The constraints any answer must
+   keep: no build step (the repo ships one Python image), and `components.js`
+   still has to run inside the MCP app. That points at a no-build framework from
+   a CDN — petite-vue or Alpine.js (templates in the HTML), or Preact + htm (ES
+   modules) — over Vue with a bundler. The pain it would remove is concrete:
+   most of Task 8's review was hand-tracing `gone(key)` and sequence-number race
+   guards that a reactive store makes structural. A spike first: port the Files
+   tab in one of them and compare.
