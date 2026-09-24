@@ -172,7 +172,7 @@ def test_a_tile_carries_one_action_and_no_status_mark(components):
 
 
 def test_the_lightbox_steps_and_says_where_it_is(components):
-    for needed in ("‹ Prev", "Next ›", "ArrowLeft", "ArrowRight", "data-prev", "data-next", " / "):
+    for needed in ("\u2039 Prev", "Next \u203a", "ArrowLeft", "ArrowRight", "data-prev", "data-next", " / "):
         assert needed in components, needed
 
 
