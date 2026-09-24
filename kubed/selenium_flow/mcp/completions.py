@@ -21,11 +21,15 @@ log = logging.getLogger(__name__)
 # and the key of a name inside one entry.
 FLOW_NAMES = ("flow://flows", "flows", "name")
 FILE_NAMES = ("session://files", "files", "name")
+SCREENSHOT_NAMES = ("session://files/screenshots", "files", "name")
+DOWNLOAD_NAMES = ("session://files/downloads", "files", "name")
 
 # Which (reference, argument) pairs ask for which names.
 TEMPLATES = {
     ("flow://flows/{name}", "name"): FLOW_NAMES,
     ("session://files/{name}", "name"): FILE_NAMES,
+    ("session://files/screenshots/{name}", "name"): SCREENSHOT_NAMES,
+    ("session://files/downloads/{name}", "name"): DOWNLOAD_NAMES,
 }
 PROMPTS = {("repair_flow", "flow"): FLOW_NAMES}
 

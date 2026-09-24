@@ -314,7 +314,9 @@ def test_deleting_refuses_when_keeping_is_off():
 # action (§F3.6). Written out rather than derived, so a typo in either table
 # cannot make the parity test agree with itself.
 MCP_FOR = {
-    "list": ("resource", "session://files"),
+    "list": ("resource", files.ROOT_URI),
+    "screenshots": ("resource", files.FOLDER_URI[files.SCREENSHOTS]),
+    "downloads": ("resource", files.FOLDER_URI[files.DOWNLOADS]),
     "keep": ("tool", files.KEEP_TOOL),
 }
 
@@ -339,7 +341,11 @@ async def test_every_file_action_is_reachable_from_both_surfaces(
     uris = {str(r.uri) for r in await kept_server.mcp.list_resources()}
     for path, (kind, target) in MCP_FOR.items():
         method, template = files.FILE_ROUTES[path]
-        route = f"/files{template}".replace("{name}", "report.pdf")
+        route = (
+            f"/files{template}"
+            .replace("{folder}", "downloads")
+            .replace("{name}", "report.pdf")
+        )
         assert target in (names if kind == "tool" else uris), f"{route} has no {kind}"
         # 401 rather than 404: the route exists and refused the credential,
         # which is what proves it is bound.
@@ -359,7 +365,11 @@ async def test_the_keep_tool_declares_honest_annotations(kept_server):
     keep = tools[files.KEEP_TOOL].annotations
     assert keep.title and keep.read_only_hint is False
     assert keep.destructive_hint is False, "keeping a file destroys nothing"
-    assert keep.idempotent_hint is True
+    # False, not True: a screenshot moves, so keeping it twice is refused the
+    # second time (there is no longer a screenshot to move), and a download
+    # kept twice lands beside itself as `name (1)` rather than replacing
+    # anything — neither is "repeat me and nothing changes" (§F4.7).
+    assert keep.idempotent_hint is False
 
 
 async def test_deleting_a_kept_file_is_not_offered_to_an_agent(
@@ -379,7 +389,11 @@ async def test_deleting_a_kept_file_is_not_offered_to_an_agent(
 
 def test_the_endpoints_need_the_token(client):
     for method, template in files.FILE_ROUTES.values():
-        route = f"/files{template}".replace("{name}", "report.pdf")
+        route = (
+            f"/files{template}"
+            .replace("{folder}", "downloads")
+            .replace("{name}", "report.pdf")
+        )
         call = getattr(client, method)
         assert call(route).status_code == 401, route
         assert (
@@ -392,16 +406,17 @@ def test_keep_then_list_over_http(client, live):
         patch.object(browser.Grid, "files", return_value=DOWNLOADS),
         patch.object(browser.Grid, "read_file", return_value=b"PDF"),
     ):
-        kept = client.put("/files/report.pdf/kept", headers=AUTH)
+        kept = client.put("/files/downloads/report.pdf/kept", headers=AUTH)
         assert kept.status_code == 200, kept.text
-        assert kept.json()["kept"] is True
+        assert kept.json()["uri"] == "session://files/report.pdf"
 
         body = client.get("/files", headers=AUTH).json()
-    assert [(f["name"], f["kept"]) for f in body["files"]] == [
-        ("report.pdf", True),
-        ("shot.png", False),
-    ]
+    assert [f["name"] for f in body["files"]] == ["report.pdf"]
     assert body["session"] == SESSION
+    # The Grid still reports both — keeping a download is a copy, so the
+    # original stays exactly where it was until the browser ends (§F1.10).
+    downloads = body["folders"][1]
+    assert downloads["name"] == "downloads" and downloads["count"] == 2
 
 
 def test_an_unusable_name_is_a_400_over_http(client, live):
@@ -409,7 +424,7 @@ def test_an_unusable_name_is_a_400_over_http(client, live):
     reaches the handler, because the path pattern does not match one — which is
     a refusal too, just a 404 shaped one. `valid_file_name` is what refuses the
     rest, and it is unit-tested on its own."""
-    response = client.put("/files/.hidden/kept", headers=AUTH)
+    response = client.put("/files/downloads/.hidden/kept", headers=AUTH)
     assert response.status_code == 400
     assert "file name" in response.json()["error"]
 
@@ -425,7 +440,7 @@ def test_a_grid_that_says_no_is_not_a_500(client, live):
     with patch.object(
         browser.Grid, "read_file", side_effect=requests.HTTPError(response=gone)
     ):
-        response = client.put("/files/report.pdf/kept", headers=AUTH)
+        response = client.put("/files/downloads/report.pdf/kept", headers=AUTH)
     assert response.status_code == 404
 
 

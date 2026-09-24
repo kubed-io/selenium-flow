@@ -386,8 +386,12 @@ def test_the_published_file_shape_matches_what_describe_returns():
 
     entry = FILE_SCHEMAS["FileEntry"]["properties"]
     for described in (
-        files.describe("sess", {"name": "s.png", "size": 3, "creationTime": 1}, "tok", "https://h"),
-        files.describe_kept("sess", {"name": "s.png", "size": 3, "creationTime": 1}, "tok", "https://h"),
+        # A file already in Files: no keep_with, nothing left to keep.
+        files.describe(files.FILES, {"name": "s.png", "size": 3, "creationTime": 1}, "https://h/s.png"),
+        # A screenshot or a download: carries keep_with, since neither is kept yet.
+        files.describe(
+            files.SCREENSHOTS, {"name": "s.png", "size": 3, "creationTime": 1}, "https://h/s.png"
+        ),
     ):
         assert set(described) <= set(entry), (
             "the OpenAPI file schema is missing keys that are actually returned: "
@@ -396,7 +400,7 @@ def test_the_published_file_shape_matches_what_describe_returns():
     # The Grid can omit creationTime, so the descriptor's `created` can be null
     # and a generated client must accept that (Copilot, #28).
     assert "null" in entry["created"]["type"]
-    assert files.describe("sess", {"name": "x.png"}, "tok")["created"] is None
+    assert files.describe(files.FILES, {"name": "x.png"}, "https://h/x.png")["created"] is None
 
 
 # ---- an insecure browser -----------------------------------------------------

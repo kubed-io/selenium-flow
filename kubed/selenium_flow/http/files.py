@@ -93,10 +93,9 @@ ITEM_URI = {k: v + "/{name}" for k, v in FOLDER_URI.items()}
 FILES_TOOL = "session_files"
 KEEP_TOOL = "keep_file"
 
-# `register` still resolves the resource that used to be the whole listing at
-# this name — `session://files`, under a different constant name. Kept as an
-# alias rather than edited at every call site: Task 3 owns the redesign of
-# what that resource actually returns.
+# The root listing's resource URI, named for the call sites that read like a
+# listing rather than an address: `register`'s own resource, and the spec's
+# `x-mcp-resource` for the `list` operation.
 LIST_URI = ROOT_URI
 
 SHAPES = (
@@ -113,11 +112,19 @@ SHAPES = (
 # one-sided capability this project forbids. The admin UI reaches both —
 # DELETE /admin/sessions/{key}/files and .../files/{name} — which is an operator
 # surface rather than a caller's, and is where deleting anything belongs.
-FILE_ENDPOINTS = ("list", "keep")
+FILE_ENDPOINTS = ("list", "screenshots", "downloads", "keep")
 
 # The REST shape of each: method, and the path under the /files prefix. Read by
 # the routes and by the published spec, so the two cannot disagree (§F2.13).
-FILE_ROUTES = {"list": ("get", ""), "keep": ("put", "/{name}/kept")}
+# `keep` names the folder in the path, because keeping is only ever offered for
+# the two folders a file can be kept OUT of — a Files URI already answers with
+# itself (§F4.7).
+FILE_ROUTES = {
+    "list": ("get", ""),
+    "screenshots": ("get", "/screenshots"),
+    "downloads": ("get", "/downloads"),
+    "keep": ("put", "/{folder}/{name}/kept"),
+}
 
 IMAGE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml")
 
@@ -543,6 +550,41 @@ def delete_one(store, session: str, name: str) -> dict:
     return {"deleted": removed, "session": session, "name": name}
 
 
+FOLDER_NAME = {SCREENSHOTS: "Screenshots", DOWNLOADS: "Downloads"}
+
+FOLDER_DESCRIPTION = {
+    SCREENSHOTS: (
+        "This session's saved screenshots and PDFs — everything screenshot and "
+        f"print produced that has not been kept yet. {KEEP_TOOL}(uri) moves one "
+        f"into {ROOT_URI}, where it stays until a person deletes it."
+    ),
+    DOWNLOADS: (
+        "This session's browser downloads. They belong to the browser and "
+        f"disappear when it ends or the Grid reaps it; {KEEP_TOOL}(uri) copies "
+        f"one into {ROOT_URI} before that happens."
+    ),
+}
+
+ITEM_DESCRIPTION = {
+    FILES: (
+        "One file from Files, as bytes. The name comes from the "
+        f"{ROOT_URI} listing, which also carries each file's real media type — "
+        "a template declares one type for every file it serves, so this is "
+        "deliberately the generic one."
+    ),
+    SCREENSHOTS: (
+        f"One screenshot, as bytes, from {FOLDER_URI[SCREENSHOTS]}. It answers "
+        "after the browser that took it has gone, because a screenshot is "
+        "already ours (§F1.10)."
+    ),
+    DOWNLOADS: (
+        f"One download, as bytes, from {FOLDER_URI[DOWNLOADS]} — read from the "
+        f"browser itself, so this answers only while it is open. {KEEP_TOOL}(uri) "
+        "copies it somewhere that outlives the browser."
+    ),
+}
+
+
 def register(
     mcp,
     actions,
@@ -555,69 +597,69 @@ def register(
 ) -> set[str]:
     """Register the resources, the mirroring tool, and the file actions.
 
-    Returns the mirror tool names. ``keep_file`` and ``delete_file`` are not
-    mirrors — they are capabilities with no resource behind them — so they stay
-    visible to every client.
+    Returns the mirror tool names. ``keep_file`` is not a mirror — it is a
+    capability with no resource behind it — so it stays visible to every
+    client.
     """
 
     @mcp.resource(
-        LIST_URI,
+        ROOT_URI,
         name="Session Files",
         description=DESCRIPTION,
         mime_type="application/json",
     )
     def files_resource() -> dict:
-        # TEMPORARY (Task 2 shim, Task 3 owns the real redesign of this
-        # resource): `listing` is gone, so this points at the closest of the
-        # new functions that still runs.
-        return sections(
+        return root(
             actions, sessions, store, token, sessions.name(), base=base, mount=prefix
         )
 
-    @mcp.resource(
-        FILE_URI,
-        name="Session File",
-        description=(
-            "One file from this session, as bytes. The name comes from the "
-            f"{LIST_URI} listing, which also carries each file's real media "
-            "type — a template declares one type for every file it serves, so "
-            "this is deliberately the generic one."
-        ),
-        mime_type="application/octet-stream",
-    )
-    def file_resource(name: str) -> bytes:
-        """The file itself.
+    def _folder_resource(which: str):
+        def read() -> dict:
+            return folder(
+                actions, sessions, store, token, sessions.name(), which,
+                base=base, mount=prefix,
+            )
 
-        Returned as bytes with its real media type rather than as a link, so a
-        client that reads resources needs nothing else to display it. A kept
-        file is served from our own store, so this answers after the browser
-        that produced it has gone.
-        """
-        wanted = flows.valid_file_name(name)
-        session = owner(store, sessions.name())
-        if store is not None and session:
-            try:
-                return store.read_file(session, wanted)
-            except FileNotFoundError:
-                pass
-        target = sessions.browser(sessions.name())
-        if not target:
-            raise ValueError("no session is being held for you")
-        return actions.grid.read_file(target, wanted)
+        return read
+
+    for which in (SCREENSHOTS, DOWNLOADS):
+        mcp.resource(
+            FOLDER_URI[which],
+            name=FOLDER_NAME[which],
+            description=FOLDER_DESCRIPTION[which],
+            mime_type="application/json",
+        )(_folder_resource(which))
+
+    def _item_resource(which: str):
+        def read(name: str) -> bytes:
+            return read_file(actions, sessions, store, uri_of(which, name))[1]
+
+        return read
+
+    item_name = {
+        FILES: "Session File", SCREENSHOTS: "Screenshot", DOWNLOADS: "Download",
+    }
+    item_uri = {FILES: FILE_URI, **ITEM_URI}
+    for which in (FILES, SCREENSHOTS, DOWNLOADS):
+        mcp.resource(
+            item_uri[which],
+            name=item_name[which],
+            description=ITEM_DESCRIPTION[which],
+            mime_type="application/octet-stream",
+        )(_item_resource(which))
 
     @mcp.tool(
         name=FILES_TOOL,
         description=(
-            "Show every file this session has: downloads, saved screenshots and "
-            "PDFs, and kept files, each marked kept or not, with a link that "
-            "opens in a browser. A file that is not kept goes with the browser."
+            "All three sections this session has — files, screenshots and "
+            "downloads — for a host that renders a component instead of "
+            "reading resources. Each entry carries its own uri and a link that "
+            "opens in a browser for a while."
         ),
         app=app_config,
         annotations=reads("Files this session has"),
     )
     def session_files() -> dict:
-        # TEMPORARY (Task 2 shim, Task 3 owns the real redesign): same as
-        # `files_resource` above.
         return sections(
             actions, sessions, store, token, sessions.name(), base=base, mount=prefix
         )
@@ -625,22 +667,17 @@ def register(
     @mcp.tool(
         name=KEEP_TOOL,
         description=(
-            "Keep one of this session's files, so it survives the browser "
-            "ending, switching or being reaped. A download otherwise goes with "
-            "the browser.\n\n"
-            "name is as session://files lists it. Keeping it again replaces the "
-            "kept copy, so this is safe to repeat. upload_file(kept=name) puts "
-            "a kept file back into a page."
+            "Keep one file in Files, where it stays until a person deletes it.\n\n"
+            "uri is as session://files and its folders list it. A screenshot "
+            "moves out of session://files/screenshots; a download is copied, "
+            "since the browser keeps its own until it ends. The result is the "
+            "file's new uri — a clash lands as name (1). upload_file(file=uri) "
+            "puts any file back into a page."
         ),
-        annotations=hints("Keep a file beyond the browser", idempotent=True),
+        annotations=hints("Keep a file in Files", idempotent=False),
     )
-    def keep_file(name: str) -> dict:
-        # TEMPORARY (Task 2 shim, Task 3 owns the real redesign): the real tool
-        # takes a URI naming any of the three sections; this still takes a bare
-        # download name, the only thing `keep_one` ever did, and builds the
-        # equivalent URI so `keep()` runs unchanged.
-        session = sessions.name()
-        return keep(actions, sessions, store, uri_of(DOWNLOADS, name), name=session)
+    def keep_file(uri: str) -> dict:
+        return keep(actions, sessions, store, uri)
 
     _routes(mcp, actions, sessions, store, token, base, prefix)
     return {FILES_TOOL}
@@ -653,8 +690,12 @@ def _routes(mcp, actions, sessions, store, token, base, prefix) -> None:
     are not browser actions, and counting them as such would break the
     one-to-one promise ``test_surfaces.py`` guards over those.
 
-    A file belongs to a session, so both of these name one the way everything
-    else does — a header or ``?session=`` — and neither takes an id.
+    A file belongs to a session, so all of these name one the way everything
+    else does — a header or ``?session=`` — and none takes an id.
+
+    The two literal GETs are registered before the one route with a path
+    parameter, so `/files/screenshots` and `/files/downloads` are never at the
+    mercy of a template that could otherwise be tried first.
     """
 
     files_root = f"{prefix}/files"
@@ -665,10 +706,7 @@ def _routes(mcp, actions, sessions, store, token, base, prefix) -> None:
 
     @mcp.custom_route(files_root, methods=["GET"], name="files_list")
     async def list_files(request: Request) -> JSONResponse:
-        """Every file this session has: the browser's downloads and its kept
-        files, still answering after the browser is gone."""
-        # TEMPORARY (Task 2 shim, Task 3 owns the real redesign): `listing` is
-        # gone, so this points at the closest of the new functions.
+        """Files' own listing, and the two folders beside it."""
         return await answer(
             request,
             "list",
@@ -677,20 +715,50 @@ def _routes(mcp, actions, sessions, store, token, base, prefix) -> None:
             ),
         )
 
-    @mcp.custom_route(files_root + "/{name}/kept", methods=["PUT"], name="files_keep")
-    async def keep_route(request: Request) -> JSONResponse:
-        """Keep one download beyond the browser that made it. A PUT because
-        keeping a name that is already kept replaces it."""
-        # TEMPORARY (Task 2 shim, Task 3 owns the real redesign): same
-        # bare-name-to-URI adaptation as `keep_file` above.
+    @mcp.custom_route(
+        files_root + "/screenshots", methods=["GET"], name="files_screenshots"
+    )
+    async def list_screenshots(request: Request) -> JSONResponse:
+        """This session's saved screenshots and PDFs."""
         return await answer(
             request,
-            "keep",
-            lambda name, _body: keep(
-                actions,
-                sessions,
-                store,
-                uri_of(DOWNLOADS, request.path_params["name"]),
-                name=name,
+            "screenshots",
+            lambda name, _body: folder(
+                actions, sessions, store, token, name, SCREENSHOTS,
+                base=base, mount=prefix,
             ),
         )
+
+    @mcp.custom_route(
+        files_root + "/downloads", methods=["GET"], name="files_downloads"
+    )
+    async def list_downloads(request: Request) -> JSONResponse:
+        """This session's browser downloads."""
+        return await answer(
+            request,
+            "downloads",
+            lambda name, _body: folder(
+                actions, sessions, store, token, name, DOWNLOADS,
+                base=base, mount=prefix,
+            ),
+        )
+
+    @mcp.custom_route(
+        files_root + "/{folder}/{name}/kept", methods=["PUT"], name="files_keep"
+    )
+    async def keep_route(request: Request) -> JSONResponse:
+        """Keep a screenshot or a download beyond what made it. A PUT because
+        keeping a name that is already kept lands beside it rather than
+        failing."""
+        which = request.path_params["folder"]
+        leaf = request.path_params["name"]
+
+        def call(name, _body):
+            if which not in (SCREENSHOTS, DOWNLOADS):
+                raise ValueError(
+                    f"{which!r} is not something to keep: use {SCREENSHOTS} or "
+                    f"{DOWNLOADS}"
+                )
+            return keep(actions, sessions, store, uri_of(which, leaf), name=name)
+
+        return await answer(request, "keep", call)

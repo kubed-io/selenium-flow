@@ -5,6 +5,7 @@ is the part this server actually decides: who may fetch a file, which shape a
 given client is offered, and that the two surfaces show the same components.
 """
 
+import json
 import time
 from unittest.mock import patch
 
@@ -111,12 +112,16 @@ def test_downloads_in_flight_are_not_files():
 
 
 def test_describe_marks_images_and_types():
-    described = files.describe("abc", ENTRIES[0], TOKEN)
+    url = links.file_url("abc", "shot.png", TOKEN)
+    described = files.describe(files.DOWNLOADS, ENTRIES[0], url)
     assert described["content_type"] == "image/png"
     assert described["image"] is True
-    assert described["url"].startswith("/files/abc/shot.png?exp=")
-    assert described["kept"] is False, "a download belongs to the browser"
-    assert files.describe("abc", ENTRIES[1], TOKEN)["image"] is False
+    assert described["url"] == url
+    assert "kept" not in described, "the folder says that now, not a flag"
+    assert described["keep_with"] == f'{files.KEEP_TOOL}({json.dumps(described["uri"])})', (
+        "a download is not kept until keep_file is called"
+    )
+    assert files.describe(files.DOWNLOADS, ENTRIES[1], url)["image"] is False
 
 
 # --- the admin surface ----------------------------------------------------

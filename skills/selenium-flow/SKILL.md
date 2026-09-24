@@ -56,9 +56,10 @@ leave it alone.
 To switch, just call `open_session(browser="firefox")` again — the browser you
 are holding is ended for you first, so do not close and reopen. **The files it
 had go with it**: the Grid keeps a file store per browser and deletes it with
-the browser. `keep_file(name)` copies one out first — a kept file belongs to
-your session instead, so it survives switching, ending, and the Grid reaping an
-idle browser. `session://files` lists both kinds and marks which is which.
+the browser. `keep_file(uri)` copies one into Files first — a kept file belongs
+to your session instead, so it survives switching, ending, and the Grid
+reaping an idle browser. `session://files` lists what is kept, and names
+`session://files/screenshots` and `session://files/downloads` beside it.
 
 One session holds one browser. To use both at once, use two session names;
 `session://current` reports which browser the one you are holding is.
@@ -162,7 +163,7 @@ check this table twice before reaching for it.
 | `resize` | change the window size | `width`, `height` |
 | `execute_script` | run JavaScript — only for what nothing above does | `script` |
 | `assert` | JavaScript that must return true, or the call fails | `script`, `message`, `stable_for` |
-| `keep_file` | keep a file past the browser | `name` |
+| `keep_file` | keep a file in Files, past the browser | `uri` |
 | `save_flow` | save a sequence of steps under a name | `name`, `parameters`, `steps`, `timeout` |
 | `run_flow` | run a saved flow in one call | `name`, `params` |
 | `delete_flow` | delete one of your flows | `name` |
@@ -172,8 +173,12 @@ And everything to read:
 | URI | Is |
 |---|---|
 | `session://current` | what you are holding |
-| `session://files` | what the browser downloaded and what you kept, each with a link |
-| `session://files/{name}` | one of those files |
+| `session://files` | Files' own kept files, each with a link, plus the two folders below |
+| `session://files/{name}` | one kept file, as bytes |
+| `session://files/screenshots` | saved screenshots and PDFs not yet kept |
+| `session://files/screenshots/{name}` | one of those, as bytes |
+| `session://files/downloads` | this session's browser downloads |
+| `session://files/downloads/{name}` | one of those, as bytes, while the browser is open |
 | `secret://secrets` | the secrets you may type — never their values |
 | `flow://flows` | the saved flows you can run |
 | `flow://flows/{name}` | one flow's parameters and steps |
