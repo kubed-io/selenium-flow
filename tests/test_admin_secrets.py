@@ -88,3 +88,24 @@ def test_with_no_catalogue_it_says_off(tmp_path):
     srv = SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token=TOKEN)
     body = TestClient(srv.mcp.http_app()).get("/admin/secrets", headers=AUTH).json()
     assert body == {"enabled": False, "count": 0, "secrets": [], "undefined": []}
+
+
+def test_a_broken_store_answers_through_errors_not_a_bare_500(
+    tmp_path, secrets_dir, monkeypatch
+):
+    """`catalogue.listing` and `secret_uses.uses` used to run unguarded, so an
+    ``OSError`` from a store gone read-only or unmounted fell straight through
+    to Starlette's own handler instead of the scrubbed, logged answer every
+    other route on this surface gives (§AGENTS.md, errors.py)."""
+    from kubed.selenium_flow import secrets as secrets_module
+
+    srv = SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token=TOKEN,
+                      flow_data_dir=str(tmp_path / "flows"), secrets_dirs=str(secrets_dir))
+
+    def boom(self, session=""):
+        raise OSError("secrets store is unmounted")
+
+    monkeypatch.setattr(secrets_module.Catalogue, "listing", boom)
+    resp = TestClient(srv.mcp.http_app()).get("/admin/secrets", headers=AUTH)
+    assert resp.status_code == 500
+    assert resp.json() == {"error": "secrets store is unmounted"}

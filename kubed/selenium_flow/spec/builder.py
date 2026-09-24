@@ -514,14 +514,20 @@ def _named_in_path(template: str) -> list[dict]:
 
     Generic over the placeholder's name so a route with more than one — the
     file keep route names both a folder and a name — publishes all of them,
-    not just the first.
+    not just the first. `folder` is special-cased with the two values it may
+    ever hold, the same way `files.SCREENSHOTS`/`files.DOWNLOADS` narrow it at
+    the route itself — a generated client should not have to guess a third.
     """
     return [
         {
             "name": name,
             "in": "path",
             "required": True,
-            "schema": {"type": "string"},
+            "schema": (
+                {"type": "string", "enum": ["screenshots", "downloads"]}
+                if name == "folder"
+                else {"type": "string"}
+            ),
         }
         for name in re.findall(r"\{(\w+)\}", template)
     ]

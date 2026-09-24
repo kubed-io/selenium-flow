@@ -865,7 +865,7 @@ _FILE_OPERATIONS = {
     ),
     "screenshots": (
         "listScreenshots",
-        "This session's saved screenshots and PDFs.",
+        "This session's saved screenshots, not yet kept.",
         "Newest first. Works after the browser that took them is gone, because "
         "they are already ours.",
         {"type": "object", "properties": {}},
@@ -886,7 +886,7 @@ _FILE_OPERATIONS = {
         "The folder and name are both in the path — a screenshot moves out of "
         "its folder, a download is copied because the Grid offers no way to "
         "remove one file. A clash with a name already in Files lands beside it "
-        "as name (1).",
+        "as name (1) for a screenshot; a download REPLACES it.",
         {"type": "object", "properties": {}},
         "FileKept",
     ),

@@ -32,15 +32,15 @@ steps:
 - tool: interact
   args:
     action: hover
-    selector: {xpath: "//div[@id='screenshots']//div[contains(@class,'file')][.//div[starts-with(., 'hangar-check')]]"}
+    selector: {xpath: "//div[@id='screenshots']//div[contains(concat(' ',normalize-space(@class),' '),' file ')][.//div[@class='name'][starts-with(.,'hangar-check')]]"}
 - tool: interact
   args:
     action: click
-    selector: {xpath: "//div[@id='screenshots']//div[contains(@class,'file')][.//div[starts-with(., 'hangar-check')]]//button[contains(@class,'keep')]"}
+    selector: {xpath: "//div[@id='screenshots']//div[contains(concat(' ',normalize-space(@class),' '),' file ')][.//div[@class='name'][starts-with(.,'hangar-check')]]//button[contains(@class,'keep')]"}
 - tool: assert
   args:
     script: >-
       return [...document.querySelectorAll('#kept .file .name')]
       .some((n) => n.textContent.startsWith('hangar-check'))
     message: Keep was clicked and the screenshot did not arrive in Files.
-    stable_for: 500
+    stable_for: 0.5

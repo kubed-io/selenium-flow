@@ -110,8 +110,9 @@ SHAPES = (
 # There is deliberately no `clear` or `delete` here. Both are real capabilities
 # and neither has an MCP tool, so the endpoint alone would be exactly the
 # one-sided capability this project forbids. The admin UI reaches both —
-# DELETE /admin/sessions/{key}/files and .../files/{name} — which is an operator
-# surface rather than a caller's, and is where deleting anything belongs.
+# DELETE /admin/sessions/{key}/files/downloads, .../files/screenshots and
+# .../files/{name} — which is an operator surface rather than a caller's, and
+# is where deleting anything belongs.
 FILE_ENDPOINTS = ("list", "screenshots", "downloads", "keep")
 
 # The REST shape of each: method, and the path under the /files prefix. Read by
@@ -431,6 +432,7 @@ def keep(actions, sessions, store, uri, name=None, session_id=None) -> dict:
         if entry is None:
             raise ValueError(f"no file called {leaf!r} in Files. {ROOT_URI} lists them")
         landed = entry
+        log.info("keep %s: already in Files", uri)
     elif folder_of == SCREENSHOTS:
         try:
             data = store.read_file(session, leaf, SCREENSHOTS)
@@ -441,7 +443,7 @@ def keep(actions, sessions, store, uri, name=None, session_id=None) -> dict:
             ) from None
         landed = _claim(store, session, leaf, data, FILES)
         try:
-            store.delete_file(session, leaf, SCREENSHOTS)
+            removed = store.delete_file(session, leaf, SCREENSHOTS)
         except Exception:
             # A move is a copy plus a delete, and if the delete fails the copy
             # must not survive it — otherwise the file is in both folders and
@@ -457,17 +459,43 @@ def keep(actions, sessions, store, uri, name=None, session_id=None) -> dict:
                     uri, session, landed["name"],
                 )
             raise
+        if not removed:
+            # False, not an exception: a concurrent keep or clear took the
+            # screenshot out from under this one between the read above and
+            # the delete just now. The claimed copy in Files is exactly as
+            # unearned as it would have been had `read_file` found nothing at
+            # all, so it is rolled back and this answers the same way that
+            # race's other ordering already does.
+            try:
+                store.delete_file(session, landed["name"], FILES)
+            except Exception:  # noqa: BLE001 - best effort, the ValueError wins
+                log.warning(
+                    "keep %s: could not roll back the claimed copy %s/%s after "
+                    "the screenshot was already gone",
+                    uri, session, landed["name"],
+                )
+            raise ValueError(
+                f"no screenshot called {leaf!r}: it may be kept already or cleared. "
+                f"{FOLDER_URI[SCREENSHOTS]} lists what there is"
+            )
+        log.info("kept %s as %s/%s", uri, session, landed["name"])
     else:
         # `session_id`, when given, is the browser to read from and is never
         # resolved — the caller (the admin) can then ask for a specific
-        # browser without this ever opening one.
+        # browser without this ever opening one. `sessions.browser`, not
+        # `sessions.resolve`, for the same reason when it is not given: a
+        # reopened browser cannot hold a download it never took, so resolving
+        # would only spend a Grid slot to answer the same refusal.
         if session_id is None:
-            session_id = sessions.resolve(name or sessions.name())
+            session_id = sessions.browser(name or sessions.name())
         if not session_id:
-            raise ValueError("a download is read from a browser, and none is open")
+            raise ValueError(
+                "a download is read from a browser, and none is open: "
+                "open_session first"
+            )
         data = actions.grid.read_file(session_id, leaf)
         landed = store.write_file(session, _unreserved(leaf), data, FILES)
-    log.info("kept %s as %s/%s", uri, session, landed["name"])
+        log.info("kept %s as %s/%s", uri, session, landed["name"])
     return {
         "kept": True,
         "from": uri_of(folder_of, leaf),
@@ -554,9 +582,9 @@ FOLDER_NAME = {SCREENSHOTS: "Screenshots", DOWNLOADS: "Downloads"}
 
 FOLDER_DESCRIPTION = {
     SCREENSHOTS: (
-        "This session's saved screenshots and PDFs — everything screenshot and "
-        f"print produced that has not been kept yet. {KEEP_TOOL}(uri) moves one "
-        f"into {ROOT_URI}, where it stays until a person deletes it."
+        "This session's saved screenshots, not yet kept. "
+        f"{KEEP_TOOL}(uri) moves one into {ROOT_URI}, where it stays until a "
+        "person deletes it. Prints land in Files directly, not here."
     ),
     DOWNLOADS: (
         "This session's browser downloads. They belong to the browser and "
@@ -669,12 +697,13 @@ def register(
         description=(
             "Keep one file in Files, where it stays until a person deletes it.\n\n"
             "uri is as session://files and its folders list it. A screenshot "
-            "moves out of session://files/screenshots; a download is copied, "
-            "since the browser keeps its own until it ends. The result is the "
-            "file's new uri — a clash lands as name (1). upload_file(file=uri) "
-            "puts any file back into a page."
+            "moves out of session://files/screenshots and lands beside a "
+            "same-named file as name (1); a download is copied, since the "
+            "browser keeps its own until it ends, and REPLACES a same-named "
+            "file in Files. The result is the file's new uri. "
+            "upload_file(file=uri) puts any file back into a page."
         ),
-        annotations=hints("Keep a file in Files", idempotent=False),
+        annotations=hints("Keep a file in Files", destructive=True, idempotent=False),
     )
     def keep_file(uri: str) -> dict:
         return keep(actions, sessions, store, uri)
@@ -719,7 +748,7 @@ def _routes(mcp, actions, sessions, store, token, base, prefix) -> None:
         files_root + "/screenshots", methods=["GET"], name="files_screenshots"
     )
     async def list_screenshots(request: Request) -> JSONResponse:
-        """This session's saved screenshots and PDFs."""
+        """This session's saved screenshots, not yet kept."""
         return await answer(
             request,
             "screenshots",
@@ -748,8 +777,9 @@ def _routes(mcp, actions, sessions, store, token, base, prefix) -> None:
     )
     async def keep_route(request: Request) -> JSONResponse:
         """Keep a screenshot or a download beyond what made it. A PUT because
-        keeping a name that is already kept lands beside it rather than
-        failing."""
+        keeping a name that is already kept is not a failure: a screenshot
+        lands beside a same-named file in Files as name (1), and a download
+        replaces one."""
         which = request.path_params["folder"]
         leaf = request.path_params["name"]
 

@@ -562,12 +562,13 @@ class LocalFlowStore:
     # -- a session's own files ------------------------------------------------
 
     def _entry(self, path: Path) -> dict:
-        """One kept file, shaped exactly like the Grid's own listing entry.
+        """One file, in either Files or Screenshots, shaped like the Grid's own
+        listing entry.
 
-        The two listings are merged into one array (§F1.10), so they have to
-        agree on both the key names and the *units*: the Grid reports
-        milliseconds, and a seconds-based timestamp beside it would sort every
-        kept file to 1970 without anything looking wrong.
+        The three sections are read separately, never merged (§F4.6, §F4.7),
+        but they still have to agree on both the key names and the *units*: the
+        Grid reports milliseconds, and a seconds-based timestamp beside it
+        would sort every kept file to 1970 without anything looking wrong.
         """
         info = path.stat()
         return {

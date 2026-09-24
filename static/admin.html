@@ -404,9 +404,13 @@ function showDetail(row) {
   SF.sessionSummary($('detailHeader'), row);
   // Ending the browser only needs it attached. Clearing downloads needs it
   // actually running: the Grid deletes its download store with the browser,
-  // so an attached-but-dead session has nothing left there to clear.
+  // so an attached-but-dead session has nothing left there to clear. It also
+  // needs `filesData` to actually be this session's — a heartbeat that pushes
+  // `row.live: true` while a load is still in flight (or has failed and left
+  // `filesData` at `NO_FILES`) must not re-arm a button whose confirm reads
+  // that same stale `filesData`.
   $('endBrowser').disabled = !row.attached;
-  $('clearDownloads').disabled = !row.live;
+  $('clearDownloads').disabled = !row.live || filesData === NO_FILES;
   $('filesTotal').textContent = row.files_count ?? '';
 }
 
@@ -425,6 +429,11 @@ async function loadFiles(key) {
       files: data.files || [],
       browser: !!data.browser,
     };
+    // `showDetail` above ran against whatever `filesData` was BEFORE this
+    // load answered — the previous session's, or `NO_FILES` — so a live
+    // session that just loaded fine needs the button re-armed now that
+    // `filesData` is actually its own.
+    $('clearDownloads').disabled = !row.live || filesData === NO_FILES;
     $('downloadsCount').textContent = filesData.downloads.length;
     $('screenshotsCount').textContent = filesData.screenshots.length;
     $('keptCount').textContent = filesData.files.length;
@@ -453,6 +462,12 @@ async function loadFiles(key) {
     // screenshots go on to list and delete a stranger's files.
     filesData = NO_FILES;
     $('clearDownloads').disabled = $('clearScreenshots').disabled = true;
+    // Same reason: the three counts and the header's file total are this
+    // failed request's session, not whichever one answered last — showing
+    // them would read as this session's numbers when they are not.
+    $('downloadsCount').textContent = $('screenshotsCount').textContent
+      = $('keptCount').textContent = $('filesTotal').textContent
+      = $('flowsTotal').textContent = '';
     const said = '<div class="empty error">' + SF.esc(e.message) + '</div>';
     $('downloads').innerHTML = $('screenshots').innerHTML = $('kept').innerHTML = said;
   }
@@ -515,10 +530,15 @@ $('paneFiles').addEventListener('click', async (e) => {
     // row's action is `delete` — so this is always one of the other two.
     const folder = mark.closest('section').id === 'screenshotsSection'
       ? 'screenshots' : 'downloads';
+    // Disabled for the round trip so a second click cannot fire a second keep
+    // of the same file before the first has landed. Re-enabled only on
+    // failure — a success reloads the grid, which redraws the tile fresh.
+    mark.disabled = true;
     try {
       await api(sessionPath(key, '/files/' + encodeURIComponent(folder) + '/'
                  + encodeURIComponent(keep) + '/keep'), 'POST');
     } catch (err) {
+      mark.disabled = false;
       alert('Could not keep that file: ' + err.message);
       return;
     }
@@ -1125,6 +1145,11 @@ async function openSession(key, tab = 'files', flow) {
     // delete B's files.
     filesData = NO_FILES;
     $('clearDownloads').disabled = $('clearScreenshots').disabled = true;
+    // A's counts, still on screen, would otherwise read as B's until its own
+    // load answers — or forever, if it fails.
+    $('downloadsCount').textContent = $('screenshotsCount').textContent
+      = $('keptCount').textContent = $('filesTotal').textContent
+      = $('flowsTotal').textContent = '';
     flowsData = flowDoc = flowName = null;
     picked = null;
     await loadFiles(key);
@@ -1367,7 +1392,10 @@ function route() {
   if (view === 'console' && !$('tabConsole').hidden) {
     selectTab('sessions'); showList(); selectTab('console'); return;
   }
-  if (view === 'secrets') { selectTab('secrets'); loadSecrets(); return; }
+  // Leaving the session detail view for another top tab: `current` has to go
+  // with it, or the heartbeat keeps refetching a session hidden behind this
+  // pane (`refreshDetail` acts on `current` alone, with no view check).
+  if (view === 'secrets') { current = null; selectTab('secrets'); loadSecrets(); return; }
   selectTab('sessions');
   if (view === 'sessions' && key) {
     // A pasted or reloaded deep link never passed through the list, which is

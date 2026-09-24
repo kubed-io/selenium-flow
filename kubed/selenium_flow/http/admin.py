@@ -341,8 +341,11 @@ def register(
             return JSONResponse(
                 {"enabled": False, "count": 0, "secrets": [], "undefined": []}
             )
-        listed = await run_in_threadpool(catalogue.listing)
-        used = await run_in_threadpool(secret_uses.uses, flow_store)
+        try:
+            listed = await run_in_threadpool(catalogue.listing)
+            used = await run_in_threadpool(secret_uses.uses, flow_store)
+        except Exception as exc:  # noqa: BLE001 - errors.py says what it means
+            return refused(exc, "secrets")
         known = {s["name"] for s in listed["secrets"]}
         return JSONResponse({
             "enabled": True,
@@ -733,9 +736,10 @@ def register(
             return JSONResponse(
                 {**listing, "key": key, "session": await header(key, attached)}
             )
-        except Exception as exc:  # noqa: BLE001 - usually a session that ended
-            log.info("files for %s failed: %s", key, exc)
-            return JSONResponse({"error": str(exc)}, status_code=502)
+        except Exception as exc:  # noqa: BLE001 - errors.py says what it means
+            status = errors.status_for(exc)
+            log.info("files for %s failed (%s): %s", key, status, errors.message(exc))
+            return JSONResponse({"error": errors.message(exc)}, status_code=status)
 
     @mcp.custom_route(
         f"{prefix}/admin/sessions/{{key}}/files/{{folder}}/{{name}}/keep",

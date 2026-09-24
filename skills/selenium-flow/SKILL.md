@@ -175,7 +175,7 @@ And everything to read:
 | `session://current` | what you are holding |
 | `session://files` | Files' own kept files, each with a link, plus the two folders below |
 | `session://files/{name}` | one kept file, as bytes |
-| `session://files/screenshots` | saved screenshots and PDFs not yet kept |
+| `session://files/screenshots` | saved screenshots not yet kept |
 | `session://files/screenshots/{name}` | one of those, as bytes |
 | `session://files/downloads` | this session's browser downloads |
 | `session://files/downloads/{name}` | one of those, as bytes, while the browser is open |

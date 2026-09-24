@@ -239,6 +239,33 @@ def test_a_screenshot_that_cannot_be_removed_leaves_no_copy_behind(store, monkey
     assert [f["name"] for f in store.files(S, flows.SCREENSHOTS_DIR)] == ["shot.png"]
 
 
+def test_a_screenshot_removed_by_someone_else_during_the_move_leaves_no_copy_behind(
+    store, monkeypatch
+):
+    """`delete_file` returns False, rather than raising, when the name was
+    already gone — a concurrent keep or a clear won the race between this
+    call's `read_file` and its own `delete_file`. That is not "the move partly
+    worked": the copy this call just claimed in Files is exactly as unearned
+    as it would have been had `read_file` found nothing at all, so it is
+    rolled back and the caller sees the same refusal."""
+    store.create_file(S, "shot.png", b"png", flows.SCREENSHOTS_DIR)
+
+    original = flows.LocalFlowStore.delete_file
+
+    def raced(self, session, name, folder=flows.FILES_DIR):
+        if folder == flows.SCREENSHOTS_DIR:
+            original(self, session, name, folder)  # a concurrent clear wins the race
+            return False
+        return original(self, session, name, folder)
+
+    monkeypatch.setattr(flows.LocalFlowStore, "delete_file", raced)
+
+    with pytest.raises(ValueError, match="no screenshot called"):
+        files.keep(Actions(), Sessions(), store, "session://files/screenshots/shot.png")
+    assert store.files(S) == []
+    assert store.files(S, flows.SCREENSHOTS_DIR) == []
+
+
 # ---- bytes this server made -------------------------------------------------
 
 

@@ -129,9 +129,10 @@ def test_a_kept_file_round_trips(store):
 
 
 def test_a_kept_entry_is_shaped_like_the_grids(store):
-    """The two listings are merged into one array, so they must agree on the key
-    names AND the units. Milliseconds, because that is what the Grid reports —
-    a seconds-based timestamp beside it sorts every kept file to 1970 while
+    """Files and Screenshots are read separately from Downloads, never merged
+    (§F4.6, §F4.7), but the shapes still have to agree on the key names AND
+    the units. Milliseconds, because that is what the Grid reports — a
+    seconds-based timestamp beside it sorts every kept file to 1970 while
     nothing looks wrong."""
     store.write_file(SESSION, "report.pdf", b"x")
     entry = store.files(SESSION)[0]
@@ -359,16 +360,17 @@ async def test_the_file_actions_are_not_counted_as_browser_actions(kept_server):
 
 
 async def test_the_keep_tool_declares_honest_annotations(kept_server):
-    """An unannotated tool is advertised as destructive, and this one is not.
-    Keeping copies a file and destroys nothing."""
+    """A download keep REPLACES a same-named file in Files (§F4.7), so the
+    honest hint is destructive — the ruling from the final review: a missing
+    or wrong annotation is worse than the confirmation prompt it costs a
+    client that honours it."""
     tools = {t.name: t for t in await kept_server.mcp.list_tools()}
     keep = tools[files.KEEP_TOOL].annotations
     assert keep.title and keep.read_only_hint is False
-    assert keep.destructive_hint is False, "keeping a file destroys nothing"
-    # False, not True: a screenshot moves, so keeping it twice is refused the
-    # second time (there is no longer a screenshot to move), and a download
-    # kept twice lands beside itself as `name (1)` rather than replacing
-    # anything — neither is "repeat me and nothing changes" (§F4.7).
+    assert keep.destructive_hint is True, "a download keep replaces a same-named file"
+    # False: a screenshot move is refused the second time (there is no longer a
+    # screenshot to move) and a download kept twice replaces the same bytes —
+    # neither is "repeat me and nothing further happens" (§F4.7).
     assert keep.idempotent_hint is False
 
 
@@ -592,7 +594,10 @@ def test_a_grid_outage_is_an_error_not_an_empty_download_list(client, live):
     rather than reading the header's `live`: that flag is false both when the
     Grid says the browser is gone AND when the Grid could not be read at all.
     Treating an outage as "detached" would render a confident empty list for a
-    session that may have had twenty downloads."""
+    session that may have had twenty downloads.
+
+    503, not a bare 500: `errors.status_for` calls a `ConnectionError` worth
+    retrying after a wait, the same as every other route on this surface."""
     live.flows.write_file(SESSION, "kept.pdf", b"x")
     with (
         patch.object(browser.Grid, "is_alive", return_value=True),
@@ -602,7 +607,33 @@ def test_a_grid_outage_is_an_error_not_an_empty_download_list(client, live):
         ),
     ):
         response = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH)
-    assert response.status_code == 502
+    assert response.status_code == 503
+
+
+def test_a_grid_refusal_over_the_admin_surface_does_not_echo_the_grid_url(
+    client, live
+):
+    """The same leak `test_a_grid_refusal_does_not_echo_the_grid_url` proves for
+    `errors.message` in isolation, proven end to end over the one route that
+    used to bypass `errors.py` entirely and return ``str(exc)`` — a Grid
+    refusal's ``str()`` quotes the whole request URL, userinfo included."""
+    gone = requests.Response()
+    gone.status_code = 500
+    gone.url = "http://user:secret@grid.internal:4444/session/abc/se/files"
+    with (
+        patch.object(browser.Grid, "is_alive", return_value=True),
+        patch.object(browser.Grid, "sessions", return_value=[]),
+        patch.object(
+            browser.Grid,
+            "files",
+            side_effect=requests.HTTPError(
+                f"500 Server Error: Internal for url: {gone.url}", response=gone
+            ),
+        ),
+    ):
+        response = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH)
+    assert "secret" not in response.text and "grid.internal" not in response.text
+    assert response.status_code == 503
 
 
 BAD_KEY = "my bot"
@@ -728,6 +759,15 @@ async def test_the_file_endpoints_are_tagged_apart(spec):
         if path.startswith("/files"):
             for method, operation in operations.items():
                 assert operation["tags"] == ["files"], f"{method} {path}"
+
+
+async def test_the_keep_routes_folder_parameter_is_an_enum(spec):
+    """It can only ever be `screenshots` or `downloads` — `files.RESERVED` says
+    so, and the route itself refuses a third — so a generated client should
+    not have to guess one."""
+    params = spec["paths"]["/files/{folder}/{name}/kept"]["put"]["parameters"]
+    folder = next(p for p in params if p["name"] == "folder")
+    assert folder["schema"]["enum"] == ["screenshots", "downloads"]
 
 
 async def test_every_file_response_schema_it_references_exists(spec):

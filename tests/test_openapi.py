@@ -319,7 +319,7 @@ async def test_the_upload_form_offers_every_source_the_action_takes(spec, server
     the two drift in exactly one direction: a new source appears in JSON and
     not in the form."""
     upload = await server.mcp.get_tool("upload_file")
-    sources = {"text", "content", "kept", "path"} & set(upload.parameters["properties"])
+    sources = {"text", "content", "file", "path"} & set(upload.parameters["properties"])
     form = spec["paths"]["/browser/upload"]["post"]["requestBody"]["content"][
         "multipart/form-data"
     ]["schema"]["properties"]

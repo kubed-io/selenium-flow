@@ -182,7 +182,7 @@ def test_neither_toolbar_action_is_offered_without_a_browser(client):
     page = client.get("/admin").text
     assert "function showDetail(row)" in page
     assert "$('endBrowser').disabled = !row.attached;" in page
-    assert "$('clearDownloads').disabled = !row.live;" in page
+    assert "$('clearDownloads').disabled = !row.live || filesData === NO_FILES;" in page
 
 
 def test_the_detail_view_is_updated_by_the_event_stream(client):

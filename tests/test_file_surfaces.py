@@ -34,7 +34,7 @@ def test_the_resources_are_a_folder_and_two_sub_folders(srv):
     async def go():
         async with Client(srv.mcp) as c:
             listed = {str(r.uri) for r in await c.list_resources()}
-            templated = {t.uriTemplate for t in await c.list_resource_templates()}
+            templated = {t.uri_template for t in await c.list_resource_templates()}
             return listed, templated
     listed, templated = _run(go())
     assert {"session://files", "session://files/screenshots", "session://files/downloads"} <= listed
@@ -50,9 +50,13 @@ def test_keep_file_takes_a_uri_and_is_not_idempotent(srv):
         async with Client(srv.mcp) as c:
             return {t.name: t for t in await c.list_tools()}["keep_file"]
     tool = _run(go())
-    assert list(tool.inputSchema["properties"]) == ["uri"]
-    assert tool.inputSchema["required"] == ["uri"]
-    assert tool.annotations.idempotentHint is False
+    assert list(tool.input_schema["properties"]) == ["uri"]
+    assert tool.input_schema["required"] == ["uri"]
+    assert tool.annotations.idempotent_hint is False
+    # A download keep REPLACES a same-named file in Files (§F4.7) — honest
+    # annotations means this one says so rather than leaning on MCP's own
+    # default, which happens to be True for the wrong reason.
+    assert tool.annotations.destructive_hint is True
 
 
 def test_the_rest_tree_mirrors_the_folders(http, srv, tmp_path):

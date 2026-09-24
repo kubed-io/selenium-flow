@@ -844,3 +844,61 @@ def test_the_secrets_page_never_renders_a_value(page):
 
 def test_a_name_no_secret_answers_to_is_shown(page):
     assert "Named by a flow, not defined" in page
+
+
+# ---- fix round: final review (2026-09-24) ------------------------------------
+
+
+def test_leaving_for_secrets_drops_current(page):
+    """`refreshDetail` acts on `current` alone, with no check on which view is
+    showing — so navigating to Secrets while a session's detail view is open
+    must clear it, or the heartbeat keeps refetching a session hidden behind
+    that pane."""
+    route = page.split("function route()")[1].split("\nwindow.addEventListener")[0]
+    branch = route.split("if (view === 'secrets')")[1].split("\n")[0]
+    assert "current = null;" in branch
+
+
+def test_clear_downloads_stays_off_while_filesdata_is_stale(page):
+    """`row.live` alone used to re-arm Clear downloads on a heartbeat even
+    while `filesData` was still `NO_FILES` — a load still in flight, or one
+    that failed — so its confirm read an empty list and cleared the Grid
+    regardless."""
+    body = page.split("function showDetail(row)")[1].split("\n}\n")[0]
+    assert "$('clearDownloads').disabled = !row.live || filesData === NO_FILES;" in body
+
+
+def test_a_successful_load_rearms_clear_downloads_from_filesdata(page):
+    """`showDetail` runs before `loadFiles` replaces `filesData`, so a session
+    that loads cleanly right after a failed one needs the button re-evaluated
+    once `filesData` is actually its own again."""
+    body = page.split("async function loadFiles(key)")[1].split("\n}\n")[0]
+    success = body.split("filesData = {")[1].split("} catch")[0]
+    assert "$('clearDownloads').disabled = !row.live || filesData === NO_FILES;" in success
+
+
+def test_opening_a_new_session_blanks_the_count_pills(page):
+    """The count pills are as much a stale-session risk as `filesData` itself
+    — A's numbers sitting on screen while B loads (or forever, if B's load
+    fails) read as B's."""
+    body = page.split("async function openSession(key, tab = 'files', flow)")[1].split("\n}\n")[0]
+    for pill in ("downloadsCount", "screenshotsCount", "keptCount", "filesTotal", "flowsTotal"):
+        assert f"$('{pill}').textContent" in body
+
+
+def test_a_failed_file_load_blanks_the_count_pills_too(page):
+    body = page.split("async function loadFiles(key)")[1].split("\n}\n")[0]
+    catch = body.split("} catch (e) {")[1]
+    for pill in ("downloadsCount", "screenshotsCount", "keptCount", "filesTotal", "flowsTotal"):
+        assert f"$('{pill}').textContent" in catch
+
+
+def test_the_keep_tile_is_disabled_for_its_own_round_trip(page):
+    """A second click on the same tile before the first keep has landed would
+    fire a second keep of the same file — disabling it for the round trip, and
+    re-enabling only on failure, closes that window. Success does not need to:
+    the grid reloads and redraws the tile fresh."""
+    handler = page.split("const keep = mark.getAttribute('data-keep');")[1].split("\n  }\n")[0]
+    assert "mark.disabled = true;" in handler
+    catch = handler.split("} catch (err) {")[1]
+    assert "mark.disabled = false;" in catch
