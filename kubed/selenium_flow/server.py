@@ -225,6 +225,7 @@ class SeleniumMCP:
             sessions=self.sessions,
             flow_store=self.flows,
             schemas=schemas,
+            catalogue=self.secrets,
         )
 
     def run(

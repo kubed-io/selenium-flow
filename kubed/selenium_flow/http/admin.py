@@ -43,7 +43,7 @@ from ..core.browser import DEFAULT_BROWSER, is_partial
 from ..flows import api as flowapi
 from ..flows import document as flowdoc
 from ..flows import library as flows
-from . import auth, files, links
+from . import auth, files, links, secret_uses
 
 log = logging.getLogger(__name__)
 
@@ -234,6 +234,7 @@ def register(
     sessions=None,
     flow_store=None,
     schemas=None,
+    catalogue=None,
     prefix: str = "",
 ) -> None:
     """Mount the admin pages, their JSON API, and the two signed file routes.
@@ -326,6 +327,35 @@ def register(
         behind an ingress that stripped `/base`; `./` lands on the UI either way.
         """
         return RedirectResponse("./", status_code=301)
+
+    @mcp.custom_route(f"{prefix}/admin/secrets", methods=["GET"], name="admin_secrets")
+    @guarded
+    async def admin_secrets(_request: Request) -> JSONResponse:
+        """The catalogue, each entry with the stored flows that type it (§F4.10).
+
+        Never a value: the catalogue has none to give. Names a flow uses that no
+        secret answers to come back as `undefined`, because such a flow fails at
+        the step that types it and this is where an operator can see that.
+        """
+        if catalogue is None:
+            return JSONResponse(
+                {"enabled": False, "count": 0, "secrets": [], "undefined": []}
+            )
+        listed = await run_in_threadpool(catalogue.listing)
+        used = await run_in_threadpool(secret_uses.uses, flow_store)
+        known = {s["name"] for s in listed["secrets"]}
+        return JSONResponse({
+            "enabled": True,
+            "count": listed["count"],
+            "secrets": [
+                {**s, "uses": used.get(s["name"], [])} for s in listed["secrets"]
+            ],
+            "undefined": [
+                {"name": n, "uses": u}
+                for n, u in sorted(used.items())
+                if n not in known
+            ],
+        })
 
     # Whether the last read of the store failed, so an outage warns once rather
     # than on every two-second poll of every open page.
