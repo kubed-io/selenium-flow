@@ -207,7 +207,7 @@ const sessionPath = (key, rest = '') =>
    Native confirm() cannot show a list, and "Delete 12 files?" without saying
    which twelve is an assertion rather than a disclosure — the whole point of
    the Clear downloads confirm is that the scope is shown. */
-function modal({title, body, confirm = 'OK', danger = false, onconfirm}) {
+function modal({title, body, confirm = 'OK', danger = false, onconfirm, oncancel}) {
   const box = document.createElement('div');
   box.className = 'modal';
   box.innerHTML =
@@ -217,9 +217,16 @@ function modal({title, body, confirm = 'OK', danger = false, onconfirm}) {
     '<button type="button" class="' + (danger ? 'danger' : 'primary') + '" data-go>' +
     SF.esc(confirm) + '</button></div></div>';
 
+  // Set only once `onconfirm` has actually succeeded, so `close()` can tell a
+  // real confirm apart from every other way out of this box.
+  let confirmed = false;
   const close = () => {
     box.remove();
     document.removeEventListener('keydown', onKey);
+    // Cancel, Esc, the backdrop — anything that is not a successful confirm.
+    // Without this a lightbox's action button, disabled while its confirm was
+    // open, stayed disabled forever once that confirm closed any other way.
+    if (!confirmed && oncancel) oncancel();
   };
   function onKey(e) { if (e.key === 'Escape') close(); }
 
@@ -229,6 +236,7 @@ function modal({title, body, confirm = 'OK', danger = false, onconfirm}) {
     e.target.disabled = true;
     try {
       await onconfirm(box);
+      confirmed = true;
       close();
     } catch (err) {
       // Stay open on failure: closing would throw away what they typed in the
@@ -445,15 +453,36 @@ async function loadFiles(key) {
   }
 }
 
-/* Opens the grid a tile came from, stepping through it exactly as drawn.
-   `folder` is one of `filesData`'s own keys, so this needs nothing more than
-   that to find the right list.
-
-   Read-only for now: Task 9 gives this a real keep/delete action and a
-   `refresh` that steps on to the next tile afterwards, the way the Grid's own
-   per-file actions do everywhere else on this page. */
+/* One lightbox for all three rows, stepping through the row it was opened
+   from. Keep advances: the kept screenshot leaves the list, so the one after it
+   is now at the same position — which is the next screenshot (§F4.9). Deleting
+   from Files works the same way, after its confirm. */
 function openLightbox(folder, index) {
-  SF.lightbox(filesData[folder] || [], index, {base: ROOT});
+  const key = current;
+  const list = () => (filesData && filesData[folder === 'kept' ? 'files' : folder]) || [];
+  const keepable = folder === 'screenshots' || folder === 'downloads';
+  SF.lightbox(list(), index, {
+    base: ROOT,
+    action: keepable
+      ? {label: '📌 Keep', run: (f) => api(sessionPath(key, '/files/' + encodeURIComponent(folder)
+          + '/' + encodeURIComponent(f.name) + '/keep'), 'POST')}
+      : {label: '🗑 Delete', run: (f) => new Promise((resolve, reject) => modal({
+          title: 'Delete a file',
+          body: '<p>This removes it from Files for good. There is no undo.</p>'
+              + '<ul class="names"><li>' + SF.esc(f.name) + '</li></ul>',
+          confirm: 'Delete', danger: true,
+          onconfirm: async () => { await api(sessionPath(key, '/files/' + encodeURIComponent(f.name)), 'DELETE'); resolve(); },
+          oncancel: () => reject(new Error('cancelled')),
+        }))},
+    // The same index either way: a kept screenshot or a deleted file leaves
+    // the list, so the next one slides into its place; a kept download is a
+    // copy and stays, so the lightbox stays on it.
+    refresh: async (at) => {
+      await loadFiles(key);
+      if (gone(key)) return null;
+      return {files: list(), index: at};
+    },
+  });
 }
 
 /* The action button on a tile — the top-left corner. Delegated to the whole

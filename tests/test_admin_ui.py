@@ -182,9 +182,22 @@ def test_the_lightbox_disables_its_ends_rather_than_wrapping(components):
 
 def test_a_cancelled_lightbox_action_does_not_alert(components):
     """opts.action.run may reject with 'cancelled' — a confirm dismissed rather
-    than a real failure — and that message is swallowed instead of alerted."""
+    than a real failure — and that message is swallowed instead of alerted. It
+    is the DIRECTION of the guard that matters: the check has to come before the
+    alert, or a cancelled action would alert on every OTHER message instead."""
     lightbox_src = components.split("function lightbox(")[1].split("\n  }\n")[0]
     assert "cancelled" in lightbox_src
+    guard = "if (err.message !== 'cancelled') alert(err.message);"
+    assert guard in lightbox_src
+    assert lightbox_src.index("err.message !== 'cancelled'") < lightbox_src.index("alert(")
+
+
+def test_keep_in_the_lightbox_moves_on_to_the_next_screenshot(page):
+    """§F4.9: 109 can be triaged without closing it."""
+    body = page.split("function openLightbox(")[1][:2500]
+    assert "refresh:" in body and "'📌 Keep'" in body and "'🗑 Delete'" in body
+    assert "await loadFiles(" in body, "the list is re-read before stepping on"
+    assert "oncancel" in body, "closing the confirm any way must release the button"
 
 
 def test_the_app_draws_three_read_only_rows(components):

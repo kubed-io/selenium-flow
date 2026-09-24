@@ -177,12 +177,12 @@ const SF = (() => {
       ['Screenshots', data.screenshots || [], 'No screenshots yet.'],
       ['Files', data.files || [], 'Nothing here yet — prints land here, and anything you keep.'],
     ];
-    for (const [title, files, empty] of rows) {
+    for (const [title, files, emptyText] of rows) {
       const row = document.createElement('section');
       row.className = 'row';
       row.innerHTML = '<div class="head"><strong>' + esc(title) + '</strong>' +
         '<span class="pill">' + files.length + '</span></div><div class="body"></div>';
-      fileGrid(row.querySelector('.body'), files, {base: opts.base, empty});
+      fileGrid(row.querySelector('.body'), files, {base: opts.base, empty: emptyText});
       el.appendChild(row);
     }
   }
