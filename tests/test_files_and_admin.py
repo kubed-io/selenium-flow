@@ -196,14 +196,15 @@ def test_the_detail_view_is_updated_by_the_event_stream(client):
 
 def test_a_changed_browser_clears_the_file_grid(client):
     """The Grid keeps a file store per browser and deletes it with the browser,
-    so after a switch downloads and screenshots on screen do not merely look
-    stale — they are gone. Leaving them up for the length of a fetch offers
-    files that 404. Files is untouched: it belongs to the session, not the
-    browser, and survives the switch."""
+    so after a switch Downloads on screen does not merely look stale — it is
+    gone, and leaving it up for the length of a fetch offers files that 404.
+    Screenshots and Files are untouched: both belong to the session, not the
+    browser, and survive the switch."""
     page = client.get("/admin").text
-    assert "(row.session_id || null) !== shownBrowser" in page
-    assert "SF.fileGrid($('downloads'), [], {base: ROOT" in page
-    assert "SF.fileGrid($('screenshots'), [], {base: ROOT" in page
+    detail = page.split("function refreshDetail(data)")[1].split("\n}\n")[0]
+    assert "(row.session_id || null) !== shownBrowser" in detail
+    assert "SF.fileGrid($('downloads'), []" in detail
+    assert "SF.fileGrid($('screenshots')" not in detail
 
 
 def test_the_file_grid_is_not_redrawn_on_every_heartbeat(client):

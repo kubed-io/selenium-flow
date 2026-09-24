@@ -678,3 +678,100 @@ def test_acting_on_one_session_does_not_disturb_another(page):
     for after in cleared[1:]:
         selection = after.split("await loadFlows(key);")[0]
         assert "flowName = flowDoc" in selection, "the guard has to come first"
+
+
+# ---- fix round 1: a third session while openSession's own awaits are out ----
+
+
+def test_opening_a_session_is_guarded_after_each_of_its_own_awaits(page):
+    """`openSession` used to be the one loader on this page that resumed after
+    an `await` and acted on `current` as though it were still `key` — moving to
+    a THIRD session while `loadFiles`/`loadFlows` were in flight let A's own
+    resumption take a `flowsSeq` above the new session's and strand it on
+    "Loading…" forever, the exact bug `gone`/`current` exist to prevent
+    everywhere else on this page."""
+    body = page.split("async function openSession(key, tab = 'files', flow)")[1].split("\n}\n")[0]
+    assert body.count("if (gone(key)) return;") == 2
+    after_files = body.split("await loadFiles(key);")[1]
+    assert "if (gone(key)) return;" in after_files.split("await loadFlows(key);")[0]
+    after_flows = body.split("await loadFlows(key);")[1]
+    assert "if (gone(key)) return;" in after_flows.split("if (flow")[0]
+
+
+def test_a_deep_linked_flow_is_checked_against_the_listing_first(page):
+    """Opening a flow the listing does not actually contain — gone, renamed, or
+    moved to global under another name — used to be attempted anyway; `loadFlow`
+    would then fail to find it with nothing on screen saying why."""
+    body = page.split("async function openSession(key, tab = 'files', flow)")[1].split("\n}\n")[0]
+    assert "((flowsData && flowsData.flows) || []).some((f) => f.name === flow)" in body
+    assert "if (flow && flow !== flowName && known) await openFlow(flow);" in body
+
+
+def test_switching_sessions_disarms_the_clear_buttons_until_the_new_one_answers(page):
+    """Neither clear button reads `current` itself — both act on `filesData`,
+    read once when clicked. Leaving A's `filesData` in place while B loads (or
+    forever, if B's load fails) let Clear downloads or Clear screenshots list
+    A's names and delete B's files."""
+    body = page.split("async function openSession(key, tab = 'files', flow)")[1].split("\n}\n")[0]
+    assert "filesData = NO_FILES;" in body
+    assert "$('clearDownloads').disabled = $('clearScreenshots').disabled = true;" in body
+
+
+def test_a_failed_file_load_disarms_the_clear_buttons_too(page):
+    """The same stale-`filesData` risk exists on the error path: a request that
+    never comes back must not leave the buttons acting on whatever session
+    answered last."""
+    body = page.split("async function loadFiles(key)")[1].split("\n}\n")[0]
+    catch = body.split("} catch (e) {")[1]
+    assert "filesData = NO_FILES;" in catch
+    assert "$('clearDownloads').disabled = $('clearScreenshots').disabled = true;" in catch
+
+
+def test_a_kept_or_deleted_file_only_reloads_its_own_session(page):
+    """`loadFiles` shares `filesSeq` with every other load of this row, so an
+    unconditional reload after acting on A, once the operator has moved to B,
+    takes a number ABOVE B's own in-flight load — B's answer then fails
+    `mine !== filesSeq` and is left on "Loading…" for nothing left to fetch
+    again. The flows handlers already guard their reloads the same way."""
+    handler = page.split("$('paneFiles').addEventListener")[1].split("$('flows').addEventListener")[0]
+    assert handler.count("if (current === key) loadFiles(key);") == 2
+
+
+def test_clearing_either_folder_only_reloads_its_own_session(page):
+    for onclick in ("clearDownloads", "clearScreenshots"):
+        handler = page.split(f"$('{onclick}').onclick")[1].split("\n};\n")[0]
+        assert "if (current === key) loadFiles(key);" in handler
+
+
+def test_only_downloads_go_with_the_browser(page):
+    """Screenshots and Files belong to the SESSION and outlive any one
+    browser — only Downloads lives in the Grid's own per-browser store and
+    goes with it, so only Downloads is blanked when the browser changes."""
+    detail = page.split("function refreshDetail(data)")[1].split("\n}\n")[0]
+    assert "SF.fileGrid($('downloads'), []" in detail
+    assert "SF.fileGrid($('screenshots')" not in detail
+    assert "SF.fileGrid($('kept')" not in detail
+
+
+def test_a_closed_flow_takes_its_hash_with_it(page):
+    """A flow that is deleted, moved, or dropped by a listing refresh leaves
+    the hash naming a flow that no longer exists — reloading, or Back, would
+    try to open it again."""
+    closes = "flowName = flowDoc = picked = null;"
+    for after in page.split(closes)[1:4]:
+        assert "history.replaceState(null, '', '#/sessions/' + encodeURIComponent(key) + '/flows');" in after[:400]
+
+
+def test_clearing_one_screenshot_does_not_say_all(page):
+    """"Deletes all 1 screenshots" reads as though the count is wrong twice
+    over. The Grid has no per-screenshot delete either way, so the deletion
+    itself is not affected — only what the sentence says about it."""
+    handler = page.split("$('clearScreenshots').onclick")[1].split("\n};\n")[0]
+    assert "n === 1 ? 'the 1 screenshot' : 'all ' + n + ' screenshots'" in handler
+
+
+def test_the_screenshot_clear_comment_matches_what_it_lists(page):
+    """The confirm lists every name, not only a count — the comment used to
+    claim the opposite."""
+    comment = page.split("$('clearScreenshots').onclick")[0][-500:]
+    assert "only by count" not in comment
