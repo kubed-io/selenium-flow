@@ -59,6 +59,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Tool descriptions are half as long**, and hints, errors, prompts and the skill name what to read by URI.
 
+- **BREAKING:** a server configured for Redis that cannot reach it now refuses to start, rather than running on in-memory sessions until someone notices.
+
 ### Fixed
 
 - **Cancelling `run_flow` stops the run** instead of leaving it to drive the browser to the end.
