@@ -159,9 +159,11 @@ class SeleniumMCP:
         )
         # How an action keeps a file it made. Wired here because this is where
         # the store, the token and the public base all exist; the behaviour
-        # layer takes the function and never the key (§F2.9). `folder` defaults
-        # to Files, which is what every caller other than `screenshot` wants.
-        self.actions.keep = lambda name, data, folder=files.FILES: files.keep_made(
+        # layer takes the function and never the key (§F2.9). No default for
+        # `folder`: only `Actions._kept` calls this, and it always names one —
+        # a default here would let some future two-argument call silently land
+        # in Files.
+        self.actions.keep = lambda name, data, folder: files.keep_made(
             self.sessions, self.flows, name, data, auth_token, base, self.prefix, folder
         )
         # And how it reads one back, for `upload_file(file=...)`. Wired here for

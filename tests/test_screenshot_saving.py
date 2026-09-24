@@ -242,9 +242,9 @@ def test_the_server_keeps_it_on_disk_with_a_signed_link(keeping_server, tmp_path
 
 def test_a_second_file_of_the_same_name_does_not_replace_the_first(keeping_server):
     """Somebody may already have been handed a link to the first one."""
-    first = keeping_server.actions.keep("shot.png", b"one")
-    second = keeping_server.actions.keep("shot.png", b"two")
-    third = keeping_server.actions.keep("shot.png", b"three")
+    first = keeping_server.actions.keep("shot.png", b"one", "files")
+    second = keeping_server.actions.keep("shot.png", b"two", "files")
+    third = keeping_server.actions.keep("shot.png", b"three", "files")
     assert [first["name"], second["name"], third["name"]] == [
         "shot.png",
         "shot (1).png",
@@ -257,13 +257,13 @@ def test_two_saves_racing_for_one_name_do_not_overwrite_each_other(
 ):
     """Another save can take the name between looking and writing, so nothing
     looks: the create is what claims it (Copilot, #40)."""
-    first = keeping_server.actions.keep("shot.png", b"one")
+    first = keeping_server.actions.keep("shot.png", b"one", "files")
 
     def unlisted(session):
         raise AssertionError("a name is claimed by creating it, not by listing")
 
     monkeypatch.setattr(keeping_server.flows, "files", unlisted)
-    second = keeping_server.actions.keep("shot.png", b"two")
+    second = keeping_server.actions.keep("shot.png", b"two", "files")
     assert second["name"] == "shot (1).png"
     assert keeping_server.flows.read_file("stdio", first["name"]) == b"one"
 
@@ -273,7 +273,7 @@ def test_a_server_with_no_data_dir_refuses_to_keep_with_the_reason():
 
     server = SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token="tok")
     with pytest.raises(ValueError, match="FLOW_DATA_DIR"):
-        server.actions.keep("shot.png", b"png")
+        server.actions.keep("shot.png", b"png", "files")
 
 
 @pytest.mark.parametrize(
@@ -298,7 +298,7 @@ def test_a_mounted_server_hands_out_links_it_serves(
         route_prefix="/flow",
         flow_data_dir=str(tmp_path),
     )
-    described = server.actions.keep("shot.png", b"png")
+    described = server.actions.keep("shot.png", b"png", "files")
     assert described["url"].startswith("/flow/kept/")
     if absolute is None:
         assert "absolute_url" not in described
