@@ -938,13 +938,19 @@ def test_the_file_stamp_cannot_be_forged_by_a_files_own_name(client, live):
 # file by its URI, and refusing a name nobody has, is `test_file_sections.py`
 # territory now (`test_any_file_can_be_read_back_by_its_uri`,
 # `test_reading_a_name_nobody_has_is_the_callers_mistake`). What is left here
-# is `upload_file`'s own behaviour, which reads through `actions.read_kept`
+# is `upload_file`'s own behaviour, which reads through `actions.read_file`
 # rather than calling the domain function directly.
 
 
-def test_upload_sends_the_bytes_of_a_kept_file(actions, tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "uri",
+    ["session://files/export.csv", "session://files/screenshots/shot.png"],
+)
+def test_upload_sends_any_file_named_by_its_uri(actions, uri, monkeypatch):
     """Through `upload_file`, not through the helper: the action is where the
-    four sources are told apart and where the name defaults."""
+    four sources are told apart and where the name defaults. A screenshot's
+    uri works exactly like a Files uri — the action never distinguishes them,
+    `read_file` does."""
     sent = {}
 
     class _Element:
@@ -968,18 +974,18 @@ def test_upload_sends_the_bytes_of_a_kept_file(actions, tmp_path, monkeypatch):
     )
     asked = {}
 
-    def reader(name, session=None):
-        asked["name"], asked["session"] = name, session
-        return b"id,name\n1,a\n"
+    def reader(given_uri, session=None):
+        asked["uri"], asked["session"] = given_uri, session
+        return "x.png", b"..."
 
-    actions.read_kept = reader
+    actions.read_file = reader
 
-    result = actions.upload_file("abc", selector={"css": "input[type=file]"}, kept="export.csv")
+    result = actions.upload_file("abc", selector={"css": "input[type=file]"}, file=uri)
 
-    assert sent["bytes"] == b"id,name\n1,a\n"
-    assert sent["name"] == "export.csv", "the kept name is the default filename"
-    assert result["filename"] == "export.csv"
-    assert asked == {"name": "export.csv", "session": None}, (
+    assert sent["bytes"] == b"..."
+    assert sent["name"] == "x.png", "the file's own name is the default filename"
+    assert result["filename"] == "x.png"
+    assert asked == {"uri": uri, "session": None}, (
         "an MCP caller names no library - its own key answers"
     )
 
@@ -1010,12 +1016,17 @@ def test_an_http_caller_can_name_the_library_its_file_was_kept_in(
         "kubed.selenium_flow.core.browser.wait_for_element", lambda *a, **k: _Element()
     )
 
-    def reader(name, session=None):
+    def reader(uri, session=None):
         asked["session"] = session
-        return b"x"
+        return "export.csv", b"x"
 
-    actions.read_kept = reader
-    actions.upload_file("abc", selector={"css": "input"}, kept="export.csv", session="desktop")
+    actions.read_file = reader
+    actions.upload_file(
+        "abc",
+        selector={"css": "input"},
+        file="session://files/export.csv",
+        session="desktop",
+    )
     assert asked["session"] == "desktop"
 
 
@@ -1028,19 +1039,31 @@ def test_the_upload_endpoint_accepts_the_library_name():
     from kubed.selenium_flow.core.actions import Actions
 
     accepted = set(inspect.signature(Actions.upload_file).parameters)
-    assert {"kept", "session"} <= accepted
+    assert {"file", "session"} <= accepted
 
 
 def test_a_kept_upload_is_refused_when_there_is_nowhere_to_keep(actions):
-    """Flows off means no file store, so `kept` names something that cannot
+    """Flows off means no file store, so `file` names something that cannot
     exist. Refused with the three sources that do work."""
     with pytest.raises(ValueError, match="not available"):
-        actions.upload_file("abc", selector={"css": "input"}, kept="export.csv")
+        actions.upload_file(
+            "abc", selector={"css": "input"}, file="session://files/export.csv"
+        )
 
 
 def test_only_one_source_may_be_given(actions):
     with pytest.raises(ValueError, match="only one of"):
-        actions.upload_file("abc", selector={"css": "input"}, text="hi", kept="export.csv")
+        actions.upload_file(
+            "abc",
+            selector={"css": "input"},
+            text="hi",
+            file="session://files/export.csv",
+        )
+
+
+def test_upload_says_file_is_a_uri(actions):
+    with pytest.raises(ValueError, match="file"):
+        actions.upload_file("abc", selector={"css": "input"})
 
 
 # The `kept` flag is gone — the folder says that now — and `keep_with` on a

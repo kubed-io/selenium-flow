@@ -157,7 +157,7 @@ check this table twice before reaching for it.
 | `outline` | what is on the page: selectors, and what works | `selector`, `text`, `limit`, `interactive` |
 | `screenshot` | the viewport, one element, or the whole page — kept, with a link to share | `full_page`, `filename`, `save` |
 | `print` | the page as a PDF or HTML, kept in your files | `format`: `pdf` \| `html`, `landscape`, `background`, `filename` |
-| `upload_file` | attach a file to a file input | `text`, `content`, `kept` or `path`, `filename` |
+| `upload_file` | attach a file to a file input | `text`, `content`, `file` or `path`, `filename` |
 | `frame` | move into or out of an iframe | `action`: `switch` \| `parent` \| `default` |
 | `dialog` | answer an alert, confirm or prompt | `action`: `accept` \| `dismiss` \| `read` \| `send_text` |
 | `resize` | change the window size | `width`, `height` |

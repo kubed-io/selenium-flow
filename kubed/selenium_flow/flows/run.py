@@ -163,7 +163,7 @@ HEAVY_FIELDS = ("image",)
 RESULT_FROM_ARGUMENT = {"text": "value", "script": "result"}
 
 # Arguments a STEP never writes and the run supplies, because they are about
-# the caller rather than about the action. `upload_file(kept=...)` reads from a
+# the caller rather than about the action. `upload_file(file=...)` reads from a
 # flow library, and which library that is, is the same question `/flows/run`
 # already answered to find the flow - so the run hands it down rather than
 # letting the action fall back to the ambient caller key, which over HTTP is

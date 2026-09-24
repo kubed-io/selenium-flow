@@ -60,10 +60,10 @@ class _Keeper:
         self.kept = []
         self.fail = fail
 
-    def __call__(self, name, data):
+    def __call__(self, name, data, folder):
         if self.fail:
             raise self.fail
-        self.kept.append((name, data))
+        self.kept.append((name, data, folder))
         return {"name": name, "size": len(data), "kept": True}
 
 
@@ -90,7 +90,7 @@ def acting(driver, keeper, monkeypatch):
 def test_a_screenshot_is_kept_without_being_asked(acting, keeper):
     result = acting.screenshot("abc")
     assert result["file"] == {"name": "screenshot.png", "size": 70, "kept": True}
-    assert keeper.kept == [("screenshot.png", base64.b64decode(PIXEL))]
+    assert keeper.kept == [("screenshot.png", base64.b64decode(PIXEL), "screenshots")]
 
 
 def test_save_false_still_means_do_not_keep_it(acting, keeper):
@@ -147,12 +147,22 @@ def test_a_screenshot_is_named_as_the_png_it_is(acting, keeper, given, expected)
     assert keeper.kept[0][0] == expected
 
 
+def test_a_screenshot_is_kept_in_the_screenshots_folder(acting, keeper):
+    acting.screenshot("abc")
+    assert keeper.kept[0][2] == "screenshots"
+
+
+def test_a_print_is_kept_in_files(acting, keeper):
+    acting.print_("abc")
+    assert keeper.kept[0][2] == "files"
+
+
 # ---- print -------------------------------------------------------------------
 
 
 def test_a_pdf_is_the_browser_s_own_print_kept(acting, driver, keeper):
     result = acting.print_("abc")
-    assert keeper.kept == [("page.pdf", b"%PDF-1.7 pretend")]
+    assert keeper.kept == [("page.pdf", b"%PDF-1.7 pretend", "files")]
     assert result["format"] == "pdf"
     assert result["bytes"] == len(b"%PDF-1.7 pretend")
     assert result["file"]["name"] == "page.pdf"
@@ -171,7 +181,7 @@ def test_landscape_and_background_reach_the_print(acting, driver):
 def test_html_is_the_page_as_it_stands(acting, driver, keeper):
     driver.page_source = "<html><body><p>rendered by script</p></body></html>"
     result = acting.print_("abc", format="HTML", filename="orders")
-    assert keeper.kept == [("orders.html", driver.page_source.encode())]
+    assert keeper.kept == [("orders.html", driver.page_source.encode(), "files")]
     assert result["format"] == "html"
     assert driver.printed == [], "html must not go through the print command"
 
@@ -223,8 +233,8 @@ def keeping_server(tmp_path, monkeypatch):
 def test_the_server_keeps_it_on_disk_with_a_signed_link(keeping_server, tmp_path):
     """Through the real wiring: the seam is easy to leave unconnected, and a
     missing link looks exactly like a server that has no public base."""
-    entry = keeping_server.actions.keep("shot.png", b"png")
-    assert entry["kept"] is True
+    entry = keeping_server.actions.keep("shot.png", b"png", "files")
+    assert entry["name"] == "shot.png"
     assert entry["absolute_url"].startswith("https://selenium.example.com/")
     assert "sig=" in entry["absolute_url"], "the link must be signed"
     assert [p.read_bytes() for p in tmp_path.rglob("shot.png")] == [b"png"]
@@ -349,7 +359,7 @@ async def test_print_is_a_tool_that_keeps_the_file(keeping_server, monkeypatch):
     async with Client(keeping_server.mcp) as client:
         result = await client.call_tool("print", {"format": "html"})
     assert result.structured_content["file"]["name"] == "page.html"
-    assert result.structured_content["file"]["kept"] is True
+    assert result.structured_content["file"]["uri"] == "session://files/page.html"
 
 
 # ---- what the tools promise ----------------------------------------------------

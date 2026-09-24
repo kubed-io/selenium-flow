@@ -482,12 +482,13 @@ def _request_content(action: str, request_name: str) -> dict:
                         "type": "string",
                         "description": "Picks an extension when filename has none.",
                     },
-                    "kept": {
+                    "file": {
                         "type": "string",
                         "description": (
-                            "The name of a file keep_file has kept, instead of "
+                            "The uri of a file this session has — a screenshot, "
+                            "a download, or a file in Files — instead of "
                             "sending any bytes at all. Exactly one source: a "
-                            "content part, text, kept, or path."
+                            "content part, text, file, or path."
                         ),
                     },
                     "url": {"type": "string"},
