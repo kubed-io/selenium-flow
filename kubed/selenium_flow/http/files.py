@@ -129,13 +129,12 @@ OFF = (
 NOTHING = "nothing to list: this server keeps no files and holds no browser for you"
 
 DESCRIPTION = (
-    "Every file this browsing session has: what the site downloaded, every "
-    "screenshot and print, and anything kept with keep_file.\n\n"
-    "Each entry says whether it is kept. A file that is not kept belongs to the "
-    "browser and goes when the browser does; a kept one belongs to the session "
-    "and outlives it.\n\n"
-    "Each entry has a URL that opens in a browser for a while, so an image can "
-    "be shown to someone rather than described to them."
+    "The files in Files: prints, and anything kept with keep_file. Also names "
+    "two folders — session://files/screenshots and session://files/downloads "
+    "— each with its own listing.\n\n"
+    "Every entry carries its own uri, to keep with keep_file(uri), and a URL "
+    "that opens in a browser for a while, so an image can be shown to someone "
+    "rather than described to them."
 )
 
 
@@ -434,7 +433,23 @@ def keep(actions, sessions, store, uri, name=None, session_id=None) -> dict:
                 f"{FOLDER_URI[SCREENSHOTS]} lists what there is"
             ) from None
         landed = _claim(store, session, leaf, data, FILES)
-        store.delete_file(session, leaf, SCREENSHOTS)
+        try:
+            store.delete_file(session, leaf, SCREENSHOTS)
+        except Exception:
+            # A move is a copy plus a delete, and if the delete fails the copy
+            # must not survive it — otherwise the file is in both folders and
+            # the caller was told the move failed. Undoing the claim is best
+            # effort: a failure here is logged, not raised over the original,
+            # because the original is the one the caller needs to see.
+            try:
+                store.delete_file(session, landed["name"], FILES)
+            except Exception:  # noqa: BLE001 - best effort, the original error wins
+                log.warning(
+                    "keep %s: could not roll back the claimed copy %s/%s after "
+                    "the screenshot delete failed",
+                    uri, session, landed["name"],
+                )
+            raise
     else:
         # `session_id`, when given, is the browser to read from and is never
         # resolved — the caller (the admin) can then ask for a specific

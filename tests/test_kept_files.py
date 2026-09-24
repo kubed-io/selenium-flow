@@ -1,16 +1,16 @@
-"""Kept files: the copy out of the browser, and everything that follows from it.
+"""Files kept in a session's own store, and the admin/HTTP surfaces over them.
 
 The Grid's file API is **list, read-one, delete-all** — there is no write and no
-per-file delete. Almost every rule tested here falls out of that one fact, so
-they are worth naming together:
+per-file delete, which is why keeping a download is a **copy**: the original
+cannot be removed until the browser ends or the downloads are cleared.
 
-- keeping is a **copy**, because the original cannot be removed;
-- only a **kept** file has a per-file delete, because only kept files are ours;
-- **clearing the downloads is therefore safe**, because kept files are somewhere
-  else by definition — which is the whole reason that button can exist;
-- and the listing **survives the browser**, because half of it always did.
+The three-sections split and its listing rules (`root`, `folder`, `sections`,
+`keep`) live in `test_file_sections.py` now. What is left here: the store's own
+file rules (naming, escaping, one name per folder), that a Grid failure is
+never hidden, and the admin/HTTP surfaces — keeping, deleting, clearing, the
+signed link, and the published contract — built on those domain functions.
 
-The Grid is never dialled. What is asserted is the part this server decides.
+The real Grid is never dialled; a fake stands in throughout.
 """
 
 from unittest.mock import patch

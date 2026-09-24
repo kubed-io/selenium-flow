@@ -218,6 +218,27 @@ def test_keeping_refuses_when_there_is_nowhere_to_keep():
         files.keep(Actions(), Sessions(), None, "session://files/screenshots/a.png")
 
 
+def test_a_screenshot_that_cannot_be_removed_leaves_no_copy_behind(store, monkeypatch):
+    """A move is a copy plus a delete. If the delete fails after the copy has
+    already claimed a name in Files, the file must not end up in both places —
+    so the claimed copy is rolled back and the original error still surfaces."""
+    store.create_file(S, "shot.png", b"png", flows.SCREENSHOTS_DIR)
+
+    original = flows.LocalFlowStore.delete_file
+
+    def refuse(self, session, name, folder=flows.FILES_DIR):
+        if folder == flows.SCREENSHOTS_DIR:
+            raise PermissionError("read-only screenshots")
+        return original(self, session, name, folder)
+
+    monkeypatch.setattr(flows.LocalFlowStore, "delete_file", refuse)
+
+    with pytest.raises(PermissionError):
+        files.keep(Actions(), Sessions(), store, "session://files/screenshots/shot.png")
+    assert store.files(S) == []
+    assert [f["name"] for f in store.files(S, flows.SCREENSHOTS_DIR)] == ["shot.png"]
+
+
 # ---- bytes this server made -------------------------------------------------
 
 
