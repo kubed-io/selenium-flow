@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'vitest'
-import { go, hashes, listen, parse, replace, router } from './router.svelte'
+import { go, hashes, parse, replace, router, sync } from './router.svelte'
 
 afterEach(() => { history.replaceState(null, '', '#/') })
 
@@ -29,9 +29,9 @@ test('replace moves the address and the route without a history entry', () => {
 })
 
 test('go routes through hashchange', async () => {
-  const stop = listen()
+  window.addEventListener('hashchange', sync)
   go('#/secrets')
   await new Promise((r) => window.addEventListener('hashchange', r, { once: true }))
   expect(router.route).toEqual({ view: 'secrets' })
-  stop()
+  window.removeEventListener('hashchange', sync)
 })

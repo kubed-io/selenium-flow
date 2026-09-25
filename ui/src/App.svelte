@@ -14,7 +14,8 @@
   }
 
   type View = { kind: 'loading' } | { kind: 'error'; message: string } | { kind: 'data'; data: Record<string, unknown> }
-  let view = $state<View>({ kind: 'loading' })
+  // Raw: replaced wholesale by each tool result, never mutated.
+  let view = $state.raw<View>({ kind: 'loading' })
   const Shown = $derived(view.kind === 'data' && Object.hasOwn(COMPONENTS, String(view.data.component)) ? COMPONENTS[String(view.data.component)] : null)
 
   onMount(async () => {

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { untrack } from 'svelte'
   import { sessionPath, type Api } from './api'
   import { listed, mapping } from './flow'
   import type { ModalSpec } from './modal'
@@ -29,10 +28,11 @@
   } = $props()
 
   // One selection across params and steps: the pane beside them shows one thing.
-  let picked = $state<{ kind: 'param'; key: string } | { kind: 'step'; key: number } | null>(null)
+  type Pick = { kind: 'param'; key: string } | { kind: 'step'; key: number } | null
   // A different document clears the selection; a refresh of the same one keeps
   // it (a refresh is not a click). Picking from the list clears it too, below.
-  $effect(() => { void flowName; untrack(() => { picked = null }) })
+  // A writable derived: clicks set it, and a new `flowName` re-evaluates it.
+  let picked = $derived.by((): Pick => { void flowName; return null })
   let draft = $state('')
 
   const data = $derived(m.flows ?? { enabled: true, flows: [] })
@@ -145,8 +145,8 @@
         class="desc">{f.description}</div>{/if}<div class="panes"><div class="outline"><div
             class="olabel">Params</div>{#if names.length}<div class="rows">{#each names as n (n)}<ParamRow
               name={n} spec={declared[n]} required={required.includes(n)} picked={isPicked('param', n)} />{/each}</div>{:else}<div
-            class="none">This flow takes nothing.</div>{/if}<div class="olabel">Steps</div><div
-            class="rows">{#each steps as s, i (i)}<StepRow entry={s} {i} picked={isPicked('step', i)} />{/each}</div></div><div
+            class="none">This flow takes nothing.</div>{/if}<div class="olabel">Steps</div><!-- eslint-disable-next-line svelte/require-each-key -- (a step has no unique key, and an index key is no key) --><div
+            class="rows">{#each steps as s, i}<StepRow entry={s} {i} picked={isPicked('step', i)} />{/each}</div></div><div
           class="rule"></div><div class="pane">{#if !picked}<div
             class="hint">Pick a parameter or a step to see what it holds.</div>{:else if picked.kind === 'param'}<ParamDetail
             {f} name={picked.key} />{:else}<StepDetail {f} i={picked.key} />{/if}</div></div></div>{/if}</div></div>{/if}</div>

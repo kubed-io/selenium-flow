@@ -4,7 +4,7 @@
   import ConsolePane from './ConsolePane.svelte'
   import { Live } from './live.svelte'
   import Login from './Login.svelte'
-  import { go, hashes, listen, router } from './router.svelte'
+  import { go, hashes, router, sync } from './router.svelte'
   import SecretsPane from './SecretsPane.svelte'
   import SessionDetail from './SessionDetail.svelte'
   import SessionsView from './SessionsView.svelte'
@@ -27,9 +27,9 @@
   const consoleSelf = target.origin === location.origin && target.pathname.replace(/\/+$/, '') === BASE
 
   // sessionStorage, not localStorage: the server's full-privilege token should
-  // not outlive the tab it was typed into.
-  let token = $state(sessionStorage.getItem('sf-token') || '')
-  // svelte-ignore state_referenced_locally (this reads token's initial value only, on purpose — phase has its own transitions afterward)
+  // not outlive the tab it was typed into. A plain variable: nothing renders
+  // it, and the api reads it afresh on every call.
+  let token = sessionStorage.getItem('sf-token') || ''
   let phase = $state<'probing' | 'login' | 'in'>(token ? 'probing' : 'login')
   let refused = $state(false)
 
@@ -56,9 +56,8 @@
   }
 
   onMount(() => {
-    const stop = listen()
+    sync()
     if (phase === 'probing') api('/admin/sessions').then(() => { phase = 'in' }, () => { phase = 'login' })
-    return stop
   })
 
   const route = $derived(router.route)
@@ -75,6 +74,7 @@
   })
 </script>
 
+<svelte:window onhashchange={sync} />
 <header class="bar">
   <span class="brand">selenium-flow</span>
   <span class="grow"></span>

@@ -159,6 +159,13 @@ test('param detail: required, description, default, used-by rows that jump (W3)'
   expect(container.querySelector('.pane .pairs')).toHaveTextContent('default2')
 })
 
+test('a step index repeated in `uses` is cited twice, not thrown on (W8)', async () => {
+  const { container } = setup({ 'GET /admin/sessions/k/flows/login': { body: { ...DOC, uses: { user: [1, 1] } } } })
+  await vi.waitFor(() => found(container, '[data-param="user"]'))
+  await fireEvent.click(container.querySelector('.outline [data-param="user"]')!)
+  expect(container.querySelectorAll('.pane .rows [data-step="1"]')).toHaveLength(2)
+})
+
 test('a parameter declared empty and a step that is an empty object are shown, not gone (W8)', async () => {
   const doc = { name: 'login', parameters: { properties: { term: null } }, steps: [{}], uses: { term: [] } }
   const { container } = setup({ 'GET /admin/sessions/k/flows/login': { body: doc } })
@@ -268,6 +275,19 @@ test('a listing that failed on a refresh is repainted away by a flow opened from
   await rerender({ flow: 'shared-one' })
   expect(container.querySelector('#flows')).not.toHaveTextContent('boom')
   await vi.waitFor(() => expect(container.querySelector('.panel .head .nm')).toHaveTextContent('shared-one'))
+})
+
+test('a flow opened from the hash clears the selection too; it is a different document (W2, D5)', async () => {
+  const { container, rerender } = setup({
+    'GET /admin/sessions/k/flows/shared-one': { body: { name: 'shared-one', shared: true, steps: [{ tool: 'navigate' }] } },
+  })
+  await vi.waitFor(() => found(container, '.outline [data-step="0"]'))
+  await fireEvent.click(container.querySelector('.outline [data-step="0"]')!)
+  expect(container.querySelector('.outline [data-step="0"]')).toHaveAttribute('aria-selected', 'true')
+  await rerender({ flow: 'shared-one' })
+  await vi.waitFor(() => expect(container.querySelector('.panel .head .nm')).toHaveTextContent('shared-one'))
+  expect(container.querySelector('.outline [data-step="0"]')).toHaveAttribute('aria-selected', 'false')
+  expect(container.querySelector('.pane')).toHaveTextContent('Pick a parameter or a step to see what it holds.')
 })
 
 test('a deep-linked flow the listing does not have is never fetched or opened (D5)', async () => {

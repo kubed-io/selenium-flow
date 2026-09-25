@@ -43,9 +43,8 @@ export function replace(hash: string) {
   router.route = parse(hash)
 }
 
-export function listen(): () => void {
-  const on = () => { router.route = parse(location.hash) }
-  window.addEventListener('hashchange', on)
-  on()
-  return () => window.removeEventListener('hashchange', on)
+/* The route, read from the address bar: at mount, and on every hashchange
+   (Admin's `<svelte:window onhashchange>`). */
+export function sync() {
+  router.route = parse(location.hash)
 }

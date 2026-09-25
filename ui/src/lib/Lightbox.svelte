@@ -16,7 +16,10 @@
   } = $props()
 
   // Opened once on a list; after an action the caller hands back the next one.
-  let list = $state(untrack(() => files.slice()))
+  // So `files` and `index` are read once, on purpose: they seed this viewer's
+  // own state, and a later change to either prop is not this viewer's to follow.
+  // Raw: the list is only ever replaced, never mutated.
+  let list = $state.raw(untrack(() => files.slice()))
   let at = $state(untrack(() => index))
   let busy = $state(false)
   const f = $derived(list[at])

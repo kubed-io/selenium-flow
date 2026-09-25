@@ -5,7 +5,8 @@
   import { Latest } from './latest'
 
   let { api }: { api: Api } = $props()
-  let data = $state<SecretsPayload | null>(null)
+  // Raw: an API response, replaced wholesale, never mutated.
+  let data = $state.raw<SecretsPayload | null>(null)
   let error = $state<string | null>(null)
   const loads = new Latest()
 

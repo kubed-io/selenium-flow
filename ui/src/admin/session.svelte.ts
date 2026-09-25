@@ -55,8 +55,12 @@ export class SessionModel {
   #fileLoads = new Latest()
   #flowLoads = new Latest()
   #docLoads = new Latest()
+  readonly key: string
+  #api: Api
 
-  constructor(readonly key: string, private api: Api) {
+  constructor(key: string, api: Api) {
+    this.key = key
+    this.#api = api
     this.row = { key }
   }
 
@@ -64,7 +68,7 @@ export class SessionModel {
     // Both clears are off for the life of the request, not only once it fails.
     this.loadingFiles = true
     return this.#fileLoads.run(
-      (signal) => this.api<FilesResponse>(sessionPath(this.key, '/files'), 'GET', undefined, signal),
+      (signal) => this.#api<FilesResponse>(sessionPath(this.key, '/files'), 'GET', undefined, signal),
       (data) => {
         const row = data.session || { key: this.key }
         this.#showRow(row)
@@ -102,7 +106,7 @@ export class SessionModel {
 
   loadFlows(currentFlow: () => string | null, vanished: () => void): Promise<void> {
     return this.#flowLoads.run(
-      (signal) => this.api<FlowsListing>(sessionPath(this.key, '/flows'), 'GET', undefined, signal),
+      (signal) => this.#api<FlowsListing>(sessionPath(this.key, '/flows'), 'GET', undefined, signal),
       (data) => {
         this.flows = data
         this.flowsError = null
@@ -127,7 +131,7 @@ export class SessionModel {
 
   loadFlow(name: string): Promise<void> {
     return this.#docLoads.run(
-      (signal) => this.api<FlowDoc>(sessionPath(this.key, '/flows/' + encodeURIComponent(name)), 'GET', undefined, signal),
+      (signal) => this.#api<FlowDoc>(sessionPath(this.key, '/flows/' + encodeURIComponent(name)), 'GET', undefined, signal),
       (doc) => { this.flowDoc = doc; this.flowDocError = null },
       (e) => { this.flowDocError = { name, message: e.message } },
     )

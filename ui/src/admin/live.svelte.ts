@@ -13,12 +13,17 @@ export class Live {
   #events: EventSource | null = null
   #lastBeat = 0
   #fallback: ReturnType<typeof setInterval> | undefined
+  #api: Api
+  #root: string
 
-  constructor(private api: Api, private root: string) {}
+  constructor(api: Api, root: string) {
+    this.#api = api
+    this.#root = root
+  }
 
   async load(): Promise<SessionsPayload | undefined> {
     try {
-      const data = await this.api<SessionsPayload>('/admin/sessions')
+      const data = await this.#api<SessionsPayload>('/admin/sessions')
       this.#apply(data)
       if (data.events_url) this.#watch(data.events_url)
       return data
@@ -40,7 +45,7 @@ export class Live {
 
   #watch(url: string) {
     if (this.#events) return
-    const events = (this.#events = new EventSource(this.root + url))
+    const events = (this.#events = new EventSource(this.#root + url))
     this.watching = true
     events.onopen = () => this.#beat()
     events.onmessage = (e) => {
@@ -57,7 +62,7 @@ export class Live {
       if (Date.now() - this.#lastBeat < 45000) return
       this.badge = { text: 'polling', cls: '' }
       try {
-        const data = await this.api<SessionsPayload>('/admin/sessions')
+        const data = await this.#api<SessionsPayload>('/admin/sessions')
         this.#apply(data)
         // The stream URL is signed and expires: a reconnect after that 401s
         // forever. This answer carries a freshly signed one.

@@ -48,6 +48,19 @@ test('keep: 📌 top-left, disabled for the round trip, re-armed on failure (F5)
   await vi.waitFor(() => expect(btn).not.toBeDisabled())
 })
 
+test('keep: a success stays disarmed until a reload hands the tile a fresh entry (F5)', async () => {
+  const onkeep = vi.fn(async () => true)
+  const { container, rerender } = render(FileGrid, { files: [png], action: 'keep', onkeep })
+  const btn = container.querySelector('button.act.keep') as HTMLButtonElement
+  await fireEvent.click(btn)
+  await vi.waitFor(() => expect(onkeep).toHaveBeenCalled())
+  expect(btn).toBeDisabled()
+  // The same name, a new object: what a reload of the listing delivers.
+  await rerender({ files: [{ ...png }] })
+  expect(container.querySelector('button.act.keep')).toBe(btn)
+  expect(btn).not.toBeDisabled()
+})
+
 test('delete: 🗑 hands the file to the page', async () => {
   const ondelete = vi.fn()
   const { container } = render(FileGrid, { files: [png], action: 'delete', ondelete })

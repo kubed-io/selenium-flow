@@ -14,8 +14,8 @@
   const href = $derived(base + f.url)
   // Disabled for the round trip so a second click cannot keep twice. A reload
   // hands this tile a fresh entry, which re-arms it — as today's redraw did.
-  let busy = $state(false)
-  $effect.pre(() => { void f; busy = false })
+  // A writable derived: `keep` sets it, and a new `f` re-evaluates it to false.
+  let busy = $derived.by(() => { void f; return false })
 
   async function keep() {
     busy = true

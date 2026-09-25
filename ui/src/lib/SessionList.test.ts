@@ -37,3 +37,11 @@ test('picking is optional; without it the cards are plain (L3)', async () => {
   await expect(fireEvent.click(card)).resolves.not.toThrow()
   expect(onpick).toHaveBeenCalledTimes(1)
 })
+
+test('the card class attribute is exactly "card", or "card click" when pickable (frozen selector)', () => {
+  const r1 = render(SessionList, { data: { sessions: [row] }, onpick: () => {} })
+  expect(r1.container.querySelector('.card')!.getAttribute('class')).toBe('card click')
+  r1.unmount()
+  const { container } = render(SessionList, { data: { sessions: [row] } })
+  expect(container.querySelector('.card')!.getAttribute('class')).toBe('card')
+})
