@@ -1,6 +1,6 @@
 # Traceability: every page-grepping test, mapped before the page moves
 
-90 tests mapped, 30 retired (120 total); every inventory item (A1…C1,
+93 tests mapped, 27 retired (120 total); every inventory item (A1…C1,
 including F9 and W9 added below) is covered — either by a row in this table
 or, for behaviour no old test protected (sign-in, tabs, the live badge, the
 console, R4/R5/R6), listed in **Coverage check: items with no originating
@@ -41,7 +41,7 @@ same commit as this table: **F9** (Files carries no clear action) and **W9**
 | test_a_late_reply_cannot_render_one_session_under_another | A stale load cannot paint over the session now on screen | RETIRED: asserts `gone(key)` appearing exactly twice in `loadFiles`/`loadFlows` — the guarantee is D4 in `session.test.ts` "dispose: an answer after the session left never paints" (Task 7) |
 | test_a_load_in_flight_disables_both_clear_buttons | Both clear buttons disable before the request goes out, not only on failure | F3 → `SessionDetail.test.ts` (Task 7) — new test; see new test list |
 | test_a_browser_change_drops_the_stale_files_snapshot_before_showdetail | A browser change blanks Downloads and disables Clear screenshots before repaint | F8 → `session.test.ts` "a changed browser blanks Downloads, disarms the clears, and forces a reload (F8)" (Task 7) |
-| test_a_late_flow_cannot_overwrite_the_one_you_just_picked | Picking flow B while A is still loading cannot land A's document under B's name | RETIRED: asserts a specific guard string appearing twice — the guarantee is generic in `latest.test.ts` "an overtaken load never paints, even when it answers last" (Task 3), applied to the doc loader in `session.svelte.ts` |
+| test_a_late_flow_cannot_overwrite_the_one_you_just_picked | Picking flow B while A is still loading cannot land A's document under B's name | RETIRED: asserts a specific guard string appearing twice — the guarantee is generic in `latest.test.ts` "an overtaken load never paints, even when it answers last" (Task 3), applied to the doc loader in `session.svelte.ts`. The old code's extra `flowName !== name` check is redundant now: every load is a per-call generation inside `Latest` (Task 3), and picking a new flow starts a new generation that aborts the old one outright — there is no separate name to compare |
 | test_the_last_page_gets_a_row_of_its_own_and_is_a_link | The last page is its own row, and a real link | D1 → `SessionSummary.test.ts` "named: no key or held-by; groups by lifetime (D1)" (Task 4) |
 | test_a_last_page_that_is_not_a_web_url_is_not_linked | A non-http(s) URL is shown as text, never a clickable link | D1 → `format.test.ts` "safeHref only lets http(s) through" (Task 3); `SessionSummary.test.ts` "unnamed shows key and held-by; a javascript: page is text; nowhere yet" (Task 4) |
 | test_the_header_no_longer_repeats_the_file_count | The header does not restate the file count Files already shows | RETIRED: a source-string absence check on `sessionSummary` — `SessionRow`/`SessionSummary` (Task 3/4) has no `files_count` field in its rendered groups at all; exhaustively asserted (not merely absent) by D1 in `SessionSummary.test.ts` "named: no key or held-by; groups by lifetime" |
@@ -101,13 +101,13 @@ same commit as this table: **F9** (Files carries no clear action) and **W9**
 | test_the_page_script_is_valid_javascript | The served script must actually parse | RETIRED: a `node --check` floor under string-matching tests that have no DOM — superseded by the build itself: `npm --prefix ui run build`/`run check` (svelte-check, TypeScript), wired into CI in Task 11, fails loudly on anything that does not compile |
 | test_a_multi_line_argument_is_shown_as_code | A multi-line argument value renders as a code block, keyed on content | W3 → `FlowsPane.test.ts` "step detail: number, chip, tool, arguments, code, selector, secret, behaviour (W3)" (Task 8) |
 | test_the_session_a_flow_fetch_is_for_is_passed_not_read | A flow reload is threaded the session key, never re-reads a shared "current" | RETIRED: asserts an absent source pattern and that `openFlow(` is absent from the save path — structurally guaranteed: `SessionModel` (Task 7) is instantiated per session key and closes over it; there is no shared `current` to misread |
-| test_acting_on_one_session_does_not_disturb_another | An action on session A cannot touch session B's selection or reload | RETIRED: asserts guard-count patterns in a page-wide event handler — each session now owns its own `SessionModel` instance (Task 7), demonstrated directly by `session.test.ts` "a pushed row for another session, or none, changes nothing" |
+| test_acting_on_one_session_does_not_disturb_another | A flow action (Move/Delete/Save) started on session A does not touch session B's open flow once the operator has moved on | D4 → `SessionDetail.test.ts` (Task 7) — new test: "a flow Move/Delete/Save from a session that has since been left does not touch another session's open flow"; see new test list |
 | test_opening_a_session_is_guarded_after_each_of_its_own_awaits | Moving to a third session mid-load cannot let the second session's resumption strand it | RETIRED: asserts `gone(key)` appears exactly twice around specific awaits in `openSession` — no such function exists; `SessionDetail`'s `onMount` (Task 7) checks `destroyed` after each await, exercised by D4 in `session.test.ts` "dispose: an answer after the session left never paints" |
 | test_a_deep_linked_flow_is_checked_against_the_listing_first | A deep-linked flow only opens if the listing actually contains it | D5 → `FlowsPane.test.ts` (Task 8) — new test; see new test list |
 | test_switching_sessions_disarms_the_clear_buttons_until_the_new_one_answers | A freshly opened session starts with both clear buttons disarmed | D4, F3 → `session.test.ts` "a load paints the rows and the header (F2, D1)" (Task 7) — `m.view` is `null` and `m.files` is `NO_FILES` before the first load resolves, which is what disarms both buttons |
 | test_a_failed_file_load_disarms_the_clear_buttons_too | A failed files load also disarms both clear buttons | F7 → `session.test.ts` "a failed load leaves nothing actionable behind (F7)" (Task 7) |
-| test_a_kept_or_deleted_file_only_reloads_its_own_session | Acting on a file only reloads the session it belongs to | RETIRED: asserts `if (current === key) loadFiles(key);` appears exactly twice — no shared `current` exists; each `keep`/`delete` closes over its own session's `m` and is guarded by `destroyed` (Task 7), covered by D4 in `SessionDetail.test.ts` "the session going away takes its overlays and cancels its modal" |
-| test_clearing_either_folder_only_reloads_its_own_session | Clearing a folder only reloads the session it belongs to | RETIRED: same pattern as above — `SessionDetail.test.ts` "the session going away takes its overlays and cancels its modal (D4, M1)" (Task 7) |
+| test_a_kept_or_deleted_file_only_reloads_its_own_session | A keep or delete started on session A does not reload or paint session B once the operator has moved on | D4 → `SessionDetail.test.ts` (Task 7) — new test: "a file action from a session that has since been left does not paint over the session now on screen"; see new test list |
+| test_clearing_either_folder_only_reloads_its_own_session | A clear started on session A does not reload or paint session B once the operator has moved on | D4 → `SessionDetail.test.ts` (Task 7) — new test: "a file action from a session that has since been left does not paint over the session now on screen"; see new test list |
 | test_only_downloads_go_with_the_browser | Only Downloads is blanked on a browser change; Screenshots/Files are not | F8 → `session.test.ts` "a changed browser blanks Downloads, disarms the clears, and forces a reload (F8)" (Task 7) |
 | test_a_closed_flow_takes_its_hash_with_it | Closing a flow (move/delete/vanish) resets the hash to `…/flows` | W6/W7 → `FlowsPane.test.ts` "Move and Delete say where, act, and close the flow (W5, W6)" (Task 8) checks the hash after Move; the vanish path is `session.test.ts` "an open flow that vanished from the listing is closed (W7)" wired to `replace(hashes.flows(key))` (Task 7) |
 | test_clearing_one_screenshot_does_not_say_all | Clearing the one and only screenshot reads "the 1 screenshot," not "all 1" | F4 → `SessionDetail.test.ts` (Task 7) — new test; see new test list |
@@ -163,6 +163,29 @@ same commit as this table: **F9** (Files carries no clear action) and **W9**
 
 Behaviour the table above needs, that no test in Tasks 2–13 currently names:
 
+- `SessionDetail.test.ts` (Task 7): "a file action from a session that has
+  since been left does not paint over the session now on screen" (D4).
+  Render `SessionDetail` for session A, click a tile's keep (or Files' delete,
+  or Clear downloads/screenshots) so its `POST`/`DELETE` is in flight against
+  a deferred fetch that has not resolved yet. `unmount()` A. Render a second,
+  independent `SessionDetail` for session B with its own files fixture and
+  let its own load settle. Resolve A's deferred request. Assert: no further
+  `GET /admin/sessions/b/files` call fires, and B's rendered counts/grid are
+  exactly what B's own load produced — A's now-late `!destroyed` check
+  (`SessionDetail.svelte`, Task 7) must not reach into B's `SessionModel` at
+  all, since the two are separate component instances. Covers
+  `test_a_kept_or_deleted_file_only_reloads_its_own_session` and
+  `test_clearing_either_folder_only_reloads_its_own_session`.
+- `SessionDetail.test.ts` (Task 7): "a flow Move/Delete/Save from a session
+  that has since been left does not touch another session's open flow" (D4,
+  W4/W5/W6). Render `SessionDetail` for session A on the flows tab with flow
+  `login` open, click Move (or Delete, or Save in the editor) so its
+  `POST`/`DELETE`/`PUT` is in flight against a deferred fetch. `unmount()` A.
+  Render a second, independent `SessionDetail` for session B on its own
+  flows tab with its own open flow. Resolve A's deferred request. Assert: no
+  further `GET`/`PUT`/`POST` fires against session B's flows or flow
+  document, and B's open flow (its hash, its picked step or parameter) is
+  unchanged. Covers `test_acting_on_one_session_does_not_disturb_another`.
 - `SessionDetail.test.ts` (Task 7): the three Files sections render in document
   order — Downloads, Screenshots, Files (F1).
 - `SessionDetail.test.ts` (Task 7): the kept ("Files") section offers no clear
