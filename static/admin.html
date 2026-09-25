@@ -245,9 +245,12 @@ const sessionPath = (key, rest = '') =>
    Native confirm() cannot show a list, and "Delete 12 files?" without saying
    which twelve is an assertion rather than a disclosure — the whole point of
    the Clear downloads confirm is that the scope is shown. */
-function modal({title, body, confirm = 'OK', danger = false, onconfirm, oncancel}) {
+function modal({title, body, confirm = 'OK', danger = false, onconfirm, oncancel, scope = null}) {
   const box = document.createElement('div');
   box.className = 'modal';
+  // 'downloads' when the confirm acts on the browser's downloads, so a browser
+  // change can close it without touching session-scoped dialogs (§F4.9).
+  box.scope = scope;
   box.innerHTML =
     '<div class="sheet"><div class="head">' + SF.esc(title) + '</div>' +
     '<div class="body">' + body + '</div>' +
@@ -1274,6 +1277,9 @@ function refreshDetail(data) {
   // belongs to the session, not the browser, and stays valid across this.
   if ((row.session_id || null) !== shownBrowser || !!row.live !== shownLive) {
     if (activeLightboxFolder === 'downloads') closeLightbox();
+    // A Clear downloads confirm lists the gone browser's names, and its key
+    // still matches, so refuseIfGone would let it clear the replacement's.
+    if (activeModal && activeModal.scope === 'downloads') closeModal();
     shownBrowser = row.session_id || null;
     shownLive = !!row.live;
     filesData = NO_FILES;
@@ -1314,6 +1320,7 @@ $('clearDownloads').onclick = () => {
   // file survives — that is the distinction the list below has to draw.
   const kept = filesData.files.map((f) => f.name);
   modal({
+    scope: 'downloads',
     title: 'Clear downloads',
     // Every name, with what happens to it. Listing them all and then saying
     // kept files are untouched put a sentence and a list in contradiction on

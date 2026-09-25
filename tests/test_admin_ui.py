@@ -1076,6 +1076,24 @@ def test_refresh_detail_treats_a_liveness_flip_like_a_browser_change(page):
     assert "shownLive = !!row.live;" in detail
 
 
+def test_a_stale_clear_downloads_confirm_is_closed_when_the_browser_changes(page):
+    """A Clear downloads confirm lists the OLD browser's names, and the session
+    key has not changed, so refuseIfGone would let it clear the replacement
+    browser's store. The branch closes a modal scoped to 'downloads' before
+    `filesData` is dropped — and only that one: the YAML editor and the other
+    confirms act on session-owned things and stay open."""
+    detail = page.split("function refreshDetail(data)")[1].split("\n}\n")[0]
+    branch = detail.split(
+        "if ((row.session_id || null) !== shownBrowser || !!row.live !== shownLive) {"
+    )[1].split("\n  }\n")[0]
+    guard = "if (activeModal && activeModal.scope === 'downloads') closeModal();"
+    assert guard in branch
+    assert branch.index(guard) < branch.index("filesData = NO_FILES;")
+    handler = page.split("$('clearDownloads').onclick")[1].split("\n};\n")[0]
+    assert "scope: 'downloads'" in handler
+    assert "box.scope = scope;" in page.split("function modal(")[1].split("\n}\n")[0]
+
+
 def test_a_stale_downloads_lightbox_is_closed_before_the_browser_changes(page):
     """An open Downloads lightbox holds the OLD browser's list, and its Keep
     would act against a browser that is already gone — so it is closed before
