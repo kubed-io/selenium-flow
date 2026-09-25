@@ -336,6 +336,69 @@ test('a browser change leaves a Screenshots lightbox and a session-scoped confir
   expect(container.ownerDocument.querySelector('.modal')).not.toBeNull()
 })
 
+test('a confirm that lands after its box was dropped does not close the box that replaced it (M1, F8)', async () => {
+  const cleared = deferred<{ body: unknown }>()
+  const { container, calls, live } = setup({ 'DELETE /admin/sessions/k/files/downloads': () => cleared.promise })
+  const loads = () => calls.filter((c) => c.path === '/admin/sessions/k/files').length
+  await vi.waitFor(() => expect(container.querySelector('#clearDownloads')).not.toBeDisabled())
+  await fireEvent.click(container.querySelector('#clearDownloads')!)
+  await fireEvent.click(within(document.querySelector('.modal') as HTMLElement).getByText('Clear 1 file'))
+  await vi.waitFor(() => expect(calls.some((c) => c.method === 'DELETE')).toBe(true))
+  // The browser changes while the clear is out: its Downloads-scoped box goes.
+  live.data = { sessions: [{ ...row, session_id: 'b2' }] }
+  await vi.waitFor(() => expect(document.querySelector('.modal')).toBeNull())
+  await vi.waitFor(() => expect(container.querySelector('#clearScreenshots')).not.toBeDisabled())
+  await fireEvent.click(container.querySelector('#clearScreenshots')!)
+  const sheet = document.querySelector('.modal')
+  expect(sheet).toHaveTextContent('Deletes all 2 screenshots in this session.')
+  const before = loads()
+  cleared.resolve({ body: {} })
+  // The late clear still reloads its own session...
+  await vi.waitFor(() => expect(loads()).toBe(before + 1))
+  await tick()
+  // ...and leaves the box that replaced its own exactly where it was.
+  expect(document.querySelector('.modal')).toBe(sheet)
+  expect(within(sheet as HTMLElement).getByText('Delete 2 screenshots')).not.toBeDisabled()
+})
+
+test('a cancel from a box already replaced leaves the new box open (M1)', async () => {
+  const { container } = setup()
+  await vi.waitFor(() => expect(container.querySelector('#clearDownloads')).not.toBeDisabled())
+  await fireEvent.click(container.querySelector('#clearScreenshots')!)
+  const replaced = lastProps<{ spec: ModalSpec<never> }>(Modal).spec
+  // Reachable from the keyboard: the modal is not a focus trap.
+  await fireEvent.click(container.querySelector('#clearDownloads')!)
+  const sheet = document.querySelector('.modal')
+  expect(sheet).toHaveTextContent('Deletes what this browser downloaded.')
+  // The replaced box's cancel, held past its replacement, runs late.
+  replaced.oncancel!()
+  await tick()
+  expect(document.querySelector('.modal')).toBe(sheet)
+})
+
+test('a viewer closed while its refresh was out: that refresh does not close the viewer opened since (X3)', async () => {
+  const reload = deferred<{ body: unknown }>()
+  let n = 0
+  const { container } = setup({
+    'GET /admin/sessions/k/files': () => (++n === 1 ? { body: FILES } : reload.promise),
+    'POST /admin/sessions/k/files/screenshots/a.png/keep': { body: {} },
+  })
+  await vi.waitFor(() => expect(container.querySelector('#screenshots a.thumb')).not.toBeNull())
+  await fireEvent.click(container.querySelector('#screenshots a.thumb')!)
+  await fireEvent.click(screen.getByText('📌 Keep'))
+  await vi.waitFor(() => expect(n).toBe(2)) // the Keep landed; its refresh is out
+  await fireEvent.click(screen.getByText('Close'))
+  await fireEvent.click(container.querySelector('#kept a.thumb')!)
+  expect(document.querySelector('.lightbox .name')).toHaveTextContent('d.png')
+  // Nothing left in Screenshots: a live viewer on them would close itself.
+  reload.resolve({ body: { ...FILES, screenshots: [] } })
+  await vi.waitFor(() => expect(container.querySelector('#screenshotsCount')).toHaveTextContent('0'))
+  await tick()
+  expect(document.querySelector('.lightbox .name')).toHaveTextContent('d.png')
+  expect(screen.getByText('1 / 1')).toBeInTheDocument()
+  expect(screen.getByText('🗑 Delete')).not.toBeDisabled()
+})
+
 test('the session going away takes its overlays and cancels its modal (D4, M1)', async () => {
   const { container, unmount } = setup()
   await vi.waitFor(() => expect(container.querySelector('#clearScreenshots')).not.toBeDisabled())

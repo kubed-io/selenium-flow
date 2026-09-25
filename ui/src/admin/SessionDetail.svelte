@@ -210,9 +210,11 @@
         await m.loadFiles()
         // Its own load may have been overtaken by the poll's (the Keep race).
         await m.filesSettled()
-        if (destroyed || lightbox !== lb) return null
+        if (destroyed) return null
         return { files: m.files[folder], index: at }
       },
+      // Only its own viewer: a refresh that lands after this one was closed
+      // must not close the one opened since.
       onclose: () => { if (lightbox === lb) lightbox = null },
     }
     lightbox = lb
@@ -275,12 +277,14 @@
   </div>
 </div>
 
-{#if lightbox}
-  {#key lightbox}
-    <Lightbox files={lightbox.files} index={lightbox.index} base={root}
-              action={lightbox.action} refresh={lightbox.refresh} onclose={lightbox.onclose} />
-  {/key}
-{/if}
+<!-- An each of one, keyed by the viewer, not {#if}: a viewer's props must
+     stay bound to it. An action still finishing after its viewer closed reads
+     `refresh` and `onclose` late, and through {#if} those reads reached
+     whichever viewer had been opened since, and closed it. -->
+{#each lightbox ? [lightbox] : [] as lb (lb)}
+  <Lightbox files={lb.files} index={lb.index} base={root}
+            action={lb.action} refresh={lb.refresh} onclose={lb.onclose} />
+{/each}
 {#if modal}
   <!-- Keyed: a box that replaces another starts fresh, not busy. It closes
        itself by identity (see `ask`), so its own close report is not needed. -->
