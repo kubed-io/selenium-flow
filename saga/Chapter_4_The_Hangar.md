@@ -752,11 +752,14 @@ caching strategies"*. Measured first, the answer was mostly not a cache:
 - **Profiling rides the integration run** (Dr K: *"we are testing the profile
   of using it as an mcp while using the admin at the same time"*). The suite
   already has MCP driving a browser through the server's own admin page, so
-  `py-spy record --nonblocking` wraps that one process for the whole run and
+  `py-spy record` wraps that one process for the whole run and
   the flamegraph is an artifact. `test_responsive.py`, the one test there
   that is not a flow (Dr K's ruling), holds an `assert` busy for 8s and times
   `/health`, the admin session list and MCP `tools/list` against it: each must
-  answer inside a second, and the timings land in the job summary.
+  answer inside a second, and the timings land in the job summary. The first
+  run: worst 86ms, 132ms and 142ms while the browser was busy for 8s. The
+  profile says the server is barely busy at all — about 1.1s of CPU in a 16s
+  run, 44% of it imports at startup; the rest of the wall clock is Chrome.
 
 ---
 

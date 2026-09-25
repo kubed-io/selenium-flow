@@ -80,8 +80,9 @@ def _wait_until_serving(url: str, process: subprocess.Popen, log: Path) -> None:
 def _profiled(command: list[str]) -> list[str]:
     """``command`` under ``py-spy record`` when PROFILE_DIR asks for it.
 
-    Its own child, so no ptrace privilege is needed; ``--nonblocking`` so a
-    sample never pauses the server that ``test_responsive`` is timing.
+    Its own child, so no ptrace privilege is needed. Blocking, the default: a
+    pause of microseconds per sample is nothing against test_responsive's one
+    second budget, and ``--nonblocking`` lost 74 of 187 samples to torn reads.
     """
     directory = os.environ.get("PROFILE_DIR")
     spy = shutil.which("py-spy") if directory else None
@@ -89,7 +90,7 @@ def _profiled(command: list[str]) -> list[str]:
         return command
     Path(directory).mkdir(parents=True, exist_ok=True)
     svg = str(Path(directory, "server.svg"))
-    return [spy, "record", "--nonblocking", "--threads", "--rate", "100",
+    return [spy, "record", "--threads", "--rate", "100",
             "--format", "flamegraph", "-o", svg, "--", *command]
 
 
