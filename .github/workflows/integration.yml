@@ -97,10 +97,14 @@ jobs:
       run: npm --prefix ui run build
 
     - name: Install
-      run: pip install .[test,redis]
+      run: pip install .[test,redis,profile]
 
     - name: Integration Tests
       run: pytest tests/integration -s --junit-xml=dist/integration-results.xml
+      # py-spy records the server for the whole run, MCP and the admin page at
+      # once, and test_responsive leaves its timings beside the flamegraph.
+      env:
+        PROFILE_DIR: dist/profile
 
     - name: Surface Failing Tests
       if: always()
@@ -110,3 +114,23 @@ jobs:
         summary: true
         display-options: fEX
         fail-on-empty: true
+
+    # The timings in the job summary, the flamegraph as a download: a summary
+    # is markdown only, and an SVG that big belongs in a file.
+    - name: Summarise Profile
+      if: always()
+      run: |
+        if [ -f dist/profile/responsiveness.md ]; then
+          cat dist/profile/responsiveness.md >> "$GITHUB_STEP_SUMMARY"
+        fi
+        if [ -f dist/profile/server.svg ]; then
+          echo "Flamegraph of the server: the \`integration-profile\` artifact." >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Upload Profile
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: integration-profile
+        path: dist/profile/
+        if-no-files-found: ignore

@@ -60,6 +60,11 @@ build = [
   # publish time. Used by .github/workflows/package.yml.
   "twine",
 ]
+# Records the server through the integration run as a flamegraph, when
+# PROFILE_DIR is set (tests/integration/conftest.py, §F4.19).
+profile = [
+  "py-spy>=0.4.2",
+]
 test = [
   "pytest",
   "pytest-asyncio",

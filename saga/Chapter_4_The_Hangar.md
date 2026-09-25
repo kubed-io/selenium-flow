@@ -749,6 +749,14 @@ caching strategies"*. Measured first, the answer was mostly not a cache:
   `/health`. FastMCP already runs the same sync tools in a thread pool, and
   `/ready` already sent its Grid calls to one. `answer` now runs `call` in a
   worker thread and awaits it back on the loop only when it is a coroutine.
+- **Profiling rides the integration run** (Dr K: *"we are testing the profile
+  of using it as an mcp while using the admin at the same time"*). The suite
+  already has MCP driving a browser through the server's own admin page, so
+  `py-spy record --nonblocking` wraps that one process for the whole run and
+  the flamegraph is an artifact. `test_responsive.py`, the one test there
+  that is not a flow (Dr K's ruling), holds an `assert` busy for 8s and times
+  `/health`, the admin session list and MCP `tools/list` against it: each must
+  answer inside a second, and the timings land in the job summary.
 
 ---
 

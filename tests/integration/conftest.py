@@ -13,6 +13,13 @@ flow, ask what a user would see break that no flow here already catches. If the
 answer is "a detail of a behaviour already covered", it belongs in the unit
 suite, which is fast and does not need a browser.
 
+One exception, ``test_responsive.py``: whether the server keeps answering while
+a browser is busy is not something a flow can see (§F4.19).
+
+``PROFILE_DIR``, when set and ``py-spy`` is installed, records the server for the
+whole run as a flamegraph there: MCP driving a browser and that browser driving
+the admin page, at once, in one process.
+
 Needs two settings, and skips without them:
 
 - ``GRID_URL`` — a Selenium Grid or standalone node.
@@ -26,6 +33,7 @@ blank list was a Redis-only fault.
 
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -69,6 +77,22 @@ def _wait_until_serving(url: str, process: subprocess.Popen, log: Path) -> None:
     raise RuntimeError(f"the server never answered:\n{log.read_text()}")
 
 
+def _profiled(command: list[str]) -> list[str]:
+    """``command`` under ``py-spy record`` when PROFILE_DIR asks for it.
+
+    Its own child, so no ptrace privilege is needed; ``--nonblocking`` so a
+    sample never pauses the server that ``test_responsive`` is timing.
+    """
+    directory = os.environ.get("PROFILE_DIR")
+    spy = shutil.which("py-spy") if directory else None
+    if not spy:
+        return command
+    Path(directory).mkdir(parents=True, exist_ok=True)
+    svg = str(Path(directory, "server.svg"))
+    return [spy, "record", "--nonblocking", "--threads", "--rate", "100",
+            "--format", "flamegraph", "-o", svg, "--", *command]
+
+
 @pytest.fixture(scope="session")
 def server(tmp_path_factory):
     """``selenium-flow`` on ADMIN_ORIGIN's port, with the flows in the shared
@@ -93,18 +117,25 @@ def server(tmp_path_factory):
     log = root / "server.log"
     with log.open("w") as out:
         process = subprocess.Popen(
-            [sys.executable, "-m", "kubed.selenium_flow"],
+            _profiled([sys.executable, "-m", "kubed.selenium_flow"]),
             env=env,
             stdout=out,
             stderr=subprocess.STDOUT,
+            start_new_session=True,
         )
     local = f"http://127.0.0.1:{port}"
     try:
         _wait_until_serving(f"{local}/health", process, log)
         yield local
     finally:
-        process.terminate()
-        process.wait(timeout=10)
+        # SIGINT to the group: the server shuts down the way Ctrl-C does, and
+        # py-spy, when it is there, stops and writes its profile.
+        os.killpg(process.pid, signal.SIGINT)
+        try:
+            process.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait(timeout=10)
         # The server's own log is the first thing a failure here needs.
         sys.stdout.write(log.read_text())
 
