@@ -71,6 +71,10 @@ test = [
   # oldest supported interpreter needs the backport it was adopted from.
   "tomli; python_version < '3.11'",
 ]
+# tests/bench/, which bench.yml installs beside `test` and runs on its own.
+bench = [
+  "pytest-benchmark>=5.3",
+]
 
 [build-system]
 requires = ["setuptools>=61.0", "setuptools_scm[toml]>=6.2"]
@@ -137,11 +141,14 @@ packages = [
 [tool.pytest.ini_options]
 minversion = "6.0"
 asyncio_mode = "auto"
-addopts = "--verbose"
+# --ignore keeps the benchmarks out of a bare `pytest`. It only prunes what
+# pytest finds on its own, so `pytest tests/bench` still collects them.
+addopts = "--verbose --ignore=tests/bench"
 testpaths = ["tests"]
 markers = [
   "unit: mark a test as a unit test",
   "integration: mark a test as an integration test",
+  "bench: mark a test as a benchmark, run only by `pytest tests/bench`",
 ]
 
 [tool.ruff]
