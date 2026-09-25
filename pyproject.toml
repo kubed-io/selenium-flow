@@ -43,6 +43,14 @@ dependencies = [
   # with requests and selenium either way; declared because a module that
   # imports it should say so.
   "urllib3>=2.0",
+  # Imported directly, and each arrives with fastmcp today; declared for the
+  # same reason (Copilot, #45). The floors are fastmcp's own, but for
+  # sse-starlette: 3.3 is where `shutdown_event` arrived (§F4.19).
+  "starlette>=0.48",
+  "anyio>=4.9",
+  "pydantic>=2.12",
+  "mcp>=2.0,<3",
+  "sse-starlette>=3.3",
 ]
 
 [project.optional-dependencies]
