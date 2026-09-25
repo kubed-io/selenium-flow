@@ -1,7 +1,8 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte'
+  import { untrack, type Snippet } from 'svelte'
   import { slide } from 'svelte/transition'
   import { ms } from '../motion'
+  import { folds } from './folds.svelte'
 
   let { id, title, count, children, actions }: {
     id: string
@@ -10,7 +11,13 @@
     children: Snippet
     actions?: Snippet
   } = $props()
-  let open = $state(true)
+  // Persisted across remounts by id, in `folds` — the static page's sections
+  // never remounted at all, so a fold stayed closed for the page's life; a
+  // remounted Section (SessionDetail keys on the session) must start exactly
+  // as it was left, not reopened. `untrack`: read once, at mount, on purpose
+  // — `id` doesn't change under a live Section, and reopening later must go
+  // through `toggle()`, not a re-read of `folds` chasing some other tab's fold.
+  let open = $state(untrack(() => folds[id] ?? true))
   // `data-open` (and so the global `.section[data-open=false] > .body {
   // display: none }` rule) has to follow what's actually on screen, not the
   // target state: setting it to "false" the instant `open` flips would hide
@@ -18,13 +25,15 @@
   // shut instead of sliding it. So it follows `shown` instead: opening shows
   // it immediately (before the intro runs), closing waits for the outro to
   // finish. `open` itself still drives `aria-expanded`, the caret and the
-  // `{#if}` right away.
-  let shown = $state(true)
+  // `{#if}` right away. It starts at `open` too (also read once), so a
+  // remounted, folded section starts with no body and no intro to fake.
+  let shown = $state(untrack(() => open))
   const bodyId = $derived(id.replace(/Section$/, 'Body'))
   const countId = $derived(id.replace(/Section$/, 'Count'))
 
   function toggle() {
     open = !open
+    folds[id] = open
     if (open) shown = true
   }
 </script>

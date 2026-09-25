@@ -1,10 +1,11 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte'
-import { beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import FileGrid from '../lib/FileGrid.svelte'
 import Lightbox from '../lib/Lightbox.svelte'
 import type { FileEntry } from '../lib/types'
 import { deferred, fakeFetch } from '../test/helpers'
 import { createApi } from './api'
+import { resetFolds } from './folds.svelte'
 import { Live } from './live.svelte'
 import Modal from './Modal.svelte'
 import type { ModalSpec } from './modal'
@@ -30,6 +31,7 @@ function setup(routes = {}, props = {}) {
   return { ...r, ...net, live }
 }
 beforeEach(() => { history.replaceState(null, '', '/#/sessions/k'); vi.stubGlobal('alert', vi.fn()) })
+afterEach(() => resetFolds())
 
 const tick = () => new Promise((r) => setTimeout(r, 0))
 const lastProps = <P>(spy: unknown, pick: (p: P) => boolean = () => true): P =>
@@ -111,6 +113,23 @@ test('a section collapsed on Files is still collapsed after a look at Flows, wit
   expect(container.querySelector('#paneFiles')).toBeVisible()
   expect(container.querySelector('#screenshotsSection')).toHaveAttribute('data-open', 'false')
   expect(calls.length).toBe(before)
+})
+
+// The static admin page's sections were markup that never left the DOM, so a
+// fold stayed closed for the page's life. A remounted SessionDetail must
+// leave the operator's fold as they left it, not reopen it (parity, live
+// deploy, found testing the live deploy).
+test('a folded Screenshots section stays folded after the view remounts', async () => {
+  const { container, unmount } = setup()
+  await vi.waitFor(() => expect(container.querySelector('#screenshotsCount')).toHaveTextContent('2'))
+  await fireEvent.click(container.querySelector('[aria-controls="screenshotsBody"]')!)
+  expect(container.querySelector('#screenshotsSection')).toHaveAttribute('data-open', 'false')
+  unmount()
+
+  const remounted = render(SessionDetail, { key: 'k', tab: 'files', flow: undefined, api, live: new Live(api, ''), root: '' })
+  await vi.waitFor(() => expect(remounted.container.querySelector('#screenshotsCount')).toHaveTextContent('2'))
+  expect(remounted.container.querySelector('[aria-controls="screenshotsBody"]')).toHaveAttribute('aria-expanded', 'false')
+  expect(remounted.container.querySelector('#screenshotsSection')).toHaveAttribute('data-open', 'false')
 })
 
 test('← Sessions goes to the list (R6)', async () => {
