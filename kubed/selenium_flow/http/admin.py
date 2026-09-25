@@ -29,6 +29,7 @@ from urllib.parse import quote
 
 import anyio
 import yaml
+from sse_starlette import EventSourceResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import (
@@ -36,7 +37,6 @@ from starlette.responses import (
     JSONResponse,
     RedirectResponse,
     Response,
-    StreamingResponse,
 )
 
 from .. import errors
@@ -597,10 +597,11 @@ def register(
         ):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
 
+        stopping = anyio.Event()
+
         async def stream():
             last = None
-            quiet = 0.0
-            while True:
+            while not stopping.is_set():
                 try:
                     payload = json.dumps(
                         await run_in_threadpool(sessions_payload), sort_keys=True
@@ -610,25 +611,24 @@ def register(
                     payload = last
                 if payload is not None and payload != last:
                     last = payload
-                    quiet = 0.0
-                    yield f"data: {payload}\n\n"
-                elif quiet >= HEARTBEAT:
-                    # A comment keeps proxies from closing an idle stream, and
-                    # tells the page the connection is alive rather than stuck.
-                    quiet = 0.0
-                    yield ": ping\n\n"
-                await anyio.sleep(POLL_SECONDS)
-                quiet += POLL_SECONDS
+                    yield {"data": payload}
+                with anyio.move_on_after(POLL_SECONDS):
+                    await stopping.wait()
 
-        return StreamingResponse(
+        # sse-starlette rather than a StreamingResponse, for shutdown: uvicorn
+        # waits for open connections before it runs the lifespan, so a stream
+        # that never ends held every SIGTERM for FastMCP's whole 2s grace, was
+        # cancelled, and left a traceback per open admin page in the log. This
+        # one hears uvicorn's exit, sets `stopping`, and the loop above returns,
+        # so the response finishes the way any other does (§F4.19). The grace
+        # is under FastMCP's 2s. It also sends the heartbeat comment, which
+        # keeps proxies from closing an idle stream, and `X-Accel-Buffering: no`.
+        return EventSourceResponse(
             stream(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache, no-transform",
-                # Tells nginx-style proxies not to buffer, which would hold every
-                # event until the response ended — i.e. never.
-                "X-Accel-Buffering": "no",
-            },
+            ping=HEARTBEAT,
+            headers={"Cache-Control": "no-cache, no-transform"},
+            shutdown_event=stopping,
+            shutdown_grace_period=1.0,
         )
 
     def library(key: str) -> str:

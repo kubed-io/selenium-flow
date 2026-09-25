@@ -774,6 +774,23 @@ caching strategies"*. Measured first, the answer was mostly not a cache:
   self and total time per function, worked out from the SVG's geometry, and a
   link to the artifact. The first one showed `on_list_tools` in the mirror
   holding 10% of the server's CPU for the run.
+- **SIGTERM, the way Kubernetes stops a pod** (Dr K: *"how is our shutdown
+  process and signals?"*). We handle no signal ourselves and should not:
+  FastMCP runs uvicorn with `timeout_graceful_shutdown=2`, and uvicorn catches
+  SIGTERM and SIGINT, stops listening, gives open requests 2s, runs the
+  lifespan and exits 143 — 128 plus the signal, which is the honest answer.
+  Measured with an admin page open, it took 2.19s and logged an ERROR and a
+  traceback: our `/admin/events` StreamingResponse never ends, uvicorn waits
+  for connections *before* the lifespan, so no lifespan hook could reach it.
+  It is sse-starlette's `EventSourceResponse` now — already a dependency of
+  `mcp` — which hears uvicorn's exit and, through `shutdown_event`, lets the
+  loop return so the response finishes like any other: 0.19s, nothing
+  logged. `tests/test_shutdown.py` holds that. Nothing needs cleaning up on
+  the way out: session records are written as they change, and the Grid's
+  browsers are meant to outlive a restart. `show_banner=False` drops FastMCP's
+  box art from every pod log and, with it, a call to pypi.org on each start.
+  In the cluster, a 5s `preStop` sleep lets the endpoints stop routing here
+  before uvicorn stops listening.
 
 ---
 

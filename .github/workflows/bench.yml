@@ -62,7 +62,10 @@ jobs:
     # pyproject's --ignore keeps tests/bench out of test.yml's bare `pytest`;
     # naming the directory here is what collects it.
     - name: Benchmark
-      run: pytest tests/bench --benchmark-json=dist/bench.json
+      # pytest-benchmark writes the JSON but does not make its directory.
+      run: |
+        mkdir -p dist
+        pytest tests/bench --benchmark-json=dist/bench.json
 
     - name: Restore Baseline
       uses: actions/cache/restore@v6
