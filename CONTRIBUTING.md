@@ -138,7 +138,7 @@ explain.
 
 ## What CI will say about it
 
-A pull request runs these, and all of them are required to merge:
+A pull request runs these, and all but `Bench` are required to merge:
 
 | Check | What it is |
 |---|---|
@@ -148,6 +148,7 @@ A pull request runs these, and all of them are required to merge:
 | `Package` | builds the sdist + wheel, `twine check --strict`, then installs the wheel clean and imports it |
 | `CodeQL` / `Dependency Audit` / `Workflow Audit` / `Dockerfile Lint` / `OpenAPI Spec` | `quality.yml` — code scanning, `pip-audit`, `zizmor`, `hadolint`, and a Redocly lint of the generated spec |
 | Copilot review | reviews against `.github/copilot-instructions.md` |
+| `Bench` | `bench.yml` — times the hot read paths in `tests/bench/` against main's latest numbers, as a table in the job summary. A slowdown never fails it. Locally: `pip install -e ".[test,bench]"` then `pytest tests/bench` |
 
 The image is **not** built on a pull request: a multi-arch build is ~9 minutes
 for a signal the merge build gives anyway. `package.yml` builds and installs the
