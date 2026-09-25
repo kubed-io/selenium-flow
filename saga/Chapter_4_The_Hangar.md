@@ -451,7 +451,7 @@ tab with its backlink landing on the flow. 44 requests, no errors.
 - [x] Secrets tab (§F4.10)
 - [x] Docs, skill, wiki, changelog, and one new integration flow
 - [x] Redis configured and unusable stops the boot (§F4.12)
-- [ ] After the deploy: the one-off move of each session's existing `files/*.png` into `screenshots/`, list shown to Dr K first (§F4.4)
+- [x] After the deploy: the one-off move of each session's existing `files/*.png` into `screenshots/`, list shown to Dr K first (§F4.4) — done 2026-09-25 on the branch image (`file-sections`, c011e67): claudecode 142, kf-extension-workspace 17, no clashes, no file named `downloads` or `screenshots`; every file in Files was a PNG
 
 ---
 
