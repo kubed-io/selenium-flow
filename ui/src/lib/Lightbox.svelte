@@ -1,5 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte'
+  import { fade } from 'svelte/transition'
+  import { ms } from '../motion'
   import { glyphFor } from './format'
   import type { FileEntry } from './types'
 
@@ -50,7 +52,7 @@
 
 <svelte:document {onkeydown} />
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (Esc is handled on the document) -->
-<div class="lightbox" onclick={(e) => { if (e.target === e.currentTarget) onclose() }}>
+<div class="lightbox" transition:fade|local={{ duration: ms(120) }} onclick={(e) => { if (e.target === e.currentTarget) onclose() }}>
   <div class="head">
     <span class="name">{f.name}</span>
     <span class="pos">{at + 1} / {list.length}</span>
@@ -62,16 +64,26 @@
     <button type="button" onclick={onclose}>Close</button>
   </div>
   <div class="body">
-    {#if f.image}
-      <img alt={f.name} src={href}>
-    {:else if f.content_type === 'application/pdf'}
-      <iframe title={f.name} src={href}></iframe>
-    {:else}
-      <div class="nopreview">
-        <span class="glyph">{glyphFor(f.name)}</span>
-        <p>No preview for this kind of file.</p>
-        <a {href} download={f.name}>Download</a>
+    {#key f.name}
+      <div class="frame" in:fade|local={{ duration: ms(150) }}>
+        {#if f.image}
+          <img alt={f.name} src={href}>
+        {:else if f.content_type === 'application/pdf'}
+          <iframe title={f.name} src={href}></iframe>
+        {:else}
+          <div class="nopreview">
+            <span class="glyph">{glyphFor(f.name)}</span>
+            <p>No preview for this kind of file.</p>
+            <a {href} download={f.name}>Download</a>
+          </div>
+        {/if}
       </div>
-    {/if}
+    {/key}
   </div>
 </div>
+
+<style>
+  /* Purely a transition anchor for the crossfade between files — it must not
+     affect layout, so it takes no box of its own. */
+  .frame { display: contents; }
+</style>

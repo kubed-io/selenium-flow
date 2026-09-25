@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
+  import { slide } from 'svelte/transition'
+  import { ms } from '../motion'
 
   let { id, title, count, children, actions }: {
     id: string
@@ -18,10 +20,19 @@
     <!-- A button, not a styled span: the only way to open or close the section,
          so it must be reachable by keyboard and announce its state. -->
     <button type="button" class="title" aria-expanded={open} aria-controls={bodyId} onclick={() => (open = !open)}>
-      <span class="caret">{open ? '▾' : '▸'}</span>{title}</button>
+      <span class="caret" style="transform: rotate({open ? 0 : -90}deg)">▾</span>{title}</button>
     <span id={countId} class="pill">{count}</span>
     <span class="grow"></span>
     {@render actions?.()}
   </div>
-  <div class="body" id={bodyId}>{@render children()}</div>
+  <div class="body" id={bodyId}>
+    {#if open}<div transition:slide|local={{ duration: ms(150) }}>{@render children()}</div>{/if}
+  </div>
 </section>
+
+<style>
+  .caret { transition: transform 150ms; }
+  @media (prefers-reduced-motion: reduce) {
+    .caret { transition: none; }
+  }
+</style>

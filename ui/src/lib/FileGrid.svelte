@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { flip } from 'svelte/animate'
+  import { fade } from 'svelte/transition'
+  import { ms } from '../motion'
   import FileTile from './FileTile.svelte'
   import Lightbox from './Lightbox.svelte'
   import type { FileEntry } from './types'
@@ -22,7 +25,7 @@
 {:else}
   <div class="files">
     {#each files as f, i (f.name)}
-      <div class="file">
+      <div class="file" animate:flip={{ duration: ms(150) }} out:fade|local={{ duration: ms(120) }}>
         <FileTile {f} {base} {action} {onkeep} {ondelete}
                   onopen={() => (onopen ? onopen(i) : (open = i))} />
       </div>

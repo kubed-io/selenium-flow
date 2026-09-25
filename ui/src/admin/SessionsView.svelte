@@ -9,7 +9,7 @@
 <div id="sessionsView">
   <div class="row" style="margin-bottom:12px">
     <strong class="grow">Live sessions</strong>
-    <span id="live" class="pill{live.badge.cls ? ' ' + live.badge.cls : ''}" title="Updates arrive as they happen">{live.badge.text}</span>
+    <span id="live" class="pill{live.badge.cls ? ' ' + live.badge.cls : ''}" title="Updates arrive as they happen">{#if live.badge.cls === 'live'}<span class="dot" aria-hidden="true"></span>{/if}{live.badge.text}</span>
   </div>
   <div id="sessions">
     {#if live.error}

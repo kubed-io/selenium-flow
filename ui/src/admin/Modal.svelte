@@ -1,4 +1,6 @@
 <script lang="ts" generics="T">
+  import { fade, scale } from 'svelte/transition'
+  import { ms } from '../motion'
   import type { ModalSpec } from './modal'
 
   // Generic over T, rather than the default `unknown`: a caller's
@@ -51,8 +53,8 @@
 
 <svelte:document onkeydown={(e) => { if (e.key === 'Escape') cancel() }} />
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (Esc is handled on the document) -->
-<div class="modal" onclick={(e) => { if (e.target === e.currentTarget) cancel() }}>
-  <div class="sheet">
+<div class="modal" transition:fade|local={{ duration: ms(120) }} onclick={(e) => { if (e.target === e.currentTarget) cancel() }}>
+  <div class="sheet" in:scale|local={{ start: 0.97, duration: ms(150) }}>
     <div class="head">{spec.title}</div>
     <div class="body">{@render spec.body(spec.data)}</div>
     <div class="foot">
