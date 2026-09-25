@@ -609,6 +609,41 @@ def test_a_missing_redis_package_stops_the_boot(monkeypatch):
         from_env({"REDIS_HOST": "redis.data"})
 
 
+def test_an_unreachable_redis_never_chains_the_raw_password(monkeypatch):
+    """Copilot review, PR #41: ``StoreUnavailable``'s own message is scrubbed
+    through ``errors.message``, but chaining the raw driver exception with
+    ``from exc`` put its unscrubbed ``str()`` back into any traceback printed
+    for the boot failure — including the password `where` is built to hide.
+    Both the unreachable and missing-package raises must be ``from None``."""
+    import sys
+    import traceback
+    import types
+
+    url = "redis://:s3cret@nowhere:6379/2"
+
+    module = types.ModuleType("redis")
+    module.Redis = type(
+        "Redis",
+        (),
+        {
+            "__init__": lambda self, **kw: None,
+            "ping": lambda self: (_ for _ in ()).throw(
+                ConnectionError(f"could not connect to {url}")
+            ),
+            "from_url": classmethod(lambda cls, url, **kw: cls()),
+        },
+    )
+    monkeypatch.setitem(sys.modules, "redis", module)
+
+    with pytest.raises(StoreUnavailable) as excinfo:
+        from_env({"REDIS_URL": url, "REDIS_DB": "2"})
+
+    err = excinfo.value
+    assert err.__cause__ is None
+    assert err.__suppress_context__ is True
+    assert "s3cret" not in "".join(traceback.format_exception(err))
+
+
 def test_the_reason_never_quotes_the_redis_password(monkeypatch):
     """The refusal message is read by whoever restarts the pod, and logged —
     it must never carry the credential (§F4.12)."""

@@ -416,6 +416,12 @@ function showDetail(row) {
 
 async function loadFiles(key) {
   const mine = ++filesSeq;
+  // Disabled for the life of this request, not just while it is known stale:
+  // a click between the request going out and it answering must not confirm
+  // against a `filesData` this very load is in the middle of replacing.
+  // Re-armed below, only from the data that answers, only on success.
+  $('clearDownloads').disabled = true;
+  $('clearScreenshots').disabled = true;
   try {
     const data = await api(sessionPath(key, '/files'));
     if (gone(key) || mine !== filesSeq) return;
@@ -1177,19 +1183,27 @@ function refreshDetail(data) {
   // Gone from the store means expired. Leave what is on screen rather than
   // blanking it: it is still a true record of what was there.
   if (!row) return;
-  showDetail(row);
   // A different browser is a different file store, but only for DOWNLOADS:
   // the Grid creates that store per browser and deletes it with the browser,
   // so a stale Downloads grid does not just look stale, it 404s. Screenshots
   // and Files belong to the SESSION and outlive any one browser, so neither
-  // is touched here.
+  // grid is touched here — but `filesData` itself is the previous browser's
+  // now, in full, and showDetail below must not compute the Clear buttons
+  // from it. Dropped before showDetail runs, not after: the existing
+  // `clearDownloads.disabled = !row.live || filesData === NO_FILES` gating
+  // then keeps it disabled on its own, until this browser's own loadFiles
+  // answers. Clear screenshots has no such gating, so it is disabled here
+  // directly.
   if ((row.session_id || null) !== shownBrowser) {
     shownBrowser = row.session_id || null;
+    filesData = NO_FILES;
+    $('clearScreenshots').disabled = true;
     SF.fileGrid($('downloads'), [], {
       base: ROOT,
       empty: row.session_id ? 'No downloads.' : 'No browser — downloads go with it.',
     });
   }
+  showDetail(row);
   // Only when the files actually changed — redrawing the grid on every
   // heartbeat would close a lightbox and lose a scroll position for nothing.
   if (filesStamp(row) !== shownFiles) loadFiles(current);

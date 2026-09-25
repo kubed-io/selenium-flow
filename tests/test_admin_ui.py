@@ -121,6 +121,32 @@ def test_a_late_reply_cannot_render_one_session_under_another(page):
         assert body.count("gone(key)") == 2, loader
 
 
+def test_a_load_in_flight_disables_both_clear_buttons(page):
+    """Copilot review, PR #41: a click between the request going out and it
+    answering must not confirm against a `filesData` this very load is in the
+    middle of replacing — so both buttons are disabled BEFORE the network
+    call starts, not only once it fails."""
+    body = page.split("async function loadFiles(key)")[1].split("\n}\n")[0]
+    before_request = body.split("try {")[0]
+    assert "$('clearDownloads').disabled = true;" in before_request
+    assert "$('clearScreenshots').disabled = true;" in before_request
+
+
+def test_a_browser_change_drops_the_stale_files_snapshot_before_showdetail(page):
+    """Copilot review, PR #41: a browser change only clears the rendered
+    Downloads grid, not `filesData` itself — so a click after showDetail
+    re-armed the button from the OLD browser's snapshot, and before the new
+    browser's loadFiles answered, could confirm and delete the wrong store.
+    The reset has to land BEFORE showDetail(row) runs, so its own
+    `clearDownloads.disabled = !row.live || filesData === NO_FILES` gate sees
+    NO_FILES and keeps the button disabled; clearScreenshots has no such gate
+    and needs an explicit disable here."""
+    body = page.split("function refreshDetail(data)")[1].split("\n}\n")[0]
+    before_show = body.split("showDetail(row);")[0]
+    assert "filesData = NO_FILES;" in before_show
+    assert "$('clearScreenshots').disabled = true;" in before_show
+
+
 def test_a_late_flow_cannot_overwrite_the_one_you_just_picked(page):
     """Picking A then B, with A slow, resolved A last and left B's name beside
     A's document — or, on the error path, B's panel stuck loading forever.
