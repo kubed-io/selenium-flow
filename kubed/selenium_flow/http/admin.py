@@ -766,7 +766,9 @@ def register(
                 sessions,
                 flow_store,
                 files.uri_of(folder, name),
-                name=key,
+                # The library this key owns, refused the same way the delete
+                # and clear handlers refuse it, not the raw key.
+                name=library(key),
                 session_id=attached_id(key),
             )
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means

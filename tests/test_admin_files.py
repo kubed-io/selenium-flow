@@ -203,6 +203,20 @@ def test_the_admin_keeps_only_from_the_two_folders(client, live, folder):
     assert response.status_code == 400
 
 
+def test_the_admin_keep_refuses_a_key_that_owns_no_library(client, kept_server, tmp_path):
+    """The keep route resolves the key through `library(key)`, as the delete and
+    clear handlers do, so a stored key that cannot be a directory is refused
+    with that reason rather than reaching the store as a raw name."""
+    stale = "named:desktop"
+    kept_server.sessions.store.set(stale, SessionRecord(session_id="", url="https://x/"))
+    response = client.post(
+        f"/admin/sessions/{stale}/files/screenshots/shot.png/keep", headers=AUTH
+    )
+    assert response.status_code == 400
+    assert "cannot keep files" in response.json()["error"]
+    assert not any(tmp_path.rglob("shot.png"))
+
+
 def test_the_screenshot_route_serves_a_signed_file(client, live):
     live.flows.write_file(
         SESSION, "shot.png", b"\x89PNG\r\n\x1a\n", flows.SCREENSHOTS_DIR
