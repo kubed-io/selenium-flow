@@ -94,6 +94,12 @@ updates:
     prefix: deps(docker)
   cooldown:
     default-days: 7
+  # Odd Node majors never become LTS and are dead within eight months.
+  ignore:
+  - dependency-name: node
+    versions:
+    - ">=25, <26"
+    - ">=27, <28"
   groups:
     docker-minor-patch:
       update-types:
