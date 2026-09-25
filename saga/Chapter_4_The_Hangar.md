@@ -606,6 +606,14 @@ package-data glob on `kubed.selenium_flow.http`. Unbuilt, `pip install` and
 `python -m build` both succeed with no UI; built, the files are in the sdist and
 the wheel; the tree stays clean either way.
 
+**`build/` asked about again, and measured again** (Dr K: *"can you reuse
+"build" as the output dir? … build/ui or build/static"*). It can be shared: one
+line, `[tool.distutils.build] build-base = "build/python"`, moves setuptools'
+own scratch into `build/python`, so only that is pruned and `build/ui` reaches
+the sdist and the wheel. But as a mapped package directory it must *exist*:
+unbuilt, `pip install` and `python -m build` both fail. §F4.17 makes the UI
+optional, which that cannot be — so the output stays inside the package.
+
 ### §F4.16 — Decision (Dr K's): a pure refactor
 
 Dr K, 2026-09-25: *"This is pure refactor, all current functionality must be
@@ -615,6 +623,21 @@ get a stylish boost from using this framework, hopefully svelte can make it look
 nicer too"* — structure and behaviour unchanged. The spec is
 `docs/superpowers/specs/2026-09-25-svelte-admin-ui-design.md`; the plan follows
 it in `docs/superpowers/plans/` once Dr K approves.
+
+### §F4.17 — Decision (Dr K's): the UI is optional
+
+Dr K, 2026-09-25: *"I want to maintain the ability to use the mcp server without
+the UI … if you don't build, the static html endpoint would be like a default
+"Selenium Flow" title only … the full build will include that so it gets
+bundled."* So a `pip install` from source is the whole server: every tool, the
+REST API, the admin API. Without a UI build the admin URL answers with a page
+that says **Selenium Flow** and nothing else, and the MCP App is not offered
+(the tools behave as with `APPS_ENABLED=false`, and still return their data).
+The image and the release wheel are built with the UI. This replaces the spec's
+earlier "503 with the build command".
+
+Dr K approved the spec the same day (*"so far the spec looks good, let's get
+the plan going"*), including its three deliberate differences.
 
 ---
 

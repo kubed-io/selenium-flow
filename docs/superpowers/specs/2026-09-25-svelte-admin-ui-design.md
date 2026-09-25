@@ -2,7 +2,8 @@
 
 Design record for the Svelte overhaul, Chapter 4 Part IV. Written 2026-09-25,
 before any code moved. Rulings: §F4.14 (Svelte 5), §F4.15 (a separate npm build,
-output never committed), §F4.16 (a pure refactor).
+output never committed), §F4.16 (a pure refactor), §F4.17 (the UI is optional).
+**Approved by Dr K, 2026-09-25**, with its deliberate differences.
 
 ## Goal
 
@@ -15,7 +16,9 @@ and the stylesheet — as Svelte 5 components built by Vite, so that:
   escaping, event wiring and teardown;
 - **it is safer**: no `innerHTML`, no hand-placed `esc()`, no `{@html}`;
 - **the build is small** and Python stays pure. `pip` collects files, never runs
-  Node.
+  Node;
+- **the UI is optional** (§F4.17). A `pip install` without a UI build is the
+  whole MCP server; the admin URL then serves a page titled **Selenium Flow**.
 
 ## Non-goals
 
@@ -28,8 +31,7 @@ This is a refactor (§F4.16). None of these change:
 - the pre-existing findings in the Chapter 4 self-test (the outline hover hint,
   sessions lost from the store). Those are separate work.
 
-The only differences are listed under **Deliberate differences**, and each one
-needs Dr K's approval.
+The only differences are listed under **Deliberate differences**.
 
 ## What there is today
 
@@ -142,8 +144,9 @@ Node, and is still Python-only.
 - **`package.yml`** and **`integration.yml`** set up Node and build the UI
   before their Python steps. The wheel must contain the UI, and the
   integration flows drive the real page.
-- **`test.yml`** stays pure Python. Its serving tests use a small fixture
-  static directory, so they need no Node.
+- **`test.yml`** and **`quality.yml`** stay pure Python: with no UI built they
+  exercise the optional-UI path, and the serving tests use a small fixture
+  static directory.
 - **`image.yml`** needs no change, because the Dockerfile builds the UI.
 - **`copilot-setup-steps.yml`** adds Node and `npm ci`, so the agent can build.
 - **Dependabot** gets an `npm` entry for `/ui` with the house rules (weekly,
@@ -157,10 +160,9 @@ the new build on reload. There is no dev server and no proxy.
 
 **One component per piece of today's markup**, with the same DOM classes, so
 `app.css` keeps applying and the integration flows' XPaths still match.
-Structure-level classes (`card`, `pill`, `section`, `file`, `lightbox`, `modal`,
-`flows`, `panel`) stay in the global stylesheet. A rule that styles only one
-component's internals moves into that component's `<style>` block, where Svelte
-scopes it. Tokens and dark mode stay global in `app.css`.
+`app.css` moves to `ui/src/app.css` **unchanged and global**: it is what makes the page look
+the same, and leaving it whole is the cheapest proof. Component `<style>` blocks
+hold only the new polish (difference 3).
 
 **The integration flows are not edited, so what they select is frozen.** They
 select `#token`, `#loginForm button[type=submit]`, `#tabFlows`, `#screenshots`,
@@ -362,7 +364,7 @@ an integration flow step where only a real browser can tell.
 **Grid console**
 - C1. The explanatory note, and the iframe.
 
-## Deliberate differences — each needs Dr K's OK
+## Deliberate differences — approved by Dr K, 2026-09-25
 
 1. **The MCP App starts working.** It has never started in any host, because
    `app.html` imports `…/ext-apps/dist/index.js`, and that path 404s on both 1.x
@@ -371,9 +373,11 @@ an integration flow step where only a real browser can tell.
    means `https://unpkg.com` leaves the app's CSP, and the app no longer floats
    to whatever major ships next. The cost is ~60 KB gzipped inside the ui://
    document.
-2. **An unbuilt UI answers 503 with the build command** (`npm --prefix ui run
-   build`), instead of a 500 traceback. This matters now that a pure-Python
-   install without a UI is a normal state.
+2. **The UI is optional (§F4.17).** With no UI build, `GET <mount>/` answers
+   200 with a minimal page whose title and only heading are **Selenium Flow**,
+   and the MCP App is not registered — the file tools behave as with
+   `APPS_ENABLED=false` and still return their data. `admin.ui_built(name)` is
+   the one test for it; startup logs one line saying the UI is not built.
 3. **Styling polish, with no change to layout, text or behaviour** (§F4.16's
    allowance):
    - the modal and lightbox fade in, with the sheet scaling up slightly;
@@ -403,8 +407,9 @@ an integration flow step where only a real browser can tell.
   `gone(key)` count). Tests in those files that exercise the Python API stay as
   they are.
 - **Python serving tests** (pure Python, fixture static dir): `page()` inlines
-  and substitutes; an unbuilt UI gives the 503; the app CSP no longer lists
-  unpkg; the wheel contains the UI once it is built (in `package.yml`).
+  and substitutes; an unbuilt UI serves the Selenium Flow page and offers no MCP
+  App; the app CSP no longer lists unpkg; the wheel contains the UI once it is
+  built (in `package.yml`).
 - **Integration:** the three flows in `tests/integration/flows/` run unchanged
   against the new page.
 - **Visual parity:** before and after screenshots of every view (sign-in, list,
