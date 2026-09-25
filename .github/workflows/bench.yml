@@ -36,6 +36,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # The benchmark comment on the pull request, and nothing else.
+      pull-requests: write
     steps:
 
     - name: Checkout
@@ -69,6 +71,11 @@ jobs:
         key: bench-${{ runner.os }}-${{ github.run_id }}
         restore-keys: bench-${{ runner.os }}-
 
+    # The comparison as a sticky comment, where a reviewer reads it. Before the
+    # action below, which appends this run to the baseline file on main.
+    - name: Summarise Benchmarks
+      run: python scripts/pr_report.py bench dist/bench.json bench-baseline/benchmark-data.json > dist/bench-comment.md
+
     # With no baseline yet (the first main run, or an evicted cache) the action
     # records the run and writes no summary: there is nothing to compare with.
     - name: Compare With Main
@@ -86,6 +93,13 @@ jobs:
         # Read-only, and only to look up the commit on workflow_dispatch, whose
         # payload carries none. Comments stay off: they would need write.
         github-token: ${{ github.token }}
+
+    - name: Comment Benchmarks
+      if: github.event_name == 'pull_request'
+      uses: marocchino/sticky-pull-request-comment@v3.0.5
+      with:
+        header: benchmarks
+        path: dist/bench-comment.md
 
     - name: Save Baseline
       if: github.ref == 'refs/heads/main'

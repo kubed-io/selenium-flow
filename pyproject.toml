@@ -68,6 +68,8 @@ profile = [
 test = [
   "pytest",
   "pytest-asyncio",
+  # The coverage comment on a pull request (.github/workflows/test.yml).
+  "pytest-cov>=7.1",
   "ruff",
   "uvicorn",
   "openapi-spec-validator",

@@ -760,6 +760,20 @@ caching strategies"*. Measured first, the answer was mostly not a cache:
   run: worst 86ms, 132ms and 142ms while the browser was busy for 8s. The
   profile says the server is barely busy at all — about 1.1s of CPU in a 16s
   run, 44% of it imports at startup; the rest of the wall clock is Chrome.
+- **A benchmark job keeps it fast** (Dr K's choice: no SaaS). `tests/bench/`
+  times the listings, the backlinks cold and warm, and the Redis session list
+  in process; `bench.yml` compares each PR with main's latest run. The
+  baseline is a file in the Actions cache, not a gh-pages branch, and a 2x
+  threshold never fails the job, because shared runners are noisy.
+- **The results are on the pull request** (Dr K, pointing at duploctl and
+  nextcloud-n8n). Unit and integration results are sticky comments and check
+  runs (EnricoMi), coverage is a comment (orgoro/coverage, as duploctl does),
+  and the profile and the benchmarks each get a sticky comment from
+  `scripts/pr_report.py`. A flamegraph cannot be shown inline, since GitHub
+  takes no image uploads through its API, so the comment carries what it says:
+  self and total time per function, worked out from the SVG's geometry, and a
+  link to the artifact. The first one showed `on_list_tools` in the mirror
+  holding 10% of the server's CPU for the run.
 
 ---
 
