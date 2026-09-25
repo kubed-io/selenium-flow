@@ -37,5 +37,5 @@ venv/
 
 # The built UI (npm --prefix ui run build). Generated, never committed (§F4.15).
 kubed/selenium_flow/http/static/
-ui/node_modules/
+node_modules/
 
