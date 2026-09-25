@@ -294,6 +294,8 @@ an integration flow step where only a real browser can tell.
 - F8. A heartbeat refetches files only when `session_id:files_rev` changes. A
   browser change (`session_id` or `live`) closes the downloads overlays, blanks
   Downloads, disables Clear screenshots and forces a reload.
+- F9. Files carries no clear action of its own — everything in it was kept on
+  purpose, so only Downloads and Screenshots offer Clear (§F4.1).
 
 **Lightbox**
 - X1. The name, "i / n", Prev and Next (disabled at the ends), the action (📌
@@ -338,6 +340,8 @@ an integration flow step where only a real browser can tell.
   reloads flows only when `flows_rev` moves.
 - W8. A malformed flow file (`steps: {}`, `parameters: 1`, `[null]` steps, a
   prototype key like `constructor`) never breaks the panel.
+- W9. The Flows tab holds the session detail's full width and has no accordion
+  to open or close — Files' three-row layout does not carry over to it.
 
 **Secrets**
 - S1. "Loading…" first, then an error, the off message, or the heading and
