@@ -13,7 +13,10 @@
 
 ---
 
-## Status: **BUILT, in one pull request** — opened, planned, drawn and built 2026-09-24
+## Status: **MERGED (#41, 2026-09-25), not released** — opened, planned, drawn and built 2026-09-24
+
+The chapter stays open until Dr K releases it; chapters close with releases.
+The admin-page overhaul (Part IV) is being planned inside it.
 
 Planned in chat (§F4.1–§F4.10), drawn in Penpot (§F4.11), then built from
 `docs/superpowers/plans/2026-09-24-the-hangar.md` by subagent-driven
@@ -455,6 +458,166 @@ tab with its backlink landing on the flow. 44 requests, no errors.
 
 ---
 
+## Part IV — The overhaul: the admin page on a framework
+
+Open question 1, taken up 2026-09-25 after #41 merged. **Dr K's brief:** a full
+refactor of the admin UI and the static content onto a frontend framework. It
+must look and work exactly the same. Small, lightweight, simple and secure; no
+Angular-sized framework; **npm and a build are fine** (which lifts the
+question's old "no build step" constraint); component-based; a small build;
+ideally *less* code than today because the framework does the heavy lifting.
+Vue is familiar and used elsewhere in the stack, but alternatives were welcome.
+**No abandoned projects — active maintenance only.**
+
+Planned through the superpowers brainstorming flow; nothing is built until Dr K
+approves the spec.
+
+### What is there, and what any answer must keep
+
+#### The surface
+
+| File | Lines | What it is |
+|---|---|---|
+| `static/admin.html` | 1,580 | The whole admin page: markup plus one inline script of ~100 functions |
+| `static/components.js` | 348 | The component library (`SF.*`), shared with the MCP App |
+| `static/app.css` | 477 | One stylesheet for both surfaces |
+| `static/app.html` | 57 | The MCP App shell: renders one `SF` component from a tool result |
+
+`admin.py`'s `page()` inlines the CSS and the component library into each page
+by string substitution (`__CSS__`, `__COMPONENTS__`). The admin page is served
+unminified: 147 KB, **45 KB gzipped**, on every visit.
+
+The pain is concrete. Live updates are hand-written with four sequence
+counters (`filesSeq`, `flowsSeq`, `flowDocSeq`, `secretsSeq`), `gone(key)`
+guards and a `filesSettled()` barrier (Chapter 4's Keep race), and 30
+`innerHTML` assignments that are each only as safe as the `esc()` call someone
+remembered to put in them.
+
+#### The constraint that decides the field: the MCP App CSP
+
+`components.js` also runs inside an MCP App, in a sandboxed iframe whose CSP the
+*host* writes. The MCP Apps spec (SEP-1865, stable 2026-01-26), "Restrictive
+Default":
+
+```
+default-src 'none';
+script-src 'self' 'unsafe-inline';
+style-src 'self' 'unsafe-inline';
+```
+
+Inline scripts are allowed; **`unsafe-eval` is not, and a host may only make
+this stricter.** Any library that compiles templates in the browser (`new
+Function`) cannot run there: petite-vue, standard Alpine, and Vue's full
+(runtime-compiler) build are out on this alone. Precompiled components — Vue
+SFCs through Vite, Svelte, Solid, Preact JSX, Lit — are fine, and a single
+inlined bundle is exactly what the host accepts.
+
+#### Found while looking: the MCP App has never started
+
+`app.html` imports the SDK from
+`https://unpkg.com/@modelcontextprotocol/ext-apps/dist/index.js`. That path
+**404s** on both 1.7.5 and 2.0.0 — the browser entry is
+`dist/src/app-with-deps.js` (the package's `./app-with-deps` export). Every
+host shows "This host could not start the app". The URL is also unpinned, so it
+floats to whatever major ships (2.0.0 did on 2026-09-24). Bundling the SDK from
+npm at a pinned version fixes both, and drops `https://unpkg.com` from the
+app's CSP.
+
+#### What tests the page today
+
+158 tests (`tests/test_admin_ui.py`, `tests/test_files_and_admin.py`) grep the
+page source for function names and call counts. A rewrite invalidates nearly
+all of them by construction; they test the implementation, not the page. The
+behaviour net is 3 integration flows (`tests/integration/flows/*.yaml`) that
+the server runs against its own admin page — the only tests that would notice
+the page working differently.
+
+#### Maintenance (GitHub, measured 2026-09-25, window = last 12 months)
+
+| Project | Stars | Releases | Latest | Verdict |
+|---|---|---|---|---|
+| vuejs/core | 54k | 52 | 3.6.0-rc.9 (09-18) | active |
+| sveltejs/svelte | 88k | 100+ | 5.57.1 (09-18) | active |
+| preactjs/preact (+signals) | 39k (4.5k) | 21 (72) | 11.0.0-rc.2 (09-08) | active |
+| solidjs/solid | 36k | 72 | 2.0.0-rc.9 (09-18) | active, 2.0 imminent |
+| lit/lit | 22k | 8 | 3.3.3 (05-14) | slower; 722 open issues |
+| alpinejs/alpine | 32k | 21 | 3.17.4 (09-21) | active |
+| vuejs/petite-vue | 9.7k | 0 | — | **abandoned** (last push 2024-07) |
+| developit/htm | 9k | 0 | — | **abandoned** (last push 2024-02) |
+| vanjs-org/van | 4.4k | 1 | 1.6.1 (07-16) | near-dormant (7 commits) |
+| dy/sprae | 211 | 17 | 13.9.1 | active, one maintainer |
+
+Supporting pieces: Vite 8 and Vitest 5 are very active. The
+`@testing-library` adapters for Vue and Preact have had no release in over a
+year; their live replacements are `@vue/test-utils` and Vitest browser mode
+(`vitest-browser-svelte`, `vitest-browser-vue`, both released 2026-09).
+`vite-plugin-singlefile` has had no release in 12 months — not needed, since
+`page()` already inlines.
+
+#### Size (measured 2026-09-25)
+
+One identical component in each — session cards from data, a filter box, a
+picked row, a count, an empty state — built with Vite 8 for production,
+runtime included:
+
+| Framework | min | gzip |
+|---|---|---|
+| Solid 1.9.15 | 13.3 KB | **5.4 KB** |
+| Lit 3.3.3 | 18.1 KB | 7.1 KB |
+| Preact 10.29 + signals 2.11 | 21.8 KB | 8.5 KB |
+| Svelte 5.57.1 | 37.2 KB | 14.4 KB |
+| Vue 3.6.0-rc.9, Vapor | 55.7 KB | 20.8 KB |
+| Alpine CSP 3.17.4 | 71.3 KB | 23.1 KB |
+| Vue 3.5.43 | 64.1 KB | 24.9 KB |
+
+For scale: today's admin page is 45 KB gzipped with no framework at all,
+because nothing is minified.
+
+### §F4.14 — Decision (Dr K's): Svelte 5
+
+Dr K, 2026-09-25: *"i'm interested in svelte. Sounds fun let's do it."* Chosen
+over Vue 3 (familiar, but the largest runtime, and 3.6 still a release
+candidate), Preact + signals (JSX; a thin router and testing ecosystem), Solid
+(2.0 at rc.9, so a migration within months) and Lit (more boilerplate, the
+slowest release cadence). What carried it: the least code for this kind of page
+(`{#each}`, `{#if}`, `bind:`, scoped styles and transitions built in), compiled so
+it runs under the MCP App's no-`eval` CSP, text escaped by default with
+`{@html}` the one greppable opt-out, 14 KB, and the most active of the five.
+
+### §F4.15 — Decision (Dr K's): the npm build is separate, and its output is never committed
+
+Dr K, 2026-09-25: *"do not ever commit the generated stuff. We ignore the
+generated output folder … Ideally the pip install does not know or care about
+nodejs, it just collects static stuff. The npm build would be separate so python
+stays pure."* Also: most frameworks have a `public/` folder of truly static
+files merged into the build output, and `build/` might serve as the output.
+
+**`build/` cannot be the output**, measured in a throwaway package: setuptools
+prunes `build/` from the sdist, so `python -m build` — what `package.yml` runs,
+sdist first and the wheel from it — fails with `package directory 'build/ui'
+does not exist`, while a direct `pip install .` still works and hides it. The
+repo-root `static/` fails differently: as a mapped package directory it makes
+`pip install` error when the UI has not been built, which breaks "pip does not
+care about Node".
+
+What passes every case: the Vite output lands **inside the package**,
+`kubed/selenium_flow/http/static/`, gitignored, and is collected by a
+package-data glob on `kubed.selenium_flow.http`. Unbuilt, `pip install` and
+`python -m build` both succeed with no UI; built, the files are in the sdist and
+the wheel; the tree stays clean either way.
+
+### §F4.16 — Decision (Dr K's): a pure refactor
+
+Dr K, 2026-09-25: *"This is pure refactor, all current functionality must be
+maintained. No adding anything new either. Focus purely on making our purely
+static UI become svelte."* With one allowance: *"if any little ui elements can
+get a stylish boost from using this framework, hopefully svelte can make it look
+nicer too"* — structure and behaviour unchanged. The spec is
+`docs/superpowers/specs/2026-09-25-svelte-admin-ui-design.md`; the plan follows
+it in `docs/superpowers/plans/` once Dr K approves.
+
+---
+
 ## Open questions
 
 1. **A frontend framework for the admin page?** Dr K, 2026-09-24: *"there is no
@@ -470,3 +633,7 @@ tab with its backlink landing on the flow. 44 requests, no errors.
    most of Task 8's review was hand-tracing `gone(key)` and sequence-number race
    guards that a reactive store makes structural. A spike first: port the Files
    tab in one of them and compare.
+
+   **Taken up in Part IV** (2026-09-25): npm is fine after all, the CDN
+   candidates fail the MCP App CSP or the maintenance bar, and the answer is
+   Svelte 5 (§F4.14).
