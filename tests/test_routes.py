@@ -126,6 +126,56 @@ def test_readiness_asks_the_grid_off_the_event_loop(server, monkeypatch):
     assert on_loop == [False], "the Grid was dialled on the event loop"
 
 
+def _on_the_loop() -> bool:
+    import sniffio
+
+    try:
+        sniffio.current_async_library()
+    except sniffio.AsyncLibraryNotFoundError:
+        return False
+    return True
+
+
+def test_a_browser_action_runs_off_the_event_loop(server, monkeypatch):
+    """A browser action is synchronous Selenium that can wait for minutes (an
+    `assert` up to 900s). Run on the loop, it stalled every other request —
+    MCP, the admin event stream and `/health` — until it finished."""
+    seen = []
+
+    def act(name, work, reshapes=False):
+        seen.append(_on_the_loop())
+        return {"success": True}
+
+    monkeypatch.setattr(server.sessions, "act", act)
+    client = TestClient(server.mcp.http_app(), headers={"X-Session-Key": SESSION})
+    response = client.post(
+        "/browser/navigate",
+        json={"url": "https://example.com"},
+        headers={"Authorization": f"Bearer {TOKEN}"},
+    )
+    assert response.status_code == 200, response.text
+    assert seen == [False], "the browser was driven on the event loop"
+
+
+def test_a_flow_run_runs_off_the_event_loop(server, monkeypatch):
+    """A whole flow run is the longest synchronous call there is."""
+    from kubed.selenium_flow.flows import api as flow_api
+
+    seen = []
+
+    def run_for(*args, **kwargs):
+        seen.append(_on_the_loop())
+        return {"success": True}
+
+    monkeypatch.setattr(flow_api, "run_for", run_for)
+    client = TestClient(server.mcp.http_app(), headers={"X-Session-Key": SESSION})
+    response = client.post(
+        "/flows/login/runs", json={}, headers={"Authorization": f"Bearer {TOKEN}"}
+    )
+    assert response.status_code == 200, response.text
+    assert seen == [False], "the flow ran on the event loop"
+
+
 def test_the_probes_answer_when_the_grid_url_is_malformed():
     """An operator's typo is not a reason for a probe to raise: a kubelet would
     read the 500 as the process being broken, which it is not."""

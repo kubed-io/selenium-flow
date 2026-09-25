@@ -81,6 +81,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A slow browser action or flow run over HTTP no longer stalls the server**; MCP calls, the admin page and `/health` answer while it runs.
+
 - **Cancelling `run_flow` stops the run** instead of leaving it to drive the browser to the end.
 
 - **Error messages keep their XPath.** `//input[@name='q']` was cut to `//name='q']` by the credential scrub.

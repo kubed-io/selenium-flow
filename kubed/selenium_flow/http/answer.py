@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -116,7 +117,13 @@ async def answer(
         return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
     try:
         name = sessions_module.name_from(request) if named else ""
-        result = call(name, body)
+        # In a worker thread: almost every call here is synchronous Selenium,
+        # a `requests` call to the Grid or a whole flow run, and on the event
+        # loop one `assert` waiting 900s stalled every other request, MCP and
+        # `/health` included — FastMCP already runs the same sync tools in a
+        # thread pool. An `async def` call only builds its coroutine there,
+        # and it is awaited back here on the loop (§F4.19).
+        result = await run_in_threadpool(call, name, body)
         if hasattr(result, "__await__"):
             result = await result
         return JSONResponse(result)

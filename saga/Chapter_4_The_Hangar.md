@@ -742,6 +742,13 @@ caching strategies"*. Measured first, the answer was mostly not a cache:
   bear), MIME types and URL signatures (4ms and 5ms for 142 files), and
   path resolution (a link planted later must still be refused). No ETag on the
   poll yet: it would save the body, not the work.
+- **The HTTP surface drove Selenium on the event loop.** An audit of what
+  FastMCP already brings found `http/answer.py` calling every `/browser/*`
+  action, every flow run and every files call synchronously inside the async
+  handler: one `assert` waiting 900s stalled MCP, the admin event stream and
+  `/health`. FastMCP already runs the same sync tools in a thread pool, and
+  `/ready` already sent its Grid calls to one. `answer` now runs `call` in a
+  worker thread and awaits it back on the loop only when it is a coroutine.
 
 ---
 
