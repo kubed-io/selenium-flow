@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { FakeEventSource, fakeFetch } from '../test/helpers'
+import { deferred, FakeEventSource, fakeFetch } from '../test/helpers'
 import { createApi } from './api'
 import { Live } from './live.svelte'
 
@@ -51,4 +51,21 @@ test('stop closes the stream and the poll (A4)', async () => {
   live.stop()
   expect(FakeEventSource.last!.closed).toBe(true)
   expect(live.watching).toBe(false)
+})
+
+test('stop() invalidates a load() already in flight (Copilot, #42)', async () => {
+  const gate = deferred<{ status?: number; body?: unknown }>()
+  fakeFetch({ 'GET /admin/sessions': () => gate.promise })
+  const live = new Live(api, '')
+  const before = FakeEventSource.last
+
+  const pending = live.load()
+  live.stop()
+  gate.resolve({ body: { sessions: [{ key: 'a' }], events_url: '/e' } })
+  await pending
+
+  // A stale response must neither paint nor reopen a stream that stop()
+  // already tore down.
+  expect(FakeEventSource.last).toBe(before)
+  expect(live.data).toBeNull()
 })

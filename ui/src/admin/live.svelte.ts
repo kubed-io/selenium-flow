@@ -15,6 +15,10 @@ export class Live {
   #fallback: ReturnType<typeof setInterval> | undefined
   #api: Api
   #root: string
+  // Bumped by stop(). A load() (or the fallback poll's own refetch) started
+  // before the bump checks its own snapshot on the far side of the await: a
+  // stale one must neither paint data nor reopen a stream (Copilot, #42).
+  #generation = 0
 
   constructor(api: Api, root: string) {
     this.#api = api
@@ -22,17 +26,21 @@ export class Live {
   }
 
   async load(): Promise<SessionsPayload | undefined> {
+    const generation = this.#generation
     try {
       const data = await this.#api<SessionsPayload>('/admin/sessions')
+      if (generation !== this.#generation) return
       this.#apply(data)
       if (data.events_url) this.#watch(data.events_url)
       return data
     } catch (e) {
+      if (generation !== this.#generation) return
       this.error = (e as Error).message
     }
   }
 
   stop() {
+    this.#generation++
     this.#events?.close()
     this.#events = null
     clearInterval(this.#fallback)
@@ -58,11 +66,13 @@ export class Live {
     // A stream swallowed by something in the middle would leave the page
     // silently wrong. A slow poll makes that failure invisible, not permanent.
     clearInterval(this.#fallback)
+    const generation = this.#generation
     this.#fallback = setInterval(async () => {
       if (Date.now() - this.#lastBeat < 45000) return
       this.badge = { text: 'polling', cls: '' }
       try {
         const data = await this.#api<SessionsPayload>('/admin/sessions')
+        if (generation !== this.#generation) return
         this.#apply(data)
         // The stream URL is signed and expires: a reconnect after that 401s
         // forever. This answer carries a freshly signed one.
