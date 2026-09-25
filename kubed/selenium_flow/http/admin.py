@@ -23,6 +23,7 @@ import logging
 import os
 import re
 from functools import wraps
+from html import escape
 from pathlib import Path, PurePosixPath
 from urllib.parse import quote
 
@@ -101,11 +102,12 @@ def page(name: str, **substitutions: str) -> str:
     second copy of it that any ``-->`` inside ends early. The placeholders are
     filled next and the bundle last, in one pass, so nothing inside the bundle
     is ever substituted; and a literal ``</script`` in it is escaped so it
-    cannot end the inline script early.
+    cannot end the inline script early. The substitutions land in attribute
+    values, so they are HTML-escaped, quotes included.
     """
     html = re.sub(r"<!--.*?-->\n?", "", read(f"{name}.html"), flags=re.DOTALL)
     for key, value in substitutions.items():
-        html = html.replace(f"__{key}__", value)
+        html = html.replace(f"__{key}__", escape(value, quote=True))
     bundle = {
         "CSS": read(f"{name}.css"),
         "JS": re.sub(r"</(script)", r"<\\/\1", read(f"{name}.js"), flags=re.IGNORECASE),

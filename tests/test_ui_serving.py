@@ -53,6 +53,13 @@ def test_with_a_build_the_page_inlines_its_bundle_and_fills_the_server_values(bu
     assert "__" not in res.text.replace("__init__", "")
 
 
+def test_a_server_value_is_escaped_for_the_attribute_it_lands_in(built_ui):
+    """A quote in the mount prefix must not end ``data-mount`` early."""
+    out = admin.page("admin", MOUNT='/a"><b>&', CONSOLE="/")
+    assert 'data-mount="/a&quot;&gt;&lt;b&gt;&amp;"' in out
+    assert "<b>" not in out
+
+
 def test_the_bundle_goes_in_after_the_placeholders(built_ui):
     """A placeholder-shaped string inside the bundle is never substituted."""
     (built_ui / "admin.js").write_text("const s = '__MOUNT__'")
