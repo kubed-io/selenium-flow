@@ -21,12 +21,17 @@ export function fakeFetch(routes: Record<string, Route>) {
       body: init.body ? JSON.parse(String(init.body)) : undefined,
       signal: init.signal ?? undefined,
     })
+    // Keyed on path only; a query string in `url` is dropped and never matches.
     const route = routes[`${method} ${path}`]
     const reply = typeof route === 'function' ? await route(init) : route
     if (init.signal?.aborted) throw new DOMException('aborted', 'AbortError')
     const r = reply ?? { status: 404, body: { error: `no route ${method} ${path}` } }
-    return new Response(JSON.stringify(r.body ?? {}), {
-      status: r.status ?? 200, headers: { 'Content-Type': 'application/json' },
+    const status = r.status ?? 200
+    // Real fetch: these statuses forbid a body, and the Response constructor
+    // throws if given one.
+    const empty = status === 204 || status === 205 || status === 304
+    return new Response(empty ? null : JSON.stringify(r.body ?? {}), {
+      status, headers: empty ? undefined : { 'Content-Type': 'application/json' },
     })
   })
   vi.stubGlobal('fetch', fn)
