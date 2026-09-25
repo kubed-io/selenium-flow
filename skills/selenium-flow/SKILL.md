@@ -55,10 +55,11 @@ leave it alone.
 
 To switch, just call `open_session(browser="firefox")` again — the browser you
 are holding is ended for you first, so do not close and reopen. **The files it
-had go with it**: the Grid keeps a file store per browser and deletes it with
-the browser. `keep_file(name)` copies one out first — a kept file belongs to
-your session instead, so it survives switching, ending, and the Grid reaping an
-idle browser. `session://files` lists both kinds and marks which is which.
+had go with it** — the downloads, which the Grid deletes with the browser.
+Screenshots and prints are your session's already: `session://files` lists
+what is in Files and names two folders, `session://files/screenshots` and
+`session://files/downloads`. `keep_file(uri)` moves a screenshot into Files, or
+copies a download there before the browser goes.
 
 One session holds one browser. To use both at once, use two session names;
 `session://current` reports which browser the one you are holding is.
@@ -154,15 +155,15 @@ check this table twice before reaching for it.
 | `press_key` | a key or a combination | `key`: `Enter`, `Escape`, `a`, `Control+a` |
 | `extract` | read an element's text and HTML | `selector` |
 | `outline` | what is on the page: selectors, and what works | `selector`, `text`, `limit`, `interactive` |
-| `screenshot` | the viewport, one element, or the whole page — kept, with a link to share | `full_page`, `filename`, `save` |
+| `screenshot` | the viewport, one element, or the whole page — kept in session://files/screenshots, with a link to share | `full_page`, `filename`, `save` |
 | `print` | the page as a PDF or HTML, kept in your files | `format`: `pdf` \| `html`, `landscape`, `background`, `filename` |
-| `upload_file` | attach a file to a file input | `text`, `content`, `kept` or `path`, `filename` |
+| `upload_file` | attach a file to a file input | `text`, `content`, `file` or `path`, `filename` |
 | `frame` | move into or out of an iframe | `action`: `switch` \| `parent` \| `default` |
 | `dialog` | answer an alert, confirm or prompt | `action`: `accept` \| `dismiss` \| `read` \| `send_text` |
 | `resize` | change the window size | `width`, `height` |
 | `execute_script` | run JavaScript — only for what nothing above does | `script` |
 | `assert` | JavaScript that must return true, or the call fails | `script`, `message`, `stable_for` |
-| `keep_file` | keep a file past the browser | `name` |
+| `keep_file` | keep a file in Files, past the browser | `uri` |
 | `save_flow` | save a sequence of steps under a name | `name`, `parameters`, `steps`, `timeout` |
 | `run_flow` | run a saved flow in one call | `name`, `params` |
 | `delete_flow` | delete one of your flows | `name` |
@@ -172,8 +173,12 @@ And everything to read:
 | URI | Is |
 |---|---|
 | `session://current` | what you are holding |
-| `session://files` | what the browser downloaded and what you kept, each with a link |
-| `session://files/{name}` | one of those files |
+| `session://files` | Files' own kept files, each with a link, plus the two folders below |
+| `session://files/{name}` | one kept file, as bytes |
+| `session://files/screenshots` | saved screenshots not yet kept |
+| `session://files/screenshots/{name}` | one of those, as bytes |
+| `session://files/downloads` | this session's browser downloads |
+| `session://files/downloads/{name}` | one of those, as bytes, while the browser is open |
 | `secret://secrets` | the secrets you may type — never their values |
 | `flow://flows` | the saved flows you can run |
 | `flow://flows/{name}` | one flow's parameters and steps |

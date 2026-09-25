@@ -34,25 +34,61 @@ def components(page):
 # ---- the shape of the detail view -------------------------------------------
 
 
-def test_the_detail_view_is_two_accordions(page):
-    """Dr K's shape, and the reason the page stays a single column: files and
-    flows are the two things a session accumulates."""
-    for section in ("filesSection", "flowsSection"):
-        assert f'id="{section}"' in page, section
-        assert f'data-toggle="{section}"' in page, f"{section} has no header to click"
-    assert "box.setAttribute('data-open', String(!open));" in page
+def test_files_and_flows_are_tabs(page):
+    """§F4.8: the page is one tab's column at a time."""
+    for id_ in ("sessionTabs", "tabFiles", "tabFlows", "paneFiles", "paneFlows"):
+        assert f'id="{id_}"' in page, id_
 
 
-def test_an_accordion_can_be_opened_without_a_mouse(page):
+def test_the_files_tab_is_three_rows_in_order(page):
+    at = [page.index(f'id="{s}Section"') for s in ("downloads", "screenshots", "kept")]
+    assert at == sorted(at), "Downloads, Screenshots, Files — in that order (§F4.5)"
+    assert ">Files<" in page.split('id="keptSection"')[1][:600]
+
+
+def test_each_row_that_clears_has_its_own_button(page):
+    assert 'id="clearDownloads"' in page and 'id="clearScreenshots"' in page
+    assert 'id="clearKept"' not in page, "Files is never cleared wholesale (§F4.1)"
+
+
+def test_clear_downloads_needs_a_live_browser_not_an_attached_one(page):
+    assert "$('clearDownloads').disabled = !row.live" in page
+
+
+def test_the_tab_is_in_the_hash(page):
+    assert "'/flows'" in page and "#/sessions/" in page
+
+
+def test_clearing_screenshots_confirms_with_the_names(page):
+    handler = page.split("$('clearScreenshots').onclick")[1][:1800]
+    assert "modal(" in handler and "'/files/screenshots'" in handler and "'DELETE'" in handler
+
+
+def test_keeping_posts_to_the_folder_it_came_from(page):
+    assert "'/keep'" in page and "encodeURIComponent(folder)" in page
+
+
+def test_a_section_can_be_opened_without_a_mouse(page):
     """It is the only way to open or close the section, so a styled span was a
     control keyboard and screen-reader users could not reach at all. A real
     button gets focus and Enter/Space for free; the state has to be announced
     rather than left to a caret nobody hears."""
-    for section in ("filesSection", "flowsSection"):
+    for section, body in (
+        ("downloadsSection", "downloadsBody"),
+        ("screenshotsSection", "screenshotsBody"),
+        ("keptSection", "keptBody"),
+    ):
         assert f'<button type="button" class="title" data-toggle="{section}"' in page
-    assert 'aria-expanded="true" aria-controls="filesBody"' in page
-    assert 'aria-expanded="true" aria-controls="flowsBody"' in page
+        assert f'aria-expanded="true" aria-controls="{body}"' in page
+    assert "box.setAttribute('data-open', String(!open));" in page
     assert "tab.setAttribute('aria-expanded', String(!open));" in page
+
+
+def test_flows_has_no_accordion_left_to_toggle(page):
+    """The Flows tab holds the whole width now — it is no longer sharing the
+    column with Files, so there is nothing left worth collapsing."""
+    assert 'data-toggle="flowsSection"' not in page
+    assert 'id="flowsSection"' not in page
 
 
 def test_the_file_action_is_a_button_rather_than_a_span_that_acts(page):
@@ -83,6 +119,32 @@ def test_a_late_reply_cannot_render_one_session_under_another(page):
         # carries the sequence check — see the overlap test below — so it is
         # `gone(key)` that is asserted rather than the whole condition.
         assert body.count("gone(key)") == 2, loader
+
+
+def test_a_load_in_flight_disables_both_clear_buttons(page):
+    """Copilot review, PR #41: a click between the request going out and it
+    answering must not confirm against a `filesData` this very load is in the
+    middle of replacing — so both buttons are disabled BEFORE the network
+    call starts, not only once it fails."""
+    body = page.split("async function loadFiles(key)")[1].split("\n}\n")[0]
+    before_request = body.split("try {")[0]
+    assert "$('clearDownloads').disabled = true;" in before_request
+    assert "$('clearScreenshots').disabled = true;" in before_request
+
+
+def test_a_browser_change_drops_the_stale_files_snapshot_before_showdetail(page):
+    """Copilot review, PR #41: a browser change only clears the rendered
+    Downloads grid, not `filesData` itself — so a click after showDetail
+    re-armed the button from the OLD browser's snapshot, and before the new
+    browser's loadFiles answered, could confirm and delete the wrong store.
+    The reset has to land BEFORE showDetail(row) runs, so its own
+    `clearDownloads.disabled = !row.live || filesData === NO_FILES` gate sees
+    NO_FILES and keeps the button disabled; clearScreenshots has no such gate
+    and needs an explicit disable here."""
+    body = page.split("function refreshDetail(data)")[1].split("\n}\n")[0]
+    before_show = body.split("showDetail(row);")[0]
+    assert "filesData = NO_FILES;" in before_show
+    assert "$('clearScreenshots').disabled = true;" in before_show
 
 
 def test_a_late_flow_cannot_overwrite_the_one_you_just_picked(page):
@@ -127,36 +189,143 @@ def test_the_header_groups_the_two_lifetimes(components):
 # ---- files ------------------------------------------------------------------
 
 
-def test_a_download_and_a_kept_file_carry_different_marks(components):
-    """One list with a property saying which (§F1.10): a bubble for a download,
-    a pin for a kept file. The mark says what the file IS and never acts, so it
-    carries no data attribute for the page to wire — and it is labelled, so the
-    state reaches someone who cannot see a pin."""
-    assert 'class="mark bubble" role="img" aria-label="Download"' in components
-    assert 'class="mark pin" role="img" aria-label="Kept"' in components
-    assert 'class="mark bubble" data-keep=' not in components
-    assert 'class="mark pin" data-delete=' not in components
+def test_a_tile_carries_one_action_and_no_status_mark(components):
+    """The row says what a file is, so the corner marks went (§F4.9)."""
+    assert "mark pin" not in components and "mark bubble" not in components
+    assert 'class="act keep" data-keep="' in components
+    assert 'class="act drop" data-delete="' in components
+    assert "&#128204;" in components  # the pin is the keep action now
 
 
-def test_the_action_is_omitted_without_a_surface_that_can_act(components):
-    """These tiles also render inside an MCP app holding no credential, where a
-    live control would be a button that cannot work. The page that *can* act
-    opts in; the library never assumes it. The STATUS mark is drawn either way,
-    because what a file is stays true on every surface."""
-    grid = components.split("function fileGrid")[1].split("function ")[0]
-    assert "(opts.actions\n" in grid, "the action is gated"
-    assert "grid.className = 'files';" in grid, "the status mark is not"
+def test_the_lightbox_steps_and_says_where_it_is(components):
+    for needed in ("\u2039 Prev", "Next \u203a", "ArrowLeft", "ArrowRight", "data-prev", "data-next", " / "):
+        assert needed in components, needed
 
 
-def test_each_glyph_has_one_meaning_and_one_corner(components):
-    """Status right, action left — and never the same glyph in both. A pin was
-    the kept mark on the right AND the keep button on the left, so clicking it
-    looked like one mark jumping sides. The keep action is a plus: it is what
-    produces the pin rather than another copy of it."""
-    grid = components.split("function fileGrid")[1].split("function ")[0]
-    assert "&#10133;" in grid, "keep is a plus"
-    assert "&#128465;" in grid, "delete is a trash"
-    assert grid.count("\U0001f4cc") == 1, "the pin appears once, as status"
+def test_the_lightbox_disables_its_ends_rather_than_wrapping(components):
+    assert "index === 0" in components and "index === files.length - 1" in components
+
+
+def test_a_cancelled_lightbox_action_does_not_alert(components):
+    """opts.action.run may reject with 'cancelled' — a confirm dismissed rather
+    than a real failure — and that message is swallowed instead of alerted. It
+    is the DIRECTION of the guard that matters: the check has to come before the
+    alert, or a cancelled action would alert on every OTHER message instead."""
+    lightbox_src = components.split("function lightbox(")[1].split("\n  }\n")[0]
+    assert "cancelled" in lightbox_src
+    guard = "if (err.message !== 'cancelled') alert(err.message);"
+    assert guard in lightbox_src
+    assert lightbox_src.index("err.message !== 'cancelled'") < lightbox_src.index("alert(")
+
+
+def test_keep_in_the_lightbox_moves_on_to_the_next_screenshot(page):
+    """§F4.9: 109 can be triaged without closing it."""
+    body = page.split("function openLightbox(")[1][:2500]
+    assert "refresh:" in body and "'📌 Keep'" in body and "'🗑 Delete'" in body
+    assert "await loadFiles(" in body, "the list is re-read before stepping on"
+    assert "oncancel" in body, "closing the confirm any way must release the button"
+
+
+def test_the_lightbox_refresh_does_not_reload_a_session_the_operator_has_left(page):
+    """`loadFiles` shares `filesSeq` with every other load of this row, so an
+    unconditional reload here for A — once the operator has moved to B — would
+    claim a sequence number ABOVE B's own in-flight load and strand B on
+    "Loading…" forever. The `gone(key)` check has to come BEFORE the reload, not
+    only after it, the same as every other reload site on this page."""
+    refresh = page.split("refresh: async (at) => {")[1].split("\n    },\n")[0]
+    assert refresh.index("gone(key)") < refresh.index("await loadFiles(key)")
+    assert refresh.count("gone(key)") == 2
+
+
+def test_the_lightbox_refresh_waits_for_the_newest_load(page):
+    """Found by the self-test on the live deploy: Keep moved the screenshot,
+    the poll saw the change and started its own load, and Keep's load stood
+    down to it without painting. The lightbox then re-rendered the list from
+    before the keep. The refresh waits for whichever load is newest."""
+    refresh = page.split("refresh: async (at) => {")[1].split("\n    },\n")[0]
+    assert refresh.index("await loadFiles(key)") < refresh.index("await filesSettled()")
+    assert refresh.index("await filesSettled()") < refresh.index("list()")
+    body = page.split("async function loadFiles(key)")[1].split("\n}\n")[0]
+    assert "filesLoad = new Promise(" in body.split("try {")[0]
+    assert "finally {\n    painted();" in body, "every exit settles, success or failure"
+    settled = page.split("async function filesSettled()")[1].split("\n}\n")[0]
+    assert "while (seen !== filesSeq)" in settled
+
+
+def test_open_lightbox_reads_filesdata_directly(page):
+    """No call site passes `'kept'` — only `'downloads'`, `'screenshots'` and
+    `'files'` — so mapping it to `'files'` was dead code."""
+    body = page.split("function openLightbox(")[1][:600]
+    assert "filesData[folder]" in body
+    assert "'kept'" not in body
+
+
+def test_the_lightbox_returns_a_handle_to_close_it(components):
+    """A session switch has to be able to dismiss a lightbox from OUTSIDE
+    components.js, which stays render-only — so `lightbox` hands back the same
+    `close` every exit path already uses, rather than components.js reaching
+    into page state itself (Copilot, PR #41)."""
+    lightbox_src = components.split("function lightbox(")[1].split("\n  }\n")[0]
+    assert "return {close};" in lightbox_src
+    # Returned AFTER the box is actually on screen, not a promise of one.
+    assert lightbox_src.index("document.body.appendChild(box)") < lightbox_src.index(
+        "return {close};"
+    )
+
+
+def test_a_session_change_closes_the_open_lightbox(page):
+    """A → B must not leave A's lightbox clickable: its Keep/Delete closure
+    still names A, and the operator is now looking at B (Copilot, PR #41)."""
+    assert "let activeLightbox = null;" in page
+    assert "const closeLightbox = () => {" in page
+    open_body = page.split("function openLightbox(")[1][:2500]
+    assert "activeLightbox = SF.lightbox(" in open_body
+    # openSession: closed when the SESSION changes, before it starts loading B.
+    session_body = page.split("async function openSession(")[1].split("\n}\n")[0]
+    assert "closeLightbox();" in session_body
+    assert session_body.index("changed") < session_body.index("closeLightbox();")
+    # route(): closed when the detail view is left for another top tab.
+    route_body = page.split("function route()")[1].split("\n}\n")[0]
+    assert "closeLightbox();" in route_body
+    # showList() covers both "back to the session list" and the console tab,
+    # which routes through it too.
+    show_list_body = page.split("function showList()")[1].split("\n}\n")[0]
+    assert "closeLightbox();" in show_list_body
+
+
+def test_the_lightbox_action_refuses_a_session_that_has_moved_on(page):
+    """Belt and braces alongside `closeLightbox`: even if a click on Keep or
+    Delete races the very switch that would have closed the lightbox, `run`
+    checks `gone(key)` itself, before making any request (Copilot, PR #41)."""
+    body = page.split("function openLightbox(")[1][:2500]
+    assert "gone(key)" in body
+    assert "no longer on screen" in body
+    # The check has to guard the WHOLE action, not run alongside the request.
+    guarded = body.split("const guarded = (run) => (f) => ")[1].split(";\n")[0]
+    assert guarded.index("gone(key)") < guarded.index("run(f)")
+
+
+def test_the_lightbox_ignores_keys_while_a_modal_is_open_above_it(components):
+    """The delete confirm opens ON TOP of the lightbox, and both have their own
+    document-level `keydown` listener. Without a guard, Escape closed both at
+    once, and an arrow key stepped the lightbox behind a confirm still on
+    screen. The guard has to sit at the TOP of `onKey`, before Escape and the
+    arrow keys are handled, or it protects nothing."""
+    on_key = components.split("function onKey(e) {")[1].split("\n    }\n")[0]
+    guard = "if (document.querySelector('.modal')) return;"
+    assert guard in on_key
+    assert on_key.index(guard) < on_key.index("e.key === 'Escape'")
+    assert on_key.index(guard) < on_key.index("e.key === 'ArrowLeft'")
+
+
+def test_the_app_draws_three_read_only_rows(components):
+    assert "function fileSections(" in components
+    for title in ("'Downloads'", "'Screenshots'", "'Files'"):
+        assert title in components, title
+
+
+def test_the_session_card_names_each_count(components):
+    assert "' download'" in components and "' screenshot'" in components
 
 
 def test_the_shared_library_renders_the_action_but_never_wires_it(components):
@@ -171,31 +340,19 @@ def test_the_shared_library_renders_the_action_but_never_wires_it(components):
     assert "item.querySelector('.thumb').addEventListener" in grid
 
 
-def test_only_a_kept_file_offers_a_delete(page):
-    """The Grid's store has no per-file delete, so a trash on a download would
-    be a control with nothing behind it. A download's action keeps it; a kept
-    file's is the delete."""
-    grid = page.split("function fileGrid")[1].split("function ")[0]
-    # `f.kept ? <delete> : <keep>` — one branch each, and neither borrows the
-    # other's verb.
-    kept, download = grid.split("? '<button")[1].split(": '<button")
-    assert "data-delete" in kept and "data-keep" not in kept
-    assert "data-keep" in download and "data-delete" not in download
-
-
 def test_clearing_downloads_lists_the_names_it_will_remove(page):
     """"Delete 12 files?" without saying which twelve is an assertion rather
     than a disclosure. The scope is shown."""
-    assert "downloads.map((n) => '<li>' + SF.esc(n)" in page
+    handler = page.split("$('clearDownloads').onclick")[1].split("$('clearScreenshots')")[0]
+    assert "downloads.map((n) => '<li>' + SF.esc(n)" in handler
 
 
-def test_the_clear_confirm_does_not_build_its_list_from_the_merged_files(page):
-    """`data.files` is de-duplicated: a download sharing a name with a kept file
-    loses to it and vanishes from that list. The DELETE clears it regardless, so
-    filtering the merge would name eleven of the twelve files it takes. The
-    server sends the Grid's own listing for this."""
-    assert "downloads = data.downloads || [];" in page
-    assert "filter((f) => !f.kept)" not in page
+def test_the_clear_confirm_names_every_download_the_grid_holds(page):
+    """The Grid has no per-file delete, so the DELETE always takes every one of
+    them — the list has to say so for all of them, not a subset."""
+    handler = page.split("$('clearDownloads').onclick")[1].split("$('clearScreenshots')")[0]
+    assert "filesData.downloads.map((f) => f.name)" in handler
+    assert "filter(" not in handler
 
 
 def test_clearing_says_what_happens_to_each_name(page):
@@ -204,17 +361,18 @@ def test_clearing_says_what_happens_to_each_name(page):
     in the deletion list, because its download really is deleted — and the file
     really does survive. Omitting those names would under-report what the
     button does, so the fate is said per row instead."""
-    assert "keptNames.indexOf(n) === -1" in page
-    assert "— gone" in page
-    assert "kept copy stays" in page
-    # And the list is still every download, because every download is deleted.
-    assert "filter((f) => !f.kept)" not in page
+    handler = page.split("$('clearDownloads').onclick")[1].split("$('clearScreenshots')")[0]
+    assert "kept.indexOf(n) === -1" in handler
+    assert "— gone" in handler
+    assert "copy in Files stays" in handler
 
 
-def test_the_kept_names_come_from_the_merged_listing(page):
-    """`data.downloads` is what the Grid holds; which of those also survive is
-    only knowable from the merged list's `kept` flag."""
-    assert "(data.files || []).filter((f) => f.kept).map((f) => f.name)" in page
+def test_the_kept_names_come_from_files_itself(page):
+    """There is no merged listing any more, and no `kept` flag on an entry —
+    the Files folder's own listing IS the kept files, so naming them is just
+    reading its names."""
+    handler = page.split("$('clearDownloads').onclick")[1].split("$('clearScreenshots')")[0]
+    assert "filesData.files.map((f) => f.name)" in handler
 
 
 # ---- flows ------------------------------------------------------------------
@@ -561,8 +719,9 @@ def test_the_flows_stamp_is_not_a_count(page):
 
 def test_opening_a_session_forgets_what_the_last_one_showed(page):
     """Every stamp resets together, or the new session inherits the old one's
-    and the first repaint is skipped."""
-    assert "shownFiles = shownBrowser = shownFlows = null;" in page
+    and the first repaint is skipped. `shownLive` joined the chain once
+    `refreshDetail` started comparing it too (Copilot, PR #41)."""
+    assert "shownFiles = shownBrowser = shownLive = shownFlows = null;" in page
 
 
 def test_two_loads_of_the_same_panel_cannot_race_each_other(page):
@@ -651,3 +810,348 @@ def test_acting_on_one_session_does_not_disturb_another(page):
     for after in cleared[1:]:
         selection = after.split("await loadFlows(key);")[0]
         assert "flowName = flowDoc" in selection, "the guard has to come first"
+
+
+# ---- fix round 1: a third session while openSession's own awaits are out ----
+
+
+def test_opening_a_session_is_guarded_after_each_of_its_own_awaits(page):
+    """`openSession` used to be the one loader on this page that resumed after
+    an `await` and acted on `current` as though it were still `key` — moving to
+    a THIRD session while `loadFiles`/`loadFlows` were in flight let A's own
+    resumption take a `flowsSeq` above the new session's and strand it on
+    "Loading…" forever, the exact bug `gone`/`current` exist to prevent
+    everywhere else on this page."""
+    body = page.split("async function openSession(key, tab = 'files', flow)")[1].split("\n}\n")[0]
+    assert body.count("if (gone(key)) return;") == 2
+    after_files = body.split("await loadFiles(key);")[1]
+    assert "if (gone(key)) return;" in after_files.split("await loadFlows(key);")[0]
+    after_flows = body.split("await loadFlows(key);")[1]
+    assert "if (gone(key)) return;" in after_flows.split("if (flow")[0]
+
+
+def test_a_deep_linked_flow_is_checked_against_the_listing_first(page):
+    """Opening a flow the listing does not actually contain — gone, renamed, or
+    moved to global under another name — used to be attempted anyway; `loadFlow`
+    would then fail to find it with nothing on screen saying why."""
+    body = page.split("async function openSession(key, tab = 'files', flow)")[1].split("\n}\n")[0]
+    assert "((flowsData && flowsData.flows) || []).some((f) => f.name === flow)" in body
+    assert "if (flow && flow !== flowName && known) await openFlow(flow);" in body
+
+
+def test_switching_sessions_disarms_the_clear_buttons_until_the_new_one_answers(page):
+    """Neither clear button reads `current` itself — both act on `filesData`,
+    read once when clicked. Leaving A's `filesData` in place while B loads (or
+    forever, if B's load fails) let Clear downloads or Clear screenshots list
+    A's names and delete B's files."""
+    body = page.split("async function openSession(key, tab = 'files', flow)")[1].split("\n}\n")[0]
+    assert "filesData = NO_FILES;" in body
+    assert "$('clearDownloads').disabled = $('clearScreenshots').disabled = true;" in body
+
+
+def test_a_failed_file_load_disarms_the_clear_buttons_too(page):
+    """The same stale-`filesData` risk exists on the error path: a request that
+    never comes back must not leave the buttons acting on whatever session
+    answered last."""
+    body = page.split("async function loadFiles(key)")[1].split("\n}\n")[0]
+    catch = body.split("} catch (e) {")[1]
+    assert "filesData = NO_FILES;" in catch
+    assert "$('clearDownloads').disabled = $('clearScreenshots').disabled = true;" in catch
+
+
+def test_a_kept_or_deleted_file_only_reloads_its_own_session(page):
+    """`loadFiles` shares `filesSeq` with every other load of this row, so an
+    unconditional reload after acting on A, once the operator has moved to B,
+    takes a number ABOVE B's own in-flight load — B's answer then fails
+    `mine !== filesSeq` and is left on "Loading…" for nothing left to fetch
+    again. The flows handlers already guard their reloads the same way."""
+    handler = page.split("$('paneFiles').addEventListener")[1].split("$('flows').addEventListener")[0]
+    assert handler.count("if (current === key) loadFiles(key);") == 2
+
+
+def test_clearing_either_folder_only_reloads_its_own_session(page):
+    for onclick in ("clearDownloads", "clearScreenshots"):
+        handler = page.split(f"$('{onclick}').onclick")[1].split("\n};\n")[0]
+        assert "if (current === key) loadFiles(key);" in handler
+
+
+def test_only_downloads_go_with_the_browser(page):
+    """Screenshots and Files belong to the SESSION and outlive any one
+    browser — only Downloads lives in the Grid's own per-browser store and
+    goes with it, so only Downloads is blanked when the browser changes."""
+    detail = page.split("function refreshDetail(data)")[1].split("\n}\n")[0]
+    assert "SF.fileGrid($('downloads'), []" in detail
+    assert "SF.fileGrid($('screenshots')" not in detail
+    assert "SF.fileGrid($('kept')" not in detail
+
+
+def test_a_closed_flow_takes_its_hash_with_it(page):
+    """A flow that is deleted, moved, or dropped by a listing refresh leaves
+    the hash naming a flow that no longer exists — reloading, or Back, would
+    try to open it again."""
+    closes = "flowName = flowDoc = picked = null;"
+    for after in page.split(closes)[1:4]:
+        assert "history.replaceState(null, '', '#/sessions/' + encodeURIComponent(key) + '/flows');" in after[:400]
+
+
+def test_clearing_one_screenshot_does_not_say_all(page):
+    """"Deletes all 1 screenshots" reads as though the count is wrong twice
+    over. The Grid has no per-screenshot delete either way, so the deletion
+    itself is not affected — only what the sentence says about it."""
+    handler = page.split("$('clearScreenshots').onclick")[1].split("\n};\n")[0]
+    assert "n === 1 ? 'the 1 screenshot' : 'all ' + n + ' screenshots'" in handler
+
+
+def test_the_screenshot_clear_comment_matches_what_it_lists(page):
+    """The confirm lists every name, not only a count — the comment used to
+    claim the opposite."""
+    comment = page.split("$('clearScreenshots').onclick")[0][-500:]
+    assert "only by count" not in comment
+
+
+# ---- the Secrets tab (§F4.10) ------------------------------------------------
+
+
+def test_secrets_sit_beside_sessions(page):
+    tabs = page.split('<div class="tabs">')[1][:600]
+    assert tabs.index('id="tabSessions"') < tabs.index('id="tabSecrets"') < tabs.index('id="tabConsole"')
+    assert 'id="paneSecrets"' in page and "'#/secrets'" in page
+
+
+def test_a_secret_card_links_to_the_flow_that_types_it(page):
+    body = page.split("function renderSecrets(")[1][:3000]
+    assert "'#/sessions/'" in body and "'/flows/'" in body
+    assert "u.shared" in body, "a shared flow belongs to no one session and is not linked"
+
+
+def test_the_secrets_page_never_renders_a_value(page):
+    body = page.split("function renderSecrets(")[1][:3000]
+    assert ".value" not in body
+
+
+def test_a_name_no_secret_answers_to_is_shown(page):
+    assert "Named by a flow, not defined" in page
+
+
+# ---- fix round: final review (2026-09-24) ------------------------------------
+
+
+def test_leaving_for_secrets_drops_current(page):
+    """`refreshDetail` acts on `current` alone, with no check on which view is
+    showing — so navigating to Secrets while a session's detail view is open
+    must clear it, or the heartbeat keeps refetching a session hidden behind
+    that pane."""
+    route = page.split("function route()")[1].split("\nwindow.addEventListener")[0]
+    branch = route.split("if (view === 'secrets')")[1].split("\n")[0]
+    assert "current = null;" in branch
+
+
+def test_clear_downloads_stays_off_while_filesdata_is_stale(page):
+    """`row.live` alone used to re-arm Clear downloads on a heartbeat even
+    while `filesData` was still `NO_FILES` — a load still in flight, or one
+    that failed — so its confirm read an empty list and cleared the Grid
+    regardless."""
+    body = page.split("function showDetail(row)")[1].split("\n}\n")[0]
+    assert "$('clearDownloads').disabled = !row.live || filesData === NO_FILES;" in body
+
+
+def test_a_successful_load_rearms_clear_downloads_from_filesdata(page):
+    """`showDetail` runs before `loadFiles` replaces `filesData`, so a session
+    that loads cleanly right after a failed one needs the button re-evaluated
+    once `filesData` is actually its own again."""
+    body = page.split("async function loadFiles(key)")[1].split("\n}\n")[0]
+    success = body.split("filesData = {")[1].split("} catch")[0]
+    assert "$('clearDownloads').disabled = !row.live || filesData === NO_FILES;" in success
+
+
+def test_opening_a_new_session_blanks_the_count_pills(page):
+    """The count pills are as much a stale-session risk as `filesData` itself
+    — A's numbers sitting on screen while B loads (or forever, if B's load
+    fails) read as B's."""
+    body = page.split("async function openSession(key, tab = 'files', flow)")[1].split("\n}\n")[0]
+    for pill in ("downloadsCount", "screenshotsCount", "keptCount", "filesTotal", "flowsTotal"):
+        assert f"$('{pill}').textContent" in body
+
+
+def test_a_failed_file_load_blanks_the_count_pills_too(page):
+    body = page.split("async function loadFiles(key)")[1].split("\n}\n")[0]
+    catch = body.split("} catch (e) {")[1]
+    for pill in ("downloadsCount", "screenshotsCount", "keptCount", "filesTotal", "flowsTotal"):
+        assert f"$('{pill}').textContent" in catch
+
+
+def test_the_keep_tile_is_disabled_for_its_own_round_trip(page):
+    """A second click on the same tile before the first keep has landed would
+    fire a second keep of the same file — disabling it for the round trip, and
+    re-enabling only on failure, closes that window. Success does not need to:
+    the grid reloads and redraws the tile fresh."""
+    handler = page.split("const keep = mark.getAttribute('data-keep');")[1].split("\n  }\n")[0]
+    assert "mark.disabled = true;" in handler
+    catch = handler.split("} catch (err) {")[1]
+    assert "mark.disabled = false;" in catch
+
+
+# ---- fix round: PR #41 review, round 4 (2026-09-25) --------------------------
+#
+# `closeLightbox` only ever dismissed the ONE box it tracks. A lightbox's own
+# Delete opens a SECOND, separate confirm on top of it — `modal()`, not
+# `SF.lightbox` — and a session switch closed the lightbox while leaving that
+# confirm fully open and clickable, its `onconfirm` still reading the old
+# session's key. The same was true of every other `modal()` a click can leave
+# open: the flow editor's save, move and delete, and Clear downloads/
+# screenshots. Two changes close the gap: `modal()` is now tracked and closed
+# from outside exactly like a lightbox is (`closeModal`, run everywhere
+# `closeLightbox` is), and every onconfirm that fires a request against a
+# captured `key` checks `refuseIfGone(key)` again, first thing, in case a
+# click and the switch that should have cancelled it land back to back.
+
+
+def test_modal_exposes_a_cancel_path_a_session_switch_can_drive(page):
+    """`box.close` is `modal()`'s own `close` — the cancel path, oncancel and
+    all — not a bare `box.remove()` that would leave a disabled confirm button
+    stuck and an editor's `oncancel` unfired."""
+    body = page.split("function modal({")[1].split("\n}\n")[0]
+    assert "activeModal = box;" in body
+    assert "box.close = close;" in body
+    assert "if (activeModal === box) activeModal = null;" in body
+    # Exposed only once the cancel path itself is built, not before.
+    assert body.index("const close = () => {") < body.index("box.close = close;")
+
+
+def test_a_session_change_also_cancels_any_open_modal(page):
+    """`closeLightbox` alone left a save/move/delete confirm fully open and
+    clickable after the operator switched sessions. `closeModal` now runs
+    everywhere `closeLightbox` does, so a switch cancels both the same way."""
+    assert "let activeModal = null;" in page
+    assert "const closeModal = () => {" in page
+    session_body = page.split("async function openSession(")[1].split("\n}\n")[0]
+    assert "closeLightbox();" in session_body and "closeModal();" in session_body
+    route_body = page.split("function route()")[1].split("\n}\n")[0]
+    assert "closeLightbox();" in route_body and "closeModal();" in route_body
+    show_list_body = page.split("function showList()")[1].split("\n}\n")[0]
+    assert "closeLightbox();" in show_list_body and "closeModal();" in show_list_body
+
+
+def test_every_onconfirm_that_acts_on_a_captured_key_rechecks_it_first(page):
+    """The backstop `closeModal` cannot cover: a click on a modal's own
+    confirm button and a session switch can still land back to back. Seven
+    sites fire a request against a `key` read before their modal opened — the
+    lightbox delete, the tile delete, the flow editor's save, move and
+    delete, and Clear downloads/screenshots — and every one now checks
+    `refuseIfGone(key)` again first."""
+    assert page.count("refuseIfGone(key);") == 7
+
+
+def test_the_lightbox_deletes_onconfirm_rechecks_the_session(page):
+    body = page.split("function openLightbox(")[1][:2500]
+    onconfirm = body.split("onconfirm: async () => {")[1].split("},\n")[0]
+    assert onconfirm.index("refuseIfGone(key);") < onconfirm.index("await api(")
+
+
+def test_the_tile_deletes_onconfirm_rechecks_the_session(page):
+    body = page.split("const drop = mark.getAttribute('data-delete');")[1].split("\n  });\n")[0]
+    onconfirm = body.split("onconfirm: async () => {")[1]
+    assert onconfirm.index("refuseIfGone(key);") < onconfirm.index("await api(")
+
+
+def test_the_flow_editors_save_rechecks_the_session(page):
+    body = page.split("title: 'Edit ' + doc.name,")[1].split("\n    });\n")[0]
+    onconfirm = body.split("onconfirm: async (sheet) => {")[1]
+    assert onconfirm.index("refuseIfGone(key);") < onconfirm.index("await api(")
+
+
+def test_moving_a_flow_rechecks_the_session(page):
+    body = page.split("confirm: 'Move',")[1].split("\n    });\n")[0]
+    assert body.index("refuseIfGone(key);") < body.index("await api(")
+
+
+def test_deleting_a_flow_rechecks_the_session(page):
+    body = page.split("title: 'Delete this flow?',")[1].split("\n    });\n")[0]
+    assert body.index("refuseIfGone(key);") < body.index("await api(")
+
+
+def test_clear_downloads_rechecks_the_session(page):
+    handler = page.split("$('clearDownloads').onclick")[1].split("\n};\n")[0]
+    assert handler.index("refuseIfGone(key);") < handler.index("await api(")
+
+
+def test_clear_screenshots_rechecks_the_session(page):
+    handler = page.split("$('clearScreenshots').onclick")[1].split("\n};\n")[0]
+    assert handler.index("refuseIfGone(key);") < handler.index("await api(")
+
+
+def test_refresh_detail_treats_a_liveness_flip_like_a_browser_change(page):
+    """A reap or a restart inside the same session can leave the recorded Grid
+    id UNCHANGED — `live` going false, or a replacement browser hiding behind
+    the same id — which `session_id` alone did not catch. `shownLive` rides
+    alongside it now, so either one changing enters the same branch."""
+    detail = page.split("function refreshDetail(data)")[1].split("\n}\n")[0]
+    assert "!!row.live !== shownLive" in detail
+    assert "(row.session_id || null) !== shownBrowser || !!row.live !== shownLive" in detail
+    assert "shownLive = !!row.live;" in detail
+
+
+def test_a_stale_clear_downloads_confirm_is_closed_when_the_browser_changes(page):
+    """A Clear downloads confirm lists the OLD browser's names, and the session
+    key has not changed, so refuseIfGone would let it clear the replacement
+    browser's store. The branch closes a modal scoped to 'downloads' before
+    `filesData` is dropped — and only that one: the YAML editor and the other
+    confirms act on session-owned things and stay open."""
+    detail = page.split("function refreshDetail(data)")[1].split("\n}\n")[0]
+    branch = detail.split(
+        "if ((row.session_id || null) !== shownBrowser || !!row.live !== shownLive) {"
+    )[1].split("\n  }\n")[0]
+    guard = "if (activeModal && activeModal.scope === 'downloads') closeModal();"
+    assert guard in page.split("function dropBrowserOverlays()")[1].split("\n}\n")[0]
+    assert branch.index("dropBrowserOverlays();") < branch.index("filesData = NO_FILES;")
+    handler = page.split("$('clearDownloads').onclick")[1].split("\n};\n")[0]
+    assert "scope: 'downloads'" in handler
+    assert "box.scope = scope;" in page.split("function modal(")[1].split("\n}\n")[0]
+
+
+def test_a_stale_downloads_lightbox_is_closed_before_the_browser_changes(page):
+    """An open Downloads lightbox holds the OLD browser's list, and its Keep
+    would act against a browser that is already gone — so it is closed before
+    `filesData` is dropped and the grid is blanked. Screenshots and Files
+    belong to the session, not the browser, and stay valid across this, so
+    only a lightbox opened on `'downloads'` is the one closed."""
+    detail = page.split("function refreshDetail(data)")[1].split("\n}\n")[0]
+    branch = detail.split(
+        "if ((row.session_id || null) !== shownBrowser || !!row.live !== shownLive) {"
+    )[1].split("\n  }\n")[0]
+    helper = page.split("function dropBrowserOverlays()")[1].split("\n}\n")[0]
+    assert "if (activeLightboxFolder === 'downloads') closeLightbox();" in helper
+    assert branch.index("dropBrowserOverlays();") < branch.index(
+        "shownBrowser = row.session_id"
+    )
+
+
+def test_ending_the_browser_closes_its_downloads_overlays(page):
+    """Copilot review, PR #41: End browser reloads directly rather than
+    through `refreshDetail`'s browser-change branch, so a Downloads lightbox
+    or confirm survived it — and the same session reopened before the event
+    stream reported would let it act on the replacement browser."""
+    done = page.split("destructive('endBrowser'")[1].split("\n});\n")[0]
+    assert done.index("dropBrowserOverlays();") < done.index("loadFiles(key);")
+
+
+def test_a_browser_change_forces_a_files_reload(page):
+    """A reap-and-replace that leaves `session_id` (and `live`) unchanged from
+    the recorded row's own point of view is not the case here — this is the
+    `shownBrowser`/`shownLive` branch itself, entered because one of them DID
+    change. It resets `filesData` to NO_FILES but must also reset `shownFiles`
+    to null, or a session whose download list was already empty keeps the
+    same `filesStamp`, the `filesStamp(row) !== shownFiles` check below never
+    fires, and Screenshots/Files/Clear screenshots stay stuck on the gone
+    browser with no load ever in flight to fix it."""
+    detail = page.split("function refreshDetail(data)")[1].split("\n}\n")[0]
+    branch = detail.split(
+        "if ((row.session_id || null) !== shownBrowser || !!row.live !== shownLive) {"
+    )[1].split("\n  }\n")[0]
+    assert "filesData = NO_FILES;" in branch
+    assert "shownFiles = null;" in branch
+    assert branch.index("filesData = NO_FILES;") < branch.index("shownFiles = null;")
+    # And the reload this unblocks is the very next statement outside the
+    # branch: `filesStamp(row) !== shownFiles` is now unconditionally true.
+    after = detail.split("shownFiles = null;")[1]
+    assert "if (filesStamp(row) !== shownFiles) loadFiles(current);" in after

@@ -1,16 +1,16 @@
-"""Kept files: the copy out of the browser, and everything that follows from it.
+"""Files kept in a session's own store, and the admin/HTTP surfaces over them.
 
 The Grid's file API is **list, read-one, delete-all** — there is no write and no
-per-file delete. Almost every rule tested here falls out of that one fact, so
-they are worth naming together:
+per-file delete, which is why keeping a download is a **copy**: the original
+cannot be removed until the browser ends or the downloads are cleared.
 
-- keeping is a **copy**, because the original cannot be removed;
-- only a **kept** file has a per-file delete, because only kept files are ours;
-- **clearing the downloads is therefore safe**, because kept files are somewhere
-  else by definition — which is the whole reason that button can exist;
-- and the listing **survives the browser**, because half of it always did.
+The three-sections split and its listing rules (`root`, `folder`, `sections`,
+`keep`) live in `test_file_sections.py` now. What is left here: the store's own
+file rules (naming, escaping, one name per folder), that a Grid failure is
+never hidden, and the admin/HTTP surfaces — keeping, deleting, clearing, the
+signed link, and the published contract — built on those domain functions.
 
-The Grid is never dialled. What is asserted is the part this server decides.
+The real Grid is never dialled; a fake stands in throughout.
 """
 
 from unittest.mock import patch
@@ -129,9 +129,10 @@ def test_a_kept_file_round_trips(store):
 
 
 def test_a_kept_entry_is_shaped_like_the_grids(store):
-    """The two listings are merged into one array, so they must agree on the key
-    names AND the units. Milliseconds, because that is what the Grid reports —
-    a seconds-based timestamp beside it sorts every kept file to 1970 while
+    """Files and Screenshots are read separately from Downloads, never merged
+    (§F4.6, §F4.7), but the shapes still have to agree on the key names AND
+    the units. Milliseconds, because that is what the Grid reports — a
+    seconds-based timestamp beside it sorts every kept file to 1970 while
     nothing looks wrong."""
     store.write_file(SESSION, "report.pdf", b"x")
     entry = store.files(SESSION)[0]
@@ -209,12 +210,6 @@ def test_a_file_name_is_not_trimmed(store):
     assert store.delete_file(SESSION, name) is True
 
 
-def test_keeping_asks_the_grid_for_the_name_it_was_given(store):
-    grid = FakeGrid([], b"x")
-    files.keep_one(FakeActions(grid), store, SESSION, "abc", " report.pdf ")
-    assert grid.reads == [("abc", " report.pdf ")]
-
-
 def test_a_kept_file_cannot_escape_the_data_directory(store, tmp_path):
     """The name arrives from a URL path parameter as well as from the Grid, so
     traversal is refused by the name rule and again by `_resolved`."""
@@ -234,47 +229,14 @@ def test_a_name_on_disk_that_could_not_be_addressed_is_skipped(store, tmp_path):
     assert [f["name"] for f in store.files(SESSION)] == ["real.pdf"]
 
 
-# ---- one list, out of two sources -------------------------------------------
+# ---- three sections, not one list --------------------------------------------
 
-
-def test_both_halves_appear_in_one_list(store):
-    store.write_file(SESSION, "kept.pdf", b"x")
-    actions = FakeActions(FakeGrid(DOWNLOADS))
-    listed = files.merged(actions, store, SESSION, "abc", TOKEN)
-    assert {f["name"] for f in listed} == {"report.pdf", "shot.png", "kept.pdf"}
-    assert {f["name"]: f["kept"] for f in listed} == {
-        "report.pdf": False,
-        "shot.png": False,
-        "kept.pdf": True,
-    }
-
-
-def test_a_kept_file_wins_a_name_collision(store):
-    """The same report.pdf downloaded twice, or kept and then downloaded again.
-    The kept one wins because it is the one that will still be there — and the
-    only one with a per-file delete."""
-    store.write_file(SESSION, "report.pdf", b"x")
-    actions = FakeActions(FakeGrid(DOWNLOADS))
-    listed = files.merged(actions, store, SESSION, "abc", TOKEN)
-    assert [f["name"] for f in listed].count("report.pdf") == 1
-    report = next(f for f in listed if f["name"] == "report.pdf")
-    assert report["kept"] is True
-    assert "/kept/" in report["url"], "the kept copy is what the link points at"
-
-
-def test_the_list_is_newest_first(store):
-    actions = FakeActions(FakeGrid(DOWNLOADS))
-    listed = files.merged(actions, store, SESSION, "abc", TOKEN)
-    assert [f["name"] for f in listed] == ["report.pdf", "shot.png"]
-
-
-def test_the_list_survives_the_browser(store):
-    """The point of keeping one. A listing that emptied when the Grid reaped a
-    browser would make the durable half look lost."""
-    store.write_file(SESSION, "kept.pdf", b"x")
-    actions = FakeActions(FakeGrid(DOWNLOADS))
-    listed = files.merged(actions, store, SESSION, "", TOKEN)
-    assert [f["name"] for f in listed] == ["kept.pdf"]
+# The behaviour these used to hold — a name in both places, the newest-first
+# order, keeping being a copy — is `test_file_sections.py` territory now: two
+# folders never merge, so "which one wins a collision" is not a question
+# `sections` is ever asked. What is still this module's to prove is the part
+# that only makes sense with a session record in front of it: a Grid failure
+# is surfaced, a reaped browser is never dialled, and a live one still is.
 
 
 def test_a_grid_failure_is_not_hidden(store):
@@ -287,84 +249,53 @@ def test_a_grid_failure_is_not_hidden(store):
             raise RuntimeError("grid is down")
 
     with pytest.raises(RuntimeError):
-        files.merged(FakeActions(Broken()), store, SESSION, "abc", TOKEN)
+        files.sections(
+            FakeActions(Broken()), Sessions(session_id="abc", live=True), store, TOKEN, SESSION
+        )
 
 
 def test_the_listing_ignores_a_browser_the_grid_has_reaped(store):
     """A reaped browser stays in the session record until something refreshes
     it, and `describe` reports that id beside `live: false`. Trusting it dials
     the Grid for a browser that is gone and fails the whole listing — in exactly
-    the state kept files exist to survive."""
+    the state a kept file exists to survive."""
     store.write_file(SESSION, "kept.pdf", b"x")
 
     class Reaped(FakeGrid):
         def files(self, session_id):
             raise AssertionError(f"dialled the Grid for reaped {session_id!r}")
 
-    listed = files.listing(
-        FakeActions(Reaped()),
-        Sessions(session_id="dead", live=False),
-        store,
-        TOKEN,
-        SESSION,
+    got = files.sections(
+        FakeActions(Reaped()), Sessions(session_id="dead", live=False), store, TOKEN, SESSION
     )
-    assert [f["name"] for f in listed["files"]] == ["kept.pdf"]
+    assert [f["name"] for f in got["files"]] == ["kept.pdf"]
+    assert got["downloads"] == []
 
 
 def test_the_listing_still_uses_a_browser_that_is_live(store):
-    listed = files.listing(
+    got = files.sections(
         FakeActions(FakeGrid(DOWNLOADS)),
         Sessions(session_id="abc", live=True),
         store,
         TOKEN,
         SESSION,
     )
-    assert [f["name"] for f in listed["files"]] == ["report.pdf", "shot.png"]
+    assert [f["name"] for f in got["downloads"]] == ["report.pdf", "shot.png"]
 
 
 def test_with_no_store_only_downloads_are_listed():
-    actions = FakeActions(FakeGrid(DOWNLOADS))
-    listed = files.merged(actions, None, "", "abc", TOKEN)
-    assert [f["name"] for f in listed] == ["report.pdf", "shot.png"]
-    assert all(f["kept"] is False for f in listed)
+    got = files.sections(
+        FakeActions(FakeGrid(DOWNLOADS)),
+        Sessions(session_id="abc", live=True),
+        None,
+        TOKEN,
+        SESSION,
+    )
+    assert got["files"] == []
+    assert [f["name"] for f in got["downloads"]] == ["report.pdf", "shot.png"]
 
 
-# ---- keeping and deleting ----------------------------------------------------
-
-
-def test_keeping_copies_the_bytes_out_of_the_grid(store):
-    grid = FakeGrid(DOWNLOADS, b"PDF bytes")
-    kept = files.keep_one(FakeActions(grid), store, SESSION, "abc", "report.pdf")
-    assert kept["kept"] is True and kept["session"] == SESSION
-    assert store.read_file(SESSION, "report.pdf") == b"PDF bytes"
-    assert grid.reads == [("abc", "report.pdf")]
-
-
-def test_keeping_is_a_copy_and_never_a_move(store):
-    """The Grid has no per-file delete, so the original necessarily stays. This
-    is not a choice, and the UI says so by keeping the download visible."""
-    grid = FakeGrid(DOWNLOADS)
-    files.keep_one(FakeActions(grid), store, SESSION, "abc", "report.pdf")
-    assert [e["name"] for e in grid.files("abc")] == ["report.pdf", "shot.png"]
-
-
-def test_keeping_refuses_when_there_is_nowhere_to_keep():
-    with pytest.raises(ValueError, match="FLOW_DATA_DIR"):
-        files.keep_one(FakeActions(FakeGrid()), None, "", "abc", "report.pdf")
-
-
-def test_keeping_refuses_a_bad_name_before_dialling_the_grid(store):
-    """An unusable name should cost nothing and say what was wrong with it,
-    rather than surfacing as a download failure from the Grid."""
-    grid = FakeGrid(DOWNLOADS)
-    with pytest.raises(flows.InvalidName):
-        files.keep_one(FakeActions(grid), store, SESSION, "abc", "../passwd")
-    assert grid.reads == [], "the Grid was dialled for a name we had already refused"
-
-
-def test_keeping_needs_a_browser_to_copy_from(store):
-    with pytest.raises(ValueError, match="session_id is required"):
-        files.keep_one(FakeActions(FakeGrid()), store, SESSION, "", "report.pdf")
+# ---- deleting -----------------------------------------------------------------
 
 
 def test_deleting_a_kept_file_is_idempotent(store):
@@ -384,7 +315,9 @@ def test_deleting_refuses_when_keeping_is_off():
 # action (§F3.6). Written out rather than derived, so a typo in either table
 # cannot make the parity test agree with itself.
 MCP_FOR = {
-    "list": ("resource", "session://files"),
+    "list": ("resource", files.ROOT_URI),
+    "screenshots": ("resource", files.FOLDER_URI[files.SCREENSHOTS]),
+    "downloads": ("resource", files.FOLDER_URI[files.DOWNLOADS]),
     "keep": ("tool", files.KEEP_TOOL),
 }
 
@@ -409,7 +342,11 @@ async def test_every_file_action_is_reachable_from_both_surfaces(
     uris = {str(r.uri) for r in await kept_server.mcp.list_resources()}
     for path, (kind, target) in MCP_FOR.items():
         method, template = files.FILE_ROUTES[path]
-        route = f"/files{template}".replace("{name}", "report.pdf")
+        route = (
+            f"/files{template}"
+            .replace("{folder}", "downloads")
+            .replace("{name}", "report.pdf")
+        )
         assert target in (names if kind == "tool" else uris), f"{route} has no {kind}"
         # 401 rather than 404: the route exists and refused the credential,
         # which is what proves it is bound.
@@ -423,13 +360,18 @@ async def test_the_file_actions_are_not_counted_as_browser_actions(kept_server):
 
 
 async def test_the_keep_tool_declares_honest_annotations(kept_server):
-    """An unannotated tool is advertised as destructive, and this one is not.
-    Keeping copies a file and destroys nothing."""
+    """A download keep REPLACES a same-named file in Files (§F4.7), so the
+    honest hint is destructive — the ruling from the final review: a missing
+    or wrong annotation is worse than the confirmation prompt it costs a
+    client that honours it."""
     tools = {t.name: t for t in await kept_server.mcp.list_tools()}
     keep = tools[files.KEEP_TOOL].annotations
     assert keep.title and keep.read_only_hint is False
-    assert keep.destructive_hint is False, "keeping a file destroys nothing"
-    assert keep.idempotent_hint is True
+    assert keep.destructive_hint is True, "a download keep replaces a same-named file"
+    # False: a screenshot move is refused the second time (there is no longer a
+    # screenshot to move) and a download kept twice replaces the same bytes —
+    # neither is "repeat me and nothing further happens" (§F4.7).
+    assert keep.idempotent_hint is False
 
 
 async def test_deleting_a_kept_file_is_not_offered_to_an_agent(
@@ -449,7 +391,11 @@ async def test_deleting_a_kept_file_is_not_offered_to_an_agent(
 
 def test_the_endpoints_need_the_token(client):
     for method, template in files.FILE_ROUTES.values():
-        route = f"/files{template}".replace("{name}", "report.pdf")
+        route = (
+            f"/files{template}"
+            .replace("{folder}", "downloads")
+            .replace("{name}", "report.pdf")
+        )
         call = getattr(client, method)
         assert call(route).status_code == 401, route
         assert (
@@ -462,16 +408,17 @@ def test_keep_then_list_over_http(client, live):
         patch.object(browser.Grid, "files", return_value=DOWNLOADS),
         patch.object(browser.Grid, "read_file", return_value=b"PDF"),
     ):
-        kept = client.put("/files/report.pdf/kept", headers=AUTH)
+        kept = client.put("/files/downloads/report.pdf/kept", headers=AUTH)
         assert kept.status_code == 200, kept.text
-        assert kept.json()["kept"] is True
+        assert kept.json()["uri"] == "session://files/report.pdf"
 
         body = client.get("/files", headers=AUTH).json()
-    assert [(f["name"], f["kept"]) for f in body["files"]] == [
-        ("report.pdf", True),
-        ("shot.png", False),
-    ]
+    assert [f["name"] for f in body["files"]] == ["report.pdf"]
     assert body["session"] == SESSION
+    # The Grid still reports both — keeping a download is a copy, so the
+    # original stays exactly where it was until the browser ends (§F1.10).
+    downloads = body["folders"][1]
+    assert downloads["name"] == "downloads" and downloads["count"] == 2
 
 
 def test_an_unusable_name_is_a_400_over_http(client, live):
@@ -479,7 +426,7 @@ def test_an_unusable_name_is_a_400_over_http(client, live):
     reaches the handler, because the path pattern does not match one — which is
     a refusal too, just a 404 shaped one. `valid_file_name` is what refuses the
     rest, and it is unit-tested on its own."""
-    response = client.put("/files/.hidden/kept", headers=AUTH)
+    response = client.put("/files/downloads/.hidden/kept", headers=AUTH)
     assert response.status_code == 400
     assert "file name" in response.json()["error"]
 
@@ -495,7 +442,7 @@ def test_a_grid_that_says_no_is_not_a_500(client, live):
     with patch.object(
         browser.Grid, "read_file", side_effect=requests.HTTPError(response=gone)
     ):
-        response = client.put("/files/report.pdf/kept", headers=AUTH)
+        response = client.put("/files/downloads/report.pdf/kept", headers=AUTH)
     assert response.status_code == 404
 
 
@@ -612,99 +559,13 @@ async def test_an_mcp_caller_is_told_why_the_file_is_missing(live, named_caller)
 
 
 # ---- the admin surface -------------------------------------------------------
-
-
-def test_the_admin_api_keeps_a_file(client, live):
-    with (
-        patch.object(browser.Grid, "read_file", return_value=b"PDF"),
-        patch.object(browser.Grid, "files", return_value=DOWNLOADS),
-    ):
-        response = client.post(
-            f"/admin/sessions/{KEY}/files/report.pdf/keep", headers=AUTH
-        )
-    assert response.status_code == 200, response.text
-    assert live.flows.read_file(SESSION, "report.pdf") == b"PDF"
-
-
-def test_the_admin_keep_and_delete_need_the_token(client, live):
-    assert client.post(f"/admin/sessions/{KEY}/files/x.pdf/keep").status_code == 401
-    assert client.delete(f"/admin/sessions/{KEY}/files/x.pdf").status_code == 401
-
-
-def test_the_admin_api_deletes_a_kept_file(client, live):
-    live.flows.write_file(SESSION, "report.pdf", b"PDF")
-    response = client.delete(f"/admin/sessions/{KEY}/files/report.pdf", headers=AUTH)
-    assert response.status_code == 200
-    assert response.json()["deleted"] is True
-    assert live.flows.files(SESSION) == []
-
-
-def test_deleting_a_download_does_nothing_rather_than_lying(client, live):
-    """There is no per-file delete for a download — the Grid offers none — so a
-    trash on one would be a button that cannot work. The UI only draws it on
-    kept files; the API says plainly that nothing was removed."""
-    with patch.object(browser.Grid, "files", return_value=DOWNLOADS):
-        body = client.delete(
-            f"/admin/sessions/{KEY}/files/report.pdf", headers=AUTH
-        ).json()
-        assert body["deleted"] is False
-        listed = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH).json()
-    assert "report.pdf" in [f["name"] for f in listed["files"]], "the download stayed"
-
-
-def test_clearing_downloads_leaves_kept_files_alone(client, live):
-    """The objection that condemned the old Clear files button — that it takes
-    the kept ones with it — cannot happen once keeping is a copy. This is what
-    makes the button safe to offer at all (§F1.10)."""
-    live.flows.write_file(SESSION, "report.pdf", b"PDF")
-    with (
-        patch.object(browser.Grid, "files", return_value=[]),
-        patch.object(browser.Grid, "clear_files") as clear,
-    ):
-        assert client.delete(f"/admin/sessions/{KEY}/files", headers=AUTH).status_code == 200
-        body = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH).json()
-    clear.assert_called_once_with("abc")
-    assert [f["name"] for f in body["files"]] == ["report.pdf"]
-    assert body["files"][0]["kept"] is True
-
-
-def test_the_download_names_are_reported_unmerged(client, live):
-    """What Clear downloads removes is the Grid's whole store, and the merged
-    listing cannot describe it: a download loses to a kept file of the same
-    name and disappears from `files` while staying very much on the Grid. A
-    confirmation built from the merge would name one of the two files it takes,
-    so the response carries the Grid's own list beside the merged one."""
-    live.flows.write_file(SESSION, "report.pdf", b"kept copy")
-    with (
-        patch.object(browser.Grid, "is_alive", return_value=True),
-        patch.object(browser.Grid, "files", return_value=DOWNLOADS),
-    ):
-        body = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH).json()
-
-    # The merge hides the shadowed download, correctly — one tile per name.
-    assert [f["name"] for f in body["files"]] == ["report.pdf", "shot.png"]
-    assert [f["kept"] for f in body["files"]] == [True, False]
-    # The clear list does not.
-    assert body["downloads"] == ["report.pdf", "shot.png"]
-
-
-def test_a_session_with_no_browser_has_nothing_to_clear(client, kept_server):
-    """No browser, no Grid store — and the kept files are not downloads, so the
-    list stays empty rather than offering to clear something it cannot."""
-    kept_server.sessions.store.set("idle", SessionRecord(session_id=""))
-    kept_server.flows.write_file("idle", "report.pdf", b"PDF")
-    body = client.get("/admin/sessions/idle/files", headers=AUTH).json()
-    assert body["downloads"] == []
-
-
-def test_a_detached_session_still_lists_its_kept_files(client, kept_server):
-    """It has no browser and therefore no downloads — but keeping exists exactly
-    so that is not the end of the answer."""
-    kept_server.sessions.store.set("idle", SessionRecord(session_id=""))
-    kept_server.flows.write_file("idle", "report.pdf", b"PDF")
-    body = client.get("/admin/sessions/idle/files", headers=AUTH).json()
-    assert [f["name"] for f in body["files"]] == ["report.pdf"]
-    assert body["session"]["attached"] is False
+#
+# Keeping, deleting, clearing, the three-section listing and the file stamp are
+# `tests/test_admin_files.py` territory now — one module per HTTP surface, the
+# way `test_file_sections.py` already split the domain functions out of here.
+# What is still this module's to prove is what only makes sense with a session
+# record and the Grid's own opinion in front of it: a reaped browser, a Grid
+# outage, and a session whose name cannot own a library at all.
 
 
 def test_the_admin_listing_survives_a_reaped_browser(client, live):
@@ -733,7 +594,10 @@ def test_a_grid_outage_is_an_error_not_an_empty_download_list(client, live):
     rather than reading the header's `live`: that flag is false both when the
     Grid says the browser is gone AND when the Grid could not be read at all.
     Treating an outage as "detached" would render a confident empty list for a
-    session that may have had twenty downloads."""
+    session that may have had twenty downloads.
+
+    503, not a bare 500: `errors.status_for` calls a `ConnectionError` worth
+    retrying after a wait, the same as every other route on this surface."""
     live.flows.write_file(SESSION, "kept.pdf", b"x")
     with (
         patch.object(browser.Grid, "is_alive", return_value=True),
@@ -743,24 +607,48 @@ def test_a_grid_outage_is_an_error_not_an_empty_download_list(client, live):
         ),
     ):
         response = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH)
-    assert response.status_code == 502
+    assert response.status_code == 503
+
+
+def test_a_grid_refusal_over_the_admin_surface_does_not_echo_the_grid_url(
+    client, live
+):
+    """The same leak `test_a_grid_refusal_does_not_echo_the_grid_url` proves for
+    `errors.message` in isolation, proven end to end over the one route that
+    used to bypass `errors.py` entirely and return ``str(exc)`` — a Grid
+    refusal's ``str()`` quotes the whole request URL, userinfo included."""
+    gone = requests.Response()
+    gone.status_code = 500
+    gone.url = "http://user:secret@grid.internal:4444/session/abc/se/files"
+    with (
+        patch.object(browser.Grid, "is_alive", return_value=True),
+        patch.object(browser.Grid, "sessions", return_value=[]),
+        patch.object(
+            browser.Grid,
+            "files",
+            side_effect=requests.HTTPError(
+                f"500 Server Error: Internal for url: {gone.url}", response=gone
+            ),
+        ),
+    ):
+        response = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH)
+    assert "secret" not in response.text and "grid.internal" not in response.text
+    assert response.status_code == 503
 
 
 BAD_KEY = "my bot"
 
 
 def test_a_session_whose_name_is_not_a_directory_keeps_nothing(client, kept_server):
-    """`session_for` hands such a caller `global`, which is right for a browser
-    — the key is opaque there — and catastrophic for storage: this session's
-    private file would land in the shared library, where every unnamed caller
-    can list it and fetch it through a signed URL. It is the same mistake E6
-    fixed for flows, arriving on the file side through the admin surface."""
+    """`library_of` hands such a caller nothing to write into rather than the
+    shared one — the same mistake E6 fixed for flows, arriving on the file side
+    through the admin surface. Every write path here refuses through
+    `library(key)`, so nothing can land in `global` for a key that cannot own a
+    directory of its own."""
     kept_server.sessions.store.set(BAD_KEY, SessionRecord(session_id="abc"))
-    with patch.object(browser.Grid, "read_file", return_value=b"PDF"):
-        response = client.post(
-            f"/admin/sessions/{quote(BAD_KEY, safe='')}/files/report.pdf/keep",
-            headers=AUTH,
-        )
+    response = client.delete(
+        f"/admin/sessions/{quote(BAD_KEY, safe='')}/files/report.pdf", headers=AUTH
+    )
     assert response.status_code == 400
     assert "cannot keep files" in response.json()["error"]
     assert kept_server.flows.files(flows.GLOBAL_SESSION) == [], "it leaked to global"
@@ -777,23 +665,8 @@ def test_such_a_session_shows_unknown_counts_not_the_shared_librarys(
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get("/admin/sessions", headers=AUTH).json()
     row = next(r for r in body["sessions"] if r["key"] == BAD_KEY)
-    assert row["kept_count"] is None and row["flows_count"] is None
-
-
-def test_the_session_list_counts_flows_and_kept_files(client, live):
-    """The count is the reason to click into a session, and a detached one still
-    has things worth counting."""
-    live.flows.write_file(SESSION, "report.pdf", b"PDF")
-    live.flows.save(SESSION, "login", {"steps": []})
-    with (
-        patch.object(browser.Grid, "sessions", return_value=[]),
-        patch.object(browser.Grid, "files", return_value=[]),
-    ):
-        body = client.get("/admin/sessions", headers=AUTH).json()
-    row = next(r for r in body["sessions"] if r["key"] == KEY)
-    assert row["kept_count"] == 1
-    assert row["flows_count"] == 1
-    assert row["files_count"] == 1
+    assert row["counts"] == {"downloads": None, "screenshots": None, "files": None}
+    assert row["files_count"] is None and row["flows_count"] is None
 
 
 # ---- the signed link ---------------------------------------------------------
@@ -856,6 +729,27 @@ def test_a_kept_file_that_is_not_there_is_a_404(client, live):
     assert response.status_code == 404
 
 
+def test_a_broken_kept_store_is_a_5xx_not_a_404(client, live):
+    """A read that fails is not the same fact as a read that found nothing: an
+    NFS permission fault or a mount gone read-only must not tell a client to
+    stop retrying something that could work on the next attempt, and its
+    message must not quote FLOW_DATA_DIR's own layout back at whoever asked
+    (Copilot, PR #41)."""
+    with patch.object(
+        flows.LocalFlowStore,
+        "read_file",
+        side_effect=PermissionError(
+            13, "Permission denied", "/data/flows/desktop/files/report.pdf"
+        ),
+    ):
+        response = client.get(links.kept_url(SESSION, "report.pdf", TOKEN))
+    assert response.status_code >= 500
+    assert response.status_code < 600
+    assert "/data/flows" not in response.text
+    # Signature-only route: no exception text at all, not even a scrubbed one.
+    assert response.json() == {"error": "the file could not be read right now"}
+
+
 # ---- the published contract --------------------------------------------------
 
 
@@ -888,6 +782,15 @@ async def test_the_file_endpoints_are_tagged_apart(spec):
                 assert operation["tags"] == ["files"], f"{method} {path}"
 
 
+async def test_the_keep_routes_folder_parameter_is_an_enum(spec):
+    """It can only ever be `screenshots` or `downloads` — `files.RESERVED` says
+    so, and the route itself refuses a third — so a generated client should
+    not have to guess one."""
+    params = spec["paths"]["/files/{folder}/{name}/kept"]["put"]["parameters"]
+    folder = next(p for p in params if p["name"] == "folder")
+    assert folder["schema"]["enum"] == ["screenshots", "downloads"]
+
+
 async def test_every_file_response_schema_it_references_exists(spec):
     """A $ref to a schema nobody defined renders as a blank box in every docs UI
     and fails a strict linter."""
@@ -911,128 +814,25 @@ async def test_every_file_operation_declares_the_grids_failure_modes(spec):
         assert set(responses) == {"200", "400", "401", "404", "500", "503"}, template
 
 
-def test_the_session_row_counts_distinct_files_not_both_lists(client, live):
-    """Keeping is a copy, so a kept file and its download share a name. Adding
-    the two lengths counted it twice — the list said 5 where the grid below it
-    showed 3 — and the page keys its refresh off this number, so a wrong count
-    was a wrong change signal as well as a wrong label."""
-    live.flows.write_file(SESSION, "report.pdf", b"kept copy")
-    with (
-        patch.object(browser.Grid, "sessions", return_value=[{"session_id": "abc"}]),
-        patch.object(browser.Grid, "is_alive", return_value=True),
-        patch.object(browser.Grid, "files", return_value=DOWNLOADS),
-    ):
-        row = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
-        body = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH).json()
-
-    # Two downloads, one of them kept under the same name: two files, not three.
-    assert row["files_count"] == 2
-    assert row["kept_count"] == 1
-    assert row["files_count"] == len(body["files"]), "the row and the grid disagree"
-
-
-def test_the_file_stamp_notices_a_kept_copy_being_deleted(client, live):
-    """A count cannot tell these apart. `report.pdf` exists as a download and
-    as a kept copy; deleting the kept one leaves the union at two files while
-    the grid switches that tile from a pin to a bubble — different marks, a
-    different URL, a different lifetime. The page would have gone on showing a
-    kept file that no longer existed."""
-    live.flows.write_file(SESSION, "report.pdf", b"kept copy")
-    with (
-        patch.object(browser.Grid, "sessions", return_value=[{"session_id": "abc"}]),
-        patch.object(browser.Grid, "files", return_value=DOWNLOADS),
-    ):
-        before = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
-        live.flows.delete_file(SESSION, "report.pdf")
-        after = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
-
-    assert before["files_count"] == after["files_count"], "the count is why it is not enough"
-    assert before["files_rev"] != after["files_rev"]
-
-
-def test_the_file_stamp_cannot_be_forged_by_a_files_own_name(client, live):
-    """`valid_file_name` permits `:` and `;` on purpose — the site's
-    Content-Disposition chose the name, not us — so a delimiter-joined token is
-    not injective. A kept file called `a:d;b` and the pair (download `a`, kept
-    `b`) both flatten to `a:d;b:k`: two different grids, one token, and the
-    second one never repaints."""
-    live.flows.write_file(SESSION, "a:d;b", b"x")
-    with (
-        patch.object(browser.Grid, "sessions", return_value=[{"session_id": "abc"}]),
-        patch.object(browser.Grid, "files", return_value=[]),
-    ):
-        forged = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
-
-    live.flows.delete_file(SESSION, "a:d;b")
-    live.flows.write_file(SESSION, "b", b"x")
-    with (
-        patch.object(browser.Grid, "sessions", return_value=[{"session_id": "abc"}]),
-        patch.object(
-            browser.Grid, "files",
-            return_value=[{"name": "a", "size": 1, "creationTime": 1}],
-        ),
-    ):
-        real = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
-
-    # The delimiter-joined form these replaced: same token for both grids.
-    def joined(row_kept, row_downloads):
-        return ";".join(
-            sorted(f"{n}:{'k' if k else 'd'}" for n, k in row_kept + row_downloads)
-        )
-
-    assert joined([("a:d;b", True)], []) == joined([("b", True)], [("a", False)])
-    # And the tokens actually served, which do not. `filesStamp` is built from
-    # this alone — the count is not in it — so a collision here is a panel that
-    # never repaints, whatever the counts happen to be.
-    assert forged["files_rev"] != real["files_rev"]
-
-
 # ---- giving a kept file back to a page ---------------------------------------
 
-
-class _Sessions:
-    """A session manager that names one flow session, the way `owner` asks."""
-
-    def name(self):
-        return NAMED
-
-
-def test_a_kept_file_can_be_read_back_by_name(store):
-    """The loop the file store never closed: a browser could download a file
-    and keep it, and there was no way to hand it back to a page (§F1.41)."""
-    store.write_file(SESSION, "export.csv", b"id,name\n1,a\n")
-    assert files.read_kept(_Sessions(), store, "export.csv") == b"id,name\n1,a\n"
+# `read_kept` is gone with the merged listing it served; `read_file` reading a
+# file by its URI, and refusing a name nobody has, is `test_file_sections.py`
+# territory now (`test_any_file_can_be_read_back_by_its_uri`,
+# `test_reading_a_name_nobody_has_is_the_callers_mistake`). What is left here
+# is `upload_file`'s own behaviour, which reads through `actions.read_file`
+# rather than calling the domain function directly.
 
 
-def test_reading_a_name_nobody_kept_says_what_to_call_instead(store):
-    with pytest.raises(ValueError) as missing:
-        files.read_kept(_Sessions(), store, "nope.csv")
-    message = str(missing.value)
-    assert "no kept file called 'nope.csv'" in message
-    assert "session://files" in message and "keep_file" in message
-    # The path on this server's disk answers a question nobody asked.
-    assert "/" not in message.split("session://files")[0]
-
-
-def test_a_name_nobody_kept_is_the_callers_mistake_not_the_servers(store):
-    """400, beside `upload_file(path=...)` naming a file that is not there.
-    A 500 tells an n8n node with Retry-On-Fail to send the same wrong name
-    again, and an alert on the 5xx rate to count it as an outage (Copilot,
-    #31)."""
-    try:
-        files.read_kept(_Sessions(), store, "nope.csv")
-    except Exception as exc:  # noqa: BLE001 - the status is the assertion
-        assert errors.status_for(exc) == 400
-
-
-def test_reading_a_kept_file_refuses_a_name_that_is_not_one_segment(store):
-    with pytest.raises(ValueError):
-        files.read_kept(_Sessions(), store, "../../etc/passwd")
-
-
-def test_upload_sends_the_bytes_of_a_kept_file(actions, tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "uri",
+    ["session://files/export.csv", "session://files/screenshots/shot.png"],
+)
+def test_upload_sends_any_file_named_by_its_uri(actions, uri, monkeypatch):
     """Through `upload_file`, not through the helper: the action is where the
-    four sources are told apart and where the name defaults."""
+    four sources are told apart and where the name defaults. A screenshot's
+    uri works exactly like a Files uri — the action never distinguishes them,
+    `read_file` does."""
     sent = {}
 
     class _Element:
@@ -1056,34 +856,32 @@ def test_upload_sends_the_bytes_of_a_kept_file(actions, tmp_path, monkeypatch):
     )
     asked = {}
 
-    def reader(name, session=None):
-        asked["name"], asked["session"] = name, session
-        return b"id,name\n1,a\n"
+    def reader(given_uri, session=None):
+        asked["uri"], asked["session"] = given_uri, session
+        return "x.png", b"..."
 
-    actions.read_kept = reader
+    actions.read_file = reader
 
-    result = actions.upload_file("abc", selector={"css": "input[type=file]"}, kept="export.csv")
+    result = actions.upload_file("abc", selector={"css": "input[type=file]"}, file=uri)
 
-    assert sent["bytes"] == b"id,name\n1,a\n"
-    assert sent["name"] == "export.csv", "the kept name is the default filename"
-    assert result["filename"] == "export.csv"
-    assert asked == {"name": "export.csv", "session": None}, (
+    assert sent["bytes"] == b"..."
+    assert sent["name"] == "x.png", "the file's own name is the default filename"
+    assert result["filename"] == "x.png"
+    assert asked == {"uri": uri, "session": None}, (
         "an MCP caller names no library - its own key answers"
     )
 
 
-def test_an_http_caller_can_name_the_library_its_file_was_kept_in(
-    actions, monkeypatch
-):
-    """`/files/keep` takes `session` in its body, and `/browser/upload` had no
-    way to say the same thing — so a caller that kept a file into `desktop`
-    landed in `global` when it tried to upload it back (Copilot, #31). The HTTP
-    surface is always explicit; this is that contract, on this action."""
-    asked = {}
+def _stage_upload(server, monkeypatch):
+    """A driver double that lets an upload run without a real Grid, and
+    records the bytes Selenium was handed."""
+    sent = {}
 
     class _Element:
-        def send_keys(self, _path):
-            pass
+        def send_keys(self, path):
+            from pathlib import Path
+
+            sent["bytes"] = Path(path).read_bytes()
 
     class _Driver:
         current_url = "https://example.test/upload"
@@ -1092,59 +890,122 @@ def test_an_http_caller_can_name_the_library_its_file_was_kept_in(
         def execute_script(self, *_a, **_k):
             return None
 
-    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
+    monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(server.actions, "_at", lambda *a, **k: _Driver())
     monkeypatch.setattr(browser, "accept_local_files", lambda _d: None)
     monkeypatch.setattr(
         "kubed.selenium_flow.core.browser.wait_for_element", lambda *a, **k: _Element()
     )
+    return sent
 
-    def reader(name, session=None):
+
+def test_a_session_field_on_the_upload_body_never_reaches_the_action(
+    kept_server, client, monkeypatch
+):
+    """`session` is `LIBRARY_ARG`'s injection point — a flow run's own way of
+    saying which library a step reads from — and `routes._add` used to derive
+    the accepted body straight off `Actions.upload_file`'s signature, which
+    cannot tell that argument apart from an ordinary one. An HTTP caller could
+    POST `session=<another session>` and read a file it never kept (Copilot,
+    #41). It is now excluded from `accepted` the same way `session_id` always
+    was, so it is dropped like any other field the route does not know, never
+    forwarded to the action."""
+    _stage_upload(kept_server, monkeypatch)
+    asked = {}
+
+    def reader(uri, session=None):
         asked["session"] = session
-        return b"x"
+        return "export.csv", b"x"
 
-    actions.read_kept = reader
-    actions.upload_file("abc", selector={"css": "input"}, kept="export.csv", session="desktop")
-    assert asked["session"] == "desktop"
+    monkeypatch.setattr(kept_server.actions, "read_file", reader)
+
+    response = client.post(
+        "/browser/upload",
+        json={
+            "selector": {"css": "input"},
+            "file": "session://files/export.csv",
+            "session": "someone-elses-session",
+        },
+        headers=AUTH,
+    )
+    assert response.status_code == 200, response.json()
+    assert asked["session"] is None, (
+        "the body's session field must never reach the action"
+    )
 
 
-def test_the_upload_endpoint_accepts_the_library_name():
-    """Through the route table, not the action: `routes.py` derives the body it
-    accepts from the signature, so a parameter the action grew is only reachable
-    if it is really there."""
-    import inspect
+def test_upload_over_http_reads_the_file_from_the_callers_own_session(
+    kept_server, client, monkeypatch
+):
+    """The vulnerability closed above, proved end to end with the real store
+    rather than a stub: two sessions keep a file of the same name, the request
+    names a third in its body, and the bytes that land on the page must be the
+    caller's own — the ones its header actually names — never the other
+    session's (Copilot, #41)."""
+    kept_server.flows.write_file(SESSION, "export.csv", b"mine")
+    kept_server.flows.write_file("victim", "export.csv", b"not-mine")
+    sent = _stage_upload(kept_server, monkeypatch)
 
-    from kubed.selenium_flow.core.actions import Actions
+    response = client.post(
+        "/browser/upload",
+        json={
+            "selector": {"css": "input"},
+            "file": "session://files/export.csv",
+            "session": "victim",
+        },
+        headers=AUTH,
+    )
+    assert response.status_code == 200, response.json()
+    assert sent["bytes"] == b"mine"
 
-    accepted = set(inspect.signature(Actions.upload_file).parameters)
-    assert {"kept", "session"} <= accepted
+
+def test_a_session_naming_nobody_in_the_upload_body_does_not_400(
+    kept_server, client, monkeypatch
+):
+    """If `session` reached the action, a value naming no library at all would
+    fail to find the file and 400. A successful upload with a nonsense value
+    there is proof the field was dropped outright, not merely resolved kindly
+    (Copilot, #41)."""
+    kept_server.flows.write_file(SESSION, "export.csv", b"mine")
+    _stage_upload(kept_server, monkeypatch)
+
+    response = client.post(
+        "/browser/upload",
+        json={
+            "selector": {"css": "input"},
+            "file": "session://files/export.csv",
+            "session": "nobody-has-this-session",
+        },
+        headers=AUTH,
+    )
+    assert response.status_code == 200, response.json()
 
 
 def test_a_kept_upload_is_refused_when_there_is_nowhere_to_keep(actions):
-    """Flows off means no file store, so `kept` names something that cannot
+    """Flows off means no file store, so `file` names something that cannot
     exist. Refused with the three sources that do work."""
     with pytest.raises(ValueError, match="not available"):
-        actions.upload_file("abc", selector={"css": "input"}, kept="export.csv")
+        actions.upload_file(
+            "abc", selector={"css": "input"}, file="session://files/export.csv"
+        )
 
 
 def test_only_one_source_may_be_given(actions):
     with pytest.raises(ValueError, match="only one of"):
-        actions.upload_file("abc", selector={"css": "input"}, text="hi", kept="export.csv")
+        actions.upload_file(
+            "abc",
+            selector={"css": "input"},
+            text="hi",
+            file="session://files/export.csv",
+        )
 
 
-def test_an_unkept_file_says_what_would_keep_it(store):
-    """`kept: false` has always meant "this link dies with the browser", and a
-    pilot still handed somebody one — because what it read was the result, not
-    the tool description (§F2.10)."""
-    actions = FakeActions(FakeGrid(DOWNLOADS))
-    listed = files.merged(actions, store, SESSION, "abc", TOKEN)
-    entry = next(f for f in listed if f["name"] == "shot.png")
-    assert entry["kept"] is False
-    assert entry["keep_with"] == 'keep_file("shot.png")'
+def test_upload_says_file_is_a_uri(actions):
+    with pytest.raises(ValueError, match="file"):
+        actions.upload_file("abc", selector={"css": "input"})
 
 
-def test_a_kept_file_has_nothing_to_keep(store):
-    store.write_file(SESSION, "report.pdf", b"x")
-    actions = FakeActions(FakeGrid([]))
-    entry = files.merged(actions, store, SESSION, "abc", TOKEN)[0]
-    assert entry["kept"] is True
-    assert "keep_with" not in entry
+# The `kept` flag is gone — the folder says that now — and `keep_with` on a
+# download versus its absence in Files is `test_file_sections.py` territory
+# (`test_every_entry_carries_its_own_uri_and_no_kept_flag`,
+# `test_a_file_in_files_has_nothing_to_keep`).

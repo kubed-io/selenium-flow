@@ -32,6 +32,11 @@ steps:
     action: click
     selector:
       xpath: //div[contains(@class, 'card')][.//span[contains(@class, 'name') and . = '${session}']]
+- tool: interact
+  args:
+    action: click
+    selector:
+      css: "#tabFlows"
 - tool: assert
   args:
     script: >-

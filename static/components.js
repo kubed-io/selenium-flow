@@ -66,7 +66,18 @@ const SF = (() => {
     for (const s of sessions) {
       const card = document.createElement('div');
       card.className = 'card' + (opts.onpick ? ' click' : '');
-      const count = s.files_count;
+      // The session's own tally when it has one — downloads, screenshots and
+      // kept files can each be zero without the others being, so each gets
+      // its own word rather than one folded "files" count. Older rows carry
+      // only files_count, from before the three folders existed.
+      const counts = s.counts;
+      const meta = counts
+        ? [[counts.downloads, ' download'], [counts.screenshots, ' screenshot'], [counts.files, ' file']]
+            .filter(([n]) => n)
+            .map(([n, word]) => n + word + (n === 1 ? '' : 's'))
+            .join(' · ')
+        : (s.files_count === undefined || s.files_count === null
+            ? '' : s.files_count + ' file' + (s.files_count === 1 ? '' : 's'));
       // The headline is the session, not the browser: a session outlives the
       // browsers it holds, so a name or its kind identifies it and the browser
       // id is detail. A detached one is idle, not broken — it kept its context
@@ -85,8 +96,7 @@ const SF = (() => {
         '</div>' +
         '<div class="small muted" style="margin-top:6px">' +
         esc([s.browser, s.version].filter(Boolean).join(' ')) +
-        (count === undefined || count === null
-          ? '' : ' · ' + count + ' file' + (count === 1 ? '' : 's')) +
+        (meta ? ' · ' + meta : '') +
         (s.started ? ' · ' + ago(s.started * 1000) : '') +
         (s.node ? ' · ' + esc(s.node) : '') + '</div>' +
         (s.url ? '<div class="small muted url">' + esc(s.url) + '</div>' : '');
@@ -95,68 +105,44 @@ const SF = (() => {
     }
   }
 
-  /* Every file one session has — the browser's downloads and the files kept
-     beyond it — as one list.
+  /* One folder's files as a grid of tiles.
 
-     Each entry needs {name, size, url, image, kept}. `url` is already signed by
+     `files` is a plain array — a download's, a screenshot's, or Files' own —
+     each entry needing {name, size, url, image}. `url` is already signed by
      the server, so this component never sees a token.
 
-     A tile carries two corner marks, and they are deliberately NOT the same
-     thing:
+     A tile carries no status mark: what a file *is* used to sit in a corner
+     of its own, and it named a state nobody could act on, which is not worth
+     a permanent mark. The row already says which folder it came from.
 
-     - **top right is status, and is never a control.** A bubble is a download
-       and goes when the browser does; a pin is kept and outlives it.
-     - **top left is the action**, and is always a real button: keep a
-       download, delete a kept file.
-
-     They used to be one overloaded mark — a pin you clicked to delete, with
-     the trash revealed on hover. That was wrong for a reason particular to
-     this server rather than to taste: **keeping is a copy and there is no
-     unpin** (§F1.10), so a pin is not a toggle. Every pin, star and heart a
-     person has met elsewhere undoes itself on a second click; ours cannot, and
-     the only operation behind it was an irreversible delete wearing the icon
-     of a reversible one. It also announced every kept tile to a screen reader
-     as "Delete kept file x" with nothing anywhere saying *kept*, and buried
-     the only per-file delete the Grid permits in a hover state.
-
-     The action is omitted entirely unless `opts.actions` is set — these same
-     tiles are drawn inside an MCP app that holds no credential, where a
-     control would be a button that cannot work. The status mark is always
-     drawn, because what a file *is* is true on every surface. The page that
-     can act wires the clicks; this library stays rendering-only. */
-  function fileGrid(el, data, opts = {}) {
-    const files = (data && data.files) || [];
-    if (!files.length) return empty(el, 'No files in this session yet.');
+     The one thing a tile can offer is `opts.action` — 'keep' or 'delete',
+     never both — rendered top-left as a real `<button>`, visible on hover and
+     always on touch. It is omitted entirely without one: these same tiles are
+     drawn inside an MCP app that holds no credential, where a control would
+     be a button that cannot work. This library only ever renders that button;
+     the page that can act wires the click. */
+  function fileGrid(el, files, opts = {}) {
+    files = files || [];
+    if (!files.length) return empty(el, opts.empty || 'No files in this session yet.');
     const base = opts.base || '';
     el.innerHTML = '';
     const grid = document.createElement('div');
     grid.className = 'files';
-    for (const f of files) {
+    files.forEach((f, i) => {
       const ext = (f.name.split('.').pop() || '').toLowerCase();
       const href = base + f.url;
       const item = document.createElement('div');
       item.className = 'file';
       item.innerHTML =
-        // role=img with a label, so the state is announced rather than being
-        // available only to someone who can see a pin.
-        (f.kept
-          ? '<span class="mark pin" role="img" aria-label="Kept" title="' +
-            'Kept: it outlives this browser.">📌</span>'
-          : '<span class="mark bubble" role="img" aria-label="Download" title="' +
-            'A download: it goes when this browser does."></span>') +
-        (opts.actions
-          ? (f.kept
-              ? '<button type="button" class="act drop" data-delete="' +
-                esc(f.name) + '" aria-label="Delete kept file ' + esc(f.name) +
-                '" title="Delete this kept file">&#128465;</button>'
-              // A plus, not a pin: the pin on the right is what this
-              // action PRODUCES, and the same glyph in both corners looks
-              // like one mark that jumped sides when you clicked it.
-              : '<button type="button" class="act keep" data-keep="' +
-                esc(f.name) + '" aria-label="Keep ' + esc(f.name) +
-                ' beyond this browser" title="' +
-                'Keep it beyond this browser">&#10133;</button>')
-          : '') +
+        (opts.action === 'keep'
+          ? '<button type="button" class="act keep" data-keep="' + esc(f.name) +
+            '" aria-label="Keep ' + esc(f.name) + ' beyond this browser" title="' +
+            'Keep it beyond this browser">&#128204;</button>'
+          : opts.action === 'delete'
+            ? '<button type="button" class="act drop" data-delete="' + esc(f.name) +
+              '" aria-label="Delete ' + esc(f.name) + '" title="Delete this file">' +
+              '&#128465;</button>'
+            : '') +
         '<a class="thumb" href="' + esc(href) + '" target="_blank" rel="noopener">' +
         (f.image
           ? '<img loading="lazy" alt="' + esc(f.name) + '" src="' + esc(href) + '">'
@@ -170,11 +156,35 @@ const SF = (() => {
       item.querySelector('.thumb').addEventListener('click', (e) => {
         if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
         e.preventDefault();
-        lightbox(f, href);
+        if (opts.onopen) opts.onopen(i);
+        else lightbox(files, i, {base});
       });
       grid.appendChild(item);
-    }
+    });
     el.appendChild(grid);
+  }
+
+  /* A session's files, read-only, as three titled rows in a fixed order:
+     Downloads, Screenshots, Files. Each is its own `fileGrid`, so paging
+     between them opens the lightbox over that row's own list rather than a
+     merge of all three. The admin dashboard draws its own rows instead, with
+     actions, straight from `fileGrid` — this is what an MCP app renders,
+     which holds no credential and offers none. */
+  function fileSections(el, data, opts = {}) {
+    el.innerHTML = '';
+    const rows = [
+      ['Downloads', data.downloads || [], 'No downloads.'],
+      ['Screenshots', data.screenshots || [], 'No screenshots yet.'],
+      ['Files', data.files || [], 'Nothing here yet — prints land here, and anything you keep.'],
+    ];
+    for (const [title, files, emptyText] of rows) {
+      const row = document.createElement('section');
+      row.className = 'row';
+      row.innerHTML = '<div class="head"><strong>' + esc(title) + '</strong>' +
+        '<span class="pill">' + files.length + '</span></div><div class="body"></div>';
+      fileGrid(row.querySelector('.body'), files, {base: opts.base, empty: emptyText});
+      el.appendChild(row);
+    }
   }
 
   /* One session's headline, grouped by how long each fact lives.
@@ -241,43 +251,98 @@ const SF = (() => {
       '</div></div>';
   }
 
-  /* Look at a file without leaving the page.
+  /* Look at a file without leaving the page, stepping through the grid it came
+     from rather than opening one at a time.
 
-     A stored file is opened to be looked at far more often than to be kept, and
-     a new tab loses the list you were reading. Images and PDFs render here;
-     anything else has nothing to show, so it downloads as before. */
-  function lightbox(file, href) {
-    const kind = file.content_type || '';
-    const viewable = file.image || kind === 'application/pdf';
-    if (!viewable) { window.open(href, '_blank', 'noopener'); return; }
-
+     `opts.action` — {label, run: async (file) => void} — is optional, same
+     rule as the tile's: no credential, no button. After it resolves, the
+     caller hands back the list to keep showing via `opts.refresh(index)` →
+     {files, index}, so keeping a screenshot steps on to the next one instead
+     of closing. `run` rejecting with 'cancelled' is not a failure — a confirm
+     dismissed, say — so that one message is swallowed rather than alerted. */
+  function lightbox(files, index, opts = {}) {
+    const base = opts.base || '';
     const box = document.createElement('div');
     box.className = 'lightbox';
-    box.innerHTML =
-      '<div class="head"><span class="grow">' + esc(file.name) + '</span>' +
-      '<a href="' + esc(href) + '" download="' + esc(file.name) + '">Download</a>' +
-      '<button type="button" data-close>Close</button></div>' +
-      '<div class="body">' +
-      (file.image
-        ? '<img alt="' + esc(file.name) + '" src="' + esc(href) + '">'
-        : '<iframe title="' + esc(file.name) + '" src="' + esc(href) +
-          '" style="width:100%;height:100%;border:0;background:#fff;border-radius:6px"></iframe>') +
-      '</div>';
-
+    function render() {
+      const f = files[index];
+      const href = base + f.url;
+      const kind = f.content_type || '';
+      const viewable = f.image || kind === 'application/pdf';
+      box.innerHTML =
+        '<div class="head"><span class="name">' + esc(f.name) + '</span>' +
+        '<span class="pos">' + (index + 1) + ' / ' + files.length + '</span>' +
+        '<span class="grow"></span>' +
+        '<button type="button" data-prev' + (index === 0 ? ' disabled' : '') +
+        '>‹ Prev</button>' +
+        '<button type="button" data-next' +
+        (index === files.length - 1 ? ' disabled' : '') + '>Next ›</button>' +
+        (opts.action
+          ? '<button type="button" data-act>' + esc(opts.action.label) + '</button>'
+          : '') +
+        '<a href="' + esc(href) + '" download="' + esc(f.name) + '">Download</a>' +
+        '<button type="button" data-close>Close</button></div>' +
+        '<div class="body">' +
+        (f.image
+          ? '<img alt="' + esc(f.name) + '" src="' + esc(href) + '">'
+          : viewable
+            ? '<iframe title="' + esc(f.name) + '" src="' + esc(href) + '"></iframe>'
+            : '<div class="nopreview"><span class="glyph">' +
+              (GLYPH[(f.name.split('.').pop() || '').toLowerCase()] || '📁') +
+              '</span><p>No preview for this kind of file.</p>' +
+              '<a href="' + esc(href) + '" download="' + esc(f.name) + '">Download</a></div>') +
+        '</div>';
+    }
+    const step = (d) => {
+      const n = index + d;
+      if (n >= 0 && n < files.length) { index = n; render(); }
+    };
     function close() {
       box.remove();
       document.removeEventListener('keydown', onKey);
+      if (opts.onclose) opts.onclose();
     }
-    function onKey(e) { if (e.key === 'Escape') close(); }
-
-    // Click the backdrop or the button, or press Escape — three ways out,
-    // because a viewer you cannot dismiss is worse than a new tab.
-    box.addEventListener('click', (e) => {
-      if (e.target === box || e.target.hasAttribute('data-close')) close();
+    function onKey(e) {
+      // A modal (the delete confirm) opens ON TOP of the lightbox and has its
+      // own document-level Escape handler. Without this, Escape closed both at
+      // once, and an arrow key stepped the lightbox behind a confirm that was
+      // still on screen.
+      if (document.querySelector('.modal')) return;
+      if (e.key === 'Escape') close();
+      else if (e.key === 'ArrowLeft') step(-1);
+      else if (e.key === 'ArrowRight') step(1);
+    }
+    // Click the backdrop, Prev/Next, the action, the download link or Close.
+    // Escape and the arrow keys do the same as the buttons; three ways to
+    // leave, because a viewer you cannot dismiss is worse than a new tab.
+    box.addEventListener('click', async (e) => {
+      const t = e.target;
+      if (t === box || t.hasAttribute('data-close')) return close();
+      if (t.hasAttribute('data-prev')) return step(-1);
+      if (t.hasAttribute('data-next')) return step(1);
+      if (t.hasAttribute('data-act') && opts.action) {
+        t.disabled = true;
+        try {
+          await opts.action.run(files[index]);
+          const next = opts.refresh ? await opts.refresh(index) : null;
+          if (!next || !next.files.length) return close();
+          files = next.files;
+          index = Math.min(next.index, files.length - 1);
+          render();
+        } catch (err) {
+          t.disabled = false;
+          if (err.message !== 'cancelled') alert(err.message);
+        }
+      }
     });
     document.addEventListener('keydown', onKey);
+    render();
     document.body.appendChild(box);
+    // Handed back so a caller can close this instance from outside — a
+    // session switch, say. The same `close` every exit path here already
+    // uses; returning it is not page logic, just naming what exists.
+    return {close};
   }
 
-  return {sessionList, fileGrid, sessionSummary, lightbox, bytes, ago, esc};
+  return {sessionList, fileGrid, fileSections, sessionSummary, lightbox, bytes, ago, esc};
 })();

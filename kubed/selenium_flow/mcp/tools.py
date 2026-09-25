@@ -461,13 +461,14 @@ def register(
         path: str | None = None,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
-        kept: str | None = None,
+        file: str | None = None,
     ) -> dict:
         """Attach a file to a file input (selector). Give exactly one source:
 
         - text, for anything you wrote (JSON, CSV, markdown), with a filename;
-        - kept, the name of a file keep_file kept, to upload a download without its
-          bytes passing through you (session://files lists them);
+        - file, any file this session has, by its uri from session://files — a
+          screenshot, a download or a file in Files — without its bytes passing
+          through you;
         - content, base64, for other binary;
         - path, a file already on the server.
 
@@ -485,7 +486,7 @@ def register(
                 path=path,
                 url=url,
                 wait_timeout=wait_timeout,
-                kept=kept,
+                file=file,
             ),
         )
 

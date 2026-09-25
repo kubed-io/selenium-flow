@@ -19,10 +19,15 @@ what the first agent flying a real app reported — discoverable capabilities, a
 pointer that can glide, `drag`, `assert` steps that stop a run with instructions,
 and `outline`.
 
-[Chapter 3 — Other Aircraft](saga/Chapter_3_Other_Aircraft.md) is the latest:
-what clients other than Claude Code can reach — VS Code Copilot above all, whose
-model cannot read resources — and why everything to read is named by URI, with
-two tools that read one for the clients that cannot.
+[Chapter 3 — Other Aircraft](saga/Chapter_3_Other_Aircraft.md): what clients
+other than Claude Code can reach — VS Code Copilot above all, whose model
+cannot read resources — and why everything to read is named by URI, with two
+tools that read one for the clients that cannot.
+
+[Chapter 4 — The Hangar](saga/Chapter_4_The_Hangar.md) is the latest: Files,
+Screenshots and Downloads as three sections instead of one merged pile,
+`keep_file(uri)` and `upload_file(file=uri)`, and the admin UI's Files and
+Flows tabs.
 
 
 This repo ships **an image and nothing else**. It does not deploy itself — unlike the
@@ -372,8 +377,9 @@ stay side-effect free: `describe()` peeks at the store rather than going through
 because a status read that opens a browser would be the original leak wearing a hat. It
 reports the session **name** and never the Grid's id.
 
-The same goes for the skill, the flow library, the kept files and the secrets catalogue:
-each is a resource, and **every piece of text an agent reads names it by URI** — a hint, an
+The same goes for the skill, the flow library, Files, Screenshots, Downloads and
+the secrets catalogue: each is a resource, and **every piece of text an agent
+reads names it by URI** — a hint, an
 error, a prompt, SKILL.md. A client whose model cannot read resources gets two tools that
 take those URIs, `list_resources` and `read_resource` (`mcp/mirror.py`), never a tool per
 resource (§F3.6). Do not add one: a name the text has to use instead of the URI is the

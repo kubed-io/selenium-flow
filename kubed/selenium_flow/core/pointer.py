@@ -136,6 +136,12 @@ def from_env(env: dict | None = None):
     Deliberately reads the same switches: an install that shares session records
     between replicas wants to share this too, and a second variable to forget is
     a second way for one replica to plot a path from another's stale origin.
+
+    Redis configured and unreachable is a startup error here too (§F4.12), not
+    a separate fallback: `redis_client` raises `StoreUnavailable` and this lets
+    it propagate. A pointer store quietly downgraded to memory while the
+    session store it is paired with came up on Redis is exactly the mismatch
+    `matching` exists to rule out.
     """
     from ..session import store as store_module
 
@@ -143,9 +149,7 @@ def from_env(env: dict | None = None):
     ttl = int(env.get("SESSION_TTL", DEFAULT_TTL_SECONDS))
     if store_module.chosen_backend(env) != "redis":
         return MemoryPointers(ttl=ttl)
-    client = store_module.redis_client(env)
-    if client is None:
-        return MemoryPointers(ttl=ttl)
+    client = store_module.redis_client(env)  # raises StoreUnavailable rather than None
     prefix = (
         env.get("REDIS_PREFIX", store_module.DEFAULT_PREFIX)
         + store_module.POINTER_NAMESPACE

@@ -167,26 +167,40 @@ write(selector={"css": "#password"}, secret={"name": "nextcloud", "key": "passwo
 
 The server types it; it never passes through the model, the transcript or a log. A secret can be pinned to the sites it may be used on, and is refused anywhere else.
 
-## 🗂 What a session leaves behind
+## 🗂 Files, Screenshots and Downloads
 
-Whatever the **site** downloads is kept **by the Grid**, beside the browser, and goes with it unless `keep_file` keeps it. Whatever **you** make with `screenshot` or `print` is kept with the session in `FLOW_DATA_DIR` from the start, and outlives the browser. Both come back with a link to hand someone — signed and time-limited when
-the server has a token, a plain path when authentication is off.
-`screenshot(save=false)` opts out when a capture is not worth keeping.
+Three sections, addressed by path, that never merge into one list:
 
-| Read it as | URI / path |
+| Section | Holds | Cleared |
+|---|---|---|
+| **Downloads** | whatever the **site** downloaded — the Grid's own store | dies with the browser |
+| **Screenshots** | every `screenshot`, from the moment it is taken | kept, or cleared in bulk |
+| **Files** | anything `keep_file`'d, and every `print` | one at a time, by an operator |
+
+`keep_file(uri)` **moves** a screenshot into Files, or **copies** a download
+there before the browser ends it. `upload_file(file=uri)` attaches any of the
+three to a file input. No agent tool clears or deletes anything — that is an
+operator action in the [Admin UI](#-admin-ui) below.
+
+| Read it as | URI |
 |---|---|
-| a resource | `session://files` — the listing |
-| a resource | `session://files/{name}` — one file, as bytes |
-| a link to a download | `GET /files/{session}/{name}?exp=…&sig=…` — signed when the server has a token, a plain path when authentication is off |
-| a link to a kept file, screenshot or print | `GET /kept/{session}/{name}?exp=…&sig=…` — the same |
+| a resource | `session://files` — Files, plus the two folders below |
+| a resource | `session://files/{name}` — one kept file, as bytes |
+| a resource | `session://files/screenshots`, `.../screenshots/{name}` |
+| a resource | `session://files/downloads`, `.../downloads/{name}` |
+| JSON over HTTP | `GET /files`, `GET /files/screenshots`, `GET /files/downloads` |
+| keep one, over HTTP | `PUT /files/screenshots/{name}/kept`, `PUT /files/downloads/{name}/kept` |
 
-The links travel: signed over path and expiry, because an `<img>` tag cannot send an `Authorization` header.
+Every entry carries a link to hand someone — signed and time-limited when the
+server has a token, a plain path when authentication is off — because an
+`<img>` tag cannot send an `Authorization` header. `screenshot(save=false)`
+opts out when a capture is not worth keeping.
 
 ---
 
 ## 🖥 Admin UI
 
-`GET /` — **your** sessions and what each downloaded, marked with the browser each is running. Click a file to view it in place; click a session for a header of its context. **End** quits a stale browser and gives its Grid slot back, rather than waiting out the Grid's idle timeout — the session itself is kept.
+`GET /` — **your** sessions, marked with the browser each is running. Open one for its Files tab — Downloads, Screenshots and Files, each cleared the way that fits it — and its Flows tab. Click a file to view it in place; **End** quits a stale browser and gives its Grid slot back, rather than waiting out the Grid's idle timeout — the session itself is kept.
 
 Flow sessions, not Grid sessions: browsers somebody else put on the Grid are not listed. Nothing on the MCP surface lists sessions at all — a client sees its own and nothing else. [More in the wiki](https://github.com/kubed-io/selenium-flow/wiki/Administration).
 

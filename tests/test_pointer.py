@@ -135,13 +135,15 @@ def test_the_pointer_store_follows_the_session_store_backend():
     replicas and not pointers would have one replica plotting a glide from
     another's stale origin."""
     assert pointer.from_env({"SESSION_STORE": "memory"}).kind == "memory"
-    # Unreachable redis falls back the same way the session store does.
-    assert (
-        pointer.from_env(
-            {"SESSION_STORE": "redis", "REDIS_HOST": "redis.invalid"}
-        ).kind
-        == "memory"
-    )
+
+
+def test_an_unreachable_redis_stops_the_boot_for_the_pointer_store_too():
+    """§F4.12: no separate fallback here — an unreachable Redis is a startup
+    error from the session store's builder, and the pointer store shares it."""
+    from kubed.selenium_flow.session.store import StoreUnavailable
+
+    with pytest.raises(StoreUnavailable):
+        pointer.from_env({"SESSION_STORE": "redis", "REDIS_HOST": "redis.invalid"})
 
 
 # ---- what an action does with it -----------------------------------------

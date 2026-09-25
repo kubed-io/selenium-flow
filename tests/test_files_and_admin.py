@@ -5,10 +5,12 @@ is the part this server actually decides: who may fetch a file, which shape a
 given client is offered, and that the two surfaces show the same components.
 """
 
+import json
 import time
 from unittest.mock import patch
 
 import pytest
+import requests
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow.core import browser
@@ -55,6 +57,24 @@ def test_a_signed_link_validates():
     exp = signed.split("exp=")[1].split("&")[0]
     sig = signed.split("sig=")[1]
     assert links.valid(path, exp, sig, TOKEN)
+
+
+def test_a_link_is_the_same_url_for_a_while():
+    """Found by the self-test on the live deploy: `exp` to the second made
+    every listing's URLs new, so the browser cache never hit and each repaint
+    of the admin page re-downloaded every screenshot on it."""
+    path = links.file_path("abc", "shot.png")
+    start = links.EXPIRY_STEP * 1000 + 1
+    first = links.sign(path, TOKEN, now=start)
+    assert links.sign(path, TOKEN, now=start + links.EXPIRY_STEP - 2) == first
+    assert links.sign(path, TOKEN, now=start + links.EXPIRY_STEP) != first
+
+
+def test_rounding_never_shortens_a_link():
+    path = links.file_path("abc", "shot.png")
+    for now in (0, 1, links.EXPIRY_STEP - 1, links.EXPIRY_STEP, 12345.6):
+        exp = int(links.sign(path, TOKEN, now=now).split("exp=")[1].split("&")[0])
+        assert now + links.DEFAULT_TTL <= exp < now + links.DEFAULT_TTL + links.EXPIRY_STEP
 
 
 def test_a_signature_is_bound_to_its_path():
@@ -111,12 +131,16 @@ def test_downloads_in_flight_are_not_files():
 
 
 def test_describe_marks_images_and_types():
-    described = files.describe("abc", ENTRIES[0], TOKEN)
+    url = links.file_url("abc", "shot.png", TOKEN)
+    described = files.describe(files.DOWNLOADS, ENTRIES[0], url)
     assert described["content_type"] == "image/png"
     assert described["image"] is True
-    assert described["url"].startswith("/files/abc/shot.png?exp=")
-    assert described["kept"] is False, "a download belongs to the browser"
-    assert files.describe("abc", ENTRIES[1], TOKEN)["image"] is False
+    assert described["url"] == url
+    assert "kept" not in described, "the folder says that now, not a flag"
+    assert described["keep_with"] == f'{files.KEEP_TOOL}({json.dumps(described["uri"])})', (
+        "a download is not kept until keep_file is called"
+    )
+    assert files.describe(files.DOWNLOADS, ENTRIES[1], url)["image"] is False
 
 
 # --- the admin surface ----------------------------------------------------
@@ -149,7 +173,7 @@ def test_both_destructive_actions_ask_first_and_report_a_failure(client):
     both say something when they fail.
     """
     page = client.get("/admin").text
-    for button in ("clearFiles", "endBrowser"):
+    for button in ("clearDownloads", "endBrowser"):
         assert f'id="{button}" class="danger"' in page, button
 
     # Ending the browser keeps the shared helper, which owns its confirm,
@@ -159,7 +183,7 @@ def test_both_destructive_actions_ask_first_and_report_a_failure(client):
     assert "'/admin/sessions/' + encodeURIComponent(key) + path, 'DELETE'" in page
 
     # Clearing goes through the modal, which asks and reports the same way.
-    assert "$('clearFiles').onclick" in page
+    assert "$('clearDownloads').onclick" in page
     assert "title: 'Clear downloads'" in page
     assert "alert(err.message)" in page, "the modal swallows failures"
 
@@ -167,15 +191,17 @@ def test_both_destructive_actions_ask_first_and_report_a_failure(client):
 def test_neither_toolbar_action_is_offered_without_a_browser(client):
     """A control that does nothing is worse than one that is visibly off.
 
-    Both act on the browser — and a detached session has no files either, since
-    the Grid deletes the file store with the browser. Asserted on `showDetail`,
-    which is the one place the header is drawn, from a fetch and from a pushed
-    update alike, so neither can be left enabled on a session that went idle
-    while someone was looking at it.
+    Ending the browser only needs it attached; clearing downloads needs it
+    actually LIVE, a stricter check — the Grid deletes its download store with
+    the browser, so an attached-but-dead session has nothing left to clear.
+    Asserted on `showDetail`, which is the one place the header is drawn, from
+    a fetch and from a pushed update alike, so neither can be left enabled on a
+    session that went idle while someone was looking at it.
     """
     page = client.get("/admin").text
     assert "function showDetail(row)" in page
-    assert "$('endBrowser').disabled = $('clearFiles').disabled = !row.attached;" in page
+    assert "$('endBrowser').disabled = !row.attached;" in page
+    assert "$('clearDownloads').disabled = !row.live || filesData === NO_FILES;" in page
 
 
 def test_the_detail_view_is_updated_by_the_event_stream(client):
@@ -189,11 +215,15 @@ def test_the_detail_view_is_updated_by_the_event_stream(client):
 
 def test_a_changed_browser_clears_the_file_grid(client):
     """The Grid keeps a file store per browser and deletes it with the browser,
-    so after a switch the files on screen do not merely look stale — they are
-    gone. Leaving them up for the length of a fetch offers files that 404."""
+    so after a switch Downloads on screen does not merely look stale — it is
+    gone, and leaving it up for the length of a fetch offers files that 404.
+    Screenshots and Files are untouched: both belong to the session, not the
+    browser, and survive the switch."""
     page = client.get("/admin").text
-    assert "(row.session_id || null) !== shownBrowser" in page
-    assert "SF.fileGrid($('files'), {files: []})" in page
+    detail = page.split("function refreshDetail(data)")[1].split("\n}\n")[0]
+    assert "(row.session_id || null) !== shownBrowser" in detail
+    assert "SF.fileGrid($('downloads'), []" in detail
+    assert "SF.fileGrid($('screenshots')" not in detail
 
 
 def test_the_file_grid_is_not_redrawn_on_every_heartbeat(client):
@@ -309,6 +339,46 @@ def test_a_signed_file_is_served_without_any_header(client):
     assert "inline" in response.headers["content-disposition"]
 
 
+def test_a_grid_404_on_download_is_a_404(client):
+    """The Grid's own status decides what its refusal means (`errors.py`): a
+    gone browser or a file the Grid never had answers the same 404 a caller
+    already gets for one it deleted itself, not a 500 that tells a retrying
+    client the request itself is fine."""
+    gone = requests.Response()
+    gone.status_code = 404
+    with patch.object(
+        browser.Grid, "read_file", side_effect=requests.HTTPError(response=gone)
+    ):
+        response = client.get(links.file_url("abc", "shot.png", TOKEN))
+    assert response.status_code == 404
+    assert response.json() == {"error": "not found"}
+
+
+def test_an_unreachable_grid_on_download_is_a_503_not_a_404(client):
+    """Before this fix every exception from the Grid was flattened into "not
+    found" — a downed Grid told a client to stop retrying something that would
+    have worked a moment later (Copilot, PR #41). And this route is authorised
+    by signature alone, not the admin token, so the body must not carry the
+    Grid's own address either: `requests.ConnectionError`'s message names the
+    host and port `urllib3` tried, e.g. `HTTPConnectionPool(host=...)`, and
+    that is `GRID_URL`'s own internals leaking to whoever holds the link."""
+    with patch.object(
+        browser.Grid,
+        "read_file",
+        side_effect=requests.ConnectionError(
+            "HTTPConnectionPool(host='selenium-grid.selenium.svc.cluster.local', "
+            "port=4444): Max retries exceeded"
+        ),
+    ):
+        response = client.get(links.file_url("abc", "shot.png", TOKEN))
+    assert response.status_code == 503
+    body = response.text
+    assert "HTTPConnectionPool" not in body
+    assert "selenium-grid" not in body
+    assert "4444" not in body
+    assert response.json() == {"error": "the file could not be read right now"}
+
+
 def test_a_partial_download_is_never_served(client):
     """It is half-written and about to be renamed, so it is not a file yet."""
     url = links.file_url("abc", "shot.png.crdownload", TOKEN)
@@ -316,17 +386,22 @@ def test_a_partial_download_is_never_served(client):
 
 
 def test_the_admin_api_lists_files_with_signed_urls(client, flow_session):
-    with patch.object(browser.Grid, "files", return_value=ENTRIES):
+    """`server` keeps no flows (no `FLOW_DATA_DIR`), so Downloads is the only
+    section with anything in it — and it still has to list, signed, with flows
+    off entirely."""
+    with (
+        patch.object(browser.Grid, "is_alive", return_value=True),
+        patch.object(browser.Grid, "files", return_value=ENTRIES),
+    ):
         body = client.get(
             f"/admin/sessions/{KEY}/files",
             headers={"Authorization": f"Bearer {TOKEN}"},
         ).json()
-    # Newest first. The listing merges the browser's downloads with the session's
-    # kept files, and a merged list needs a total order of its own rather than
-    # inheriting either source's — so it sorts on creation time, and report.pdf
-    # is the later of the two fixtures.
-    assert [f["name"] for f in body["files"]] == ["report.pdf", "shot.png"]
-    assert all("sig=" in f["url"] for f in body["files"])
+    # Newest first — the Grid's own listing has no order of its own to inherit,
+    # and report.pdf is the later of the two fixtures.
+    assert [f["name"] for f in body["downloads"]] == ["report.pdf", "shot.png"]
+    assert all("sig=" in f["url"] for f in body["downloads"])
+    assert body["files"] == [], "no store, nothing to keep into"
 
 
 def test_the_listing_shows_flow_sessions_not_grid_sessions(client, server):
@@ -383,14 +458,17 @@ def test_the_stdio_session_is_listed_and_labelled(client, server):
 
 
 def test_a_detached_session_has_no_files_rather_than_an_error(client, server):
-    """It had them; the Grid deleted them with the browser. That is not a fault."""
+    """It had them; the Grid deleted them with the browser. That is not a
+    fault — and neither is having no store at all, which `server` also has
+    none of."""
     server.sessions.store.set("idle", SessionRecord(session_id=""))
     body = client.get(
         "/admin/sessions/idle/files",
         headers={"Authorization": f"Bearer {TOKEN}"},
     )
     assert body.status_code == 200
-    assert body.json()["files"] == []
+    payload = body.json()
+    assert payload["downloads"] == payload["screenshots"] == payload["files"] == []
 
 
 # --- the three renderings -------------------------------------------------

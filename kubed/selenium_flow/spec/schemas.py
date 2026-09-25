@@ -736,11 +736,18 @@ FILE_SCHEMAS = {
     "FileEntry": {
         "type": "object",
         "description": (
-            "One file a session has. Both halves of the list share this shape — "
-            "`kept` is what distinguishes them."
+            "One file, in whichever of the three sections listed it — Files, "
+            "Screenshots or Downloads."
         ),
         "properties": {
             "name": {"type": "string"},
+            "uri": {
+                "type": "string",
+                "description": (
+                    "This file's address. keep_file and upload_file(file=) "
+                    "take it."
+                ),
+            },
             "size": {"type": "integer"},
             "created": {
                 "type": ["integer", "null"],
@@ -751,21 +758,15 @@ FILE_SCHEMAS = {
                 "type": "boolean",
                 "description": "Whether it can be displayed inline.",
             },
-            "kept": {
-                "type": "boolean",
-                "description": (
-                    "True when it belongs to the session and outlives the "
-                    "browser. False when it is a download, which the Grid "
-                    "deletes with the browser and cannot delete singly."
-                ),
-            },
             "keep_with": {
                 "type": "string",
                 "description": (
-                    "Present only when `kept` is false: the MCP call that "
-                    "makes a copy outliving the browser. Until it is made, "
-                    "this file's url stops working when the browser ends. The "
-                    "HTTP equivalent is PUT /files/{name}/kept."
+                    "Present on a screenshot or a download, never on a file "
+                    "already in Files: the MCP call that keeps a copy which "
+                    "outlives the browser. Until it is made, a screenshot's "
+                    "url stops working once cleared and a download's once the "
+                    "browser ends. The HTTP equivalent is "
+                    "PUT /files/{folder}/{name}/kept."
                 ),
             },
             "url": {
@@ -782,13 +783,56 @@ FILE_SCHEMAS = {
     },
     "FileList": {
         "type": "object",
+        "description": "session://files: Files' own listing, and its two folders.",
         "properties": {
-            "component": {"type": "string"},
             "session": {
                 "type": ["string", "null"],
                 "description": "The session these files belong to.",
             },
             "count": {"type": "integer"},
+            "files": {
+                "type": "array",
+                "items": {"$ref": "#/components/schemas/FileEntry"},
+            },
+            "folders": {
+                "type": "array",
+                "items": {"$ref": "#/components/schemas/FileFolder"},
+            },
+        },
+    },
+    "FileFolder": {
+        "type": "object",
+        "description": "One of the two folders named beside Files' own files.",
+        "properties": {
+            "name": {"type": "string", "enum": ["screenshots", "downloads"]},
+            "uri": {"type": "string"},
+            "count": {"type": "integer"},
+            "browser": {
+                "type": "boolean",
+                "description": (
+                    "Present on downloads only: whether a browser is open to "
+                    "read them from."
+                ),
+            },
+        },
+    },
+    "FolderList": {
+        "type": "object",
+        "description": (
+            "One folder's own listing: session://files/screenshots or /downloads."
+        ),
+        "properties": {
+            "session": {"type": ["string", "null"]},
+            "folder": {"type": "string", "enum": ["screenshots", "downloads"]},
+            "uri": {"type": "string"},
+            "count": {"type": "integer"},
+            "browser": {
+                "type": "boolean",
+                "description": (
+                    "Present on downloads only: whether a browser is open to "
+                    "read them from."
+                ),
+            },
             "files": {
                 "type": "array",
                 "items": {"$ref": "#/components/schemas/FileEntry"},
@@ -799,10 +843,11 @@ FILE_SCHEMAS = {
         "type": "object",
         "properties": {
             "kept": {"type": "boolean"},
-            "session": {"type": "string"},
+            "from": {"type": "string", "description": "The uri it was kept from."},
+            "uri": {"type": "string", "description": "Its new address, in Files."},
             "name": {"type": "string"},
             "size": {"type": "integer"},
-            "creationTime": {"type": "integer"},
+            "created": {"type": ["integer", "null"]},
         },
     },
 }
@@ -810,23 +855,39 @@ FILE_SCHEMAS = {
 _FILE_OPERATIONS = {
     "list": (
         "listFiles",
-        "Every file this session has.",
-        "The browser's downloads and the session's kept files as one list, "
-        "newest first, each entry saying which it is. A name in both resolves "
-        "to the kept one. Works after the browser is gone, returning the kept "
-        "files alone.",
+        "Files' own listing, and its two folders.",
+        "Everything kept in Files, newest first, plus a count for "
+        "session://files/screenshots and session://files/downloads — each its "
+        "own listing, fetched separately so a caller who only wants to know "
+        "whether there is anything to look at need not pay for either.",
         {"type": "object", "properties": {}},
         "FileList",
     ),
+    "screenshots": (
+        "listScreenshots",
+        "This session's saved screenshots, not yet kept.",
+        "Newest first. Works after the browser that took them is gone, because "
+        "they are already ours.",
+        {"type": "object", "properties": {}},
+        "FolderList",
+    ),
+    "downloads": (
+        "listDownloads",
+        "This session's browser downloads.",
+        "Newest first, read from the browser itself. Answers empty rather than "
+        "failing when there is no browser open; a Grid failure from one that is "
+        "open is a real fault and is not hidden.",
+        {"type": "object", "properties": {}},
+        "FolderList",
+    ),
     "keep": (
         "keepFile",
-        "Keep one download beyond its browser.",
-        "Copies the file out of the Grid's store onto the server, where it "
-        "survives the browser. Keeping a name that is already kept replaces it. "
-        "The original download stays: the Grid offers no way to remove one file.",
-        {"type": "object", "required": ["name"], "properties": {
-            "name": {"type": "string"},
-        }},
+        "Moves a screenshot into Files, or copies a download there.",
+        "The folder and name are both in the path — a screenshot moves out of "
+        "its folder, a download is copied because the Grid offers no way to "
+        "remove one file. A clash with a name already in Files lands beside it "
+        "as name (1) for a screenshot; a download REPLACES it.",
+        {"type": "object", "properties": {}},
         "FileKept",
     ),
 }

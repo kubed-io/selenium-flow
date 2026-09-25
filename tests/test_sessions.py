@@ -16,6 +16,7 @@ from kubed.selenium_flow.session.store import (
     MemoryStore,
     RedisStore,
     SessionRecord,
+    StoreUnavailable,
     chosen_backend,
     from_env,
     redis_configured,
@@ -551,8 +552,9 @@ def test_session_store_is_the_explicit_switch(env, expected):
     assert chosen_backend(env) == expected
 
 
-def test_an_unknown_backend_falls_back_to_memory():
-    assert isinstance(from_env({"SESSION_STORE": "postgres"}), MemoryStore)
+def test_an_unknown_backend_stops_the_boot():
+    with pytest.raises(StoreUnavailable, match="postgres"):
+        from_env({"SESSION_STORE": "postgres"})
 
 
 def test_session_ttl_is_honoured():
@@ -565,8 +567,15 @@ def test_no_redis_env_means_memory():
     assert store.kind == "memory"
 
 
-def test_unreachable_redis_falls_back_to_memory_rather_than_failing_to_boot(monkeypatch):
-    """A bad address should degrade, not take the server down."""
+def test_memory_is_used_when_nothing_asked_for_redis():
+    """Unchanged behaviour (§F4.12): memory is the answer only when nothing
+    asked for Redis at all, never a step down from a Redis that failed."""
+    assert isinstance(from_env({}), MemoryStore)
+
+
+def test_an_unreachable_redis_stops_the_boot_with_the_reason(monkeypatch):
+    """§F4.12: a server that refuses to start is restarted by Kubernetes until
+    Redis answers; one that started on the wrong store is never corrected."""
     import sys
     import types
 
@@ -581,10 +590,11 @@ def test_unreachable_redis_falls_back_to_memory_rather_than_failing_to_boot(monk
         },
     )
     monkeypatch.setitem(sys.modules, "redis", module)
-    assert isinstance(from_env({"REDIS_URL": "redis://nope:6379"}), MemoryStore)
+    with pytest.raises(StoreUnavailable, match="nope:6379"):
+        from_env({"REDIS_URL": "redis://nope:6379"})
 
 
-def test_a_missing_redis_package_falls_back_to_memory(monkeypatch):
+def test_a_missing_redis_package_stops_the_boot(monkeypatch):
     import builtins
 
     real_import = builtins.__import__
@@ -595,7 +605,65 @@ def test_a_missing_redis_package_falls_back_to_memory(monkeypatch):
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", fail_on_redis)
-    assert isinstance(from_env({"REDIS_HOST": "redis.data"}), MemoryStore)
+    with pytest.raises(StoreUnavailable, match=r"kubed-selenium-flow\[redis\]"):
+        from_env({"REDIS_HOST": "redis.data"})
+
+
+def test_an_unreachable_redis_never_chains_the_raw_password(monkeypatch):
+    """Copilot review, PR #41: ``StoreUnavailable``'s own message is scrubbed
+    through ``errors.message``, but chaining the raw driver exception with
+    ``from exc`` put its unscrubbed ``str()`` back into any traceback printed
+    for the boot failure — including the password `where` is built to hide.
+    Both the unreachable and missing-package raises must be ``from None``."""
+    import sys
+    import traceback
+    import types
+
+    url = "redis://:s3cret@nowhere:6379/2"
+
+    module = types.ModuleType("redis")
+    module.Redis = type(
+        "Redis",
+        (),
+        {
+            "__init__": lambda self, **kw: None,
+            "ping": lambda self: (_ for _ in ()).throw(
+                ConnectionError(f"could not connect to {url}")
+            ),
+            "from_url": classmethod(lambda cls, url, **kw: cls()),
+        },
+    )
+    monkeypatch.setitem(sys.modules, "redis", module)
+
+    with pytest.raises(StoreUnavailable) as excinfo:
+        from_env({"REDIS_URL": url, "REDIS_DB": "2"})
+
+    err = excinfo.value
+    assert err.__cause__ is None
+    assert err.__suppress_context__ is True
+    assert "s3cret" not in "".join(traceback.format_exception(err))
+
+
+def test_the_reason_never_quotes_the_redis_password(monkeypatch):
+    """The refusal message is read by whoever restarts the pod, and logged —
+    it must never carry the credential (§F4.12)."""
+    import sys
+    import types
+
+    module = types.ModuleType("redis")
+    module.Redis = type(
+        "Redis",
+        (),
+        {
+            "__init__": lambda self, **kw: None,
+            "ping": lambda self: (_ for _ in ()).throw(ConnectionError("refused")),
+            "from_url": classmethod(lambda cls, url, **kw: cls()),
+        },
+    )
+    monkeypatch.setitem(sys.modules, "redis", module)
+    with pytest.raises(StoreUnavailable) as excinfo:
+        from_env({"REDIS_URL": "redis://:s3cret@nowhere:6379/2"})
+    assert "s3cret" not in str(excinfo.value)
 
 
 def test_the_default_prefix_is_namespaced():

@@ -670,11 +670,11 @@ async def test_a_run_reads_a_kept_file_from_the_callers_own_library(
     how that call site could regress on its own (Copilot, #32)."""
     asked = {}
 
-    def reader(name, session=None):
-        asked["name"], asked["session"] = name, session
-        return b"id,name\n1,a\n"
+    def reader(uri, session=None):
+        asked["uri"], asked["session"] = uri, session
+        return "export.csv", b"id,name\n1,a\n"
 
-    monkeypatch.setattr(flow_server.actions, "read_kept", reader)
+    monkeypatch.setattr(flow_server.actions, "read_file", reader)
 
     sent = {}
 
@@ -711,7 +711,13 @@ async def test_a_run_reads_a_kept_file_from_the_callers_own_library(
         {
             "description": "Upload the export",
             "steps": [
-                {"tool": "upload_file", "args": {"selector": {"css": "input"}, "kept": "export.csv"}}
+                {
+                    "tool": "upload_file",
+                    "args": {
+                        "selector": {"css": "input"},
+                        "file": "session://files/export.csv",
+                    },
+                }
             ],
         },
     )
@@ -719,7 +725,7 @@ async def test_a_run_reads_a_kept_file_from_the_callers_own_library(
 
     assert report["status"] == "ok", report
     assert report["session"] == GLOBAL_SESSION, "the flow came from global"
-    assert asked["name"] == "export.csv"
+    assert asked["uri"] == "session://files/export.csv"
     # The CALLER's library, not the one the flow was read from.
     assert asked["session"] == "desktop"
     assert sent["name"] == "export.csv"

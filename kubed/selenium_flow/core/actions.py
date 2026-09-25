@@ -30,6 +30,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.print_page_options import PrintOptions
 
 from ..errors import GONE, UNAVAILABLE, AssertionFailed
+from ..flows.library import FILES_DIR, SCREENSHOTS_DIR
 from . import browser, cancel, pointer, probe
 from .browser import Grid, as_bool, as_int, normalize_browser
 
@@ -301,27 +302,27 @@ def _generated_name(filename, extension: str) -> str:
 class Actions:
     """The browser operations, bound to one Grid."""
 
-    def __init__(self, grid: Grid, keep=None, pointers=None, read_kept=None):
+    def __init__(self, grid: Grid, keep=None, pointers=None, read_file=None):
         self.grid = grid
         # How bytes this server made — a screenshot, a print — are kept with the
-        # caller's session: `keep(name, data)` writes them and returns the file
-        # as every listing describes it, link included. A function rather than
-        # the store and the token, because which session owns the file is a
-        # question about the caller, and this layer should hand out a link
-        # without holding the key that signs one (§F2.9). Absent, nothing can be
-        # kept, and a save says so.
+        # caller's session: `keep(name, data, folder)` writes them and returns
+        # the file as every listing describes it, link included. A function
+        # rather than the store and the token, because which session owns the
+        # file is a question about the caller, and this layer should hand out a
+        # link without holding the key that signs one (§F2.9). Absent, nothing
+        # can be kept, and a save says so.
         self.keep = keep
         # Where the pointer is in each browser, keyed by the Grid's session id.
         # Injected so a deployment can share it between replicas, and defaulted
         # so this class is still usable on its own.
         self.pointers = pointers if pointers is not None else pointer.MemoryPointers()
-        # Reads a kept file by name, for `upload_file(kept=...)`. A function for
-        # the same reason as `describe_file`: which flow session owns a kept
-        # file is a question about the *caller*, and this layer deliberately
-        # cannot see one. Absent, naming a kept file is refused with a reason.
-        self.read_kept = read_kept
+        # Reads a file by its uri, for `upload_file(file=...)`. A function for
+        # the same reason as `describe_file`: which flow session owns a file
+        # is a question about the *caller*, and this layer deliberately cannot
+        # see one. Absent, naming a file is refused with a reason.
+        self.read_file = read_file
 
-    def _kept(self, name: str, data: bytes) -> dict:
+    def _kept(self, name: str, data: bytes, folder=FILES_DIR) -> dict:
         """Keep bytes this server made with the caller's session.
 
         Straight to the session's files, never through the browser. They used to
@@ -335,7 +336,7 @@ class Actions:
                 "keeping files is not enabled on this server: it was started "
                 "with no FLOW_DATA_DIR, so there is nowhere to save one"
             )
-        return self.keep(name, data)
+        return self.keep(name, data, folder)
 
     def _pointer(self, session_id: str):
         """Where the pointer is in this browser, or None if we never sent it."""
@@ -838,10 +839,19 @@ class Actions:
         path=None,
         url=None,
         wait_timeout=WAIT_TIMEOUT,
-        kept=None,
+        file=None,
         session=None,
     ) -> dict:
         """Attach a file to a file input.
+
+        ``session`` names which library ``file`` is read from, for a **flow
+        run** only — ``flows/run.py`` injects it via ``routes.LIBRARY_ARG`` so
+        a step reads the library the flow itself belongs to. Neither the MCP
+        tool nor the HTTP dispatcher exposes it as a field a caller can set:
+        `routes._add` excludes it from the accepted body, so a request naming
+        another session here is dropped like any other unknown field rather
+        than honoured (Copilot, #41). Passed as anything but that internal
+        injection, it is ignored and the calling session answers instead.
 
         The file arrives one of four ways, and exactly one is required:
 
@@ -850,12 +860,13 @@ class Actions:
           Base64-encoding text it just wrote is a wasted step it can get wrong.
         - ``content`` — base64, which binary needs and which is the only shape
           MCP tool arguments can carry.
-        - ``kept`` — the name of a file `keep_file` already kept, from the
-          library ``session`` names. This closes
-          the loop the file store never had: a browser could download a file
-          and keep it, and there was no way to give it back to a page. Now a
-          flow can download an export and upload it somewhere else, without the
-          bytes ever passing through a model's context (§F1.41).
+        - ``file`` — any file this session has, by its ``session://files`` uri
+          — a screenshot, a download, or a file in Files — from the library
+          ``session`` names. This closes the loop the file store never had: a
+          browser could download a file or take a screenshot and there was no
+          way to give it back to a page. Now a flow can download an export and
+          upload it somewhere else, without the bytes ever passing through a
+          model's context (§F1.41, §F4.7).
         - ``path`` — a file already on this server's filesystem.
 
         Whichever it is, the bytes are written to a temporary file here and
@@ -872,7 +883,7 @@ class Actions:
             for n, v in (
                 ("text", text),
                 ("content", content),
-                ("kept", kept),
+                ("file", file),
                 ("path", path),
             )
             if v
@@ -880,12 +891,12 @@ class Actions:
         if not sources:
             raise ValueError(
                 "the file is required: pass text for a text file, content for "
-                "base64 bytes, kept for a file keep_file has kept, or path for "
-                "a file on the server"
+                "base64 bytes, file for any file this session has, by its "
+                "session://files uri, or path for a file on the server"
             )
         if len(sources) > 1:
             raise ValueError(
-                f"pass only one of text, content, kept or path; "
+                f"pass only one of text, content, file or path; "
                 f"got {', '.join(sources)}"
             )
 
@@ -898,23 +909,24 @@ class Actions:
         elif content is not None:
             raw = content if isinstance(content, bytes) else _decode(content)
             name = _safe_name(filename, mime_type)
-        elif kept is not None:
-            if self.read_kept is None:
+        elif file is not None:
+            if self.read_file is None:
                 raise ValueError(
-                    "kept files are not available on this server: the flow "
-                    "store is off, so there is nowhere for keep_file to keep "
-                    "one. Pass text, content or path instead"
+                    "file is not available on this server: the flow store is "
+                    "off, so there is nowhere for keep_file to have kept one. "
+                    "Pass text, content or path instead"
                 )
             # `session` names WHICH library, and is not `session_id`, which
             # names the browser. Both appear on `/files/list` for the same
             # reason: a file store outlives the browser that filled it, so the
-            # two are different questions. An MCP caller passes neither - its
-            # key answers the first and the server the second.
-            raw = self.read_kept(str(kept), str(session) if session else None)
-            # The kept name is the default, because its extension is what the
-            # page reads the type from and a caller that kept `export.csv`
-            # should not have to say so twice.
-            name = _safe_name(filename or str(kept), mime_type)
+            # two are different questions. Neither an MCP caller nor an HTTP
+            # caller can pass this one - its key answers the first and the
+            # server the second; only a flow run's own injection does.
+            name, raw = self.read_file(str(file), str(session) if session else None)
+            # The file's own name is the default, because its extension is
+            # what the page reads the type from and a caller uploading
+            # `export.csv` back should not have to say so twice.
+            name = _safe_name(filename or name, mime_type)
 
         driver = self._at(session_id, url)
         browser.accept_local_files(driver)
@@ -1309,7 +1321,9 @@ class Actions:
         if as_bool(save, True):
             try:
                 result["file"] = self._kept(
-                    _generated_name(filename or "screenshot", ".png"), raw
+                    _generated_name(filename or "screenshot", ".png"),
+                    raw,
+                    SCREENSHOTS_DIR,
                 )
             except Exception as exc:  # noqa: BLE001 - the picture outranks the file
                 # It must never be able to take the capture away: a full disk or
@@ -1373,7 +1387,9 @@ class Actions:
         else:
             data = driver.page_source.encode("utf-8")
         try:
-            kept = self._kept(_generated_name(filename or "page", f".{kind}"), data)
+            kept = self._kept(
+                _generated_name(filename or "page", f".{kind}"), data, FILES_DIR
+            )
         except OSError as exc:
             # A full disk or a permission names a path under FLOW_DATA_DIR,
             # which is nobody's business but the log's. Still a server fault.

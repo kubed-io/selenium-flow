@@ -32,6 +32,8 @@ import time
 from dataclasses import asdict, dataclass, field, replace
 from typing import Protocol
 
+from .. import errors
+
 log = logging.getLogger(__name__)
 
 # Every key is written under this prefix, which is what makes sharing a database
@@ -50,6 +52,20 @@ DEFAULT_DB = 0
 # named session in daily use never expires, one abandoned yesterday is gone.
 # The browser it names is still reaped on the Grid's schedule, not this one.
 DEFAULT_TTL_SECONDS = 86400
+
+
+class StoreUnavailable(RuntimeError):
+    """Redis was asked for and cannot be used (§F4.12).
+
+    Raised by ``redis_client`` and left to propagate out of ``from_env``,
+    rather than caught and downgraded to :class:`MemoryStore`. A pod that
+    refuses to start is restarted by Kubernetes until Redis answers; a pod
+    that started anyway, on the wrong store, is never corrected — the live
+    server once ran three days on in-memory sessions because Redis was
+    refusing connections at boot, with nothing but a log line saying so.
+    Memory is the answer only when nothing asked for Redis in the first
+    place.
+    """
 
 
 @dataclass(frozen=True)
@@ -318,9 +334,12 @@ def chosen_backend(env: dict | None = None) -> str:
 def from_env(env: dict | None = None) -> SessionStore:
     """Build the session store the environment asks for.
 
-    Falls back to memory, loudly, if redis is asked for but unusable — a mapping
-    that resolves locally beats a server that will not start, and the log line
-    says which one is in play.
+    Redis configured and unreachable, missing its package, or a
+    ``SESSION_STORE`` naming no known backend, is a startup error rather than
+    a silent step down to memory (§F4.12): a pod that refuses to start is
+    restarted until Redis answers, one that started on the wrong store never
+    is. ``StoreUnavailable`` is left to propagate — memory is returned only
+    when nothing here asked for Redis at all.
     """
     env = os.environ if env is None else env
     ttl = int(env.get("SESSION_TTL", DEFAULT_TTL_SECONDS))
@@ -331,47 +350,56 @@ def from_env(env: dict | None = None) -> SessionStore:
         return MemoryStore(ttl=ttl)
 
     if backend != "redis":
-        log.warning(
-            "SESSION_STORE=%s is not a known backend (memory, redis). "
-            "Falling back to in-memory sessions.",
-            backend,
+        raise StoreUnavailable(
+            f"SESSION_STORE={backend!r} is not a known backend (memory, redis)"
         )
-        return MemoryStore(ttl=ttl)
 
     prefix = env.get("REDIS_PREFIX", DEFAULT_PREFIX)
     db = int(env.get("REDIS_DB", DEFAULT_DB))
-    client = redis_client(env)
-    if client is None:
-        return MemoryStore(ttl=ttl)
+    client = redis_client(env)  # raises StoreUnavailable rather than returning None
 
     log.info("session store: redis db %s, prefix %s, ttl %ss", db, prefix, ttl)
     return RedisStore(client, prefix=prefix, ttl=ttl)
 
 
 def redis_client(env: dict | None = None):
-    """A connected Redis client for ``env``, or None with a reason in the log.
+    """A connected Redis client for ``env``, or raises ``StoreUnavailable``.
 
     Separate from `from_env` because the session record is no longer the only
     thing worth sharing between replicas — `pointer.py` keeps the pointer's
     position the same way. Two copies of this connection cascade is two places
     to forget `REDIS_DB`, and the second one would be the one nobody tests.
+
+    Raises rather than logging and returning None (§F4.12): a caller configured
+    for Redis that gets nothing back must not quietly keep going on a mapping
+    that resolves locally. ``where`` never carries the connection's password —
+    neither in this message nor in the underlying exception's, which is routed
+    through ``errors.message`` for the same scrubbing HTTP errors get. Both
+    raises are ``from None``: chaining the raw driver exception would put its
+    unscrubbed ``str()`` — URL, userinfo included — back into any traceback
+    printed for this one.
     """
     env = os.environ if env is None else env
     db = int(env.get("REDIS_DB", DEFAULT_DB))
+    url = env.get("REDIS_URL")
+    where = (
+        errors.without_userinfo(url)
+        if url
+        else f"{env.get('REDIS_HOST', 'localhost')}:{env.get('REDIS_PORT', 6379)}/{db}"
+    )
     try:
         import redis  # imported here: an optional dependency must not be a hard import
     except ImportError:
-        log.warning(
-            "SESSION_STORE=redis but the redis package is missing — "
-            "install kubed-selenium-flow[redis]. Falling back to memory."
-        )
-        return None
+        raise StoreUnavailable(
+            "Redis is configured but the redis package is missing; "
+            "pip install kubed-selenium-flow[redis]"
+        ) from None
 
     try:
-        if env.get("REDIS_URL"):
+        if url:
             # Passed explicitly rather than left to the URL, so REDIS_DB is
             # honoured even when the URL carries no /<index> path.
-            client = redis.Redis.from_url(env["REDIS_URL"], db=db)
+            client = redis.Redis.from_url(url, db=db)
         else:
             client = redis.Redis(
                 host=env.get("REDIS_HOST", "localhost"),
@@ -383,9 +411,10 @@ def redis_client(env: dict | None = None):
                 in ("1", "true", "yes", "on"),
             )
         client.ping()
-    except Exception as exc:  # noqa: BLE001 - a bad address must not stop the boot
-        log.warning(
-            "Redis is configured but unreachable (%s). Falling back to memory.", exc
-        )
-        return None
+    except Exception as exc:  # noqa: BLE001 - any failure here is Redis's, not this package's
+        raise StoreUnavailable(
+            f"Redis is configured but unreachable at {where} "
+            f"({type(exc).__name__}: {errors.message(exc)}); "
+            "refusing to start on in-memory sessions"
+        ) from None
     return client

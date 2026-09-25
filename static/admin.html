@@ -44,6 +44,7 @@
 <main id="app" class="wrap" hidden>
   <div class="tabs">
     <button id="tabSessions" aria-selected="true">Sessions</button>
+    <button id="tabSecrets" aria-selected="false">Secrets</button>
     <button id="tabConsole" aria-selected="false">Grid console</button>
   </div>
 
@@ -66,40 +67,74 @@
       </div>
       <div id="detailHeader"></div>
 
-      <!-- Two accordions, which is what keeps this page one column. Files and
-           flows are the two things a session accumulates, and each is worth
-           collapsing when you came to look at the other. -->
-      <section class="section" id="filesSection" data-open="true">
-        <div class="head">
-          <!-- A button, not a styled span: this is the only way to open or
-               close the section, so it has to be reachable by keyboard and to
-               announce its state. -->
-          <button type="button" class="title" data-toggle="filesSection"
-                  aria-expanded="true" aria-controls="filesBody">
-            <span class="caret">&#9662;</span> Files</button>
-          <span id="filesCount" class="pill"></span>
-          <span class="grow"></span>
-          <!-- Clears what the BROWSER downloaded. Kept files are ours and live
-               elsewhere, so they are untouched — which is the whole reason this
-               button can exist at all. -->
-          <button id="clearFiles" class="danger"
-                  title="Delete everything this browser downloaded. Kept files stay.">
-            Clear downloads</button>
-        </div>
-        <div class="body" id="filesBody"><div id="files"></div></div>
-      </section>
+      <div class="tabs subtabs" id="sessionTabs">
+        <button id="tabFiles" aria-selected="true">Files <span id="filesTotal" class="count"></span></button>
+        <button id="tabFlows" aria-selected="false">Flows <span id="flowsTotal" class="count"></span></button>
+      </div>
 
-      <section class="section" id="flowsSection" data-open="true">
-        <div class="head">
-          <button type="button" class="title" data-toggle="flowsSection"
-                  aria-expanded="true" aria-controls="flowsBody">
-            <span class="caret">&#9662;</span> Flows</button>
-          <span id="flowsCount" class="pill"></span>
-          <span class="grow"></span>
-        </div>
-        <div class="body" id="flowsBody"><div id="flows"></div></div>
-      </section>
+      <div id="paneFiles">
+        <!-- Downloads, Screenshots, Files: each clears in the way that fits
+             what it holds (§F4.1). Files has no clear: everything in it was
+             put there on purpose. -->
+        <section class="section" id="downloadsSection" data-open="true">
+          <div class="head">
+            <!-- A button, not a styled span: this is the only way to open or
+                 close the section, so it has to be reachable by keyboard and to
+                 announce its state. -->
+            <button type="button" class="title" data-toggle="downloadsSection"
+                    aria-expanded="true" aria-controls="downloadsBody">
+              <span class="caret">&#9662;</span>Downloads</button>
+            <span id="downloadsCount" class="pill"></span>
+            <span class="grow"></span>
+            <!-- Clears what the BROWSER downloaded. Kept files are ours and
+                 live elsewhere, so they are untouched — the whole reason this
+                 button can exist at all. Disabled unless the browser is live:
+                 the Grid deletes its download store with the browser, so an
+                 attached-but-dead session has nothing left here to clear. -->
+            <button id="clearDownloads" class="danger"
+                    title="Delete everything this browser downloaded. Kept files stay.">
+              Clear downloads</button>
+          </div>
+          <div class="body" id="downloadsBody"><div id="downloads"></div></div>
+        </section>
+
+        <section class="section" id="screenshotsSection" data-open="true">
+          <div class="head">
+            <button type="button" class="title" data-toggle="screenshotsSection"
+                    aria-expanded="true" aria-controls="screenshotsBody">
+              <span class="caret">&#9662;</span>Screenshots</button>
+            <span id="screenshotsCount" class="pill"></span>
+            <span class="grow"></span>
+            <button id="clearScreenshots" class="danger"
+                    title="Delete every screenshot. Anything you kept is in Files and stays.">
+              Clear screenshots</button>
+          </div>
+          <div class="body" id="screenshotsBody"><div id="screenshots"></div></div>
+        </section>
+
+        <!-- No clear button: everything here was put there on purpose, by a
+             keep or a print, so there is no "clear what this session made" the
+             way there is for what a browser happened to produce. -->
+        <section class="section" id="keptSection" data-open="true">
+          <div class="head">
+            <button type="button" class="title" data-toggle="keptSection"
+                    aria-expanded="true" aria-controls="keptBody">
+              <span class="caret">&#9662;</span>Files</button>
+            <span id="keptCount" class="pill"></span>
+            <span class="grow"></span>
+          </div>
+          <div class="body" id="keptBody"><div id="kept"></div></div>
+        </section>
+      </div>
+
+      <div id="paneFlows" hidden>
+        <div class="section"><div class="body"><div id="flows"></div></div></div>
+      </div>
     </div>
+  </section>
+
+  <section id="paneSecrets" hidden>
+    <div id="secrets"></div>
   </section>
 
   <section id="paneConsole" hidden>
@@ -128,6 +163,39 @@ const $ = (id) => document.getElementById(id);
 const show = (el, on) => { el.hidden = !on; };
 let token = sessionStorage.getItem('sf-token') || '';
 let current = null;
+// The one lightbox this page ever has open, if any. Kept here — not in
+// components.js, which stays render-only — so a session switch can close it
+// from outside: see `closeLightbox`, `openSession` and `route`. The folder it
+// was opened on rides along too — `refreshDetail` needs to tell a Downloads
+// lightbox (invalidated by a browser change) apart from one on Screenshots or
+// Files (which belong to the session and stay valid across one).
+let activeLightbox = null;
+let activeLightboxFolder = null;
+const closeLightbox = () => {
+  if (activeLightbox) { activeLightbox.close(); activeLightbox = null; }
+  activeLightboxFolder = null;
+};
+
+// The one plain confirm/editor modal this page ever has open, if any — the
+// same idea as `activeLightbox`, for `modal()` below. A save, a move or a
+// delete sits behind it with a `key` read before the box opened, and the
+// operator can switch sessions while it is still up; closing it here, from
+// the same three places `closeLightbox` already runs, means the box cannot
+// outlive the session it was opened for. `close()` is `modal()`'s own — the
+// cancel path, not a bare removal — so an onconfirm still disabled while
+// waiting is freed exactly as if the operator had pressed Cancel.
+let activeModal = null;
+const closeModal = () => {
+  if (activeModal) activeModal.close();
+};
+
+// The backstop `closeModal` cannot cover: a click on a modal's own confirm
+// button and a session switch can still land back to back, so every onconfirm
+// below that acts on a `key` read before its modal opened checks again here,
+// first thing, before the request it is about to fire.
+const refuseIfGone = (key) => {
+  if (gone(key)) throw new Error('that session is no longer on screen');
+};
 
 /* Every load below is an await against a session the operator can navigate away
    from while it is in flight. A late reply is not merely a stale render: the
@@ -144,6 +212,17 @@ const gone = (key) => key !== current;
    showing the wrong thing and spending an extra fetch. A sequence number makes
    the last request issued the only one allowed to render. */
 let filesSeq = 0, flowsSeq = 0, flowDocSeq = 0;
+
+/* The same number has a cost: a load that a newer one overtook returns
+   without painting, so awaiting it alone can hand back `filesData` from BEFORE
+   what the caller just did. Keep in the lightbox hit exactly that — the poll
+   saw the move and reloaded too, Keep's own load stood down, and the lightbox
+   re-rendered the kept screenshot. `filesSettled` waits for the newest load. */
+let filesLoad = Promise.resolve();
+async function filesSettled() {
+  let seen;
+  do { seen = filesSeq; await filesLoad; } while (seen !== filesSeq);
+}
 
 // sessionStorage, not localStorage: this is the server's full-privilege token,
 // so it should not outlive the tab someone typed it into.
@@ -177,9 +256,12 @@ const sessionPath = (key, rest = '') =>
    Native confirm() cannot show a list, and "Delete 12 files?" without saying
    which twelve is an assertion rather than a disclosure — the whole point of
    the Clear downloads confirm is that the scope is shown. */
-function modal({title, body, confirm = 'OK', danger = false, onconfirm}) {
+function modal({title, body, confirm = 'OK', danger = false, onconfirm, oncancel, scope = null}) {
   const box = document.createElement('div');
   box.className = 'modal';
+  // 'downloads' when the confirm acts on the browser's downloads, so a browser
+  // change can close it without touching session-scoped dialogs (§F4.9).
+  box.scope = scope;
   box.innerHTML =
     '<div class="sheet"><div class="head">' + SF.esc(title) + '</div>' +
     '<div class="body">' + body + '</div>' +
@@ -187,10 +269,22 @@ function modal({title, body, confirm = 'OK', danger = false, onconfirm}) {
     '<button type="button" class="' + (danger ? 'danger' : 'primary') + '" data-go>' +
     SF.esc(confirm) + '</button></div></div>';
 
+  // Set only once `onconfirm` has actually succeeded, so `close()` can tell a
+  // real confirm apart from every other way out of this box.
+  let confirmed = false;
   const close = () => {
     box.remove();
     document.removeEventListener('keydown', onKey);
+    if (activeModal === box) activeModal = null;
+    // Cancel, Esc, the backdrop — anything that is not a successful confirm.
+    // Without this a lightbox's action button, disabled while its confirm was
+    // open, stayed disabled forever once that confirm closed any other way.
+    if (!confirmed && oncancel) oncancel();
   };
+  // Exposed so `closeModal` can drive the exact same cancel path from outside
+  // — a session switch, not the operator — rather than a bare `box.remove()`
+  // that would leave a disabled button and an unfired `oncancel` behind.
+  box.close = close;
   function onKey(e) { if (e.key === 'Escape') close(); }
 
   box.addEventListener('click', async (e) => {
@@ -199,6 +293,7 @@ function modal({title, body, confirm = 'OK', danger = false, onconfirm}) {
     e.target.disabled = true;
     try {
       await onconfirm(box);
+      confirmed = true;
       close();
     } catch (err) {
       // Stay open on failure: closing would throw away what they typed in the
@@ -208,6 +303,7 @@ function modal({title, body, confirm = 'OK', danger = false, onconfirm}) {
     }
   });
   document.addEventListener('keydown', onKey);
+  activeModal = box;
   document.body.appendChild(box);
   return box;
 }
@@ -334,8 +430,20 @@ function unwatch() {
 // What the file grid was last drawn for. A pushed update carries the session
 // row but not its files, so this is how an update decides whether the grid is
 // stale enough to be worth refetching and redrawing under someone's cursor.
-let shownFiles = null, shownBrowser = null, shownFlows = null;
-let downloads = [], keptNames = [];
+// `shownLive` rides alongside `shownBrowser` because a reap or a restart can
+// leave the Grid id unchanged while the browser behind it is not the one that
+// filled `filesData` — `session_id` alone missed that in `refreshDetail`.
+let shownFiles = null, shownBrowser = null, shownLive = null, shownFlows = null;
+// What the three rows were last drawn from. Only Downloads live in the
+// BROWSER's own store — screenshots and Files belong to the SESSION and
+// outlive it — which is why only Downloads gets blanked when the browser
+// changes, in refreshDetail.
+let filesData = {downloads: [], screenshots: [], files: [], browser: false};
+
+// Handed to a session that has not answered yet — a switch mid-load, or a
+// load that fails outright, must not leave the clear buttons acting on the
+// PREVIOUS session's names. See the reset in openSession and loadFiles' catch.
+const NO_FILES = {downloads: [], screenshots: [], files: [], browser: false};
 
 /* Not a count either, for the same reason the flows stamp is not: delete the
    kept copy of a name that is also a download and the count is unchanged while
@@ -350,16 +458,28 @@ const flowsStamp = (row) => row.flows_rev;
 
 function showDetail(row) {
   SF.sessionSummary($('detailHeader'), row);
-  // Both act on the browser, and a detached session has none — no browser, no
-  // downloads, since the Grid deletes its file store with the browser. A button
-  // that does nothing is worse than one that is visibly unavailable. The kept
-  // files below are unaffected: that is what keeping them is for.
-  $('endBrowser').disabled = $('clearFiles').disabled = !row.attached;
+  // Ending the browser only needs it attached. Clearing downloads needs it
+  // actually running: the Grid deletes its download store with the browser,
+  // so an attached-but-dead session has nothing left there to clear. It also
+  // needs `filesData` to actually be this session's — a heartbeat that pushes
+  // `row.live: true` while a load is still in flight (or has failed and left
+  // `filesData` at `NO_FILES`) must not re-arm a button whose confirm reads
+  // that same stale `filesData`.
+  $('endBrowser').disabled = !row.attached;
+  $('clearDownloads').disabled = !row.live || filesData === NO_FILES;
+  $('filesTotal').textContent = row.files_count ?? '';
 }
 
 async function loadFiles(key) {
-  const box = $('files');
   const mine = ++filesSeq;
+  let painted;
+  filesLoad = new Promise((resolve) => { painted = resolve; });
+  // Disabled for the life of this request, not just while it is known stale:
+  // a click between the request going out and it answering must not confirm
+  // against a `filesData` this very load is in the middle of replacing.
+  // Re-armed below, only from the data that answers, only on success.
+  $('clearDownloads').disabled = true;
+  $('clearScreenshots').disabled = true;
   try {
     const data = await api(sessionPath(key, '/files'));
     if (gone(key) || mine !== filesSeq) return;
@@ -367,28 +487,118 @@ async function loadFiles(key) {
     showDetail(row);
     shownFiles = filesStamp(row);
     shownBrowser = row.session_id || null;
-    // Straight from the server, NOT filtered out of data.files: that list is
-    // de-duplicated, so a download sharing a name with a kept file is missing
-    // from it — and Clear downloads would still delete it. The confirm has to
-    // name everything it takes.
-    downloads = data.downloads || [];
-    // Which of those the session also has a copy of. A download whose name is
-    // kept is deleted from the Grid like any other and the file still exists
-    // afterwards, which is the distinction the confirm below has to draw.
-    keptNames = (data.files || []).filter((f) => f.kept).map((f) => f.name);
-    $('filesCount').textContent = (data.files || []).length;
-    SF.fileGrid(box, data, {base: ROOT, actions: true});
+    shownLive = !!row.live;
+    filesData = {
+      downloads: data.downloads || [],
+      screenshots: data.screenshots || [],
+      files: data.files || [],
+      browser: !!data.browser,
+    };
+    // `showDetail` above ran against whatever `filesData` was BEFORE this
+    // load answered — the previous session's, or `NO_FILES` — so a live
+    // session that just loaded fine needs the button re-armed now that
+    // `filesData` is actually its own.
+    $('clearDownloads').disabled = !row.live || filesData === NO_FILES;
+    $('downloadsCount').textContent = filesData.downloads.length;
+    $('screenshotsCount').textContent = filesData.screenshots.length;
+    $('keptCount').textContent = filesData.files.length;
+    // The Grid has no per-screenshot delete, so clearing the whole folder is
+    // only worth offering when there is something in it to take.
+    $('clearScreenshots').disabled = !filesData.screenshots.length;
+    SF.fileGrid($('downloads'), filesData.downloads, {
+      base: ROOT, action: 'keep',
+      empty: filesData.browser ? 'No downloads.' : 'No browser — downloads go with it.',
+      onopen: (i) => openLightbox('downloads', i),
+    });
+    SF.fileGrid($('screenshots'), filesData.screenshots, {
+      base: ROOT, action: 'keep', empty: 'No screenshots yet.',
+      onopen: (i) => openLightbox('screenshots', i),
+    });
+    SF.fileGrid($('kept'), filesData.files, {
+      base: ROOT, action: 'delete',
+      empty: 'Nothing here yet — prints land here, and anything you keep.',
+      onopen: (i) => openLightbox('files', i),
+    });
   } catch (e) {
     if (gone(key) || mine !== filesSeq) return;
-    box.innerHTML = '<div class="empty error">' + SF.esc(e.message) + '</div>';
+    // Nothing is known about this session's files any more than before the
+    // request — which is NOT what was there a moment ago. Leaving the last
+    // session's `filesData` in place would let Clear downloads or Clear
+    // screenshots go on to list and delete a stranger's files.
+    filesData = NO_FILES;
+    $('clearDownloads').disabled = $('clearScreenshots').disabled = true;
+    // Same reason: the three counts and the header's file total are this
+    // failed request's session, not whichever one answered last — showing
+    // them would read as this session's numbers when they are not.
+    $('downloadsCount').textContent = $('screenshotsCount').textContent
+      = $('keptCount').textContent = $('filesTotal').textContent
+      = $('flowsTotal').textContent = '';
+    const said = '<div class="empty error">' + SF.esc(e.message) + '</div>';
+    $('downloads').innerHTML = $('screenshots').innerHTML = $('kept').innerHTML = said;
+  } finally {
+    painted();
   }
 }
 
-/* The action button on a tile — the top-left corner. The top-right mark is the
-   file's status and is deliberately not a control, so nothing here listens to
-   it. A download's button keeps it; a kept file's is the only per-file delete
-   the Grid permits, and it confirms first. */
-$('files').addEventListener('click', async (e) => {
+/* One lightbox for all three rows, stepping through the row it was opened
+   from. Keep advances: the kept screenshot leaves the list, so the one after it
+   is now at the same position — which is the next screenshot (§F4.9). Deleting
+   from Files works the same way, after its confirm. */
+function openLightbox(folder, index) {
+  const key = current;
+  const list = () => (filesData && filesData[folder]) || [];
+  const keepable = folder === 'screenshots' || folder === 'downloads';
+  // Belt and braces alongside `closeLightbox`: if a session switch races this
+  // very click and lands between opening and the operator pressing the action
+  // button, the lightbox may still be technically open (its `close()` runs on
+  // the NEXT switch) — so `run` checks for itself too, before any request.
+  const guarded = (run) => (f) => gone(key)
+    ? Promise.reject(new Error('that session is no longer on screen'))
+    : run(f);
+  activeLightboxFolder = folder;
+  activeLightbox = SF.lightbox(list(), index, {
+    base: ROOT,
+    action: keepable
+      ? {label: '📌 Keep', run: guarded((f) => api(sessionPath(key, '/files/' + encodeURIComponent(folder)
+          + '/' + encodeURIComponent(f.name) + '/keep'), 'POST'))}
+      : {label: '🗑 Delete', run: guarded((f) => new Promise((resolve, reject) => modal({
+          title: 'Delete a file',
+          body: '<p>This removes it from Files for good. There is no undo.</p>'
+              + '<ul class="names"><li>' + SF.esc(f.name) + '</li></ul>',
+          confirm: 'Delete', danger: true,
+          onconfirm: async () => {
+            // `guarded` only checked when this confirm OPENED. `closeModal`
+            // now shuts it on a session switch, but a click already in the
+            // handler is not undone by that — checked again before the DELETE.
+            refuseIfGone(key);
+            await api(sessionPath(key, '/files/' + encodeURIComponent(f.name)), 'DELETE');
+            resolve();
+          },
+          oncancel: () => reject(new Error('cancelled')),
+        })))},
+    // The same index either way: a kept screenshot or a deleted file leaves
+    // the list, so the next one slides into its place; a kept download is a
+    // copy and stays, so the lightbox stays on it.
+    refresh: async (at) => {
+      // Before AND after: `loadFiles` shares `filesSeq` with every other load of
+      // this row, so an unconditional reload here for A, once the operator has
+      // moved to B, would claim a sequence number ABOVE B's own in-flight load
+      // and strand B on "Loading…" with nothing left to fetch again — the same
+      // race the other reload sites on this page guard against.
+      if (gone(key)) return null;
+      await loadFiles(key);
+      await filesSettled();
+      if (gone(key)) return null;
+      return {files: list(), index: at};
+    },
+    onclose: () => { activeLightbox = null; activeLightboxFolder = null; },
+  });
+}
+
+/* The action button on a tile — the top-left corner. Delegated to the whole
+   Files pane rather than one row, because the same handler serves keep on two
+   sections and delete on the third. */
+$('paneFiles').addEventListener('click', async (e) => {
   const mark = e.target.closest('.act');
   if (!mark || !current) return;
   // The session this click was FOR, read once. `current` is mutable and the
@@ -400,29 +610,44 @@ $('files').addEventListener('click', async (e) => {
 
   const keep = mark.getAttribute('data-keep');
   if (keep !== null) {
+    // Which row the tile sat in. `keep` never appears on a Files tile — that
+    // row's action is `delete` — so this is always one of the other two.
+    const folder = mark.closest('section').id === 'screenshotsSection'
+      ? 'screenshots' : 'downloads';
+    // Disabled for the round trip so a second click cannot fire a second keep
+    // of the same file before the first has landed. Re-enabled only on
+    // failure — a success reloads the grid, which redraws the tile fresh.
+    mark.disabled = true;
     try {
-      await api(sessionPath(key, '/files/' + encodeURIComponent(keep) + '/keep'),
-                'POST');
+      await api(sessionPath(key, '/files/' + encodeURIComponent(folder) + '/'
+                 + encodeURIComponent(keep) + '/keep'), 'POST');
     } catch (err) {
+      mark.disabled = false;
       alert('Could not keep that file: ' + err.message);
       return;
     }
-    loadFiles(key);
+    // Not unconditional: `loadFiles` shares `filesSeq` with every other load
+    // of this row, so reloading for A after the operator has moved to B would
+    // take a number ABOVE B's own in-flight load — B's answer then fails
+    // `mine !== filesSeq` and A's fails `gone(key)`, and B is left on
+    // "Loading…" with nothing left to fetch again. See the flows handlers
+    // below, which guard their reloads the same way.
+    if (current === key) loadFiles(key);
     return;
   }
 
   const drop = mark.getAttribute('data-delete');
   if (drop === null) return;
   modal({
-    title: 'Delete a kept file',
-    body: '<p>This removes it from the server for good. Keeping is one-way, so '
-        + 'it can only come back by being downloaded again.</p>'
+    title: 'Delete a file',
+    body: '<p>This removes it from Files for good. There is no undo.</p>'
         + '<ul class="names"><li>' + SF.esc(drop) + '</li></ul>',
     confirm: 'Delete',
     danger: true,
     onconfirm: async () => {
+      refuseIfGone(key);
       await api(sessionPath(key, '/files/' + encodeURIComponent(drop)), 'DELETE');
-      loadFiles(key);
+      if (current === key) loadFiles(key);
     },
   });
 });
@@ -462,7 +687,7 @@ async function loadFlows(key) {
   if (gone(key) || mine !== flowsSeq) return;
   flowsData = data;
   shownFlows = data.rev || null;
-  $('flowsCount').textContent =
+  $('flowsTotal').textContent =
     flowsData.enabled ? (flowsData.flows || []).length : 'off';
   // The open flow is PART of the library this listing just replaced, and a
   // heartbeat only arrives here because the revision moved — so the document
@@ -472,6 +697,9 @@ async function loadFlows(key) {
   // rewritten and a Delete pointing at a flow that might be gone.
   if (flowName && !(data.flows || []).some((f) => f.name === flowName)) {
     flowName = flowDoc = picked = null;
+    // The hash still names the flow that just vanished from under it —
+    // reloading it, or Back, would try to open it again.
+    history.replaceState(null, '', '#/sessions/' + encodeURIComponent(key) + '/flows');
   }
   renderFlows();
   // The listing says a flow exists, not what is in it.
@@ -523,6 +751,12 @@ async function openFlow(name) {
   picked = null;
   flowDoc = null;
   renderFlows();
+  // Not `go()`: that sets `location.hash` and fires `hashchange`, which would
+  // route back through here and reopen the same flow. `replaceState` puts the
+  // flow in the address bar and in history without either — picking through a
+  // dozen flows should not take a dozen presses of Back to undo.
+  history.replaceState(null, '',
+    '#/sessions/' + encodeURIComponent(current) + '/flows/' + encodeURIComponent(name));
   return loadFlow(current, name);
 }
 
@@ -904,6 +1138,7 @@ $('flows').addEventListener('click', async (e) => {
       body: '<textarea class="yaml" spellcheck="false"></textarea>',
       confirm: 'Save',
       onconfirm: async (sheet) => {
+        refuseIfGone(key);
         await api(path, 'PUT', {yaml: sheet.querySelector('textarea').value});
         // No reopen: `loadFlows` refreshes whatever is still open, against the
         // session this save was FOR. `openFlow` would have read `current`
@@ -938,6 +1173,7 @@ $('flows').addEventListener('click', async (e) => {
           + 'there — only an operator, here.</p>',
       confirm: 'Move',
       onconfirm: async () => {
+        refuseIfGone(key);
         await api(path + '/move', 'POST', {to: to});
         // Guarded for the reason the editor's save is, and for one more:
         // `flowName` and `flowDoc` describe whatever is ON SCREEN. Clearing
@@ -945,6 +1181,7 @@ $('flows').addEventListener('click', async (e) => {
         // close B's open flow, not A's.
         if (current !== key) return;
         flowName = flowDoc = picked = null;
+        history.replaceState(null, '', '#/sessions/' + encodeURIComponent(key) + '/flows');
         await loadFlows(key);
       },
     });
@@ -961,6 +1198,7 @@ $('flows').addEventListener('click', async (e) => {
       confirm: 'Delete',
       danger: true,
       onconfirm: async () => {
+        refuseIfGone(key);
         await api(path, 'DELETE');
         // Guarded for the reason the editor's save is, and for one more:
         // `flowName` and `flowDoc` describe whatever is ON SCREEN. Clearing
@@ -968,41 +1206,117 @@ $('flows').addEventListener('click', async (e) => {
         // close B's open flow, not A's.
         if (current !== key) return;
         flowName = flowDoc = picked = null;
+        history.replaceState(null, '', '#/sessions/' + encodeURIComponent(key) + '/flows');
         await loadFlows(key);
       },
     });
   }
 });
 
-async function openSession(key) {
+async function openSession(key, tab = 'files', flow) {
+  // Switching sessions reloads everything; switching tabs on the SAME session
+  // must not — that would refetch files every time someone glances at Flows
+  // and back, for data already sitting on screen.
+  const changed = key !== current;
   current = key;
   show($('sessionsView'), false); show($('detailView'), true);
-  $('files').innerHTML = '<div class="empty">Loading…</div>';
-  $('flows').innerHTML = '<div class="empty">Loading…</div>';
-  $('detailHeader').innerHTML = '';
-  shownFiles = shownBrowser = shownFlows = null;
-  flowsData = flowDoc = flowName = null;
-  picked = null;
-  await loadFiles(key);
-  await loadFlows(key);
+  sessionTab(tab);
+  if (changed) {
+    // A's lightbox, if one is open, is showing A's file and holds A's
+    // filename in its Keep/Delete closure — B coming on screen must not
+    // leave it clickable (see the file-level race note above). Same for any
+    // plain modal still open on A's key — a save, a move, a delete confirm —
+    // which `refuseIfGone` alone cannot close, only refuse if clicked.
+    closeLightbox();
+    closeModal();
+    const loading = '<div class="empty">Loading…</div>';
+    $('downloads').innerHTML = $('screenshots').innerHTML = $('kept').innerHTML = loading;
+    $('flows').innerHTML = loading;
+    $('detailHeader').innerHTML = '';
+    shownFiles = shownBrowser = shownLive = shownFlows = null;
+    // Not A's any more, and not yet B's — leaving A's `filesData` in place
+    // would let Clear downloads or Clear screenshots, clicked while B is
+    // still loading (or forever, if B's load fails), list A's names and
+    // delete B's files.
+    filesData = NO_FILES;
+    $('clearDownloads').disabled = $('clearScreenshots').disabled = true;
+    // A's counts, still on screen, would otherwise read as B's until its own
+    // load answers — or forever, if it fails.
+    $('downloadsCount').textContent = $('screenshotsCount').textContent
+      = $('keptCount').textContent = $('filesTotal').textContent
+      = $('flowsTotal').textContent = '';
+    flowsData = flowDoc = flowName = null;
+    picked = null;
+    await loadFiles(key);
+    // The operator can move to a THIRD session while this awaits. Resuming
+    // and acting on `current` as if it were still `key` is exactly the bug
+    // `gone`/`current` guard everywhere else on this page — this is the one
+    // place that used to skip it, because both loads used to be one
+    // unconditional pair of awaits.
+    if (gone(key)) return;
+    await loadFlows(key);
+    if (gone(key)) return;
+  }
+  // A deep link straight into a flow, or the hash edited by hand while
+  // already here. Opened only once the listing says it actually exists —
+  // gone, renamed, or moved to global under a different name would otherwise
+  // be "opened" against a flow that loadFlow immediately fails to find.
+  const known = ((flowsData && flowsData.flows) || []).some((f) => f.name === flow);
+  if (flow && flow !== flowName && known) await openFlow(flow);
 }
 
 /* A pushed session list, applied to the detail view instead of the list. */
+/* Whatever is on screen about ONE browser's downloads, closed when that
+   browser goes — by a reap noticed in `refreshDetail`, or by End browser. A
+   Clear downloads confirm lists the gone browser's names, and its key still
+   matches, so refuseIfGone would let it clear the replacement's. */
+function dropBrowserOverlays() {
+  if (activeLightboxFolder === 'downloads') closeLightbox();
+  if (activeModal && activeModal.scope === 'downloads') closeModal();
+}
+
 function refreshDetail(data) {
   if (!current) return;
   const row = (data.sessions || []).find((s) => s.key === current);
   // Gone from the store means expired. Leave what is on screen rather than
   // blanking it: it is still a true record of what was there.
   if (!row) return;
-  showDetail(row);
-  // A different browser is a different file store: the Grid creates one per
-  // browser and deletes it with the browser, so what is on screen is not just
-  // stale, it no longer exists. Clear it now rather than leaving the old
-  // browser's files sitting there for the length of a fetch.
-  if ((row.session_id || null) !== shownBrowser) {
+  // A different browser is a different file store, but only for DOWNLOADS:
+  // the Grid creates that store per browser and deletes it with the browser,
+  // so a stale Downloads grid does not just look stale, it 404s. Screenshots
+  // and Files belong to the SESSION and outlive any one browser, so neither
+  // grid is touched here — but `filesData` itself is the previous browser's
+  // now, in full, and showDetail below must not compute the Clear buttons
+  // from it. Dropped before showDetail runs, not after: the existing
+  // `clearDownloads.disabled = !row.live || filesData === NO_FILES` gating
+  // then keeps it disabled on its own, until this browser's own loadFiles
+  // answers. Clear screenshots has no such gating, so it is disabled here
+  // directly.
+  //
+  // `session_id` alone missed a reap or a restart that leaves the recorded id
+  // UNCHANGED — `live` going false, or a replacement browser hiding behind the
+  // same id — so `shownLive` is checked alongside it. An open Downloads
+  // lightbox is showing that gone browser's list, and its Keep would act
+  // against a browser that no longer exists, so it is closed here, before the
+  // blank-and-reload below. Only Downloads: a Screenshots or Files lightbox
+  // belongs to the session, not the browser, and stays valid across this.
+  if ((row.session_id || null) !== shownBrowser || !!row.live !== shownLive) {
+    dropBrowserOverlays();
     shownBrowser = row.session_id || null;
-    SF.fileGrid($('files'), {files: []});
+    shownLive = !!row.live;
+    filesData = NO_FILES;
+    // Forces the `filesStamp` check below to call loadFiles even when the
+    // download list itself is unchanged (e.g. still empty) — otherwise
+    // `filesData` sits at NO_FILES with no load in flight, and Screenshots,
+    // Files and Clear screenshots stay stuck on the reaped browser forever.
+    shownFiles = null;
+    $('clearScreenshots').disabled = true;
+    SF.fileGrid($('downloads'), [], {
+      base: ROOT,
+      empty: row.session_id ? 'No downloads.' : 'No browser — downloads go with it.',
+    });
   }
+  showDetail(row);
   // Only when the files actually changed — redrawing the grid on every
   // heartbeat would close a lightbox and lose a scroll position for nothing.
   if (filesStamp(row) !== shownFiles) loadFiles(current);
@@ -1018,11 +1332,17 @@ $('signout').onclick = signOut;
 /* Clear downloads shows what it will take rather than asserting a number. It is
    safe to offer at all only because keeping is a copy: kept files live in our
    own store, so emptying the Grid's cannot reach them (§F1.10). */
-$('clearFiles').onclick = () => {
+$('clearDownloads').onclick = () => {
   if (!current) return;
   // Same reason as the per-file delete: read once, act on that. See there.
   const key = current;
+  const downloads = filesData.downloads.map((f) => f.name);
+  // Which of those names Files also holds a copy of, under `keep`. A download
+  // whose name is kept is deleted from the Grid like every other one, and the
+  // file survives — that is the distinction the list below has to draw.
+  const kept = filesData.files.map((f) => f.name);
   modal({
+    scope: 'downloads',
     title: 'Clear downloads',
     // Every name, with what happens to it. Listing them all and then saying
     // kept files are untouched put a sentence and a list in contradiction on
@@ -1033,9 +1353,9 @@ $('clearFiles').onclick = () => {
         + 'delete, so this clears all of them.</p>'
         + (downloads.length
             ? '<ul class="names">' + downloads.map((n) => '<li>' + SF.esc(n)
-                + (keptNames.indexOf(n) === -1
+                + (kept.indexOf(n) === -1
                     ? '<span class="fate gone"> — gone</span>'
-                    : '<span class="fate stays"> — kept copy stays</span>')
+                    : '<span class="fate stays"> — copy in Files stays</span>')
                 + '</li>').join('') + '</ul>'
             : '<p class="small muted">There is nothing downloaded to clear.</p>'),
     confirm: downloads.length
@@ -1043,8 +1363,33 @@ $('clearFiles').onclick = () => {
       : 'Clear',
     danger: true,
     onconfirm: async () => {
-      await api(sessionPath(key, '/files'), 'DELETE');
-      loadFiles(key);
+      refuseIfGone(key);
+      await api(sessionPath(key, '/files/downloads'), 'DELETE');
+      if (current === key) loadFiles(key);
+    },
+  });
+};
+
+/* Screenshots have no kept-copy distinction to draw — a kept screenshot IS a
+   copy in Files already, so every name here just gets the same fate: gone
+   from this row, kept where it was kept. */
+$('clearScreenshots').onclick = () => {
+  if (!current) return;
+  const key = current;
+  const names = filesData.screenshots.map((f) => f.name);
+  const n = names.length;
+  modal({
+    title: 'Clear screenshots',
+    body: '<p>Deletes ' + (n === 1 ? 'the 1 screenshot' : 'all ' + n + ' screenshots')
+        + ' in this session. Anything you kept is in Files and stays.</p>'
+        + '<ul class="names">' + names.map((name) => '<li>' + SF.esc(name)
+            + '</li>').join('') + '</ul>',
+    confirm: 'Delete ' + n + ' screenshot' + (n === 1 ? '' : 's'),
+    danger: true,
+    onconfirm: async () => {
+      refuseIfGone(key);
+      await api(sessionPath(key, '/files/screenshots'), 'DELETE');
+      if (current === key) loadFiles(key);
     },
   });
 };
@@ -1058,14 +1403,101 @@ destructive('endBrowser', {
   fail: 'Could not end the browser',
   // The event stream repaints the list on its own, but only once the Grid stops
   // reporting the session — so refresh rather than wait on a race.
-  // Stay on the detail view: the session is still there, just idle now.
-  done: (key) => { if (current === key) openSession(key); else loadSessions(); },
+  // Stay on the detail view: the session is still there, just idle now. A
+  // direct refetch rather than `openSession`, whose reload only fires on a
+  // session CHANGE — the browser ending is not that, and still has to be seen.
+  done: (key) => {
+    // Not left to the event stream: the same session reopened before it
+    // reports would pass `gone(key)` with the old browser's overlays up.
+    if (current === key) { dropBrowserOverlays(); loadFiles(key); loadFlows(key); }
+    else loadSessions();
+  },
 });
 
-const selectTab = (sessions) => {
-  $('tabSessions').setAttribute('aria-selected', sessions);
-  $('tabConsole').setAttribute('aria-selected', !sessions);
-  show($('paneSessions'), sessions); show($('paneConsole'), !sessions);
+function sessionTab(tab) {
+  const flows = tab === 'flows';
+  $('tabFiles').setAttribute('aria-selected', String(!flows));
+  $('tabFlows').setAttribute('aria-selected', String(flows));
+  show($('paneFiles'), !flows); show($('paneFlows'), flows);
+}
+$('tabFiles').onclick = () => go('#/sessions/' + encodeURIComponent(current));
+$('tabFlows').onclick = () => go('#/sessions/' + encodeURIComponent(current) + '/flows');
+
+/* ---- secrets (§F4.10) ------------------------------------------------------
+   Read-only: a card per secret, its keys, where it may be used, and — only
+   for a flow stored on disk, never the shared one — a backlink to the flow
+   that types it. Rendered here rather than in components.js because only the
+   admin page has secrets to show (§F1.36, §F1.40). */
+
+// Guards a late reply the same way filesSeq/flowsSeq do: a slow /admin/secrets
+// answer must not paint over whatever the operator has since navigated to.
+let secretsSeq = 0;
+
+async function loadSecrets() {
+  const mine = ++secretsSeq;
+  const box = $('secrets');
+  if (!box.childElementCount) box.innerHTML = '<div class="empty">Loading…</div>';
+  let data;
+  try {
+    data = await api('/admin/secrets');
+  } catch (e) {
+    if (mine !== secretsSeq) return;
+    box.innerHTML = '<div class="empty error">' + SF.esc(e.message) + '</div>';
+    return;
+  }
+  if (mine !== secretsSeq) return;
+  renderSecrets(data);
+}
+
+/* Read-only. A card per secret: what it is for, its keys, where it may be
+   used, where it came from, and the stored flows that type it (§F4.10). Never
+   a value — the server has none to send. Rendered here rather than in the
+   shared library because only the admin page has secrets to show. */
+function renderSecrets(data) {
+  const box = $('secrets');
+  if (!data.enabled) { box.innerHTML = '<div class="empty">No secrets are configured on this server.</div>'; return; }
+  const uses = (list) => list.length
+    ? list.map((u) => '<div class="use"><span class="pill name">' + SF.esc(u.flow) + '</span>'
+        + '<span class="small muted">step' + (u.steps.length === 1 ? ' ' : 's ') + u.steps.join(', ') + '</span>'
+        + '<span class="grow"></span>'
+        + (u.shared ? '<span class="small muted">&#127760; shared</span>'
+           : '<a href="' + SF.esc('#/sessions/' + encodeURIComponent(u.session) + '/flows/' + encodeURIComponent(u.flow)) + '">'
+             + SF.esc(u.session) + ' &rarr;</a>') + '</div>').join('')
+    : '<div class="small muted">No flow uses it.</div>';
+  const card = (s, warn, reason) => '<div class="card secret">'
+    + '<div class="row"><span>&#128273;</span><strong class="grow">' + SF.esc(s.name) + '</strong>'
+    + (warn ? '<span class="pill warn">' + SF.esc(warn) + '</span>' : '') + '</div>'
+    + (s.description ? '<div>' + SF.esc(s.description) + '</div>' : '')
+    + (reason ? '<div class="small error">' + SF.esc(reason) + '</div>' : '')
+    + (s.keys ? '<div class="fact"><span class="k">keys</span>' + s.keys.map((k) => '<span class="pill">' + SF.esc(k) + '</span>').join('') + '</div>' : '')
+    + (s.keys ? '<div class="fact"><span class="k">allowed</span>' + SF.esc(s.restricted ? (s.allowed_urls || []).join(', ') || '—' : 'any site') + '</div>' : '')
+    + (s.source ? '<div class="fact"><span class="k">from</span><span class="small muted">' + SF.esc(s.source + ' · ' + (s.location || '')) + '</span></div>' : '')
+    + '<div class="used"><div class="k">USED BY</div>' + uses(s.uses || []) + '</div></div>';
+  box.innerHTML =
+    '<h2>Secrets</h2><p class="small muted">What flows can type without anyone seeing it. Read-only here: '
+    + 'names, keys and where each may be used — never a value.</p>'
+    + data.secrets.map((s) => card(s,
+        s.allowed_urls_rejected ? 'unusable until fixed' : (s.restricted ? '' : 'any site'),
+        s.allowed_urls_rejected ? 'allowed_urls: ' + [].concat(s.allowed_urls_rejected).join(', ') : '')).join('')
+    + (data.undefined.length
+        ? '<h3>Named by a flow, not defined</h3><p class="small muted">These flows will fail at the step that types the secret.</p>'
+          + data.undefined.map((u) => card({name: u.name, uses: u.uses}, 'not defined',
+              'A flow names this secret and the catalogue has no such entry, so the step will fail when it runs.')).join('')
+        : '');
+}
+
+$('tabSecrets').onclick = () => go('#/secrets');
+
+/* Three tabs, one pane at a time. Session detail nests its own Files/Flows
+   tabs beneath this one (`sessionTab`), which is a separate, narrower switch
+   and untouched by this one. */
+const selectTab = (name) => {
+  $('tabSessions').setAttribute('aria-selected', String(name === 'sessions'));
+  $('tabSecrets').setAttribute('aria-selected', String(name === 'secrets'));
+  $('tabConsole').setAttribute('aria-selected', String(name === 'console'));
+  show($('paneSessions'), name === 'sessions');
+  show($('paneSecrets'), name === 'secrets');
+  show($('paneConsole'), name === 'console');
 };
 
 /* Views live after the hash — `#/`, `#/console`, `#/sessions/<name>`.
@@ -1081,20 +1513,30 @@ function showList() {
   show($('detailView'), false);
   show($('sessionsView'), true);
   current = null;
+  closeLightbox();
+  closeModal();
   loadSessions();
 }
 
 function route() {
-  const [view, key] = location.hash.replace(/^#\/?/, '').split('/');
+  // `#/sessions/<key>`, `#/sessions/<key>/flows`, `#/sessions/<key>/flows/<flow>`.
+  // `#/secrets` is its own branch — read only from the hash, no session
+  // involved — rather than folded into the session route.
+  const [view, key, tab, flow] = location.hash.replace(/^#\/?/, '').split('/');
   if (view === 'console' && !$('tabConsole').hidden) {
-    selectTab(true); showList(); selectTab(false); return;
+    selectTab('sessions'); showList(); selectTab('console'); return;
   }
-  selectTab(true);
+  // Leaving the session detail view for another top tab: `current` has to go
+  // with it, or the heartbeat keeps refetching a session hidden behind this
+  // pane (`refreshDetail` acts on `current` alone, with no view check).
+  if (view === 'secrets') { current = null; closeLightbox(); closeModal(); selectTab('secrets'); loadSecrets(); return; }
+  selectTab('sessions');
   if (view === 'sessions' && key) {
     // A pasted or reloaded deep link never passed through the list, which is
     // where the live stream starts; without this it sat at `connecting…`.
     if (!events) loadSessions();
-    openSession(decodeURIComponent(key));
+    openSession(decodeURIComponent(key), tab === 'flows' ? 'flows' : 'files',
+                flow ? decodeURIComponent(flow) : undefined);
   } else showList();
 }
 

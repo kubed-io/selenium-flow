@@ -159,15 +159,18 @@ class SeleniumMCP:
         )
         # How an action keeps a file it made. Wired here because this is where
         # the store, the token and the public base all exist; the behaviour
-        # layer takes the function and never the key (§F2.9).
-        self.actions.keep = lambda name, data: files.keep_made(
-            self.sessions, self.flows, name, data, auth_token, base, self.prefix
+        # layer takes the function and never the key (§F2.9). No default for
+        # `folder`: only `Actions._kept` calls this, and it always names one —
+        # a default here would let some future two-argument call silently land
+        # in Files.
+        self.actions.keep = lambda name, data, folder: files.keep_made(
+            self.sessions, self.flows, name, data, auth_token, base, self.prefix, folder
         )
-        # And how it reads one back, for `upload_file(kept=...)`. Wired here for
-        # the same reason: which flow session owns a kept file is a question
-        # about the caller, which the behaviour layer deliberately cannot see.
-        self.actions.read_kept = lambda name, session=None: files.read_kept(
-            self.sessions, self.flows, name, session
+        # And how it reads one back, for `upload_file(file=...)`. Wired here for
+        # the same reason: which flow session owns a file is a question about
+        # the caller, which the behaviour layer deliberately cannot see.
+        self.actions.read_file = lambda uri, session=None: files.read_file(
+            self.actions, self.sessions, self.flows, uri, session
         )
         self.apps = (
             apps.register(self.mcp, self.actions, auth_token) if apps_enabled else set()
@@ -222,6 +225,7 @@ class SeleniumMCP:
             sessions=self.sessions,
             flow_store=self.flows,
             schemas=schemas,
+            catalogue=self.secrets,
         )
 
     def run(

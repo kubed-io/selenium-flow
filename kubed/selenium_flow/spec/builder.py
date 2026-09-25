@@ -32,6 +32,7 @@ served.
 from __future__ import annotations
 
 import copy
+import re
 from importlib.metadata import PackageNotFoundError, version
 
 from fastmcp import FastMCP
@@ -481,12 +482,13 @@ def _request_content(action: str, request_name: str) -> dict:
                         "type": "string",
                         "description": "Picks an extension when filename has none.",
                     },
-                    "kept": {
+                    "file": {
                         "type": "string",
                         "description": (
-                            "The name of a file keep_file has kept, instead of "
+                            "The uri of a file this session has — a screenshot, "
+                            "a download, or a file in Files — instead of "
                             "sending any bytes at all. Exactly one source: a "
-                            "content part, text, kept, or path."
+                            "content part, text, file, or path."
                         ),
                     },
                     "url": {"type": "string"},
@@ -508,16 +510,26 @@ def _request_content(action: str, request_name: str) -> dict:
 # every operation because it is how a caller says who it is, and a generated
 # client that cannot see it cannot hold a session at all.
 def _named_in_path(template: str) -> list[dict]:
-    """The path parameters a route template declares."""
-    if "{name}" not in template:
-        return []
+    """The path parameters a route template declares, in order.
+
+    Generic over the placeholder's name so a route with more than one — the
+    file keep route names both a folder and a name — publishes all of them,
+    not just the first. `folder` is special-cased with the two values it may
+    ever hold, the same way `files.SCREENSHOTS`/`files.DOWNLOADS` narrow it at
+    the route itself — a generated client should not have to guess a third.
+    """
     return [
         {
-            "name": "name",
+            "name": name,
             "in": "path",
             "required": True,
-            "schema": {"type": "string"},
+            "schema": (
+                {"type": "string", "enum": ["screenshots", "downloads"]}
+                if name == "folder"
+                else {"type": "string"}
+            ),
         }
+        for name in re.findall(r"\{(\w+)\}", template)
     ]
 
 
@@ -602,7 +614,15 @@ def _mcp_tools() -> tuple[dict, dict]:
             "schema": ("x-mcp-resource", flowapi.SCHEMA_URI),
         },
         {
-            "list": ("x-mcp-resource", files_module.LIST_URI),
+            "list": ("x-mcp-resource", files_module.ROOT_URI),
+            "screenshots": (
+                "x-mcp-resource",
+                files_module.FOLDER_URI[files_module.SCREENSHOTS],
+            ),
+            "downloads": (
+                "x-mcp-resource",
+                files_module.FOLDER_URI[files_module.DOWNLOADS],
+            ),
             "keep": ("x-mcp-tool", files_module.KEEP_TOOL),
         },
     )

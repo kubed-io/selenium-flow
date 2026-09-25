@@ -1263,7 +1263,7 @@ def test_a_flow_reads_a_kept_file_from_the_library_the_run_belongs_to():
 
     report = run(
         _Uploading(),
-        flow([{"tool": "upload_file", "args": {"selector": {"css": "input"}, "kept": "export.csv"}}]),
+        flow([{"tool": "upload_file", "args": {"selector": {"css": "input"}, "file": "export.csv"}}]),
         "b",
         library="desktop",
     )
@@ -1292,7 +1292,7 @@ def test_a_step_can_never_name_another_callers_library():
         flow([
             {
                 "tool": "upload_file",
-                "args": {"selector": {"css": "input"}, "kept": "x.csv", "session": "somebody-else"},
+                "args": {"selector": {"css": "input"}, "file": "x.csv", "session": "somebody-else"},
             }
         ]),
         "b",
@@ -1308,7 +1308,7 @@ def test_a_saved_flow_cannot_carry_a_library_selector():
     schemas = {
         "upload_file": {
             "type": "object",
-            "properties": {"css": {"type": "string"}, "kept": {"type": "string"}},
+            "properties": {"css": {"type": "string"}, "file": {"type": "string"}},
             "required": [],
         }
     }
@@ -1318,7 +1318,7 @@ def test_a_saved_flow_cannot_carry_a_library_selector():
                 "steps": [
                     {
                         "tool": "upload_file",
-                        "args": {"selector": {"css": "input"}, "kept": "x.csv", "session": "other"},
+                        "args": {"selector": {"css": "input"}, "file": "x.csv", "session": "other"},
                     }
                 ]
             },

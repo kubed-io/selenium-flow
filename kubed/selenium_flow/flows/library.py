@@ -70,9 +70,12 @@ STDIO_SESSION = "stdio"
 # /openapi.yaml (§F1.14).
 SUFFIX = ".yaml"
 FLOWS_DIR = "flows"
-# Where a kept file lands — a copy of something the browser downloaded, taken
-# out of the Grid's store so it outlives the browser (§F1.10).
+# Where a session's own files land. `files` IS the Files section — a print, and
+# anything kept; `screenshots` holds every screenshot until it is kept or
+# cleared (§F4.1). Downloads are not a folder here: they are the Grid's.
 FILES_DIR = "files"
+SCREENSHOTS_DIR = "screenshots"
+FOLDERS = (FILES_DIR, SCREENSHOTS_DIR)
 
 # A name becomes a path segment, and the session half of one arrives from a URL
 # query parameter that anyone who can reach this port can write. Anchored, so
@@ -189,6 +192,15 @@ def valid_file_name(name) -> str:
     return text
 
 
+def valid_folder(folder) -> str:
+    """``folder`` if it is one of this store's file folders, else raise."""
+    if folder not in FOLDERS:
+        raise InvalidName(
+            f"{folder!r} is not a file folder: use one of {', '.join(FOLDERS)}"
+        )
+    return folder
+
+
 def library_of(key: str) -> str | None:
     """The directory a stored session key owns, or None if it cannot have one.
 
@@ -249,16 +261,19 @@ def _step_count(document: dict) -> int:
 
 
 class FlowStore(Protocol):
-    """Reads and writes a session's flow documents and its kept files.
+    """Reads and writes a session's flow documents and its own files.
 
     One protocol, two implementations eventually: this directory, and WebDAV.
-    Kept files live in the same session directory and extend this rather than
-    getting a store of their own — one root, one env var, one thing to point at
-    Nextcloud.
+    A session's files live in the same session directory and extend this rather
+    than getting a store of their own — one root, one env var, one thing to
+    point at Nextcloud.
 
     The file half is bytes rather than documents, and is deliberately the whole
     of what a file store needs: the Grid supplies the only other operations
     there are, and it supplies them for *its* files, not ours.
+
+    A session's own files are two folders — see :data:`FOLDERS` — kept apart
+    because Files is curated and screenshots are disposable until kept.
     """
 
     kind: str
@@ -281,15 +296,21 @@ class FlowStore(Protocol):
 
     def write_text(self, session: str, name: str, text: str) -> None: ...
 
-    def files(self, session: str) -> list[dict]: ...
+    def files(self, session: str, folder: str = FILES_DIR) -> list[dict]: ...
 
-    def read_file(self, session: str, name: str) -> bytes: ...
+    def read_file(self, session: str, name: str, folder: str = FILES_DIR) -> bytes: ...
 
-    def write_file(self, session: str, name: str, data: bytes) -> dict: ...
+    def write_file(
+        self, session: str, name: str, data: bytes, folder: str = FILES_DIR
+    ) -> dict: ...
 
-    def create_file(self, session: str, name: str, data: bytes) -> dict: ...
+    def create_file(
+        self, session: str, name: str, data: bytes, folder: str = FILES_DIR
+    ) -> dict: ...
 
-    def delete_file(self, session: str, name: str) -> bool: ...
+    def delete_file(self, session: str, name: str, folder: str = FILES_DIR) -> bool: ...
+
+    def clear_folder(self, session: str, folder: str) -> int: ...
 
 
 class LocalFlowStore:
@@ -356,13 +377,13 @@ class LocalFlowStore:
             session, FLOWS_DIR, f"{valid_name(name, 'flow name')}{SUFFIX}"
         )
 
-    def _files_dir(self, session: str) -> Path:
-        return self._session_dir(session, FILES_DIR)
+    def _files_dir(self, session: str, folder: str = FILES_DIR) -> Path:
+        return self._session_dir(session, valid_folder(folder))
 
-    def _file_path(self, session: str, name: str) -> Path:
+    def _file_path(self, session: str, name: str, folder: str = FILES_DIR) -> Path:
         return self._resolved(
             valid_name(session, "session name"),
-            FILES_DIR,
+            valid_folder(folder),
             valid_file_name(name),
         )
 
@@ -538,15 +559,16 @@ class LocalFlowStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
 
-    # -- kept files ----------------------------------------------------------
+    # -- a session's own files ------------------------------------------------
 
     def _entry(self, path: Path) -> dict:
-        """One kept file, shaped exactly like the Grid's own listing entry.
+        """One file, in either Files or Screenshots, shaped like the Grid's own
+        listing entry.
 
-        The two listings are merged into one array (§F1.10), so they have to
-        agree on both the key names and the *units*: the Grid reports
-        milliseconds, and a seconds-based timestamp beside it would sort every
-        kept file to 1970 without anything looking wrong.
+        The three sections are read separately, never merged (§F4.6, §F4.7),
+        but they still have to agree on both the key names and the *units*: the
+        Grid reports milliseconds, and a seconds-based timestamp beside it
+        would sort every kept file to 1970 without anything looking wrong.
         """
         info = path.stat()
         return {
@@ -555,13 +577,13 @@ class LocalFlowStore:
             "creationTime": int(info.st_mtime * 1000),
         }
 
-    def files(self, session: str) -> list[dict]:
-        """Every file kept for this session, newest first.
+    def files(self, session: str, folder: str = FILES_DIR) -> list[dict]:
+        """Every file in one folder of this session, newest first.
 
-        Newest first because that is the order the Grid uses, and these are
+        Newest first because that is the order the Grid uses, and Files is
         shown interleaved with its entries.
         """
-        directory = self._files_dir(session)
+        directory = self._files_dir(session, folder)
         if not directory.is_dir():
             return []
         found = []
@@ -573,48 +595,67 @@ class LocalFlowStore:
             # back into a path, so an entry that cannot round-trip would be
             # handed to `read_file`, raise, and take the listing down with it.
             try:
-                self._file_path(session, path.name)
+                self._file_path(session, path.name, folder)
             except InvalidName:
-                log.warning("ignoring kept file %r: not a usable name", path.name)
+                log.warning("ignoring file %r: not a usable name", path.name)
                 continue
             found.append(self._entry(path))
         return sorted(found, key=lambda f: f["creationTime"], reverse=True)
 
-    def read_file(self, session: str, name: str) -> bytes:
-        """One kept file's bytes. Raises FileNotFoundError if it is not there."""
-        return self._file_path(session, name).read_bytes()
+    def read_file(self, session: str, name: str, folder: str = FILES_DIR) -> bytes:
+        """One file's bytes. Raises FileNotFoundError if it is not there."""
+        return self._file_path(session, name, folder).read_bytes()
 
-    def write_file(self, session: str, name: str, data: bytes) -> dict:
+    def write_file(
+        self, session: str, name: str, data: bytes, folder: str = FILES_DIR
+    ) -> dict:
         """Keep one file, creating it or replacing it. Returns its entry.
 
         Create-or-replace, the same rule `save` follows: keeping a name that is
         already kept is how someone re-keeps a file they have since downloaded
         again, and the alternative is a second copy under a name nobody chose.
         """
-        path = self._file_path(session, name)
+        path = self._file_path(session, name, folder)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
         return self._entry(path)
 
-    def create_file(self, session: str, name: str, data: bytes) -> dict:
+    def create_file(
+        self, session: str, name: str, data: bytes, folder: str = FILES_DIR
+    ) -> dict:
         """Keep one file under a name nothing has. `FileExistsError` if taken.
 
         The claim is the create itself (`O_EXCL`), so two saves racing for one
         name cannot both win and the second silently replace the first.
         """
-        path = self._file_path(session, name)
+        path = self._file_path(session, name, folder)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("xb") as file:
             file.write(data)
         return self._entry(path)
 
-    def delete_file(self, session: str, name: str) -> bool:
-        """Remove one kept file. False if it was not there."""
+    def delete_file(self, session: str, name: str, folder: str = FILES_DIR) -> bool:
+        """Remove one file. False if it was not there."""
         try:
-            self._file_path(session, name).unlink()
+            self._file_path(session, name, folder).unlink()
         except FileNotFoundError:
             return False
         return True
+
+    def clear_folder(self, session: str, folder: str) -> int:
+        """Delete every file in one folder, returning how many went.
+
+        Files is refused: everything in it was put there on purpose, so it is
+        emptied one file at a time or not at all (§F4.1). Anything this store
+        could not address is left where it is, as `files` skips it.
+        """
+        if valid_folder(folder) == FILES_DIR:
+            raise InvalidName("Files is never cleared wholesale; delete one file")
+        removed = 0
+        for entry in self.files(session, folder):
+            if self.delete_file(session, entry["name"], folder):
+                removed += 1
+        return removed
 
 
 def from_env(env: dict | None = None) -> FlowStore | None:

@@ -60,10 +60,10 @@ class _Keeper:
         self.kept = []
         self.fail = fail
 
-    def __call__(self, name, data):
+    def __call__(self, name, data, folder):
         if self.fail:
             raise self.fail
-        self.kept.append((name, data))
+        self.kept.append((name, data, folder))
         return {"name": name, "size": len(data), "kept": True}
 
 
@@ -90,7 +90,7 @@ def acting(driver, keeper, monkeypatch):
 def test_a_screenshot_is_kept_without_being_asked(acting, keeper):
     result = acting.screenshot("abc")
     assert result["file"] == {"name": "screenshot.png", "size": 70, "kept": True}
-    assert keeper.kept == [("screenshot.png", base64.b64decode(PIXEL))]
+    assert keeper.kept == [("screenshot.png", base64.b64decode(PIXEL), "screenshots")]
 
 
 def test_save_false_still_means_do_not_keep_it(acting, keeper):
@@ -147,12 +147,22 @@ def test_a_screenshot_is_named_as_the_png_it_is(acting, keeper, given, expected)
     assert keeper.kept[0][0] == expected
 
 
+def test_a_screenshot_is_kept_in_the_screenshots_folder(acting, keeper):
+    acting.screenshot("abc")
+    assert keeper.kept[0][2] == "screenshots"
+
+
+def test_a_print_is_kept_in_files(acting, keeper):
+    acting.print_("abc")
+    assert keeper.kept[0][2] == "files"
+
+
 # ---- print -------------------------------------------------------------------
 
 
 def test_a_pdf_is_the_browser_s_own_print_kept(acting, driver, keeper):
     result = acting.print_("abc")
-    assert keeper.kept == [("page.pdf", b"%PDF-1.7 pretend")]
+    assert keeper.kept == [("page.pdf", b"%PDF-1.7 pretend", "files")]
     assert result["format"] == "pdf"
     assert result["bytes"] == len(b"%PDF-1.7 pretend")
     assert result["file"]["name"] == "page.pdf"
@@ -171,7 +181,7 @@ def test_landscape_and_background_reach_the_print(acting, driver):
 def test_html_is_the_page_as_it_stands(acting, driver, keeper):
     driver.page_source = "<html><body><p>rendered by script</p></body></html>"
     result = acting.print_("abc", format="HTML", filename="orders")
-    assert keeper.kept == [("orders.html", driver.page_source.encode())]
+    assert keeper.kept == [("orders.html", driver.page_source.encode(), "files")]
     assert result["format"] == "html"
     assert driver.printed == [], "html must not go through the print command"
 
@@ -223,8 +233,8 @@ def keeping_server(tmp_path, monkeypatch):
 def test_the_server_keeps_it_on_disk_with_a_signed_link(keeping_server, tmp_path):
     """Through the real wiring: the seam is easy to leave unconnected, and a
     missing link looks exactly like a server that has no public base."""
-    entry = keeping_server.actions.keep("shot.png", b"png")
-    assert entry["kept"] is True
+    entry = keeping_server.actions.keep("shot.png", b"png", "files")
+    assert entry["name"] == "shot.png"
     assert entry["absolute_url"].startswith("https://selenium.example.com/")
     assert "sig=" in entry["absolute_url"], "the link must be signed"
     assert [p.read_bytes() for p in tmp_path.rglob("shot.png")] == [b"png"]
@@ -232,9 +242,9 @@ def test_the_server_keeps_it_on_disk_with_a_signed_link(keeping_server, tmp_path
 
 def test_a_second_file_of_the_same_name_does_not_replace_the_first(keeping_server):
     """Somebody may already have been handed a link to the first one."""
-    first = keeping_server.actions.keep("shot.png", b"one")
-    second = keeping_server.actions.keep("shot.png", b"two")
-    third = keeping_server.actions.keep("shot.png", b"three")
+    first = keeping_server.actions.keep("shot.png", b"one", "files")
+    second = keeping_server.actions.keep("shot.png", b"two", "files")
+    third = keeping_server.actions.keep("shot.png", b"three", "files")
     assert [first["name"], second["name"], third["name"]] == [
         "shot.png",
         "shot (1).png",
@@ -247,13 +257,13 @@ def test_two_saves_racing_for_one_name_do_not_overwrite_each_other(
 ):
     """Another save can take the name between looking and writing, so nothing
     looks: the create is what claims it (Copilot, #40)."""
-    first = keeping_server.actions.keep("shot.png", b"one")
+    first = keeping_server.actions.keep("shot.png", b"one", "files")
 
     def unlisted(session):
         raise AssertionError("a name is claimed by creating it, not by listing")
 
     monkeypatch.setattr(keeping_server.flows, "files", unlisted)
-    second = keeping_server.actions.keep("shot.png", b"two")
+    second = keeping_server.actions.keep("shot.png", b"two", "files")
     assert second["name"] == "shot (1).png"
     assert keeping_server.flows.read_file("stdio", first["name"]) == b"one"
 
@@ -263,7 +273,7 @@ def test_a_server_with_no_data_dir_refuses_to_keep_with_the_reason():
 
     server = SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token="tok")
     with pytest.raises(ValueError, match="FLOW_DATA_DIR"):
-        server.actions.keep("shot.png", b"png")
+        server.actions.keep("shot.png", b"png", "files")
 
 
 @pytest.mark.parametrize(
@@ -288,7 +298,7 @@ def test_a_mounted_server_hands_out_links_it_serves(
         route_prefix="/flow",
         flow_data_dir=str(tmp_path),
     )
-    described = server.actions.keep("shot.png", b"png")
+    described = server.actions.keep("shot.png", b"png", "files")
     assert described["url"].startswith("/flow/kept/")
     if absolute is None:
         assert "absolute_url" not in described
@@ -349,7 +359,7 @@ async def test_print_is_a_tool_that_keeps_the_file(keeping_server, monkeypatch):
     async with Client(keeping_server.mcp) as client:
         result = await client.call_tool("print", {"format": "html"})
     assert result.structured_content["file"]["name"] == "page.html"
-    assert result.structured_content["file"]["kept"] is True
+    assert result.structured_content["file"]["uri"] == "session://files/page.html"
 
 
 # ---- what the tools promise ----------------------------------------------------
@@ -386,8 +396,12 @@ def test_the_published_file_shape_matches_what_describe_returns():
 
     entry = FILE_SCHEMAS["FileEntry"]["properties"]
     for described in (
-        files.describe("sess", {"name": "s.png", "size": 3, "creationTime": 1}, "tok", "https://h"),
-        files.describe_kept("sess", {"name": "s.png", "size": 3, "creationTime": 1}, "tok", "https://h"),
+        # A file already in Files: no keep_with, nothing left to keep.
+        files.describe(files.FILES, {"name": "s.png", "size": 3, "creationTime": 1}, "https://h/s.png"),
+        # A screenshot or a download: carries keep_with, since neither is kept yet.
+        files.describe(
+            files.SCREENSHOTS, {"name": "s.png", "size": 3, "creationTime": 1}, "https://h/s.png"
+        ),
     ):
         assert set(described) <= set(entry), (
             "the OpenAPI file schema is missing keys that are actually returned: "
@@ -396,7 +410,7 @@ def test_the_published_file_shape_matches_what_describe_returns():
     # The Grid can omit creationTime, so the descriptor's `created` can be null
     # and a generated client must accept that (Copilot, #28).
     assert "null" in entry["created"]["type"]
-    assert files.describe("sess", {"name": "x.png"}, "tok")["created"] is None
+    assert files.describe(files.FILES, {"name": "x.png"}, "https://h/x.png")["created"] is None
 
 
 # ---- an insecure browser -----------------------------------------------------

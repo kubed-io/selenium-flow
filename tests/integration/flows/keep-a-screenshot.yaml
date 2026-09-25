@@ -1,0 +1,46 @@
+description: >-
+  Take a screenshot of this very page, find it in this session's Screenshots
+  row, keep it, and see it arrive in Files — the admin UI's whole files story,
+  and the kept file Chapter 2 never exercised from the page.
+parameters:
+  type: object
+  required: [admin, session]
+  properties:
+    admin: {type: string, description: The origin the browser reaches this server at}
+    session: {type: string, description: The name the caller running this flow gave its session}
+steps:
+- tool: navigate
+  args: {url: "${admin}/"}
+- tool: write
+  args:
+    selector: {css: "#token"}
+    secret: {name: admin, key: token}
+- tool: interact
+  args:
+    action: click
+    selector: {css: "#loginForm button[type=submit]"}
+- tool: screenshot
+  args: {filename: hangar-check}
+- tool: navigate
+  args: {url: "${admin}/#/sessions/${session}"}
+- tool: assert
+  args:
+    script: >-
+      return [...document.querySelectorAll('#screenshots .file .name')]
+      .some((n) => n.textContent.startsWith('hangar-check'))
+    message: The screenshot this flow just took is not in the Screenshots row.
+- tool: interact
+  args:
+    action: hover
+    selector: {xpath: "//div[@id='screenshots']//div[contains(concat(' ',normalize-space(@class),' '),' file ')][.//div[@class='name'][starts-with(.,'hangar-check')]]"}
+- tool: interact
+  args:
+    action: click
+    selector: {xpath: "//div[@id='screenshots']//div[contains(concat(' ',normalize-space(@class),' '),' file ')][.//div[@class='name'][starts-with(.,'hangar-check')]]//button[contains(@class,'keep')]"}
+- tool: assert
+  args:
+    script: >-
+      return [...document.querySelectorAll('#kept .file .name')]
+      .some((n) => n.textContent.startsWith('hangar-check'))
+    message: Keep was clicked and the screenshot did not arrive in Files.
+    stable_for: 0.5

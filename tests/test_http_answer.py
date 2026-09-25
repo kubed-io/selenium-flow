@@ -30,7 +30,7 @@ AUTH = {"Authorization": f"Bearer {TOKEN}", "X-Session-Key": SESSION}
 # never reaches the handler.
 TREES = (
     ("post", "/browser"),
-    ("put", "/files/report.pdf/kept"),
+    ("put", "/files/downloads/report.pdf/kept"),
     ("put", "/flows/example"),
     ("post", "/flows/example/runs"),
 )
