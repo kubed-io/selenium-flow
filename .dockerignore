@@ -23,5 +23,9 @@ dist/
 # final COPY layer — after the dependency layer that actually takes the time.
 
 # The built UI (npm --prefix ui run build). Generated, never committed (§F4.15).
+# Anchored at the context root, like every pattern here.
 kubed/selenium_flow/http/static/
-node_modules/
+# Unlike .gitignore, a bare `node_modules/` would only match at the root.
+# ui/node_modules has to stay out: the ui stage's `COPY ui/ ./` would lay the
+# host's modules, native bindings and all, over the ones `npm ci` installed.
+**/node_modules/

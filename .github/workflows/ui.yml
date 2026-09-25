@@ -13,7 +13,10 @@ permissions:
 
 jobs:
   ui:
+    name: UI
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
     - uses: actions/checkout@v7
       with:
@@ -28,6 +31,16 @@ jobs:
     - run: npm --prefix ui run check
     - run: npm --prefix ui test
     - run: npm --prefix ui run build
+    # page() inlines exactly these; a code-split chunk would be a file the page
+    # never loads.
+    - name: The build emits exactly the six files page() inlines
+      run: |
+        actual="$(cd kubed/selenium_flow/http/static && ls -A | sort | tr '\n' ' ')"
+        expected="admin.css admin.html admin.js app.css app.html app.js "
+        if [ "$actual" != "$expected" ]; then
+          echo "::error::expected '$expected', the build wrote '$actual'"
+          exit 1
+        fi
     # page() inlines these files into an HTML string; a literal `<script` or
     # `</style` in the built output would close the surrounding element early
     # and break the admin page, so the build itself is the gate for it.

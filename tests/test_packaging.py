@@ -407,11 +407,22 @@ def test_the_built_ui_ships_by_glob_so_an_unbuilt_install_still_works():
 
 def test_the_ui_is_built_in_its_own_stage_and_reaches_the_package():
     text = DOCKERFILE.read_text()
-    assert re.search(r"^FROM node:24-slim AS ui$", text, re.M)
+    # Built on the runner's own platform: the output is platform-independent, and
+    # a multi-arch build would otherwise run it again under emulation.
+    assert re.search(r"^FROM --platform=\$BUILDPLATFORM node:24-slim AS ui$", text, re.M)
     assert "npm ci" in text and "npm run build" in text
     assert re.search(r"^COPY --from=ui \S+ kubed/selenium_flow/http/static$", text, re.M)
     # before the project install, so the wheel the venv gets has the UI in it
     assert text.index("COPY --from=ui") < text.index("pip install --no-cache-dir .[redis]")
+
+
+def test_the_build_context_leaves_out_node_modules_and_the_built_ui():
+    """`.dockerignore` patterns are anchored at the context root, unlike
+    `.gitignore`: a bare `node_modules/` misses `ui/node_modules`, which the ui
+    stage's `COPY ui/ ./` then lays over the modules it just installed."""
+    lines = {ln.strip() for ln in (REPO / ".dockerignore").read_text().splitlines()}
+    assert "**/node_modules/" in lines or "**/node_modules" in lines
+    assert "kubed/selenium_flow/http/static/" in lines
 
 
 def test_node_never_reaches_the_runner():

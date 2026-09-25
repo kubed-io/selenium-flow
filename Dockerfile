@@ -43,8 +43,9 @@ ARG PY_VERSION=3.14
 
 # ---- ui: the admin UI, built by npm (§F4.15). Its own stage so Node never
 #      reaches the runner; the lockfile alone first, so a UI edit does not
-#      reinstall the toolchain.
-FROM node:24-slim AS ui
+#      reinstall the toolchain. The output is platform-independent, so it is
+#      built once on the build host, never again under emulation for arm64.
+FROM --platform=$BUILDPLATFORM node:24-slim AS ui
 WORKDIR /ui
 COPY ui/package.json ui/package-lock.json ./
 RUN npm ci --no-audit --no-fund
