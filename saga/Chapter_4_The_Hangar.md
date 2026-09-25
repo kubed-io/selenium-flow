@@ -674,6 +674,21 @@ Rulings taken during the build, each recorded when it was made:
   it is attached**, rather than briefly showing the previous session's button.
 - **Clear downloads stays disabled for the whole span of a files load**, even
   if a live push arrives partway through it.
+- **Tab buttons carry `role="tablist"`/`role="tab"` with `aria-selected`** —
+  the top tabs and the Files | Flows subtabs alike — so the state is valid
+  ARIA; the cost is a screen reader now announcing "tab" where it used to
+  announce "button".
+- **An Edit whose re-read lands after the session was left opens nowhere.**
+  Today it opened over whichever session had since taken the screen, with
+  Save then refused; that was a stale-session artefact the refactor did not
+  have to keep.
+- **The shell renders one top pane at a time** — Sessions or Secrets — while
+  the **Grid console stays mounted and hidden** instead of being torn down
+  and rebuilt, so its iframe keeps its place across tab switches.
+- **The live badge's pulsing dot is appended to the global `app.css`**, not a
+  component's scoped styles — a scoped `@keyframes` block would put a
+  `svelte-*` class on every element in that component. Today's rules are
+  untouched.
 
 ---
 
