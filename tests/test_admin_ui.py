@@ -1102,8 +1102,8 @@ def test_a_stale_clear_downloads_confirm_is_closed_when_the_browser_changes(page
         "if ((row.session_id || null) !== shownBrowser || !!row.live !== shownLive) {"
     )[1].split("\n  }\n")[0]
     guard = "if (activeModal && activeModal.scope === 'downloads') closeModal();"
-    assert guard in branch
-    assert branch.index(guard) < branch.index("filesData = NO_FILES;")
+    assert guard in page.split("function dropBrowserOverlays()")[1].split("\n}\n")[0]
+    assert branch.index("dropBrowserOverlays();") < branch.index("filesData = NO_FILES;")
     handler = page.split("$('clearDownloads').onclick")[1].split("\n};\n")[0]
     assert "scope: 'downloads'" in handler
     assert "box.scope = scope;" in page.split("function modal(")[1].split("\n}\n")[0]
@@ -1119,11 +1119,20 @@ def test_a_stale_downloads_lightbox_is_closed_before_the_browser_changes(page):
     branch = detail.split(
         "if ((row.session_id || null) !== shownBrowser || !!row.live !== shownLive) {"
     )[1].split("\n  }\n")[0]
-    assert "activeLightboxFolder === 'downloads'" in branch
-    assert "closeLightbox();" in branch
-    assert branch.index("activeLightboxFolder === 'downloads'") < branch.index(
+    helper = page.split("function dropBrowserOverlays()")[1].split("\n}\n")[0]
+    assert "if (activeLightboxFolder === 'downloads') closeLightbox();" in helper
+    assert branch.index("dropBrowserOverlays();") < branch.index(
         "shownBrowser = row.session_id"
     )
+
+
+def test_ending_the_browser_closes_its_downloads_overlays(page):
+    """Copilot review, PR #41: End browser reloads directly rather than
+    through `refreshDetail`'s browser-change branch, so a Downloads lightbox
+    or confirm survived it — and the same session reopened before the event
+    stream reported would let it act on the replacement browser."""
+    done = page.split("destructive('endBrowser'")[1].split("\n});\n")[0]
+    assert done.index("dropBrowserOverlays();") < done.index("loadFiles(key);")
 
 
 def test_a_browser_change_forces_a_files_reload(page):

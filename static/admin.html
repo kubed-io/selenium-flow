@@ -1266,6 +1266,15 @@ async function openSession(key, tab = 'files', flow) {
 }
 
 /* A pushed session list, applied to the detail view instead of the list. */
+/* Whatever is on screen about ONE browser's downloads, closed when that
+   browser goes — by a reap noticed in `refreshDetail`, or by End browser. A
+   Clear downloads confirm lists the gone browser's names, and its key still
+   matches, so refuseIfGone would let it clear the replacement's. */
+function dropBrowserOverlays() {
+  if (activeLightboxFolder === 'downloads') closeLightbox();
+  if (activeModal && activeModal.scope === 'downloads') closeModal();
+}
+
 function refreshDetail(data) {
   if (!current) return;
   const row = (data.sessions || []).find((s) => s.key === current);
@@ -1292,10 +1301,7 @@ function refreshDetail(data) {
   // blank-and-reload below. Only Downloads: a Screenshots or Files lightbox
   // belongs to the session, not the browser, and stays valid across this.
   if ((row.session_id || null) !== shownBrowser || !!row.live !== shownLive) {
-    if (activeLightboxFolder === 'downloads') closeLightbox();
-    // A Clear downloads confirm lists the gone browser's names, and its key
-    // still matches, so refuseIfGone would let it clear the replacement's.
-    if (activeModal && activeModal.scope === 'downloads') closeModal();
+    dropBrowserOverlays();
     shownBrowser = row.session_id || null;
     shownLive = !!row.live;
     filesData = NO_FILES;
@@ -1401,7 +1407,9 @@ destructive('endBrowser', {
   // direct refetch rather than `openSession`, whose reload only fires on a
   // session CHANGE — the browser ending is not that, and still has to be seen.
   done: (key) => {
-    if (current === key) { loadFiles(key); loadFlows(key); }
+    // Not left to the event stream: the same session reopened before it
+    // reports would pass `gone(key)` with the old browser's overlays up.
+    if (current === key) { dropBrowserOverlays(); loadFiles(key); loadFlows(key); }
     else loadSessions();
   },
 });
