@@ -779,3 +779,11 @@ caching strategies"*. Measured first, the answer was mostly not a cache:
    **Taken up in Part IV** (2026-09-25): npm is fine after all, the CDN
    candidates fail the MCP App CSP or the maintenance bar, and the answer is
    Svelte 5 (§F4.14).
+
+2. **Should one session's calls be serialised?** Copilot on #45: HTTP calls
+   used to run one at a time only because they blocked the event loop, and in
+   a worker thread two calls on one session can overlap. MCP tools always
+   could — FastMCP runs our sync tools in its thread pool — and
+   `SessionManager.act` has no lock on either surface. A lock per session is
+   not free: `end_browser` would queue behind a 900s `assert`, which is the
+   call it exists to interrupt. Left as both surfaces have it, for its own PR.
