@@ -15,6 +15,7 @@ test, the same way `test_kept_files.py` and `test_files_and_admin.py` do it.
 from unittest.mock import patch
 
 import pytest
+import requests
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow.core import browser
@@ -118,6 +119,51 @@ def test_a_reaped_browser_has_no_downloads_to_clear(client, kept_server):
         response = client.delete(f"/admin/sessions/{KEY}/files/downloads", headers=AUTH)
     assert response.status_code == 200, response.text
     clear.assert_not_called()
+
+
+class _FakeGridResponse:
+    """A `requests` response standing in for the Grid's own answer, exercising
+    `Grid.clear_files` itself rather than a mock of the whole method — the
+    other two tests above patch `clear_files` out entirely and so would never
+    have caught it skipping the status check (Copilot, PR #41)."""
+
+    def __init__(self, status_code):
+        self.status_code = status_code
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(
+                f"{self.status_code} Server Error", response=self
+            )
+
+
+def test_a_grid_500_on_clear_is_not_reported_as_success(client, live):
+    with (
+        patch.object(browser.Grid, "is_alive", return_value=True),
+        patch(
+            "kubed.selenium_flow.core.browser.requests.delete",
+            return_value=_FakeGridResponse(500),
+        ),
+    ):
+        response = client.delete(f"/admin/sessions/{KEY}/files/downloads", headers=AUTH)
+    assert response.status_code >= 500, response.text
+    # The Grid's own error text never reaches the caller verbatim; only the
+    # errors.py-decided message does.
+    assert "grid.invalid" not in response.text
+
+
+def test_a_grid_404_on_clear_is_success(client, live):
+    """A raced reap: the Grid's file store is already gone by the time this
+    call lands. Idempotent, same as `quit`'s own 404."""
+    with (
+        patch.object(browser.Grid, "is_alive", return_value=True),
+        patch(
+            "kubed.selenium_flow.core.browser.requests.delete",
+            return_value=_FakeGridResponse(404),
+        ),
+    ):
+        response = client.delete(f"/admin/sessions/{KEY}/files/downloads", headers=AUTH)
+    assert response.status_code == 200, response.text
 
 
 def test_deleting_one_file_in_files(client, live):

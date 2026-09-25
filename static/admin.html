@@ -163,6 +163,13 @@ const $ = (id) => document.getElementById(id);
 const show = (el, on) => { el.hidden = !on; };
 let token = sessionStorage.getItem('sf-token') || '';
 let current = null;
+// The one lightbox this page ever has open, if any. Kept here — not in
+// components.js, which stays render-only — so a session switch can close it
+// from outside: see `closeLightbox`, `openSession` and `route`.
+let activeLightbox = null;
+const closeLightbox = () => {
+  if (activeLightbox) { activeLightbox.close(); activeLightbox = null; }
+};
 
 /* Every load below is an await against a session the operator can navigate away
    from while it is in flight. A late reply is not merely a stale render: the
@@ -487,19 +494,26 @@ function openLightbox(folder, index) {
   const key = current;
   const list = () => (filesData && filesData[folder]) || [];
   const keepable = folder === 'screenshots' || folder === 'downloads';
-  SF.lightbox(list(), index, {
+  // Belt and braces alongside `closeLightbox`: if a session switch races this
+  // very click and lands between opening and the operator pressing the action
+  // button, the lightbox may still be technically open (its `close()` runs on
+  // the NEXT switch) — so `run` checks for itself too, before any request.
+  const guarded = (run) => (f) => gone(key)
+    ? Promise.reject(new Error('that session is no longer on screen'))
+    : run(f);
+  activeLightbox = SF.lightbox(list(), index, {
     base: ROOT,
     action: keepable
-      ? {label: '📌 Keep', run: (f) => api(sessionPath(key, '/files/' + encodeURIComponent(folder)
-          + '/' + encodeURIComponent(f.name) + '/keep'), 'POST')}
-      : {label: '🗑 Delete', run: (f) => new Promise((resolve, reject) => modal({
+      ? {label: '📌 Keep', run: guarded((f) => api(sessionPath(key, '/files/' + encodeURIComponent(folder)
+          + '/' + encodeURIComponent(f.name) + '/keep'), 'POST'))}
+      : {label: '🗑 Delete', run: guarded((f) => new Promise((resolve, reject) => modal({
           title: 'Delete a file',
           body: '<p>This removes it from Files for good. There is no undo.</p>'
               + '<ul class="names"><li>' + SF.esc(f.name) + '</li></ul>',
           confirm: 'Delete', danger: true,
           onconfirm: async () => { await api(sessionPath(key, '/files/' + encodeURIComponent(f.name)), 'DELETE'); resolve(); },
           oncancel: () => reject(new Error('cancelled')),
-        }))},
+        })))},
     // The same index either way: a kept screenshot or a deleted file leaves
     // the list, so the next one slides into its place; a kept download is a
     // copy and stays, so the lightbox stays on it.
@@ -514,6 +528,7 @@ function openLightbox(folder, index) {
       if (gone(key)) return null;
       return {files: list(), index: at};
     },
+    onclose: () => { activeLightbox = null; },
   });
 }
 
@@ -1140,6 +1155,10 @@ async function openSession(key, tab = 'files', flow) {
   show($('sessionsView'), false); show($('detailView'), true);
   sessionTab(tab);
   if (changed) {
+    // A's lightbox, if one is open, is showing A's file and holds A's
+    // filename in its Keep/Delete closure — B coming on screen must not
+    // leave it clickable (see the file-level race note above).
+    closeLightbox();
     const loading = '<div class="empty">Loading…</div>';
     $('downloads').innerHTML = $('screenshots').innerHTML = $('kept').innerHTML = loading;
     $('flows').innerHTML = loading;
@@ -1395,6 +1414,7 @@ function showList() {
   show($('detailView'), false);
   show($('sessionsView'), true);
   current = null;
+  closeLightbox();
   loadSessions();
 }
 
@@ -1409,7 +1429,7 @@ function route() {
   // Leaving the session detail view for another top tab: `current` has to go
   // with it, or the heartbeat keeps refetching a session hidden behind this
   // pane (`refreshDetail` acts on `current` alone, with no view check).
-  if (view === 'secrets') { current = null; selectTab('secrets'); loadSecrets(); return; }
+  if (view === 'secrets') { current = null; closeLightbox(); selectTab('secrets'); loadSecrets(); return; }
   selectTab('sessions');
   if (view === 'sessions' && key) {
     // A pasted or reloaded deep link never passed through the list, which is

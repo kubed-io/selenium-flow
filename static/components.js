@@ -338,6 +338,10 @@ const SF = (() => {
     document.addEventListener('keydown', onKey);
     render();
     document.body.appendChild(box);
+    // Handed back so a caller can close this instance from outside — a
+    // session switch, say. The same `close` every exit path here already
+    // uses; returning it is not page logic, just naming what exists.
+    return {close};
   }
 
   return {sessionList, fileGrid, fileSections, sessionSummary, lightbox, bytes, ago, esc};

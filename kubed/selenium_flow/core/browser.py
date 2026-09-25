@@ -403,10 +403,20 @@ class Grid:
             return bundle.read(member)
 
     def clear_files(self, session_id: str) -> None:
-        """Drop everything the session has downloaded, keeping the browser."""
-        requests.delete(
+        """Drop everything the session has downloaded, keeping the browser.
+
+        A 404 is success, same reasoning as `quit`: the browser or its file
+        store is already gone — a raced reap — so "already cleared" and "just
+        cleared" are the same answer. Anything else raises, so a Grid refusal
+        surfaces as a Grid refusal instead of the silent 200 an unchecked
+        response used to report.
+        """
+        response = requests.delete(
             f"{self.url}/session/{session_id}/se/files", timeout=self.timeout
         )
+        if response.status_code == 404:
+            return
+        response.raise_for_status()
 
     def status(self) -> dict:
         """The Grid's own readiness payload."""

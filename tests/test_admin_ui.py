@@ -245,6 +245,51 @@ def test_open_lightbox_reads_filesdata_directly(page):
     assert "'kept'" not in body
 
 
+def test_the_lightbox_returns_a_handle_to_close_it(components):
+    """A session switch has to be able to dismiss a lightbox from OUTSIDE
+    components.js, which stays render-only — so `lightbox` hands back the same
+    `close` every exit path already uses, rather than components.js reaching
+    into page state itself (Copilot, PR #41)."""
+    lightbox_src = components.split("function lightbox(")[1].split("\n  }\n")[0]
+    assert "return {close};" in lightbox_src
+    # Returned AFTER the box is actually on screen, not a promise of one.
+    assert lightbox_src.index("document.body.appendChild(box)") < lightbox_src.index(
+        "return {close};"
+    )
+
+
+def test_a_session_change_closes_the_open_lightbox(page):
+    """A → B must not leave A's lightbox clickable: its Keep/Delete closure
+    still names A, and the operator is now looking at B (Copilot, PR #41)."""
+    assert "let activeLightbox = null;" in page
+    assert "const closeLightbox = () => {" in page
+    open_body = page.split("function openLightbox(")[1][:2500]
+    assert "activeLightbox = SF.lightbox(" in open_body
+    # openSession: closed when the SESSION changes, before it starts loading B.
+    session_body = page.split("async function openSession(")[1].split("\n}\n")[0]
+    assert "closeLightbox();" in session_body
+    assert session_body.index("changed") < session_body.index("closeLightbox();")
+    # route(): closed when the detail view is left for another top tab.
+    route_body = page.split("function route()")[1].split("\n}\n")[0]
+    assert "closeLightbox();" in route_body
+    # showList() covers both "back to the session list" and the console tab,
+    # which routes through it too.
+    show_list_body = page.split("function showList()")[1].split("\n}\n")[0]
+    assert "closeLightbox();" in show_list_body
+
+
+def test_the_lightbox_action_refuses_a_session_that_has_moved_on(page):
+    """Belt and braces alongside `closeLightbox`: even if a click on Keep or
+    Delete races the very switch that would have closed the lightbox, `run`
+    checks `gone(key)` itself, before making any request (Copilot, PR #41)."""
+    body = page.split("function openLightbox(")[1][:2500]
+    assert "gone(key)" in body
+    assert "no longer on screen" in body
+    # The check has to guard the WHOLE action, not run alongside the request.
+    guarded = body.split("const guarded = (run) => (f) => ")[1].split(";\n")[0]
+    assert guarded.index("gone(key)") < guarded.index("run(f)")
+
+
 def test_the_lightbox_ignores_keys_while_a_modal_is_open_above_it(components):
     """The delete confirm opens ON TOP of the lightbox, and both have their own
     document-level `keydown` listener. Without a guard, Escape closed both at
