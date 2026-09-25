@@ -316,6 +316,14 @@ def test_the_budget_counts_bytes_not_characters(store, monkeypatch):
     assert len(calls) == 2
 
 
+def test_empty_documents_cannot_fill_the_cache_for_free():
+    """An empty file is zero bytes of source and still a key and a dict; with
+    no per-entry cost, a folder of them would grow the cache without bound."""
+    for n in range(6000):
+        flows.parse(f"# empty-probe {n}\n")
+    assert len(flows._parsed.cache) <= flows.CACHE_BYTES // flows.ENTRY_BYTES
+
+
 def test_flows_are_parsed_by_libyaml_when_the_wheel_has_it():
     """Ten times the pure-Python parser, and every platform we ship has it."""
     if not yaml.__with_libyaml__:
@@ -496,6 +504,27 @@ def test_a_linked_kept_file_is_never_listed(store, tmp_path):
     outside.write_bytes(b"secret")
     (tmp_path / "bot" / "files" / "linked.png").symlink_to(outside)
     assert [f["name"] for f in store.files("bot")] == ["real.png"]
+
+
+@pytest.mark.parametrize("swapped", ["files", "session"])
+def test_a_directory_swapped_for_a_link_after_it_was_checked_is_refused(
+    tmp_path, monkeypatch, swapped
+):
+    """Listings trust the directory `_resolved` returned rather than realpath
+    each entry, so a link swapped in after that check must still be refused,
+    whether it replaces the folder itself or a directory above it."""
+    root = tmp_path.resolve()
+    store = LocalFlowStore(root)
+    store.write_file("other", "private.png", b"png")
+    checked = root / "bot" / "files"
+    if swapped == "files":
+        (root / "bot").mkdir()
+        checked.symlink_to(root / "other" / "files")
+    else:
+        (root / "bot").symlink_to(root / "other")
+    monkeypatch.setattr(store, "_files_dir", lambda session, folder="files": checked)
+    with pytest.raises(InvalidName):
+        store.files("bot")
 
 
 def test_a_symlinked_flow_file_is_skipped_from_the_listing(store, tmp_path):

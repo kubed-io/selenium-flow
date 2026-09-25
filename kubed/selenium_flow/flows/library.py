@@ -260,6 +260,9 @@ _LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 # entry can be any size. Today's flows average 3KB, so this holds over a
 # thousand, and a document bigger than all of it is parsed but never kept.
 CACHE_BYTES = 4 * 2**20
+# What every entry costs beyond its source, the key and the parsed dict, so a
+# directory of empty files cannot fill the cache for free (Copilot, #45).
+ENTRY_BYTES = 1024
 
 
 @cached(
@@ -267,7 +270,7 @@ CACHE_BYTES = 4 * 2**20
     condition=threading.Condition(),
 )
 def _parsed(text: str) -> tuple[int, object]:
-    return len(text.encode()), yaml.load(text, Loader=_LOADER)
+    return len(text.encode()) + ENTRY_BYTES, yaml.load(text, Loader=_LOADER)
 
 
 def parse(text: str):
@@ -350,28 +353,50 @@ class FlowStore(Protocol):
 def _listed(directory: Path, usable) -> list[tuple[str, os.stat_result]]:
     """The regular files in one of the store's directories, with their stats.
 
-    ``directory`` has come through `_resolved`, so it is link-free already, and
-    what is left to refuse per entry is a link or a name ``usable`` rejects. That
-    used to be a realpath per entry, which was 67ms of a 100ms listing of 142
-    screenshots; scandir says which entries are links without asking (§F4.19).
+    ``directory`` has come through `_resolved`, and what is left to refuse per
+    entry is a link or a name ``usable`` rejects. That used to be a realpath per
+    entry, which was 67ms of a 100ms listing of 142 screenshots; scandir says
+    which entries are links without asking (§F4.19).
+
+    The per-entry realpath also caught a directory swapped for a link after
+    `_resolved` returned. So the directory is pinned by descriptor first, and
+    only listed if its path still resolves to itself and names the directory
+    held (Copilot, #45). A link is refused as `_resolved` would refuse it.
     """
-    if not directory.is_dir():
+    pinned = os.scandir in os.supports_fd
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(directory, flags) if pinned else None
+    except FileNotFoundError:
         return []
-    found = []
-    with os.scandir(directory) as entries:
-        for entry in entries:
-            if not entry.is_file(follow_symlinks=False):  # a link is not
-                continue
-            name = usable(entry.name)
-            if name is None:
-                continue
-            try:
-                found.append((name, entry.stat(follow_symlinks=False)))
-            except FileNotFoundError:
-                # Deleted between the listing and the stat. Its absence is
-                # itself a change, and the next poll will agree.
-                continue
-    return found
+    except OSError as exc:  # ELOOP or ENOTDIR: a link, or not a directory
+        raise InvalidName(f"{directory.name!r} is not a plain directory") from exc
+    try:
+        if not pinned and not directory.is_dir():
+            return []
+        held = os.fstat(fd) if pinned else None
+        if directory.resolve() != directory or (
+            pinned and not os.path.samestat(held, directory.stat())
+        ):
+            raise InvalidName(f"{directory.name!r} moved under a link while listed")
+        found = []
+        with os.scandir(fd if pinned else directory) as entries:
+            for entry in entries:
+                if not entry.is_file(follow_symlinks=False):  # a link is not
+                    continue
+                name = usable(entry.name)
+                if name is None:
+                    continue
+                try:
+                    found.append((name, entry.stat(follow_symlinks=False)))
+                except FileNotFoundError:
+                    # Deleted between the listing and the stat. Its absence is
+                    # itself a change, and the next poll will agree.
+                    continue
+        return found
+    finally:
+        if fd is not None:
+            os.close(fd)
 
 
 def _shaped(name: str, info: os.stat_result) -> dict:
