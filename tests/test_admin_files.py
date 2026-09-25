@@ -196,6 +196,8 @@ def test_a_broken_screenshot_store_is_a_5xx_not_a_404(client, live):
     assert response.status_code >= 500
     assert response.status_code < 600
     assert "/data/flows" not in response.text
+    # Signature-only route: no exception text at all, not even a scrubbed one.
+    assert response.json() == {"error": "the file could not be read right now"}
 
 
 # ---- the counts -----------------------------------------------------------

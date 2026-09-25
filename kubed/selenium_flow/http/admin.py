@@ -839,6 +839,29 @@ def register(
             text = f"{exc.strerror or type(exc).__name__} ({type(exc).__name__})"
         return JSONResponse({"error": text}, status_code=status)
 
+    def signed_refused(exc: Exception, what: str) -> JSONResponse:
+        """Answer a signature-only route's failure with no exception text at all.
+
+        `refused` above is for the token-guarded admin surface, where whoever
+        is asking already holds the one credential this server has. These
+        three routes (``file``, ``kept_file``, ``screenshot_file``) are not
+        that: a signed URL is a shareable link with no further auth check, so
+        anything `errors.message` might say — a Grid outage's
+        `requests.ConnectionError` names `GRID_URL`'s own host:port, a storage
+        fault can name a path under `FLOW_DATA_DIR` — must never reach it. Only
+        the status class survives to the body; the real detail still goes to
+        the log, same as `refused` (Copilot, PR #41).
+        """
+        status = errors.status_for(exc)
+        log.info("%s refused (%s): %s", what, status, errors.message(exc))
+        if status == 404:
+            text = "not found"
+        elif status < 500:
+            text = "this link cannot be served"
+        else:
+            text = "the file could not be read right now"
+        return JSONResponse({"error": text}, status_code=status)
+
     async def body_of(request: Request) -> dict:
         try:
             body = await request.json()
@@ -1057,7 +1080,7 @@ def register(
             # Grid or another failure must not be flattened into "not found" —
             # that tells a client to stop retrying something that could work on
             # a retry (Copilot, PR #41).
-            return refused(exc, f"reading {name} for {session_id}")
+            return signed_refused(exc, f"reading {name} for {session_id}")
         return served(name, data)
 
     @mcp.custom_route(
@@ -1091,7 +1114,7 @@ def register(
             # an absence, and must not be reported as one (Copilot, PR #41).
             return JSONResponse({"error": "not found"}, status_code=404)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
-            return refused(exc, f"reading kept {name} for {session}")
+            return signed_refused(exc, f"reading kept {name} for {session}")
         return served(name, data)
 
     @mcp.custom_route(
@@ -1130,5 +1153,5 @@ def register(
             # an absence, and must not be reported as one (Copilot, PR #41).
             return JSONResponse({"error": "not found"}, status_code=404)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
-            return refused(exc, f"reading screenshot {name} for {session}")
+            return signed_refused(exc, f"reading screenshot {name} for {session}")
         return served(name, data)

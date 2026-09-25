@@ -333,18 +333,32 @@ def test_a_grid_404_on_download_is_a_404(client):
     ):
         response = client.get(links.file_url("abc", "shot.png", TOKEN))
     assert response.status_code == 404
+    assert response.json() == {"error": "not found"}
 
 
 def test_an_unreachable_grid_on_download_is_a_503_not_a_404(client):
     """Before this fix every exception from the Grid was flattened into "not
     found" — a downed Grid told a client to stop retrying something that would
-    have worked a moment later (Copilot, PR #41)."""
+    have worked a moment later (Copilot, PR #41). And this route is authorised
+    by signature alone, not the admin token, so the body must not carry the
+    Grid's own address either: `requests.ConnectionError`'s message names the
+    host and port `urllib3` tried, e.g. `HTTPConnectionPool(host=...)`, and
+    that is `GRID_URL`'s own internals leaking to whoever holds the link."""
     with patch.object(
-        browser.Grid, "read_file", side_effect=requests.ConnectionError("no route")
+        browser.Grid,
+        "read_file",
+        side_effect=requests.ConnectionError(
+            "HTTPConnectionPool(host='selenium-grid.selenium.svc.cluster.local', "
+            "port=4444): Max retries exceeded"
+        ),
     ):
         response = client.get(links.file_url("abc", "shot.png", TOKEN))
     assert response.status_code == 503
-    assert response.json()["error"] != "not found"
+    body = response.text
+    assert "HTTPConnectionPool" not in body
+    assert "selenium-grid" not in body
+    assert "4444" not in body
+    assert response.json() == {"error": "the file could not be read right now"}
 
 
 def test_a_partial_download_is_never_served(client):
