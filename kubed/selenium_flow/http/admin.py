@@ -1000,7 +1000,7 @@ def register(
             if not isinstance(text, str) or not text.strip():
                 raise ValueError("yaml is required")
             try:
-                document = yaml.safe_load(text)
+                document = flows.parse(text)
             except yaml.YAMLError as exc:
                 raise ValueError(
                     f"that is not valid YAML: {flows.yaml_complaint(exc)}"

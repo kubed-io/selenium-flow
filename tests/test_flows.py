@@ -218,6 +218,54 @@ def test_a_yaml_file_that_is_not_a_mapping_reads_as_missing(store, tmp_path):
     assert store.get("bot", "list") is None
 
 
+# ---- parsing, which every listing pays for per flow (§F4.19) -----------------
+
+
+def test_a_hand_edit_is_read_at_once_not_from_a_cache(store, tmp_path):
+    """Parsed flows are cached, and a cache that served the old flow after an
+    edit would make the editor lie. Same length on purpose, so a key built from
+    size or a coarse mtime would miss it."""
+    store.save("bot", "login", {"description": "aaaa", "steps": []})
+    assert store.get("bot", "login")["description"] == "aaaa"
+    path = tmp_path / "bot" / "flows" / "login.yaml"
+    path.write_text(path.read_text().replace("aaaa", "bbbb"))
+    assert store.get("bot", "login")["description"] == "bbbb"
+
+
+def test_what_get_returns_is_the_callers_to_change(store):
+    """One parse is shared by every read of the same file, so handing out the
+    cached object would let one caller's edit leak into the next read."""
+    store.save("bot", "login", {"steps": [{"tool": "navigate", "args": {"url": "a"}}]})
+    first = store.get("bot", "login")
+    first["steps"][0]["args"]["url"] = "changed"
+    first["steps"].append({"tool": "back"})
+    assert store.get("bot", "login")["steps"] == [
+        {"tool": "navigate", "args": {"url": "a"}}
+    ]
+
+
+def test_a_flow_is_parsed_once_however_often_it_is_read(store, monkeypatch):
+    """The Secrets tab and every listing read every stored flow; parsing each
+    one again per request was 1.5s for 26 flows in the pod."""
+    store.save("bot", "once", {"description": "parsed-once-probe", "steps": []})
+    calls = []
+    real = flows.yaml.load
+    monkeypatch.setattr(
+        flows.yaml, "load", lambda *a, **k: calls.append(1) or real(*a, **k)
+    )
+    for _ in range(5):
+        assert store.get("bot", "once")["description"] == "parsed-once-probe"
+        store.summaries("bot")
+    assert len(calls) == 1
+
+
+def test_flows_are_parsed_by_libyaml_when_the_wheel_has_it():
+    """Ten times the pure-Python parser, and every platform we ship has it."""
+    if not yaml.__with_libyaml__:
+        pytest.skip("this PyYAML was built without libyaml")
+    assert flows._LOADER is yaml.CSafeLoader
+
+
 # ---- the store the environment asks for -------------------------------------
 
 
@@ -426,6 +474,16 @@ def test_a_yaml_complaint_never_quotes_the_line_it_choked_on():
     assert "hunter2" not in said
     assert "hunter2" in str(exc.value), "otherwise this test proves nothing"
     assert "line 6" in said and "column" in said
+
+
+def test_the_parser_the_store_uses_places_the_complaint_the_same_way():
+    """libyaml words its problem differently but marks the same spot, so the
+    editor's error points at the same line whichever parser read it."""
+    with pytest.raises(yaml.YAMLError) as exc:
+        flows.parse(BAD_YAML)
+    said = flows.yaml_complaint(exc.value)
+    assert "hunter2" not in said
+    assert "line 6, column 1" in said
 
 
 def test_a_yaml_complaint_survives_an_error_carrying_no_position():

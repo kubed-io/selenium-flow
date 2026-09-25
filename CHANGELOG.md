@@ -53,6 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Secrets tab and flow listings load at once**, where a couple of dozen stored flows took over a second.
+
 - **A flow run's default budget is 120 seconds**, down from 300. A flow meant to wait longer sets `timeout`.
 
 - **A failed MCP call reads like a failed HTTP call** — no Selenium stack dump for the caller, and a caller's mistake is one warning line in the log rather than a traceback.

@@ -690,6 +690,36 @@ Rulings taken during the build, each recorded when it was made:
   `svelte-*` class on every element in that component. Today's rules are
   untouched.
 
+### §F4.19 — The Secrets tab was slow, and it was the YAML parser
+
+Dr K, after #42 merged: *"The secrets page loads painfully slow … I'm guessing
+reading the files and folders directly is slow."* Measured in the pod, it was
+1.2–1.5s every time, well inside the catalogue's own 30s cache, so the
+catalogue was never the cost. The backlinks were: `secret_uses.uses` reads
+every stored flow in every session. Reading all 26 files took 15ms. Parsing
+them with PyYAML's pure-Python `safe_load` took 1.1s under the pod's 500m CPU
+limit. The flow listings (`summaries`) pay the same cost for the same reason.
+
+- **The C parser first.** libyaml was already in the image and parses the
+  same documents in a tenth of the time, one line to switch to. The store and
+  the YAML editor now share one `parse()`, so a document cannot validate under
+  one parser and read differently under the other. libyaml's messages never
+  quote the source line; the pure-Python parser, still the fallback without
+  it, does, and `yaml_complaint` keeps both quiet.
+- **Then cachetools, keyed on the text itself.** An `LRUCache` behind
+  `@cached`, locked, because the routes run in a thread pool. Not a TTL: a
+  save or a hand edit would show the old flow until it expired. Not an mtime:
+  a coarse clock or a same-size edit would do the same. Reading a file is
+  cheap and parsing it is not, so a key that *is* the content can never be
+  stale. Each caller gets a deep copy.
+- **1494ms → 137ms → 32ms**, by `uses()` in the pod: today, with libyaml,
+  with the cache warm.
+- **Not Redis, and not the browser.** Redis adds a network hop and a
+  serialisation to a problem that was CPU, and a single replica has nobody to
+  share with. localStorage would keep an operator's catalogue and flow names
+  past sign-out, for a list that changes on every `save_flow`. Neither is
+  needed at 32ms.
+
 ---
 
 ## Open questions

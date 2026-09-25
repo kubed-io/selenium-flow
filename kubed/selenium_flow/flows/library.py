@@ -32,13 +32,16 @@ trace to a decision they never made.
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
 import re
+import threading
 from pathlib import Path
 from typing import Protocol
 
 import yaml
+from cachetools import LRUCache, cached
 
 log = logging.getLogger(__name__)
 
@@ -245,6 +248,28 @@ def yaml_complaint(exc: Exception) -> str:
     if mark is None:
         return str(problem).strip()
     return f"{str(problem).strip()} (line {mark.line + 1}, column {mark.column + 1})"
+
+
+# libyaml when the wheel has it, which every platform we ship does. The
+# pure-Python parser is ten times slower, and a Secrets tab or a flow listing
+# parses every stored flow: 26 flows took 1.1s of CPU in the pod (§F4.19).
+_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
+
+@cached(LRUCache(maxsize=512), lock=threading.Lock())
+def _parsed(text: str):
+    return yaml.load(text, Loader=_LOADER)
+
+
+def parse(text: str):
+    """A YAML document, parsed once per distinct text (§F4.19).
+
+    Keyed on the text itself, not a TTL or an mtime: reading a file is cheap
+    and parsing it is not, and a key that *is* the content cannot serve a stale
+    flow after a save, a hand edit or a clock that ticks coarser than the disk.
+    A copy every time, because callers own what they get back.
+    """
+    return copy.deepcopy(_parsed(text))
 
 
 def _step_count(document: dict) -> int:
@@ -477,7 +502,7 @@ class LocalFlowStore:
         flow = valid_name(name, "flow name")
         path = self._path(session, flow)
         try:
-            loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+            loaded = parse(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return None
         # UnicodeDecodeError is a ValueError, NOT an OSError, so it needs
