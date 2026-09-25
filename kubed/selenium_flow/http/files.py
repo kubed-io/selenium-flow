@@ -310,6 +310,22 @@ def listing_of(
     return sorted(described, key=lambda f: f.get("created") or 0, reverse=True)
 
 
+def downloads_count(actions, session_id: str) -> int:
+    """How many downloads a session has, without describing or signing any of
+    them.
+
+    Reads the same source ``listing_of`` does for a live session — none is
+    called with no browser, exactly like ``listing_of`` — so the number
+    matches what ``folder(DOWNLOADS)`` would list, including the ``is_partial``
+    rule that drops a download still in flight (``Grid.files``). ``root`` only
+    ever wants the count, and ``listing_of`` cannot give it one without also
+    building a signed, described entry for every download — real work for a
+    session with many of them, paid on every ``session://files`` read
+    (Copilot).
+    """
+    return len(actions.grid.files(session_id)) if session_id else 0
+
+
 def root(
     actions, sessions, store, token, name: str, base: str = "", mount: str = ""
 ) -> dict:
@@ -328,9 +344,6 @@ def root(
     screenshots_count = (
         len(store.files(owned, SCREENSHOTS)) if store is not None and owned else 0
     )
-    downloads_list = listing_of(
-        actions, store, DOWNLOADS, owned, target, token, base, mount
-    )
     return {
         "session": owned or None,
         "count": len(file_list),
@@ -344,7 +357,7 @@ def root(
             {
                 "name": DOWNLOADS,
                 "uri": FOLDER_URI[DOWNLOADS],
-                "count": len(downloads_list),
+                "count": downloads_count(actions, target),
                 "browser": bool(target),
             },
         ],

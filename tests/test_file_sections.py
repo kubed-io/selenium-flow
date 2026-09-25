@@ -118,6 +118,45 @@ def test_with_no_browser_the_downloads_folder_says_so(store):
     }
 
 
+def test_the_root_counts_downloads_without_describing_them(store, monkeypatch):
+    """Copilot: the root listing must count downloads from the Grid's own
+    listing, not by describing (and signing) every one of them just to throw
+    the descriptions away. A session with many downloads pays for that on
+    every ``session://files`` read, and it is real work: content-type
+    guessing, a folder-count, and an HMAC signature per entry.
+
+    The in-flight file also proves the count still applies the partial-file
+    rule (``is_partial``, done by ``Grid.files`` itself) even though nothing
+    in ``root`` ever looks at the entries to filter them.
+    """
+
+    class PartialAwareGrid:
+        """Stands in for the real Grid.files, which already drops in-flight
+        downloads via ``is_partial`` before this module ever sees them."""
+
+        def __init__(self):
+            self.entries = [
+                {"name": "export.csv", "size": 3, "creationTime": 2},
+                {"name": "export.csv.crdownload", "size": 0, "creationTime": 3},
+            ]
+
+        def files(self, session_id):
+            from kubed.selenium_flow.core.browser import is_partial
+
+            return [e for e in self.entries if not is_partial(e["name"])]
+
+    def describe_must_not_see_downloads(folder, *a, **k):
+        if folder == files.DOWNLOADS:
+            raise AssertionError("root() must not describe downloads to count them")
+        return real_describe(folder, *a, **k)
+
+    real_describe = files.describe
+    monkeypatch.setattr(files, "describe", describe_must_not_see_downloads)
+
+    got = files.root(Actions(PartialAwareGrid()), Sessions(), store, TOKEN, S)
+    assert got["folders"][1]["count"] == 1
+
+
 def test_every_entry_carries_its_own_uri_and_no_kept_flag(store):
     store.create_file(S, "shot.png", b"s", flows.SCREENSHOTS_DIR)
     shot = files.folder(Actions(), Sessions(), store, TOKEN, S, "screenshots")["files"][0]
