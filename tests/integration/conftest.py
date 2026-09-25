@@ -31,6 +31,7 @@ Needs two settings, and skips without them:
 blank list was a Redis-only fault.
 """
 
+import contextlib
 import os
 import shutil
 import signal
@@ -75,6 +76,11 @@ def _wait_until_serving(url: str, process: subprocess.Popen, log: Path) -> None:
         except OSError:
             time.sleep(0.5)
     raise RuntimeError(f"the server never answered:\n{log.read_text()}")
+
+
+def _signal_group(process: subprocess.Popen, sig: int) -> None:
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(process.pid, sig)
 
 
 def _profiled(command: list[str]) -> list[str]:
@@ -130,12 +136,13 @@ def server(tmp_path_factory):
         yield local
     finally:
         # SIGINT to the group: the server shuts down the way Ctrl-C does, and
-        # py-spy, when it is there, stops and writes its profile.
-        os.killpg(process.pid, signal.SIGINT)
+        # py-spy, when it is there, stops and writes its profile. A server that
+        # died at startup has no group left, and that must not hide its log.
+        _signal_group(process, signal.SIGINT)
         try:
             process.wait(timeout=30)
         except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
+            _signal_group(process, signal.SIGKILL)
             process.wait(timeout=10)
         # The server's own log is the first thing a failure here needs.
         sys.stdout.write(log.read_text())
