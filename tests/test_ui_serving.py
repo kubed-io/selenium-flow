@@ -60,6 +60,17 @@ def test_a_server_value_is_escaped_for_the_attribute_it_lands_in(built_ui):
     assert "<b>" not in out
 
 
+def test_a_server_value_shaped_like_a_bundle_placeholder_is_not_rescanned(built_ui):
+    """A configured value that happens to read ``__JS__`` or ``__CSS__`` is
+    data in an attribute, not a second slot for the bundle — the whole shell
+    is filled in one pass so a substitution is never rescanned for one."""
+    out = admin.page("admin", MOUNT="/__JS__", CONSOLE="/__CSS__")
+    assert 'data-mount="/__JS__"' in out
+    assert 'data-console="/__CSS__"' in out
+    assert out.count("/* admin css */") == 1
+    assert out.count("/* admin js */") == 1
+
+
 def test_the_bundle_goes_in_after_the_placeholders(built_ui):
     """A placeholder-shaped string inside the bundle is never substituted."""
     (built_ui / "admin.js").write_text("const s = '__MOUNT__'")

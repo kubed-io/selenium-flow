@@ -99,22 +99,30 @@ def page(name: str, **substitutions: str) -> str:
 
     Deliberately not a template engine. The shell's own comments go first:
     they name the placeholders, and a comment filled with the bundle is a
-    second copy of it that any ``-->`` inside ends early. The placeholders are
-    filled next and the bundle last, in one pass, so nothing inside the bundle
-    is ever substituted; and a literal ``</script`` in it is escaped so it
-    cannot end the inline script early. The substitutions land in attribute
-    values, so they are HTML-escaped, quotes included.
+    second copy of it that any ``-->`` inside ends early. Everything else is
+    filled in a single pass over the shell — the bundle, and the
+    substitutions — so nothing inside the bundle is ever substituted, and a
+    substitution's own value (say a mount of ``/__JS__``) is never rescanned
+    as a placeholder and handed the bundle in its place. A literal
+    ``</script`` in the JS is escaped so it cannot end the inline script
+    early. The substitutions land in attribute values, so they are
+    HTML-escaped, quotes included.
     """
     html = re.sub(r"<!--.*?-->\n?", "", read(f"{name}.html"), flags=re.DOTALL)
-    for key, value in substitutions.items():
-        html = html.replace(f"__{key}__", escape(value, quote=True))
     bundle = {
         "CSS": read(f"{name}.css"),
         "JS": re.sub(r"</(script)", r"<\\/\1", read(f"{name}.js"), flags=re.IGNORECASE),
     }
-    # One pass over the shell, so neither half of the bundle is ever searched
-    # for the other's slot.
-    return re.sub(r"__(CSS|JS)__", lambda m: bundle[m.group(1)], html)
+
+    def fill(match: re.Match) -> str:
+        key = match.group(1)
+        if key in bundle:
+            return bundle[key]
+        if key in substitutions:
+            return escape(substitutions[key], quote=True)
+        return match.group(0)
+
+    return re.sub(r"__([A-Z]+)__", fill, html)
 
 
 def owner_label(key: str) -> dict:
