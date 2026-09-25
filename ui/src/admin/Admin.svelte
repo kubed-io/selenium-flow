@@ -5,8 +5,8 @@
   import { Live } from './live.svelte'
   import Login from './Login.svelte'
   import { go, hashes, listen, router } from './router.svelte'
+  import SessionDetail from './SessionDetail.svelte'
   import SessionsView from './SessionsView.svelte'
-  // Task 7: import SessionDetail from './SessionDetail.svelte'
   // Task 9: import SecretsPane from './SecretsPane.svelte'
 
   let { mount, console: consoleUrl }: { mount: string; console: string } = $props()
@@ -93,8 +93,11 @@
     {#if top === 'sessions'}
       <section id="paneSessions">
         {#if route.view === 'session'}
-          <!-- Task 7: {#key route.key}<SessionDetail … />{/key} -->
-          <div class="empty">Loading…</div>
+          <!-- Keyed: a switch destroys the old session's subtree — its loads,
+               its lightbox, its modal — and builds the new one from nothing. -->
+          {#key route.key}
+            <SessionDetail key={route.key} tab={route.tab} flow={route.flow} {api} {live} root={ROOT} />
+          {/key}
         {:else}
           <SessionsView {live} />
         {/if}
