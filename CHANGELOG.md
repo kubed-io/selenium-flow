@@ -49,6 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A Secrets tab** lists every secret's keys and where it may be used — never a value — and the flows that type it, including names no secret answers to.
 
+- **A source install can skip the admin UI.** Without `npm --prefix ui run build`, the admin page reads "Selenium Flow" and no MCP App is offered; every tool still works.
+
 ### Changed
 
 - **A flow run's default budget is 120 seconds**, down from 300. A flow meant to wait longer sets `timeout`.
@@ -88,6 +90,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A failed resource read no longer quotes the Grid's internal URL**, and a caller's bad read is one warning line in the log.
 
 - **`GET /secrets` is in the OpenAPI spec and the wiki.**
+
+- **The MCP App now starts.** Its SDK ships bundled and pinned, instead of loading from a CDN URL that 404'd.
 
 ## [0.2.0] - 2026-09-16
 

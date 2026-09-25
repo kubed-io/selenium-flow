@@ -136,6 +136,25 @@ input[type=password], input[type=text] {
 .pill.live { color: var(--ok); border-color: currentColor; }
 .pill.warn { color: var(--warn); border-color: currentColor; }
 
+/* Polish only (spec, difference 3): a soft pulse on the live badge's dot.
+   Global, not a component <style> block — a scoped `@keyframes` here would
+   force Svelte to scope every element in SessionsView.svelte, not just this
+   one, which is worse than one more rule in the shared sheet. */
+.dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 5px;
+  vertical-align: middle;
+  animation: dot-pulse 2s ease-in-out infinite;
+}
+@keyframes dot-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) {
+  .dot { animation: none; }
+}
+
 .files { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--gap); }
 
 .file {

@@ -1,0 +1,71 @@
+name: 🎨 UI
+# The Svelte admin UI and MCP App: lint, types, tests, the build and its size.
+# No `paths` filter on pull_request, deliberately: this job is REQUIRED.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call: {}
+
+permissions:
+  contents: read
+
+jobs:
+  ui:
+    name: UI
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+    - name: Setup Node
+      uses: actions/setup-node@v7
+      with:
+        node-version: 24
+        cache: npm
+        cache-dependency-path: ui/package-lock.json
+    - name: Install UI Dependencies
+      run: npm --prefix ui ci --no-audit --no-fund
+    - name: Lint
+      run: npm --prefix ui run lint
+    - name: Type-Check
+      run: npm --prefix ui run check
+    - name: Test
+      run: npm --prefix ui test
+    - name: Build
+      run: npm --prefix ui run build
+    # page() inlines exactly these; a code-split chunk would be a file the page
+    # never loads.
+    - name: Six Files
+      run: |
+        actual="$(cd kubed/selenium_flow/http/static && ls -A | sort | tr '\n' ' ')"
+        expected="admin.css admin.html admin.js app.css app.html app.js "
+        if [ "$actual" != "$expected" ]; then
+          echo "::error::expected '$expected', the build wrote '$actual'"
+          exit 1
+        fi
+    # page() inlines these files into an HTML string; a literal `<script` or
+    # `</style` in the built output would close the surrounding element early
+    # and break the admin page, so the build itself is the gate for it.
+    - name: Bundle Guard
+      run: |
+        fail=0
+        for f in kubed/selenium_flow/http/static/*.js; do
+          if grep -il '<script' "$f" >/dev/null; then
+            echo "::error file=$f::built JS contains '<script', which would end page()'s inline <script> element early"
+            fail=1
+          fi
+        done
+        for f in kubed/selenium_flow/http/static/*.css; do
+          if grep -il '</style' "$f" >/dev/null; then
+            echo "::error file=$f::built CSS contains '</style', which would end page()'s inline <style> element early"
+            fail=1
+          fi
+        done
+        exit "$fail"
+    - name: Size
+      run: npm --prefix ui run size

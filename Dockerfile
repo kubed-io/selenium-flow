@@ -41,6 +41,17 @@
 # they are described separately.
 ARG PY_VERSION=3.14
 
+# ---- ui: the admin UI, built by npm (§F4.15). Its own stage so Node never
+#      reaches the runner; the lockfile alone first, so a UI edit does not
+#      reinstall the toolchain. The output is platform-independent, so it is
+#      built once on the build host, never again under emulation for arm64.
+FROM --platform=$BUILDPLATFORM node:24-slim AS ui
+WORKDIR /ui
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY ui/ ./
+RUN npm run build
+
 # ---- builder: the FAT image, because nothing in it ships.
 #      python:${PY_VERSION} already carries git — which setuptools_scm needs to
 #      resolve the version — and a toolchain for any dependency that has no
@@ -78,6 +89,10 @@ SHELL
 # Then our own code, which changes on every commit and installs in seconds.
 COPY . .
 
+# The built UI into the package, where pip collects it (§F4.17: optional for a
+# source install; the image always has it).
+COPY --from=ui /kubed/selenium_flow/http/static kubed/selenium_flow/http/static
+
 RUN <<'SHELL'
 set -eu
 git config --global --add safe.directory /app
@@ -100,12 +115,11 @@ FROM python:${PY_VERSION}-slim AS runner
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
 
-# Copied to the SAME path it was created at, which is the one rule. A venv is
-# this project's node_modules — one self-contained directory you move across
-# and call it done — except that node_modules is relocatable and a venv is not:
-# it records its own absolute path in pyvenv.cfg and in every console script's
-# shebang. Land it anywhere else and it points at an interpreter that is not
-# there.
+# Copied to the SAME path it was created at, which is the one rule. A venv
+# packages everything installed into one self-contained directory a single
+# COPY can move — except it is not freely relocatable: it records its own
+# absolute path in pyvenv.cfg and in every console script's shebang. Land it
+# anywhere else and it points at an interpreter that is not there.
 #
 # The venv is built against python:${PY_VERSION} and run on its -slim variant:
 # same Debian, same interpreter at the same path, so the symlinks and

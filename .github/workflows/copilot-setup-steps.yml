@@ -57,6 +57,18 @@ jobs:
     - name: Install
       run: pip install --editable .[test,build]
 
+    # Node for the admin UI in ui/ — the agent's own toolchain, not a build the
+    # Python install depends on.
+    - name: Setup Node
+      uses: actions/setup-node@v7
+      with:
+        node-version: 24
+        cache: npm
+        cache-dependency-path: ui/package-lock.json
+
+    - name: Install UI Dependencies
+      run: npm --prefix ui ci
+
     # A cheap proof the environment is actually usable, so a broken setup fails
     # here rather than halfway through the agent's first task.
     - name: Verify

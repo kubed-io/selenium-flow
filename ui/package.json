@@ -1,0 +1,37 @@
+{
+  "name": "selenium-flow-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "clean": "node -e \"require('fs').rmSync('../kubed/selenium_flow/http/static', {recursive: true, force: true})\"",
+    "build": "npm run clean && vite build --mode admin && vite build --mode app",
+    "dev": "npm run clean && (vite build --mode admin --watch & vite build --mode app --watch)",
+    "test": "vitest run",
+    "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "lint": "eslint .",
+    "size": "node scripts/size.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "2.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/svelte": "5.4.2",
+    "@testing-library/user-event": "14.6.7",
+    "@tsconfig/svelte": "5.0.8",
+    "@types/node": "24.13.6",
+    "eslint": "10.11.0",
+    "eslint-plugin-svelte": "3.23.0",
+    "globals": "17.12.0",
+    "jsdom": "30.1.1",
+    "svelte": "5.57.1",
+    "svelte-check": "4.7.6",
+    "svelte-eslint-parser": "1.8.1",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.70.1",
+    "vite": "8.3.1",
+    "vitest": "5.0.2"
+  }
+}

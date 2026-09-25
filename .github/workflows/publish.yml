@@ -6,6 +6,7 @@ name: 🧬 Publish Version
 #
 #   test    → the full 3.10 → 3.14 matrix. A release is the one moment the
 #             compatibility sweep has to be green, so it gates everything below.
+#   ui      → ui.yml, gating beside test: the image and the wheel inline its build.
 #   version → roll CHANGELOG [Unreleased], commit + tag on main. The ONLY job
 #             that writes a file or a tag; it emits the tag consumed downstream.
 #   image   → check out that tag and push kubed/selenium-flow:<tag>
@@ -66,12 +67,18 @@ jobs:
     name: Test
     uses: ./.github/workflows/test.yml
 
+  ui:
+    name: UI
+    uses: ./.github/workflows/ui.yml
+
   # ---------------------------------------------------------------------------
   # Bump the changelog + tag. Owns every write; emits the tag/version.
   # ---------------------------------------------------------------------------
   version:
     name: Version
-    needs: test
+    needs:
+    - test
+    - ui
     runs-on: ubuntu-latest
     permissions:
       contents: write   # commit the rolled CHANGELOG + push the tag to main

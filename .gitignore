@@ -35,3 +35,7 @@ venv/
 # Logs
 *.log
 
+# The built UI (npm --prefix ui run build). Generated, never committed (§F4.15).
+kubed/selenium_flow/http/static/
+node_modules/
+

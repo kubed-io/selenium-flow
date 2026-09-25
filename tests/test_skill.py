@@ -240,7 +240,7 @@ async def test_switching_the_skill_off_removes_its_resources():
     assert RESOURCE_URI not in uris and MANIFEST_URI not in uris
 
 
-async def test_every_tool_and_resource_has_a_row_on_the_page_it_always_reads(server):
+async def test_every_tool_and_resource_has_a_row_on_the_page_it_always_reads(built_ui, server):
     """An agent that misreads its own task skips a router but scans a table.
 
     The first agent to fly a real app read FLOWS.md and never opened

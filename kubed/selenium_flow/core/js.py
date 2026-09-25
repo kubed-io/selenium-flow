@@ -8,8 +8,8 @@ as `/\\s+/`, and a missing backslash was a SyntaxWarning at import and a broken
 script at run time.
 
 So they are files now, in `js/` at the repo root, and `pyproject.toml` maps that
-directory into the package the same way it maps `prompts/`, `skills/` and
-`static/` — it reads as source in a checkout and installs inside the wheel. Get
+directory into the package the same way it maps `prompts/` and `skills/` — it
+reads as source in a checkout and installs inside the wheel. Get
 the mapping wrong and the scripts are simply absent from an installed copy, so
 `tests/test_packaging.py` asserts every mapped directory exists and rebuilds the
 image, and `tests/test_js.py` asserts every file parses and is actually used.

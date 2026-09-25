@@ -43,7 +43,9 @@ on:
     # the wheel and therefore in the image. Left out of this list, an admin UI
     # or skill change builds nothing and the deployed image silently keeps the
     # old one — which happened. tests/test_packaging.py guards the pairing.
-    - static/**
+    # ui/** is the Svelte source the image's own `ui` stage builds — there is
+    # no static/ directory to watch any more, it is gitignored build output.
+    - ui/**
     - skills/**
     - prompts/**
     - js/**

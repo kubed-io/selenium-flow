@@ -2,7 +2,7 @@
 
 The Grid owns the file store, so nothing here dials a browser. What is asserted
 is the part this server actually decides: who may fetch a file, which shape a
-given client is offered, and that the two surfaces show the same components.
+given client is offered.
 """
 
 import json
@@ -144,117 +144,6 @@ def test_describe_marks_images_and_types():
 
 
 # --- the admin surface ----------------------------------------------------
-
-
-def test_the_admin_page_needs_no_token(client):
-    """It is the sign-in form; everything it displays is fetched separately."""
-    page = client.get("/admin")
-    assert page.status_code == 200
-    assert "MCP token" in page.text
-
-
-def test_the_admin_page_carries_the_shared_components(client):
-    """The dashboard and the app must render from one library, not two."""
-    page = client.get("/admin").text
-    assert "const SF" in page and "SF.fileGrid" in page
-    assert "--accent" in page, "the shared stylesheet is missing"
-
-
-def test_both_destructive_actions_ask_first_and_report_a_failure(client):
-    """They no longer share one helper, and that is deliberate: Clear downloads
-    has to **list** the files it will remove (§F1.36), which a native confirm()
-    cannot do, so it goes through the modal instead.
-
-    What was worth keeping is what is asserted here. A button wired to nothing
-    fails silently, which is the worst kind, and two buttons wired separately is
-    how one ends up without the confirm or the error the other has — they had
-    drifted into a red button and a plain one, where only one of them told you
-    anything had gone wrong. So: both read as destructive, both ask first, and
-    both say something when they fail.
-    """
-    page = client.get("/admin").text
-    for button in ("clearDownloads", "endBrowser"):
-        assert f'id="{button}" class="danger"' in page, button
-
-    # Ending the browser keeps the shared helper, which owns its confirm,
-    # its DELETE and its failure alert.
-    assert "function destructive(id," in page
-    assert "destructive('endBrowser'" in page
-    assert "'/admin/sessions/' + encodeURIComponent(key) + path, 'DELETE'" in page
-
-    # Clearing goes through the modal, which asks and reports the same way.
-    assert "$('clearDownloads').onclick" in page
-    assert "title: 'Clear downloads'" in page
-    assert "alert(err.message)" in page, "the modal swallows failures"
-
-
-def test_neither_toolbar_action_is_offered_without_a_browser(client):
-    """A control that does nothing is worse than one that is visibly off.
-
-    Ending the browser only needs it attached; clearing downloads needs it
-    actually LIVE, a stricter check — the Grid deletes its download store with
-    the browser, so an attached-but-dead session has nothing left to clear.
-    Asserted on `showDetail`, which is the one place the header is drawn, from
-    a fetch and from a pushed update alike, so neither can be left enabled on a
-    session that went idle while someone was looking at it.
-    """
-    page = client.get("/admin").text
-    assert "function showDetail(row)" in page
-    assert "$('endBrowser').disabled = !row.attached;" in page
-    assert "$('clearDownloads').disabled = !row.live || filesData === NO_FILES;" in page
-
-
-def test_the_detail_view_is_updated_by_the_event_stream(client):
-    """It used to drop every event while the detail view was open, to avoid
-    clobbering a file grid. The effect was a header that never changed: a
-    browser attaching to the session you were looking at only showed if you
-    navigated out and back."""
-    page = client.get("/admin").text
-    assert "if ($('detailView').hidden) paint(data); else refreshDetail(data);" in page
-
-
-def test_a_changed_browser_clears_the_file_grid(client):
-    """The Grid keeps a file store per browser and deletes it with the browser,
-    so after a switch Downloads on screen does not merely look stale — it is
-    gone, and leaving it up for the length of a fetch offers files that 404.
-    Screenshots and Files are untouched: both belong to the session, not the
-    browser, and survive the switch."""
-    page = client.get("/admin").text
-    detail = page.split("function refreshDetail(data)")[1].split("\n}\n")[0]
-    assert "(row.session_id || null) !== shownBrowser" in detail
-    assert "SF.fileGrid($('downloads'), []" in detail
-    assert "SF.fileGrid($('screenshots')" not in detail
-
-
-def test_the_file_grid_is_not_redrawn_on_every_heartbeat(client):
-    """Redrawing it would close a lightbox and lose a scroll position, for a
-    payload that says nothing new about the files."""
-    page = client.get("/admin").text
-    assert "if (filesStamp(row) !== shownFiles) loadFiles(current);" in page
-
-
-def test_a_dead_event_stream_is_reopened_with_a_fresh_url(client):
-    """The stream URL is signed and expires. EventSource reconnects on its own,
-    but only ever to the URL it was given — so after the expiry it retries a URL
-    that can never work again, for the life of the tab."""
-    page = client.get("/admin").text
-    assert "if (events) { events.close(); events = null; }" in page
-    assert "watch(data.events_url);" in page
-
-
-def test_the_components_render_no_action_buttons(client):
-    """Acting on a session belongs in the detail toolbar, where the page already
-    has one. A button inside a card sits next to the status pill and makes that
-    pill look clickable — and these same components render inside an MCP app
-    that holds no credential, where any action would be dead."""
-    page = client.get("/admin").text
-    # Just the component library: the page's own toolbar lives outside it and
-    # is exactly where the destructive button is supposed to be.
-    components = page.split("const SF")[1].split("})();")[0]
-    assert "opts.onend" not in components
-    assert "createElement('button')" not in components, (
-        "an action button leaked into the shared component library"
-    )
 
 
 def test_the_admin_api_requires_the_token(client):
@@ -481,7 +370,7 @@ async def test_files_are_a_resource_and_a_template(server):
     assert "session://files/{name}" in templates
 
 
-async def test_the_mcp_surface_never_lists_other_sessions(server):
+async def test_the_mcp_surface_never_lists_other_sessions(built_ui, server):
     """A client owns one session and may only ever see that one.
 
     The session list is an admin view over HTTP, deliberately not a tool and not
@@ -497,25 +386,25 @@ async def test_the_mcp_surface_never_lists_other_sessions(server):
     assert "session://current" in uris
 
 
-async def test_the_app_shell_is_a_ui_resource(server):
+async def test_the_app_shell_is_a_ui_resource(built_ui, server):
     uris = {str(r.uri) for r in await server.mcp.list_resources()}
     assert apps.RESOURCE_URI in uris
 
 
-async def test_the_file_tools_are_hidden_from_a_resource_client(server):
+async def test_the_file_tools_are_hidden_from_a_resource_client(built_ui, server):
     """A mirror is noise for a client that can read the resource itself."""
     names = {t.name for t in await server.mcp.list_tools()}
     assert "session_files" not in names
 
 
-async def test_the_file_tools_return_for_a_client_that_renders_apps(server):
+async def test_the_file_tools_return_for_a_client_that_renders_apps(built_ui, server):
     """For that client the tool is the only route to a rendered component."""
     with patch.object(apps, "supported", return_value=True):
         names = {t.name for t in await server.mcp.list_tools()}
     assert "session_files" in names
 
 
-async def test_apps_can_be_turned_off():
+async def test_apps_can_be_turned_off(built_ui):
     off = SeleniumMCP(
         grid_url="http://grid.invalid:4444", auth_token=TOKEN, apps_enabled=False
     )
@@ -525,21 +414,9 @@ async def test_apps_can_be_turned_off():
     assert "session://files" in uris
 
 
-def test_the_app_csp_admits_our_own_origin_and_the_sdk():
-    """An app gets no network by default, so both have to be declared."""
-    csp = apps.config_for("https://selenium.example.com/flow").csp
-    # Compared element-wise rather than with `in`. It is already exact — these
-    # are lists, so `in` is membership, not a substring test — but the reader
-    # that flags this cannot tell the two apart, and neither can a person
-    # skimming. Being explicit costs nothing and the substring version of this
-    # check is a real bug elsewhere (see the origin matching in secrets.py).
-    assert any(d == "https://selenium.example.com" for d in csp.resource_domains)
-    assert any(d == apps.SDK_ORIGIN for d in csp.resource_domains)
-
-
 def test_the_app_csp_omits_an_origin_it_does_not_have():
     csp = apps.config_for("").csp
-    assert csp.resource_domains == [apps.SDK_ORIGIN]
+    assert csp.resource_domains == csp.connect_domains == []
 
 
 # --- the live event stream ------------------------------------------------
@@ -576,18 +453,3 @@ def test_the_event_stream_signature_is_bound_to_its_own_path(client):
     query = url.split("?", 1)[1]
     assert client.get(f"/files/abc/shot.png?{query}").status_code == 403
 
-
-def test_the_flow_panel_shows_a_selector_as_one_expression():
-    """`{"css": "button.go"}` is how a selector travels, not how it reads.
-
-    The server's step summary already unwraps it — `summarise` prints
-    `css='button.go'` — so a panel that stringifies the object makes the same
-    step look like two different things depending on where you read it.
-    """
-    from kubed.selenium_flow.http import admin
-
-    page = admin.read("admin.html")
-    assert "const selectorText" in page, "the panel still dumps the raw object"
-    assert "selectorText(v)" in page, "argsOf does not consult it"
-    # Still JSON for anything genuinely structured — a `parameters` object, say.
-    assert "JSON.stringify(v)" in page
