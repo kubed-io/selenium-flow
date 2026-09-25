@@ -32,7 +32,7 @@
     {#if s.source}<div class="fact"><span class="k">from</span><span class="small muted">{s.source + ' · ' + (s.location || '')}</span></div>{/if}
     <div class="used">
       <div class="k">USED BY</div>
-      {#each s.uses || [] as u (u.flow + (u.session ?? ''))}
+      {#each s.uses || [] as u (`${u.session ?? ''}/${u.flow}`)}
         <div class="use">
           <span class="pill name">{u.flow}</span>
           <span class="small muted">step{u.steps.length === 1 ? ' ' : 's '}{u.steps.join(', ')}</span>

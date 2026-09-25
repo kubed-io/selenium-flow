@@ -36,6 +36,23 @@ test('Loading…, then a card per secret with keys, allowed, source and backlink
   expect(ghost.querySelector('.pill.warn')).toHaveTextContent('not defined')
 })
 
+test('uses keyed by session+flow do not collide when the concatenation does', async () => {
+  fakeFetch({ 'GET /admin/secrets': { body: {
+    enabled: true,
+    secrets: [
+      { name: 's', keys: ['k'], uses: [{ flow: 'ab', steps: [1], session: 'c' }, { flow: 'a', steps: [1], session: 'bc' }] },
+    ],
+    undefined: [],
+  } } })
+  const { container } = render(SecretsPane, { api })
+  await vi.waitFor(() => expect(screen.getByRole('heading', { name: 'Secrets' })).toBeInTheDocument())
+  const rows = container.querySelectorAll('.use')
+  expect(rows).toHaveLength(2)
+  const hrefs = Array.from(rows).map((r) => r.querySelector('a')?.getAttribute('href'))
+  expect(hrefs).toContain('#/sessions/c/flows/ab')
+  expect(hrefs).toContain('#/sessions/bc/flows/a')
+})
+
 test('off, and an error (S1)', async () => {
   fakeFetch({ 'GET /admin/secrets': { body: { enabled: false, secrets: [], undefined: [] } } })
   const r = render(SecretsPane, { api })
