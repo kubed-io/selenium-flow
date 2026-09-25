@@ -844,6 +844,15 @@ class Actions:
     ) -> dict:
         """Attach a file to a file input.
 
+        ``session`` names which library ``file`` is read from, for a **flow
+        run** only — ``flows/run.py`` injects it via ``routes.LIBRARY_ARG`` so
+        a step reads the library the flow itself belongs to. Neither the MCP
+        tool nor the HTTP dispatcher exposes it as a field a caller can set:
+        `routes._add` excludes it from the accepted body, so a request naming
+        another session here is dropped like any other unknown field rather
+        than honoured (Copilot, #41). Passed as anything but that internal
+        injection, it is ignored and the calling session answers instead.
+
         The file arrives one of four ways, and exactly one is required:
 
         - ``text`` — the file's content as plain text. This is the one to use
@@ -910,8 +919,9 @@ class Actions:
             # `session` names WHICH library, and is not `session_id`, which
             # names the browser. Both appear on `/files/list` for the same
             # reason: a file store outlives the browser that filled it, so the
-            # two are different questions. An MCP caller passes neither - its
-            # key answers the first and the server the second.
+            # two are different questions. Neither an MCP caller nor an HTTP
+            # caller can pass this one - its key answers the first and the
+            # server the second; only a flow run's own injection does.
             name, raw = self.read_file(str(file), str(session) if session else None)
             # The file's own name is the default, because its extension is
             # what the page reads the type from and a caller uploading

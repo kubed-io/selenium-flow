@@ -73,6 +73,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **BREAKING:** a server configured for Redis that cannot reach it now refuses to start, rather than running on in-memory sessions until someone notices.
 
+- **BREAKING:** `POST /browser/upload` no longer takes a `session` field; a file is always read from the calling session.
+
 ### Fixed
 
 - **Cancelling `run_flow` stops the run** instead of leaving it to drive the browser to the end.

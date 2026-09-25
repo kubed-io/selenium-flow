@@ -704,8 +704,9 @@ def test_the_flows_stamp_is_not_a_count(page):
 
 def test_opening_a_session_forgets_what_the_last_one_showed(page):
     """Every stamp resets together, or the new session inherits the old one's
-    and the first repaint is skipped."""
-    assert "shownFiles = shownBrowser = shownFlows = null;" in page
+    and the first repaint is skipped. `shownLive` joined the chain once
+    `refreshDetail` started comparing it too (Copilot, PR #41)."""
+    assert "shownFiles = shownBrowser = shownLive = shownFlows = null;" in page
 
 
 def test_two_loads_of_the_same_panel_cannot_race_each_other(page):
@@ -973,3 +974,120 @@ def test_the_keep_tile_is_disabled_for_its_own_round_trip(page):
     assert "mark.disabled = true;" in handler
     catch = handler.split("} catch (err) {")[1]
     assert "mark.disabled = false;" in catch
+
+
+# ---- fix round: PR #41 review, round 4 (2026-09-25) --------------------------
+#
+# `closeLightbox` only ever dismissed the ONE box it tracks. A lightbox's own
+# Delete opens a SECOND, separate confirm on top of it — `modal()`, not
+# `SF.lightbox` — and a session switch closed the lightbox while leaving that
+# confirm fully open and clickable, its `onconfirm` still reading the old
+# session's key. The same was true of every other `modal()` a click can leave
+# open: the flow editor's save, move and delete, and Clear downloads/
+# screenshots. Two changes close the gap: `modal()` is now tracked and closed
+# from outside exactly like a lightbox is (`closeModal`, run everywhere
+# `closeLightbox` is), and every onconfirm that fires a request against a
+# captured `key` checks `refuseIfGone(key)` again, first thing, in case a
+# click and the switch that should have cancelled it land back to back.
+
+
+def test_modal_exposes_a_cancel_path_a_session_switch_can_drive(page):
+    """`box.close` is `modal()`'s own `close` — the cancel path, oncancel and
+    all — not a bare `box.remove()` that would leave a disabled confirm button
+    stuck and an editor's `oncancel` unfired."""
+    body = page.split("function modal({")[1].split("\n}\n")[0]
+    assert "activeModal = box;" in body
+    assert "box.close = close;" in body
+    assert "if (activeModal === box) activeModal = null;" in body
+    # Exposed only once the cancel path itself is built, not before.
+    assert body.index("const close = () => {") < body.index("box.close = close;")
+
+
+def test_a_session_change_also_cancels_any_open_modal(page):
+    """`closeLightbox` alone left a save/move/delete confirm fully open and
+    clickable after the operator switched sessions. `closeModal` now runs
+    everywhere `closeLightbox` does, so a switch cancels both the same way."""
+    assert "let activeModal = null;" in page
+    assert "const closeModal = () => {" in page
+    session_body = page.split("async function openSession(")[1].split("\n}\n")[0]
+    assert "closeLightbox();" in session_body and "closeModal();" in session_body
+    route_body = page.split("function route()")[1].split("\n}\n")[0]
+    assert "closeLightbox();" in route_body and "closeModal();" in route_body
+    show_list_body = page.split("function showList()")[1].split("\n}\n")[0]
+    assert "closeLightbox();" in show_list_body and "closeModal();" in show_list_body
+
+
+def test_every_onconfirm_that_acts_on_a_captured_key_rechecks_it_first(page):
+    """The backstop `closeModal` cannot cover: a click on a modal's own
+    confirm button and a session switch can still land back to back. Seven
+    sites fire a request against a `key` read before their modal opened — the
+    lightbox delete, the tile delete, the flow editor's save, move and
+    delete, and Clear downloads/screenshots — and every one now checks
+    `refuseIfGone(key)` again first."""
+    assert page.count("refuseIfGone(key);") == 7
+
+
+def test_the_lightbox_deletes_onconfirm_rechecks_the_session(page):
+    body = page.split("function openLightbox(")[1][:2500]
+    onconfirm = body.split("onconfirm: async () => {")[1].split("},\n")[0]
+    assert onconfirm.index("refuseIfGone(key);") < onconfirm.index("await api(")
+
+
+def test_the_tile_deletes_onconfirm_rechecks_the_session(page):
+    body = page.split("const drop = mark.getAttribute('data-delete');")[1].split("\n  });\n")[0]
+    onconfirm = body.split("onconfirm: async () => {")[1]
+    assert onconfirm.index("refuseIfGone(key);") < onconfirm.index("await api(")
+
+
+def test_the_flow_editors_save_rechecks_the_session(page):
+    body = page.split("title: 'Edit ' + doc.name,")[1].split("\n    });\n")[0]
+    onconfirm = body.split("onconfirm: async (sheet) => {")[1]
+    assert onconfirm.index("refuseIfGone(key);") < onconfirm.index("await api(")
+
+
+def test_moving_a_flow_rechecks_the_session(page):
+    body = page.split("confirm: 'Move',")[1].split("\n    });\n")[0]
+    assert body.index("refuseIfGone(key);") < body.index("await api(")
+
+
+def test_deleting_a_flow_rechecks_the_session(page):
+    body = page.split("title: 'Delete this flow?',")[1].split("\n    });\n")[0]
+    assert body.index("refuseIfGone(key);") < body.index("await api(")
+
+
+def test_clear_downloads_rechecks_the_session(page):
+    handler = page.split("$('clearDownloads').onclick")[1].split("\n};\n")[0]
+    assert handler.index("refuseIfGone(key);") < handler.index("await api(")
+
+
+def test_clear_screenshots_rechecks_the_session(page):
+    handler = page.split("$('clearScreenshots').onclick")[1].split("\n};\n")[0]
+    assert handler.index("refuseIfGone(key);") < handler.index("await api(")
+
+
+def test_refresh_detail_treats_a_liveness_flip_like_a_browser_change(page):
+    """A reap or a restart inside the same session can leave the recorded Grid
+    id UNCHANGED — `live` going false, or a replacement browser hiding behind
+    the same id — which `session_id` alone did not catch. `shownLive` rides
+    alongside it now, so either one changing enters the same branch."""
+    detail = page.split("function refreshDetail(data)")[1].split("\n}\n")[0]
+    assert "!!row.live !== shownLive" in detail
+    assert "(row.session_id || null) !== shownBrowser || !!row.live !== shownLive" in detail
+    assert "shownLive = !!row.live;" in detail
+
+
+def test_a_stale_downloads_lightbox_is_closed_before_the_browser_changes(page):
+    """An open Downloads lightbox holds the OLD browser's list, and its Keep
+    would act against a browser that is already gone — so it is closed before
+    `filesData` is dropped and the grid is blanked. Screenshots and Files
+    belong to the session, not the browser, and stay valid across this, so
+    only a lightbox opened on `'downloads'` is the one closed."""
+    detail = page.split("function refreshDetail(data)")[1].split("\n}\n")[0]
+    branch = detail.split(
+        "if ((row.session_id || null) !== shownBrowser || !!row.live !== shownLive) {"
+    )[1].split("\n  }\n")[0]
+    assert "activeLightboxFolder === 'downloads'" in branch
+    assert "closeLightbox();" in branch
+    assert branch.index("activeLightboxFolder === 'downloads'") < branch.index(
+        "shownBrowser = row.session_id"
+    )

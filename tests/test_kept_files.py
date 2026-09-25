@@ -872,18 +872,16 @@ def test_upload_sends_any_file_named_by_its_uri(actions, uri, monkeypatch):
     )
 
 
-def test_an_http_caller_can_name_the_library_its_file_was_kept_in(
-    actions, monkeypatch
-):
-    """`/files/keep` takes `session` in its body, and `/browser/upload` had no
-    way to say the same thing — so a caller that kept a file into `desktop`
-    landed in `global` when it tried to upload it back (Copilot, #31). The HTTP
-    surface is always explicit; this is that contract, on this action."""
-    asked = {}
+def _stage_upload(server, monkeypatch):
+    """A driver double that lets an upload run without a real Grid, and
+    records the bytes Selenium was handed."""
+    sent = {}
 
     class _Element:
-        def send_keys(self, _path):
-            pass
+        def send_keys(self, path):
+            from pathlib import Path
+
+            sent["bytes"] = Path(path).read_bytes()
 
     class _Driver:
         current_url = "https://example.test/upload"
@@ -892,36 +890,95 @@ def test_an_http_caller_can_name_the_library_its_file_was_kept_in(
         def execute_script(self, *_a, **_k):
             return None
 
-    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
+    monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(server.actions, "_at", lambda *a, **k: _Driver())
     monkeypatch.setattr(browser, "accept_local_files", lambda _d: None)
     monkeypatch.setattr(
         "kubed.selenium_flow.core.browser.wait_for_element", lambda *a, **k: _Element()
     )
+    return sent
+
+
+def test_a_session_field_on_the_upload_body_never_reaches_the_action(
+    kept_server, client, monkeypatch
+):
+    """`session` is `LIBRARY_ARG`'s injection point — a flow run's own way of
+    saying which library a step reads from — and `routes._add` used to derive
+    the accepted body straight off `Actions.upload_file`'s signature, which
+    cannot tell that argument apart from an ordinary one. An HTTP caller could
+    POST `session=<another session>` and read a file it never kept (Copilot,
+    #41). It is now excluded from `accepted` the same way `session_id` always
+    was, so it is dropped like any other field the route does not know, never
+    forwarded to the action."""
+    _stage_upload(kept_server, monkeypatch)
+    asked = {}
 
     def reader(uri, session=None):
         asked["session"] = session
         return "export.csv", b"x"
 
-    actions.read_file = reader
-    actions.upload_file(
-        "abc",
-        selector={"css": "input"},
-        file="session://files/export.csv",
-        session="desktop",
+    monkeypatch.setattr(kept_server.actions, "read_file", reader)
+
+    response = client.post(
+        "/browser/upload",
+        json={
+            "selector": {"css": "input"},
+            "file": "session://files/export.csv",
+            "session": "someone-elses-session",
+        },
+        headers=AUTH,
     )
-    assert asked["session"] == "desktop"
+    assert response.status_code == 200, response.json()
+    assert asked["session"] is None, (
+        "the body's session field must never reach the action"
+    )
 
 
-def test_the_upload_endpoint_accepts_the_library_name():
-    """Through the route table, not the action: `routes.py` derives the body it
-    accepts from the signature, so a parameter the action grew is only reachable
-    if it is really there."""
-    import inspect
+def test_upload_over_http_reads_the_file_from_the_callers_own_session(
+    kept_server, client, monkeypatch
+):
+    """The vulnerability closed above, proved end to end with the real store
+    rather than a stub: two sessions keep a file of the same name, the request
+    names a third in its body, and the bytes that land on the page must be the
+    caller's own — the ones its header actually names — never the other
+    session's (Copilot, #41)."""
+    kept_server.flows.write_file(SESSION, "export.csv", b"mine")
+    kept_server.flows.write_file("victim", "export.csv", b"not-mine")
+    sent = _stage_upload(kept_server, monkeypatch)
 
-    from kubed.selenium_flow.core.actions import Actions
+    response = client.post(
+        "/browser/upload",
+        json={
+            "selector": {"css": "input"},
+            "file": "session://files/export.csv",
+            "session": "victim",
+        },
+        headers=AUTH,
+    )
+    assert response.status_code == 200, response.json()
+    assert sent["bytes"] == b"mine"
 
-    accepted = set(inspect.signature(Actions.upload_file).parameters)
-    assert {"file", "session"} <= accepted
+
+def test_a_session_naming_nobody_in_the_upload_body_does_not_400(
+    kept_server, client, monkeypatch
+):
+    """If `session` reached the action, a value naming no library at all would
+    fail to find the file and 400. A successful upload with a nonsense value
+    there is proof the field was dropped outright, not merely resolved kindly
+    (Copilot, #41)."""
+    kept_server.flows.write_file(SESSION, "export.csv", b"mine")
+    _stage_upload(kept_server, monkeypatch)
+
+    response = client.post(
+        "/browser/upload",
+        json={
+            "selector": {"css": "input"},
+            "file": "session://files/export.csv",
+            "session": "nobody-has-this-session",
+        },
+        headers=AUTH,
+    )
+    assert response.status_code == 200, response.json()
 
 
 def test_a_kept_upload_is_refused_when_there_is_nowhere_to_keep(actions):

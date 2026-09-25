@@ -87,6 +87,19 @@ METHOD_ALIASES = {"assert": "assert_", "print": "print_"}
 # What `resize` changes outlives the page, so the record has to hear about it.
 RESHAPES = "resize"
 
+# Arguments an action accepts that are never a request field on either surface,
+# because they name the caller rather than describe what to do. `flows/run.py`
+# injects `session` into `upload_file` so a step reads from the library the
+# *run* belongs to, not from whatever the ambient caller resolves to (Copilot,
+# #31) — and that only works as a guard if an HTTP body can never set it too.
+# It used to be reachable there because `_add` derived its accepted fields from
+# `Actions.upload_file`'s raw signature, which cannot tell a runner-only
+# parameter from an ordinary one: a caller could POST `session=<other>` and
+# read another session's kept file straight through it (Copilot, #41). Defined
+# here, once, because `flows/run.py` already imports from this module and the
+# two must never define this mapping separately and drift.
+LIBRARY_ARG = {"upload_file": "session"}
+
 
 def mount(value: str | None) -> str:
     """``ROUTE_PREFIX`` as a path segment every route hangs off, or "" for root.
@@ -319,7 +332,17 @@ def _add(mcp, actions, sessions, token, prefix, path, method_name, catalogue) ->
     method = getattr(actions, method_for(method_name))
     # `session_id` is the Grid's, supplied by the session manager. It was never
     # a field a caller filled in and now it is not one it could.
-    accepted = set(inspect.signature(method).parameters) - {"session_id"}
+    #
+    # `LIBRARY_ARG` is the same story for a different reason: it names the
+    # *caller*, not the action, and only a flow run is allowed to supply it
+    # (Copilot, #41). Dropped the same way an unknown field is — silently,
+    # below — rather than refused, so a request naming another session's
+    # library over HTTP just falls back to its own, the way naming none at
+    # all always has.
+    accepted = set(inspect.signature(method).parameters) - {
+        "session_id",
+        LIBRARY_ARG.get(method_name),
+    }
     # `secret` is not an argument of the action — resolving it needs the secret
     # catalogue, which the behaviour layer deliberately cannot see. It is still
     # a parameter of the *capability*, so this surface has to accept it or the

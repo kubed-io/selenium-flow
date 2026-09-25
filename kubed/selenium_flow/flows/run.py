@@ -46,7 +46,7 @@ from urllib.parse import quote, quote_plus
 from .. import secrets
 from ..core import cancel
 from ..mcp import guidance
-from ..routes import ENDPOINTS, method_for
+from ..routes import ENDPOINTS, LIBRARY_ARG, method_for
 from .document import (
     ARGS,
     ASSERTION,
@@ -161,14 +161,6 @@ HEAVY_FIELDS = ("image",)
 # `url`, and — worst of the three — in `sessions.touch`, which persists it to
 # Redis as the page a later reopen should return to.
 RESULT_FROM_ARGUMENT = {"text": "value", "script": "result"}
-
-# Arguments a STEP never writes and the run supplies, because they are about
-# the caller rather than about the action. `upload_file(file=...)` reads from a
-# flow library, and which library that is, is the same question `/flows/run`
-# already answered to find the flow - so the run hands it down rather than
-# letting the action fall back to the ambient caller key, which over HTTP is
-# nobody and resolves to `global` (Copilot, #31).
-LIBRARY_ARG = {"upload_file": "session"}
 
 # Actions that can be told not to read their value back off the page.
 READ_BACK_OFF = {"write"}
