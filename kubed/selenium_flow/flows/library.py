@@ -387,6 +387,11 @@ def _listed(directory: Path, usable) -> list[tuple[str, os.stat_result]]:
                 name = usable(entry.name)
                 if name is None:
                     continue
+                # Without a descriptor to pin, a swap during the listing is
+                # still possible, so each entry keeps the old realpath check:
+                # slower, only where `scandir(fd)` is missing (Copilot, #45).
+                if not pinned and (directory / name).resolve() != directory / name:
+                    raise InvalidName(f"{name!r} does not resolve to itself")
                 try:
                     found.append((name, entry.stat(follow_symlinks=False)))
                 except FileNotFoundError:

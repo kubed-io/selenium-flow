@@ -527,6 +527,28 @@ def test_a_directory_swapped_for_a_link_after_it_was_checked_is_refused(
         store.files("bot")
 
 
+def test_without_a_descriptor_to_pin_each_entry_is_checked(tmp_path, monkeypatch):
+    """Where `scandir` cannot take a descriptor, the directory is listed by
+    path, so a swap mid-listing is caught per entry as it used to be."""
+    root = tmp_path.resolve()
+    store = LocalFlowStore(root)
+    store.write_file("bot", "real.png", b"png")
+    listed = root / "bot" / "files"
+    real_resolve = type(listed).resolve
+
+    def swapped(self, *args, **kwargs):
+        # The directory itself still checks out; the entry under it does not,
+        # as if the folder moved under a link after the directory check.
+        if self == listed / "real.png":
+            return root / "elsewhere" / "real.png"
+        return real_resolve(self, *args, **kwargs)
+
+    monkeypatch.setattr(os, "supports_fd", set())
+    monkeypatch.setattr(type(listed), "resolve", swapped)
+    with pytest.raises(InvalidName):
+        store.files("bot")
+
+
 def test_a_symlinked_flow_file_is_skipped_from_the_listing(store, tmp_path):
     store.save("bot", "good", {"steps": []})
     outside = tmp_path.parent / "target.yaml"
