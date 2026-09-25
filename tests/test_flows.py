@@ -299,6 +299,22 @@ def test_a_flow_bigger_than_the_cache_is_read_but_never_kept(store, monkeypatch)
     assert len(calls) == 2
 
 
+def test_the_budget_counts_bytes_not_characters(store, monkeypatch):
+    """Under the budget in characters, over it in UTF-8: "é" is two bytes, and
+    a budget counted in characters would let such a flow take twice its share."""
+    description = "é" * (flows.CACHE_BYTES // 2 + 1)
+    assert len(description) < flows.CACHE_BYTES, "otherwise this proves nothing"
+    store.save("bot", "accents", {"description": description, "steps": []})
+    calls = []
+    real = flows.yaml.load
+    monkeypatch.setattr(
+        flows.yaml, "load", lambda *a, **k: calls.append(1) or real(*a, **k)
+    )
+    for _ in range(2):
+        assert store.get("bot", "accents")["description"] == description
+    assert len(calls) == 2
+
+
 def test_flows_are_parsed_by_libyaml_when_the_wheel_has_it():
     """Ten times the pure-Python parser, and every platform we ship has it."""
     if not yaml.__with_libyaml__:

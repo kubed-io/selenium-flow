@@ -267,7 +267,7 @@ CACHE_BYTES = 4 * 2**20
     condition=threading.Condition(),
 )
 def _parsed(text: str) -> tuple[int, object]:
-    return len(text), yaml.load(text, Loader=_LOADER)
+    return len(text.encode()), yaml.load(text, Loader=_LOADER)
 
 
 def parse(text: str):
