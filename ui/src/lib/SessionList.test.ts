@@ -25,8 +25,15 @@ test('a card: mark, name pill, id, live, meta, url (L3, frozen selector)', () =>
 
 test('picking is optional; without it the cards are plain (L3)', async () => {
   const onpick = vi.fn()
-  const { container } = render(SessionList, { data: { sessions: [row] }, onpick })
-  expect(container.querySelector('.card')).toHaveClass('click')
-  await fireEvent.click(container.querySelector('.card')!)
+  const r1 = render(SessionList, { data: { sessions: [row] }, onpick })
+  expect(r1.container.querySelector('.card')).toHaveClass('click')
+  await fireEvent.click(r1.container.querySelector('.card')!)
   expect(onpick).toHaveBeenCalledWith('k1')
+  r1.unmount()
+
+  const { container } = render(SessionList, { data: { sessions: [row] } })
+  const card = container.querySelector('.card')!
+  expect(card).not.toHaveClass('click')
+  await expect(fireEvent.click(card)).resolves.not.toThrow()
+  expect(onpick).toHaveBeenCalledTimes(1)
 })
