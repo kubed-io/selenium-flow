@@ -7,6 +7,7 @@ path outside the data directory.
 """
 
 import logging
+import os
 import threading
 import time
 
@@ -472,6 +473,29 @@ def test_a_filename_this_store_would_refuse_is_skipped_not_raised(
     (tmp_path / "bot" / "flows" / filename).write_text("steps: []\n")
     assert store.names("bot") == ["good"]
     assert [s["name"] for s in store.summaries("bot")] == ["good"]
+
+
+def test_an_edit_inside_one_clock_tick_still_moves_the_revision(store, tmp_path):
+    """Two writes inside one tick share an mtime; the page would keep showing
+    the first. Size and inode sit in the stamp beside it, the way git does."""
+    store.save("bot", "login", {"description": "a", "steps": []})
+    path = tmp_path / "bot" / "flows" / "login.yaml"
+    before = path.stat()
+    first = store.revision("bot")
+    path.write_text(path.read_text().replace("a", "a longer one"))
+    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+    assert path.stat().st_mtime_ns == before.st_mtime_ns
+    assert store.revision("bot") != first
+
+
+def test_a_linked_kept_file_is_never_listed(store, tmp_path):
+    """Files and Screenshots list a folder with no realpath per entry, so the
+    listing itself has to refuse a link the store would refuse to read."""
+    store.write_file("bot", "real.png", b"png")
+    outside = tmp_path / "outside.png"
+    outside.write_bytes(b"secret")
+    (tmp_path / "bot" / "files" / "linked.png").symlink_to(outside)
+    assert [f["name"] for f in store.files("bot")] == ["real.png"]
 
 
 def test_a_symlinked_flow_file_is_skipped_from_the_listing(store, tmp_path):

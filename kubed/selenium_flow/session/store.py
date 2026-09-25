@@ -296,12 +296,19 @@ class RedisStore:
         SCAN rather than KEYS: this runs on a database shared with other
         services, and KEYS would block the server while it walked all of it.
         """
-        found: dict[str, SessionRecord] = {}
+        keys = []
         for raw in self._redis.scan_iter(match=f"{self._prefix}*", count=100):
             key = raw.decode() if isinstance(raw, bytes) else raw
-            if key.startswith(self._prefix + POINTER_NAMESPACE):
-                continue
-            record = SessionRecord.from_json(self._redis.get(key) or b"")
+            if not key.startswith(self._prefix + POINTER_NAMESPACE):
+                keys.append(key)
+        if not keys:
+            return {}
+        # One MGET, not a GET per key: this runs on every poll of every open
+        # admin page, and each GET was its own round trip (§F4.19). A key that
+        # expired since the SCAN comes back None and is skipped.
+        found: dict[str, SessionRecord] = {}
+        for key, value in zip(keys, self._redis.mget(keys), strict=True):
+            record = SessionRecord.from_json(value or b"")
             if record:
                 found[key[len(self._prefix) :]] = record
         return found

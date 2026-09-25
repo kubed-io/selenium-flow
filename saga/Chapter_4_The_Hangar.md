@@ -724,6 +724,25 @@ limit. The flow listings (`summaries`) pay the same cost for the same reason.
   past sign-out, for a list that changes on every `save_flow`. Neither is
   needed at 32ms.
 
+Dr K, next: *"find other opportunities where we can use cachetools and other
+caching strategies"*. Measured first, the answer was mostly not a cache:
+
+- **Files was a realpath per file.** Listing 142 screenshots took ~100ms, 67
+  of it `resolve()`, there to refuse a link. The directory is resolved once
+  already, so `names`, `revision` and `files` now share one `os.scandir` pass
+  that skips links and bad names and reuses the entry's stat: one stat per
+  file, no path walk.
+- **`revision` stamps inode and size beside the mtime**, the way git guards
+  against racy timestamps: two edits in one clock tick share an mtime.
+- **Redis `records()` is one MGET**, not a GET per session, on a list every
+  open page polls every two seconds. The memory store is untouched and not
+  cached: caching a dict only doubles it.
+- **Not cached, on purpose:** the Grid listing (live state with no change
+  signal, and the page's two-second poll is already the freshness it can
+  bear), MIME types and URL signatures (4ms and 5ms for 142 files), and
+  path resolution (a link planted later must still be refused). No ETag on the
+  poll yet: it would save the body, not the work.
+
 ---
 
 ## Open questions

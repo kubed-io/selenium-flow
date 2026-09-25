@@ -53,7 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **The Secrets tab and flow listings load at once**, where a couple of dozen stored flows took over a second.
+- **The admin page is faster**: Secrets and flow listings load at once where a couple of dozen flows took over a second, and Files and the session list no longer slow down as screenshots pile up.
 
 - **A flow run's default budget is 120 seconds**, down from 300. A flow meant to wait longer sets `timeout`.
 
