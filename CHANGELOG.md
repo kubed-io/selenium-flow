@@ -77,8 +77,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **BREAKING:** `POST /browser/upload` no longer takes a `session` field; a file is always read from the calling session.
 
-- **The admin UI and MCP App are Svelte components**, built by npm into the package; `static/` is gone.
-
 ### Fixed
 
 - **Cancelling `run_flow` stops the run** instead of leaving it to drive the browser to the end.
