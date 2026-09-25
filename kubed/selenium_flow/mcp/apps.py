@@ -42,9 +42,6 @@ from ..http import admin
 log = logging.getLogger(__name__)
 
 RESOURCE_URI = "ui://selenium-flow/component"
-# The SDK that talks to the host. Apps get a deny-by-default CSP — no network at
-# all — so both this and our own origin have to be declared below.
-SDK_ORIGIN = "https://unpkg.com"
 
 
 def enabled(env: dict | None = None) -> bool:
@@ -88,11 +85,17 @@ def config_for(base: str) -> AppConfig:
 
 
 def _csp(base: str) -> ResourceCSP:
-    """What the sandboxed iframe is allowed to reach: our files, and the SDK."""
-    return ResourceCSP(
-        resource_domains=[d for d in (origin(base), SDK_ORIGIN) if d],
-        connect_domains=[d for d in (origin(base),) if d],
-    )
+    """What the sandboxed iframe may reach: our own files. The SDK is bundled
+    into the app (it used to come from a CDN, at a URL that 404s)."""
+    own = [d for d in (origin(base),) if d]
+    return ResourceCSP(resource_domains=own, connect_domains=own)
+
+
+def available() -> bool:
+    """Whether the app shell was built. Without it there is nothing to render,
+    so the tools behave as with APPS_ENABLED=false and still return their data
+    (§F4.17)."""
+    return admin.ui_built("app")
 
 
 def register(mcp, actions, token: str | None) -> set[str]:
@@ -115,6 +118,6 @@ def register(mcp, actions, token: str | None) -> set[str]:
         app=AppConfig(csp=csp),
     )
     def component_app() -> str:
-        return admin.page("app.html")
+        return admin.page("app")
 
     return set()

@@ -48,6 +48,17 @@ from . import auth, files, links, secret_uses
 log = logging.getLogger(__name__)
 
 STATIC_DIR = "static"
+
+# What the UI's URL answers when no UI was built (§F4.17): the server is whole
+# without it, and says only its name.
+PLACEHOLDER = (
+    "<!doctype html>\n"
+    '<meta charset="utf-8">\n'
+    '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+    "<title>Selenium Flow</title>\n"
+    "<h1>Selenium Flow</h1>\n"
+)
+
 # What the Grid console is reachable at *from a browser*. Behind the shared
 # ingress both halves sit on one host, so the console is simply the root; the
 # default says so, and an env var covers any other arrangement.
@@ -62,35 +73,46 @@ HEARTBEAT = 20.0
 
 
 def static_path() -> Path:
-    """The directory holding the shared CSS and the two pages.
+    """The built UI, beside this module.
 
-    Packaged under the module when installed; falls back to the repo root so a
-    checkout runs without an install step, exactly as the skill does.
+    `npm --prefix ui run build` writes it here — gitignored, never committed
+    (§F4.15) — so a checkout and an installed wheel look in the same place, and
+    an install that skipped the build simply has none (§F4.17).
     """
-    packaged = Path(__file__).parent / STATIC_DIR
-    if packaged.is_dir():
-        return packaged
-    # parents[3] because this module lives in http/: package, kubed, repo root.
-    return Path(__file__).parents[3] / STATIC_DIR
+    return Path(__file__).parent / STATIC_DIR
+
+
+def ui_built(name: str) -> bool:
+    """Whether surface ``name`` ("admin" or "app") has all three of its files."""
+    folder = static_path()
+    return all((folder / f"{name}.{ext}").is_file() for ext in ("html", "css", "js"))
 
 
 def read(name: str) -> str:
-    """One file from the static directory."""
+    """One file from the built UI."""
     return (static_path() / name).read_text(encoding="utf-8")
 
 
 def page(name: str, **substitutions: str) -> str:
-    """A page with ``__NAME__`` placeholders filled in.
+    """Surface ``name``'s shell with its bundle inlined and ``__NAME__`` filled.
 
-    Deliberately not a template engine. There are two pages, they substitute a
-    stylesheet and a URL, and a dependency to do that would be worse than the
-    four lines it saves.
+    Deliberately not a template engine. The shell's own comments go first:
+    they name the placeholders, and a comment filled with the bundle is a
+    second copy of it that any ``-->`` inside ends early. The placeholders are
+    filled next and the bundle last, in one pass, so nothing inside the bundle
+    is ever substituted; and a literal ``</script`` in it is escaped so it
+    cannot end the inline script early.
     """
-    html = read(name)
-    shared = {"CSS": read("app.css"), "COMPONENTS": read("components.js")}
-    for key, value in {**shared, **substitutions}.items():
+    html = re.sub(r"<!--.*?-->\n?", "", read(f"{name}.html"), flags=re.DOTALL)
+    for key, value in substitutions.items():
         html = html.replace(f"__{key}__", value)
-    return html
+    bundle = {
+        "CSS": read(f"{name}.css"),
+        "JS": re.sub(r"</(script)", r"<\\/\1", read(f"{name}.js"), flags=re.IGNORECASE),
+    }
+    # One pass over the shell, so neither half of the bundle is ever searched
+    # for the other's slot.
+    return re.sub(r"__(CSS|JS)__", lambda m: bundle[m.group(1)], html)
 
 
 def owner_label(key: str) -> dict:
@@ -314,9 +336,12 @@ def register(
         The root used to 404, so there was no landing page at all.
 
         Unauthenticated on purpose — it is the sign-in form, and every byte of
-        data it shows is fetched separately with the token.
+        data it shows is fetched separately with the token. Without a build it
+        is the placeholder (§F4.17).
         """
-        return HTMLResponse(page("admin.html", CONSOLE=console, MOUNT=prefix))
+        if not ui_built("admin"):
+            return HTMLResponse(PLACEHOLDER)
+        return HTMLResponse(page("admin", CONSOLE=console, MOUNT=prefix))
 
     @mcp.custom_route(f"{prefix}/admin", methods=["GET"], name="admin_ui_moved")
     async def admin_ui_moved(_request: Request) -> Response:

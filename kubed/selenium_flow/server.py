@@ -8,6 +8,8 @@ only connects them, so a new capability never means editing the server.
 
 from __future__ import annotations
 
+import logging
+
 from fastmcp import FastMCP
 from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 
@@ -24,6 +26,8 @@ from .http import admin, files
 from .mcp import apps, completions, failures, mirror, prompts, resources, skill, tools
 from .session.sessions import SessionManager
 from .session.store import SessionStore, from_env
+
+log = logging.getLogger(__name__)
 
 # Root. `ROUTE_PREFIX` moves the WHOLE server, so the default is "no prefix"
 # rather than a name for one tree (§F1.11). `/` means the same thing and is what
@@ -146,6 +150,13 @@ class SeleniumMCP:
         base = apps.public_base()
         if self.prefix and base.endswith(self.prefix):
             base = base[: -len(self.prefix)]
+        if not admin.ui_built("admin"):
+            log.info(
+                "The admin UI is not built, so its URL shows a placeholder: "
+                "run `npm --prefix ui run build`."
+            )
+        # An app is a view of the built shell; without the shell there is none.
+        apps_enabled = apps_enabled and apps.available()
         app_config = apps.config_for(base) if apps_enabled else None
         app_tools = files.register(
             self.mcp,

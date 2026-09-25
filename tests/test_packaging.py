@@ -361,7 +361,6 @@ DATA_DIRS = {
     "kubed/selenium_flow/core/js.py": "js",
     "kubed/selenium_flow/mcp/skill.py": "skills",
     "kubed/selenium_flow/mcp/prompts.py": "prompts",
-    "kubed/selenium_flow/http/admin.py": "static",
 }
 
 
@@ -371,9 +370,9 @@ def test_a_data_directory_is_packaged_beside_the_module_that_reads_it(module, di
 
     This is invisible to every other test. In a source checkout the fallback
     lands on the repo root and everything works; in a wheel the packaged path is
-    the only one, and the fallback resolves to site-packages. So the admin UI
-    404s its own page, or the server serves no skill, with nothing failing until
-    somebody installs it (Copilot, #36).
+    the only one, and the fallback resolves to site-packages. So the server
+    serves no skill, no prompts or none of its page scripts, with nothing
+    failing until somebody installs it (Copilot, #36).
     """
     package = ".".join(pathlib.Path(module).parent.parts)
     key = f"{package}.{directory}"
@@ -392,6 +391,17 @@ def test_a_data_directory_is_packaged_beside_the_module_that_reads_it(module, di
     patterns = data["tool"]["setuptools"]["package-data"].get(key)
     assert patterns, f"[tool.setuptools.package-data] needs a pattern for '{key}'"
 
+
+
+def test_the_built_ui_ships_by_glob_so_an_unbuilt_install_still_works():
+    """§F4.15/§F4.17: collected when it exists, and never a mapped package —
+    a mapped directory that is missing fails `pip install`."""
+    data = tomllib.loads(PYPROJECT.read_text())
+    setuptools = data["tool"]["setuptools"]
+    assert "kubed.selenium_flow.http.static" not in setuptools["packages"]
+    assert "kubed.selenium_flow.http.static" not in setuptools["package-dir"]
+    assert setuptools["package-data"]["kubed.selenium_flow.http"] == ["static/*"]
+    assert "kubed/selenium_flow/http/static/" in (REPO / ".gitignore").read_text()
 
 def test_every_relative_import_in_the_package_resolves():
     """A relative import inside a function is not checked until it runs.

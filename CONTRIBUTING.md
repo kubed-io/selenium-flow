@@ -45,7 +45,7 @@ unless `GRID_URL` and `ADMIN_ORIGIN` are set — see
 | `kubed/selenium_flow/mcp/` | what an agent sees: tools, resources, prompts, the embedded skill, tool annotations, and where guidance points |
 | `kubed/selenium_flow/spec/` | the OpenAPI document — `schemas.py` is the data, `builder.py` assembles it from the live tools |
 | `skills/selenium-flow/` | the embedded Agent Skill, mapped into the package at build time |
-| `static/` | the admin UI and the MCP app components, mapped in the same way |
+| `ui/` | the admin UI and the MCP App, in Svelte — `npm --prefix ui run build` writes them beside `http/admin.py`, gitignored; without a build the server shows a placeholder |
 | `wiki/` | the GitHub wiki, as a submodule — depth the README has no room for |
 | `wiki/notes/` | hand-written prose folded into the generated wiki pages |
 

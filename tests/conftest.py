@@ -16,6 +16,7 @@ import pytest
 
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.core.browser import Grid
+from kubed.selenium_flow.http import admin as _admin
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.session import sessions as sessions_module
 from kubed.selenium_flow.session.sessions import SessionManager
@@ -136,3 +137,34 @@ def unnamed_caller(monkeypatch):
     """
     monkeypatch.setattr(sessions_module, "http_request", lambda: http())
     return
+
+
+# ---- the built UI ----------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def ui_dir(tmp_path_factory, monkeypatch):
+    """An empty UI directory for every test: the suite must not depend on
+    whether this checkout happens to have run `npm --prefix ui run build`.
+
+    Its own directory, not one inside `tmp_path`: tests that list their
+    `tmp_path` (a flow store, a secrets mount) must find only what they made."""
+    folder = tmp_path_factory.mktemp("ui-static")
+    monkeypatch.setattr(_admin, "static_path", lambda: folder)
+    return folder
+
+
+SHELL = (
+    '<title>{name}</title><style>__CSS__</style>'
+    '<div id="root" data-mount="__MOUNT__" data-console="__CONSOLE__"></div>'
+    '<script type="module">__JS__</script>'
+)
+
+
+@pytest.fixture
+def built_ui(ui_dir):
+    """A stand-in for the build: the six files, recognisable by content."""
+    for name in ("admin", "app"):
+        (ui_dir / f"{name}.html").write_text(SHELL.format(name=name))
+        (ui_dir / f"{name}.css").write_text(f"/* {name} css */")
+        (ui_dir / f"{name}.js").write_text(f"/* {name} js */")
+    return ui_dir
