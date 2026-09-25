@@ -30,6 +30,12 @@ from urllib.parse import quote
 # leaked URL is not a lasting grant.
 DEFAULT_TTL = 3600
 
+# Expiries round UP to this, so every link to a file signed within one window
+# is the same URL. With ``now + ttl`` to the second no URL ever repeated, the
+# browser cache never hit, and each repaint of the admin page re-downloaded
+# every screenshot on it — a Keep in the lightbox waited 25s behind them.
+EXPIRY_STEP = 600
+
 
 def signature(path: str, expires: int, token: str) -> str:
     """The HMAC binding one path to one expiry."""
@@ -41,7 +47,8 @@ def sign(
     path: str, token: str, ttl: int = DEFAULT_TTL, now: float | None = None
 ) -> str:
     """``path`` with the query parameters that make it fetchable."""
-    expires = int((time.time() if now is None else now) + ttl)
+    earliest = int((time.time() if now is None else now) + ttl)
+    expires = -(-earliest // EXPIRY_STEP) * EXPIRY_STEP
     return f"{path}?exp={expires}&sig={signature(path, expires, token)}"
 
 

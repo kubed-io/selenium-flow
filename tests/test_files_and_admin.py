@@ -59,6 +59,24 @@ def test_a_signed_link_validates():
     assert links.valid(path, exp, sig, TOKEN)
 
 
+def test_a_link_is_the_same_url_for_a_while():
+    """Found by the self-test on the live deploy: `exp` to the second made
+    every listing's URLs new, so the browser cache never hit and each repaint
+    of the admin page re-downloaded every screenshot on it."""
+    path = links.file_path("abc", "shot.png")
+    start = links.EXPIRY_STEP * 1000 + 1
+    first = links.sign(path, TOKEN, now=start)
+    assert links.sign(path, TOKEN, now=start + links.EXPIRY_STEP - 2) == first
+    assert links.sign(path, TOKEN, now=start + links.EXPIRY_STEP) != first
+
+
+def test_rounding_never_shortens_a_link():
+    path = links.file_path("abc", "shot.png")
+    for now in (0, 1, links.EXPIRY_STEP - 1, links.EXPIRY_STEP, 12345.6):
+        exp = int(links.sign(path, TOKEN, now=now).split("exp=")[1].split("&")[0])
+        assert now + links.DEFAULT_TTL <= exp < now + links.DEFAULT_TTL + links.EXPIRY_STEP
+
+
 def test_a_signature_is_bound_to_its_path():
     """The whole point: a link to one file is not a link to another."""
     exp = int(time.time()) + 60
