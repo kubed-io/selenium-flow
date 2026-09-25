@@ -311,17 +311,10 @@ def listing_of(
 
 
 def downloads_count(actions, session_id: str) -> int:
-    """How many downloads a session has, without describing or signing any of
-    them.
+    """How many downloads a session has, without describing or signing any.
 
-    Reads the same source ``listing_of`` does for a live session — none is
-    called with no browser, exactly like ``listing_of`` — so the number
-    matches what ``folder(DOWNLOADS)`` would list, including the ``is_partial``
-    rule that drops a download still in flight (``Grid.files``). ``root`` only
-    ever wants the count, and ``listing_of`` cannot give it one without also
-    building a signed, described entry for every download — real work for a
-    session with many of them, paid on every ``session://files`` read
-    (Copilot).
+    Same source and ``is_partial`` rule as ``listing_of``; ``root`` only wants
+    the count, and describing every download to get it is paid on every read.
     """
     return len(actions.grid.files(session_id)) if session_id else 0
 
