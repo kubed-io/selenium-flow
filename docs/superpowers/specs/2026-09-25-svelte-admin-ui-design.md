@@ -375,8 +375,9 @@ an integration flow step where only a real browser can tell.
    and 2.x. The rewrite has to replace that import anyway, so it bundles
    `@modelcontextprotocol/ext-apps` from npm at a pinned version. That also
    means `https://unpkg.com` leaves the app's CSP, and the app no longer floats
-   to whatever major ships next. The cost is ~60 KB gzipped inside the ui://
-   document.
+   to whatever major ships next. The cost is ~78 KB gzipped inside the ui://
+   document — measured: the app surface is 80.6 KB gzipped in total against a
+   110 KB budget.
 2. **The UI is optional (§F4.17).** With no UI build, `GET <mount>/` answers
    200 with a minimal page whose title and only heading are **Selenium Flow**,
    and the MCP App is not registered — the file tools behave as with
@@ -429,8 +430,9 @@ an integration flow step where only a real browser can tell.
 
 - The admin page is at most 45 KB gzipped (today's figure). A Svelte runtime of
   ~15 KB plus minified code should land well under it, and the UI job reports
-  the number on every PR.
-- The MCP App grows by the SDK (~60 KB gzipped); see difference 1.
+  the number on every PR. Measured: 35.1 KB gzipped.
+- The MCP App grows by the SDK (~78 KB gzipped); see difference 1. Measured:
+  80.6 KB gzipped, against a 110 KB budget.
 
 ## Rollout
 

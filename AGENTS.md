@@ -614,6 +614,14 @@ docker compose up --build
 GRID_URL=http://<hub>:4444 MCP_AUTH_TOKEN=dev python -m kubed.selenium_flow
 ```
 
+The admin UI and MCP App live in `ui/` — Svelte, built by npm. `npm --prefix ui
+ci && npm --prefix ui run build` writes it into
+`kubed/selenium_flow/http/static/`; `npm --prefix ui run dev` rebuilds on every
+change instead of once. It is optional for a source install: skip it, and the
+server still runs every tool, with the admin URL serving a plain "Selenium
+Flow" page and no MCP App offered. The build output is gitignored — it is
+never committed, whether it exists or not.
+
 ## Session lifetime: who owns what
 
 | | Who owns it | Default here |

@@ -460,6 +460,8 @@ tab with its backlink landing on the flow. 44 requests, no errors.
 
 ## Part IV — The overhaul: the admin page on a framework
 
+**Status: BUILT, in one pull request** — taken up and built 2026-09-25.
+
 Open question 1, taken up 2026-09-25 after #41 merged. **Dr K's brief:** a full
 refactor of the admin UI and the static content onto a frontend framework. It
 must look and work exactly the same. Small, lightweight, simple and secure; no
@@ -638,6 +640,40 @@ earlier "503 with the build command".
 
 Dr K approved the spec the same day (*"so far the spec looks good, let's get
 the plan going"*), including its three deliberate differences.
+
+### §F4.18 — What building it decided
+
+Rulings taken during the build, each recorded when it was made:
+
+- **The lightbox's own `onclose` goes stale across an `await`.** A viewer
+  closed mid-Keep read its live prop after the request settled and closed the
+  *next* viewer instead of itself; the fix keeps exactly one viewer mounted, so
+  there is nothing stale left to read.
+- **A shell comment swallowed its own placeholders.** `page()` filled
+  `__CSS__`/`__JS__` wherever they appeared, including inside an HTML comment
+  in the shell, which blanked the page it produced; it now strips shell
+  comments before it substitutes, once, with tests guarding the seam.
+- **A composite `{#each}` key with no separator can collide.** A secret's
+  used-by rows were keyed on `flow + session` with nothing between them, so
+  `'ab' + 'c'` equalled `'a' + 'bc'`, sticking a pane on "Loading…" forever;
+  every keyed list in `ui/src` was swept for the same fault, and it was the
+  only one.
+- **An accordion's `data-open` used to flip before its slide finished**, so
+  closing one visibly snapped shut mid-animation. It now follows the *visible*
+  state — true the instant it opens, false only once the closing slide ends —
+  so the attribute, `aria-expanded` and the screen agree.
+- **Cancelling a modal mid-confirm fired its `onclosed` twice.** A local
+  "already closed" flag makes every callback after the first a no-op, which is
+  what the page already looked like it did.
+- **The console iframe does not remount on a tab switch.** It mounts once, at
+  boot, and is only hidden or shown from then on — the same iframe the page
+  has always kept, never a fresh one.
+- **The MCP App's SDK is pinned at 2.0.0.** npm's `latest` sits on a newer
+  release line; a patch behind is the cost until Dependabot catches up.
+- **End browser stays disabled until a freshly opened session's row confirms
+  it is attached**, rather than briefly showing the previous session's button.
+- **Clear downloads stays disabled for the whole span of a files load**, even
+  if a live push arrives partway through it.
 
 ---
 
