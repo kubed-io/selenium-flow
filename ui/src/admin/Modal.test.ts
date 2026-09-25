@@ -42,3 +42,23 @@ test('a failure stays open, re-arms, and alerts (M1)', async () => {
   expect(screen.getByText('Clear 2 files')).not.toBeDisabled()
   expect(onclosed).not.toHaveBeenCalled()
 })
+
+test('a cancel that races a slow confirm still only closes once (fix round 1, Important)', async () => {
+  let finish!: () => void
+  const oncancel = vi.fn(), onclosed = vi.fn()
+  render(Harness, { onconfirm: () => new Promise<void>((r) => { finish = r }), oncancel, onclosed })
+  await fireEvent.click(screen.getByText('Clear 2 files'))
+  await fireEvent.click(screen.getByText('Cancel'))
+  expect(oncancel).toHaveBeenCalledOnce()
+  expect(onclosed).toHaveBeenCalledTimes(1)
+  expect(onclosed).toHaveBeenCalledWith(false)
+  finish()
+  // A real macrotask tick, not `vi.waitFor`: the assertion below is already
+  // true the instant `finish()` returns (the `await spec.onconfirm()` inside
+  // `confirm()` hasn't resumed yet), so `vi.waitFor` would resolve on its
+  // first, eager check without ever giving that continuation a turn — a
+  // negative assertion needs to wait past that turn, not poll until it's met.
+  await new Promise((r) => setTimeout(r, 0))
+  expect(onclosed).toHaveBeenCalledTimes(1)
+  expect(onclosed).toHaveBeenCalledWith(false)
+})

@@ -75,6 +75,31 @@ test('the console tab hides itself when it would frame this page (R3, C1)', asyn
   expect(other.container.querySelector('#tabConsole')).toHaveAttribute('aria-selected', 'true')
 })
 
+test('the console iframe is created at sign-in and keeps its place across tab switches (fix round 1, parity)', async () => {
+  sessionStorage.setItem('sf-token', 't')
+  fakeFetch({ 'GET /admin/sessions': { body: SESSIONS } })
+  const { container } = render(Admin, { mount: '', console: '/grid' })
+  await vi.waitFor(() => expect(screen.getByText('Live sessions')).toBeInTheDocument())
+
+  // Present — and already carrying its `src` — while still on `#/`, not
+  // created lazily on first visit to the console tab.
+  const iframe = container.querySelector('iframe.console')
+  expect(iframe).toHaveAttribute('src', 'http://localhost:3000/grid')
+  expect(container.querySelector('#paneConsole')).not.toBeVisible()
+
+  await fireEvent.click(screen.getByText('Grid console'))
+  await vi.waitFor(() => expect(container.querySelector('#paneConsole')).toBeVisible())
+  expect(container.querySelector('iframe.console')).toBe(iframe)
+
+  await fireEvent.click(screen.getByText('Sessions'))
+  await vi.waitFor(() => expect(container.querySelector('#paneConsole')).not.toBeVisible())
+  expect(container.querySelector('iframe.console')).toBe(iframe)
+
+  await fireEvent.click(screen.getByText('Grid console'))
+  await vi.waitFor(() => expect(container.querySelector('#paneConsole')).toBeVisible())
+  expect(container.querySelector('iframe.console')).toBe(iframe)
+})
+
 test('picking a session routes through the hash (L3, R2)', async () => {
   sessionStorage.setItem('sf-token', 't')
   fakeFetch({ 'GET /admin/sessions': { body: SESSIONS } })

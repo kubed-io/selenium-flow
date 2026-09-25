@@ -9,10 +9,19 @@
   let { spec, onclosed }: { spec: ModalSpec<T>; onclosed: (confirmed: boolean) => void } = $props()
   let busy = $state(false)
 
+  // The first close wins. Cancel, Esc and the backdrop are never guarded by
+  // `busy` — a confirm still in flight can be cancelled out from under it —
+  // so without this flag a cancel that races a slow `onconfirm` let its later
+  // resolution call `onclosed(true)` a second time, right after `onclosed`
+  // had already been told `false`.
+  let closed = false
+
   // Cancel, Esc, the backdrop: anything that is not a successful confirm runs
   // oncancel — without it a lightbox button disabled behind this box stayed
   // disabled forever.
   function cancel() {
+    if (closed) return
+    closed = true
     spec.oncancel?.()
     onclosed(false)
   }
@@ -21,9 +30,19 @@
     busy = true
     try {
       await spec.onconfirm()
+      // Cancelled while this was in flight: `onclosed(false)` already ran,
+      // and calling `onclosed(true)` now would be a second, contradictory
+      // close for the same modal.
+      if (closed) return
+      closed = true
       onclosed(true)
     } catch (err) {
       // Stay open: closing would throw away what they typed in the editor.
+      // Parity with today's `modal()`: its delegated click handler has no
+      // guard here either, so a cancel that races a failing confirm still
+      // alerts — traced via `close()` removing the box while the original
+      // click's `catch` keeps its own `e.target` and runs regardless. Kept
+      // deliberately rather than silenced.
       busy = false
       alert((err as Error).message)
     }

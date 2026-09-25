@@ -66,6 +66,9 @@
 
   // The list reloads whenever it (or the console, which sits on the same live
   // stream) comes on screen; a deep link into a session starts the stream too.
+  // `live.watching` must stay the last operand: it's read only for the
+  // session branch, so a list or console load never re-triggers this effect
+  // by way of the very state its own `live.load()` call goes on to update.
   $effect(() => {
     if (phase !== 'in') return
     if (route.view === 'list' || route.view === 'console' || (route.view === 'session' && !live.watching)) void live.load()
@@ -99,8 +102,12 @@
     {:else if top === 'secrets'}
       <!-- Task 9: <SecretsPane {api} /> -->
       <section id="paneSecrets"><div id="secrets"><div class="empty">Loading…</div></div></section>
-    {:else}
-      <ConsolePane src={target.href} />
+    {/if}
+    {#if !consoleSelf}
+      <!-- Mounted once, alongside the other panes, not only on the console
+           route: today's page creates this iframe at boot and just toggles
+           its section, so switching tabs never reloads the Grid's console. -->
+      <ConsolePane src={target.href} hidden={top !== 'console'} />
     {/if}
   </main>
 {/if}
