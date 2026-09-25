@@ -213,6 +213,17 @@ const gone = (key) => key !== current;
    the last request issued the only one allowed to render. */
 let filesSeq = 0, flowsSeq = 0, flowDocSeq = 0;
 
+/* The same number has a cost: a load that a newer one overtook returns
+   without painting, so awaiting it alone can hand back `filesData` from BEFORE
+   what the caller just did. Keep in the lightbox hit exactly that — the poll
+   saw the move and reloaded too, Keep's own load stood down, and the lightbox
+   re-rendered the kept screenshot. `filesSettled` waits for the newest load. */
+let filesLoad = Promise.resolve();
+async function filesSettled() {
+  let seen;
+  do { seen = filesSeq; await filesLoad; } while (seen !== filesSeq);
+}
+
 // sessionStorage, not localStorage: this is the server's full-privilege token,
 // so it should not outlive the tab someone typed it into.
 async function api(path, method = 'GET', body) {
@@ -461,6 +472,8 @@ function showDetail(row) {
 
 async function loadFiles(key) {
   const mine = ++filesSeq;
+  let painted;
+  filesLoad = new Promise((resolve) => { painted = resolve; });
   // Disabled for the life of this request, not just while it is known stale:
   // a click between the request going out and it answering must not confirm
   // against a `filesData` this very load is in the middle of replacing.
@@ -522,6 +535,8 @@ async function loadFiles(key) {
       = $('flowsTotal').textContent = '';
     const said = '<div class="empty error">' + SF.esc(e.message) + '</div>';
     $('downloads').innerHTML = $('screenshots').innerHTML = $('kept').innerHTML = said;
+  } finally {
+    painted();
   }
 }
 
@@ -572,6 +587,7 @@ function openLightbox(folder, index) {
       // race the other reload sites on this page guard against.
       if (gone(key)) return null;
       await loadFiles(key);
+      await filesSettled();
       if (gone(key)) return null;
       return {files: list(), index: at};
     },

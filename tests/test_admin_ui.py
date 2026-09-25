@@ -237,6 +237,21 @@ def test_the_lightbox_refresh_does_not_reload_a_session_the_operator_has_left(pa
     assert refresh.count("gone(key)") == 2
 
 
+def test_the_lightbox_refresh_waits_for_the_newest_load(page):
+    """Found by the self-test on the live deploy: Keep moved the screenshot,
+    the poll saw the change and started its own load, and Keep's load stood
+    down to it without painting. The lightbox then re-rendered the list from
+    before the keep. The refresh waits for whichever load is newest."""
+    refresh = page.split("refresh: async (at) => {")[1].split("\n    },\n")[0]
+    assert refresh.index("await loadFiles(key)") < refresh.index("await filesSettled()")
+    assert refresh.index("await filesSettled()") < refresh.index("list()")
+    body = page.split("async function loadFiles(key)")[1].split("\n}\n")[0]
+    assert "filesLoad = new Promise(" in body.split("try {")[0]
+    assert "finally {\n    painted();" in body, "every exit settles, success or failure"
+    settled = page.split("async function filesSettled()")[1].split("\n}\n")[0]
+    assert "while (seen !== filesSeq)" in settled
+
+
 def test_open_lightbox_reads_filesdata_directly(page):
     """No call site passes `'kept'` — only `'downloads'`, `'screenshots'` and
     `'files'` — so mapping it to `'files'` was dead code."""
