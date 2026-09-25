@@ -1,0 +1,477 @@
+/* Shared by the admin UI and the MCP app.
+
+   The app runs in a host's sandboxed iframe and the admin page runs on its own
+   origin, so neither can rely on fetching the other's assets. Both inline this
+   file instead, which is what keeps them one design rather than two that drift.
+
+   Themed from prefers-color-scheme only: the MCP app is painted inside someone
+   else's chat window and has no toggle of its own to read. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #fbfbfd;
+  --panel: #ffffff;
+  --line: #e4e4ec;
+  --ink: #16161d;
+  --muted: #6b6b7b;
+  --accent: #2f6fed;
+  --accent-ink: #ffffff;
+  --warn: #b1002e;
+  --ok: #1a7f4b;
+  --radius: 10px;
+  --gap: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16161a;
+    --panel: #1e1e24;
+    --line: #32323c;
+    --ink: #ececf2;
+    --muted: #9b9baa;
+    --accent: #6f9bff;
+    --accent-ink: #0d0d12;
+    --warn: #ff7a92;
+    --ok: #55d093;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+a { color: var(--accent); }
+
+.wrap { max-width: 1100px; margin: 0 auto; padding: 20px; }
+.row { display: flex; align-items: center; gap: var(--gap); }
+.grow { flex: 1; }
+.muted { color: var(--muted); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.small { font-size: 12px; }
+
+header.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.brand { font-weight: 650; letter-spacing: -0.01em; }
+
+button, .btn {
+  font: inherit;
+  padding: 7px 13px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button:disabled { opacity: 0.5; cursor: default; }
+
+/* Destructive, so it reads as one before it is clicked. Outlined rather than
+   filled: it sits in a toolbar beside ordinary buttons, and solid red there
+   reads as an error state rather than an action. */
+button.danger { color: var(--warn); border-color: currentColor; background: transparent; }
+button.danger:hover:not(:disabled) { background: var(--warn); color: var(--panel); }
+
+input[type=password], input[type=text] {
+  font: inherit;
+  padding: 8px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  min-width: 260px;
+}
+
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+
+.tabs button {
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  padding: 9px 14px;
+  color: var(--muted);
+}
+
+.tabs button[aria-selected=true] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+
+/* The session's own Files/Flows tabs sit under the header rather than flush
+   against the top bar's tabs, so the two levels read as nested rather than as
+   one long row. */
+.subtabs { margin-top: var(--gap); }
+.tabs .count { color: var(--muted); margin-left: 4px; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.card.click { cursor: pointer; }
+.card.click:hover { border-color: var(--accent); }
+
+.pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pill.live { color: var(--ok); border-color: currentColor; }
+.pill.warn { color: var(--warn); border-color: currentColor; }
+
+.files { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--gap); }
+
+.file {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+}
+
+.file .thumb {
+  height: 120px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  overflow: hidden;
+}
+
+.file .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.file .thumb .glyph { font-size: 30px; opacity: 0.55; }
+.file .meta { padding: 9px 11px; border-top: 1px solid var(--line); }
+.file .name { font-size: 13px; word-break: break-all; }
+
+.empty { padding: 30px; text-align: center; color: var(--muted); }
+.error { color: var(--warn); }
+
+iframe.console { width: 100%; height: 72vh; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+
+.login { max-width: 420px; margin: 12vh auto; }
+
+/* Session rows carry a name when a caller claimed one. */
+.pill.name { color: var(--accent); border-color: currentColor; }
+
+/* The browser mark. Sized to sit level with a pill rather than tower over it,
+   and non-selectable so dragging across a session id does not pick it up. */
+.bmark { font-size: 15px; line-height: 1; user-select: none; }
+
+/* The page a session was last on. One line, clipped — it is context for
+   recognising the session, not something to read in full here. */
+.card .url {
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Detail header: what this session is, above what it produced. */
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--gap); }
+.fact .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.fact .v { font-size: 13px; word-break: break-all; }
+
+/* Lightbox. A file is looked at far more often than it is saved, so a click
+   opens it here rather than throwing the reader into another tab. */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.82);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  z-index: 50;
+}
+
+.lightbox .head {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  padding: 10px 16px;
+  color: #f2f2f7;
+}
+
+.lightbox .head a { color: #cfe0ff; }
+.lightbox .head .name { font-weight: 600; }
+.lightbox .pos { opacity: 0.7; }
+.lightbox .body { display: grid; place-items: center; padding: 0 16px 16px; overflow: auto; }
+.lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; background: #fff; border-radius: 6px; }
+.lightbox iframe { width: 100%; height: 100%; border: 0; background: #fff; border-radius: 6px; }
+
+.lightbox button {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  border-color: transparent;
+}
+.lightbox button:disabled { opacity: 0.35; }
+
+/* A file with nothing to preview — the download stays reachable both here
+   and in the head, since this is the only content in the body. */
+.lightbox .nopreview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: #f2f2f7;
+}
+.lightbox .nopreview .glyph { font-size: 48px; }
+.lightbox .nopreview a { color: #cfe0ff; }
+
+/* ---- the session header, grouped by lifetime ----------------------------
+   The old header put seven facts in one row and buried the two that matter.
+   These are two groups because they have two different lifetimes: what the
+   SESSION keeps, and what belongs to the BROWSER it currently holds and goes
+   when that does. */
+
+.groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--gap); }
+.group { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
+
+.group > .label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+/* The last page gets a full row of its own: a URL is twenty characters or two
+   hundred, and it is the single most useful thing about a live session. */
+.lastpage { padding: 9px 0 12px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+.lastpage a { word-break: break-all; }
+
+/* ---- accordions ---------------------------------------------------------- */
+
+.section, section.row { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); margin-bottom: 12px; }
+.section > .head, section.row > .head { display: flex; align-items: center; gap: var(--gap); padding: 11px 14px; }
+/* A real <button>, stripped back to looking like a heading. Keeping the element
+   semantic is what gives it keyboard focus and an announced expanded state; the
+   styling is the part that was ever in question. */
+.section > .head .title {
+  font: inherit; font-weight: 600; color: inherit;
+  background: none; border: 0; padding: 0;
+  cursor: pointer; user-select: none;
+}
+.section > .head .title:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.section > .head .title .caret { display: inline-block; width: 12px; color: var(--muted); }
+.section > .body, section.row > .body { padding: 0 14px 14px; }
+.section[data-open=false] > .body { display: none; }
+
+/* ---- the file action ------------------------------------------------------
+   One action, top-left, visible on hover — always on touch, since there is no
+   pointer to hover with there. No status mark: what a file IS used to sit in
+   the opposite corner, and named a state nobody could act on. */
+
+.file { position: relative; }
+
+.file .act {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  z-index: 2;
+}
+.file:hover .act, .file .act:focus-visible { opacity: 1; }
+.file .act:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+/* No pointer to hover with, so "reveal on hover" would mean "never": the
+   control would be invisible and still tappable, which is the worst of both. */
+@media (hover: none) { .file .act { opacity: 1; } }
+
+/* ---- flows ---------------------------------------------------------------
+   Three columns, read left to right: the flows, the chosen flow's OUTLINE, and
+   whatever you picked out of it. The detail used to sit UNDER the steps, which
+   put the answer below the question and left the right half of a wide panel
+   empty; it is the same information, moved to where there was already room.
+
+   Nothing here scrolls on its own. A long flow makes the panel taller, which
+   is what the page's own scrollbar is for — an inner scroll region would hide
+   the end of a list inside a box that is already inside a box. */
+
+.flows { display: grid; grid-template-columns: minmax(180px, 240px) 1fr; gap: var(--gap); align-items: start; }
+@media (max-width: 680px) { .flows { grid-template-columns: 1fr; } }
+
+/* Rows, not a boxed list: the panel beside it is the bordered thing, and two
+   nested borders make the sidebar look like a second panel rather than a set
+   of choices. */
+.flowlist { display: flex; flex-direction: column; gap: 2px; }
+.flowlist .item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
+.flowlist .item:hover { background: color-mix(in srgb, var(--ink) 3%, transparent); }
+.flowlist .item[aria-selected=true] { background: color-mix(in srgb, var(--ink) 5%, transparent); }
+.flowlist .item .nm { font-size: 14px; word-break: break-all; }
+.flowlist .item .ct { font-size: 12px; color: var(--muted); }
+/* The globe marks only the shared ones. A badge on everything says nothing,
+   and a session's own flows are the unremarkable case. */
+.flowlist .item .globe { font-size: 14px; flex: none; }
+
+.panel { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 16px; display: flex; flex-direction: column; gap: var(--gap); }
+.panel > .head { display: flex; align-items: center; gap: 4px; }
+.panel > .head .nm { font-size: 16px; font-weight: 600; word-break: break-all; }
+.panel > .desc { font-size: 12px; color: var(--muted); }
+
+/* The flow's own actions, in the corner of the flow's own panel. They were a
+   row of labelled buttons under the steps, where a long flow pushed them off
+   the screen and where they read as if they belonged to the last step. Up here
+   they are unmistakably about the document, and they cost one line instead of
+   a toolbar. The label each one loses lives in its `title` and `aria-label`. */
+.acts { display: flex; gap: 4px; flex: none; }
+.acts button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  line-height: 1;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+.acts button:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.acts button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.acts button.danger:hover { background: color-mix(in srgb, var(--warn) 14%, transparent); }
+
+/* Outline | rule | detail. The rule is a real column rather than a border on
+   the outline, so it runs the full height of whichever side is taller. */
+.panes { display: grid; grid-template-columns: 200px 1px minmax(0, 1fr); gap: 16px; }
+.panes > .rule { background: var(--line); }
+@media (max-width: 680px) {
+  .panes { grid-template-columns: minmax(0, 1fr); }
+  .panes > .rule { height: 1px; }
+}
+
+.outline { display: flex; flex-direction: column; gap: var(--gap); }
+.olabel, .dlabel { font-size: 11px; letter-spacing: 0.44px; text-transform: uppercase; color: var(--muted); }
+
+/* A row is an icon and a name, and that is all. The tool a step calls and the
+   type a parameter takes are both a one-glyph lead on the left; the words for
+   them are in the pane, which is what picking a row is for. Dropping the tool
+   name and the 1-2-3 index is what lets this column be 200px wide — and the
+   order is still the order, so numbering it said nothing the list did not. */
+.rows { display: flex; flex-direction: column; gap: 2px; }
+.rows > .row { gap: var(--gap); padding: 4px 8px; border-radius: 8px; cursor: pointer; }
+.rows > .row:hover { background: color-mix(in srgb, var(--ink) 3%, transparent); }
+.rows > .row[aria-selected=true] { background: color-mix(in srgb, var(--ink) 5%, transparent); }
+.rows > .row .icon { width: 16px; flex: none; text-align: center; font-size: 13px; color: var(--muted); }
+/* Only where a number earns its place: a run report says "step 3 stopped the
+   flow", so the pane and the "used by" citations carry one. The outline does
+   not. */
+.rows > .row .n { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--muted); min-width: 10px; flex: none; }
+.rows > .row .lock { font-size: 12px; flex: none; }
+
+/* The name itself. Monospace because every one of them is an identifier that
+   someone types into a YAML file. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--ink);
+  word-break: break-all;
+}
+/* A picked row is already shaded, and a chip of the same shade on top of it
+   would be a second, darker box inside the first. */
+.rows > .row[aria-selected=true] .chip { background: transparent; }
+/* Required, as a red star rather than the word: it sits against the name it
+   qualifies instead of at the far end of the row, and it costs no width in a
+   200px column. Steps have no such mark — every step runs. */
+.chip .req { color: var(--warn); font-size: 14px; line-height: 0; }
+
+.pane { display: flex; flex-direction: column; gap: var(--gap); min-width: 0; }
+.pane > .dhead { display: flex; align-items: center; gap: 8px; }
+.pane > .dhead .chip { font-size: 13px; }
+.pane > .dhead .ty { font-size: 12px; color: var(--muted); }
+/* Where a section has nothing in it, and where the pane answers before
+   anything is picked. */
+.panes .hint, .panes .none { font-size: 12px; color: var(--muted); }
+
+.pairs { display: flex; flex-direction: column; gap: 4px; }
+.pairs .pair { display: flex; gap: var(--gap); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.pairs .pk { color: var(--muted); width: 96px; flex: none; }
+.pairs .pv { color: var(--ink); min-width: 0; word-break: break-all; }
+
+/* A multi-line value is code. It gets the whole width and its own newlines,
+   and it does NOT inherit `break-all` — breaking anywhere is right for a URL
+   or a selector and wrong for a program, where it splits identifiers in half.
+   Scrolls sideways rather than wrapping, for the same reason. */
+.pairs .pair.block { flex-direction: column; gap: 4px; }
+.pairs .pv.code {
+  margin: 0;
+  padding: 8px 10px;
+  width: 100%;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  font: inherit;
+  white-space: pre;
+  word-break: normal;
+  overflow-x: auto;
+}
+
+/* ---- modals: the confirm that lists, and the YAML editor ----------------- */
+
+.modal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: grid; place-items: center; z-index: 60; padding: 20px; }
+.modal .sheet { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); width: min(720px, 100%); max-height: 82vh; display: flex; flex-direction: column; }
+.modal .sheet > .head { padding: 13px 16px; border-bottom: 1px solid var(--line); font-weight: 600; }
+.modal .sheet > .body { padding: 14px 16px; overflow: auto; }
+.modal .sheet > .foot { padding: 12px 16px; border-top: 1px solid var(--line); display: flex; gap: 9px; justify-content: flex-end; }
+
+/* The names it will remove, shown rather than asserted. */
+.modal .names { margin: 10px 0 0; padding-left: 18px; font-size: 13px; }
+.modal .names li { word-break: break-all; }
+
+textarea.yaml {
+  width: 100%;
+  min-height: 42vh;
+  font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  resize: vertical;
+}
+
+/* What happens to each name in the Clear downloads confirm. The list is every
+   download, because every download is deleted; the difference is whether a kept
+   copy outlives it. */
+.names .fate { font-size: 12px; }
+.names .fate.gone { color: var(--warn); }
+.names .fate.stays { color: var(--muted); }
+
+/* ---- secrets (§F4.10) -----------------------------------------------------
+   One card per secret. Narrower than `.fact .k` elsewhere on the page — these
+   labels (keys, allowed, from) are shorter than the session header's. */
+.card.secret .fact { display: flex; gap: var(--gap); margin-top: 6px; }
+.card.secret .fact .k { width: 72px; flex: none; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.card.secret .used { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.card.secret .used .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 6px; }
+.secret .use { display: flex; gap: var(--gap); align-items: center; padding: 3px 0; }

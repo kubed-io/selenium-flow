@@ -21,3 +21,7 @@ dist/
 # They cost nothing to carry. In CI the wiki submodule is not checked out, so it
 # is an empty directory, and `.github/` is a handful of YAML that lands in the
 # final COPY layer — after the dependency layer that actually takes the time.
+
+# The built UI (npm --prefix ui run build). Generated, never committed (§F4.15).
+kubed/selenium_flow/http/static/
+ui/node_modules/
