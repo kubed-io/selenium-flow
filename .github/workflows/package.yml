@@ -100,10 +100,10 @@ jobs:
     # The wheel ships the built UI (Dockerfile's `ui` stage does the same
     # thing for the image), so the package this workflow tests is the one that
     # actually gets released.
+    - name: Install UI Dependencies
+      run: npm --prefix ui ci --no-audit --no-fund
     - name: Build UI
-      run: |
-        npm --prefix ui ci --no-audit --no-fund
-        npm --prefix ui run build
+      run: npm --prefix ui run build
 
     - name: Install Build Dependencies
       run: pip install .[build]

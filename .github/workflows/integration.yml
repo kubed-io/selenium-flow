@@ -91,10 +91,10 @@ jobs:
 
     # The flows drive the real admin page, so the placeholder Task 10 falls
     # back to when it is unbuilt is not good enough here.
+    - name: Install UI Dependencies
+      run: npm --prefix ui ci --no-audit --no-fund
     - name: Build UI
-      run: |
-        npm --prefix ui ci --no-audit --no-fund
-        npm --prefix ui run build
+      run: npm --prefix ui run build
 
     - name: Install
       run: pip install .[test,redis]
