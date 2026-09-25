@@ -106,7 +106,7 @@ async def test_the_old_per_resource_tools_are_gone(reader, monkeypatch):
 # ---- what the tools read -----------------------------------------------------
 
 
-async def test_the_listing_is_every_uri_to_read_and_nothing_to_draw(reader):
+async def test_the_listing_is_every_uri_to_read_and_nothing_to_draw(built_ui, reader):
     async with Client(reader.mcp) as c:
         rows = (await c.call_tool(mirror.LIST_TOOL, {})).structured_content["result"]
     uris = {row.get("uri") or row.get("uri_template") for row in rows}

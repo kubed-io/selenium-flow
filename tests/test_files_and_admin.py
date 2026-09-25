@@ -391,7 +391,7 @@ async def test_the_app_shell_is_a_ui_resource(built_ui, server):
     assert apps.RESOURCE_URI in uris
 
 
-async def test_the_file_tools_are_hidden_from_a_resource_client(server):
+async def test_the_file_tools_are_hidden_from_a_resource_client(built_ui, server):
     """A mirror is noise for a client that can read the resource itself."""
     names = {t.name for t in await server.mcp.list_tools()}
     assert "session_files" not in names
