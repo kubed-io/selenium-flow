@@ -256,9 +256,18 @@ def yaml_complaint(exc: Exception) -> str:
 _LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 
-@cached(LRUCache(maxsize=512), condition=threading.Condition())
-def _parsed(text: str):
-    return yaml.load(text, Loader=_LOADER)
+# Measured in YAML source, not entries: 512 entries is no bound at all when one
+# entry can be any size. Today's flows average 3KB, so this holds over a
+# thousand, and a document bigger than all of it is parsed but never kept.
+CACHE_BYTES = 4 * 2**20
+
+
+@cached(
+    LRUCache(maxsize=CACHE_BYTES, getsizeof=lambda kept: kept[0]),
+    condition=threading.Condition(),
+)
+def _parsed(text: str) -> tuple[int, object]:
+    return len(text), yaml.load(text, Loader=_LOADER)
 
 
 def parse(text: str):
@@ -269,7 +278,7 @@ def parse(text: str):
     flow after a save, a hand edit or a clock that ticks coarser than the disk.
     A copy every time, because callers own what they get back.
     """
-    return copy.deepcopy(_parsed(text))
+    return copy.deepcopy(_parsed(text)[1])
 
 
 def _step_count(document: dict) -> int:

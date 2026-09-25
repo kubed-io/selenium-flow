@@ -713,7 +713,9 @@ limit. The flow listings (`summaries`) pay the same cost for the same reason.
   save or a hand edit would show the old flow until it expired. Not an mtime:
   a coarse clock or a same-size edit would do the same. Reading a file is
   cheap and parsing it is not, so a key that *is* the content can never be
-  stale. Each caller gets a deep copy.
+  stale. Each caller gets a deep copy. Bounded by 4MiB of YAML source, not an
+  entry count (Copilot, #45): a count is no bound when one entry can be any
+  size, and a document bigger than the budget is parsed but never kept.
 - **1494ms → 137ms → 32ms**, by `uses()` in the pod: today, with libyaml,
   with the cache warm.
 - **Not Redis, and not the browser.** Redis adds a network hop and a

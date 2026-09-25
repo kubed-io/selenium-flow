@@ -284,6 +284,21 @@ def test_readers_arriving_together_share_one_parse(store, monkeypatch):
     assert len(calls) == 1
 
 
+def test_a_flow_bigger_than_the_cache_is_read_but_never_kept(store, monkeypatch):
+    """The cache is bounded by YAML source size, so one huge document cannot
+    hold the pod's memory: it is still read, just parsed every time."""
+    description = "y" * (flows.CACHE_BYTES + 1)
+    store.save("bot", "huge", {"description": description, "steps": []})
+    calls = []
+    real = flows.yaml.load
+    monkeypatch.setattr(
+        flows.yaml, "load", lambda *a, **k: calls.append(1) or real(*a, **k)
+    )
+    for _ in range(2):
+        assert store.get("bot", "huge")["description"] == description
+    assert len(calls) == 2
+
+
 def test_flows_are_parsed_by_libyaml_when_the_wheel_has_it():
     """Ten times the pure-Python parser, and every platform we ship has it."""
     if not yaml.__with_libyaml__:
