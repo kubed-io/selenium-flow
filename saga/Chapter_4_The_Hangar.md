@@ -707,7 +707,9 @@ limit. The flow listings (`summaries`) pay the same cost for the same reason.
   quote the source line; the pure-Python parser, still the fallback without
   it, does, and `yaml_complaint` keeps both quiet.
 - **Then cachetools, keyed on the text itself.** An `LRUCache` behind
-  `@cached`, locked, because the routes run in a thread pool. Not a TTL: a
+  `@cached`, with a condition rather than a bare lock: the routes run in a
+  thread pool, and readers arriving together for one cold flow wait for a
+  single parse instead of each doing it (Copilot, #45). Not a TTL: a
   save or a hand edit would show the old flow until it expired. Not an mtime:
   a coarse clock or a same-size edit would do the same. Reading a file is
   cheap and parsing it is not, so a key that *is* the content can never be

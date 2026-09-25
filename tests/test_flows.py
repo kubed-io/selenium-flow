@@ -7,6 +7,8 @@ path outside the data directory.
 """
 
 import logging
+import threading
+import time
 
 import pytest
 import yaml
@@ -256,6 +258,29 @@ def test_a_flow_is_parsed_once_however_often_it_is_read(store, monkeypatch):
     for _ in range(5):
         assert store.get("bot", "once")["description"] == "parsed-once-probe"
         store.summaries("bot")
+    assert len(calls) == 1
+
+
+def test_readers_arriving_together_share_one_parse(store, monkeypatch):
+    """Routes run in a thread pool, so the page's first load can ask for the
+    same cold flow several times at once; the others wait for the one parse."""
+    store.save("bot", "herd", {"description": "stampede-probe", "steps": []})
+    calls = []
+    real = flows.yaml.load
+
+    def slow(*a, **k):
+        calls.append(1)
+        time.sleep(0.2)
+        return real(*a, **k)
+
+    monkeypatch.setattr(flows.yaml, "load", slow)
+    threads = [
+        threading.Thread(target=store.get, args=("bot", "herd")) for _ in range(4)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
     assert len(calls) == 1
 
 

@@ -256,7 +256,7 @@ def yaml_complaint(exc: Exception) -> str:
 _LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 
-@cached(LRUCache(maxsize=512), lock=threading.Lock())
+@cached(LRUCache(maxsize=512), condition=threading.Condition())
 def _parsed(text: str):
     return yaml.load(text, Loader=_LOADER)
 
