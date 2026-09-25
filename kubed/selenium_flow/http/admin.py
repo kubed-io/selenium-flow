@@ -826,8 +826,18 @@ def register(
 
     def refused(exc: Exception, what: str) -> JSONResponse:
         status = errors.status_for(exc)
-        log.info("%s refused (%s): %s", what, status, errors.message(exc))
-        return JSONResponse({"error": errors.message(exc)}, status_code=status)
+        text = errors.message(exc)
+        # The log line above keeps whatever `errors.message` says, path
+        # included — an operator chasing an NFS outage needs to know which
+        # mount. A real filesystem failure's `str()` quotes that same path,
+        # though, and the body a caller reads is not the place for
+        # FLOW_DATA_DIR's layout — the same reason `core/actions.py`'s
+        # `_why_unsaved` keeps a screenshot-save failure to a type name
+        # rather than the OSError's own message (Copilot, PR #41).
+        log.info("%s refused (%s): %s", what, status, text)
+        if isinstance(exc, OSError) and exc.filename:
+            text = f"{exc.strerror or type(exc).__name__} ({type(exc).__name__})"
+        return JSONResponse({"error": text}, status_code=status)
 
     async def body_of(request: Request) -> dict:
         try:
@@ -1041,9 +1051,13 @@ def register(
             return JSONResponse({"error": "not found"}, status_code=404)
         try:
             data = await run_in_threadpool(actions.grid.read_file, session_id, name)
-        except Exception as exc:  # noqa: BLE001 - gone, or never existed
-            log.info("read %s/%s failed: %s", session_id, name, exc)
-            return JSONResponse({"error": "not found"}, status_code=404)
+        except Exception as exc:  # noqa: BLE001 - errors.py says what it means
+            # The Grid's own status decides what its refusal means: a 404 (the
+            # browser or the file is gone) still answers 404, but an unreachable
+            # Grid or another failure must not be flattened into "not found" —
+            # that tells a client to stop retrying something that could work on
+            # a retry (Copilot, PR #41).
+            return refused(exc, f"reading {name} for {session_id}")
         return served(name, data)
 
     @mcp.custom_route(
@@ -1070,9 +1084,14 @@ def register(
             return JSONResponse({"error": "not found"}, status_code=404)
         try:
             data = await run_in_threadpool(flow_store.read_file, session, name)
-        except Exception as exc:  # noqa: BLE001 - gone, or never existed
-            log.info("read kept %s/%s failed: %s", session, name, exc)
+        except (FileNotFoundError, flows.InvalidName):
+            # Genuinely absent, or a name the store would never have written
+            # (§F1.2's traversal guard) — both answer the same way this route
+            # always has for a bad name. Anything else is a storage fault, not
+            # an absence, and must not be reported as one (Copilot, PR #41).
             return JSONResponse({"error": "not found"}, status_code=404)
+        except Exception as exc:  # noqa: BLE001 - errors.py says what it means
+            return refused(exc, f"reading kept {name} for {session}")
         return served(name, data)
 
     @mcp.custom_route(
@@ -1104,7 +1123,12 @@ def register(
             data = await run_in_threadpool(
                 flow_store.read_file, session, name, flows.SCREENSHOTS_DIR
             )
-        except Exception as exc:  # noqa: BLE001 - gone, or never existed
-            log.info("read screenshot %s/%s failed: %s", session, name, exc)
+        except (FileNotFoundError, flows.InvalidName):
+            # Genuinely absent, or a name the store would never have written
+            # (§F1.2's traversal guard) — both answer the same way this route
+            # always has for a bad name. Anything else is a storage fault, not
+            # an absence, and must not be reported as one (Copilot, PR #41).
             return JSONResponse({"error": "not found"}, status_code=404)
+        except Exception as exc:  # noqa: BLE001 - errors.py says what it means
+            return refused(exc, f"reading screenshot {name} for {session}")
         return served(name, data)

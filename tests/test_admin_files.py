@@ -19,6 +19,7 @@ from starlette.testclient import TestClient
 
 from kubed.selenium_flow.core import browser
 from kubed.selenium_flow.flows import library as flows
+from kubed.selenium_flow.http import links
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.session.store import SessionRecord
 
@@ -171,6 +172,30 @@ def test_the_screenshot_route_serves_a_signed_file(client, live):
     assert response.content == b"\x89PNG\r\n\x1a\n"
     unsigned = url.split("?", 1)[0]
     assert client.get(unsigned).status_code == 403
+
+
+def test_a_screenshot_that_is_not_there_is_a_404(client, live):
+    response = client.get(links.screenshot_url(SESSION, "missing.png", TOKEN))
+    assert response.status_code == 404
+
+
+def test_a_broken_screenshot_store_is_a_5xx_not_a_404(client, live):
+    """A read that fails is not the same fact as a read that found nothing:
+    an NFS permission fault or a mount gone read-only must not tell a client
+    to stop retrying something that could work on the next attempt, and its
+    message must not quote FLOW_DATA_DIR's own layout back at whoever asked
+    (Copilot, PR #41)."""
+    with patch.object(
+        flows.LocalFlowStore,
+        "read_file",
+        side_effect=PermissionError(
+            13, "Permission denied", "/data/flows/desktop/screenshots/shot.png"
+        ),
+    ):
+        response = client.get(links.screenshot_url(SESSION, "shot.png", TOKEN))
+    assert response.status_code >= 500
+    assert response.status_code < 600
+    assert "/data/flows" not in response.text
 
 
 # ---- the counts -----------------------------------------------------------

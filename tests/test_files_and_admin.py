@@ -10,6 +10,7 @@ import time
 from unittest.mock import patch
 
 import pytest
+import requests
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow.core import browser
@@ -318,6 +319,32 @@ def test_a_signed_file_is_served_without_any_header(client):
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/png")
     assert "inline" in response.headers["content-disposition"]
+
+
+def test_a_grid_404_on_download_is_a_404(client):
+    """The Grid's own status decides what its refusal means (`errors.py`): a
+    gone browser or a file the Grid never had answers the same 404 a caller
+    already gets for one it deleted itself, not a 500 that tells a retrying
+    client the request itself is fine."""
+    gone = requests.Response()
+    gone.status_code = 404
+    with patch.object(
+        browser.Grid, "read_file", side_effect=requests.HTTPError(response=gone)
+    ):
+        response = client.get(links.file_url("abc", "shot.png", TOKEN))
+    assert response.status_code == 404
+
+
+def test_an_unreachable_grid_on_download_is_a_503_not_a_404(client):
+    """Before this fix every exception from the Grid was flattened into "not
+    found" — a downed Grid told a client to stop retrying something that would
+    have worked a moment later (Copilot, PR #41)."""
+    with patch.object(
+        browser.Grid, "read_file", side_effect=requests.ConnectionError("no route")
+    ):
+        response = client.get(links.file_url("abc", "shot.png", TOKEN))
+    assert response.status_code == 503
+    assert response.json()["error"] != "not found"
 
 
 def test_a_partial_download_is_never_served(client):

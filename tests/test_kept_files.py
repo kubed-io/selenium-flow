@@ -729,6 +729,25 @@ def test_a_kept_file_that_is_not_there_is_a_404(client, live):
     assert response.status_code == 404
 
 
+def test_a_broken_kept_store_is_a_5xx_not_a_404(client, live):
+    """A read that fails is not the same fact as a read that found nothing: an
+    NFS permission fault or a mount gone read-only must not tell a client to
+    stop retrying something that could work on the next attempt, and its
+    message must not quote FLOW_DATA_DIR's own layout back at whoever asked
+    (Copilot, PR #41)."""
+    with patch.object(
+        flows.LocalFlowStore,
+        "read_file",
+        side_effect=PermissionError(
+            13, "Permission denied", "/data/flows/desktop/files/report.pdf"
+        ),
+    ):
+        response = client.get(links.kept_url(SESSION, "report.pdf", TOKEN))
+    assert response.status_code >= 500
+    assert response.status_code < 600
+    assert "/data/flows" not in response.text
+
+
 # ---- the published contract --------------------------------------------------
 
 
