@@ -5,9 +5,9 @@
   import { Live } from './live.svelte'
   import Login from './Login.svelte'
   import { go, hashes, listen, router } from './router.svelte'
+  import SecretsPane from './SecretsPane.svelte'
   import SessionDetail from './SessionDetail.svelte'
   import SessionsView from './SessionsView.svelte'
-  // Task 9: import SecretsPane from './SecretsPane.svelte'
 
   let { mount, console: consoleUrl }: { mount: string; console: string } = $props()
 
@@ -103,8 +103,7 @@
         {/if}
       </section>
     {:else if top === 'secrets'}
-      <!-- Task 9: <SecretsPane {api} /> -->
-      <section id="paneSecrets"><div id="secrets"><div class="empty">Loading…</div></div></section>
+      <SecretsPane {api} />
     {/if}
     {#if !consoleSelf}
       <!-- Mounted once, alongside the other panes, not only on the console
