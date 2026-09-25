@@ -9,6 +9,7 @@ deployed image silently kept the old one.
 
 import ast
 import pathlib
+import re
 import sys
 
 # tomllib is 3.11+. The package supports 3.10, so on that leg the reader is
@@ -402,6 +403,26 @@ def test_the_built_ui_ships_by_glob_so_an_unbuilt_install_still_works():
     assert "kubed.selenium_flow.http.static" not in setuptools["package-dir"]
     assert setuptools["package-data"]["kubed.selenium_flow.http"] == ["static/*"]
     assert "kubed/selenium_flow/http/static/" in (REPO / ".gitignore").read_text()
+
+
+def test_the_ui_is_built_in_its_own_stage_and_reaches_the_package():
+    text = DOCKERFILE.read_text()
+    assert re.search(r"^FROM node:24-slim AS ui$", text, re.M)
+    assert "npm ci" in text and "npm run build" in text
+    assert re.search(r"^COPY --from=ui \S+ kubed/selenium_flow/http/static$", text, re.M)
+    # before the project install, so the wheel the venv gets has the UI in it
+    assert text.index("COPY --from=ui") < text.index("pip install --no-cache-dir .[redis]")
+
+
+def test_node_never_reaches_the_runner():
+    runner = DOCKERFILE.read_text().split("AS runner", 1)[1]
+    assert "node" not in runner.lower() and "npm" not in runner
+
+
+def test_a_ui_change_rebuilds_the_image():
+    text = (REPO / ".github/workflows/image.yml").read_text()
+    assert "'ui/**'" in text or '"ui/**"' in text or "- ui/**" in text
+
 
 def test_every_relative_import_in_the_package_resolves():
     """A relative import inside a function is not checked until it runs.

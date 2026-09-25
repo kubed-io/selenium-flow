@@ -82,6 +82,20 @@ jobs:
         cache: pip
         cache-dependency-path: pyproject.toml
 
+    - name: Setup Node
+      uses: actions/setup-node@v7
+      with:
+        node-version: 24
+        cache: npm
+        cache-dependency-path: ui/package-lock.json
+
+    # The flows drive the real admin page, so the placeholder Task 10 falls
+    # back to when it is unbuilt is not good enough here.
+    - name: Build UI
+      run: |
+        npm --prefix ui ci --no-audit --no-fund
+        npm --prefix ui run build
+
     - name: Install
       run: pip install .[test,redis]
 

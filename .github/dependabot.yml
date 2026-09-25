@@ -58,6 +58,27 @@ updates:
       - minor
       - patch
 
+# npm: the admin UI's toolchain and the ext-apps SDK, in ui/.
+- package-ecosystem: npm
+  directory: /ui
+  schedule:
+    interval: weekly
+    day: monday
+  open-pull-requests-limit: 5
+  labels:
+  - dependencies
+  - javascript
+  - no changelog
+  commit-message:
+    prefix: deps(npm)
+  cooldown:
+    default-days: 7
+  groups:
+    npm-minor-patch:
+      update-types:
+      - minor
+      - patch
+
 # Docker: the python base image in the Dockerfile.
 - package-ecosystem: docker
   directory: /

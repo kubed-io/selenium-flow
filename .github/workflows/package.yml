@@ -90,6 +90,21 @@ jobs:
         cache: pip
         cache-dependency-path: pyproject.toml
 
+    - name: Setup Node
+      uses: actions/setup-node@v7
+      with:
+        node-version: 24
+        cache: npm
+        cache-dependency-path: ui/package-lock.json
+
+    # The wheel ships the built UI (Dockerfile's `ui` stage does the same
+    # thing for the image), so the package this workflow tests is the one that
+    # actually gets released.
+    - name: Build UI
+      run: |
+        npm --prefix ui ci --no-audit --no-fund
+        npm --prefix ui run build
+
     - name: Install Build Dependencies
       run: pip install .[build]
 
@@ -108,6 +123,23 @@ jobs:
 
     - name: Build
       run: python -m build
+
+    # setuptools' package-data glob has silently dropped files before (§F4.15)
+    # — a "Package would be ignored" deprecation warning today, a missing file
+    # tomorrow — so this checks the actual zip contents rather than trusting
+    # the build to have collected all six.
+    - name: Verify All Six UI Files Are In The Wheel
+      run: |
+        missing=""
+        for f in admin.html admin.css admin.js app.html app.css app.js; do
+          if ! python -m zipfile -l dist/*.whl | grep -q "http/static/$f"; then
+            missing="$missing $f"
+          fi
+        done
+        if [ -n "$missing" ]; then
+          echo "::error::missing from the wheel:$missing"
+          exit 1
+        fi
 
     # Names are derived from the files on disk rather than composed from the
     # version string: a wheel carries a Python tag (`-py3-none-any`) that the
