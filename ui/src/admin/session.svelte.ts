@@ -55,6 +55,7 @@ export class SessionModel {
   #fileLoads = new Latest()
   #flowLoads = new Latest()
   #docLoads = new Latest()
+  #disposed = false
   readonly key: string
   #api: Api
 
@@ -65,6 +66,7 @@ export class SessionModel {
   }
 
   loadFiles(): Promise<void> {
+    if (this.#disposed) return Promise.resolve()
     // Both clears are off for the life of the request, not only once it fails.
     this.loadingFiles = true
     return this.#fileLoads.run(
@@ -104,7 +106,12 @@ export class SessionModel {
     return this.#fileLoads.settled()
   }
 
+  flowsSettled(): Promise<void> {
+    return this.#flowLoads.settled()
+  }
+
   loadFlows(currentFlow: () => string | null, vanished: () => void): Promise<void> {
+    if (this.#disposed) return Promise.resolve()
     return this.#flowLoads.run(
       (signal) => this.#api<FlowsListing>(sessionPath(this.key, '/flows'), 'GET', undefined, signal),
       (data) => {
@@ -130,6 +137,7 @@ export class SessionModel {
   }
 
   loadFlow(name: string): Promise<void> {
+    if (this.#disposed) return Promise.resolve()
     return this.#docLoads.run(
       (signal) => this.#api<FlowDoc>(sessionPath(this.key, '/flows/' + encodeURIComponent(name)), 'GET', undefined, signal),
       (doc) => { this.flowDoc = doc; this.flowDocError = null },
@@ -165,7 +173,9 @@ export class SessionModel {
     this.filesBlanked = false
   }
 
+  /* Final: a caller still holding the model after its session left loads nothing. */
   dispose() {
+    this.#disposed = true
     this.#fileLoads.abort()
     this.#flowLoads.abort()
     this.#docLoads.abort()

@@ -506,6 +506,29 @@ const FLOW_ROUTES = {
   'GET /admin/sessions/k/flows/login': { body: LOGIN },
 }
 
+test('a deep-linked flow still opens when a push reloads the listing under the first load (D5)', async () => {
+  history.replaceState(null, '', '/#/sessions/k/flows/login')
+  const first = deferred<{ body: unknown }>()
+  const second = deferred<{ body: unknown }>()
+  let n = 0
+  const { container, calls, live } = setup({
+    ...FLOW_ROUTES,
+    'GET /admin/sessions/k/flows': () => (++n === 1 ? first.promise : second.promise),
+  }, { tab: 'flows', flow: 'login' })
+  await vi.waitFor(() => expect(n).toBe(1))
+  // Admin's first /admin/sessions answer, landing between /files and /flows.
+  live.data = { sessions: [row] }
+  await vi.waitFor(() => expect(n).toBe(2))
+  const listing = calls.filter((c) => c.path === '/admin/sessions/k/flows')
+  expect(listing[0].signal!.aborted).toBe(true)
+  // A real fetch rejects the moment it is aborted, before the second answers.
+  first.resolve({ body: FLOW_ROUTES['GET /admin/sessions/k/flows'].body })
+  await tick()
+  second.resolve({ body: FLOW_ROUTES['GET /admin/sessions/k/flows'].body })
+  await vi.waitFor(() => expect(calls.some((c) => c.path === '/admin/sessions/k/flows/login')).toBe(true))
+  await vi.waitFor(() => expect(container.querySelector('[data-edit]')).not.toBeNull())
+})
+
 test('a move, delete or save of a flow that lands after the session was left is refused, not run or dropped (D4)', async () => {
   history.replaceState(null, '', '/#/sessions/k/flows/login')
   const { container, calls, unmount } = setup(FLOW_ROUTES, { tab: 'flows', flow: 'login' })

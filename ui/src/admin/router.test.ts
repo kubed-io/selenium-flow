@@ -14,6 +14,11 @@ test('parse (R2)', () => {
   expect(parse('#/nonsense')).toEqual({ view: 'list' })
 })
 
+test('a malformed escape in a pasted hash falls back to the list, not a dead app', () => {
+  expect(parse('#/sessions/%E0%A4%A')).toEqual({ view: 'list' })
+  expect(parse('#/sessions/k/flows/%E0%A4%A')).toEqual({ view: 'list' })
+})
+
 test('hashes round-trip through parse', () => {
   expect(parse(hashes.flow('a b', 'f/1'))).toEqual({ view: 'session', key: 'a b', tab: 'flows', flow: 'f/1' })
   expect(hashes.session('k')).toBe('#/sessions/k')

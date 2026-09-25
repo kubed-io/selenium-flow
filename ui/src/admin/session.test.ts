@@ -37,6 +37,17 @@ test('dispose: an answer after the session left never paints (D4)', async () => 
   expect(m.view).toBeNull()
 })
 
+test('dispose is final: a load asked for afterwards goes nowhere (D4)', async () => {
+  const { calls } = fakeFetch({})
+  const m = new SessionModel('k', api)
+  m.dispose()
+  await m.loadFiles()
+  await m.loadFlows(() => null, () => {})
+  await m.loadFlow('login')
+  expect(calls).toEqual([])
+  expect(m.loadingFiles).toBe(false)
+})
+
 test('filesSettled sees the newest data even when the poll overtook the caller (X3, the Keep race)', async () => {
   const keeps = deferred<{ body: unknown }>()
   const polls = deferred<{ body: unknown }>()

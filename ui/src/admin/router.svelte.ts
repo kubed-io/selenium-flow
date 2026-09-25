@@ -12,11 +12,16 @@ export function parse(hash: string): Route {
   if (view === 'console') return { view: 'console' }
   if (view === 'secrets') return { view: 'secrets' }
   if (view === 'sessions' && key) {
-    return {
-      view: 'session',
-      key: decodeURIComponent(key),
-      tab: tab === 'flows' ? 'flows' : 'files',
-      flow: flow ? decodeURIComponent(flow) : undefined,
+    // parse() runs at module load: a bad pasted `%` must not stop the app booting.
+    try {
+      return {
+        view: 'session',
+        key: decodeURIComponent(key),
+        tab: tab === 'flows' ? 'flows' : 'files',
+        flow: flow ? decodeURIComponent(flow) : undefined,
+      }
+    } catch {
+      return { view: 'list' }
     }
   }
   return { view: 'list' }

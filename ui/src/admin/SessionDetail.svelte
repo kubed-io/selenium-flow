@@ -105,6 +105,8 @@
       await m.loadFiles()
       if (destroyed) return
       await m.loadFlows(() => flowName, vanished)
+      // A push can overtake that load, which then returns unpainted.
+      await m.flowsSettled()
       if (destroyed) return
       // A deep link opens a flow only once the listing says it exists (D5).
       if (flow && flow !== flowName && known(flow)) await openFlow(flow)
