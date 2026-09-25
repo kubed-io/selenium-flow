@@ -499,3 +499,74 @@ test('a keep, delete or clear — from a tile, a confirm or the lightbox — tha
   await tick()
   expect(calls.slice(before)).toEqual([])
 })
+
+const LOGIN = { name: 'login', steps: [{ tool: 'navigate', args: { url: '/' } }], parameters: {}, uses: {}, yaml: 'steps: []\n' }
+const FLOW_ROUTES = {
+  'GET /admin/sessions/k/flows': { body: { ...FLOWS, flows: [{ name: 'login', step_count: 1 }] } },
+  'GET /admin/sessions/k/flows/login': { body: LOGIN },
+}
+
+test('a move, delete or save of a flow that lands after the session was left is refused, not run or dropped (D4)', async () => {
+  history.replaceState(null, '', '/#/sessions/k/flows/login')
+  const { container, calls, unmount } = setup(FLOW_ROUTES, { tab: 'flows', flow: 'login' })
+  await vi.waitFor(() => expect(container.querySelector('[data-edit]')).not.toBeNull())
+  const specs: ModalSpec<never>[] = []
+  for (const open of ['[data-move]', '[data-drop]', '[data-edit]']) {
+    await fireEvent.click(container.querySelector(open)!)
+    await vi.waitFor(() => expect(document.querySelector('.modal')).not.toBeNull())
+    specs.push(lastProps<{ spec: ModalSpec<never> }>(Modal).spec)
+    await fireEvent.click(within(document.querySelector('.modal') as HTMLElement).getByText('Cancel'))
+  }
+  expect(specs.map((s) => s.title)).toEqual(['Move to global', 'Delete this flow?', 'Edit login'])
+  const before = calls.length
+  unmount()
+
+  for (const spec of specs) await expect(spec.onconfirm()).rejects.toThrow('that session is no longer on screen')
+  await tick()
+  expect(calls.slice(before)).toEqual([])
+})
+
+test('a flow Move/Delete/Save from a session that has since been left does not touch another session’s open flow (D4, W4, W5, W6)', async () => {
+  history.replaceState(null, '', '/#/sessions/k/flows/login')
+  const moved = deferred<{ body: unknown }>()
+  const dropped = deferred<{ body: unknown }>()
+  const saved = deferred<{ body: unknown }>()
+  const { container, calls, unmount } = setup({
+    ...FLOW_ROUTES,
+    'POST /admin/sessions/k/flows/login/move': () => moved.promise,
+    'DELETE /admin/sessions/k/flows/login': () => dropped.promise,
+    'PUT /admin/sessions/k/flows/login': () => saved.promise,
+    ...B_ROUTES,
+    'GET /admin/sessions/b/flows': { body: { ...FLOWS, session: 'b', flows: [{ name: 'other', step_count: 2 }] } },
+    'GET /admin/sessions/b/flows/other': { body: { name: 'other', steps: [{ tool: 'navigate' }, { id: 'go', tool: 'interact' }], parameters: {}, uses: {} } },
+  }, { tab: 'flows', flow: 'login' })
+  await vi.waitFor(() => expect(container.querySelector('[data-edit]')).not.toBeNull())
+  // All three in flight at once: each box replaces the last while its confirm is out.
+  const confirm = async (open: string, title: string, verb: string) => {
+    await fireEvent.click(container.querySelector(open)!)
+    await vi.waitFor(() => expect(document.querySelector('.modal .head')).toHaveTextContent(title))
+    await fireEvent.click(within(document.querySelector('.modal') as HTMLElement).getByText(verb))
+  }
+  await confirm('[data-move]', 'Move to global', 'Move')
+  await confirm('[data-drop]', 'Delete this flow?', 'Delete')
+  await confirm('[data-edit]', 'Edit login', 'Save')
+  await vi.waitFor(() => expect(calls.filter((c) => c.method !== 'GET')).toHaveLength(3))
+  unmount()
+
+  const b = render(SessionDetail, { key: 'b', tab: 'flows', flow: 'other', api, live: new Live(api, ''), root: '' })
+  await vi.waitFor(() => expect(b.container.querySelector('.outline [data-step="1"]')).not.toBeNull())
+  await fireEvent.click(b.container.querySelector('.outline [data-step="1"]')!)
+  expect(location.hash).toBe('#/sessions/b/flows/other')
+  const before = calls.length
+  moved.resolve({ body: {} })
+  dropped.resolve({ body: {} })
+  saved.resolve({ body: {} })
+  await tick()
+  await tick()
+  expect(calls.slice(before)).toEqual([])
+  expect(location.hash).toBe('#/sessions/b/flows/other')
+  expect(b.container.querySelector('.panel .head .nm')).toHaveTextContent('other')
+  expect(b.container.querySelector('.outline [data-step="1"]')).toHaveAttribute('aria-selected', 'true')
+  expect(b.container.querySelector('.pane .dhead')).toHaveTextContent('2gointeract')
+  expect(b.container.querySelector('.flowlist .item')).toHaveAttribute('aria-selected', 'true')
+})

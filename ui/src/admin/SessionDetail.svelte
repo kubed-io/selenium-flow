@@ -5,12 +5,12 @@
   import type { FileEntry, Folder, SessionsPayload } from '../lib/types'
   import { sessionPath, type Api } from './api'
   import FilesPane from './FilesPane.svelte'
+  import FlowsPane from './FlowsPane.svelte'
   import type { Live } from './live.svelte'
   import Modal from './Modal.svelte'
   import type { ModalSpec } from './modal'
   import { go, hashes, replace } from './router.svelte'
   import { SessionModel } from './session.svelte'
-  // Task 8: import FlowsPane from './FlowsPane.svelte'
 
   let { key, tab, flow, api, live, root }: {
     key: string
@@ -83,8 +83,21 @@
   function openFlow(name: string) {
     flowName = name
     m.flowDoc = null
+    // Today's openFlow repainted the whole tab from the listing it had, so
+    // neither error on screen outlived a pick.
+    m.flowDocError = null
+    m.flowsError = null
     replace(hashes.flow(key, name))
     return m.loadFlow(name)
+  }
+
+  const reloadFlows = () => m.loadFlows(() => flowName, vanished)
+
+  /* A move or delete: the flow is no longer here to show. */
+  function closeFlow() {
+    flowName = null
+    replace(hashes.flows(key))
+    return reloadFlows()
   }
 
   onMount(() => {
@@ -272,8 +285,10 @@
   <FilesPane {m} {root} hidden={tab !== 'files'}
              onopen={openLightbox} onkeep={keep} ondelete={(f) => deleteFile(f)} onclear={clear} />
   <div id="paneFlows" hidden={tab !== 'flows'}>
-    <!-- Task 8: <FlowsPane … /> -->
-    <div class="section"><div class="body"><div id="flows"><div class="empty">Loading…</div></div></div></div>
+    <!-- Today's box around #flows; no accordion in it (W9). -->
+    <div class="section"><div class="body"><FlowsPane
+      {m} {flowName} {api} {ask} {refuseIfGone} isGone={() => destroyed}
+      onpick={(name) => void openFlow(name)} onclosed={closeFlow} reload={reloadFlows} /></div></div>
   </div>
 </div>
 

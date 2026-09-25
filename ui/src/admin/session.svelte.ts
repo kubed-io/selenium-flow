@@ -106,6 +106,9 @@ export class SessionModel {
       (data) => {
         this.flows = data
         this.flowsError = null
+        // Today's listing repainted the panel from the document it had, so a
+        // failed load's error went, and the reload below says anew.
+        this.flowDocError = null
         this.flowsBlanked = false
         this.#shownFlows = data.rev || null
         // The open flow is part of the library this listing replaced, and the
