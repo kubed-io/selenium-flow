@@ -1091,3 +1091,25 @@ def test_a_stale_downloads_lightbox_is_closed_before_the_browser_changes(page):
     assert branch.index("activeLightboxFolder === 'downloads'") < branch.index(
         "shownBrowser = row.session_id"
     )
+
+
+def test_a_browser_change_forces_a_files_reload(page):
+    """A reap-and-replace that leaves `session_id` (and `live`) unchanged from
+    the recorded row's own point of view is not the case here — this is the
+    `shownBrowser`/`shownLive` branch itself, entered because one of them DID
+    change. It resets `filesData` to NO_FILES but must also reset `shownFiles`
+    to null, or a session whose download list was already empty keeps the
+    same `filesStamp`, the `filesStamp(row) !== shownFiles` check below never
+    fires, and Screenshots/Files/Clear screenshots stay stuck on the gone
+    browser with no load ever in flight to fix it."""
+    detail = page.split("function refreshDetail(data)")[1].split("\n}\n")[0]
+    branch = detail.split(
+        "if ((row.session_id || null) !== shownBrowser || !!row.live !== shownLive) {"
+    )[1].split("\n  }\n")[0]
+    assert "filesData = NO_FILES;" in branch
+    assert "shownFiles = null;" in branch
+    assert branch.index("filesData = NO_FILES;") < branch.index("shownFiles = null;")
+    # And the reload this unblocks is the very next statement outside the
+    # branch: `filesStamp(row) !== shownFiles` is now unconditionally true.
+    after = detail.split("shownFiles = null;")[1]
+    assert "if (filesStamp(row) !== shownFiles) loadFiles(current);" in after

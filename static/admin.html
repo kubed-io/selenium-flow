@@ -1277,6 +1277,11 @@ function refreshDetail(data) {
     shownBrowser = row.session_id || null;
     shownLive = !!row.live;
     filesData = NO_FILES;
+    // Forces the `filesStamp` check below to call loadFiles even when the
+    // download list itself is unchanged (e.g. still empty) — otherwise
+    // `filesData` sits at NO_FILES with no load in flight, and Screenshots,
+    // Files and Clear screenshots stay stuck on the reaped browser forever.
+    shownFiles = null;
     $('clearScreenshots').disabled = true;
     SF.fileGrid($('downloads'), [], {
       base: ROOT,
