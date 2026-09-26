@@ -10,8 +10,8 @@ This round lives in
 `docs/superpowers/` and not in the saga.
 
 **Status:** spec written and drawn. The Penpot file *Admin UI* holds the
-drawing, in version *Configuration design, round 5 — keys without their section
-prefix*. Next: Dr K approves both, then the plan.
+drawing, in version *Configuration design, round 6 — mcp section; every source
+shown*. Plan written; implementation on PR #47.
 
 ## Goal
 
@@ -91,11 +91,12 @@ Three constraints follow from the rule:
 
 - **A section name has no underscore.** The first `_` in an env name separates
   the section from the key.
-- **A section name is not a prefix Kubernetes or the shell already uses.** So
+- **A section name is never itself an env var that something else sets.**
   `browser` is out, because code-server and many shells set `BROWSER`, which
-  would be read as the whole section. `mcp` is out because of `MCP_KB_PORT`.
-  `selenium` is out because of `SELENIUM_FLOW_PORT` and
-  `SELENIUM_GRID_SELENIUM_HUB_PORT`.
+  would be read as the whole section. `selenium` stays out, because
+  `SELENIUM_FLOW_PORT` and `SELENIUM_GRID_SELENIUM_HUB_PORT` sit so close.
+  **`mcp` is allowed** (Dr K, 2026-09-26). The env layer keeps only known
+  leaves, so `MCP_KB_PORT` reads as `mcp.kb_port` and is dropped.
 - **Env names are matched case-insensitively.** This is pydantic-settings'
   default and is kept.
 
@@ -133,8 +134,8 @@ Every setting the server reads today, in its new place. **Bold** names changed.
 | `flow.data_dir` | `FLOW_DATA_DIR` | `--flow-data-dir` | unset (flows off) | |
 | `secrets.dirs` | `SECRETS_DIRS` | `--secrets-dirs` | unset | |
 | `secrets.entries` | — | — | none | config file only |
-| `skill.enabled` | `SKILL_ENABLED` | `--skill-enabled` | `true` | |
-| `apps.enabled` | `APPS_ENABLED` | `--apps-enabled` | `true` | |
+| **`mcp.skill`** | **`MCP_SKILL`** | `--mcp-skill` | `true` | |
+| **`mcp.apps`** | **`MCP_APPS`** | `--mcp-apps` | `true` | |
 
 Notes on the table:
 
@@ -145,8 +146,11 @@ Notes on the table:
   session opens with. `session.browser` keeps the reason `DEFAULT_BROWSER` was
   not called `BROWSER`: as a *section* name, `browser` would swallow the Unix
   `BROWSER` variable.
-- **Flag renames.** `--no-skill` and `--no-apps` become `--skill-enabled false`
-  and `--apps-enabled false`. Every boolean flag takes a value
+- **An `mcp` section** (Dr K, 2026-09-26) holds what an MCP client is offered
+  beyond tools: `mcp.skill` and `mcp.apps` replace `SKILL_ENABLED` and
+  `APPS_ENABLED`.
+- **Flag renames.** `--no-skill` and `--no-apps` become `--mcp-skill false`
+  and `--mcp-apps false`. Every boolean flag takes a value
   (`true|false|1|0|yes|no|on|off`), so the flag rule has no exceptions.
 - **`session.store` stays derived.** Unset means `redis` when `redis.url` or
   `redis.host` was set *by anything other than its default*, and `memory`
@@ -525,7 +529,7 @@ can break in a way no unit test sees, and that is argued in the plan.
 
 - **The naming rule**: for every leaf in the schema, `env == path.upper().replace(".", "_")`
   and `flag == "--" + path.replace(".", "-").replace("_", "-")`. No section
-  name contains `_`, and none is `browser`, `mcp` or `selenium`.
+  name contains `_`, and none is `browser` or `selenium`. `MCP_KB_PORT` is dropped.
 - **Precedence**, per leaf: default < file < env < arg, including a partial
   section (a file `redis.port` survives an env `REDIS_HOST`).
 - **Provenance** matches precedence for every source.
