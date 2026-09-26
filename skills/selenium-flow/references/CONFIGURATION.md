@@ -94,14 +94,15 @@ saying how to set one.
 
 ## Server settings worth knowing
 
-Full table in the project README; these are the ones that change behaviour you
-will notice.
+Every setting, in all three spellings, is on the wiki's
+[Configuration](https://github.com/kubed-io/selenium-flow/wiki/Configuration)
+page; these are the ones that change behaviour you will notice.
 
 | Env | Default | Why you would change it |
 |---|---|---|
 | `AUTH_TOKEN` | unset | Sets the bearer token for both surfaces. Unset means **no auth** |
 | `SESSION_STORE` | `memory` | `redis` to share a caller's browser across replicas or a restart |
-| `SESSION_TTL` | `3600` | How long a caller's mapping is kept. Not the browser's lifetime |
+| `SESSION_TTL` | `86400` | How long a caller's mapping is kept. Not the browser's lifetime |
 | `FLOW_DATA_DIR` | unset | A directory to keep saved flows in. Unset means no flows |
 | `SECRETS_DIRS` | unset | Colon-separated directories of secrets. Unset means none to bind |
 | `SKILL_ENABLED` | `true` | `false` serves only the bare tools, no guidance |
