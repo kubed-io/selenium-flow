@@ -43,7 +43,7 @@ jobs:
 
   test:
     name: Test
-    runs-on: ubuntu-26
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       # The results and coverage comments on the pull request, and the check
