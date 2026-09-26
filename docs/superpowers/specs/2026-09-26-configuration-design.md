@@ -8,8 +8,9 @@ tabs are drawn on one Penpot page so they can be wired; a setting's source is a
 pill, and its three names show when the row expands. This round lives in
 `docs/superpowers/` and not in the saga.
 
-**Status:** spec written. Next: draw it in Penpot, get it approved, then write
-the plan.
+**Status:** spec written and drawn. The Penpot file *Admin UI* holds the
+drawing, in version *Configuration design — Settings tab, Admin page, config
+secrets (for Dr K)*. Next: Dr K approves both, then the plan.
 
 ## Goal
 
@@ -376,8 +377,9 @@ Secrets · Settings · Grid console.
 
 - The **from** fact names every source, e.g. `filesystem · /secrets +
   config · /etc/…/config.yaml`.
-- Each **key pill** carries its source as a suffix: `token · env AUTH_TOKEN`,
-  `password · file`.
+- A **key pill** from the config carries its source as a suffix: `token · env
+  AUTH_TOKEN`, `password · file`, `username · value`. A key from a directory
+  stays a bare name.
 - A **warn pill** `inline value` appears when `inline_keys` is non-empty, and
   `key unresolved` when `keys_unresolved` is, with the reason in the card's
   error line.
@@ -414,23 +416,44 @@ The file **Admin UI**, drawn before any code, as usual. Dr K's ruling of
 because a Penpot 2.17.2 link cannot leave its page and each tab lived on a
 different one.
 
-- **A new page, `Admin`**, holds every top-level view: sign in, the sessions
-  list, Secrets, **Settings** and Grid console. Every top tab on every board
-  is wired to its board, the logo goes to the sessions list, and Sign out goes
-  to sign in. The `Sessions` and `Secrets` pages fold into it and are
-  deleted. Their boards are carried as component → instance → detach, since
-  a shape cannot move between pages.
-- **Session · Files** and **Session · Flows** stay as they are. A session card
-  into Files is still drawn and not wired, and the guide board says so.
-- **Settings is drawn as stories**, each playable end to end: the tab with
-  every section collapsed, a row expanded, a sensitive row, and *no config
-  file*.
-- **Secrets gains the config states**: a merged secret, a config-only secret
-  with an env key, an inline value, and an unresolved key. The existing
-  states are kept.
-- **Components:** `nav / settings`, a `settings` tab in every `nav` variant,
-  `setting-row / collapsed|expanded`, `source-pill / default|config|env|arg`,
-  and `settings-card`.
+- **The page `Admin`** holds every top-level view: sign in, the sessions list,
+  Secrets, **Settings** and Grid console. It is the old `Sessions` page,
+  renamed. The Secrets board was carried in as component → instance → detach,
+  since a shape cannot move between pages, and the `Secrets` page is deleted.
+  Every top tab on every board is wired to its board, the logo goes to the
+  sessions list, Sign out goes to sign in, and the current tab starts over.
+- **Session · Files** and **Session · Flows** stay as they are. Their nav
+  gains the Settings tab through the component. A session card into Files is
+  still drawn and not wired, and each guide board says the top tabs lead to
+  Admin.
+- **Settings is drawn as stories**, each playable end to end:
+  - `settings`, with every row collapsed;
+  - `settings-redis-db`, an ordinary row expanded, with its default shown
+    because it differs;
+  - `settings-auth-token`, a sensitive row expanded, where a `value · withheld
+    — sensitive` line stands in for the default;
+  - `settings-no-config`, its own flow, where the fact line reads **No config
+    file** — *set --config-file or CONFIG_FILE to load one*.
+
+  The two rows click open and closed. Every other row is drawn collapsed.
+- **Source pills follow precedence in weight**: `default` is a faint outline,
+  `config` an accent outline, `env` accent-filled, and `arg` ink-filled. The
+  strongest source looks strongest. A legend beside the loaded-from line reads
+  *weakest first: default < config < env < arg*.
+- **Secrets gains the config states**:
+  - `admin`, config-only with an env key;
+  - `grafana`, a directory merged with config;
+  - `the-internet`, env keys;
+  - `demo-site`, an inline value;
+  - `github`, an unresolved key.
+
+  Key pills carry a suffix only when the key comes from the config (`token ·
+  env AUTH_TOKEN`, `password · value`). A key read from a directory stays a
+  bare name, as today.
+- **Components:** `nav / settings`, a Settings tab in every `nav`,
+  `setting-row / collapsed|expanded` and `source-pill /
+  default|config|env|arg`. A section card is a plain board of row instances,
+  not a component, because its row count varies.
 - **Checked mechanically before review**, as §F4.11 requires: no main component
   carries a link, no dead link, every board reachable from the page's start,
   **no dead ends**, no flow nobody named, and `File.validate()` clean. A
