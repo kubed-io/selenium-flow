@@ -216,7 +216,8 @@ def test_the_served_text_keeps_its_frontmatter(server):
 
 # ---- how it is served ------------------------------------------------------
 #
-# Whether the skill is on unless switched off is `SkillSettings.enabled` now
+# Whether the skill is on unless switched off is `McpSettings.skill`
+# (`settings.mcp.skill`) now
 # (see test_config_load.py's boolean-flag tests) — `mcp/skill.py` no longer
 # reads the environment itself.
 
