@@ -715,8 +715,54 @@ SECRET_SCHEMAS = {
                     "are any, and the secret cannot be used until they are fixed."
                 ),
             },
-            "source": {"type": "string"},
-            "location": {"type": "string"},
+            "origins": {
+                "type": "array",
+                "description": (
+                    "Where this secret's policy and keys came from, in the "
+                    "order they were applied."
+                ),
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "source": {"type": "string"},
+                        "location": {"type": "string"},
+                    },
+                },
+            },
+            "key_sources": {
+                "type": "object",
+                "description": "Where each key's value is read from.",
+                "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                        "from": {"type": "string"},
+                        "path": {"type": "string"},
+                        "name": {"type": "string"},
+                    },
+                },
+            },
+            "keys_unresolved": {
+                "type": "array",
+                "description": (
+                    "Config-defined keys with no value right now. Present only "
+                    "when there are any; a bind of one is refused with the reason."
+                ),
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "key": {"type": "string"},
+                        "reason": {"type": "string"},
+                    },
+                },
+            },
+            "inline_keys": {
+                "type": "array",
+                "description": (
+                    "Keys whose value is written directly in the config. "
+                    "Present only when there are any."
+                ),
+                "items": {"type": "string"},
+            },
         },
     },
     "SecretList": {

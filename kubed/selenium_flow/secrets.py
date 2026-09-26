@@ -19,6 +19,14 @@ them (saga §F1.18).
 a deployment points at the service account's automounted directory *and* its own
 mounts, and a laptop points wherever it likes. First match wins, as with PATH.
 
+``secrets.entries`` in the config file is the second source: an overlay, not a
+replacement. It can add a description or a leash over a directory's secret, swap
+in one key read from an env var or a file, or define a whole secret with no
+directory behind it at all. A key it names always wins over the same key from a
+directory, and an ``allowed_urls`` it names always replaces the directory's
+leash entirely — a broken one included, because the config was validated at
+boot and this one parses.
+
 **No caller ever sees a value.** This module hands out names, keys, descriptions
 and allowed URLs; the value is read at the moment it is bound and is never
 returned, never cached and never logged. `value()` exists for the binding path
@@ -37,19 +45,13 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 from urllib.parse import urlsplit
 
+from .config import FromEnv, FromFile, FromValue, SecretEntry, SecretsSettings
 from .flows.library import InvalidName, valid_name
 
-if TYPE_CHECKING:
-    from .config import SecretsSettings
-
 log = logging.getLogger(__name__)
-
-# How a list of directories is written. The separator is os.pathsep so this
-# reads the way PATH does on whatever it is running on.
-SEPARATOR = os.pathsep
 
 # Metadata, not keys. The prefix is deliberate: a Kubernetes Secret key must
 # match [-._a-zA-Z0-9]+ and may not begin with an underscore, so nothing
@@ -290,8 +292,8 @@ class FilesystemSource:
             "description": described or "",
             "allowed_urls": allowed,
             "restricted": declared,
-            "source": self.kind,
-            "location": str(self.root),
+            "origins": [{"source": self.kind, "location": str(self.root)}],
+            "key_sources": {k: {"from": "filesystem"} for k in keys},
         }
         if rejected:
             # Published rather than logged and forgotten: the listing is where
@@ -313,6 +315,54 @@ class FilesystemSource:
         return None if path is None else self._read(path)
 
 
+class ConfigEntries:
+    """`secrets.entries` from the config file: policy over collected secrets,
+    and whole new ones.
+
+    A key's value is read at the moment it is bound, like a directory's: an
+    env reference reads the environment then, and a file reference reads the
+    file then. Only presence is checked when the listing is built.
+    """
+
+    kind = "config"
+
+    def __init__(
+        self, entries: dict[str, SecretEntry], location: str | None, environ=None
+    ):
+        self.entries = dict(entries)
+        self.location = location or "config"
+        self._environ = environ  # None: os.environ, read at the moment of use
+
+    def _env(self):
+        return os.environ if self._environ is None else self._environ
+
+    @staticmethod
+    def describe(ref) -> dict:
+        if isinstance(ref, FromEnv):
+            return {"from": "env", "name": ref.env}
+        if isinstance(ref, FromFile):
+            return {"from": "file", "path": ref.file}
+        return {"from": "value"}
+
+    def unresolved(self, ref) -> str | None:
+        if isinstance(ref, FromEnv):
+            return None if self._env().get(ref.env) else f"env {ref.env} is not set"
+        if isinstance(ref, FromFile):
+            return None if Path(ref.file).is_file() else f"file {ref.file} is missing"
+        return None
+
+    def value(self, ref) -> str | None:
+        if isinstance(ref, FromEnv):
+            return self._env().get(ref.env) or None
+        if isinstance(ref, FromFile):
+            try:
+                return Path(ref.file).read_text(encoding="utf-8").strip()
+            except (OSError, UnicodeDecodeError) as exc:
+                log.warning("could not read %s: %s", ref.file, type(exc).__name__)
+                return None
+        return ref.value.get_secret_value()
+
+
 class Catalogue:
     """Every source, as one list of secrets.
 
@@ -327,29 +377,34 @@ class Catalogue:
     """
 
     def __init__(self, sources: list[SecretSource], ttl: int = CACHE_SECONDS,
-                 clock=time.monotonic):
+                 clock=time.monotonic, config: ConfigEntries | None = None):
         self.sources = list(sources)
         self._ttl = ttl
         self._clock = clock
+        self.config = config
         self._cache: tuple[float, dict, dict] | None = None
 
     def _snapshot(self) -> tuple[dict, dict]:
-        """Every secret, and which source each one came from, read together.
+        """Every secret, and which source each of its keys came from, read together.
 
         **One snapshot, because the two are one fact.** The entry carries the
-        policy — which URLs a secret may be used on — and the owner is where its
-        value will be read from. Resolved separately they could disagree: the
-        listing was cached while `source_of` walked the sources live, so a name
+        policy — which URLs a secret may be used on — and the owners are where
+        each key's value will be read from. Resolved separately they could
+        disagree: the listing was cached while a value was read live, so a name
         appearing in a higher-priority directory during the TTL meant the old
         secret's leash was checked and the new secret's value was returned.
 
         A bind is a policy and a value about the same secret, or it is nothing.
+
+        Owners are per key, not per secret: `secrets.entries` can replace one
+        key of a directory's secret while leaving its other keys owned by the
+        filesystem, so "who owns this name" is not one answer.
         """
         now = self._clock()
         if self._cache is not None and now < self._cache[0]:
             return self._cache[1], self._cache[2]
         entries: dict[str, dict] = {}
-        owners: dict[str, SecretSource] = {}
+        owners: dict[str, dict] = {}
         for source in self.sources:
             for name in source.names():
                 if name in entries:
@@ -357,7 +412,47 @@ class Catalogue:
                 entry = source.entry(name)
                 if entry is not None:
                     entries[name] = entry
-                    owners[name] = source
+                    owners[name] = dict.fromkeys(entry["keys"], source)
+        if self.config is not None:
+            for name, conf in self.config.entries.items():
+                base = entries.get(name)
+                entry = dict(base) if base else {
+                    "name": name, "keys": [], "description": "", "allowed_urls": [],
+                    "restricted": False, "origins": [], "key_sources": {},
+                }
+                entry["origins"] = [
+                    *entry["origins"],
+                    {"source": "config", "location": self.config.location},
+                ]
+                if conf.description is not None:
+                    entry["description"] = conf.description
+                if conf.allowed_urls is not None:
+                    # Replaces the directory's leash entirely, a broken one included:
+                    # the config was validated at boot, so this one parses.
+                    entry["allowed_urls"] = list(conf.allowed_urls)
+                    entry["restricted"] = True
+                    entry.pop("allowed_urls_rejected", None)
+                key_owners = dict(owners.get(name, {}))
+                key_sources = dict(entry["key_sources"])
+                for key, ref in conf.keys.items():
+                    key_owners[key] = ref
+                    key_sources[key] = self.config.describe(ref)
+                entry["keys"] = sorted(key_owners)
+                entry["key_sources"] = key_sources
+                unresolved = []
+                for key, ref in sorted(conf.keys.items()):
+                    reason = self.config.unresolved(ref)
+                    if reason:
+                        unresolved.append({"key": key, "reason": reason})
+                inline = sorted(
+                    k for k, ref in conf.keys.items() if isinstance(ref, FromValue)
+                )
+                if unresolved:
+                    entry["keys_unresolved"] = unresolved
+                if inline:
+                    entry["inline_keys"] = inline
+                entries[name] = entry
+                owners[name] = key_owners
         self._cache = (now + self._ttl, entries, owners)
         return entries, owners
 
@@ -377,13 +472,18 @@ class Catalogue:
         return self._entries().get(name)
 
     def source_of(self, name: str) -> SecretSource | None:
-        """Which source owns a name, as of the current snapshot.
+        """The directory source that owns any of a name's keys, or None.
 
-        Read from the same listing the entry came from rather than by walking
-        the sources again, so the owner and the policy can never be two
-        different secrets.
+        None for a secret defined entirely in the config — there is no
+        directory behind it. Read from the same snapshot the entry came from
+        rather than by walking the sources again, so the owner and the policy
+        can never be two different secrets.
         """
-        return self._snapshot()[1].get(name)
+        return next(
+            (o for o in self._snapshot()[1].get(name, {}).values()
+             if not isinstance(o, (FromFile, FromEnv, FromValue))),
+            None,
+        )
 
     def value(self, name: str, key: str) -> str | None:
         """One value, for the binding path. No surface reaches this.
@@ -391,10 +491,22 @@ class Catalogue:
         The value itself is read now rather than cached — a rotated password
         should be the one that gets typed, and keeping credentials in memory to
         make a check atomic would be a poor trade. What the snapshot fixes is
-        *which secret* is being read, not what is inside it.
+        *which secret and which owner*, not what is inside it.
         """
-        source = self.source_of(name)
-        return None if source is None else source.value(name, key)
+        owner = self._snapshot()[1].get(name, {}).get(key)
+        if owner is None:
+            return None
+        if isinstance(owner, (FromFile, FromEnv, FromValue)):
+            return self.config.value(owner)
+        return owner.value(name, key)
+
+    def unresolved(self, name: str, key: str) -> str | None:
+        """Why a config-defined key has no value, or None."""
+        entry = self.entry(name) or {}
+        return next(
+            (u["reason"] for u in entry.get("keys_unresolved", []) if u["key"] == key),
+            None,
+        )
 
     def allows(self, name: str, url: str) -> bool:
         """Whether this secret may be used on the page the browser is on.
@@ -422,13 +534,13 @@ def from_settings(
     conf: SecretsSettings, config_file: str | None = None
 ) -> Catalogue | None:
     """The catalogue the config asks for, or None when there are no secrets."""
-    if not conf.dirs:
-        log.info("secrets: off (set secrets.dirs to enable them)")
+    if not conf.dirs and not conf.entries:
+        log.info("secrets: off (set secrets.dirs or secrets.entries to enable them)")
         return None
-    log.info(
-        "secrets: %s director%s", len(conf.dirs), "y" if len(conf.dirs) == 1 else "ies"
-    )
-    return Catalogue([FilesystemSource(path) for path in conf.dirs])
+    overlay = ConfigEntries(conf.entries, config_file) if conf.entries else None
+    log.info("secrets: %s director%s, %s from config", len(conf.dirs),
+              "y" if len(conf.dirs) == 1 else "ies", len(conf.entries))
+    return Catalogue([FilesystemSource(path) for path in conf.dirs], config=overlay)
 
 
 # ---------------------------------------------------------------------------
@@ -602,7 +714,11 @@ def bind(catalogue, reference, url: str, tool: str = "write") -> str:
 
     value = catalogue.value(name, key)
     if value is None:
-        raise Refused(f"the secret {name!r} has no readable value for {key!r}")
+        reason = catalogue.unresolved(name, key)
+        raise Refused(
+            f"the secret {name!r} cannot read {key!r}: {reason}" if reason
+            else f"the secret {name!r} has no readable value for {key!r}"
+        )
 
     # The audit trail: what was used, where, by which action. Never the value —
     # these are the identifiers it was looked up by, and `value` above is

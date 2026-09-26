@@ -158,8 +158,8 @@ def test_an_entry_says_where_it_came_from(tmp_path):
     """"Why am I getting the wrong password" is otherwise unanswerable."""
     make_secret(tmp_path, "app", token="t")
     entry = Catalogue([FilesystemSource(tmp_path)]).entry("app")
-    assert entry["source"] == "filesystem"
-    assert entry["location"] == str(tmp_path)
+    assert entry["origins"][0]["source"] == "filesystem"
+    assert entry["origins"][0]["location"] == str(tmp_path)
 
 
 def test_a_directory_that_does_not_exist_is_not_an_error(tmp_path):
