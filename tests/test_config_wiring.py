@@ -74,3 +74,14 @@ def test_the_startup_log_counts_dirs_and_config_entries_separately(monkeypatch, 
     with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.main"):
         main_module.main(["--config-file", str(cfg)])
     assert "secrets=1 dir, 3 from config" in caplog.text
+
+
+def test_the_startup_log_never_shows_the_grid_urls_credentials(monkeypatch, caplog):
+    """`GRID_URL` may carry userinfo, and the startup log is not a secret
+    store — same reason `browser.public_url` strips it from the probes."""
+    monkeypatch.setattr(SeleniumMCP, "run", lambda self, **kw: None)
+    monkeypatch.setenv("GRID_URL", "http://u:hunter2@hub:4444")
+    with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.main"):
+        main_module.main([])
+    assert "hunter2" not in caplog.text
+    assert "http://hub:4444" in caplog.text

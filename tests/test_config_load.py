@@ -223,3 +223,14 @@ def test_describe_is_the_payload_the_tab_renders(tmp_path):
     assert rows["redis.password"]["set"] is False
     assert "secrets.entries" not in rows
     assert "t0ken" not in str(body)
+
+
+def test_describe_never_shows_a_grid_urls_credentials():
+    """`GRID_URL` may carry userinfo, and `/admin/settings` answers to anyone
+    with the token — the same reason `browser.public_url` strips it from the
+    probes (Copilot)."""
+    loaded = load([], {"GRID_URL": "http://u:hunter2@hub:4444"})
+    body = config.describe(loaded.settings, loaded.sources)
+    rows = {r["key"]: r for s in body["sections"] for r in s["settings"]}
+    assert "hunter2" not in str(body)
+    assert rows["grid.url"]["value"] == "http://hub:4444"

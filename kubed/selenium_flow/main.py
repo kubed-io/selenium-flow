@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from . import config
+from .core.browser import public_url
 from .server import SeleniumMCP
 
 log = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ def main(argv: list[str] | None = None) -> None:
     log.info(
         "config=%s grid=%s auth=%s sessions=%s skill=%s flows=%s secrets=%s",
         settings.config_file or "none",
-        settings.grid.url,
+        public_url(settings.grid.url),
         "on" if server.auth_token else "off",
         server.sessions.kind,
         server.skill.skill_info.name if server.skill else "off",
