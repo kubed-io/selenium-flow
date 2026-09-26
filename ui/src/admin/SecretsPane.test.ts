@@ -100,6 +100,22 @@ test('an unrestricted secret with an inline key shows both its warnings, not jus
   expect(pills).toContain('any site')
 })
 
+test('a broken leash and unresolved keys both show, not just the leash', async () => {
+  fakeFetch({ 'GET /admin/secrets': { body: {
+    enabled: true,
+    secrets: [
+      { name: 'both', keys: ['token'], restricted: true, allowed_urls_rejected: ['ftp://x'],
+        keys_unresolved: [{ key: 'token', reason: 'env GITHUB_TOKEN is not set' }], uses: [] },
+    ],
+    undefined: [],
+  } } })
+  const { container } = render(SecretsPane, { api })
+  await vi.waitFor(() => expect(screen.getByRole('heading', { name: 'Secrets' })).toBeInTheDocument())
+  const [both] = container.querySelectorAll('.card.secret')
+  expect(both).toHaveTextContent('allowed_urls: ftp://x')
+  expect(both).toHaveTextContent('token: env GITHUB_TOKEN is not set')
+})
+
 test('off, and an error (S1)', async () => {
   fakeFetch({ 'GET /admin/secrets': { body: { enabled: false, secrets: [], undefined: [] } } })
   const r = render(SecretsPane, { api })

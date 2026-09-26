@@ -33,10 +33,12 @@
     s.inline_keys?.length ? 'inline value' : null,
     !s.restricted && !s.allowed_urls_rejected ? 'any site' : null,
   ].filter((w): w is string => w !== null)
-  const reasonOf = (s: Secret) =>
-    s.allowed_urls_rejected ? 'allowed_urls: ' + ([] as string[]).concat(s.allowed_urls_rejected).join(', ')
-      : s.keys_unresolved?.length ? s.keys_unresolved.map((u) => `${u.key}: ${u.reason}`).join('; ')
-      : ''
+  // Both a broken leash AND unresolved keys can be true at once — show both,
+  // leash first, so the operator sees every reason the secret will fail.
+  const reasonOf = (s: Secret) => [
+    s.allowed_urls_rejected ? 'allowed_urls: ' + ([] as string[]).concat(s.allowed_urls_rejected).join(', ') : null,
+    ...(s.keys_unresolved?.map((u) => `${u.key}: ${u.reason}`) ?? []),
+  ].filter((r): r is string => r !== null).join('; ')
   const fromOf = (s: Secret) => (s.origins ?? []).map((o) => `${o.source} · ${o.location}`).join(' + ')
 </script>
 
