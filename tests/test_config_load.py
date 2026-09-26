@@ -52,6 +52,11 @@ def test_unknown_env_names_are_ignored(name):
     assert load([], {name: "tcp://10.0.0.1:80"}).settings == config.Settings()
 
 
+@pytest.mark.parametrize("name", [n for n in config.SECTION_ORDER if n != "server"])
+def test_a_bare_section_name_in_env_is_ignored_not_a_crash(name):
+    assert load([], {name.upper(): "x"}).settings == config.Settings()
+
+
 def test_env_names_are_case_insensitive():
     assert load([], {"session_ttl": "5"}).settings.session.ttl == 5
 

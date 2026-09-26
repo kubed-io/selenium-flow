@@ -363,7 +363,16 @@ class _Environment(EnvSettingsSource):
         )
 
     def _load_env_vars(self):
-        return {key.lower(): value for key, value in self._environ.items()}
+        # A bare section name (SESSION, REDIS, ...) would otherwise be handed
+        # to pydantic-settings as a value for that whole section, which it
+        # tries to JSON-decode and raises SettingsError on before `_known()`
+        # ever gets a chance to filter it out as unknown.
+        sections = set(SECTION_ORDER) - {"server"}
+        return {
+            key.lower(): value
+            for key, value in self._environ.items()
+            if key.lower() not in sections
+        }
 
 
 def _known(raw: dict) -> dict:
@@ -484,9 +493,12 @@ def load(
     file = _read_file(path) if path else {}
 
     layers = {"args": args, "env": env, "file": file}
+    # Highest precedence first: SOURCES is default < file < env < args, so its
+    # reverse (minus "default", which is the fallback below) is the search order.
+    precedence = tuple(reversed(SOURCES[1:]))
     sources = {
         leaf.path: next(
-            (name for name in ("args", "env", "file") if _has(layers[name], leaf.path)),
+            (name for name in precedence if _has(layers[name], leaf.path)),
             "default",
         )
         for leaf in leaves()
