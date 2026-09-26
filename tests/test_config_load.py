@@ -45,6 +45,9 @@ def test_session_store_is_derived_from_a_redis_setting():
     assert load([], {"REDIS_HOST": "r"}).settings.session.store == "redis"
     assert load(["--redis-url", "redis://r:6379"], {}).settings.session.store == "redis"
     assert load([], {"REDIS_HOST": "r", "SESSION_STORE": "memory"}).settings.session.store == "memory"
+    # A port alone configures nothing: it is not host or url, so naming only
+    # it must not flip the store to redis.
+    assert load([], {"REDIS_PORT": "6380"}).settings.session.store == "memory"
 
 
 @pytest.mark.parametrize("name", ["FLOW_UI_PORT", "MCP_KB_PORT", "SESSION_FOO_PORT", "BROWSER", "SELENIUM_FLOW_PORT", "SECRETS_ENTRIES"])

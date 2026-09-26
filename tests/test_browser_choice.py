@@ -164,6 +164,18 @@ class TestTheSettingsCascade:
         )
         assert resolved == {"browser": "firefox"}
 
+    def test_an_unusable_client_default_is_ignored_rather_than_fatal(self):
+        """Lenient, like every other client default (`_as_client_browser`): a
+        typo in a client's URL or header must not stop a browser opening. Both
+        the header and the query parameter are unusable here, so nothing in
+        the result names a browser at all."""
+        assert (
+            settings_module.from_client(
+                {"browser": "safari"}, {"x-browser": "nonsense"}
+            )
+            == {}
+        )
+
     def test_an_explicit_argument_beats_both(self):
         resolved = settings_module.resolve(
             {"browser": "chrome"}, defaults={"browser": "firefox"}

@@ -14,7 +14,6 @@ from kubed.selenium_flow.session import sessions as sessions_module
 from kubed.selenium_flow.session.sessions import requested
 from kubed.selenium_flow.session.store import (
     DEFAULT_DB,
-    DEFAULT_PREFIX,
     MemoryStore,
     RedisStore,
     SessionRecord,
@@ -666,8 +665,12 @@ def test_the_reason_never_quotes_the_redis_password(monkeypatch):
 
 
 def test_the_default_prefix_is_namespaced():
-    """Redis is shared with other apps in this cluster; do not collide."""
-    assert DEFAULT_PREFIX.startswith("selenium-flow:")
+    """Redis is shared with other apps in this cluster; do not collide.
+
+    Asserted against what production actually uses — `RedisSettings().prefix`,
+    the config default — rather than `store.DEFAULT_PREFIX`, which nothing
+    builds a store from any more (`from_settings` reads `conn.prefix`)."""
+    assert RedisSettings().prefix.startswith("selenium-flow:")
 
 
 # ---- the shared Redis instance and its database index ----------------------
