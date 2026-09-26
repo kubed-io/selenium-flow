@@ -10,7 +10,8 @@ This round lives in
 `docs/superpowers/` and not in the saga.
 
 **Status:** spec written and drawn. The Penpot file *Admin UI* holds the
-drawing, in version *Configuration design, round 4 — one sample tooltip*. Next: Dr K approves both, then the plan.
+drawing, in version *Configuration design, round 5 — keys without their section
+prefix*. Next: Dr K approves both, then the plan.
 
 ## Goal
 
@@ -179,10 +180,18 @@ The order is convict's. Loading happens once, in `main()`:
    **There is no default location**, the rule `flow.data_dir` already follows.
    A path that was named and does not exist, cannot be read, or does not parse
    as a YAML mapping **stops the boot** with the path and the reason.
-3. **Build `Settings`**, a `BaseSettings` with nested section models, through
-   `settings_customise_sources`, highest priority first: `init_settings` (the
-   typed flags), the filtered env source, then `YamlConfigSettingsSource`. The
-   file path is passed in and never read from a module global.
+3. **Build `Settings`**, a plain pydantic model that reads nothing, so a test
+   can construct one without the pod's environment leaking in. The loader
+   makes three dicts:
+   - the typed flags;
+   - pydantic-settings' `EnvSettingsSource`, over a mapping it is handed and
+     filtered to known leaves;
+   - the YAML file, read with `yaml.safe_load`.
+
+   `YamlConfigSettingsSource` is not used: it silently ignores a missing
+   file, and its parser errors quote the offending line, which may be a
+   secret. The loader merges the three dicts in precedence order and
+   validates once.
 4. **Validation stops the boot on a bad file.** Every section model is
    `extra="forbid"`, so an unknown key in the YAML is an error that names it.
    Env does not get that strictness: the filtered env source drops names that
@@ -289,15 +298,16 @@ config entry is applied:
 
 ### What the listing publishes
 
-Each entry keeps every field it has today. `source` becomes `filesystem`,
-`config` or `filesystem+config`, and `location` names the directory, the
-config file, or both. Three fields are new:
+Each entry keeps every field it has today, except that `source` and
+`location` become **`origins`**: a list of `{source: filesystem|config,
+location}`, one per place the secret was assembled from. Three more fields are
+new:
 
 - **`key_sources`**: for each key, `file`, `env`, `value` or `filesystem`, plus
   the env name or path where there is one. **Never a value.** An env name and
   a path are not secret, and "why is this key wrong" is otherwise
   unanswerable.
-- **`keys_unresolved`**: keys whose reference cannot be read right now (the env
+- **`keys_unresolved`**: `[{key, reason}]`, for keys whose reference cannot be read right now (the env
   variable is unset, or the file is missing). The check is a presence check
   when the listing is built. It never reads the value into the listing. Such
   a secret stays in the catalogue, because a file can appear later (Kubernetes
@@ -328,6 +338,7 @@ other admin route. It has no tool and no resource.
       "settings": [
         {
           "key": "session.ttl",
+          "name": "ttl",
           "description": "Seconds a session is kept after its last use.",
           "value": 86400,
           "source": "file",
@@ -335,6 +346,7 @@ other admin route. It has no tool and no resource.
         },
         {
           "key": "auth.token",
+          "name": "token",
           "description": "Bearer token for every request. Unset is open.",
           "value": null,
           "source": "env",
@@ -377,7 +389,8 @@ Secrets · Settings · Grid console.
   description under the title (one clause, not a paragraph).
 - **One row per setting, and nothing expands.** From left to right:
   - an **ⓘ**, whose hover tooltip is the setting's one-line description;
-  - the key, in mono;
+  - the key's `name`, in mono, **without its section**: `port` under the
+    `redis` card, not `redis.port`. The card title already says it;
   - the value: `—` if unset. A sensitive value is `●●●●` when set and blank
     when not, with no label saying it is sensitive;
   - the config file's path, muted mono, only when the value came from it;
@@ -537,9 +550,14 @@ can break in a way no unit test sees, and that is argued in the plan.
   `#/settings`.
 - **The wiki page** is regenerated and `test_wiki.py` guards it.
 
-## Open for the plan
+## Settled while planning
 
-- The pydantic-settings floor. `env_nested_max_split` and `NoDecode` set the
-  minimum version, to be checked against the changelog.
-- Whether the generated help text is produced from `Field(description=…)`
-  alone, or also carries an example.
+- **pydantic-settings ≥ 2.8.** 2.8.0 is the first release with both
+  `env_nested_max_split` and `NoDecode`, checked against the wheels.
+- **Help text is the description alone**, plus the other two spellings and the
+  default: `Seconds a session is kept after its last use. (env: SESSION_TTL ·
+  file: session.ttl · default: 86400)`.
+- **`pointer.from_env` is deleted**, not converted. The server builds pointers
+  from the session store (`pointer.matching`), and nothing else called it.
+- **`skill.enabled()` and `apps.enabled()` are deleted.** Nothing called
+  either.
