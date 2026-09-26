@@ -4,13 +4,14 @@ Design record for the configuration file. Written 2026-09-26, before any code
 moved. Planned from Dr K's brief of the same day.
 
 **Rulings so far (Dr K, 2026-09-26):** pydantic-settings; the admin page's top
-tabs are drawn on one Penpot page so they can be wired; a setting's source is a
-pill, and its three names show when the row expands. This round lives in
+tabs are drawn on one Penpot page so they can be wired; the Settings tab shows
+each setting's value and a pill for where it came from, and nothing expands.
+This round lives in
 `docs/superpowers/` and not in the saga.
 
 **Status:** spec written and drawn. The Penpot file *Admin UI* holds the
-drawing, in version *Configuration design, round 2 — dots, pills only, ⓘ tooltips,
-wiki link*. Next: Dr K approves both, then the plan.
+drawing, in version *Configuration design, round 3 — no expanding;
+default/file/env/args pills, file path column*. Next: Dr K approves both, then the plan.
 
 ## Goal
 
@@ -190,7 +191,7 @@ The order is convict's. Loading happens once, in `main()`:
    shell, and the file is not.
 5. **Provenance is recorded per leaf.** Each source is called on its own and
    gives a dict, and the flags give the namespace. For each leaf, the highest
-   source that set it is its source: `arg`, `env`, `config` or `default`. That
+   source that set it is its source: `args`, `env`, `file` or `default`. That
    is what the Settings tab shows, and `session.store`'s derivation reads it
    too.
 
@@ -327,14 +328,18 @@ other admin route. It has no tool and no resource.
       "description": "How sessions are kept, and how new browsers open.",
       "settings": [
         {
-          "path": "session.ttl",
-          "env": "SESSION_TTL",
-          "flag": "--session-ttl",
+          "key": "session.ttl",
           "description": "Seconds a session is kept after its last use.",
           "value": 86400,
-          "default": 86400,
-          "source": "config",
-          "sensitive": false,
+          "source": "file",
+          "file": "/etc/selenium-flow/config.yaml"
+        },
+        {
+          "key": "auth.token",
+          "description": "Bearer token for every request. Unset is open.",
+          "value": null,
+          "source": "env",
+          "sensitive": true,
           "set": true
         }
       ]
@@ -343,8 +348,14 @@ other admin route. It has no tool and no resource.
 }
 ```
 
+- **What a row is, and nothing more:** the key, a one-line description, the
+  value, where it came from (`default`, `file`, `env` or `args`), and the
+  file's path when it came from the file. The env name, the flag and the
+  default are **not** in the payload: this tab shows what is running, and the
+  wiki's Configuration page documents the names, defaults and options.
+
 - **Sensitive settings** (`auth.token`, `redis.password`, `redis.url`) carry
-  `value: null` and `set: true|false`. Nothing else about them is published.
+  `sensitive: true`, `value: null` and `set: true|false`. Nothing else about them is published.
   `redis.url` is sensitive because it can carry a password.
 - **`secrets.entries` is not in the payload.** The Secrets tab shows it.
   `secrets.dirs` is, because it is a setting.
@@ -362,22 +373,22 @@ Secrets · Settings · Grid console.
   the live wiki's Configuration page. There is no loaded-from or no-config
   line: the `config_file` row already says which file, if any.
 - **A legend** of the four source pills, in precedence order
-  (`default config env arg`), right-aligned above the cards. No words.
+  (`default file env args`), right-aligned above the cards. No words.
 - **One card per section**, in the schema's order, each with a short
   description under the title (one clause, not a paragraph).
-- **One row per setting.** On the left, the path in mono with an **ⓘ**
-  beside it. In the middle, the value: `—` if unset. A sensitive value is
-  `●●●●` when set and blank when not; no words. On the right, a **source
-  pill**: `default`, `config`, `env` or `arg`.
-- **Hovering the ⓘ shows a tooltip**: the setting's description, one short
-  sentence ("Seconds a session is kept after its last use."). The schema's
-  `Field(description=…)` is written to that length, because the same text
-  is the CLI help and the wiki's table cell.
-- **A click on a row expands it.** It shows the three spellings (config path,
-  env, flag) as copyable mono lines, and the default when the value differs
-  from it. A sensitive row shows only the three spellings. A second click
-  collapses it. Any number of rows can be open. The expand state is not in
-  the hash.
+- **One row per setting, and nothing expands.** From left to right:
+  - an **ⓘ**, whose hover tooltip is the setting's one-line description;
+  - the key, in mono;
+  - the value: `—` if unset. A sensitive value is `●●●●` when set and blank
+    when not, with no label saying it is sensitive;
+  - the config file's path, muted mono, only when the value came from it;
+  - a **source pill**: `default`, `file`, `env` or `args`. `default` means the
+    value is the default, so no default column is needed.
+- **The description is written to tooltip length** ("Seconds a session is
+  kept after its last use."), because the same `Field(description=…)` is the
+  CLI help and the wiki's table cell.
+- **This tab shows; it does not explain.** Names in env and on the command
+  line, defaults and allowed values are on the wiki, behind the header's link.
 
 **The Secrets tab changes** only where the config shows up:
 
@@ -434,18 +445,14 @@ different one.
   Admin.
 - **Settings is drawn as stories**, each playable end to end:
   - `settings`, with every row collapsed;
-  - `settings-redis-db`, an ordinary row expanded, with its default shown
-    because it differs;
-  - `settings-auth-token`, a sensitive row expanded: its three names and
-    nothing else;
   - `settings-no-config`, its own flow: the same tab with every value a
     default or from env.
 
-  The two rows click open and closed. Every other row is drawn collapsed.
-  **Every ⓘ hovers**: 29 shared tooltip boards (`tip / <path>`) open as
-  overlays on mouse-enter and close on mouse-leave, on all four boards.
+  **Every ⓘ hovers**: 29 shared tooltip boards (`tip / <key>`) open as
+  overlays on mouse-enter and close on mouse-leave, on both boards. Rows do
+  not click.
 - **Source pills follow precedence in weight**: `default` is a faint outline,
-  `config` an accent outline, `env` accent-filled, and `arg` ink-filled. The
+  `file` an accent outline, `env` accent-filled, and `args` ink-filled. The
   strongest source looks strongest. The legend is the four pills, in that
   order, with no words.
 - **Secrets gains the config states**:
@@ -459,8 +466,8 @@ different one.
   env AUTH_TOKEN`, `password · value`). A key read from a directory stays a
   bare name, as today.
 - **Components:** `nav / settings`, a Settings tab in every `nav`,
-  `setting-row / collapsed|expanded` (each with an `info` instance beside the
-  path), `source-pill / default|config|env|arg`, `info` and `tooltip`. A section card is a plain board of row instances,
+  `setting-row` (ⓘ, key, value, file path, source pill),
+  `source-pill / default|file|env|args`, `info` and `tooltip`. A section card is a plain board of row instances,
   not a component, because its row count varies.
 - **Checked mechanically before review**, as §F4.11 requires: no main component
   carries a link, no dead link, every board reachable from the page's start,
@@ -523,8 +530,9 @@ can break in a way no unit test sees, and that is argued in the plan.
   Proven by breaking it on purpose first.
 - **`GET /admin/settings`**: 401 without the token, every section, sensitive
   values withheld, `secrets.entries` absent.
-- **UI (vitest)**: the Settings pane renders sections, source pills, expand
-  and collapse, the sensitive row and the no-config state. The Secrets pane
+- **UI (vitest)**: the Settings pane renders sections, the four source
+  pills, the file path only on `file` rows, the ⓘ tooltip, dots for a set
+  sensitive value and a blank for an unset one, and the no-config state. The Secrets pane
   shows key sources and the two new warn pills. The router handles
   `#/settings`.
 - **The wiki page** is regenerated and `test_wiki.py` guards it.
