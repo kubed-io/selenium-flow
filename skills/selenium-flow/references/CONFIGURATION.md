@@ -20,6 +20,20 @@ ready. `/health` only says the process is up, `/started` that it finished
 starting, and `/info` what it is wired to. None needs credentials, and all four
 answer at the root as well as under `ROUTE_PREFIX`.
 
+## The config file
+
+Every setting can be set in a YAML config file, in the environment, or on the
+command line, and a later one wins: `default < file < env < args`. A setting's
+file path is its name — `redis.host` is `REDIS_HOST` in the environment and
+`--redis-host` on the command line — so knowing one spelling gives you the
+other two.
+
+Point at the file with `--config-file` or `CONFIG_FILE`; there is no default
+location, and an unknown key in it stops the server rather than being
+ignored. Every setting, in all three spellings, is on the wiki's
+[Configuration](https://github.com/kubed-io/selenium-flow/wiki/Configuration)
+page.
+
 ## Running it
 
 ```bash
@@ -57,7 +71,7 @@ Read the token out of the cluster rather than copying it from anywhere:
 
 ```bash
 kubectl get secret selenium-flow-auth -n flow \
-  -o jsonpath='{.data.MCP_AUTH_TOKEN}' | base64 -d
+  -o jsonpath='{.data.AUTH_TOKEN}' | base64 -d
 ```
 
 The HTTP endpoints accept the same `Authorization: Bearer <token>`, and also a
@@ -85,7 +99,7 @@ will notice.
 
 | Env | Default | Why you would change it |
 |---|---|---|
-| `MCP_AUTH_TOKEN` | unset | Sets the bearer token for both surfaces. Unset means **no auth** |
+| `AUTH_TOKEN` | unset | Sets the bearer token for both surfaces. Unset means **no auth** |
 | `SESSION_STORE` | `memory` | `redis` to share a caller's browser across replicas or a restart |
 | `SESSION_TTL` | `3600` | How long a caller's mapping is kept. Not the browser's lifetime |
 | `FLOW_DATA_DIR` | unset | A directory to keep saved flows in. Unset means no flows |
@@ -104,11 +118,11 @@ server default (env)   <   client default (URL param / header)   <   open_sessio
 
 | Setting | Env | Parameter | Header |
 |---|---|---|---|
-| Browser | `DEFAULT_BROWSER` | `?browser=` | `X-Browser` |
-| Window width | `WINDOW_WIDTH` | `?width=` | `X-Window-Width` |
-| Window height | `WINDOW_HEIGHT` | `?height=` | `X-Window-Height` |
-| Page load timeout (s) | `PAGE_LOAD_TIMEOUT` | `?page_load_timeout=` | `X-Page-Load-Timeout` |
-| Script timeout (s) | `SCRIPT_TIMEOUT` | `?script_timeout=` | `X-Script-Timeout` |
+| Browser | `SESSION_BROWSER` | `?browser=` | `X-Browser` |
+| Window width | `SESSION_WIDTH` | `?width=` | `X-Window-Width` |
+| Window height | `SESSION_HEIGHT` | `?height=` | `X-Window-Height` |
+| Page load timeout (s) | `SESSION_PAGE_LOAD_TIMEOUT` | `?page_load_timeout=` | `X-Page-Load-Timeout` |
+| Script timeout (s) | `SESSION_SCRIPT_TIMEOUT` | `?script_timeout=` | `X-Script-Timeout` |
 
 The header beats the parameter, as everywhere else here, because the header is
 in the credential an admin controls.
@@ -117,18 +131,19 @@ in the credential an admin controls.
 for that session's browser, and all it does is accept a self-signed certificate.
 Use it for the site that needs it.
 
-**`PAGE_LOAD_TIMEOUT` is the one worth setting.** Without it a navigation can
-hang indefinitely, holding one of the Grid's few slots until the Grid reaps it.
-An unusable value is ignored rather than fatal, and `open_session` reports the
-settings it actually resolved to — so a typo shows up as a missing setting
-rather than a mystery.
+**`SESSION_PAGE_LOAD_TIMEOUT` is the one worth setting.** Without it a
+navigation can hang indefinitely, holding one of the Grid's few slots until
+the Grid reaps it. An unusable value is ignored rather than fatal, and
+`open_session` reports the settings it actually resolved to — so a typo shows
+up as a missing setting rather than a mystery.
 
 **The browser is `chrome` unless something says otherwise**, and it is the one
 setting where an explicit argument is validated strictly: a bad *default* is
 ignored like any other, but `open_session(browser="chrom")` fails rather than
-quietly handing back Chrome. Note the env var is `DEFAULT_BROWSER` and not
+quietly handing back Chrome. Note the env var is `SESSION_BROWSER` and not
 `BROWSER` — that name is a Unix convention for the user's preferred browser
-command and plenty of environments already set it to a shell script.
+command and plenty of environments already set it to a shell script, and as a
+*section* name `browser` would swallow it outright.
 
 Whichever browser a session opened with is stored with it, so when the Grid
 reaps an idle session and the next call transparently reopens it, it comes back

@@ -32,6 +32,7 @@ import sys
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
+from kubed.selenium_flow import config
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.routes import ENDPOINTS
 from kubed.selenium_flow.server import SeleniumMCP
@@ -439,6 +440,47 @@ def page_name(op: dict) -> str:
     return ""
 
 
+def _default_of(leaf: config.Leaf) -> str:
+    if leaf.default in (None, "", []):
+        return "—"
+    is_bool = isinstance(leaf.default, bool)
+    value = str(leaf.default).lower() if is_bool else leaf.default
+    return f"`{value}`"
+
+
+def configuration() -> str:
+    """Every setting, from the schema: the page a person reads to configure it."""
+    sections = []
+    by_section: dict[str, list] = {name: [] for name in config.SECTION_ORDER}
+    for leaf in config.leaves():
+        what = leaf.description + (" **Sensitive.**" if leaf.sensitive else "")
+        row = [f"`{leaf.path}`", f"`{leaf.env}`", f"`{leaf.flag}`", _default_of(leaf)]
+        by_section[leaf.section].append([*row, what])
+    head = ["File", "Env", "Flag", "Default", "What"]
+    for name in config.SECTION_ORDER:
+        sections.append(
+            f"## {name}\n\n{config.SECTION_DESCRIPTIONS[name]}\n\n"
+            + table(by_section[name], head)
+        )
+    notes = NOTES / f"Configuration{NOTES_SUFFIX}"
+    tail = f"\n\n---\n\n{notes.read_text().strip()}\n" if notes.is_file() else "\n"
+    intro = (
+        "Every setting can be set in a YAML config file, in the environment, or "
+        "on the command line, and a later one wins: **default < file < env < "
+        "args**. A setting's file path is its name: `redis.host` is "
+        "`REDIS_HOST` and `--redis-host`.\n\n"
+        "The file is named by `--config-file` or `CONFIG_FILE`. There is no "
+        "default location. A file with an unknown key stops the server with "
+        "the reason.\n\n"
+    )
+    return (
+        f"{BANNER.format(name='Configuration')}\n\n# Configuration\n\n"
+        + intro
+        + "\n\n".join(sections)
+        + tail
+    )
+
+
 def pages(spec: dict) -> dict[str, str]:
     by_tool = {}
     for path, item in spec["paths"].items():
@@ -501,6 +543,7 @@ URL. There is no session id anywhere; see [Sessions](Sessions).
 
 [Installing](Installing) · [Deployment](Deployment) · [Administration](Administration)
 """
+    out["Configuration.md"] = configuration()
     return out
 
 

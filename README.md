@@ -230,30 +230,24 @@ Apps get a deny-by-default CSP with no network, so `PUBLIC_BASE_URL` is also wha
 
 ## ⚙️ Configuration
 
-Every flag has an environment fallback: containers are configured with env vars, developers reach for flags.
+Every setting can be set in a YAML config file, in the environment, or on the command line, and a later one wins: **default < file < env < args**. A setting's file path is its name: `redis.host` is `REDIS_HOST` and `--redis-host`.
 
-| Env | Flag | Default | Notes |
-|---|---|---|---|
-| `GRID_URL` | `--grid-url` | the in-cluster Grid Service | Selenium Grid hub |
-| `MCP_AUTH_TOKEN` | `--auth-token` | unset | Bearer token for both surfaces. Unset disables auth |
-| `ROUTE_PREFIX` | `--route-prefix` | `/` | Where the **whole server** is mounted. Every tree is fixed beneath it; `/health`, `/started`, `/ready` and `/info` also answer at the root |
-| `SESSION_STORE` | — | `memory` | `memory` or `redis`. Any `REDIS_*` setting implies `redis` |
-| `SESSION_TTL` | — | `3600` | Seconds a caller's mapping is kept |
-| `REDIS_URL`, or `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_USERNAME` / `REDIS_PASSWORD` / `REDIS_SSL` | — | unset | Connection for `SESSION_STORE=redis`. `REDIS_DB` applies even with no `/<index>` in the URL |
-| `REDIS_PREFIX` | — | `selenium-flow:session:` | Key namespace, so sharing a database is safe |
-| `FLOW_DATA_DIR` | `--flow-data-dir` | unset | Where saved flows live, one folder per session name. Unset turns flows off |
-| `SECRETS_DIRS` | `--secrets-dirs` | unset | Colon-separated directories of secrets, first match wins. Unset turns secrets off |
-| `SKILL_ENABLED` | `--no-skill` | `true` | Serve the embedded skill as `skill://selenium-flow` resources |
-| `APPS_ENABLED` | `--no-apps` | `true` | Offer the MCP Apps components to hosts that render them |
-| `PUBLIC_BASE_URL` | — | unset | Externally reachable root, e.g. `https://selenium.example.com/flow`. Needed for file links and the app CSP |
-| `GRID_CONSOLE_URL` | — | `/` | Where the admin UI frames the Grid console from |
-| `DEFAULT_BROWSER` | — | `chrome` | `chrome` or `firefox` for new sessions. Not `BROWSER`, which many environments already set |
-| `WINDOW_WIDTH` / `WINDOW_HEIGHT` | — | node default | Default window size for new sessions |
-| `PAGE_LOAD_TIMEOUT` | — | unbounded | Seconds a navigation may take. **Worth setting** — a hung page holds a Grid slot |
-| `SCRIPT_TIMEOUT` | — | driver default | Seconds `execute_script` may take |
-| `TRANSPORT` | `--transport` | `http` | `http` or `stdio` |
-| `HOST` / `PORT` | `--host` / `--port` | `0.0.0.0` / `8000` | |
-| `LOG_LEVEL` | `--log-level` | `INFO` | `DEBUG` logs which key each call resolved to, and how |
+```yaml
+# /etc/selenium-flow/config.yaml
+grid:
+  url: http://selenium-hub:4444
+redis:
+  host: redis.data
+secrets:
+  entries:
+    nextcloud:
+      keys:
+        password: {env: NEXTCLOUD_PASSWORD}
+```
+
+Point at the file with `--config-file` or `CONFIG_FILE`. Prefer `file:` or `env:` for a secret's keys — `value:` writes the value into the config file itself.
+
+Every setting, in all three spellings: the wiki's [Configuration](https://github.com/kubed-io/selenium-flow/wiki/Configuration) page.
 
 ### Session defaults cascade
 
@@ -267,7 +261,7 @@ A bad default is ignored and logged; an explicit `browser` fails loudly. The bro
 
 ### 🔐 Auth
 
-Setting `MCP_AUTH_TOKEN` turns on auth for both surfaces at once. Clients send it the usual way:
+Setting `AUTH_TOKEN` turns on auth for both surfaces at once. Clients send it the usual way:
 
 ```
 Authorization: Bearer <token>

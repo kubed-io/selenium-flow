@@ -239,6 +239,35 @@ everything but its prose while the file on disk was perfect. That is why `notes/
 deleted from the wiki once already. `test_no_page_is_shadowed_by_a_file_in_a_subdirectory`
 fails if a bare `<tool>.md` comes back.
 
+## Configuration
+
+`kubed/selenium_flow/config.py` is the schema: one setting, three spellings. A
+setting's path **is** its name — `redis.host` is `REDIS_HOST` in the
+environment and `--redis-host` on the command line — so the other two are
+derived mechanically rather than declared by hand. Three constraints follow:
+a section name has no underscore (the first `_` in an env name splits section
+from key), a section name is not a prefix Kubernetes or the shell already uses
+(`browser`, `mcp`, `selenium` are out), and env names match case-insensitively.
+
+**`os.environ` is read in exactly two modules**: `config.py`, at load, and
+`secrets.py`, for an `{env: …}` key at bind time. `test_the_environment_is_read_in_two_modules_only`
+holds that — everything else takes a `Settings` or a `Catalogue`, never the
+process environment directly.
+
+**Env is lenient, the file is strict.** Kubernetes injects a `<SERVICE>_PORT`
+variable for every Service in the namespace, so an unknown env name is
+dropped rather than refused. An unknown key in the config file stops the
+boot, because the file is not shared with anything else and a typo there is
+just a typo.
+
+`_Environment` overrides a pydantic-settings *private* hook, `_load_env_vars`,
+to keep this filtering — so a pydantic-settings upgrade changing that hook's
+shape is a real risk. `tests/test_config_load.py` is what catches it.
+
+**The Settings tab shows; it does not explain.** Names, defaults and allowed
+values are the wiki's job — the tab is a read-only view of what the server is
+actually running with (Dr K, 2026-09-26).
+
 ## A client owns one session, and only its own
 
 This is a rule, not a preference.
@@ -611,7 +640,7 @@ pytest
 docker compose up --build
 
 # drive it against a real Grid without containers
-GRID_URL=http://<hub>:4444 MCP_AUTH_TOKEN=dev python -m kubed.selenium_flow
+GRID_URL=http://<hub>:4444 AUTH_TOKEN=dev python -m kubed.selenium_flow
 ```
 
 The admin UI and MCP App live in `ui/` — Svelte, built by npm. `npm --prefix ui

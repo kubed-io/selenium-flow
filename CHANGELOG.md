@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A YAML config file (`--config-file` / `CONFIG_FILE`): every setting can be set there, in env or as a flag, and a later one wins.
+- Secrets can be defined in the config file, merged over the ones in `secrets.dirs`, with keys read from a file or an env var.
+- The admin UI has a Settings tab showing every setting and where its value came from.
+- **Breaking:** `MCP_AUTH_TOKEN` is `AUTH_TOKEN`; `DEFAULT_BROWSER`, `WINDOW_WIDTH`, `WINDOW_HEIGHT`, `PAGE_LOAD_TIMEOUT` and `SCRIPT_TIMEOUT` are `SESSION_*`; `--no-skill`/`--no-apps` are `--skill-enabled false`/`--apps-enabled false`.
+
 ## [0.3.0] - 2026-09-26
 
 ### Added
