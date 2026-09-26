@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-26
+
 ### Added
 
 - **`run_flow` reports progress** — the step it is on, and a heartbeat while one waits — so a long run stays alive in clients that abort a silent call, and shows as a progress bar where the client draws one.
