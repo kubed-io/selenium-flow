@@ -9,8 +9,8 @@ pill, and its three names show when the row expands. This round lives in
 `docs/superpowers/` and not in the saga.
 
 **Status:** spec written and drawn. The Penpot file *Admin UI* holds the
-drawing, in version *Configuration design — Settings tab, Admin page, config
-secrets (for Dr K)*. Next: Dr K approves both, then the plan.
+drawing, in version *Configuration design, round 2 — dots, pills only, ⓘ tooltips,
+wiki link*. Next: Dr K approves both, then the plan.
 
 ## Goal
 
@@ -324,13 +324,13 @@ other admin route. It has no tool and no resource.
   "sections": [
     {
       "name": "session",
-      "description": "The defaults a new session opens with, and how long one is remembered",
+      "description": "How sessions are kept, and how new browsers open.",
       "settings": [
         {
           "path": "session.ttl",
           "env": "SESSION_TTL",
           "flag": "--session-ttl",
-          "description": "Seconds a session is remembered after its last use, sliding",
+          "description": "Seconds a session is kept after its last use.",
           "value": 86400,
           "default": 86400,
           "source": "config",
@@ -357,21 +357,27 @@ other admin route. It has no tool and no resource.
 A top-level tab after **Secrets**, at `#/settings`, in the order Sessions ·
 Secrets · Settings · Grid console.
 
-- **Header:** "Settings" and one line: *read-only, as this server started;
-  change them in the config file, the environment or on the command line.*
-  Below that, a fact line: **Loaded from** `/etc/…/config.yaml`, or **No
-  config file** with the hint `--config-file` / `CONFIG_FILE`.
-- **One card per section**, in the schema's order, each with its description
-  under the title.
-- **One row per setting.** On the left, the path in mono. In the middle, the
-  value: `—` if unset, and `●●●● set` / `not set` for a sensitive one. On the
-  right, a **source pill**: `default` (muted), `config`, `env` or `arg`.
+- **Header:** "Settings", one line — *How this server was started.
+  Read-only.* — and a link, *Every setting is described on the wiki →*, to
+  the live wiki's Configuration page. There is no loaded-from or no-config
+  line: the `config_file` row already says which file, if any.
+- **A legend** of the four source pills, in precedence order
+  (`default config env arg`), right-aligned above the cards. No words.
+- **One card per section**, in the schema's order, each with a short
+  description under the title (one clause, not a paragraph).
+- **One row per setting.** On the left, the path in mono with an **ⓘ**
+  beside it. In the middle, the value: `—` if unset. A sensitive value is
+  `●●●●` when set and blank when not; no words. On the right, a **source
+  pill**: `default`, `config`, `env` or `arg`.
+- **Hovering the ⓘ shows a tooltip**: the setting's description, one short
+  sentence ("Seconds a session is kept after its last use."). The schema's
+  `Field(description=…)` is written to that length, because the same text
+  is the CLI help and the wiki's table cell.
 - **A click on a row expands it.** It shows the three spellings (config path,
-  env, flag) as copyable mono lines, the description, and the default when
-  the value differs from it. A second click collapses it. Any number of rows
-  can be open. The expand state is not in the hash.
-- A **legend** above the cards explains the order: `default < config < env <
-  arg`.
+  env, flag) as copyable mono lines, and the default when the value differs
+  from it. A sensitive row shows only the three spellings. A second click
+  collapses it. Any number of rows can be open. The expand state is not in
+  the hash.
 
 **The Secrets tab changes** only where the config shows up:
 
@@ -430,16 +436,18 @@ different one.
   - `settings`, with every row collapsed;
   - `settings-redis-db`, an ordinary row expanded, with its default shown
     because it differs;
-  - `settings-auth-token`, a sensitive row expanded, where a `value · withheld
-    — sensitive` line stands in for the default;
-  - `settings-no-config`, its own flow, where the fact line reads **No config
-    file** — *set --config-file or CONFIG_FILE to load one*.
+  - `settings-auth-token`, a sensitive row expanded: its three names and
+    nothing else;
+  - `settings-no-config`, its own flow: the same tab with every value a
+    default or from env.
 
   The two rows click open and closed. Every other row is drawn collapsed.
+  **Every ⓘ hovers**: 29 shared tooltip boards (`tip / <path>`) open as
+  overlays on mouse-enter and close on mouse-leave, on all four boards.
 - **Source pills follow precedence in weight**: `default` is a faint outline,
   `config` an accent outline, `env` accent-filled, and `arg` ink-filled. The
-  strongest source looks strongest. A legend beside the loaded-from line reads
-  *weakest first: default < config < env < arg*.
+  strongest source looks strongest. The legend is the four pills, in that
+  order, with no words.
 - **Secrets gains the config states**:
   - `admin`, config-only with an env key;
   - `grafana`, a directory merged with config;
@@ -451,8 +459,8 @@ different one.
   env AUTH_TOKEN`, `password · value`). A key read from a directory stays a
   bare name, as today.
 - **Components:** `nav / settings`, a Settings tab in every `nav`,
-  `setting-row / collapsed|expanded` and `source-pill /
-  default|config|env|arg`. A section card is a plain board of row instances,
+  `setting-row / collapsed|expanded` (each with an `info` instance beside the
+  path), `source-pill / default|config|env|arg`, `info` and `tooltip`. A section card is a plain board of row instances,
   not a component, because its row count varies.
 - **Checked mechanically before review**, as §F4.11 requires: no main component
   carries a link, no dead link, every board reachable from the page's start,
