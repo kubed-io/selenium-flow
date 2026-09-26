@@ -83,6 +83,23 @@ test('config secrets: key sources, every origin, and the two new warnings', asyn
   expect(github).toHaveTextContent('token: env GITHUB_TOKEN is not set')
 })
 
+test('an unrestricted secret with an inline key shows both its warnings, not just one', async () => {
+  fakeFetch({ 'GET /admin/secrets': { body: {
+    enabled: true,
+    secrets: [
+      { name: 'wide-open', keys: ['k'], restricted: false, inline_keys: ['k'],
+        key_sources: { k: { from: 'value' } }, uses: [] },
+    ],
+    undefined: [],
+  } } })
+  const { container } = render(SecretsPane, { api })
+  await vi.waitFor(() => expect(screen.getByRole('heading', { name: 'Secrets' })).toBeInTheDocument())
+  const [card] = container.querySelectorAll('.card.secret')
+  const pills = Array.from(card.querySelectorAll('.pill.warn')).map((p) => p.textContent)
+  expect(pills).toContain('inline value')
+  expect(pills).toContain('any site')
+})
+
 test('off, and an error (S1)', async () => {
   fakeFetch({ 'GET /admin/secrets': { body: { enabled: false, secrets: [], undefined: [] } } })
   const r = render(SecretsPane, { api })
