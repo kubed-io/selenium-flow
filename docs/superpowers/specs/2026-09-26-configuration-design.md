@@ -10,8 +10,7 @@ This round lives in
 `docs/superpowers/` and not in the saga.
 
 **Status:** spec written and drawn. The Penpot file *Admin UI* holds the
-drawing, in version *Configuration design, round 3 — no expanding;
-default/file/env/args pills, file path column*. Next: Dr K approves both, then the plan.
+drawing, in version *Configuration design, round 4 — one sample tooltip*. Next: Dr K approves both, then the plan.
 
 ## Goal
 
@@ -448,9 +447,10 @@ different one.
   - `settings-no-config`, its own flow: the same tab with every value a
     default or from env.
 
-  **Every ⓘ hovers**: 29 shared tooltip boards (`tip / <key>`) open as
-  overlays on mouse-enter and close on mouse-leave, on both boards. Rows do
-  not click.
+  **One ⓘ hovers**, on `session.ttl`, to show the tooltip: `tip / session.ttl`
+  opens as an overlay on mouse-enter and closes on mouse-leave. Every other
+  ⓘ is drawn, not wired. The real text for all of them is in the plan. Rows
+  do not click.
 - **Source pills follow precedence in weight**: `default` is a faint outline,
   `file` an accent outline, `env` accent-filled, and `args` ink-filled. The
   strongest source looks strongest. The legend is the four pills, in that
