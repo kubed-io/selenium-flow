@@ -1,0 +1,112 @@
+name: ⏱️ Bench
+
+# Times the read paths §F4.19 made fast — the flow and file listings, the
+# Secrets tab's backlinks, the Redis session list — in-process, with no Grid.
+# Every run writes a table against main's latest numbers into the job summary.
+#
+# The baseline is a JSON file in the Actions cache, not a gh-pages branch, so
+# nothing here pushes. Main restores the newest copy, appends its run and saves
+# it under a new key: a cache key is immutable, and the newest one wins the
+# restore-keys prefix match. A pull request only restores. Its own cache scope
+# is invisible to main anyway, and save-data-file keeps its numbers out of the
+# file it compares against.
+#
+# Not a required check, and a slowdown never fails it: shared runners swing
+# 10-20% run to run on the action's own benchmarks, more with file I/O, so a 2x
+# threshold is a prompt to look rather than a verdict.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  bench:
+    name: Bench
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The benchmark comment on the pull request, and nothing else.
+      pull-requests: write
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        # setuptools_scm needs history to resolve a version at install time.
+        fetch-depth: 0
+        persist-credentials: false
+
+    - name: Setup Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.14'
+        cache: pip
+        cache-dependency-path: pyproject.toml
+
+    # `test` for pytest-asyncio: pyproject's asyncio_mode is its option, and
+    # without it every run opens on an unknown-option warning.
+    - name: Install
+      run: pip install .[test,bench]
+
+    # pyproject's --ignore keeps tests/bench out of test.yml's bare `pytest`;
+    # naming the directory here is what collects it.
+    - name: Benchmark
+      # pytest-benchmark writes the JSON but does not make its directory.
+      run: |
+        mkdir -p dist
+        pytest tests/bench --benchmark-json=dist/bench.json
+
+    - name: Restore Baseline
+      uses: actions/cache/restore@v6
+      with:
+        path: bench-baseline
+        key: bench-${{ runner.os }}-${{ github.run_id }}
+        restore-keys: bench-${{ runner.os }}-
+
+    # The comparison as a sticky comment, where a reviewer reads it. Before the
+    # action below, which appends this run to the baseline file on main.
+    - name: Summarise Benchmarks
+      run: python scripts/pr_report.py bench dist/bench.json bench-baseline/benchmark-data.json > dist/bench-comment.md
+
+    # With no baseline yet (the first main run, or an evicted cache) the action
+    # records the run and writes no summary: there is nothing to compare with.
+    - name: Compare With Main
+      uses: benchmark-action/github-action-benchmark@v1.22.2
+      with:
+        tool: pytest
+        output-file-path: dist/bench.json
+        external-data-json-path: bench-baseline/benchmark-data.json
+        save-data-file: ${{ github.ref == 'refs/heads/main' }}
+        # There is no chart here: this caps how many runs the file keeps.
+        max-items-in-chart: 100
+        summary-always: true
+        alert-threshold: 200%
+        fail-on-alert: false
+        # Read-only, and only to look up the commit on workflow_dispatch, whose
+        # payload carries none. Comments stay off: they would need write.
+        github-token: ${{ github.token }}
+
+    - name: Comment Benchmarks
+      if: github.event_name == 'pull_request'
+      uses: marocchino/sticky-pull-request-comment@v3.0.5
+      with:
+        header: benchmarks
+        path: dist/bench-comment.md
+
+    - name: Save Baseline
+      if: github.ref == 'refs/heads/main'
+      uses: actions/cache/save@v6
+      with:
+        path: bench-baseline
+        key: bench-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}

@@ -690,6 +690,108 @@ Rulings taken during the build, each recorded when it was made:
   `svelte-*` class on every element in that component. Today's rules are
   untouched.
 
+### §F4.19 — The Secrets tab was slow, and it was the YAML parser
+
+Dr K, after #42 merged: *"The secrets page loads painfully slow … I'm guessing
+reading the files and folders directly is slow."* Measured in the pod, it was
+1.2–1.5s every time, well inside the catalogue's own 30s cache, so the
+catalogue was never the cost. The backlinks were: `secret_uses.uses` reads
+every stored flow in every session. Reading all 26 files took 15ms. Parsing
+them with PyYAML's pure-Python `safe_load` took 1.1s under the pod's 500m CPU
+limit. The flow listings (`summaries`) pay the same cost for the same reason.
+
+- **The C parser first.** libyaml was already in the image and parses the
+  same documents in a tenth of the time, one line to switch to. The store and
+  the YAML editor now share one `parse()`, so a document cannot validate under
+  one parser and read differently under the other. libyaml's messages never
+  quote the source line; the pure-Python parser, still the fallback without
+  it, does, and `yaml_complaint` keeps both quiet.
+- **Then cachetools, keyed on the text itself.** An `LRUCache` behind
+  `@cached`, with a condition rather than a bare lock: the routes run in a
+  thread pool, and readers arriving together for one cold flow wait for a
+  single parse instead of each doing it (Copilot, #45). Not a TTL: a
+  save or a hand edit would show the old flow until it expired. Not an mtime:
+  a coarse clock or a same-size edit would do the same. Reading a file is
+  cheap and parsing it is not, so a key that *is* the content can never be
+  stale. Each caller gets a deep copy. Bounded by 4MiB of YAML source, not an
+  entry count (Copilot, #45): a count is no bound when one entry can be any
+  size, and a document bigger than the budget is parsed but never kept.
+- **1494ms → 137ms → 32ms**, by `uses()` in the pod: today, with libyaml,
+  with the cache warm.
+- **Not Redis, and not the browser.** Redis adds a network hop and a
+  serialisation to a problem that was CPU, and a single replica has nobody to
+  share with. localStorage would keep an operator's catalogue and flow names
+  past sign-out, for a list that changes on every `save_flow`. Neither is
+  needed at 32ms.
+
+Dr K, next: *"find other opportunities where we can use cachetools and other
+caching strategies"*. Measured first, the answer was mostly not a cache:
+
+- **Files was a realpath per file.** Listing 142 screenshots took ~100ms, 67
+  of it `resolve()`, there to refuse a link. The directory is resolved once
+  already, so `names`, `revision` and `files` now share one `os.scandir` pass
+  that skips links and bad names and reuses the entry's stat: one stat per
+  file, no path walk.
+- **`revision` stamps inode and size beside the mtime**, the way git guards
+  against racy timestamps: two edits in one clock tick share an mtime.
+- **Redis `records()` is one MGET**, not a GET per session, on a list every
+  open page polls every two seconds. The memory store is untouched and not
+  cached: caching a dict only doubles it.
+- **Not cached, on purpose:** the Grid listing (live state with no change
+  signal, and the page's two-second poll is already the freshness it can
+  bear), MIME types and URL signatures (4ms and 5ms for 142 files), and
+  path resolution (a link planted later must still be refused). No ETag on the
+  poll yet: it would save the body, not the work.
+- **The HTTP surface drove Selenium on the event loop.** An audit of what
+  FastMCP already brings found `http/answer.py` calling every `/browser/*`
+  action, every flow run and every files call synchronously inside the async
+  handler: one `assert` waiting 900s stalled MCP, the admin event stream and
+  `/health`. FastMCP already runs the same sync tools in a thread pool, and
+  `/ready` already sent its Grid calls to one. `answer` now runs `call` in a
+  worker thread and awaits it back on the loop only when it is a coroutine.
+- **Profiling rides the integration run** (Dr K: *"we are testing the profile
+  of using it as an mcp while using the admin at the same time"*). The suite
+  already has MCP driving a browser through the server's own admin page, so
+  `py-spy record` wraps that one process for the whole run and
+  the flamegraph is an artifact. `test_responsive.py`, the one test there
+  that is not a flow (Dr K's ruling), holds an `assert` busy for 8s and times
+  `/health`, the admin session list and MCP `tools/list` against it: each must
+  answer inside a second, and the timings land in the job summary. The first
+  run: worst 86ms, 132ms and 142ms while the browser was busy for 8s. The
+  profile says the server is barely busy at all — about 1.1s of CPU in a 16s
+  run, 44% of it imports at startup; the rest of the wall clock is Chrome.
+- **A benchmark job keeps it fast** (Dr K's choice: no SaaS). `tests/bench/`
+  times the listings, the backlinks cold and warm, and the Redis session list
+  in process; `bench.yml` compares each PR with main's latest run. The
+  baseline is a file in the Actions cache, not a gh-pages branch, and a 2x
+  threshold never fails the job, because shared runners are noisy.
+- **The results are on the pull request** (Dr K, pointing at duploctl and
+  nextcloud-n8n). Unit and integration results are sticky comments and check
+  runs (EnricoMi), coverage is a comment (orgoro/coverage, as duploctl does),
+  and the profile and the benchmarks each get a sticky comment from
+  `scripts/pr_report.py`. A flamegraph cannot be shown inline, since GitHub
+  takes no image uploads through its API, so the comment carries what it says:
+  self and total time per function, worked out from the SVG's geometry, and a
+  link to the artifact. The first one showed `on_list_tools` in the mirror
+  holding 10% of the server's CPU for the run.
+- **SIGTERM, the way Kubernetes stops a pod** (Dr K: *"how is our shutdown
+  process and signals?"*). We handle no signal ourselves and should not:
+  FastMCP runs uvicorn with `timeout_graceful_shutdown=2`, and uvicorn catches
+  SIGTERM and SIGINT, stops listening, gives open requests 2s, runs the
+  lifespan and exits 143 — 128 plus the signal, which is the honest answer.
+  Measured with an admin page open, it took 2.19s and logged an ERROR and a
+  traceback: our `/admin/events` StreamingResponse never ends, uvicorn waits
+  for connections *before* the lifespan, so no lifespan hook could reach it.
+  It is sse-starlette's `EventSourceResponse` now — already a dependency of
+  `mcp` — which hears uvicorn's exit and, through `shutdown_event`, lets the
+  loop return so the response finishes like any other: 0.19s, nothing
+  logged. `tests/test_shutdown.py` holds that. Nothing needs cleaning up on
+  the way out: session records are written as they change, and the Grid's
+  browsers are meant to outlive a restart. `show_banner=False` drops FastMCP's
+  box art from every pod log and, with it, a call to pypi.org on each start.
+  In the cluster, a 5s `preStop` sleep lets the endpoints stop routing here
+  before uvicorn stops listening.
+
 ---
 
 ## Open questions
@@ -711,3 +813,11 @@ Rulings taken during the build, each recorded when it was made:
    **Taken up in Part IV** (2026-09-25): npm is fine after all, the CDN
    candidates fail the MCP App CSP or the maintenance bar, and the answer is
    Svelte 5 (§F4.14).
+
+2. **Should one session's calls be serialised?** Copilot on #45: HTTP calls
+   used to run one at a time only because they blocked the event loop, and in
+   a worker thread two calls on one session can overlap. MCP tools always
+   could — FastMCP runs our sync tools in its thread pool — and
+   `SessionManager.act` has no lock on either surface. A lock per session is
+   not free: `end_browser` would queue behind a 900s `assert`, which is the
+   call it exists to interrupt. Left as both surfaces have it, for its own PR.

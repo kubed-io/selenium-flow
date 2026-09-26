@@ -53,6 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The admin page is faster**: Secrets and flow listings load at once where a couple of dozen flows took over a second, and Files and the session list no longer slow down as screenshots pile up.
+
 - **A flow run's default budget is 120 seconds**, down from 300. A flow meant to wait longer sets `timeout`.
 
 - **A failed MCP call reads like a failed HTTP call** — no Selenium stack dump for the caller, and a caller's mistake is one warning line in the log rather than a traceback.
@@ -78,6 +80,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING:** `POST /browser/upload` no longer takes a `session` field; a file is always read from the calling session.
 
 ### Fixed
+
+- **Stopping the server is prompt and quiet with the admin page open**: SIGTERM finishes in a fraction of a second instead of waiting out a 2s timeout and logging a traceback.
+
+- **A slow browser action or flow run over HTTP no longer stalls the server**; MCP calls, the admin page and `/health` answer while it runs.
 
 - **Cancelling `run_flow` stops the run** instead of leaving it to drive the browser to the end.
 

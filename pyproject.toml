@@ -32,6 +32,8 @@ dependencies = [
   "selenium>=4.48.0,<5",
   "requests>=2.32.0",
   "pyyaml>=6.0",
+  # Parsed flows are cached by content (§F4.19).
+  "cachetools>=7.2",
   # Starlette parses multipart forms with this, which /browser/upload needs to
   # accept a plain file. It arrives transitively today; declared because a
   # transitive dependency disappearing would break uploads at runtime only.
@@ -41,6 +43,14 @@ dependencies = [
   # with requests and selenium either way; declared because a module that
   # imports it should say so.
   "urllib3>=2.0",
+  # Imported directly, and each arrives with fastmcp today; declared for the
+  # same reason (Copilot, #45). The floors are fastmcp's own, but for
+  # sse-starlette: 3.3 is where `shutdown_event` arrived (§F4.19).
+  "starlette>=0.48",
+  "anyio>=4.9",
+  "pydantic>=2.12",
+  "mcp>=2.0,<3",
+  "sse-starlette>=3.3",
 ]
 
 [project.optional-dependencies]
@@ -58,9 +68,16 @@ build = [
   # publish time. Used by .github/workflows/package.yml.
   "twine",
 ]
+# Records the server through the integration run as a flamegraph, when
+# PROFILE_DIR is set (tests/integration/conftest.py, §F4.19).
+profile = [
+  "py-spy>=0.4.2",
+]
 test = [
   "pytest",
   "pytest-asyncio",
+  # The coverage comment on a pull request (.github/workflows/test.yml).
+  "pytest-cov>=7.1",
   "ruff",
   "uvicorn",
   "openapi-spec-validator",
@@ -68,6 +85,10 @@ test = [
   # tests/test_packaging.py reads pyproject.toml. tomllib is 3.11+, so the
   # oldest supported interpreter needs the backport it was adopted from.
   "tomli; python_version < '3.11'",
+]
+# tests/bench/, which bench.yml installs beside `test` and runs on its own.
+bench = [
+  "pytest-benchmark>=5.3",
 ]
 
 [build-system]
@@ -135,11 +156,14 @@ packages = [
 [tool.pytest.ini_options]
 minversion = "6.0"
 asyncio_mode = "auto"
-addopts = "--verbose"
+# --ignore keeps the benchmarks out of a bare `pytest`. It only prunes what
+# pytest finds on its own, so `pytest tests/bench` still collects them.
+addopts = "--verbose --ignore=tests/bench"
 testpaths = ["tests"]
 markers = [
   "unit: mark a test as a unit test",
   "integration: mark a test as an integration test",
+  "bench: mark a test as a benchmark, run only by `pytest tests/bench`",
 ]
 
 [tool.ruff]

@@ -40,6 +40,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # The results and profile comments on the pull request, and the check run.
+      checks: write
+      pull-requests: write
     services:
       # Pinned to what the cluster's Grid runs, so a pass here is a claim about
       # the browser production uses.
@@ -97,10 +100,14 @@ jobs:
       run: npm --prefix ui run build
 
     - name: Install
-      run: pip install .[test,redis]
+      run: pip install .[test,redis,profile]
 
     - name: Integration Tests
       run: pytest tests/integration -s --junit-xml=dist/integration-results.xml
+      # py-spy records the server for the whole run, MCP and the admin page at
+      # once, and test_responsive leaves its timings beside the flamegraph.
+      env:
+        PROFILE_DIR: dist/profile
 
     - name: Surface Failing Tests
       if: always()
@@ -110,3 +117,38 @@ jobs:
         summary: true
         display-options: fEX
         fail-on-empty: true
+
+    - name: Publish Test Results
+      if: always()
+      uses: EnricoMi/publish-unit-test-result-action@v2.24.0
+      with:
+        check_name: Integration test results
+        files: dist/integration-results.xml
+        comment_mode: always
+
+    - name: Upload Profile
+      id: profile
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: integration-profile
+        path: dist/profile/
+        if-no-files-found: ignore
+
+    # What the flamegraph says, in numbers, and a link to it: a pull request
+    # cannot show an SVG inline. The same markdown goes in the job summary.
+    - name: Summarise Profile
+      if: always()
+      env:
+        ARTIFACT_URL: ${{ steps.profile.outputs.artifact-url }}
+      run: |
+        mkdir -p dist/profile
+        python scripts/pr_report.py profile dist/profile "$ARTIFACT_URL" > dist/profile-comment.md
+        cat dist/profile-comment.md >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Comment Profile
+      if: always() && github.event_name == 'pull_request'
+      uses: marocchino/sticky-pull-request-comment@v3.0.5
+      with:
+        header: integration-profile
+        path: dist/profile-comment.md

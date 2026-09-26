@@ -46,6 +46,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # The results and coverage comments on the pull request, and the check
+      # run with a failing test's annotations. Only the 3.14 leg posts them.
+      checks: write
+      pull-requests: write
     strategy:
       # One interpreter failing should not hide the others — on a main-branch
       # sweep the useful answer is "which versions broke", not "the first one to".
@@ -92,7 +96,11 @@ jobs:
     # the next step renders it into the run summary, and a failing assertion
     # shows up as a named test rather than a wall of pytest output.
     - name: Test
-      run: pytest --junit-xml=dist/test-results.xml
+      run: >-
+        pytest
+        --junit-xml=dist/test-results.xml
+        --cov=kubed.selenium_flow
+        --cov-report=xml:dist/coverage.xml
 
     # Runs even when pytest fails — that is the case where the report is worth
     # the most. fail-on-empty catches the other failure mode, a run that
@@ -115,3 +123,23 @@ jobs:
         name: test-results-${{ matrix.python-version }}
         path: dist/test-results.xml
         if-no-files-found: error
+
+    # A sticky comment on the pull request and a check run that annotates a
+    # failing test where it fails. The 3.14 leg only, which every event runs,
+    # so a main-branch sweep does not post five of them.
+    - name: Publish Test Results
+      if: always() && matrix.python-version == '3.14'
+      uses: EnricoMi/publish-unit-test-result-action@v2.24.0
+      with:
+        check_name: Unit test results
+        files: dist/test-results.xml
+        comment_mode: always
+
+    # Coverage of the files the pull request touches, as a comment. No
+    # thresholds: it informs a review, it does not gate one.
+    - name: Coverage Report
+      if: always() && github.event_name == 'pull_request' && matrix.python-version == '3.14'
+      uses: orgoro/coverage@v3.3.1
+      with:
+        coverageFile: dist/coverage.xml
+        token: ${{ github.token }}

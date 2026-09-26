@@ -243,8 +243,11 @@ class SeleniumMCP:
         self, transport: str = "http", host: str = "0.0.0.0", port: int = 8000
     ) -> None:
         """Serve on ``transport``, blocking until the process is stopped."""
+        # No banner: it is 25 lines of box art in every pod's log, and printing
+        # it is what makes FastMCP ask pypi.org for a newer release on every
+        # start (`check_for_updates`). `main` logs the configuration instead.
         if transport == "stdio":
-            self.mcp.run(transport="stdio")
+            self.mcp.run(transport="stdio", show_banner=False)
         else:
             self.mcp.run(
                 transport="http",
@@ -253,4 +256,5 @@ class SeleniumMCP:
                 # The MCP endpoint moves with everything else, `/openapi.*`
                 # included. Only the four probes also answer at the root.
                 path=self.mcp_path,
+                show_banner=False,
             )

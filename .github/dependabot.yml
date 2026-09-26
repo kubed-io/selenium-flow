@@ -73,6 +73,12 @@ updates:
     prefix: deps(npm)
   cooldown:
     default-days: 7
+  # typescript-eslint's peer range stops below 6.1, and one blocked package
+  # fails the whole minor/patch group. Lift this when it widens.
+  ignore:
+  - dependency-name: typescript
+    versions:
+    - ">=6.1.0"
   groups:
     npm-minor-patch:
       update-types:

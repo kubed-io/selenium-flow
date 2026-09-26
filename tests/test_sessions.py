@@ -423,6 +423,7 @@ class FakeRedis:
         self.data = {}
         self.expiries = {}
         self.reachable = reachable
+        self.calls = []
 
     def ping(self):
         if not self.reachable:
@@ -430,7 +431,12 @@ class FakeRedis:
         return True
 
     def get(self, key):
+        self.calls.append("get")
         return self.data.get(key)
+
+    def mget(self, keys):
+        self.calls.append("mget")
+        return [self.data.get(key) for key in keys]
 
     def set(self, key, value, ex=None):
         self.data[key] = value.encode() if isinstance(value, str) else value
@@ -454,6 +460,18 @@ def test_redis_store_round_trips_a_record_and_expires_it():
     assert fake.expiries["p:k"] == 99, "entries must expire, not outlive the browser"
     store.delete("k")
     assert store.get("k") is None
+
+
+def test_listing_redis_reads_every_record_in_one_round_trip():
+    """Every open admin page asks for the list every two seconds; a GET per
+    session made that one network round trip per session per poll."""
+    fake = FakeRedis()
+    store = RedisStore(fake, prefix="p:")
+    for key in ("a", "b", "c"):
+        store.set(key, SessionRecord(session_id=key))
+    fake.calls.clear()
+    assert sorted(store.records()) == ["a", "b", "c"]
+    assert fake.calls == ["mget"]
 
 
 def test_a_corrupt_redis_entry_is_a_miss_not_a_crash():

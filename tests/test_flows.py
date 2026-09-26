@@ -7,6 +7,9 @@ path outside the data directory.
 """
 
 import logging
+import os
+import threading
+import time
 
 import pytest
 import yaml
@@ -218,6 +221,116 @@ def test_a_yaml_file_that_is_not_a_mapping_reads_as_missing(store, tmp_path):
     assert store.get("bot", "list") is None
 
 
+# ---- parsing, which every listing pays for per flow (§F4.19) -----------------
+
+
+def test_a_hand_edit_is_read_at_once_not_from_a_cache(store, tmp_path):
+    """Parsed flows are cached, and a cache that served the old flow after an
+    edit would make the editor lie. Same length on purpose, so a key built from
+    size or a coarse mtime would miss it."""
+    store.save("bot", "login", {"description": "aaaa", "steps": []})
+    assert store.get("bot", "login")["description"] == "aaaa"
+    path = tmp_path / "bot" / "flows" / "login.yaml"
+    path.write_text(path.read_text().replace("aaaa", "bbbb"))
+    assert store.get("bot", "login")["description"] == "bbbb"
+
+
+def test_what_get_returns_is_the_callers_to_change(store):
+    """One parse is shared by every read of the same file, so handing out the
+    cached object would let one caller's edit leak into the next read."""
+    store.save("bot", "login", {"steps": [{"tool": "navigate", "args": {"url": "a"}}]})
+    first = store.get("bot", "login")
+    first["steps"][0]["args"]["url"] = "changed"
+    first["steps"].append({"tool": "back"})
+    assert store.get("bot", "login")["steps"] == [
+        {"tool": "navigate", "args": {"url": "a"}}
+    ]
+
+
+def test_a_flow_is_parsed_once_however_often_it_is_read(store, monkeypatch):
+    """The Secrets tab and every listing read every stored flow; parsing each
+    one again per request was 1.5s for 26 flows in the pod."""
+    store.save("bot", "once", {"description": "parsed-once-probe", "steps": []})
+    calls = []
+    real = flows.yaml.load
+    monkeypatch.setattr(
+        flows.yaml, "load", lambda *a, **k: calls.append(1) or real(*a, **k)
+    )
+    for _ in range(5):
+        assert store.get("bot", "once")["description"] == "parsed-once-probe"
+        store.summaries("bot")
+    assert len(calls) == 1
+
+
+def test_readers_arriving_together_share_one_parse(store, monkeypatch):
+    """Routes run in a thread pool, so the page's first load can ask for the
+    same cold flow several times at once; the others wait for the one parse."""
+    store.save("bot", "herd", {"description": "stampede-probe", "steps": []})
+    calls = []
+    real = flows.yaml.load
+
+    def slow(*a, **k):
+        calls.append(1)
+        time.sleep(0.2)
+        return real(*a, **k)
+
+    monkeypatch.setattr(flows.yaml, "load", slow)
+    threads = [
+        threading.Thread(target=store.get, args=("bot", "herd")) for _ in range(4)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(calls) == 1
+
+
+def test_a_flow_bigger_than_the_cache_is_read_but_never_kept(store, monkeypatch):
+    """The cache is bounded by YAML source size, so one huge document cannot
+    hold the pod's memory: it is still read, just parsed every time."""
+    description = "y" * (flows.CACHE_BYTES + 1)
+    store.save("bot", "huge", {"description": description, "steps": []})
+    calls = []
+    real = flows.yaml.load
+    monkeypatch.setattr(
+        flows.yaml, "load", lambda *a, **k: calls.append(1) or real(*a, **k)
+    )
+    for _ in range(2):
+        assert store.get("bot", "huge")["description"] == description
+    assert len(calls) == 2
+
+
+def test_the_budget_counts_bytes_not_characters(store, monkeypatch):
+    """Under the budget in characters, over it in UTF-8: "é" is two bytes, and
+    a budget counted in characters would let such a flow take twice its share."""
+    description = "é" * (flows.CACHE_BYTES // 2 + 1)
+    assert len(description) < flows.CACHE_BYTES, "otherwise this proves nothing"
+    store.save("bot", "accents", {"description": description, "steps": []})
+    calls = []
+    real = flows.yaml.load
+    monkeypatch.setattr(
+        flows.yaml, "load", lambda *a, **k: calls.append(1) or real(*a, **k)
+    )
+    for _ in range(2):
+        assert store.get("bot", "accents")["description"] == description
+    assert len(calls) == 2
+
+
+def test_empty_documents_cannot_fill_the_cache_for_free():
+    """An empty file is zero bytes of source and still a key and a dict; with
+    no per-entry cost, a folder of them would grow the cache without bound."""
+    for n in range(6000):
+        flows.parse(f"# empty-probe {n}\n")
+    assert len(flows._parsed.cache) <= flows.CACHE_BYTES // flows.ENTRY_BYTES
+
+
+def test_flows_are_parsed_by_libyaml_when_the_wheel_has_it():
+    """Ten times the pure-Python parser, and every platform we ship has it."""
+    if not yaml.__with_libyaml__:
+        pytest.skip("this PyYAML was built without libyaml")
+    assert flows._LOADER is yaml.CSafeLoader
+
+
 # ---- the store the environment asks for -------------------------------------
 
 
@@ -370,6 +483,80 @@ def test_a_filename_this_store_would_refuse_is_skipped_not_raised(
     assert [s["name"] for s in store.summaries("bot")] == ["good"]
 
 
+def test_an_edit_inside_one_clock_tick_still_moves_the_revision(store, tmp_path):
+    """Two writes inside one tick share an mtime; the page would keep showing
+    the first. Size and inode sit in the stamp beside it, the way git does."""
+    store.save("bot", "login", {"description": "a", "steps": []})
+    path = tmp_path / "bot" / "flows" / "login.yaml"
+    before = path.stat()
+    first = store.revision("bot")
+    path.write_text(path.read_text().replace("a", "a longer one"))
+    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+    assert path.stat().st_mtime_ns == before.st_mtime_ns
+    assert store.revision("bot") != first
+
+
+def test_a_linked_kept_file_is_never_listed(store, tmp_path):
+    """Files and Screenshots list a folder with no realpath per entry, so the
+    listing itself has to refuse a link the store would refuse to read."""
+    store.write_file("bot", "real.png", b"png")
+    outside = tmp_path / "outside.png"
+    outside.write_bytes(b"secret")
+    (tmp_path / "bot" / "files" / "linked.png").symlink_to(outside)
+    assert [f["name"] for f in store.files("bot")] == ["real.png"]
+
+
+@pytest.mark.parametrize("swapped", ["files", "session"])
+def test_a_directory_swapped_for_a_link_after_it_was_checked_is_refused(
+    tmp_path, monkeypatch, swapped
+):
+    """Listings trust the directory `_resolved` returned rather than realpath
+    each entry, so a link swapped in after that check must still be refused,
+    whether it replaces the folder itself or a directory above it."""
+    root = tmp_path.resolve()
+    store = LocalFlowStore(root)
+    store.write_file("other", "private.png", b"png")
+    checked = root / "bot" / "files"
+    if swapped == "files":
+        (root / "bot").mkdir()
+        checked.symlink_to(root / "other" / "files")
+    else:
+        (root / "bot").symlink_to(root / "other")
+    monkeypatch.setattr(store, "_files_dir", lambda session, folder="files": checked)
+    with pytest.raises(InvalidName):
+        store.files("bot")
+
+
+@pytest.mark.parametrize("kind", ["files", "flows"])
+def test_without_a_descriptor_to_pin_each_entry_is_checked(
+    tmp_path, monkeypatch, kind
+):
+    """Where `scandir` cannot take a descriptor, the directory is listed by
+    path, so a swap mid-listing is caught per entry as it used to be — on the
+    file itself, `login.yaml`, not on the flow name it is listed as."""
+    root = tmp_path.resolve()
+    store = LocalFlowStore(root)
+    if kind == "files":
+        store.write_file("bot", "real.png", b"png")
+        entry, listing = root / "bot" / "files" / "real.png", store.files
+    else:
+        store.save("bot", "login", {"steps": []})
+        entry, listing = root / "bot" / "flows" / "login.yaml", store.names
+    real_resolve = type(entry).resolve
+
+    def swapped(self, *args, **kwargs):
+        # The directory itself still checks out; the entry under it does not,
+        # as if the folder moved under a link after the directory check.
+        if self == entry:
+            return root / "elsewhere" / entry.name
+        return real_resolve(self, *args, **kwargs)
+
+    monkeypatch.setattr(os, "supports_fd", set())
+    monkeypatch.setattr(type(entry), "resolve", swapped)
+    with pytest.raises(InvalidName):
+        listing("bot")
+
+
 def test_a_symlinked_flow_file_is_skipped_from_the_listing(store, tmp_path):
     store.save("bot", "good", {"steps": []})
     outside = tmp_path.parent / "target.yaml"
@@ -426,6 +613,16 @@ def test_a_yaml_complaint_never_quotes_the_line_it_choked_on():
     assert "hunter2" not in said
     assert "hunter2" in str(exc.value), "otherwise this test proves nothing"
     assert "line 6" in said and "column" in said
+
+
+def test_the_parser_the_store_uses_places_the_complaint_the_same_way():
+    """libyaml words its problem differently but marks the same spot, so the
+    editor's error points at the same line whichever parser read it."""
+    with pytest.raises(yaml.YAMLError) as exc:
+        flows.parse(BAD_YAML)
+    said = flows.yaml_complaint(exc.value)
+    assert "hunter2" not in said
+    assert "line 6, column 1" in said
 
 
 def test_a_yaml_complaint_survives_an_error_carrying_no_position():

@@ -32,13 +32,16 @@ trace to a decision they never made.
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
 import re
+import threading
 from pathlib import Path
 from typing import Protocol
 
 import yaml
+from cachetools import LRUCache, cached
 
 log = logging.getLogger(__name__)
 
@@ -247,6 +250,40 @@ def yaml_complaint(exc: Exception) -> str:
     return f"{str(problem).strip()} (line {mark.line + 1}, column {mark.column + 1})"
 
 
+# libyaml when the wheel has it, which every platform we ship does. The
+# pure-Python parser is ten times slower, and a Secrets tab or a flow listing
+# parses every stored flow: 26 flows took 1.1s of CPU in the pod (§F4.19).
+_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
+
+# Measured in YAML source, not entries: 512 entries is no bound at all when one
+# entry can be any size. Today's flows average 3KB, so this holds over a
+# thousand, and a document bigger than all of it is parsed but never kept.
+CACHE_BYTES = 4 * 2**20
+# What every entry costs beyond its source, the key and the parsed dict, so a
+# directory of empty files cannot fill the cache for free (Copilot, #45).
+ENTRY_BYTES = 1024
+
+
+@cached(
+    LRUCache(maxsize=CACHE_BYTES, getsizeof=lambda kept: kept[0]),
+    condition=threading.Condition(),
+)
+def _parsed(text: str) -> tuple[int, object]:
+    return len(text.encode()) + ENTRY_BYTES, yaml.load(text, Loader=_LOADER)
+
+
+def parse(text: str):
+    """A YAML document, parsed once per distinct text (§F4.19).
+
+    Keyed on the text itself, not a TTL or an mtime: reading a file is cheap
+    and parsing it is not, and a key that *is* the content cannot serve a stale
+    flow after a save, a hand edit or a clock that ticks coarser than the disk.
+    A copy every time, because callers own what they get back.
+    """
+    return copy.deepcopy(_parsed(text)[1])
+
+
 def _step_count(document: dict) -> int:
     """How many steps a document has, for a listing.
 
@@ -311,6 +348,70 @@ class FlowStore(Protocol):
     def delete_file(self, session: str, name: str, folder: str = FILES_DIR) -> bool: ...
 
     def clear_folder(self, session: str, folder: str) -> int: ...
+
+
+def _listed(directory: Path, usable) -> list[tuple[str, os.stat_result]]:
+    """The regular files in one of the store's directories, with their stats.
+
+    ``directory`` has come through `_resolved`, and what is left to refuse per
+    entry is a link or a name ``usable`` rejects. That used to be a realpath per
+    entry, which was 67ms of a 100ms listing of 142 screenshots; scandir says
+    which entries are links without asking (§F4.19).
+
+    The per-entry realpath also caught a directory swapped for a link after
+    `_resolved` returned. So the directory is pinned by descriptor first, and
+    only listed if its path still resolves to itself and names the directory
+    held (Copilot, #45). A link is refused as `_resolved` would refuse it.
+    """
+    pinned = os.scandir in os.supports_fd
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(directory, flags) if pinned else None
+    except FileNotFoundError:
+        return []
+    except OSError as exc:  # ELOOP or ENOTDIR: a link, or not a directory
+        raise InvalidName(f"{directory.name!r} is not a plain directory") from exc
+    try:
+        if not pinned and not directory.is_dir():
+            return []
+        held = os.fstat(fd) if pinned else None
+        if directory.resolve() != directory or (
+            pinned and not os.path.samestat(held, directory.stat())
+        ):
+            raise InvalidName(f"{directory.name!r} moved under a link while listed")
+        found = []
+        with os.scandir(fd if pinned else directory) as entries:
+            for entry in entries:
+                if not entry.is_file(follow_symlinks=False):  # a link is not
+                    continue
+                name = usable(entry.name)
+                if name is None:
+                    continue
+                # Without a descriptor to pin, a swap during the listing is
+                # still possible, so each entry keeps the old realpath check:
+                # slower, only where `scandir(fd)` is missing (Copilot, #45).
+                path = directory / entry.name
+                if not pinned and path.resolve() != path:
+                    raise InvalidName(f"{entry.name!r} does not resolve to itself")
+                try:
+                    found.append((name, entry.stat(follow_symlinks=False)))
+                except FileNotFoundError:
+                    # Deleted between the listing and the stat. Its absence is
+                    # itself a change, and the next poll will agree.
+                    continue
+        return found
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def _shaped(name: str, info: os.stat_result) -> dict:
+    """A file entry from its name and its stat — see `LocalFlowStore._entry`."""
+    return {
+        "name": name,
+        "size": info.st_size,
+        "creationTime": int(info.st_mtime * 1000),
+    }
 
 
 class LocalFlowStore:
@@ -396,26 +497,30 @@ class LocalFlowStore:
         return sorted(p.name for p in self.root.iterdir() if p.is_dir())
 
     def names(self, session: str) -> list[str]:
-        directory = self._flows_dir(session)
-        if not directory.is_dir():
-            return []
-        found = []
-        for path in directory.glob(f"*{SUFFIX}"):
-            if not path.is_file():
-                continue
-            # Anything this store would refuse to address is skipped rather
-            # than returned, because every caller of `names` turns a name back
-            # into a path. A directory is not only written by us: a hand-made
-            # `.hidden.yaml`, a macOS `._login.yaml` on a network mount, or a
-            # symlinked entry would otherwise be handed to `get`, raise, and
-            # take the whole listing down with it.
+        return sorted(name for name, _ in self._flow_entries(session))
+
+    def _flow_entries(self, session: str) -> list[tuple[str, os.stat_result]]:
+        """Each flow's name and stat, from one pass over the directory.
+
+        Anything this store would refuse to address is skipped rather than
+        returned, because every caller of `names` turns a name back into a
+        path. A directory is not only written by us: a hand-made
+        `.hidden.yaml`, a macOS `._login.yaml` on a network mount, or a
+        symlinked entry would otherwise be handed to `get`, raise, and take the
+        whole listing down with it.
+        """
+
+        def usable(filename: str) -> str | None:
+            if not filename.endswith(SUFFIX):
+                return None
+            stem = filename[: -len(SUFFIX)]
             try:
-                self._path(session, path.stem)
+                return valid_name(stem, "flow name")
             except InvalidName:
-                log.warning("ignoring %s: not a usable flow name", path.name)
-                continue
-            found.append(path.stem)
-        return sorted(found)
+                log.warning("ignoring %s: not a usable flow name", filename)
+                return None
+
+        return _listed(self._flows_dir(session), usable)
 
     def revision(self, session: str) -> str:
         """A token that changes whenever this session's flows do.
@@ -429,17 +534,13 @@ class LocalFlowStore:
         Cheap on purpose. It stats the files a listing already walks, and it is
         asked on a poll, so it must never open one.
         """
-        directory = self._flows_dir(session)
-        if not directory.is_dir():
-            return "0"
-        stamps = []
-        for name in self.names(session):
-            try:
-                stamps.append(f"{name}:{self._path(session, name).stat().st_mtime_ns}")
-            except OSError:
-                # Deleted between the listing and the stat. Its absence is
-                # itself a change, and the next poll will agree.
-                continue
+        # Inode and size beside the mtime, the way git guards against racy
+        # timestamps: two edits inside one clock tick share an mtime, and an
+        # atomic replace always brings a new inode (§F4.19).
+        stamps = [
+            f"{name}:{info.st_ino}:{info.st_size}:{info.st_mtime_ns}"
+            for name, info in sorted(self._flow_entries(session))
+        ]
         return ";".join(stamps) or "0"
 
     def summaries(self, session: str) -> list[dict]:
@@ -477,7 +578,7 @@ class LocalFlowStore:
         flow = valid_name(name, "flow name")
         path = self._path(session, flow)
         try:
-            loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+            loaded = parse(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return None
         # UnicodeDecodeError is a ValueError, NOT an OSError, so it needs
@@ -570,12 +671,7 @@ class LocalFlowStore:
         Grid reports milliseconds, and a seconds-based timestamp beside it
         would sort every kept file to 1970 without anything looking wrong.
         """
-        info = path.stat()
-        return {
-            "name": path.name,
-            "size": info.st_size,
-            "creationTime": int(info.st_mtime * 1000),
-        }
+        return _shaped(path.name, path.stat())
 
     def files(self, session: str, folder: str = FILES_DIR) -> list[dict]:
         """Every file in one folder of this session, newest first.
@@ -583,23 +679,20 @@ class LocalFlowStore:
         Newest first because that is the order the Grid uses, and Files is
         shown interleaved with its entries.
         """
-        directory = self._files_dir(session, folder)
-        if not directory.is_dir():
-            return []
-        found = []
-        for path in directory.iterdir():
-            if not path.is_file():
-                continue
-            # Anything this store would refuse to address is skipped rather than
-            # returned, for the reason `names` gives: every caller turns a name
-            # back into a path, so an entry that cannot round-trip would be
-            # handed to `read_file`, raise, and take the listing down with it.
+
+        def usable(name: str) -> str | None:
+            # For the reason `_flow_entries` gives: a name the store would
+            # refuse to address must not reach a caller that reads it back.
             try:
-                self._file_path(session, path.name, folder)
+                return valid_file_name(name)
             except InvalidName:
-                log.warning("ignoring file %r: not a usable name", path.name)
-                continue
-            found.append(self._entry(path))
+                log.warning("ignoring file %r: not a usable name", name)
+                return None
+
+        found = [
+            _shaped(name, info)
+            for name, info in _listed(self._files_dir(session, folder), usable)
+        ]
         return sorted(found, key=lambda f: f["creationTime"], reverse=True)
 
     def read_file(self, session: str, name: str, folder: str = FILES_DIR) -> bytes:
