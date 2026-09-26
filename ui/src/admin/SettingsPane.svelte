@@ -61,6 +61,8 @@
   .setting { display: grid; grid-template-columns: 16px 240px 1fr auto auto; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
   .key, .file { font-size: 12px; }
   .file { color: var(--muted); }
+  /* No file to show: draw nothing, not a faint empty box. */
+  .file:empty { background: none; padding: 0; border: 0; }
   .value { overflow-wrap: anywhere; }
   .info { position: relative; display: inline-grid; place-items: center; width: 14px; height: 14px; border: 1px solid var(--muted); border-radius: 50%; color: var(--muted); font-size: 10px; font-weight: 600; cursor: help; }
   .info:hover::after, .info:focus::after {
