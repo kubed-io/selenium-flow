@@ -267,6 +267,7 @@ def register(
     schemas=None,
     catalogue=None,
     prefix: str = "",
+    settings_payload=None,
 ) -> None:
     """Mount the admin pages, their JSON API, and the two signed file routes.
 
@@ -393,6 +394,20 @@ def register(
                 if n not in known
             ],
         })
+
+    @mcp.custom_route(
+        f"{prefix}/admin/settings", methods=["GET"], name="admin_settings"
+    )
+    @guarded
+    async def admin_settings(_request: Request) -> JSONResponse:
+        """How this server was started: every setting and where it came from.
+
+        Never a sensitive value and never a secret definition; the Secrets tab
+        has those. Read-only, like every admin view of configuration.
+        """
+        if settings_payload is None:
+            return JSONResponse({"config_file": None, "sections": []})
+        return JSONResponse(settings_payload())
 
     # Whether the last read of the store failed, so an outage warns once rather
     # than on every two-second poll of every open page.

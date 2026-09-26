@@ -240,6 +240,7 @@ class SeleniumMCP:
             flow_store=self.flows,
             schemas=schemas,
             catalogue=self.secrets,
+            settings_payload=lambda: config.describe(self.settings, self.sources),
         )
 
     def run(
