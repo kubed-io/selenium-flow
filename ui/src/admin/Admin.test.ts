@@ -122,18 +122,27 @@ test('Sign out stops the stream and forgets the token (A4)', async () => {
 
 // --- extra, from the traceability table ---------------------------------
 
-test('the top tabs read Sessions, Secrets, Grid console left to right; #/secrets swaps the pane', async () => {
+test('the top tabs read Sessions, Secrets, Settings, Grid console left to right; #/secrets swaps the pane', async () => {
   sessionStorage.setItem('sf-token', 't')
   fakeFetch({ 'GET /admin/sessions': { body: SESSIONS } })
   const { container } = render(Admin, { mount: '', console: '/grid' })
   await vi.waitFor(() => expect(screen.getByText('Live sessions')).toBeInTheDocument())
   const tabs = [...container.querySelectorAll('.tabs button')]
-  expect(tabs.map((b) => b.textContent?.trim())).toEqual(['Sessions', 'Secrets', 'Grid console'])
+  expect(tabs.map((b) => b.textContent?.trim())).toEqual(['Sessions', 'Secrets', 'Settings', 'Grid console'])
 
   await fireEvent.click(screen.getByText('Secrets'))
   await vi.waitFor(() => expect(container.querySelector('#paneSecrets')).toBeTruthy())
   expect(container.querySelector('#paneSecrets')?.closest('#app')).toBe(container.querySelector('#app'))
   expect(container.querySelector('#paneSessions')).toBeNull()
+})
+
+test('clicking the Settings tab routes through the hash', async () => {
+  sessionStorage.setItem('sf-token', 't')
+  fakeFetch({ 'GET /admin/sessions': { body: SESSIONS } })
+  const { container } = render(Admin, { mount: '', console: '/grid' })
+  await vi.waitFor(() => expect(screen.getByText('Live sessions')).toBeInTheDocument())
+  await fireEvent.click(container.querySelector('#tabSettings')!)
+  expect(location.hash).toBe('#/settings')
 })
 
 test('a deep link straight to a session (not the list) still opens the live stream (R5)', async () => {

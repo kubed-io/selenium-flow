@@ -82,3 +82,17 @@ export interface SecretsPayload {
   secrets: Secret[]
   undefined: { name: string; uses: SecretUse[] }[]
 }
+
+export type SettingSource = 'default' | 'file' | 'env' | 'args'
+export interface SettingRow {
+  key: string
+  name: string
+  description: string
+  value: unknown
+  source: SettingSource
+  file?: string
+  sensitive?: boolean
+  set?: boolean
+}
+export interface SettingsSection { name: string; description: string; settings: SettingRow[] }
+export interface SettingsPayload { config_file: string | null; sections: SettingsSection[] }
