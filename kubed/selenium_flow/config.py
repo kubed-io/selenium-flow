@@ -2,7 +2,7 @@
 
 A setting's path is its name, and the other two spellings are derived from it:
 `redis.host` is `REDIS_HOST` in the environment and `--redis-host` on the
-command line. Precedence is default < file < env < args.
+command line. Precedence is default < config < env < args.
 
 The models here read nothing. `Settings()` is the defaults, which is what a
 test wants. `load()`, below, is what reads the file, the environment and the
@@ -314,7 +314,7 @@ def value_of(settings: Settings, path: str) -> Any:
     return value
 
 
-SOURCES = ("default", "file", "env", "args")
+SOURCES = ("default", "config", "env", "args")
 
 
 class ConfigError(ValueError):
@@ -349,7 +349,7 @@ def parser() -> argparse.ArgumentParser:
     for leaf in leaves():
         shown = "unset" if leaf.default in (None, "", []) else leaf.default
         help_text = (
-            f"{leaf.description} (env: {leaf.env} · file: {leaf.path}"
+            f"{leaf.description} (env: {leaf.env} · config: {leaf.path}"
             f" · default: {shown})"
         )
         built.add_argument(
@@ -495,9 +495,9 @@ def _explain(exc: ValidationError, sources: dict[str, str], path: str | None) ->
             leaf = ".".join(loc[:2])
         else:
             leaf = loc[0] if loc else ""
-        source = sources.get(leaf, "file")
+        source = sources.get(leaf, "config")
         where = {
-            "file": f"in {path}",
+            "config": f"in {path}",
             "env": f"from env {by_path[leaf].env}" if leaf in by_path else "from env",
             "args": (
                 f"from {by_path[leaf].flag}"
@@ -524,8 +524,8 @@ def load(
     path = str(named).strip() if named else None
     file = _read_file(path) if path else {}
 
-    layers = {"args": args, "env": env, "file": file}
-    # Highest precedence first: SOURCES is default < file < env < args, so its
+    layers = {"args": args, "env": env, "config": file}
+    # Highest precedence first: SOURCES is default < config < env < args, so its
     # reverse (minus "default", which is the fallback below) is the search order.
     precedence = tuple(reversed(SOURCES[1:]))
     sources = {
@@ -599,7 +599,7 @@ def describe(settings: Settings, sources: Mapping[str, str]) -> dict:
             )
         else:
             row.update(value=value, source=sources.get(leaf.path, "default"))
-        if row["source"] == "file":
+        if row["source"] == "config":
             row["file"] = settings.config_file
         rows[leaf.section].append(row)
     return {

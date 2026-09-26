@@ -18,11 +18,11 @@ const body = {
       { key: 'auth.token', name: 'token', description: 'Bearer token for every request. Unset is open.', value: null, source: 'env', sensitive: true, set: true },
     ] },
     { name: 'redis', description: 'The session store’s connection.', settings: [
-      { key: 'redis.db', name: 'db', description: 'Redis database number.', value: 2, source: 'file', file: FILE },
+      { key: 'redis.db', name: 'db', description: 'Redis database number.', value: 2, source: 'config', file: FILE },
       { key: 'redis.password', name: 'password', description: 'Redis password.', value: null, source: 'default', sensitive: true, set: false },
     ] },
     { name: 'secrets', description: 'Where secrets are read from.', settings: [
-      { key: 'secrets.dirs', name: 'dirs', description: 'Directories of secrets. First match wins.', value: ['/a', '/b'], source: 'file', file: FILE },
+      { key: 'secrets.dirs', name: 'dirs', description: 'Directories of secrets. First match wins.', value: ['/a', '/b'], source: 'config', file: FILE },
     ] },
   ],
 }
@@ -41,7 +41,7 @@ test('a card per section, a row per setting, a pill per source', async () => {
   expect(row(container, 'secrets.dirs').querySelector('.value')).toHaveTextContent('/a, /b')
 })
 
-test('the file path shows only for a value from the file', async () => {
+test('the file path shows only for a value from config', async () => {
   fakeFetch({ 'GET /admin/settings': { body } })
   const { container } = render(SettingsPane, { api })
   await vi.waitFor(() => expect(container.querySelector('.settings-card')).toBeTruthy())
@@ -65,8 +65,8 @@ test('the ⓘ carries the description, the legend is four bare pills, and the wi
   expect(row(container, 'port').querySelector('.info')).toHaveAttribute('data-tip', 'Port to listen on.')
   expect(row(container, 'port').querySelector('.info')).toHaveAttribute('tabindex', '0')
   const legend = container.querySelector('.legend') as HTMLElement
-  expect(Array.from(legend.querySelectorAll('.pill')).map((p) => p.textContent)).toEqual(['default', 'file', 'env', 'args'])
-  expect(legend.textContent?.replace(/default|file|env|args|\s/g, '')).toBe('')
+  expect(Array.from(legend.querySelectorAll('.pill')).map((p) => p.textContent)).toEqual(['default', 'config', 'env', 'args'])
+  expect(legend.textContent?.replace(/default|config|env|args|\s/g, '')).toBe('')
   expect(screen.getByRole('link', { name: /wiki/ })).toHaveAttribute('href', 'https://github.com/kubed-io/selenium-flow/wiki/Configuration')
 })
 

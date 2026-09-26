@@ -465,7 +465,7 @@ def configuration() -> str:
         what = leaf.description + (" **Sensitive.**" if leaf.sensitive else "")
         row = [f"`{leaf.path}`", f"`{leaf.env}`", f"`{leaf.flag}`", _default_of(leaf)]
         by_section[leaf.section].append([*row, what])
-    head = ["File", "Env", "Flag", "Default", "What"]
+    head = ["Config", "Env", "Flag", "Default", "What"]
     for name in config.SECTION_ORDER:
         sections.append(
             f"## {name}\n\n{config.SECTION_DESCRIPTIONS[name]}\n\n"
@@ -475,7 +475,7 @@ def configuration() -> str:
     tail = f"\n\n---\n\n{notes.read_text().strip()}\n" if notes.is_file() else "\n"
     intro = (
         "Every setting can be set in a YAML config file, in the environment, or "
-        "on the command line, and a later one wins: **default < file < env < "
+        "on the command line, and a later one wins: **default < config < env < "
         "args**. A setting's file path is its name: `redis.host` is "
         "`REDIS_HOST` and `--redis-host`.\n\n"
         "The file is named by `--config-file` or `CONFIG_FILE`. There is no "

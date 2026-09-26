@@ -11,7 +11,7 @@
   const loads = new Latest()
   const WIKI = 'https://github.com/kubed-io/selenium-flow/wiki/Configuration'
   // Weakest first, which is also precedence: the order is the legend.
-  const SOURCES = ['default', 'file', 'env', 'args'] as const
+  const SOURCES = ['default', 'config', 'env', 'args'] as const
 
   onMount(() => {
     void loads.run((signal) => api<SettingsPayload>('/admin/settings', 'GET', undefined, signal),
@@ -46,7 +46,7 @@
             <span class="info" role="button" tabindex="0" aria-label={row.description} data-tip={row.description}>i</span>
             <code class="key">{row.name}</code>
             <span class="value">{shown(row)}</span>
-            <code class="file">{row.source === 'file' ? (row.file ?? '') : ''}</code>
+            <code class="file">{row.source === 'config' ? (row.file ?? '') : ''}</code>
             <span class={['pill', 'src', row.source]}>{row.source}</span>
           </div>
         {/each}
@@ -70,7 +70,7 @@
     padding: 4px 8px; border-radius: 6px; background: var(--ink); color: var(--panel); font-size: 12px; font-weight: 400;
   }
   .pill.src.default { color: var(--muted); }
-  .pill.src.file { color: var(--accent); border-color: currentColor; }
+  .pill.src.config { color: var(--accent); border-color: currentColor; }
   .pill.src.env { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
   .pill.src.args { background: var(--ink); border-color: var(--ink); color: var(--panel); }
 </style>

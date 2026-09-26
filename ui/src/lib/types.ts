@@ -85,7 +85,7 @@ export interface SecretsPayload {
   undefined: { name: string; uses: SecretUse[] }[]
 }
 
-export type SettingSource = 'default' | 'file' | 'env' | 'args'
+export type SettingSource = 'default' | 'config' | 'env' | 'args'
 export interface SettingRow {
   key: string
   name: string

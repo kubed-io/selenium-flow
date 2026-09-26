@@ -23,7 +23,7 @@ answer at the root as well as under `ROUTE_PREFIX`.
 ## The config file
 
 Every setting can be set in a YAML config file, in the environment, or on the
-command line, and a later one wins: `default < file < env < args`. A setting's
+command line, and a later one wins: `default < config < env < args`. A setting's
 file path is its name — `redis.host` is `REDIS_HOST` in the environment and
 `--redis-host` on the command line — so knowing one spelling gives you the
 other two.

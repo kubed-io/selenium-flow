@@ -1,4 +1,4 @@
-"""The loader: defaults < file < env < args, and where every value came from."""
+"""The loader: defaults < config < env < args, and where every value came from."""
 
 import pytest
 
@@ -27,7 +27,7 @@ def test_precedence_per_leaf(tmp_path):
     assert (s.port, src["port"]) == (3, "args")
     assert (s.session.ttl, src["session.ttl"]) == (2, "env")
     # A partial section survives another layer setting a sibling.
-    assert (s.redis.port, src["redis.port"]) == (1, "file")
+    assert (s.redis.port, src["redis.port"]) == (1, "config")
     assert (s.redis.host, src["redis.host"]) == ("h", "env")
     assert src["config_file"] == "args"
 
@@ -36,7 +36,7 @@ def test_the_config_file_comes_from_env_when_no_flag(tmp_path):
     path = _file(tmp_path, "log_level: DEBUG\n")
     loaded = load([], {"CONFIG_FILE": path})
     assert loaded.settings.log_level == "DEBUG"
-    assert loaded.sources["log_level"] == "file"
+    assert loaded.sources["log_level"] == "config"
     assert loaded.settings.config_file == path
 
 
@@ -218,7 +218,7 @@ def test_describe_is_the_payload_the_tab_renders(tmp_path):
     assert body["config_file"] == path
     assert [s["name"] for s in body["sections"]] == config.SECTION_ORDER
     rows = {r["key"]: r for s in body["sections"] for r in s["settings"]}
-    assert rows["redis.db"] == {"key": "redis.db", "name": "db", "description": "Redis database number.", "value": 2, "source": "file", "file": path}
+    assert rows["redis.db"] == {"key": "redis.db", "name": "db", "description": "Redis database number.", "value": 2, "source": "config", "file": path}
     assert rows["auth.token"] == {"key": "auth.token", "name": "token", "description": "Bearer token for every request. Unset is open.", "value": None, "source": "env", "sensitive": True, "set": True}
     assert rows["redis.password"]["set"] is False
     assert "secrets.entries" not in rows

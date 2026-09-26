@@ -230,7 +230,7 @@ Apps get a deny-by-default CSP with no network, so `PUBLIC_BASE_URL` is also wha
 
 ## ⚙️ Configuration
 
-Every setting can be set in a YAML config file, in the environment, or on the command line, and a later one wins: **default < file < env < args**. A setting's file path is its name: `redis.host` is `REDIS_HOST` and `--redis-host`.
+Every setting can be set in a YAML config file, in the environment, or on the command line, and a later one wins: **default < config < env < args**. A setting's file path is its name: `redis.host` is `REDIS_HOST` and `--redis-host`.
 
 ```yaml
 # /etc/selenium-flow/config.yaml
