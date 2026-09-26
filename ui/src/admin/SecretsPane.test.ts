@@ -10,7 +10,8 @@ test('Loading…, then a card per secret with keys, allowed, source and backlink
   fakeFetch({ 'GET /admin/secrets': { body: {
     enabled: true,
     secrets: [
-      { name: 'admin', description: 'The token.', keys: ['token'], restricted: true, allowed_urls: ['https://a'], source: 'file', location: '/s/admin',
+      { name: 'admin', description: 'The token.', keys: ['token'], restricted: true, allowed_urls: ['https://a'],
+        origins: [{ source: 'filesystem', location: '/s/admin' }],
         uses: [{ flow: 'login', steps: [2], session: 'k 1' }, { flow: 'g', steps: [1, 3], shared: true }] },
       { name: 'open', keys: ['k'], restricted: false, uses: [] },
       { name: 'bad', keys: ['k'], allowed_urls_rejected: ['ftp://x'], uses: [] },
@@ -23,7 +24,7 @@ test('Loading…, then a card per secret with keys, allowed, source and backlink
   const [admin, open, bad, ghost] = container.querySelectorAll('.card.secret')
   expect(admin).toHaveTextContent('🔑admin')
   expect(admin).toHaveTextContent('allowedhttps://a')
-  expect(admin).toHaveTextContent('fromfile · /s/admin')
+  expect(admin).toHaveTextContent('fromfilesystem · /s/admin')
   expect(admin.querySelector('a')).toHaveAttribute('href', '#/sessions/k%201/flows/login')
   expect(admin.querySelector('a')).toHaveTextContent('k 1 →')
   expect(admin).toHaveTextContent('steps 1, 3')
@@ -51,6 +52,35 @@ test('uses keyed by session+flow do not collide when the concatenation does', as
   const hrefs = Array.from(rows).map((r) => r.querySelector('a')?.getAttribute('href'))
   expect(hrefs).toContain('#/sessions/c/flows/ab')
   expect(hrefs).toContain('#/sessions/bc/flows/a')
+})
+
+test('config secrets: key sources, every origin, and the two new warnings', async () => {
+  fakeFetch({ 'GET /admin/secrets': { body: {
+    enabled: true,
+    secrets: [
+      { name: 'grafana', keys: ['password'], restricted: true, allowed_urls: ['https://g'],
+        origins: [{ source: 'filesystem', location: '/secrets' }, { source: 'config', location: '/etc/c.yaml' }],
+        key_sources: { password: { from: 'filesystem' } }, uses: [] },
+      { name: 'admin', keys: ['token'], restricted: true, allowed_urls: ['https://s'],
+        origins: [{ source: 'config', location: '/etc/c.yaml' }], key_sources: { token: { from: 'env', name: 'AUTH_TOKEN' } }, uses: [] },
+      { name: 'demo', keys: ['password'], restricted: true, allowed_urls: ['http://l'], inline_keys: ['password'],
+        origins: [{ source: 'config', location: '/etc/c.yaml' }], key_sources: { password: { from: 'value' } }, uses: [] },
+      { name: 'github', keys: ['token'], restricted: true, allowed_urls: ['https://github.com'],
+        keys_unresolved: [{ key: 'token', reason: 'env GITHUB_TOKEN is not set' }],
+        origins: [{ source: 'config', location: '/etc/c.yaml' }], key_sources: { token: { from: 'env', name: 'GITHUB_TOKEN' } }, uses: [] },
+    ],
+    undefined: [],
+  } } })
+  const { container } = render(SecretsPane, { api })
+  await vi.waitFor(() => expect(screen.getByRole('heading', { name: 'Secrets' })).toBeInTheDocument())
+  const [grafana, admin, demo, github] = container.querySelectorAll('.card.secret')
+  expect(grafana).toHaveTextContent('fromfilesystem · /secrets + config · /etc/c.yaml')
+  expect(grafana).toHaveTextContent('keyspassword')  // a directory key stays bare
+  expect(admin).toHaveTextContent('token · env AUTH_TOKEN')
+  expect(demo.querySelector('.pill.warn')).toHaveTextContent('inline value')
+  expect(demo).toHaveTextContent('password · value')
+  expect(github.querySelector('.pill.warn')).toHaveTextContent('key unresolved')
+  expect(github).toHaveTextContent('token: env GITHUB_TOKEN is not set')
 })
 
 test('off, and an error (S1)', async () => {

@@ -17,8 +17,22 @@
   })
 
   const flowHash = (u: SecretUse) => '#/sessions/' + encodeURIComponent(String(u.session)) + '/flows/' + encodeURIComponent(u.flow)
-  const warnOf = (s: Secret) => (s.allowed_urls_rejected ? 'unusable until fixed' : s.restricted ? '' : 'any site')
-  const reasonOf = (s: Secret) => (s.allowed_urls_rejected ? 'allowed_urls: ' + ([] as string[]).concat(s.allowed_urls_rejected).join(', ') : '')
+  const keyLabel = (s: Secret, k: string) => {
+    const from = s.key_sources?.[k]
+    if (!from || from.from === 'filesystem') return k
+    if (from.from === 'env') return `${k} · env ${from.name}`
+    return `${k} · ${from.from}`
+  }
+  const warnOf = (s: Secret) =>
+    s.allowed_urls_rejected ? 'unusable until fixed'
+      : s.keys_unresolved?.length ? 'key unresolved'
+      : s.inline_keys?.length ? 'inline value'
+      : s.restricted ? '' : 'any site'
+  const reasonOf = (s: Secret) =>
+    s.allowed_urls_rejected ? 'allowed_urls: ' + ([] as string[]).concat(s.allowed_urls_rejected).join(', ')
+      : s.keys_unresolved?.length ? s.keys_unresolved.map((u) => `${u.key}: ${u.reason}`).join('; ')
+      : ''
+  const fromOf = (s: Secret) => (s.origins ?? []).map((o) => `${o.source} · ${o.location}`).join(' + ')
 </script>
 
 {#snippet card(s: Secret, warn: string, reason: string)}
@@ -27,10 +41,10 @@
     {#if s.description}<div>{s.description}</div>{/if}
     {#if reason}<div class="small error">{reason}</div>{/if}
     {#if s.keys}
-      <div class="fact"><span class="k">keys</span>{#each s.keys as k (k)}<span class="pill">{k}</span>{/each}</div>
+      <div class="fact"><span class="k">keys</span>{#each s.keys as k (k)}<span class="pill">{keyLabel(s, k)}</span>{/each}</div>
       <div class="fact"><span class="k">allowed</span>{s.restricted ? (s.allowed_urls || []).join(', ') || '—' : 'any site'}</div>
     {/if}
-    {#if s.source}<div class="fact"><span class="k">from</span><span class="small muted">{s.source + ' · ' + (s.location || '')}</span></div>{/if}
+    {#if s.origins?.length}<div class="fact"><span class="k">from</span><span class="small muted">{fromOf(s)}</span></div>{/if}
     <div class="used">
       <div class="k">USED BY</div>
       {#each s.uses || [] as u (`${u.session ?? ''}/${u.flow}`)}

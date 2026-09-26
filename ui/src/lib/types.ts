@@ -73,8 +73,10 @@ export interface Secret {
   restricted?: boolean
   allowed_urls?: string[]
   allowed_urls_rejected?: string | string[]
-  source?: string
-  location?: string
+  origins?: { source: 'filesystem' | 'config'; location: string }[]
+  key_sources?: Record<string, { from: 'filesystem' | 'file' | 'env' | 'value'; name?: string; path?: string }>
+  keys_unresolved?: { key: string; reason: string }[]
+  inline_keys?: string[]
   uses?: SecretUse[]
 }
 export interface SecretsPayload {
