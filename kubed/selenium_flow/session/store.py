@@ -19,8 +19,9 @@ Both backends honour ``ttl`` so that swapping one for the other cannot change
 behaviour. Redis does it natively with ``EX``; memory keeps an expiry stamp and
 treats a lapsed entry as absent.
 
-Selection is explicit via ``SESSION_STORE``. Left unset it infers redis from the
-presence of ``REDIS_*``, so an existing deployment keeps working.
+Selection is explicit via ``session.store`` in the config. Left unset it infers
+redis from ``redis.host`` or ``redis.url`` being set, so an existing deployment
+keeps working.
 """
 
 from __future__ import annotations
@@ -59,7 +60,7 @@ DEFAULT_TTL_SECONDS = 86400
 class StoreUnavailable(RuntimeError):
     """Redis was asked for and cannot be used (§F4.12).
 
-    Raised by ``redis_client`` and left to propagate out of ``from_env``,
+    Raised by ``redis_client`` and left to propagate out of ``from_settings``,
     rather than caught and downgraded to :class:`MemoryStore`. A pod that
     refuses to start is restarted by Kubernetes until Redis answers; a pod
     that started anyway, on the wrong store, is never corrected — the live

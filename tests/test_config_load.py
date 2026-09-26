@@ -110,21 +110,80 @@ def test_a_named_file_that_is_missing_stops_the_boot(tmp_path):
         load(["--config-file", str(tmp_path / "nope.yaml")], {})
 
 
+def test_a_named_directory_is_reported_as_not_a_file(tmp_path):
+    """A directory exists, so "does not exist" would be a lie; say what is
+    actually wrong with it."""
+    with pytest.raises(ConfigError, match="is not a file"):
+        load(["--config-file", str(tmp_path)], {})
+
+
 def test_a_bad_env_value_names_the_variable():
     with pytest.raises(ConfigError, match="SESSION_TTL"):
         load([], {"SESSION_TTL": "soon"})
 
 
-def test_an_error_never_echoes_a_sensitive_value():
+def test_a_validation_error_never_echoes_the_rejected_input():
+    """Renamed from `..._a_sensitive_value`: no sensitive leaf can actually fail
+    validation (`SecretStr` accepts any string), so `REDIS_PORT` was never
+    testing sensitivity — it was testing `hide_input_in_errors` on any leaf,
+    which is what this now says."""
     with pytest.raises(ConfigError) as caught:
         load([], {"REDIS_PORT": "hunter2"})
     assert "hunter2" not in str(caught.value)
+
+
+def test_an_empty_redis_env_value_counts_as_unset():
+    """`REDIS_URL=""` and `REDIS_HOST=""` are what an unset docker-compose
+    interpolation (`${REDIS_URL:-}`) actually sends — not absence."""
+    loaded = load([], {"REDIS_URL": "", "REDIS_HOST": ""})
+    assert loaded.settings.session.store == "memory"
+    assert loaded.sources["redis.url"] == "default"
+    assert loaded.sources["redis.host"] == "default"
+
+
+def test_an_empty_auth_token_reads_as_not_set(tmp_path):
+    loaded = load([], {"AUTH_TOKEN": ""})
+    assert loaded.settings.auth.token is None
+    body = config.describe(loaded.settings, loaded.sources)
+    row = next(r for s in body["sections"] for r in s["settings"] if r["key"] == "auth.token")
+    assert row["set"] is False
+
+
+def test_an_empty_auth_token_env_leaves_auth_off():
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    loaded = load([], {"AUTH_TOKEN": ""})
+    server = SeleniumMCP(loaded.settings, sources=loaded.sources)
+    assert server.auth_token is None
+
+
+def test_an_empty_arg_value_also_counts_as_unset():
+    loaded = load(["--auth-token", ""], {})
+    assert loaded.settings.auth.token is None
+    assert loaded.sources["auth.token"] == "default"
 
 
 def test_the_file_cannot_define_entries_through_env(tmp_path):
     path = _file(tmp_path, "secrets:\n  entries:\n    d:\n      keys:\n        k: {env: X}\n")
     loaded = load(["--config-file", path], {})
     assert "d" in loaded.settings.secrets.entries
+
+
+def test_an_abbreviated_flag_is_refused():
+    """`allow_abbrev=False`: `--redis-h` must not silently match `--redis-host`,
+    the way argparse's default prefix-matching would let it."""
+    with pytest.raises(SystemExit):
+        load(["--redis-h", "x"], {})
+
+
+@pytest.mark.parametrize("value", ["debug", "Debug", "DEBUG"])
+def test_log_level_is_case_insensitive(value):
+    assert load([], {"LOG_LEVEL": value}).settings.log_level == "DEBUG"
+
+
+def test_a_bad_log_level_stops_the_boot():
+    with pytest.raises(ConfigError, match="log_level"):
+        load([], {"LOG_LEVEL": "loud"})
 
 
 def test_help_names_all_three_spellings(capsys):

@@ -67,6 +67,21 @@ def test_a_missing_secret_and_a_missing_key_are_both_none(source):
     assert source.value("nextcloud-admin", "nope") is None
 
 
+def test_an_unreadable_files_bytes_never_reach_the_log(tmp_path, caplog):
+    """A `UnicodeDecodeError`'s message quotes the offending bytes, and
+    `ConfigEntries.value` already logs `type(exc).__name__` instead for this
+    same reason — `FilesystemSource._read` must match it."""
+    import logging
+
+    make_secret(tmp_path, "app", token="t")
+    (tmp_path / "app" / "bad").write_bytes(b"\xff\xfe\x00bad")
+    with caplog.at_level(logging.WARNING, logger="kubed.selenium_flow.secrets"):
+        assert FilesystemSource(tmp_path).value("app", "bad") is None
+    logged = "\n".join(r.getMessage() for r in caplog.records)
+    assert "0xff" not in logged and "\\xff" not in logged
+    assert "UnicodeDecodeError" in logged
+
+
 def test_only_one_level_deep(tmp_path):
     """A Kubernetes mount is exactly one level; recursing would invent a shape
     nothing else produces."""

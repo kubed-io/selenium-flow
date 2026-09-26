@@ -10,6 +10,19 @@ from .server import SeleniumMCP
 log = logging.getLogger(__name__)
 
 
+def _secrets_summary(catalogue) -> str:
+    """"off", or how many directories and how many config entries feed it.
+
+    "secrets=0" used to mean either off or entries-only, which read as a
+    contradiction next to a config that plainly turned secrets on.
+    """
+    if catalogue is None:
+        return "off"
+    dirs = len(catalogue.sources)
+    entries = len(catalogue.config.entries) if catalogue.config else 0
+    return f"{dirs} dir{'s' if dirs != 1 else ''}, {entries} from config"
+
+
 def main(argv: list[str] | None = None) -> None:
     """Entry point for the ``selenium-flow`` console script."""
     try:
@@ -19,7 +32,7 @@ def main(argv: list[str] | None = None) -> None:
         # restarted until fixed beats started on something misread (§F4.12).
         raise SystemExit(f"selenium-flow: {exc}") from None
     settings = loaded.settings
-    logging.basicConfig(level=settings.log_level.upper())
+    logging.basicConfig(level=settings.log_level)
     server = SeleniumMCP(settings, sources=loaded.sources)
     log.info(
         "config=%s grid=%s auth=%s sessions=%s skill=%s flows=%s secrets=%s",
@@ -29,7 +42,7 @@ def main(argv: list[str] | None = None) -> None:
         server.sessions.kind,
         server.skill.skill_info.name if server.skill else "off",
         server.flows.kind if server.flows else "off",
-        len(server.secrets.sources) if server.secrets else "off",
+        _secrets_summary(server.secrets),
     )
     server.run(transport=settings.transport, host=settings.host, port=settings.port)
 

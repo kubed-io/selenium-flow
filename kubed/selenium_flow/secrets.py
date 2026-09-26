@@ -255,7 +255,9 @@ class FilesystemSource:
         try:
             return path.read_text(encoding="utf-8").strip()
         except (OSError, UnicodeDecodeError) as exc:
-            log.warning("could not read %s: %s", path.name, exc)
+            # Never `exc` itself: a `UnicodeDecodeError`'s message quotes the
+            # offending byte, which is a byte of the secret's value.
+            log.warning("could not read %s: %s", path.name, type(exc).__name__)
             return None
 
     def entry(self, name: str) -> dict | None:
@@ -470,20 +472,6 @@ class Catalogue:
 
     def entry(self, name: str) -> dict | None:
         return self._entries().get(name)
-
-    def source_of(self, name: str) -> SecretSource | None:
-        """The directory source that owns any of a name's keys, or None.
-
-        None for a secret defined entirely in the config — there is no
-        directory behind it. Read from the same snapshot the entry came from
-        rather than by walking the sources again, so the owner and the policy
-        can never be two different secrets.
-        """
-        return next(
-            (o for o in self._snapshot()[1].get(name, {}).values()
-             if not isinstance(o, (FromFile, FromEnv, FromValue))),
-            None,
-        )
 
     def value(self, name: str, key: str) -> str | None:
         """One value, for the binding path. No surface reaches this.
@@ -709,7 +697,10 @@ def bind(catalogue, reference, url: str, tool: str = "write") -> str:
         raise Refused(
             f"the secret {name!r} may not be used on "
             f"{origin(url) or 'this page'}. It allows: "
-            + (allowed or "nowhere — its _allowed_urls file does not parse")
+            # True of both sources of a leash: a directory's `_allowed_urls`
+            # that fails to parse, and a config `allowed_urls: []` — declared,
+            # and immediately exhausted.
+            + (allowed or "nowhere — its allowed_urls list is empty or does not parse")
         )
 
     value = catalogue.value(name, key)

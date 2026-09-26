@@ -1,5 +1,6 @@
 """The switch from the environment to the config, held in place."""
 
+import logging
 import pathlib
 import re
 
@@ -51,3 +52,25 @@ def test_main_refuses_a_bad_config_with_the_reason(tmp_path, capsys):
     with pytest.raises(SystemExit) as caught:
         main_module.main(["--config-file", str(bad)])
     assert "redis.bogus" in str(caught.value)
+
+
+def test_the_startup_log_says_secrets_off_when_none_are_configured(monkeypatch, caplog):
+    monkeypatch.setattr(SeleniumMCP, "run", lambda self, **kw: None)
+    with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.main"):
+        main_module.main([])
+    assert "secrets=off" in caplog.text
+
+
+def test_the_startup_log_counts_dirs_and_config_entries_separately(monkeypatch, caplog, tmp_path):
+    """`secrets=0` used to mean either off or config-entries-only. Now it
+    names both counts, which is the only way the two stop looking the same."""
+    monkeypatch.setattr(SeleniumMCP, "run", lambda self, **kw: None)
+    d = tmp_path / "onedir"
+    d.mkdir()
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(
+        f"secrets:\n  dirs: [{d}]\n  entries:\n    a: {{}}\n    b: {{}}\n    c: {{}}\n"
+    )
+    with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.main"):
+        main_module.main(["--config-file", str(cfg)])
+    assert "secrets=1 dir, 3 from config" in caplog.text

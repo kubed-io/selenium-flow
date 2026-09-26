@@ -83,3 +83,12 @@ def test_an_env_key_is_read_at_bind_time_not_at_listing():
 
 def test_no_dirs_and_no_entries_is_off():
     assert secrets.from_settings(SecretsSettings()) is None
+
+
+def test_a_declared_empty_leash_is_usable_nowhere():
+    """`allowed_urls: []` is a leash declared and immediately exhausted — not
+    the same as never declaring one, which allows any site."""
+    cat = _catalogue(None, {"d": {"allowed_urls": [], "keys": {"k": {"value": "v"}}}})
+    assert cat.allows("d", "https://x.example") is False
+    with pytest.raises(secrets.Refused, match="empty or does not parse"):
+        secrets.bind(cat, {"name": "d", "key": "k"}, "https://x.example", tool="write")

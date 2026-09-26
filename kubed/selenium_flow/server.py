@@ -29,10 +29,6 @@ from .session.store import SessionStore
 
 log = logging.getLogger(__name__)
 
-# Root. `route_prefix` moves the WHOLE server, so the default is "no prefix"
-# rather than a name for one tree (§F1.11). `/` means the same thing and is what
-# an operator types when they mean it.
-
 
 class SeleniumMCP:
     """A browser-automation MCP server backed by Selenium Grid.
@@ -206,7 +202,7 @@ class SeleniumMCP:
             prefix=self.prefix,
             secrets_catalogue=self.secrets,
             schemas=schemas,
-            # A failed run points at a skill reference, and with --no-skill
+            # A failed run points at a skill reference, and with `--skill-enabled false`
             # there is nothing registered to point at.
             skill_available=self.skill is not None,
         )

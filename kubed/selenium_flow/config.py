@@ -111,7 +111,8 @@ class GridSettings(Section):
 
 class SessionSettings(Section):
     store: Literal["memory", "redis"] = Field(
-        "memory", description="memory, or redis to survive restarts."
+        "memory",
+        description="memory; redis.host or redis.url switches it to redis.",
     )
     ttl: int = Field(86400, description="Seconds a session is kept after its last use.")
     browser: Literal["chrome", "firefox"] | None = Field(
@@ -201,7 +202,22 @@ class Settings(Section):
     )
     host: str = Field("0.0.0.0", description="Address to listen on.")
     port: int = Field(8000, description="Port to listen on.")
-    log_level: str = Field("INFO", description="DEBUG, INFO, WARNING or ERROR.")
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
+        "INFO", description="DEBUG, INFO, WARNING or ERROR."
+    )
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def _upper(cls, value):
+        # Case-folded before the Literal check, so `LOG_LEVEL=debug` (the
+        # logging module itself is case-sensitive) still works — and a real
+        # typo is a ConfigError at boot, not a traceback from `logging` once
+        # something tries to log.
+        return value.upper() if isinstance(value, str) else value
+
+    # Moves the WHOLE server, so the default is "no prefix" rather than a name
+    # for one tree (§F1.11). `/` means the same thing and is what an operator
+    # types when they mean it.
     route_prefix: str = Field(
         "/", description="Path the whole server is mounted under."
     )
@@ -329,6 +345,11 @@ def parser() -> argparse.ArgumentParser:
         prog="selenium-flow",
         description="Drive a Selenium Grid browser over MCP and HTTP.",
         argument_default=argparse.SUPPRESS,
+        # A generated flag is a name someone will type, and argparse's default
+        # prefix matching would let `--redis-h` silently mean `--redis-host` —
+        # until a second flag starts the same way and it silently means
+        # something else instead.
+        allow_abbrev=False,
     )
     for leaf in leaves():
         shown = "unset" if leaf.default in (None, "", []) else leaf.default
@@ -360,6 +381,10 @@ class _Environment(EnvSettingsSource):
             case_sensitive=False,
             env_nested_delimiter="_",
             env_nested_max_split=1,
+            # `REDIS_URL=""` is what `${REDIS_URL:-}` sends when compose leaves
+            # it unset, not absence — and a blank AUTH_TOKEN must read as "no
+            # auth", not as an empty credential. Empty is "not set" everywhere.
+            env_ignore_empty=True,
         )
 
     def _load_env_vars(self):
@@ -367,11 +392,17 @@ class _Environment(EnvSettingsSource):
         # to pydantic-settings as a value for that whole section, which it
         # tries to JSON-decode and raises SettingsError on before `_known()`
         # ever gets a chance to filter it out as unknown.
+        #
+        # `env_ignore_empty` on the base class has no effect here: it is only
+        # applied inside the default `_load_env_vars`'s call to
+        # `parse_env_vars`, which this override replaces. So empty values are
+        # dropped here instead — `REDIS_URL=""` is what `${REDIS_URL:-}` sends
+        # when compose leaves it unset, not a value of its own.
         sections = set(SECTION_ORDER) - {"server"}
         return {
             key.lower(): value
             for key, value in self._environ.items()
-            if key.lower() not in sections
+            if key.lower() not in sections and value != ""
         }
 
 
@@ -398,7 +429,10 @@ def _known(raw: dict) -> dict:
 def _read_file(path: str) -> dict:
     file = Path(path)
     if not file.is_file():
-        raise ConfigError(f"config file {path} does not exist")
+        # A directory exists, so "does not exist" would be a lie about what is
+        # actually wrong with it.
+        reason = "is not a file" if file.exists() else "does not exist"
+        raise ConfigError(f"config file {path} {reason}")
     try:
         data = yaml.safe_load(file.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
@@ -486,7 +520,10 @@ def load(
 ) -> Loaded:
     """The settings this process should run with, and where each one came from."""
     environ = os.environ if environ is None else environ
-    args = _nest(vars(parser().parse_args(argv)))
+    raw_args = vars(parser().parse_args(argv))
+    # An empty string on the command line (`--auth-token ""`) is "not set", the
+    # same as an empty env var — never a value of its own, sensitive or not.
+    args = _nest({k: v for k, v in raw_args.items() if v != ""})
     env = _known(_Environment(environ)())
     named = args.get("config_file") or env.get("config_file")
     path = str(named).strip() if named else None
@@ -546,7 +583,10 @@ def describe(settings: Settings, sources: Mapping[str, str]) -> dict:
                 value=None,
                 source=sources.get(leaf.path, "default"),
                 sensitive=True,
-                set=value is not None,
+                # Not `value is not None`: a blank inline value or an empty env
+                # read (before this loader dropped it) is not a credential
+                # either, and the pill would otherwise read "set" on nothing.
+                set=value is not None and bool(value.get_secret_value()),
             )
         else:
             row.update(value=value, source=sources.get(leaf.path, "default"))
