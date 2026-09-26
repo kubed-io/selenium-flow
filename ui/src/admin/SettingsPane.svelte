@@ -43,7 +43,7 @@
         <div class="small muted">{section.description}</div>
         {#each section.settings as row (row.key)}
           <div class="setting" data-key={row.key}>
-            <span class="info" role="img" aria-label={row.description} data-tip={row.description}>i</span>
+            <span class="info" role="button" tabindex="0" aria-label={row.description} data-tip={row.description}>i</span>
             <code class="key">{row.name}</code>
             <span class="value">{shown(row)}</span>
             <code class="file">{row.source === 'file' ? (row.file ?? '') : ''}</code>
@@ -63,12 +63,12 @@
   .file { color: var(--muted); }
   .value { overflow-wrap: anywhere; }
   .info { position: relative; display: inline-grid; place-items: center; width: 14px; height: 14px; border: 1px solid var(--muted); border-radius: 50%; color: var(--muted); font-size: 10px; font-weight: 600; cursor: help; }
-  .info:hover::after {
+  .info:hover::after, .info:focus::after {
     content: attr(data-tip); position: absolute; left: 20px; top: -4px; z-index: 5; white-space: nowrap;
     padding: 4px 8px; border-radius: 6px; background: var(--ink); color: var(--panel); font-size: 12px; font-weight: 400;
   }
   .pill.src.default { color: var(--muted); }
   .pill.src.file { color: var(--accent); border-color: currentColor; }
   .pill.src.env { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-  .pill.src.arg, .pill.src.args { background: var(--ink); border-color: var(--ink); color: var(--panel); }
+  .pill.src.args { background: var(--ink); border-color: var(--ink); color: var(--panel); }
 </style>

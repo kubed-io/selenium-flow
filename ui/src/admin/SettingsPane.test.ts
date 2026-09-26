@@ -63,6 +63,7 @@ test('the ⓘ carries the description, the legend is four bare pills, and the wi
   const { container } = render(SettingsPane, { api })
   await vi.waitFor(() => expect(container.querySelector('.settings-card')).toBeTruthy())
   expect(row(container, 'port').querySelector('.info')).toHaveAttribute('data-tip', 'Port to listen on.')
+  expect(row(container, 'port').querySelector('.info')).toHaveAttribute('tabindex', '0')
   const legend = container.querySelector('.legend') as HTMLElement
   expect(Array.from(legend.querySelectorAll('.pill')).map((p) => p.textContent)).toEqual(['default', 'file', 'env', 'args'])
   expect(legend.textContent?.replace(/default|file|env|args|\s/g, '')).toBe('')
