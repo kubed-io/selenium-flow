@@ -30,8 +30,8 @@ and `secrets`.
 - **Naming rule:** a path `section.key` is env `SECTION_KEY` and flag
   `--section-key`. A top-level `key` is `KEY` / `--key`. No exceptions, and a
   test holds every leaf to it.
-- **Precedence:** default < file < env < args. The four source names, exactly:
-  `default`, `file`, `env`, `args`.
+- **Precedence:** default < config < env < args. The four source names, exactly:
+  `default`, `config`, `env`, `args` (Dr K renamed `file` → `config`, 2026-09-26).
 - **Section names:** no `_`, and never `browser`, `mcp` or `selenium`.
 - **Renames, with no aliases:** `MCP_AUTH_TOKEN` → `AUTH_TOKEN`;
   `DEFAULT_BROWSER` → `SESSION_BROWSER`; `WINDOW_WIDTH` → `SESSION_WIDTH`;
@@ -123,7 +123,7 @@ path, and a pill.
 - **Value:** `—` when it is `null`, empty or an empty list. A list is joined
   with `, `. A sensitive value is `●●●●` when `set`, and empty otherwise.
 - **File path:** the config file's path, but only when the source is `file`.
-- **Pill:** one of `default`, `file`, `env`, `args`.
+- **Pill:** one of `default`, `config`, `env`, `args`.
 
 ---
 

@@ -10,8 +10,8 @@ This round lives in
 `docs/superpowers/` and not in the saga.
 
 **Status:** spec written and drawn. The Penpot file *Admin UI* holds the
-drawing, in version *Configuration design, round 6 — mcp section; every source
-shown*. Plan written; implementation on PR #47.
+drawing, in version *Configuration design, round 7 — the config pill; example config
+rows*. Plan written; implementation on PR #47.
 
 ## Goal
 
@@ -170,7 +170,7 @@ Notes on the table:
 ## Precedence and loading
 
 ```
-defaults  <  config file  <  environment  <  command line
+defaults  <  config  <  environment  <  command line
 ```
 
 The order is convict's. Loading happens once, in `main()`:
@@ -203,7 +203,7 @@ The order is convict's. Loading happens once, in `main()`:
    shell, and the file is not.
 5. **Provenance is recorded per leaf.** Each source is called on its own and
    gives a dict, and the flags give the namespace. For each leaf, the highest
-   source that set it is its source: `args`, `env`, `file` or `default`. That
+   source that set it is its source: `args`, `env`, `config` or `default`. That
    is what the Settings tab shows, and `session.store`'s derivation reads it
    too.
 
@@ -345,7 +345,7 @@ other admin route. It has no tool and no resource.
           "name": "ttl",
           "description": "Seconds a session is kept after its last use.",
           "value": 86400,
-          "source": "file",
+          "source": "config",
           "file": "/etc/selenium-flow/config.yaml"
         },
         {
@@ -364,7 +364,7 @@ other admin route. It has no tool and no resource.
 ```
 
 - **What a row is, and nothing more:** the key, a one-line description, the
-  value, where it came from (`default`, `file`, `env` or `args`), and the
+  value, where it came from (`default`, `config`, `env` or `args`), and the
   file's path when it came from the file. The env name, the flag and the
   default are **not** in the payload: this tab shows what is running, and the
   wiki's Configuration page documents the names, defaults and options.
@@ -398,13 +398,20 @@ Secrets · Settings · Grid console.
   - the value: `—` if unset. A sensitive value is `●●●●` when set and blank
     when not, with no label saying it is sensitive;
   - the config file's path, muted mono, only when the value came from it;
-  - a **source pill**: `default`, `file`, `env` or `args`. `default` means the
+  - a **source pill**: `default`, `config`, `env` or `args`. `default` means the
     value is the default, so no default column is needed.
 - **The description is written to tooltip length** ("Seconds a session is
   kept after its last use."), because the same `Field(description=…)` is the
   CLI help and the wiki's table cell.
 - **This tab shows; it does not explain.** Names in env and on the command
   line, defaults and allowed values are on the wiki, behind the header's link.
+
+**The Secrets tab loses its flow backlinks** (Dr K, 2026-09-26). The USED BY
+list on each card and the "Named by a flow, not defined" section shipped in
+#41, but they came from a misread requirement: secrets are global, `write` is
+their only user, and `allowed_urls` is the gate. Both go, along with the flow
+scan behind them (`http/secret_uses.py`) and the `uses`/`undefined` fields of
+`GET /admin/secrets`.
 
 **The Secrets tab changes** only where the config shows up:
 
@@ -484,7 +491,7 @@ different one.
   bare name, as today.
 - **Components:** `nav / settings`, a Settings tab in every `nav`,
   `setting-row` (ⓘ, key, value, file path, source pill),
-  `source-pill / default|file|env|args`, `info` and `tooltip`. A section card is a plain board of row instances,
+  `source-pill / default|config|env|args`, `info` and `tooltip`. A section card is a plain board of row instances,
   not a component, because its row count varies.
 - **Checked mechanically before review**, as §F4.11 requires: no main component
   carries a link, no dead link, every board reachable from the page's start,
@@ -530,7 +537,7 @@ can break in a way no unit test sees, and that is argued in the plan.
 - **The naming rule**: for every leaf in the schema, `env == path.upper().replace(".", "_")`
   and `flag == "--" + path.replace(".", "-").replace("_", "-")`. No section
   name contains `_`, and none is `browser` or `selenium`. `MCP_KB_PORT` is dropped.
-- **Precedence**, per leaf: default < file < env < arg, including a partial
+- **Precedence**, per leaf: default < config < env < args, including a partial
   section (a file `redis.port` survives an env `REDIS_HOST`).
 - **Provenance** matches precedence for every source.
 - **Strictness**: an unknown YAML key, a missing named config file, a
