@@ -91,7 +91,7 @@ class SeleniumMCP:
         # Loaded before anything is told about it: the instructions and the
         # session status both name the skill, and neither may name a resource
         # this server is not serving (Copilot, #36).
-        self.skill = skill.load() if settings.skill.enabled else None
+        self.skill = skill.load() if settings.mcp.skill else None
         self.sessions = SessionManager(
             self.actions,
             store=self.store,
@@ -152,7 +152,7 @@ class SeleniumMCP:
                 "run `npm --prefix ui run build`."
             )
         # An app is a view of the built shell; without the shell there is none.
-        apps_enabled = settings.apps.enabled and apps.available()
+        apps_enabled = settings.mcp.apps and apps.available()
         app_config = apps.config_for(base) if apps_enabled else None
         app_tools = files.register(
             self.mcp,
@@ -202,7 +202,7 @@ class SeleniumMCP:
             prefix=self.prefix,
             secrets_catalogue=self.secrets,
             schemas=schemas,
-            # A failed run points at a skill reference, and with `--skill-enabled false`
+            # A failed run points at a skill reference, and with `--mcp-skill false`
             # there is nothing registered to point at.
             skill_available=self.skill is not None,
         )

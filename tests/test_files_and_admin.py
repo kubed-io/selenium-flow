@@ -408,7 +408,7 @@ async def test_the_file_tools_return_for_a_client_that_renders_apps(built_ui, se
 async def test_apps_can_be_turned_off(built_ui):
     off = SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN},
-        apps={"enabled": False},
+        mcp={"apps": False},
     ))
     uris = {str(r.uri) for r in await off.mcp.list_resources()}
     assert apps.RESOURCE_URI not in uris

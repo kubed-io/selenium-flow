@@ -75,8 +75,8 @@ def _csp(base: str) -> ResourceCSP:
 
 def available() -> bool:
     """Whether the app shell was built. Without it there is nothing to render,
-    so the tools behave as with APPS_ENABLED=false and still return their data
-    (§F4.17)."""
+    so the tools behave as with `mcp.apps` off (`MCP_APPS=false`) and still
+    return their data (§F4.17)."""
     return admin.ui_built("app")
 
 

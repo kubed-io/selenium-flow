@@ -107,7 +107,7 @@ page; these are the ones that change behaviour you will notice.
 | `SESSION_TTL` | `86400` | How long a caller's mapping is kept. Not the browser's lifetime |
 | `FLOW_DATA_DIR` | unset | A directory to keep saved flows in. Unset means no flows |
 | `SECRETS_DIRS` | unset | Colon-separated directories of secrets. Unset means none to bind |
-| `SKILL_ENABLED` | `true` | `false` serves only the bare tools, no guidance |
+| `MCP_SKILL` | `true` | `false` serves only the bare tools, no guidance |
 | `LOG_LEVEL` | `INFO` | `DEBUG` logs which key each call resolved to, and how |
 
 ## Session defaults, and the three places they come from

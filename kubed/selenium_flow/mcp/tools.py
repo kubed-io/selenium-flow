@@ -183,7 +183,7 @@ execute_script for anything the other tools do not cover, scrolling included.
 """
 
 # Appended only when the skill is actually being served. With
-# `--skill-enabled false` (or package data missing) nothing registers those
+# `--mcp-skill false` (or package data missing) nothing registers those
 # resources, and telling a client to read a URI that cannot be read is worse
 # than saying nothing (Copilot, #36).
 SKILL_POINTER = """

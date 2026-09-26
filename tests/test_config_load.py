@@ -89,8 +89,19 @@ def test_secrets_dirs_from_env_and_args():
 
 
 def test_booleans_take_a_value_on_the_command_line():
-    assert load(["--skill-enabled", "false"], {}).settings.skill.enabled is False
-    assert load([], {"APPS_ENABLED": "off"}).settings.apps.enabled is False
+    assert load([], {"MCP_SKILL": "false"}).settings.mcp.skill is False
+    assert load(["--mcp-apps", "false"], {}).settings.mcp.apps is False
+
+
+def test_mcp_kb_env_vars_do_not_collide_with_the_mcp_section():
+    """Kubernetes injects `MCP_KB_PORT` and `MCP_KB_SERVICE_HOST` for the
+    sibling `mcp-kb` service. `mcp` is now a real section, but `kb_port` and
+    `kb_service_host` are not leaves under it, so both are dropped."""
+    loaded = load([], {
+        "MCP_KB_PORT": "tcp://10.0.0.1:8000",
+        "MCP_KB_SERVICE_HOST": "10.0.0.1",
+    })
+    assert loaded.settings == config.Settings()
 
 
 @pytest.mark.parametrize("text,needle", [

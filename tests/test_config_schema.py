@@ -20,7 +20,7 @@ def test_every_leaf_follows_the_naming_rule():
 def test_no_section_name_can_collide_with_an_env_prefix_already_in_use():
     for name in SECTION_NAMES:
         assert "_" not in name, name
-        assert name not in {"browser", "mcp", "selenium"}, name
+        assert name not in {"browser", "selenium"}, name
 
 
 def test_every_leaf_has_a_one_sentence_description():

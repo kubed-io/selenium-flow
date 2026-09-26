@@ -187,12 +187,9 @@ class SecretsSettings(Section):
         return entries
 
 
-class SkillSettings(Section):
-    enabled: bool = Field(True, description="Serve the agent skill as resources.")
-
-
-class AppsSettings(Section):
-    enabled: bool = Field(True, description="Offer MCP Apps views.")
+class McpSettings(Section):
+    skill: bool = Field(True, description="Serve the agent skill as resources.")
+    apps: bool = Field(True, description="Offer MCP Apps views.")
 
 
 class Settings(Section):
@@ -245,12 +242,9 @@ class Settings(Section):
     secrets: SecretsSettings = Field(
         default_factory=SecretsSettings, description="Where secrets are read from."
     )
-    skill: SkillSettings = Field(
-        default_factory=SkillSettings, description="The embedded agent skill."
-    )
-    apps: AppsSettings = Field(
-        default_factory=AppsSettings,
-        description="MCP Apps views, for hosts that draw them.",
+    mcp: McpSettings = Field(
+        default_factory=McpSettings,
+        description="What MCP clients are offered beyond tools.",
     )
 
 

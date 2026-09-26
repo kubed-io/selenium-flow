@@ -204,7 +204,7 @@ def test_the_uri_is_a_resource_uri_and_nothing_else():
 
 
 def test_with_no_skill_served_there_is_nothing_to_read():
-    """`--skill-enabled false` registers no skill resources, and a URI that cannot be
+    """`--mcp-skill false` registers no skill resources, and a URI that cannot be
     loaded is worse than no URI (Copilot, #30)."""
     hint = hint_for({"tool": "assert", "error": "x"}, "login", skill_available=False)
     assert "read" not in hint

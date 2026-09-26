@@ -226,7 +226,7 @@ async def test_switching_the_skill_off_removes_its_resources():
 
     off = SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": "t"},
-                 skill={"enabled": False})
+                 mcp={"skill": False})
     )
     assert off.skill is None
     uris = {str(r.uri) for r in await off.mcp.list_resources()}

@@ -64,7 +64,7 @@ def test_the_instructions_name_the_skill():
 
 
 def test_the_instructions_do_not_name_a_skill_that_is_not_served():
-    """`--skill-enabled false` is a supported mode, and it registers no skill:// resource.
+    """`--mcp-skill false` is a supported mode, and it registers no skill:// resource.
 
     Telling that client to read the manual points it at a URI nothing answers,
     which is the same failure as naming a reference the skill does not ship —

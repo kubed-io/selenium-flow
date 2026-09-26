@@ -143,7 +143,7 @@ Those URIs are FastMCP's convention, served by its own `SkillProvider`, so
 `list_skills` and `download_skill` work here with no special casing.
 
 A client that cannot read resources reads the same URIs with `read_resource`.
-`SKILL_ENABLED=false` turns the skill off.
+`MCP_SKILL=false` turns the skill off.
 
 ---
 
@@ -224,7 +224,7 @@ The components are shared with the admin UI, not copied, so the two cannot drift
 | read resources | `session://files`, and the file as bytes |
 | neither | the tool's JSON, with links anything can open |
 
-Apps get a deny-by-default CSP with no network, so `PUBLIC_BASE_URL` is also what admits this server's images to the frame. `APPS_ENABLED=false` turns it off.
+Apps get a deny-by-default CSP with no network, so `PUBLIC_BASE_URL` is also what admits this server's images to the frame. `MCP_APPS=false` turns it off.
 
 ---
 
