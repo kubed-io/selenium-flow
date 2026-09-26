@@ -66,6 +66,12 @@ jobs:
   test:
     name: Test
     uses: ./.github/workflows/test.yml
+    # A called job gets no more than its caller grants, and test.yml's job asks
+    # for these to post its results check run.
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
 
   ui:
     name: UI
