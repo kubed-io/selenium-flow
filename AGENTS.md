@@ -246,8 +246,12 @@ setting's path **is** its name — `redis.host` is `REDIS_HOST` in the
 environment and `--redis-host` on the command line — so the other two are
 derived mechanically rather than declared by hand. Three constraints follow:
 a section name has no underscore (the first `_` in an env name splits section
-from key), a section name is not a prefix Kubernetes or the shell already uses
-(`browser`, `mcp`, `selenium` are out), and env names match case-insensitively.
+from key), a section name is never itself an env var something else sets
+(`browser` is out — the shell's `BROWSER` — and so is `selenium`, because
+`SELENIUM_FLOW_PORT` and friends sit too close; `mcp` is allowed, since the
+env layer keeps only known leaves, so an unrelated `MCP_KB_PORT` reads as
+`mcp.kb_port` and is dropped rather than mistaken for a setting), and env
+names match case-insensitively.
 
 **`os.environ` is read in exactly two modules**: `config.py`, at load, and
 `secrets.py`, for an `{env: …}` key at bind time. `test_the_environment_is_read_in_two_modules_only`
