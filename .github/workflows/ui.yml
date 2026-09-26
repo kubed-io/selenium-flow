@@ -14,7 +14,7 @@ permissions:
 jobs:
   ui:
     name: UI
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26
     permissions:
       contents: read
     steps:
