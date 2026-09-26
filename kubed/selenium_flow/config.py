@@ -30,7 +30,8 @@ from pydantic import (
 from pydantic.fields import FieldInfo
 from pydantic_settings import EnvSettingsSource, NoDecode
 
-from .core.browser import DEFAULT_GRID_URL, normalize_browser, public_url
+from .core.browser import DEFAULT_GRID_URL, normalize_browser
+from .errors import without_userinfo
 
 # Marks a field that only the config file may set: structure, not a value.
 FILE_ONLY = "file_only"
@@ -565,7 +566,11 @@ def sources_for(settings: Settings) -> dict[str, str]:
 # (`GRID_URL=http://user:pass@hub:4444`). `auth.token`/`redis.url`/
 # `redis.password` are handled separately below, as `sensitive`: this set is
 # for the ones that are shown in full, and so must have their credentials
-# stripped first, the same way `browser.public_url` does for the probes.
+# stripped first.
+#
+# `without_userinfo`, not `browser.public_url`: the latter also rewrites the
+# path (`rstrip("/")`), which turns `grid.console_url`'s default `/` into `""`
+# on the Settings tab even though the live server still serves it at `/`.
 URL_LEAVES = {"grid.url", "grid.console_url", "public_base_url"}
 
 
@@ -575,7 +580,7 @@ def describe(settings: Settings, sources: Mapping[str, str]) -> dict:
     for leaf in leaves():
         value = value_of(settings, leaf.path)
         if leaf.path in URL_LEAVES and value:
-            value = public_url(str(value))
+            value = without_userinfo(str(value))
         # `name` is what the row shows: the card title is already the section.
         row: dict[str, Any] = {
             "key": leaf.path,

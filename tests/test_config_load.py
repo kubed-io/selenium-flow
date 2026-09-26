@@ -227,10 +227,20 @@ def test_describe_is_the_payload_the_tab_renders(tmp_path):
 
 def test_describe_never_shows_a_grid_urls_credentials():
     """`GRID_URL` may carry userinfo, and `/admin/settings` answers to anyone
-    with the token — the same reason `browser.public_url` strips it from the
-    probes (Copilot)."""
+    with the token — the same reason `errors.without_userinfo` strips it from
+    a failure message (Copilot)."""
     loaded = load([], {"GRID_URL": "http://u:hunter2@hub:4444"})
     body = config.describe(loaded.settings, loaded.sources)
     rows = {r["key"]: r for s in body["sections"] for r in s["settings"]}
     assert "hunter2" not in str(body)
     assert rows["grid.url"]["value"] == "http://hub:4444"
+
+
+def test_describe_keeps_the_default_console_urls_path():
+    """`grid.console_url` defaults to `/`, and the live server serves it there
+    — `without_userinfo` (unlike `browser.public_url`) never rewrites a path,
+    so the Settings tab must not show `""` for it (Copilot)."""
+    loaded = load([], {})
+    body = config.describe(loaded.settings, loaded.sources)
+    rows = {r["key"]: r for s in body["sections"] for r in s["settings"]}
+    assert rows["grid.console_url"]["value"] == "/"
