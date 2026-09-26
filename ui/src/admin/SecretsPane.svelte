@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import type { Secret, SecretsPayload, SecretUse } from '../lib/types'
+  import type { Secret, SecretsPayload } from '../lib/types'
   import type { Api } from './api'
   import { Latest } from './latest'
 
@@ -16,7 +16,6 @@
     return () => loads.abort()
   })
 
-  const flowHash = (u: SecretUse) => '#/sessions/' + encodeURIComponent(String(u.session)) + '/flows/' + encodeURIComponent(u.flow)
   const keyLabel = (s: Secret, k: string) => {
     const from = s.key_sources?.[k]
     if (!from || from.from === 'filesystem') return k
@@ -52,19 +51,6 @@
       <div class="fact"><span class="k">allowed</span>{s.restricted ? (s.allowed_urls || []).join(', ') || '—' : 'any site'}</div>
     {/if}
     {#if s.origins?.length}<div class="fact"><span class="k">from</span><span class="small muted">{fromOf(s)}</span></div>{/if}
-    <div class="used">
-      <div class="k">USED BY</div>
-      {#each s.uses || [] as u (`${u.session ?? ''}/${u.flow}`)}
-        <div class="use">
-          <span class="pill name">{u.flow}</span>
-          <span class="small muted">step{u.steps.length === 1 ? ' ' : 's '}{u.steps.join(', ')}</span>
-          <span class="grow"></span>
-          {#if u.shared}<span class="small muted">🌐 shared</span>{:else}<a href={flowHash(u)}>{u.session} →</a>{/if}
-        </div>
-      {:else}
-        <div class="small muted">No flow uses it.</div>
-      {/each}
-    </div>
   </div>
 {/snippet}
 
@@ -80,13 +66,6 @@
       <h2>Secrets</h2>
       <p class="small muted">What flows can type without anyone seeing it. Read-only here: names, keys and where each may be used — never a value.</p>
       {#each data.secrets as s (s.name)}{@render card(s, warnsOf(s), reasonOf(s))}{/each}
-      {#if data.undefined.length}
-        <h3>Named by a flow, not defined</h3>
-        <p class="small muted">These flows will fail at the step that types the secret.</p>
-        {#each data.undefined as u (u.name)}
-          {@render card({ name: u.name, uses: u.uses }, ['not defined'], 'A flow names this secret and the catalogue has no such entry, so the step will fail when it runs.')}
-        {/each}
-      {/if}
     {/if}
   </div>
 </section>

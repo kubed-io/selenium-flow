@@ -13,7 +13,6 @@ import os
 import pytest
 
 from kubed.selenium_flow.flows import library as flows
-from kubed.selenium_flow.http import secret_uses
 
 pytestmark = pytest.mark.bench
 
@@ -37,8 +36,8 @@ def flow(index: int) -> dict:
             "tool": "write",
             "args": {
                 "selector": {"css": "#password"},
-                # One secret in three flows, so the backlinks have something
-                # to find without every flow finding it.
+                # One secret in three flows, so the fixture looks like a real
+                # library rather than one shape repeated 30 times.
                 "secret": {"name": f"app-{index % 3}", "key": "password"},
             },
         },
@@ -110,7 +109,6 @@ def test_the_fixture_is_the_size_it_claims(store):
     sizes = [len(store.read_text(SESSION, name)) for name in names]
     assert min(sizes) > 2000 and max(sizes) < 5000, sizes
     assert len(store.files(SESSION, flows.SCREENSHOTS_DIR)) == SCREENSHOTS
-    assert len(secret_uses.uses(store)) == 3
 
 
 def test_files(benchmark, store):
@@ -139,12 +137,3 @@ def test_summaries(benchmark, store, cache):
         store.summaries, args=(SESSION,), setup=warmed(cache), rounds=30
     )
     assert len(found) == FLOWS
-
-
-@pytest.mark.parametrize("cache", ["cold", "warm"])
-def test_secret_uses(benchmark, store, cache):
-    secret_uses.uses(store)
-    found = benchmark.pedantic(
-        secret_uses.uses, args=(store,), setup=warmed(cache), rounds=30
-    )
-    assert sum(len(by) for by in found.values()) == FLOWS

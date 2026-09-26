@@ -65,7 +65,6 @@ export interface FlowDoc {
   yaml?: string
 }
 
-export interface SecretUse { flow: string; steps: number[]; shared?: boolean; session?: string }
 export interface Secret {
   name: string
   description?: string
@@ -77,12 +76,11 @@ export interface Secret {
   key_sources?: Record<string, { from: 'filesystem' | 'file' | 'env' | 'value'; name?: string; path?: string }>
   keys_unresolved?: { key: string; reason: string }[]
   inline_keys?: string[]
-  uses?: SecretUse[]
 }
 export interface SecretsPayload {
   enabled: boolean
+  count?: number
   secrets: Secret[]
-  undefined: { name: string; uses: SecretUse[] }[]
 }
 
 export type SettingSource = 'default' | 'config' | 'env' | 'args'
