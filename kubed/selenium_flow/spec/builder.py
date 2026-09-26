@@ -424,7 +424,7 @@ async def build_spec(
                 "type": "http",
                 "scheme": "bearer",
                 "description": (
-                    "The token from MCP_AUTH_TOKEN. The bare token is also "
+                    "The token from AUTH_TOKEN. The bare token is also "
                     "accepted as the Authorization value, for clients that "
                     "cannot express a scheme."
                 ),

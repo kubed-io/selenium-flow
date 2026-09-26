@@ -27,12 +27,14 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 from dataclasses import asdict, dataclass, field, replace
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from .. import errors
+
+if TYPE_CHECKING:
+    from ..config import RedisSettings, SessionSettings
 
 log = logging.getLogger(__name__)
 
@@ -318,64 +320,32 @@ class RedisStore:
         return {r.session_id: k for k, r in self.records().items() if r.attached}
 
 
-def redis_configured(env: dict | None = None) -> bool:
-    """Whether any REDIS_* connection setting was supplied."""
-    env = os.environ if env is None else env
-    return bool(env.get("REDIS_URL") or env.get("REDIS_HOST"))
+def from_settings(session: SessionSettings, conn: RedisSettings) -> SessionStore:
+    """Build the session store the config asks for.
 
-
-def chosen_backend(env: dict | None = None) -> str:
-    """Which backend the environment asks for.
-
-    ``SESSION_STORE`` is the explicit switch. Without it the presence of a
-    ``REDIS_*`` connection setting implies redis, so a deployment configured
-    before this variable existed behaves the same.
+    Redis configured and unreachable, or missing its package, is a startup
+    error rather than a silent step down to memory (§F4.12). An unknown
+    backend no longer reaches here: the config refuses it at load.
     """
-    env = os.environ if env is None else env
-    explicit = str(env.get("SESSION_STORE", "")).strip().lower()
-    if explicit:
-        return explicit
-    return "redis" if redis_configured(env) else "memory"
+    if session.store == "memory":
+        log.info("session store: memory, ttl %ss", session.ttl)
+        return MemoryStore(ttl=session.ttl)
+    client = redis_client(conn)  # raises StoreUnavailable rather than returning None
+    log.info(
+        "session store: redis db %s, prefix %s, ttl %ss",
+        conn.db, conn.prefix, session.ttl,
+    )
+    return RedisStore(client, prefix=conn.prefix, ttl=session.ttl)
 
 
-def from_env(env: dict | None = None) -> SessionStore:
-    """Build the session store the environment asks for.
+def redis_client(conn: RedisSettings):
+    """A connected Redis client, or raises ``StoreUnavailable``. See §F4.12.
 
-    Redis configured and unreachable, missing its package, or a
-    ``SESSION_STORE`` naming no known backend, is a startup error rather than
-    a silent step down to memory (§F4.12): a pod that refuses to start is
-    restarted until Redis answers, one that started on the wrong store never
-    is. ``StoreUnavailable`` is left to propagate — memory is returned only
-    when nothing here asked for Redis at all.
-    """
-    env = os.environ if env is None else env
-    ttl = int(env.get("SESSION_TTL", DEFAULT_TTL_SECONDS))
-    backend = chosen_backend(env)
-
-    if backend == "memory":
-        log.info("session store: memory, ttl %ss", ttl)
-        return MemoryStore(ttl=ttl)
-
-    if backend != "redis":
-        raise StoreUnavailable(
-            f"SESSION_STORE={backend!r} is not a known backend (memory, redis)"
-        )
-
-    prefix = env.get("REDIS_PREFIX", DEFAULT_PREFIX)
-    db = int(env.get("REDIS_DB", DEFAULT_DB))
-    client = redis_client(env)  # raises StoreUnavailable rather than returning None
-
-    log.info("session store: redis db %s, prefix %s, ttl %ss", db, prefix, ttl)
-    return RedisStore(client, prefix=prefix, ttl=ttl)
-
-
-def redis_client(env: dict | None = None):
-    """A connected Redis client for ``env``, or raises ``StoreUnavailable``.
-
-    Separate from `from_env` because the session record is no longer the only
-    thing worth sharing between replicas — `pointer.py` keeps the pointer's
-    position the same way. Two copies of this connection cascade is two places
-    to forget `REDIS_DB`, and the second one would be the one nobody tests.
+    Separate from `from_settings` because the session record is no longer the
+    only thing worth sharing between replicas — `pointer.py` keeps the
+    pointer's position the same way. Two copies of this connection cascade is
+    two places to forget the database index, and the second one would be the
+    one nobody tests.
 
     Raises rather than logging and returning None (§F4.12): a caller configured
     for Redis that gets nothing back must not quietly keep going on a mapping
@@ -386,13 +356,9 @@ def redis_client(env: dict | None = None):
     unscrubbed ``str()`` — URL, userinfo included — back into any traceback
     printed for this one.
     """
-    env = os.environ if env is None else env
-    db = int(env.get("REDIS_DB", DEFAULT_DB))
-    url = env.get("REDIS_URL")
+    url = conn.url.get_secret_value() if conn.url else None
     where = (
-        errors.without_userinfo(url)
-        if url
-        else f"{env.get('REDIS_HOST', 'localhost')}:{env.get('REDIS_PORT', 6379)}/{db}"
+        errors.without_userinfo(url) if url else f"{conn.host}:{conn.port}/{conn.db}"
     )
     try:
         import redis  # imported here: an optional dependency must not be a hard import
@@ -401,21 +367,18 @@ def redis_client(env: dict | None = None):
             "Redis is configured but the redis package is missing; "
             "pip install kubed-selenium-flow[redis]"
         ) from None
-
     try:
         if url:
-            # Passed explicitly rather than left to the URL, so REDIS_DB is
-            # honoured even when the URL carries no /<index> path.
-            client = redis.Redis.from_url(url, db=db)
+            # Passed explicitly, so redis.db is honoured with no /<index> in the URL.
+            client = redis.Redis.from_url(url, db=conn.db)
         else:
             client = redis.Redis(
-                host=env.get("REDIS_HOST", "localhost"),
-                port=int(env.get("REDIS_PORT", 6379)),
-                db=db,
-                password=env.get("REDIS_PASSWORD") or None,
-                username=env.get("REDIS_USERNAME") or None,
-                ssl=str(env.get("REDIS_SSL", "")).strip().lower()
-                in ("1", "true", "yes", "on"),
+                host=conn.host,
+                port=conn.port,
+                db=conn.db,
+                password=conn.password.get_secret_value() if conn.password else None,
+                username=conn.username or None,
+                ssl=conn.ssl,
             )
         client.ping()
     except Exception as exc:  # noqa: BLE001 - any failure here is Redis's, not this package's

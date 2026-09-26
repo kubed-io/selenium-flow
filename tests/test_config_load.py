@@ -52,6 +52,24 @@ def test_unknown_env_names_are_ignored(name):
     assert load([], {name: "tcp://10.0.0.1:80"}).settings == config.Settings()
 
 
+def test_browser_is_not_read_from_the_unix_convention_env_var():
+    """`BROWSER` is a Unix convention for the user's preferred browser command,
+    and plenty of environments — code-server among them — set it to a shell
+    script. `session.browser`'s env name is `SESSION_BROWSER`, so this is just
+    an unknown name being ignored, but it is worth pinning by itself: reading
+    `BROWSER` would break the server for reasons that have nothing to do with
+    it."""
+    assert load([], {"BROWSER": "/usr/bin/xdg-open"}).settings.session.browser is None
+
+
+def test_an_unusable_session_browser_stops_the_boot():
+    """Unlike the two default sources `session/settings.py` merges on top of
+    this, the config itself is strict: a typo here is the operator's, not a
+    client's, and refusing the boot says so with the reason (§F4.12)."""
+    with pytest.raises(ConfigError, match=r"session\.browser"):
+        load([], {"SESSION_BROWSER": "nonsense"})
+
+
 @pytest.mark.parametrize("name", [n for n in config.SECTION_ORDER if n != "server"])
 def test_a_bare_section_name_in_env_is_ignored_not_a_crash(name):
     assert load([], {name.upper(): "x"}).settings == config.Settings()

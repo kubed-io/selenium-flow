@@ -8,6 +8,7 @@ import shutil
 import pytest
 from starlette.testclient import TestClient
 
+from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.http import admin
 from kubed.selenium_flow.mcp import apps
 from kubed.selenium_flow.server import SeleniumMCP
@@ -22,7 +23,9 @@ SHELLS = UI / "public"
 
 
 def _server():
-    return SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token=TOKEN)
+    return SeleniumMCP(
+        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
+    )
 
 
 def test_without_a_build_the_page_is_the_placeholder():

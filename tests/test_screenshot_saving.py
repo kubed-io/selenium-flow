@@ -219,15 +219,16 @@ def test_a_print_that_cannot_be_kept_does_not_quote_the_disk(acting):
 
 
 @pytest.fixture
-def keeping_server(tmp_path, monkeypatch):
+def keeping_server(tmp_path):
+    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
-    monkeypatch.setenv("PUBLIC_BASE_URL", "https://selenium.example.com")
-    return SeleniumMCP(
-        grid_url="http://grid.invalid:4444",
-        auth_token="tok",
-        flow_data_dir=str(tmp_path),
-    )
+    return SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"},
+        auth={"token": "tok"},
+        public_base_url="https://selenium.example.com",
+        flow={"data_dir": str(tmp_path)},
+    ))
 
 
 def test_the_server_keeps_it_on_disk_with_a_signed_link(keeping_server, tmp_path):
@@ -269,9 +270,12 @@ def test_two_saves_racing_for_one_name_do_not_overwrite_each_other(
 
 
 def test_a_server_with_no_data_dir_refuses_to_keep_with_the_reason():
+    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
-    server = SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token="tok")
+    server = SeleniumMCP(
+        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": "tok"})
+    )
     with pytest.raises(ValueError, match="FLOW_DATA_DIR"):
         server.actions.keep("shot.png", b"png", "files")
 
@@ -284,20 +288,19 @@ def test_a_server_with_no_data_dir_refuses_to_keep_with_the_reason():
         ("https://sf.example/flow", "https://sf.example/flow/kept/"),
     ],
 )
-def test_a_mounted_server_hands_out_links_it_serves(
-    monkeypatch, tmp_path, public, absolute
-):
+def test_a_mounted_server_hands_out_links_it_serves(tmp_path, public, absolute):
     """The route is at `/flow/kept`, so the link must be too — whether or not a
     public base is set, and once only when that base already names the mount."""
+    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
-    monkeypatch.setenv("PUBLIC_BASE_URL", public)
-    server = SeleniumMCP(
-        grid_url="http://grid.invalid:4444",
-        auth_token="tok",
+    server = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"},
+        auth={"token": "tok"},
+        public_base_url=public,
         route_prefix="/flow",
-        flow_data_dir=str(tmp_path),
-    )
+        flow={"data_dir": str(tmp_path)},
+    ))
     described = server.actions.keep("shot.png", b"png", "files")
     assert described["url"].startswith("/flow/kept/")
     if absolute is None:
@@ -381,7 +384,7 @@ async def test_the_prompt_does_not_promise_a_file_that_may_not_exist(server):
 
 
 async def test_the_prompt_does_not_promise_a_signature_auth_off_cannot_give(server):
-    """With MCP_AUTH_TOKEN unset there is nothing to sign with, and links.py
+    """With AUTH_TOKEN unset there is nothing to sign with, and links.py
     emits the plain path deliberately."""
     for name in ("screenshot", "print"):
         description = (await server.mcp.get_tool(name)).description or ""
@@ -437,10 +440,10 @@ def test_open_session_opens_insecure_only_when_asked_and_remembers_it(server, mo
 
     from fastmcp import Client
 
+    from kubed.selenium_flow.config import SessionSettings
     from kubed.selenium_flow.session import settings
 
-    monkeypatch.setenv("INSECURE", "true")
-    assert "insecure" not in settings.from_env()
+    assert "insecure" not in settings.from_settings(SessionSettings())
     assert "insecure" not in settings.from_client({"insecure": "true"}, {"x-insecure": "true"})
 
     asked = []

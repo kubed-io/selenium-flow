@@ -37,10 +37,13 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 from urllib.parse import urlsplit
 
 from .flows.library import InvalidName, valid_name
+
+if TYPE_CHECKING:
+    from .config import SecretsSettings
 
 log = logging.getLogger(__name__)
 
@@ -415,25 +418,17 @@ class Catalogue:
         return bool(allowed) and origin(url) in allowed
 
 
-def directories(env: dict | None = None) -> list[str]:
-    """The directories ``SECRETS_DIRS`` names, in order."""
-    env = os.environ if env is None else env
-    raw = str(env.get("SECRETS_DIRS", "")).strip()
-    return [part.strip() for part in raw.split(SEPARATOR) if part.strip()]
-
-
-def from_env(env: dict | None = None) -> Catalogue | None:
-    """The catalogue the environment asks for, or None if there are no secrets.
-
-    None is a real answer and the default one, exactly as it is for flows: the
-    tools say so rather than this inventing somewhere to look.
-    """
-    paths = directories(env)
-    if not paths:
-        log.info("secrets: off (set SECRETS_DIRS to enable them)")
+def from_settings(
+    conf: SecretsSettings, config_file: str | None = None
+) -> Catalogue | None:
+    """The catalogue the config asks for, or None when there are no secrets."""
+    if not conf.dirs:
+        log.info("secrets: off (set secrets.dirs to enable them)")
         return None
-    log.info("secrets: %s director%s", len(paths), "y" if len(paths) == 1 else "ies")
-    return Catalogue([FilesystemSource(path) for path in paths])
+    log.info(
+        "secrets: %s director%s", len(conf.dirs), "y" if len(conf.dirs) == 1 else "ies"
+    )
+    return Catalogue([FilesystemSource(path) for path in conf.dirs])
 
 
 # ---------------------------------------------------------------------------
@@ -512,7 +507,7 @@ def register(mcp, catalogue, sessions, token: str | None, prefix: str = "") -> N
 # was written twice and why the two could drift.
 OFF = (
     "secrets are not enabled on this server: it was started with no "
-    "SECRETS_DIRS, so there is nowhere to read them from"
+    "secrets.dirs and no secrets.entries, so there is nowhere to read them from"
 )
 
 BINDABLE = {"write"}

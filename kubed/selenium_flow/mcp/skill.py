@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from pathlib import Path
 
 from fastmcp.server.providers.skills.skill_provider import SkillProvider
@@ -58,17 +57,6 @@ def skill_path() -> Path:
         return packaged
     # parents[3] because this module lives in mcp/: package, kubed, repo root.
     return Path(__file__).parents[3] / SKILLS_DIR / SKILL_NAME
-
-
-def enabled(env: dict | None = None) -> bool:
-    """Whether to serve the skill. On unless explicitly turned off."""
-    env = os.environ if env is None else env
-    return str(env.get("SKILL_ENABLED", "true")).strip().lower() not in (
-        "0",
-        "false",
-        "no",
-        "off",
-    )
 
 
 def load() -> SkillProvider | None:

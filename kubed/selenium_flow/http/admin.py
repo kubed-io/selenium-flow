@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 from functools import wraps
 from html import escape
@@ -277,7 +276,7 @@ def register(
     and the two sat one scope apart with the same name until one shadowed the
     other and a listing died on ``MemoryStore.files``.
     """
-    console = console_url or os.environ.get("GRID_CONSOLE_URL", DEFAULT_CONSOLE_URL)
+    console = console_url or DEFAULT_CONSOLE_URL
 
     def named(call, session: str) -> list[str]:
         """What a session has, by name, or nothing if the store cannot say.

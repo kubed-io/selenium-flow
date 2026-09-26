@@ -32,6 +32,7 @@ import sys
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
+from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.routes import ENDPOINTS
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.spec import build_spec
@@ -116,7 +117,9 @@ ORDER = [tool for _, _, tools in GROUPS for tool in tools]
 
 async def _build() -> dict:
     # A token so the security scheme is described; the address is never dialled.
-    server = SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token="generated")
+    server = SeleniumMCP(
+        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": "generated"})
+    )
     return await build_spec(server.mcp, ENDPOINTS, "", authenticated=True)
 
 

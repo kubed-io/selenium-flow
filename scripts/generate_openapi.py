@@ -20,6 +20,7 @@ import yaml
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
+from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.routes import ENDPOINTS
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.spec import PLACEHOLDER_VERSION, build_spec
@@ -29,7 +30,9 @@ OUT = pathlib.Path(__file__).resolve().parent.parent / "openapi.yaml"
 
 async def main() -> None:
     # A token so the security scheme is described; the address is never dialled.
-    server = SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token="generated")
+    server = SeleniumMCP(
+        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": "generated"})
+    )
     spec = await build_spec(server.mcp, ENDPOINTS, "", authenticated=True)
     # info.version is required by the spec, so it cannot simply be dropped —
     # but stamping the real one would churn this file on every commit, since

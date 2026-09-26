@@ -130,22 +130,6 @@ def test_redis_round_trips_a_position_under_its_own_prefix():
     assert list(client.data) == ["p:abc"]
 
 
-def test_the_pointer_store_follows_the_session_store_backend():
-    """One switch, not two. A deployment that shares session records between
-    replicas and not pointers would have one replica plotting a glide from
-    another's stale origin."""
-    assert pointer.from_env({"SESSION_STORE": "memory"}).kind == "memory"
-
-
-def test_an_unreachable_redis_stops_the_boot_for_the_pointer_store_too():
-    """§F4.12: no separate fallback here — an unreachable Redis is a startup
-    error from the session store's builder, and the pointer store shares it."""
-    from kubed.selenium_flow.session.store import StoreUnavailable
-
-    with pytest.raises(StoreUnavailable):
-        pointer.from_env({"SESSION_STORE": "redis", "REDIS_HOST": "redis.invalid"})
-
-
 # ---- what an action does with it -----------------------------------------
 
 
@@ -653,11 +637,13 @@ def test_the_pointer_store_is_built_from_the_session_store():
 
 def test_a_server_given_a_shared_store_shares_its_pointers_too():
     """Through the constructor, which is where the mismatch actually lived."""
+    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
     from kubed.selenium_flow.session.store import RedisStore
 
     server = SeleniumMCP(
-        grid_url="http://grid.invalid:4444", store=RedisStore(_Redis(), prefix="sf:")
+        Settings(grid={"url": "http://grid.invalid:4444"}),
+        store=RedisStore(_Redis(), prefix="sf:"),
     )
     assert server.actions.pointers.kind == "redis"
 
@@ -667,12 +653,15 @@ def test_an_injected_session_store_can_bring_a_matching_pointer_store():
     while the environment says memory would otherwise share session mappings
     across replicas and keep pointers local — and a cross-replica glide would
     silently degrade to a jump (Copilot, #31)."""
+    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
     from kubed.selenium_flow.session.store import MemoryStore
 
     mine = MemoryPointers()
     server = SeleniumMCP(
-        grid_url="http://grid.invalid:4444", store=MemoryStore(), pointers=mine
+        Settings(grid={"url": "http://grid.invalid:4444"}),
+        store=MemoryStore(),
+        pointers=mine,
     )
     assert server.actions.pointers is mine
 
@@ -726,6 +715,7 @@ def test_a_custom_store_without_a_ttl_still_starts_the_server():
     Reading it directly turned that into a server that would not start
     (Copilot, #32). The contract asks for it; the fallback is for the ones that
     predate it."""
+    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
     from kubed.selenium_flow.session.store import SessionRecord
 
@@ -752,7 +742,9 @@ def test_a_custom_store_without_a_ttl_still_starts_the_server():
         def owners(self):
             return {}
 
-    server = SeleniumMCP(grid_url="http://grid.invalid:4444", store=_Minimal())
+    server = SeleniumMCP(
+        Settings(grid={"url": "http://grid.invalid:4444"}), store=_Minimal()
+    )
     assert server.actions.pointers.kind == "memory"
 
 

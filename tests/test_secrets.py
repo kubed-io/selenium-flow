@@ -10,6 +10,7 @@ plain tree it looks like from outside.
 import pytest
 
 from kubed.selenium_flow import secrets
+from kubed.selenium_flow.config import SecretsSettings, Settings
 from kubed.selenium_flow.secrets import (
     ALLOWED_URLS,
     DESCRIPTION,
@@ -273,17 +274,12 @@ def test_a_symlinked_secret_directory_is_refused(tmp_path):
 
 
 def test_secrets_are_off_unless_directories_are_named():
-    assert secrets.from_env({}) is None
-    assert secrets.from_env({"SECRETS_DIRS": "   "}) is None
-
-
-def test_directories_are_separated_like_path():
-    assert secrets.directories({"SECRETS_DIRS": "/a:/b:/c"}) == ["/a", "/b", "/c"]
-    assert secrets.directories({"SECRETS_DIRS": "/a::/b"}) == ["/a", "/b"]
+    assert secrets.from_settings(SecretsSettings()) is None
+    assert secrets.from_settings(SecretsSettings(dirs="   ")) is None
 
 
 def test_naming_directories_turns_them_on(tmp_path):
-    catalogue = secrets.from_env({"SECRETS_DIRS": str(tmp_path)})
+    catalogue = secrets.from_settings(SecretsSettings(dirs=str(tmp_path)))
     assert catalogue is not None
     assert len(catalogue.sources) == 1
 
@@ -293,23 +289,22 @@ def test_naming_directories_turns_them_on(tmp_path):
 
 @pytest.fixture
 def secret_server(tmp_path, monkeypatch):
+    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
     from .conftest import NAMED, TOKEN
 
-    monkeypatch.delenv("SECRETS_DIRS", raising=False)
-    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
     make_secret(
         tmp_path / "secrets-src", "nextcloud-admin", username="admin",
         password="hunter2",
         **{DESCRIPTION: "Homelab Nextcloud", ALLOWED_URLS: "https://nc.example.com"},
     )
-    server = SeleniumMCP(
-        grid_url="http://grid.invalid:4444",
-        auth_token=TOKEN,
-        secrets_dirs=str(tmp_path / "secrets-src"),
-        flow_data_dir=str(tmp_path / "flows"),
-    )
+    server = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"},
+        auth={"token": TOKEN},
+        secrets={"dirs": str(tmp_path / "secrets-src")},
+        flow={"data_dir": str(tmp_path / "flows")},
+    ))
     monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
     return server
 
@@ -365,15 +360,15 @@ async def test_nothing_readable_on_this_server_returns_a_secret_value(secret_ser
             assert "hunter2" not in str(result.content), uri
 
 
-async def test_with_no_directories_the_catalogue_says_so(monkeypatch):
+async def test_with_no_directories_the_catalogue_says_so():
     from fastmcp.exceptions import ResourceError
 
+    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
-    monkeypatch.delenv("SECRETS_DIRS", raising=False)
-    server = SeleniumMCP(grid_url="http://grid.invalid:4444")
+    server = SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}))
     assert server.secrets is None
-    with pytest.raises(ResourceError, match="SECRETS_DIRS"):
+    with pytest.raises(ResourceError, match=r"secrets\.dirs"):
         await server.mcp.read_resource(secrets.LIST_URI)
 
 
@@ -723,11 +718,11 @@ def bound_http(tmp_path, monkeypatch):
         Actions, "page",
         lambda self, sid: {"url": "https://nc.example.com/login", "title": "Log in"},
     )
-    server = SeleniumMCP(
-        grid_url="http://grid.invalid:4444",
-        auth_token=TOKEN,
-        secrets_dirs=str(tmp_path),
-    )
+    server = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"},
+        auth={"token": TOKEN},
+        secrets={"dirs": str(tmp_path)},
+    ))
     # A named session holding a browser: this surface addresses one by naming
     # itself now, so there is no id to put in the body (§F2.13).
     monkeypatch.setattr(server.sessions, "resolve", lambda name: "b1")
@@ -856,11 +851,11 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
         tmp_path, "nextcloud", password=flowrun.HIDDEN,
         **{ALLOWED_URLS: "https://nc.example.com"},
     )
-    server = SeleniumMCP(
-        grid_url="http://grid.invalid:4444",
-        auth_token=TOKEN,
-        secrets_dirs=str(tmp_path),
-    )
+    server = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"},
+        auth={"token": TOKEN},
+        secrets={"dirs": str(tmp_path)},
+    ))
     monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
     monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
     monkeypatch.setattr(
@@ -910,11 +905,11 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
         tmp_path, "nextcloud", password="hunter2",
         **{ALLOWED_URLS: "https://nc.example.com"},
     )
-    server = SeleniumMCP(
-        grid_url="http://grid.invalid:4444",
-        auth_token=TOKEN,
-        secrets_dirs=str(tmp_path),
-    )
+    server = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"},
+        auth={"token": TOKEN},
+        secrets={"dirs": str(tmp_path)},
+    ))
     monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
     monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
     monkeypatch.setattr(

@@ -27,12 +27,15 @@ def _spec() -> dict:
     """The live spec, built the way the generator builds it."""
     import asyncio
 
+    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.routes import ENDPOINTS
     from kubed.selenium_flow.server import SeleniumMCP
     from kubed.selenium_flow.spec import build_spec
 
     async def go():
-        server = SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token="x")
+        server = SeleniumMCP(
+            Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": "x"})
+        )
         return await build_spec(server.mcp, ENDPOINTS, "", authenticated=True)
 
     return asyncio.run(go())
@@ -181,5 +184,5 @@ def test_the_env_table_documents_the_switches_for_every_feature():
     if not (WIKI / "Deployment.md").is_file():
         pytest.skip("wiki submodule not checked out")
     table = (WIKI / "Deployment.md").read_text()
-    for name in ("FLOW_DATA_DIR", "SECRETS_DIRS", "GRID_URL", "MCP_AUTH_TOKEN"):
+    for name in ("FLOW_DATA_DIR", "SECRETS_DIRS", "GRID_URL", "AUTH_TOKEN"):
         assert f"`{name}`" in table, name

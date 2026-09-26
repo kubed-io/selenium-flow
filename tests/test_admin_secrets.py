@@ -3,6 +3,7 @@
 import pytest
 from starlette.testclient import TestClient
 
+from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.flows import library as flows
 from kubed.selenium_flow.http import secret_uses
 from kubed.selenium_flow.server import SeleniumMCP
@@ -62,8 +63,10 @@ def secrets_dir(tmp_path):
 
 
 def test_the_endpoint_joins_the_catalogue_to_its_uses(tmp_path, secrets_dir):
-    srv = SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token=TOKEN,
-                      flow_data_dir=str(tmp_path / "flows"), secrets_dirs=str(secrets_dir))
+    srv = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN},
+        flow={"data_dir": str(tmp_path / "flows")}, secrets={"dirs": str(secrets_dir)},
+    ))
     _flow(srv.flows, "desktop", "login", [_types("demo", "password"), _types("gone", "token")])
     body = TestClient(srv.mcp.http_app()).get("/admin/secrets", headers=AUTH).json()
     assert body["enabled"] is True
@@ -74,18 +77,25 @@ def test_the_endpoint_joins_the_catalogue_to_its_uses(tmp_path, secrets_dir):
 
 
 def test_no_value_is_ever_sent(tmp_path, secrets_dir):
-    srv = SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token=TOKEN, secrets_dirs=str(secrets_dir))
+    srv = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN},
+        secrets={"dirs": str(secrets_dir)},
+    ))
     text = TestClient(srv.mcp.http_app()).get("/admin/secrets", headers=AUTH).text
     assert '"u"' not in text and '"p"' not in text
 
 
 def test_it_needs_the_token(tmp_path):
-    srv = SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token=TOKEN)
+    srv = SeleniumMCP(
+        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
+    )
     assert TestClient(srv.mcp.http_app()).get("/admin/secrets").status_code == 401
 
 
 def test_with_no_catalogue_it_says_off(tmp_path):
-    srv = SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token=TOKEN)
+    srv = SeleniumMCP(
+        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
+    )
     body = TestClient(srv.mcp.http_app()).get("/admin/secrets", headers=AUTH).json()
     assert body == {"enabled": False, "count": 0, "secrets": [], "undefined": []}
 
@@ -99,8 +109,10 @@ def test_a_broken_store_answers_through_errors_not_a_bare_500(
     other route on this surface gives (§AGENTS.md, errors.py)."""
     from kubed.selenium_flow import secrets as secrets_module
 
-    srv = SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token=TOKEN,
-                      flow_data_dir=str(tmp_path / "flows"), secrets_dirs=str(secrets_dir))
+    srv = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN},
+        flow={"data_dir": str(tmp_path / "flows")}, secrets={"dirs": str(secrets_dir)},
+    ))
 
     def boom(self, session=""):
         raise OSError("secrets store is unmounted")

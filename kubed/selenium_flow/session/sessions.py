@@ -188,6 +188,7 @@ class SessionManager:
         actions: Actions,
         store: SessionStore | None = None,
         skill_available: bool = True,
+        defaults: dict | None = None,
     ):
         self.actions = actions
         self.store = store if store is not None else MemoryStore()
@@ -195,6 +196,9 @@ class SessionManager:
         # for the caller to read, and a skill:// URI nobody can read teaches an
         # agent the manual is broken (Copilot, #36).
         self.skill_available = skill_available
+        # The operator's floor for a new session, from the config's session
+        # section. See `session/settings.py` for where this sits in the cascade.
+        self.defaults = dict(defaults or {})
 
     @property
     def kind(self) -> str:
@@ -386,7 +390,9 @@ class SessionManager:
         # validates as well as merges: an explicit browser is checked strictly,
         # and doing it afterwards meant a typo in `browser=` quit a perfectly
         # good browser and then failed. A rejected argument must cost nothing.
-        resolved = settings_module.resolve(wanted, previous=previous.get("settings"))
+        resolved = settings_module.resolve(
+            wanted, defaults=self.defaults, previous=previous.get("settings")
+        )
         # A session holds one browser. Opening a second without ending the first
         # leaves it on the Grid referenced by nothing, holding a slot until the
         # idle timeout — which switching browser did.
