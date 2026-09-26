@@ -241,6 +241,7 @@ redis:
 secrets:
   entries:
     nextcloud:
+      allowed_urls: [https://nextcloud.example.com]
       keys:
         password: {env: NEXTCLOUD_PASSWORD}
 ```
@@ -254,10 +255,10 @@ Every setting, in all three spellings: the wiki's [Configuration](https://github
 The browser, the window size and the two timeouts resolve in order of increasing specificity:
 
 ```
-server default (env)  <  client default (?width= / X-Window-Width)  <  open_session argument
+server default (config: session.*)  <  client default (?width= / X-Window-Width)  <  open_session argument
 ```
 
-A bad default is ignored and logged; an explicit `browser` fails loudly. The browser is stored with the session, so a reaped one reopens as the same browser.
+A bad *client* default is ignored and logged; a bad `session.*` in the config, env or args stops the boot, and an explicit `browser` argument fails loudly. The browser is stored with the session, so a reaped one reopens as the same browser.
 
 ### 🔐 Auth
 

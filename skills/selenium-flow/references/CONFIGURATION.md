@@ -67,11 +67,13 @@ mount** when `ROUTE_PREFIX` is set, so `/flow/mcp` and `/flow/browser/*` for
 }
 ```
 
-Read the token out of the cluster rather than copying it from anywhere:
+Read the token out of the cluster rather than copying it from anywhere. The
+Secret's key is still `MCP_AUTH_TOKEN` — that name is what codeserver reads —
+and the pod maps it to the `AUTH_TOKEN` env var this server actually reads:
 
 ```bash
 kubectl get secret selenium-flow-auth -n flow \
-  -o jsonpath='{.data.AUTH_TOKEN}' | base64 -d
+  -o jsonpath='{.data.MCP_AUTH_TOKEN}' | base64 -d
 ```
 
 The HTTP endpoints accept the same `Authorization: Bearer <token>`, and also a
@@ -114,7 +116,7 @@ The browser, the window size and the two timeouts resolve in order of
 increasing specificity:
 
 ```
-server default (env)   <   client default (URL param / header)   <   open_session argument
+server default (config: session.*)   <   client default (URL param / header)   <   open_session argument
 ```
 
 | Setting | Env | Parameter | Header |
@@ -134,14 +136,17 @@ Use it for the site that needs it.
 
 **`SESSION_PAGE_LOAD_TIMEOUT` is the one worth setting.** Without it a
 navigation can hang indefinitely, holding one of the Grid's few slots until
-the Grid reaps it. An unusable value is ignored rather than fatal, and
-`open_session` reports the settings it actually resolved to — so a typo shows
-up as a missing setting rather than a mystery.
+the Grid reaps it. An unusable *client* value — the `?page_load_timeout=`
+parameter or the `X-Page-Load-Timeout` header — is ignored rather than fatal,
+and `open_session` reports the settings it actually resolved to, so a typo
+there shows up as a missing setting rather than a mystery. A bad `session.*`
+value in the config file, the environment or the command line is different:
+that one is the operator's, not a client's, and it stops the boot.
 
 **The browser is `chrome` unless something says otherwise**, and it is the one
-setting where an explicit argument is validated strictly: a bad *default* is
-ignored like any other, but `open_session(browser="chrom")` fails rather than
-quietly handing back Chrome. Note the env var is `SESSION_BROWSER` and not
+setting where an explicit argument is validated strictly: a bad *client*
+default is ignored like any other client value, but `open_session(browser="chrom")`
+fails rather than quietly handing back Chrome. Note the env var is `SESSION_BROWSER` and not
 `BROWSER` — that name is a Unix convention for the user's preferred browser
 command and plenty of environments already set it to a shell script, and as a
 *section* name `browser` would swallow it outright.

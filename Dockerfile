@@ -129,10 +129,10 @@ ENV PATH=/opt/venv/bin:$PATH
 # that only the fat image has.
 RUN python -c "from kubed.selenium_flow.server import SeleniumMCP"
 
-ENV TRANSPORT=http \
-    HOST=0.0.0.0 \
-    PORT=8000
-
+# No TRANSPORT/HOST/PORT here: precedence is file < env, so a baked env var
+# would always beat a config.yaml's `transport`, `host` or `port` — silently,
+# since the Settings tab would then show them as `env` rather than `file`. The
+# schema's own defaults are these same three values, so nothing is lost.
 EXPOSE 8000
 # Numeric UID, not the name: with runAsNonRoot set, the kubelet cannot verify a
 # non-numeric USER and refuses to start the container.
