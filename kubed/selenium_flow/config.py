@@ -11,13 +11,24 @@ command line.
 
 from __future__ import annotations
 
+import argparse
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+import yaml
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    ValidationError,
+    field_validator,
+)
 from pydantic.fields import FieldInfo
-from pydantic_settings import NoDecode
+from pydantic_settings import EnvSettingsSource, NoDecode
 
 from .core.browser import DEFAULT_GRID_URL, normalize_browser
 
@@ -290,3 +301,254 @@ def value_of(settings: Settings, path: str) -> Any:
     for part in path.split("."):
         value = getattr(value, part)
     return value
+
+
+SOURCES = ("default", "file", "env", "args")
+
+
+class ConfigError(ValueError):
+    """A configuration this server refuses to start on.
+
+    The message says what and where.
+    """
+
+
+@dataclass(frozen=True)
+class Loaded:
+    settings: Settings
+    sources: dict[str, str]
+
+
+def parser() -> argparse.ArgumentParser:
+    """One flag per setting, generated, so the rule cannot be broken by hand.
+
+    `SUPPRESS` as the default: the namespace then holds only what was typed,
+    which is what makes "args" a true answer about where a value came from.
+    """
+    built = argparse.ArgumentParser(
+        prog="selenium-flow",
+        description="Drive a Selenium Grid browser over MCP and HTTP.",
+        argument_default=argparse.SUPPRESS,
+    )
+    for leaf in leaves():
+        shown = "unset" if leaf.default in (None, "", []) else leaf.default
+        help_text = (
+            f"{leaf.description} (env: {leaf.env} · file: {leaf.path}"
+            f" · default: {shown})"
+        )
+        built.add_argument(
+            leaf.flag,
+            dest=leaf.path,
+            metavar=leaf.path.rsplit(".", 1)[-1].upper(),
+            help=help_text.replace("%", "%%"),
+        )
+    return built
+
+
+class _Environment(EnvSettingsSource):
+    """pydantic-settings' env reader, over a mapping we hand it.
+
+    `_load_env_vars` is its one hook for where variables come from. Overriding
+    it keeps a test's environment a plain dict, and keeps `os.environ` out of
+    every module but this one and secrets.py.
+    """
+
+    def __init__(self, environ: Mapping[str, str]):
+        self._environ = environ
+        super().__init__(
+            Settings,
+            case_sensitive=False,
+            env_nested_delimiter="_",
+            env_nested_max_split=1,
+        )
+
+    def _load_env_vars(self):
+        return {key.lower(): value for key, value in self._environ.items()}
+
+
+def _known(raw: dict) -> dict:
+    """Only the leaves the schema has.
+
+    The environment is shared with Kubernetes and the shell. A Service called
+    `flow-ui` injects `FLOW_UI_PORT`, which reads as `flow.ui_port`, and a strict
+    model would refuse to boot over it. So env is lenient about names and the
+    file is not.
+    """
+    allowed = {leaf.path for leaf in leaves()}
+    kept: dict = {}
+    for key, value in raw.items():
+        if isinstance(value, dict):
+            for sub, inner in value.items():
+                if f"{key}.{sub}" in allowed:
+                    kept.setdefault(key, {})[sub] = inner
+        elif key in allowed:
+            kept[key] = value
+    return kept
+
+
+def _read_file(path: str) -> dict:
+    file = Path(path)
+    if not file.is_file():
+        raise ConfigError(f"config file {path} does not exist")
+    try:
+        data = yaml.safe_load(file.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+        # Never the parser's message: it quotes the offending line, and that
+        # line may be an inline secret value.
+        raise ConfigError(f"config file {path} is not valid YAML{where}") from None
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ConfigError(
+            f"config file {path} cannot be read: {type(exc).__name__}"
+        ) from None
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ConfigError(
+            f"config file {path} must be a mapping of sections, "
+            f"not a {type(data).__name__}"
+        )
+    if "config_file" in data:
+        raise ConfigError(
+            f"config_file cannot be set inside the config file it names ({path})"
+        )
+    return data
+
+
+def _nest(flat: Mapping[str, Any]) -> dict:
+    tree: dict = {}
+    for path, value in flat.items():
+        head, _, tail = path.partition(".")
+        if tail:
+            tree.setdefault(head, {})[tail] = value
+        else:
+            tree[head] = value
+    return tree
+
+
+def _has(tree: dict, path: str) -> bool:
+    head, _, tail = path.partition(".")
+    if not tail:
+        return head in tree
+    section = tree.get(head)
+    return isinstance(section, dict) and tail in section
+
+
+def _merge(*layers: dict) -> dict:
+    """Later layers win, one section deep, which is as deep as the schema goes."""
+    merged: dict = {}
+    for layer in layers:
+        for key, value in layer.items():
+            if isinstance(value, dict) and isinstance(merged.get(key), dict):
+                merged[key] = {**merged[key], **value}
+            else:
+                merged[key] = dict(value) if isinstance(value, dict) else value
+    return merged
+
+
+def _explain(exc: ValidationError, sources: dict[str, str], path: str | None) -> str:
+    """Where each problem is, and what it is. Never the input: it may be secret."""
+    lines = []
+    by_path = {leaf.path: leaf for leaf in leaves()}
+    for error in exc.errors(include_input=False, include_url=False):
+        loc = [str(part) for part in error["loc"]]
+        if loc and loc[0] in SECTION_ORDER:
+            leaf = ".".join(loc[:2])
+        else:
+            leaf = loc[0] if loc else ""
+        source = sources.get(leaf, "file")
+        where = {
+            "file": f"in {path}",
+            "env": f"from env {by_path[leaf].env}" if leaf in by_path else "from env",
+            "args": (
+                f"from {by_path[leaf].flag}"
+                if leaf in by_path
+                else "on the command line"
+            ),
+            "default": "as a default",
+        }[source]
+        lines.append(f"{'.'.join(loc)}: {error['msg']} ({where})")
+    return "; ".join(lines)
+
+
+def load(
+    argv: list[str] | None = None, environ: Mapping[str, str] | None = None
+) -> Loaded:
+    """The settings this process should run with, and where each one came from."""
+    environ = os.environ if environ is None else environ
+    args = _nest(vars(parser().parse_args(argv)))
+    env = _known(_Environment(environ)())
+    named = args.get("config_file") or env.get("config_file")
+    path = str(named).strip() if named else None
+    file = _read_file(path) if path else {}
+
+    layers = {"args": args, "env": env, "file": file}
+    sources = {
+        leaf.path: next(
+            (name for name in ("args", "env", "file") if _has(layers[name], leaf.path)),
+            "default",
+        )
+        for leaf in leaves()
+    }
+    merged = _merge(file, env, args)
+    if sources["session.store"] == "default":
+        # Today's rule, kept: asking for Redis by naming it is asking for the
+        # Redis store. Explicitly `memory` still wins.
+        wanted = sources["redis.url"] != "default" or sources["redis.host"] != "default"
+        merged.setdefault("session", {})["store"] = "redis" if wanted else "memory"
+    try:
+        settings = Settings.model_validate(merged)
+    except ValidationError as exc:
+        raise ConfigError(_explain(exc, sources, path)) from None
+    return Loaded(settings, sources)
+
+
+def sources_for(settings: Settings) -> dict[str, str]:
+    """Where each value came from, for Settings built in code (tests, embedding).
+
+    A value equal to its default reads as `default`, anything else as `args`:
+    code that builds Settings is passing arguments.
+    """
+    return {
+        leaf.path: (
+            "default" if value_of(settings, leaf.path) == leaf.default else "args"
+        )
+        for leaf in leaves()
+    }
+
+
+def describe(settings: Settings, sources: Mapping[str, str]) -> dict:
+    """The Settings tab's payload. Never a sensitive value, and no secret entries."""
+    rows: dict[str, list[dict]] = {name: [] for name in SECTION_ORDER}
+    for leaf in leaves():
+        value = value_of(settings, leaf.path)
+        # `name` is what the row shows: the card title is already the section.
+        row: dict[str, Any] = {
+            "key": leaf.path,
+            "name": leaf.path.rsplit(".", 1)[-1],
+            "description": leaf.description,
+        }
+        if leaf.sensitive:
+            row.update(
+                value=None,
+                source=sources.get(leaf.path, "default"),
+                sensitive=True,
+                set=value is not None,
+            )
+        else:
+            row.update(value=value, source=sources.get(leaf.path, "default"))
+        if row["source"] == "file":
+            row["file"] = settings.config_file
+        rows[leaf.section].append(row)
+    return {
+        "config_file": settings.config_file,
+        "sections": [
+            {
+                "name": name,
+                "description": SECTION_DESCRIPTIONS[name],
+                "settings": rows[name],
+            }
+            for name in SECTION_ORDER
+        ],
+    }

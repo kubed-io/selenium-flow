@@ -49,6 +49,10 @@ dependencies = [
   "starlette>=0.48",
   "anyio>=4.9",
   "pydantic>=2.12",
+  # The environment layer of the config (config.py). It already arrives with
+  # fastmcp; declared because config.py imports it. 2.8 is the first release
+  # with env_nested_max_split, which maps REDIS_HOST to redis.host.
+  "pydantic-settings>=2.8,<3",
   "mcp>=2.0,<3",
   "sse-starlette>=3.3",
 ]
