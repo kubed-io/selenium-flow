@@ -576,6 +576,17 @@ def load(
     # Blank is unset in the file layer too, same as env and args — a quoted
     # `""` (or whitespace) does not mean "use this empty value".
     file = _drop_blank_leaves(_read_file(path)) if path else {}
+    # The file's own contract is strict, checked in isolation: `_merge` below
+    # overwrites a whole section when a later layer sets any key in it, so a
+    # malformed `redis: broken` would otherwise validate fine once, say,
+    # REDIS_HOST supplied a real dict for that same section — silently
+    # ignoring a bad file instead of stopping the boot on it. Every field has
+    # a default, so a partial file always validates on its own.
+    try:
+        Settings.model_validate(file)
+    except ValidationError as exc:
+        file_sources = {leaf.path: "config" for leaf in leaves()}
+        raise ConfigError(_explain(exc, file_sources, path)) from None
 
     layers = {"args": args, "env": env, "config": file}
     # Highest precedence first: SOURCES is default < config < env < args, so its

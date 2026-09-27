@@ -32,6 +32,22 @@ def test_precedence_per_leaf(tmp_path):
     assert src["config_file"] == "args"
 
 
+def test_a_malformed_section_in_the_file_stops_the_boot_even_when_env_sets_its_keys(tmp_path):
+    # `_merge` overwrites a whole section when a later layer sets any key in
+    # it, so a scalar `redis: broken` used to be silently replaced by
+    # REDIS_HOST's dict and validate fine — the bad file was never the
+    # problem it looked like. The file's own contract is strict on its own.
+    path = _file(tmp_path, "redis: broken\n")
+    with pytest.raises(ConfigError, match="redis"):
+        load([], {"CONFIG_FILE": path, "REDIS_HOST": "h"})
+
+
+def test_a_malformed_section_in_the_file_stops_the_boot_even_when_args_set_its_keys(tmp_path):
+    path = _file(tmp_path, "session: 5\n")
+    with pytest.raises(ConfigError, match="session"):
+        load(["--session-ttl", "3"], {"CONFIG_FILE": path})
+
+
 def test_the_config_file_comes_from_env_when_no_flag(tmp_path):
     path = _file(tmp_path, "log_level: DEBUG\n")
     loaded = load([], {"CONFIG_FILE": path})
