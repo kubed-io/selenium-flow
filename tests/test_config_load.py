@@ -130,6 +130,23 @@ def test_a_malformed_secrets_dirs_is_a_config_error_not_a_crash(tmp_path, body):
         load([], {"CONFIG_FILE": path})
 
 
+@pytest.mark.parametrize("body, field", [
+    ("flow:\n  data_dir: 1\n", r"flow\.data_dir"),
+    ("log_level: 5\n", "log_level"),
+    ("session:\n  browser: 5\n", r"session\.browser"),
+])
+def test_a_wrong_typed_before_validated_setting_is_a_config_error_not_a_crash(tmp_path, body, field):
+    """Every `mode="before"` validator in config.py must tolerate non-string
+    input and hand it to pydantic's own type check, the same as `_split`
+    (`dirs`) was fixed to. `data_dir`'s validator is `mode="after"`, so
+    pydantic's own str|None check already rejects a non-string before the
+    validator ever sees it — this locks that in alongside the two that do
+    run `mode="before"` (`browser`, `log_level`)."""
+    path = _file(tmp_path, body)
+    with pytest.raises(ConfigError, match=field):
+        load([], {"CONFIG_FILE": path})
+
+
 def test_booleans_take_a_value_on_the_command_line():
     assert load([], {"MCP_SKILL": "false"}).settings.mcp.skill is False
     assert load(["--mcp-apps", "false"], {}).settings.mcp.apps is False
@@ -214,6 +231,30 @@ def test_an_empty_arg_value_also_counts_as_unset():
     loaded = load(["--auth-token", ""], {})
     assert loaded.settings.auth.token is None
     assert loaded.sources["auth.token"] == "default"
+
+
+def test_a_blank_redis_host_in_the_config_file_counts_as_unset(tmp_path):
+    # Env and args already dropped a blank value before it ever reached
+    # `_has`/`_merge`; the file layer did not, so this used to make
+    # `redis.host`'s source "config" and drive the store to redis anyway.
+    path = _file(tmp_path, 'redis:\n  host: ""\n')
+    loaded = load([], {"CONFIG_FILE": path})
+    assert loaded.settings.session.store == "memory"
+    assert loaded.sources["redis.host"] == "default"
+
+
+def test_a_blank_log_level_in_the_config_file_is_the_default(tmp_path):
+    path = _file(tmp_path, 'log_level: ""\n')
+    loaded = load([], {"CONFIG_FILE": path})
+    assert loaded.settings.log_level == "INFO"
+    assert loaded.sources["log_level"] == "default"
+
+
+def test_a_whitespace_only_redis_url_in_the_config_file_counts_as_unset(tmp_path):
+    path = _file(tmp_path, 'redis:\n  url: "  "\n')
+    loaded = load([], {"CONFIG_FILE": path})
+    assert loaded.settings.session.store == "memory"
+    assert loaded.sources["redis.url"] == "default"
 
 
 def test_the_file_cannot_define_entries_through_env(tmp_path):

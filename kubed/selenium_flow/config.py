@@ -379,6 +379,16 @@ def parser() -> argparse.ArgumentParser:
     return built
 
 
+def _is_blank(value: Any) -> bool:
+    """The value every layer agrees means "not set": `${VAR:-}`'s empty
+    string from env, a bare `--flag ""` on the command line, and, in the
+    config file, any string that is empty once whitespace is stripped — a
+    YAML author can quote a blank the same way. One predicate, so all three
+    layers drop it the same way instead of each rolling its own check.
+    """
+    return isinstance(value, str) and not value.strip()
+
+
 class _Environment(EnvSettingsSource):
     """pydantic-settings' env reader, over a mapping we hand it.
 
@@ -415,7 +425,7 @@ class _Environment(EnvSettingsSource):
         return {
             key.lower(): value
             for key, value in self._environ.items()
-            if key.lower() not in sections and value != ""
+            if key.lower() not in sections and not _is_blank(value)
         }
 
 
@@ -491,6 +501,29 @@ def _has(tree: dict, path: str) -> bool:
     return isinstance(section, dict) and tail in section
 
 
+def _drop_blank_leaves(data: dict) -> dict:
+    """A blank leaf value in the config file reads as unset, like env and args.
+
+    Env and args already drop these before `_has`/`_merge` ever see them; the
+    file layer did not, so `redis: {host: ""}` used to make `redis.host`'s
+    source "config" and drive the store to redis on an empty host. Scoped to
+    known leaves only — `secrets.entries` is FILE_ONLY and excluded from
+    `leaves()` already (its own models validate it), and `secrets.dirs` is a
+    list, never a str, so a blank entry inside it stays the `dirs`
+    validator's job, not this one's.
+    """
+    out = {k: (dict(v) if isinstance(v, dict) else v) for k, v in data.items()}
+    for leaf in leaves():
+        head, _, tail = leaf.path.partition(".")
+        if tail:
+            section = out.get(head)
+            if isinstance(section, dict) and _is_blank(section.get(tail)):
+                del section[tail]
+        elif _is_blank(out.get(head)):
+            del out[head]
+    return out
+
+
 def _merge(*layers: dict) -> dict:
     """Later layers win, one section deep, which is as deep as the schema goes."""
     merged: dict = {}
@@ -536,11 +569,13 @@ def load(
     raw_args = vars(parser().parse_args(argv))
     # An empty string on the command line (`--auth-token ""`) is "not set", the
     # same as an empty env var — never a value of its own, sensitive or not.
-    args = _nest({k: v for k, v in raw_args.items() if v != ""})
+    args = _nest({k: v for k, v in raw_args.items() if not _is_blank(v)})
     env = _known(_Environment(environ)())
     named = args.get("config_file") or env.get("config_file")
     path = str(named).strip() if named else None
-    file = _read_file(path) if path else {}
+    # Blank is unset in the file layer too, same as env and args — a quoted
+    # `""` (or whitespace) does not mean "use this empty value".
+    file = _drop_blank_leaves(_read_file(path)) if path else {}
 
     layers = {"args": args, "env": env, "config": file}
     # Highest precedence first: SOURCES is default < config < env < args, so its
