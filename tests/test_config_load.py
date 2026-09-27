@@ -119,6 +119,17 @@ def test_a_blank_secrets_dir_in_the_config_file_is_dropped(tmp_path):
     assert load([], {"CONFIG_FILE": path}).settings.secrets.dirs == []
 
 
+@pytest.mark.parametrize("body", [
+    "secrets:\n  dirs:\n",
+    "secrets:\n  dirs: 5\n",
+    "secrets:\n  dirs: [5]\n",
+])
+def test_a_malformed_secrets_dirs_is_a_config_error_not_a_crash(tmp_path, body):
+    path = _file(tmp_path, body)
+    with pytest.raises(ConfigError, match=r"secrets\.dirs"):
+        load([], {"CONFIG_FILE": path})
+
+
 def test_booleans_take_a_value_on_the_command_line():
     assert load([], {"MCP_SKILL": "false"}).settings.mcp.skill is False
     assert load(["--mcp-apps", "false"], {}).settings.mcp.apps is False

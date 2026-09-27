@@ -176,11 +176,25 @@ class SecretsSettings(Section):
     def _split(cls, value):
         if isinstance(value, str):
             value = value.split(os.pathsep)
-        # A blank/whitespace entry is dropped, never an error: `dirs: [""]`
-        # means no dirs, same as an unset SECRETS_DIRS — one code path keeps
-        # the YAML list form consistent with the env/CLI string form instead
-        # of letting it bypass this and hand FilesystemSource("") the cwd.
-        return [part.strip() for part in value if part.strip()]
+        if not isinstance(value, list):
+            # Not a string and not a list: leave it for pydantic's own
+            # list[str] check to reject (as a clean ConfigError), rather than
+            # crashing here on something we can't iterate.
+            return value
+        # A blank/whitespace *string* entry is dropped, never an error:
+        # `dirs: [""]` means no dirs, same as an unset SECRETS_DIRS — one code
+        # path keeps the YAML list form consistent with the env/CLI string
+        # form instead of letting it bypass this and hand FilesystemSource("")
+        # the cwd. A non-string element is passed through untouched so
+        # pydantic's list[str] validation is what reports it, not us.
+        result = []
+        for part in value:
+            if isinstance(part, str):
+                part = part.strip()
+                if not part:
+                    continue
+            result.append(part)
+        return result
 
     @field_validator("entries")
     @classmethod
