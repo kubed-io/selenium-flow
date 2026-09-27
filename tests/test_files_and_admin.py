@@ -13,6 +13,7 @@ import pytest
 import requests
 from starlette.testclient import TestClient
 
+from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core import browser
 from kubed.selenium_flow.http import files, links
 from kubed.selenium_flow.mcp import apps
@@ -405,9 +406,10 @@ async def test_the_file_tools_return_for_a_client_that_renders_apps(built_ui, se
 
 
 async def test_apps_can_be_turned_off(built_ui):
-    off = SeleniumMCP(
-        grid_url="http://grid.invalid:4444", auth_token=TOKEN, apps_enabled=False
-    )
+    off = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN},
+        mcp={"apps": False},
+    ))
     uris = {str(r.uri) for r in await off.mcp.list_resources()}
     assert apps.RESOURCE_URI not in uris
     # The listing survives as a resource: it never depended on apps.

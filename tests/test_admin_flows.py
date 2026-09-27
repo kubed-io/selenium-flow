@@ -16,6 +16,7 @@ from urllib.parse import quote
 import pytest
 from starlette.testclient import TestClient
 
+from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.flows import library as flows
 from kubed.selenium_flow.flows.library import GLOBAL_SESSION
 from kubed.selenium_flow.server import SeleniumMCP
@@ -46,9 +47,11 @@ steps:
 def server(tmp_path, monkeypatch):
     monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
     built = SeleniumMCP(
-        grid_url="http://grid.invalid:4444",
-        auth_token=TOKEN,
-        flow_data_dir=str(tmp_path),
+        Settings(
+            grid={"url": "http://grid.invalid:4444"},
+            auth={"token": TOKEN},
+            flow={"data_dir": str(tmp_path)},
+        )
     )
     built.sessions.store.set(KEY, SessionRecord(session_id=""))
     return built
@@ -94,7 +97,9 @@ def test_with_flows_off_the_panel_is_empty_rather_than_broken(tmp_path, monkeypa
     """A disabled capability should render as "nothing here", not as an error
     that blanks the section and says a 400."""
     monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
-    off = SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token=TOKEN)
+    off = SeleniumMCP(
+        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
+    )
     off.sessions.store.set(KEY, SessionRecord(session_id=""))
     body = TestClient(off.mcp.http_app()).get(url(), headers=AUTH)
     assert body.status_code == 200

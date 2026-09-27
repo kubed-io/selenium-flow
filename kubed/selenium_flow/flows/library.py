@@ -38,10 +38,13 @@ import os
 import re
 import threading
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import yaml
 from cachetools import LRUCache, cached
+
+if TYPE_CHECKING:
+    from ..config import FlowSettings
 
 log = logging.getLogger(__name__)
 
@@ -751,16 +754,10 @@ class LocalFlowStore:
         return removed
 
 
-def from_env(env: dict | None = None) -> FlowStore | None:
-    """The flow store the environment asks for, or None if flows are off.
-
-    None is a real answer and the default one. The tools that need a store say
-    so when there is not one, rather than this inventing somewhere to write.
-    """
-    env = os.environ if env is None else env
-    root = str(env.get("FLOW_DATA_DIR", "")).strip()
-    if not root:
-        log.info("flows: off (set FLOW_DATA_DIR to enable them)")
+def from_settings(flow: FlowSettings) -> FlowStore | None:
+    """The flow store the config asks for, or None when flows are off (the default)."""
+    if not flow.data_dir:
+        log.info("flows: off (set flow.data_dir to enable them)")
         return None
-    log.info("flows: local, under %s", root)
-    return LocalFlowStore(root)
+    log.info("flows: local, under %s", flow.data_dir)
+    return LocalFlowStore(flow.data_dir)

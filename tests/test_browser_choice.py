@@ -9,6 +9,7 @@ reopening on the default instead of the one that was asked for.
 import pytest
 from selenium import webdriver
 
+from kubed.selenium_flow.config import SessionSettings
 from kubed.selenium_flow.core.browser import (
     BROWSERS,
     Grid,
@@ -140,21 +141,14 @@ class TestTheSettingsCascade:
     cascade rather than in it would be dropped on every refresh.
     """
 
-    def test_the_env_default_is_read(self):
-        assert settings_module.from_env({"DEFAULT_BROWSER": "firefox"}) == {
+    def test_the_config_default_is_read(self):
+        assert settings_module.from_settings(SessionSettings(browser="firefox")) == {
             "browser": "firefox"
         }
 
-    def test_the_env_var_is_not_called_browser(self):
-        """`BROWSER` is a Unix convention for the user's preferred browser
-        command, and plenty of environments — code-server among them — set it to
-        a shell script. Reading it would break the server for reasons that have
-        nothing to do with it."""
-        assert settings_module.from_env({"BROWSER": "/usr/bin/xdg-open"}) == {}
-
-    def test_an_unusable_default_is_ignored_rather_than_fatal(self):
-        """A typo in a deployment's environment must not stop every session."""
-        assert settings_module.from_env({"DEFAULT_BROWSER": "nonsense"}) == {}
+    # `BROWSER` not being read, and an unusable `SESSION_BROWSER` refusing the
+    # boot rather than being ignored, are `config.load`'s concerns now — see
+    # test_config_load.py.
 
     def test_a_client_default_comes_from_the_url_or_a_header(self):
         assert settings_module.from_client({"browser": "firefox"}, {}) == {
@@ -170,9 +164,21 @@ class TestTheSettingsCascade:
         )
         assert resolved == {"browser": "firefox"}
 
+    def test_an_unusable_client_default_is_ignored_rather_than_fatal(self):
+        """Lenient, like every other client default (`_as_client_browser`): a
+        typo in a client's URL or header must not stop a browser opening. Both
+        the header and the query parameter are unusable here, so nothing in
+        the result names a browser at all."""
+        assert (
+            settings_module.from_client(
+                {"browser": "safari"}, {"x-browser": "nonsense"}
+            )
+            == {}
+        )
+
     def test_an_explicit_argument_beats_both(self):
         resolved = settings_module.resolve(
-            {"browser": "chrome"}, env={"DEFAULT_BROWSER": "firefox"}
+            {"browser": "chrome"}, defaults={"browser": "firefox"}
         )
         assert resolved["browser"] == "chrome"
 
@@ -181,12 +187,12 @@ class TestTheSettingsCascade:
         bad one costs nothing, while an explicit argument is this caller naming
         a browser for this session."""
         with pytest.raises(ValueError):
-            settings_module.resolve({"browser": "safari"}, env={})
+            settings_module.resolve({"browser": "safari"}, defaults={})
 
     def test_nothing_anywhere_leaves_the_browser_unset(self):
         """Unset, not "chrome" — the cascade only reports what was actually set,
         and `open_session` is where the default is applied."""
-        assert "browser" not in settings_module.resolve({}, env={})
+        assert "browser" not in settings_module.resolve({}, defaults={})
 
 
 class TestASessionInheritsItsOwnLastValues:
@@ -198,32 +204,32 @@ class TestASessionInheritsItsOwnLastValues:
 
     def test_the_previous_browser_beats_the_server_default(self):
         resolved = settings_module.resolve(
-            {}, env={"DEFAULT_BROWSER": "chrome"}, previous={"browser": "firefox"}
+            {}, defaults={"browser": "chrome"}, previous={"browser": "firefox"}
         )
         assert resolved["browser"] == "firefox"
 
     def test_an_explicit_argument_still_beats_the_previous_one(self):
         resolved = settings_module.resolve(
-            {"browser": "chrome"}, env={}, previous={"browser": "firefox"}
+            {"browser": "chrome"}, defaults={}, previous={"browser": "firefox"}
         )
         assert resolved["browser"] == "chrome"
 
     def test_the_window_size_is_inherited_too(self):
         resolved = settings_module.resolve(
-            {}, env={}, previous={"width": 1400, "height": 900}
+            {}, defaults={}, previous={"width": 1400, "height": 900}
         )
         assert resolved["width"] == 1400
         assert resolved["height"] == 900
 
     def test_nothing_previous_changes_nothing(self):
-        assert settings_module.resolve({}, env={}, previous=None) == {}
-        assert settings_module.resolve({}, env={}, previous={}) == {}
+        assert settings_module.resolve({}, defaults={}, previous=None) == {}
+        assert settings_module.resolve({}, defaults={}, previous={}) == {}
 
     def test_junk_in_a_stored_record_cannot_smuggle_in_a_setting(self):
         """The record is written by this server, but it round-trips through the
         store as JSON — so an unknown key is dropped rather than passed to
         open_session, where it would be a TypeError."""
-        resolved = settings_module.resolve({}, env={}, previous={"nonsense": 1})
+        resolved = settings_module.resolve({}, defaults={}, previous={"nonsense": 1})
         assert resolved == {}
 
 

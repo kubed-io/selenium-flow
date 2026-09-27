@@ -13,26 +13,21 @@ import logging
 from fastmcp import FastMCP
 from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 
-from . import (
-    routes,
-    secrets,
-)
+from . import config, routes, secrets
+from .config import Settings
 from .core import pointer
 from .core.actions import Actions
-from .core.browser import DEFAULT_GRID_URL, Grid
+from .core.browser import Grid
 from .flows import api as flowapi
 from .flows import library as flows
 from .http import admin, files
 from .mcp import apps, completions, failures, mirror, prompts, resources, skill, tools
+from .session import settings as session_settings
+from .session import store as store_module
 from .session.sessions import SessionManager
-from .session.store import SessionStore, from_env
+from .session.store import SessionStore
 
 log = logging.getLogger(__name__)
-
-# Root. `ROUTE_PREFIX` moves the WHOLE server, so the default is "no prefix"
-# rather than a name for one tree (§F1.11). `/` means the same thing and is what
-# an operator types when they mean it.
-DEFAULT_ROUTE_PREFIX = "/"
 
 
 class SeleniumMCP:
@@ -51,22 +46,28 @@ class SeleniumMCP:
 
     def __init__(
         self,
-        grid_url: str = DEFAULT_GRID_URL,
-        auth_token: str | None = None,
-        route_prefix: str = DEFAULT_ROUTE_PREFIX,
+        settings: Settings | None = None,
+        *,
+        sources: dict[str, str] | None = None,
         store: SessionStore | None = None,
         pointers=None,
-        skill_enabled: bool = True,
-        apps_enabled: bool = True,
-        flow_data_dir: str | None = None,
-        secrets_dirs: str | None = None,
     ):
-        self.grid = Grid(grid_url)
-        # Redis or memory per SESSION_STORE. The store is only ever a
+        settings = settings if settings is not None else Settings()
+        self.settings = settings
+        # Where each value came from, for the Settings tab. Built from the
+        # settings themselves when a caller constructed them in code.
+        self.sources = (
+            dict(sources) if sources is not None else config.sources_for(settings)
+        )
+        self.grid = Grid(settings.grid.url)
+        # Redis or memory per session.store. The store is only ever a
         # key -> session record map; the browser is on the Grid either way.
         # Resolved before the actions, because the pointer store is derived
         # from it.
-        self.store = store if store is not None else from_env()
+        self.store = (
+            store if store is not None
+            else store_module.from_settings(settings.session, settings.redis)
+        )
         # Where the pointer is in each browser, on the same backend as the
         # session record (§F2.3) - built FROM that store rather than from a
         # second reading of the environment, which is the only way the two are
@@ -79,37 +80,32 @@ class SeleniumMCP:
             self.grid,
             pointers=pointers if pointers is not None else pointer.matching(self.store),
         )
+        auth_token = (
+            settings.auth.token.get_secret_value() if settings.auth.token else None
+        )
         self.auth_token = auth_token
         # Where this whole server hangs: "" for root. Every tree below is fixed
         # relative to it, which is the inversion §F1.11 asked for.
-        self.prefix = routes.mount(route_prefix)
+        self.prefix = routes.mount(settings.route_prefix)
         self.mcp_path = f"{self.prefix}/mcp"
         # Loaded before anything is told about it: the instructions and the
         # session status both name the skill, and neither may name a resource
         # this server is not serving (Copilot, #36).
-        self.skill = skill.load() if skill_enabled else None
+        self.skill = skill.load() if settings.mcp.skill else None
         self.sessions = SessionManager(
-            self.actions, store=self.store, skill_available=self.skill is not None
+            self.actions,
+            store=self.store,
+            skill_available=self.skill is not None,
+            defaults=session_settings.from_settings(settings.session),
         )
 
         # Saved flows, or None when no data directory was named — which is the
         # default, and is the feature being off rather than a degraded mode.
-        # An explicit directory beats the environment, the way every flag here
-        # does; see flows.py for why there is no fallback location.
-        # Stripped before it is judged, so an explicit directory and one out of
-        # the environment agree about what "unset" means. Without this a
-        # FLOW_DATA_DIR of "   " reached here through the CLI flag's default and
-        # became a directory named three spaces, while from_env called the same
-        # value off.
-        directory = (flow_data_dir or "").strip()
-        self.flows = flows.LocalFlowStore(directory) if directory else flows.from_env()
+        self.flows = flows.from_settings(settings.flow)
 
         # The secrets an agent may bind, or None when none were configured.
         # Read-only and value-free: this holds a catalogue, never a credential.
-        named = (secrets_dirs or "").strip()
-        self.secrets = (
-            secrets.from_env({"SECRETS_DIRS": named}) if named else secrets.from_env()
-        )
+        self.secrets = secrets.from_settings(settings.secrets, settings.config_file)
 
         # A token turns on auth for both surfaces. Absent, the server is open —
         # correct for a local `docker compose up`, and the reason the deployment
@@ -147,7 +143,7 @@ class SeleniumMCP:
         # said — never the bare mount, which made a relative path look absolute
         # (Copilot, #35). Links carry the mount themselves, signed over the
         # unprefixed path; a base that names it too is forgiven, not doubled.
-        base = apps.public_base()
+        base = (settings.public_base_url or "").strip().rstrip("/")
         if self.prefix and base.endswith(self.prefix):
             base = base[: -len(self.prefix)]
         if not admin.ui_built("admin"):
@@ -156,7 +152,7 @@ class SeleniumMCP:
                 "run `npm --prefix ui run build`."
             )
         # An app is a view of the built shell; without the shell there is none.
-        apps_enabled = apps_enabled and apps.available()
+        apps_enabled = settings.mcp.apps and apps.available()
         app_config = apps.config_for(base) if apps_enabled else None
         app_tools = files.register(
             self.mcp,
@@ -184,7 +180,9 @@ class SeleniumMCP:
             self.actions, self.sessions, self.flows, uri, session
         )
         self.apps = (
-            apps.register(self.mcp, self.actions, auth_token) if apps_enabled else set()
+            apps.register(self.mcp, self.actions, auth_token, base)
+            if apps_enabled
+            else set()
         )
         app_tools |= self.apps
         # Saved flows. Registered whether or not there is a store, so a client
@@ -204,7 +202,7 @@ class SeleniumMCP:
             prefix=self.prefix,
             secrets_catalogue=self.secrets,
             schemas=schemas,
-            # A failed run points at a skill reference, and with --no-skill
+            # A failed run points at a skill reference, and with `--mcp-skill false`
             # there is nothing registered to point at.
             skill_available=self.skill is not None,
         )
@@ -232,11 +230,13 @@ class SeleniumMCP:
             self.mcp,
             self.actions,
             auth_token,
+            console_url=settings.grid.console_url,
             prefix=self.prefix,
             sessions=self.sessions,
             flow_store=self.flows,
             schemas=schemas,
             catalogue=self.secrets,
+            settings_payload=lambda: config.describe(self.settings, self.sources),
         )
 
     def run(

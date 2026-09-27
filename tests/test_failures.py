@@ -16,6 +16,7 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
+from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.server import SeleniumMCP
 
 pytestmark = pytest.mark.unit
@@ -24,7 +25,9 @@ pytestmark = pytest.mark.unit
 @pytest.fixture
 def server(tmp_path):
     server = SeleniumMCP(
-        grid_url="http://grid.invalid:4444", auth_token=None, flow_data_dir=str(tmp_path)
+        Settings(
+            grid={"url": "http://grid.invalid:4444"}, flow={"data_dir": str(tmp_path)}
+        )
     )
     server.sessions.name = lambda: "refusals"
     server.sessions.library = lambda: "refusals"

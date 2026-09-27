@@ -115,7 +115,7 @@ def server(tmp_path_factory):
     env = {
         **os.environ,
         "GRID_URL": GRID_URL,
-        "MCP_AUTH_TOKEN": TOKEN,
+        "AUTH_TOKEN": TOKEN,
         "FLOW_DATA_DIR": str(root / "data"),
         "SECRETS_DIRS": str(root / "secrets"),
         "HOST": "0.0.0.0",

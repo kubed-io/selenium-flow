@@ -31,7 +31,6 @@ host.
 from __future__ import annotations
 
 import logging
-import os
 from urllib.parse import urlsplit
 
 from fastmcp.apps import UI_EXTENSION_ID, AppConfig, ResourceCSP
@@ -42,23 +41,6 @@ from ..http import admin
 log = logging.getLogger(__name__)
 
 RESOURCE_URI = "ui://selenium-flow/component"
-
-
-def enabled(env: dict | None = None) -> bool:
-    """Whether to offer apps at all. On unless explicitly turned off."""
-    env = os.environ if env is None else env
-    return str(env.get("APPS_ENABLED", "true")).strip().lower() not in (
-        "0",
-        "false",
-        "no",
-        "off",
-    )
-
-
-def public_base(env: dict | None = None) -> str:
-    """The externally reachable root of this server, or "" if it has none."""
-    env = os.environ if env is None else env
-    return str(env.get("PUBLIC_BASE_URL", "")).strip().rstrip("/")
 
 
 def origin(url: str) -> str:
@@ -93,19 +75,18 @@ def _csp(base: str) -> ResourceCSP:
 
 def available() -> bool:
     """Whether the app shell was built. Without it there is nothing to render,
-    so the tools behave as with APPS_ENABLED=false and still return their data
-    (§F4.17)."""
+    so the tools behave as with `mcp.apps` off (`MCP_APPS=false`) and still
+    return their data (§F4.17)."""
     return admin.ui_built("app")
 
 
-def register(mcp, actions, token: str | None) -> set[str]:
+def register(mcp, actions, token: str | None, base: str) -> set[str]:
     """Serve the app shell. Returns the names of any tools it added.
 
     Empty today: the only tool that lived here listed every browser on the Grid,
     which is precisely what an MCP client must not be able to see. The shell
     stays, because the files component is rendered through it.
     """
-    base = public_base()
     csp = _csp(base)
 
     @mcp.resource(

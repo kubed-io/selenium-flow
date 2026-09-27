@@ -104,8 +104,8 @@ def hint_for(step: dict, flow: str, skill_available: bool = True) -> dict:
     # names a file that does not exist. The section travels beside it.
     #
     # And it is only there when the skill is actually being served: with
-    # `--no-skill` nothing registers those resources, and a URI that cannot be
-    # read is worse than no URI at all.
+    # `--mcp-skill false` nothing registers those resources, and a URI
+    # that cannot be read is worse than no URI at all.
     if skill_available:
         hint["read"] = guidance.pointer(page)
         if section:

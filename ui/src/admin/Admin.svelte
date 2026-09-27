@@ -8,6 +8,7 @@
   import SecretsPane from './SecretsPane.svelte'
   import SessionDetail from './SessionDetail.svelte'
   import SessionsView from './SessionsView.svelte'
+  import SettingsPane from './SettingsPane.svelte'
 
   let { mount, console: consoleUrl }: { mount: string; console: string } = $props()
 
@@ -61,7 +62,7 @@
   })
 
   const route = $derived(router.route)
-  const top = $derived(route.view === 'secrets' ? 'secrets' : route.view === 'console' && !consoleSelf ? 'console' : 'sessions')
+  const top = $derived(route.view === 'secrets' ? 'secrets' : route.view === 'settings' ? 'settings' : route.view === 'console' && !consoleSelf ? 'console' : 'sessions')
 
   // The list reloads whenever it (or the console, which sits on the same live
   // stream) comes on screen; a deep link into a session starts the stream too.
@@ -88,6 +89,7 @@
     <div class="tabs" role="tablist">
       <button id="tabSessions" role="tab" aria-selected={top === 'sessions'} onclick={() => go(hashes.list)}>Sessions</button>
       <button id="tabSecrets" role="tab" aria-selected={top === 'secrets'} onclick={() => go(hashes.secrets)}>Secrets</button>
+      <button id="tabSettings" role="tab" aria-selected={top === 'settings'} onclick={() => go(hashes.settings)}>Settings</button>
       <button id="tabConsole" role="tab" aria-selected={top === 'console'} hidden={consoleSelf} onclick={() => go(hashes.console)}>Grid console</button>
     </div>
     {#if top === 'sessions'}
@@ -104,6 +106,8 @@
       </section>
     {:else if top === 'secrets'}
       <SecretsPane {api} />
+    {:else if top === 'settings'}
+      <SettingsPane {api} />
     {/if}
     {#if !consoleSelf}
       <!-- Mounted once, alongside the other panes, not only on the console

@@ -6,6 +6,7 @@ import pytest
 from fastmcp import Client
 from starlette.testclient import TestClient
 
+from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.flows import library as flows
 from kubed.selenium_flow.server import SeleniumMCP
 
@@ -18,7 +19,11 @@ AUTH = {"Authorization": f"Bearer {TOKEN}", "X-Session-Key": S}
 
 @pytest.fixture
 def srv(tmp_path):
-    return SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token=TOKEN, flow_data_dir=str(tmp_path))
+    return SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"},
+        auth={"token": TOKEN},
+        flow={"data_dir": str(tmp_path)},
+    ))
 
 
 @pytest.fixture

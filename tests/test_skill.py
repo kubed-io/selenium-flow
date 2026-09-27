@@ -214,26 +214,20 @@ def test_the_served_text_keeps_its_frontmatter(server):
     assert skill_module.read(server.skill, ENTRY).startswith("---")
 
 
-@pytest.mark.parametrize(
-    "env,expected",
-    [
-        ({}, True),
-        ({"SKILL_ENABLED": "true"}, True),
-        ({"SKILL_ENABLED": "false"}, False),
-        ({"SKILL_ENABLED": "0"}, False),
-        ({"SKILL_ENABLED": "off"}, False),
-    ],
-)
-def test_the_skill_is_on_unless_switched_off(env, expected):
-    assert skill_module.enabled(env) is expected
-
-
 # ---- how it is served ------------------------------------------------------
+#
+# Whether the skill is on unless switched off is `McpSettings.skill`
+# (`settings.mcp.skill`) now
+# (see test_config_load.py's boolean-flag tests) — `mcp/skill.py` no longer
+# reads the environment itself.
 
 
 async def test_switching_the_skill_off_removes_its_resources():
+    from kubed.selenium_flow.config import Settings
+
     off = SeleniumMCP(
-        grid_url="http://grid.invalid:4444", auth_token="t", skill_enabled=False
+        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": "t"},
+                 mcp={"skill": False})
     )
     assert off.skill is None
     uris = {str(r.uri) for r in await off.mcp.list_resources()}

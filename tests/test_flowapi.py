@@ -13,6 +13,7 @@ contract has to protect:
 import pytest
 from starlette.testclient import TestClient
 
+from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.flows.library import GLOBAL_SESSION, STDIO_SESSION
 from kubed.selenium_flow.server import SeleniumMCP
@@ -27,11 +28,11 @@ GOOD = [{"tool": "navigate", "args": {"url": "https://example.test/"}}]
 @pytest.fixture
 def flow_server(tmp_path, monkeypatch):
     monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
-    server = SeleniumMCP(
-        grid_url="http://grid.invalid:4444",
-        auth_token=TOKEN,
-        flow_data_dir=str(tmp_path),
-    )
+    server = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"},
+        auth={"token": TOKEN},
+        flow={"data_dir": str(tmp_path)},
+    ))
     acting_as(monkeypatch, server, NAMED)
     return server
 
@@ -260,8 +261,9 @@ async def test_with_flows_off_an_unnamed_caller_is_told_that_not_to_rename_itsel
     there is nowhere to keep a flow for anybody, so sending an unnamed caller
     off to name its session would point it at the wrong problem entirely — and
     a *named* caller already got the right answer, so the two disagreed."""
-    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
-    server = SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token=TOKEN)
+    server = SeleniumMCP(
+        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
+    )
     acting_as(monkeypatch, server, None)
     with pytest.raises(ValueError, match="FLOW_DATA_DIR"):
         await call(server, flowapi.SAVE_TOOL, name="x", steps=GOOD)
@@ -294,8 +296,7 @@ async def test_the_schema_is_derived_from_the_live_tools(flow_server):
 async def test_with_no_data_directory_the_tools_say_so(monkeypatch):
     """A disabled capability and a missing one look identical from outside, and
     only one of them is something an operator can fix."""
-    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
-    server = SeleniumMCP(grid_url="http://grid.invalid:4444")
+    server = SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}))
     acting_as(monkeypatch, server, NAMED)
     assert server.flows is None
     from fastmcp.exceptions import ResourceError
@@ -317,12 +318,11 @@ def unkeyed_client(tmp_path, monkeypatch):
     """A client the server cannot identify, which is the ordinary case for an
     n8n HTTP node: no session name anywhere, so it reads and runs the shared
     `global` library and has no library of its own to write to."""
-    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
-    server = SeleniumMCP(
-        grid_url="http://grid.invalid:4444",
-        auth_token=TOKEN,
-        flow_data_dir=str(tmp_path),
-    )
+    server = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"},
+        auth={"token": TOKEN},
+        flow={"data_dir": str(tmp_path)},
+    ))
     acting_as(monkeypatch, server, None)
     return TestClient(server.mcp.http_app())
 

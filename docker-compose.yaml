@@ -32,11 +32,7 @@ services:
       # Service; there is no default that is right in both places.
       GRID_URL: ${GRID_URL:-http://selenium:4444}
       # Empty disables auth, which is what you want locally.
-      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
-      # Saved sessions let an MCP caller omit session_id. On by default, backed
-      # by pod memory. Set REDIS_URL to share them; the HTTP endpoints are
-      # always explicit either way.
-      SAVED_SESSIONS: ${SAVED_SESSIONS:-true}
+      AUTH_TOKEN: ${AUTH_TOKEN:-}
       REDIS_URL: ${REDIS_URL:-}
     depends_on:
       selenium:

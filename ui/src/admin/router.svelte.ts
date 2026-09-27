@@ -5,12 +5,14 @@ export type Route =
   | { view: 'list' }
   | { view: 'console' }
   | { view: 'secrets' }
+  | { view: 'settings' }
   | { view: 'session'; key: string; tab: 'files' | 'flows'; flow: string | undefined }
 
 export function parse(hash: string): Route {
   const [view, key, tab, flow] = hash.replace(/^#\/?/, '').split('/')
   if (view === 'console') return { view: 'console' }
   if (view === 'secrets') return { view: 'secrets' }
+  if (view === 'settings') return { view: 'settings' }
   if (view === 'sessions' && key) {
     // parse() runs at module load: a bad pasted `%` must not stop the app booting.
     try {
@@ -32,6 +34,7 @@ export const hashes = {
   list: '#/',
   console: '#/console',
   secrets: '#/secrets',
+  settings: '#/settings',
   session: (key: string) => '#/sessions/' + enc(key),
   flows: (key: string) => '#/sessions/' + enc(key) + '/flows',
   flow: (key: string, name: string) => '#/sessions/' + enc(key) + '/flows/' + enc(name),

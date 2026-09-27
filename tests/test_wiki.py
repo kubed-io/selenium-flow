@@ -27,12 +27,15 @@ def _spec() -> dict:
     """The live spec, built the way the generator builds it."""
     import asyncio
 
+    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.routes import ENDPOINTS
     from kubed.selenium_flow.server import SeleniumMCP
     from kubed.selenium_flow.spec import build_spec
 
     async def go():
-        server = SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token="x")
+        server = SeleniumMCP(
+            Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": "x"})
+        )
         return await build_spec(server.mcp, ENDPOINTS, "", authenticated=True)
 
     return asyncio.run(go())
@@ -160,7 +163,8 @@ def test_every_action_with_an_endpoint_has_a_page():
     orphans = {
         p.stem
         for p in WIKI.glob("*.md")
-        if p.read_text().startswith("<!-- Generated") and p.stem != "Actions"
+        if p.read_text().startswith("<!-- Generated")
+        and p.stem not in ("Actions", "Configuration")
     } - set(tagged.values())
     assert not orphans, "generated page with no endpoint: " + ", ".join(sorted(orphans))
 
@@ -174,12 +178,17 @@ def test_the_guides_that_pages_link_to_exist():
         assert (WIKI / f"{guide}.md").is_file(), guide
 
 
-def test_the_env_table_documents_the_switches_for_every_feature():
-    """`FLOW_DATA_DIR` and `SECRETS_DIRS` were missing from a table listing
-    seventeen other variables, so the two biggest features shipped invisible to
-    anyone deploying from the manual."""
+@needs_wiki
+def test_the_configuration_page_documents_every_setting_in_all_three_spellings():
+    from kubed.selenium_flow import config
+
+    page = (WIKI / "Configuration.md").read_text()
+    for leaf in config.leaves():
+        for spelling in (leaf.path, leaf.env, leaf.flag):
+            assert f"`{spelling}`" in page, spelling
+
+
+def test_deployment_points_at_the_configuration_page():
     if not (WIKI / "Deployment.md").is_file():
         pytest.skip("wiki submodule not checked out")
-    table = (WIKI / "Deployment.md").read_text()
-    for name in ("FLOW_DATA_DIR", "SECRETS_DIRS", "GRID_URL", "MCP_AUTH_TOKEN"):
-        assert f"`{name}`" in table, name
+    assert "(Configuration)" in (WIKI / "Deployment.md").read_text()

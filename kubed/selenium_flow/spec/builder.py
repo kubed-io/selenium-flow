@@ -424,7 +424,7 @@ async def build_spec(
                 "type": "http",
                 "scheme": "bearer",
                 "description": (
-                    "The token from MCP_AUTH_TOKEN. The bare token is also "
+                    "The token from AUTH_TOKEN. The bare token is also "
                     "accepted as the Authorization value, for clients that "
                     "cannot express a scheme."
                 ),
@@ -775,7 +775,8 @@ def _secret_paths(prefix: str = "") -> dict:
                     },
                     "400": _error(
                         "No session named, two names given, or a server started "
-                        "with no SECRETS_DIRS, so there are no secrets to list."
+                        "with no secrets.dirs and no secrets.entries, so there "
+                        "are no secrets to list."
                     ),
                     "401": _error("Missing or wrong bearer token."),
                     "500": _error("Something failed that this server did not expect."),

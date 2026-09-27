@@ -262,7 +262,7 @@ carries a `hint`:
 
 - **`read`** is a resource to load, exactly as written — and `section` is the
   heading in it that covers this kind of failure. A server started with
-  `--no-skill` serves no references, and then there is no `read` to give.
+  `--mcp-skill false` serves no references, and then there is no `read` to give.
 - **`prompt`** is for a person. `repair_flow` walks a page and fixes the flow
   against what is there now; you cannot pick it yourself, but you can tell
   somebody to.

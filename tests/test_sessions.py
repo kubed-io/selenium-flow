@@ -7,19 +7,18 @@ tool call opened a browser nobody closed.
 """
 
 import pytest
+from pydantic import ValidationError
 
+from kubed.selenium_flow.config import RedisSettings, SessionSettings
 from kubed.selenium_flow.session import sessions as sessions_module
 from kubed.selenium_flow.session.sessions import requested
 from kubed.selenium_flow.session.store import (
     DEFAULT_DB,
-    DEFAULT_PREFIX,
     MemoryStore,
     RedisStore,
     SessionRecord,
     StoreUnavailable,
-    chosen_backend,
-    from_env,
-    redis_configured,
+    from_settings,
 )
 
 from .conftest import NAMED, OTHER, RecordingActions, http, manager
@@ -541,46 +540,24 @@ def test_touch_slides_the_expiry_of_a_session_in_use():
 
 
 # ---- configuration ---------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "env,expected",
-    [
-        ({}, False),
-        ({"REDIS_URL": "redis://x:6379"}, True),
-        ({"REDIS_HOST": "redis.data"}, True),
-        ({"REDIS_PORT": "6379"}, False),  # a port alone configures nothing
-    ],
-)
-def test_presence_of_a_redis_setting_is_the_switch(env, expected):
-    assert redis_configured(env) is expected
-
-
-@pytest.mark.parametrize(
-    "env,expected",
-    [
-        ({}, "memory"),
-        ({"REDIS_HOST": "redis.data"}, "redis"),
-        ({"SESSION_STORE": "memory", "REDIS_HOST": "redis.data"}, "memory"),
-        ({"SESSION_STORE": "redis"}, "redis"),
-    ],
-)
-def test_session_store_is_the_explicit_switch(env, expected):
-    """SESSION_STORE wins; without it, REDIS_* still implies redis."""
-    assert chosen_backend(env) == expected
+#
+# Whether the config derives "redis" from a bare REDIS_* setting, and whether
+# an unknown store name stops the boot, is now `config.load`'s job (see
+# test_config_load.py) — `SessionSettings.store` is a `Literal`, so a bad name
+# never reaches this module at all.
 
 
 def test_an_unknown_backend_stops_the_boot():
-    with pytest.raises(StoreUnavailable, match="postgres"):
-        from_env({"SESSION_STORE": "postgres"})
+    with pytest.raises(ValidationError):
+        SessionSettings(store="postgres")
 
 
 def test_session_ttl_is_honoured():
-    assert from_env({"SESSION_TTL": "42"})._ttl == 42
+    assert from_settings(SessionSettings(ttl=42), RedisSettings())._ttl == 42
 
 
 def test_no_redis_env_means_memory():
-    store = from_env({})
+    store = from_settings(SessionSettings(), RedisSettings())
     assert isinstance(store, MemoryStore)
     assert store.kind == "memory"
 
@@ -588,7 +565,7 @@ def test_no_redis_env_means_memory():
 def test_memory_is_used_when_nothing_asked_for_redis():
     """Unchanged behaviour (§F4.12): memory is the answer only when nothing
     asked for Redis at all, never a step down from a Redis that failed."""
-    assert isinstance(from_env({}), MemoryStore)
+    assert isinstance(from_settings(SessionSettings(), RedisSettings()), MemoryStore)
 
 
 def test_an_unreachable_redis_stops_the_boot_with_the_reason(monkeypatch):
@@ -609,7 +586,7 @@ def test_an_unreachable_redis_stops_the_boot_with_the_reason(monkeypatch):
     )
     monkeypatch.setitem(sys.modules, "redis", module)
     with pytest.raises(StoreUnavailable, match="nope:6379"):
-        from_env({"REDIS_URL": "redis://nope:6379"})
+        from_settings(SessionSettings(store="redis"), RedisSettings(url="redis://nope:6379"))
 
 
 def test_a_missing_redis_package_stops_the_boot(monkeypatch):
@@ -624,7 +601,7 @@ def test_a_missing_redis_package_stops_the_boot(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", fail_on_redis)
     with pytest.raises(StoreUnavailable, match=r"kubed-selenium-flow\[redis\]"):
-        from_env({"REDIS_HOST": "redis.data"})
+        from_settings(SessionSettings(store="redis"), RedisSettings(host="redis.data"))
 
 
 def test_an_unreachable_redis_never_chains_the_raw_password(monkeypatch):
@@ -654,7 +631,7 @@ def test_an_unreachable_redis_never_chains_the_raw_password(monkeypatch):
     monkeypatch.setitem(sys.modules, "redis", module)
 
     with pytest.raises(StoreUnavailable) as excinfo:
-        from_env({"REDIS_URL": url, "REDIS_DB": "2"})
+        from_settings(SessionSettings(store="redis"), RedisSettings(url=url, db=2))
 
     err = excinfo.value
     assert err.__cause__ is None
@@ -680,13 +657,20 @@ def test_the_reason_never_quotes_the_redis_password(monkeypatch):
     )
     monkeypatch.setitem(sys.modules, "redis", module)
     with pytest.raises(StoreUnavailable) as excinfo:
-        from_env({"REDIS_URL": "redis://:s3cret@nowhere:6379/2"})
+        from_settings(
+            SessionSettings(store="redis"),
+            RedisSettings(url="redis://:s3cret@nowhere:6379/2"),
+        )
     assert "s3cret" not in str(excinfo.value)
 
 
 def test_the_default_prefix_is_namespaced():
-    """Redis is shared with other apps in this cluster; do not collide."""
-    assert DEFAULT_PREFIX.startswith("selenium-flow:")
+    """Redis is shared with other apps in this cluster; do not collide.
+
+    Asserted against what production actually uses — `RedisSettings().prefix`,
+    the config default — rather than `store.DEFAULT_PREFIX`, which nothing
+    builds a store from any more (`from_settings` reads `conn.prefix`)."""
+    assert RedisSettings().prefix.startswith("selenium-flow:")
 
 
 # ---- the shared Redis instance and its database index ----------------------
@@ -724,18 +708,24 @@ def capturing_redis(monkeypatch):
 
 
 def test_the_url_form_still_pins_the_database_index(capturing_redis):
-    """REDIS_DB must win over a URL that names no index."""
-    from_env({"REDIS_URL": "redis://redis.data:6379", "REDIS_DB": "2"})
+    """The database index must win over a URL that names no index."""
+    from_settings(
+        SessionSettings(store="redis"),
+        RedisSettings(url="redis://redis.data:6379", db=2),
+    )
     assert capturing_redis.kwargs["db"] == 2
 
 
 def test_the_host_form_pins_it_too(capturing_redis):
-    from_env({"REDIS_HOST": "redis.data"})
+    from_settings(SessionSettings(store="redis"), RedisSettings(host="redis.data"))
     assert capturing_redis.kwargs["db"] == DEFAULT_DB
 
 
 def test_an_explicit_index_is_honoured(capturing_redis):
-    from_env({"REDIS_URL": "redis://redis.data:6379", "REDIS_DB": "11"})
+    from_settings(
+        SessionSettings(store="redis"),
+        RedisSettings(url="redis://redis.data:6379", db=11),
+    )
     assert capturing_redis.kwargs["db"] == 11
 
 

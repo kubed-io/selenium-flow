@@ -18,6 +18,7 @@ import time
 import anyio
 import pytest
 
+from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core import cancel
 from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.flows import run as flowrun
@@ -40,9 +41,11 @@ def slow_server(tmp_path, monkeypatch):
     """A server whose `navigate` takes a moment, and records that it ran."""
     monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
     server = SeleniumMCP(
-        grid_url="http://grid.invalid:4444",
-        auth_token=TOKEN,
-        flow_data_dir=str(tmp_path),
+        Settings(
+            grid={"url": "http://grid.invalid:4444"},
+            auth={"token": TOKEN},
+            flow={"data_dir": str(tmp_path)},
+        )
     )
     monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
     monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
@@ -184,7 +187,11 @@ def test_a_flow_that_declares_a_shorter_budget_is_held_to_it(monkeypatch):
 @pytest.mark.parametrize("given", ["soon", 0, -5, True, 1.5])
 async def test_a_budget_that_is_not_seconds_is_refused_at_save(tmp_path, given):
     server = SeleniumMCP(
-        grid_url="http://grid.invalid:4444", auth_token=TOKEN, flow_data_dir=str(tmp_path)
+        Settings(
+            grid={"url": "http://grid.invalid:4444"},
+            auth={"token": TOKEN},
+            flow={"data_dir": str(tmp_path)},
+        )
     )
     server.sessions.name = lambda: NAMED
     server.sessions.library = lambda: NAMED

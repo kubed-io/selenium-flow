@@ -14,6 +14,7 @@ import time
 import pytest
 import yaml
 
+from kubed.selenium_flow.config import FlowSettings
 from kubed.selenium_flow.flows import library as flows
 from kubed.selenium_flow.flows.library import (
     GLOBAL_SESSION,
@@ -336,12 +337,12 @@ def test_flows_are_parsed_by_libyaml_when_the_wheel_has_it():
 
 def test_flows_are_off_unless_a_directory_is_named():
     """Not a temp-directory fallback: the operator chooses where this lives."""
-    assert flows.from_env({}) is None
-    assert flows.from_env({"FLOW_DATA_DIR": "   "}) is None
+    assert flows.from_settings(FlowSettings()) is None
+    assert flows.from_settings(FlowSettings(data_dir="   ")) is None
 
 
 def test_naming_a_directory_turns_them_on(tmp_path):
-    store = flows.from_env({"FLOW_DATA_DIR": str(tmp_path)})
+    store = flows.from_settings(FlowSettings(data_dir=str(tmp_path)))
     assert store is not None
     assert store.kind == "local"
 
@@ -408,24 +409,25 @@ def test_surrounding_whitespace_is_trimmed_rather_than_refused():
         valid_name("   ")
 
 
-def test_a_blank_explicit_directory_means_off_just_as_a_blank_env_does(monkeypatch):
-    """The CLI flag's default IS the env var, so an unnormalised explicit value
-    was the path FLOW_DATA_DIR actually took — and "   " became a directory
-    named three spaces while from_env called the same value off."""
+def test_a_blank_explicit_directory_means_off_just_as_a_blank_env_does():
+    """`FlowSettings` normalises "   " to None (see `_blank_is_off`), so a
+    caller building `Settings` by hand cannot end up with a directory named
+    three spaces."""
+    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
-    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
-    assert SeleniumMCP(grid_url="http://grid.invalid:4444", flow_data_dir="   ").flows is None
-    assert SeleniumMCP(grid_url="http://grid.invalid:4444", flow_data_dir=None).flows is None
+    grid = {"url": "http://grid.invalid:4444"}
+    assert SeleniumMCP(Settings(grid=grid, flow={"data_dir": "   "})).flows is None
+    assert SeleniumMCP(Settings(grid=grid, flow={"data_dir": None})).flows is None
 
 
-def test_an_explicit_directory_is_used_and_trimmed(monkeypatch, tmp_path):
+def test_an_explicit_directory_is_used_and_trimmed(tmp_path):
+    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
-    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
-    server = SeleniumMCP(
-        grid_url="http://grid.invalid:4444", flow_data_dir=f"  {tmp_path}  "
-    )
+    server = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"}, flow={"data_dir": f"  {tmp_path}  "}
+    ))
     assert server.flows is not None
     server.flows.save("bot", "login", {"steps": []})
     assert (tmp_path / "bot" / "flows" / "login.yaml").is_file()

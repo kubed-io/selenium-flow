@@ -14,6 +14,7 @@ anything that needs a live Grid is an integration test and is marked as one.
 
 import pytest
 
+from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.core.browser import Grid
 from kubed.selenium_flow.http import admin as _admin
@@ -49,13 +50,15 @@ def actions(grid):
 @pytest.fixture
 def server():
     """An authenticated server, since that is how it is deployed."""
-    return SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token=TOKEN)
+    return SeleniumMCP(
+        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
+    )
 
 
 @pytest.fixture
 def open_server():
     """A server with auth disabled, as `docker compose up` runs it."""
-    return SeleniumMCP(grid_url="http://grid.invalid:4444", auth_token=None)
+    return SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}))
 
 
 # ---- doubles ---------------------------------------------------------------

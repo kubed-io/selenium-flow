@@ -65,7 +65,6 @@ export interface FlowDoc {
   yaml?: string
 }
 
-export interface SecretUse { flow: string; steps: number[]; shared?: boolean; session?: string }
 export interface Secret {
   name: string
   description?: string
@@ -73,12 +72,26 @@ export interface Secret {
   restricted?: boolean
   allowed_urls?: string[]
   allowed_urls_rejected?: string | string[]
-  source?: string
-  location?: string
-  uses?: SecretUse[]
+  origins?: { source: 'filesystem' | 'config'; location: string }[]
+  key_sources?: Record<string, { from: 'filesystem' | 'file' | 'env' | 'value'; name?: string; path?: string }>
+  keys_unresolved?: { key: string; reason: string }[]
+  inline_keys?: string[]
 }
 export interface SecretsPayload {
   enabled: boolean
+  count?: number
   secrets: Secret[]
-  undefined: { name: string; uses: SecretUse[] }[]
 }
+
+export type SettingSource = 'default' | 'config' | 'env' | 'args'
+export interface SettingRow {
+  key: string
+  name: string
+  description: string
+  value: unknown
+  source: SettingSource
+  sensitive?: boolean
+  set?: boolean
+}
+export interface SettingsSection { name: string; description: string; settings: SettingRow[] }
+export interface SettingsPayload { sections: SettingsSection[] }

@@ -45,7 +45,7 @@ def test_sigterm_stops_the_server_promptly_with_an_event_stream_open(tmp_path):
         **os.environ,
         # Refused at once, so the stream's Grid poll never waits on a timeout.
         "GRID_URL": "http://127.0.0.1:9",
-        "MCP_AUTH_TOKEN": TOKEN,
+        "AUTH_TOKEN": TOKEN,
         "HOST": "127.0.0.1",
         "PORT": str(port),
         "PYTHONPATH": os.pathsep.join([str(REPO), *sys.path]),

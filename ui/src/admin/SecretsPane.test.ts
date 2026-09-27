@@ -6,55 +6,89 @@ import SecretsPane from './SecretsPane.svelte'
 
 const api = createApi({ base: '', token: () => 't', onUnauthorized: () => {} })
 
-test('Loading…, then a card per secret with keys, allowed, source and backlinks (S1)', async () => {
+test('Loading…, then a card per secret with keys, allowed and source (S1)', async () => {
   fakeFetch({ 'GET /admin/secrets': { body: {
     enabled: true,
     secrets: [
-      { name: 'admin', description: 'The token.', keys: ['token'], restricted: true, allowed_urls: ['https://a'], source: 'file', location: '/s/admin',
-        uses: [{ flow: 'login', steps: [2], session: 'k 1' }, { flow: 'g', steps: [1, 3], shared: true }] },
-      { name: 'open', keys: ['k'], restricted: false, uses: [] },
-      { name: 'bad', keys: ['k'], allowed_urls_rejected: ['ftp://x'], uses: [] },
+      { name: 'admin', description: 'The token.', keys: ['token'], restricted: true, allowed_urls: ['https://a'],
+        origins: [{ source: 'filesystem', location: '/s/admin' }] },
+      { name: 'open', keys: ['k'], restricted: false },
+      { name: 'bad', keys: ['k'], allowed_urls_rejected: ['ftp://x'] },
     ],
-    undefined: [{ name: 'ghost', uses: [{ flow: 'f', steps: [1], session: 's' }] }],
   } } })
   const { container } = render(SecretsPane, { api })
   expect(screen.getByText('Loading…')).toBeInTheDocument()
   await vi.waitFor(() => expect(screen.getByRole('heading', { name: 'Secrets' })).toBeInTheDocument())
-  const [admin, open, bad, ghost] = container.querySelectorAll('.card.secret')
+  const [admin, open, bad] = container.querySelectorAll('.card.secret')
   expect(admin).toHaveTextContent('🔑admin')
   expect(admin).toHaveTextContent('allowedhttps://a')
-  expect(admin).toHaveTextContent('fromfile · /s/admin')
-  expect(admin.querySelector('a')).toHaveAttribute('href', '#/sessions/k%201/flows/login')
-  expect(admin.querySelector('a')).toHaveTextContent('k 1 →')
-  expect(admin).toHaveTextContent('steps 1, 3')
-  expect(admin).toHaveTextContent('🌐 shared')
+  expect(admin).toHaveTextContent('fromfilesystem · /s/admin')
   expect(open.querySelector('.pill.warn')).toHaveTextContent('any site')
-  expect(open).toHaveTextContent('No flow uses it.')
   expect(bad.querySelector('.pill.warn')).toHaveTextContent('unusable until fixed')
   expect(bad).toHaveTextContent('allowed_urls: ftp://x')
-  expect(screen.getByText('Named by a flow, not defined')).toBeInTheDocument()
-  expect(ghost.querySelector('.pill.warn')).toHaveTextContent('not defined')
 })
 
-test('uses keyed by session+flow do not collide when the concatenation does', async () => {
+test('config secrets: key sources, every origin, and the two new warnings', async () => {
   fakeFetch({ 'GET /admin/secrets': { body: {
     enabled: true,
     secrets: [
-      { name: 's', keys: ['k'], uses: [{ flow: 'ab', steps: [1], session: 'c' }, { flow: 'a', steps: [1], session: 'bc' }] },
+      { name: 'grafana', keys: ['password'], restricted: true, allowed_urls: ['https://g'],
+        origins: [{ source: 'filesystem', location: '/secrets' }, { source: 'config', location: '/etc/c.yaml' }],
+        key_sources: { password: { from: 'filesystem' } } },
+      { name: 'admin', keys: ['token'], restricted: true, allowed_urls: ['https://s'],
+        origins: [{ source: 'config', location: '/etc/c.yaml' }], key_sources: { token: { from: 'env', name: 'AUTH_TOKEN' } } },
+      { name: 'demo', keys: ['password'], restricted: true, allowed_urls: ['http://l'], inline_keys: ['password'],
+        origins: [{ source: 'config', location: '/etc/c.yaml' }], key_sources: { password: { from: 'value' } } },
+      { name: 'github', keys: ['token'], restricted: true, allowed_urls: ['https://github.com'],
+        keys_unresolved: [{ key: 'token', reason: 'env GITHUB_TOKEN is not set' }],
+        origins: [{ source: 'config', location: '/etc/c.yaml' }], key_sources: { token: { from: 'env', name: 'GITHUB_TOKEN' } } },
     ],
-    undefined: [],
   } } })
   const { container } = render(SecretsPane, { api })
   await vi.waitFor(() => expect(screen.getByRole('heading', { name: 'Secrets' })).toBeInTheDocument())
-  const rows = container.querySelectorAll('.use')
-  expect(rows).toHaveLength(2)
-  const hrefs = Array.from(rows).map((r) => r.querySelector('a')?.getAttribute('href'))
-  expect(hrefs).toContain('#/sessions/c/flows/ab')
-  expect(hrefs).toContain('#/sessions/bc/flows/a')
+  const [grafana, admin, demo, github] = container.querySelectorAll('.card.secret')
+  expect(grafana).toHaveTextContent('fromfilesystem · /secrets + config · /etc/c.yaml')
+  expect(grafana).toHaveTextContent('keyspassword')  // a directory key stays bare
+  expect(admin).toHaveTextContent('token · env AUTH_TOKEN')
+  expect(demo.querySelector('.pill.warn')).toHaveTextContent('inline value')
+  expect(demo).toHaveTextContent('password · value')
+  expect(github.querySelector('.pill.warn')).toHaveTextContent('key unresolved')
+  expect(github).toHaveTextContent('token: env GITHUB_TOKEN is not set')
+})
+
+test('an unrestricted secret with an inline key shows both its warnings, not just one', async () => {
+  fakeFetch({ 'GET /admin/secrets': { body: {
+    enabled: true,
+    secrets: [
+      { name: 'wide-open', keys: ['k'], restricted: false, inline_keys: ['k'],
+        key_sources: { k: { from: 'value' } } },
+    ],
+  } } })
+  const { container } = render(SecretsPane, { api })
+  await vi.waitFor(() => expect(screen.getByRole('heading', { name: 'Secrets' })).toBeInTheDocument())
+  const [card] = container.querySelectorAll('.card.secret')
+  const pills = Array.from(card.querySelectorAll('.pill.warn')).map((p) => p.textContent)
+  expect(pills).toContain('inline value')
+  expect(pills).toContain('any site')
+})
+
+test('a broken leash and unresolved keys both show, not just the leash', async () => {
+  fakeFetch({ 'GET /admin/secrets': { body: {
+    enabled: true,
+    secrets: [
+      { name: 'both', keys: ['token'], restricted: true, allowed_urls_rejected: ['ftp://x'],
+        keys_unresolved: [{ key: 'token', reason: 'env GITHUB_TOKEN is not set' }] },
+    ],
+  } } })
+  const { container } = render(SecretsPane, { api })
+  await vi.waitFor(() => expect(screen.getByRole('heading', { name: 'Secrets' })).toBeInTheDocument())
+  const [both] = container.querySelectorAll('.card.secret')
+  expect(both).toHaveTextContent('allowed_urls: ftp://x')
+  expect(both).toHaveTextContent('token: env GITHUB_TOKEN is not set')
 })
 
 test('off, and an error (S1)', async () => {
-  fakeFetch({ 'GET /admin/secrets': { body: { enabled: false, secrets: [], undefined: [] } } })
+  fakeFetch({ 'GET /admin/secrets': { body: { enabled: false, secrets: [] } } })
   const r = render(SecretsPane, { api })
   await vi.waitFor(() => expect(screen.getByText('No secrets are configured on this server.')).toBeInTheDocument())
   r.unmount()

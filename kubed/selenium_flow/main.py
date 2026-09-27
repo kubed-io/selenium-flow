@@ -1,123 +1,51 @@
-"""Entry point: turn CLI flags and environment into a running server.
-
-Every flag has an environment fallback because the container is configured with
-env vars while a developer reaches for flags. The one thing not configured here
-is the session store, which reads ``SESSION_STORE`` / ``SESSION_TTL`` /
-``REDIS_*`` in ``store.py`` so that choosing a backend stays next to the code
-that builds one.
-"""
+"""Entry point: the config, loaded from file, env and args, into a running server."""
 
 from __future__ import annotations
 
-import argparse
 import logging
-import os
 
-from .core.browser import DEFAULT_GRID_URL
-from .server import DEFAULT_ROUTE_PREFIX, SeleniumMCP
+from . import config
+from .errors import without_userinfo
+from .server import SeleniumMCP
+
+log = logging.getLogger(__name__)
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="selenium-flow",
-        description="Drive a Selenium Grid browser over MCP and HTTP.",
-    )
-    parser.add_argument(
-        "--grid-url",
-        default=os.environ.get("GRID_URL", DEFAULT_GRID_URL),
-        help="Selenium Grid hub URL (env: GRID_URL)",
-    )
-    parser.add_argument(
-        "--auth-token",
-        default=os.environ.get("MCP_AUTH_TOKEN", ""),
-        help="bearer token required on every request; empty disables auth "
-        "(env: MCP_AUTH_TOKEN)",
-    )
-    parser.add_argument(
-        "--route-prefix",
-        default=os.environ.get("ROUTE_PREFIX", DEFAULT_ROUTE_PREFIX),
-        help="path prefix for the plain HTTP endpoints (env: ROUTE_PREFIX)",
-    )
-    parser.add_argument(
-        "--no-skill",
-        dest="skill_enabled",
-        action="store_false",
-        default=os.environ.get("SKILL_ENABLED", "true").strip().lower()
-        not in ("0", "false", "no", "off"),
-        help="do not serve the embedded skill, which is otherwise offered as "
-        "the skill://selenium-flow resources (env: SKILL_ENABLED)",
-    )
-    parser.add_argument(
-        "--no-apps",
-        dest="apps_enabled",
-        action="store_false",
-        default=os.environ.get("APPS_ENABLED", "true").strip().lower()
-        not in ("0", "false", "no", "off"),
-        help="do not offer the MCP Apps components, which hosts that support "
-        "the UI extension render inline (env: APPS_ENABLED)",
-    )
-    parser.add_argument(
-        "--flow-data-dir",
-        default=os.environ.get("FLOW_DATA_DIR", ""),
-        help="directory holding each session's saved flows and kept files. "
-        "Unset disables flows entirely; there is deliberately no default "
-        "location (env: FLOW_DATA_DIR)",
-    )
-    parser.add_argument(
-        "--secrets-dirs",
-        default=os.environ.get("SECRETS_DIRS", ""),
-        help="directories holding secrets, separated like PATH. Each is a "
-        "directory per secret and a file per key, which is how Kubernetes "
-        "mounts one (env: SECRETS_DIRS)",
-    )
-    parser.add_argument(
-        "--transport",
-        default=os.environ.get("TRANSPORT", "http"),
-        choices=["stdio", "http"],
-        help="transport to serve on (env: TRANSPORT)",
-    )
-    parser.add_argument(
-        "--host",
-        default=os.environ.get("HOST", "0.0.0.0"),
-        help="bind address for http transport (env: HOST)",
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=int(os.environ.get("PORT", "8000")),
-        help="port for http transport (env: PORT)",
-    )
-    parser.add_argument(
-        "--log-level",
-        default=os.environ.get("LOG_LEVEL", "INFO"),
-        help="python logging level (env: LOG_LEVEL)",
-    )
-    return parser
+def _secrets_summary(catalogue) -> str:
+    """"off", or how many directories and how many config entries feed it.
+
+    "secrets=0" used to mean either off or entries-only, which read as a
+    contradiction next to a config that plainly turned secrets on.
+    """
+    if catalogue is None:
+        return "off"
+    dirs = len(catalogue.sources)
+    entries = len(catalogue.config.entries) if catalogue.config else 0
+    return f"{dirs} dir{'s' if dirs != 1 else ''}, {entries} from config"
 
 
 def main(argv: list[str] | None = None) -> None:
     """Entry point for the ``selenium-flow`` console script."""
-    args = build_parser().parse_args(argv)
-    logging.basicConfig(level=args.log_level.upper())
-    server = SeleniumMCP(
-        grid_url=args.grid_url,
-        auth_token=args.auth_token or None,
-        route_prefix=args.route_prefix,
-        skill_enabled=args.skill_enabled,
-        apps_enabled=args.apps_enabled,
-        flow_data_dir=args.flow_data_dir or None,
-        secrets_dirs=args.secrets_dirs or None,
-    )
-    logging.getLogger(__name__).info(
-        "grid=%s auth=%s sessions=%s skill=%s flows=%s secrets=%s",
-        args.grid_url,
-        "on" if args.auth_token else "off",
+    try:
+        loaded = config.load(argv)
+    except config.ConfigError as exc:
+        # A config this server cannot run on stops the boot with the reason:
+        # restarted until fixed beats started on something misread (§F4.12).
+        raise SystemExit(f"selenium-flow: {exc}") from None
+    settings = loaded.settings
+    logging.basicConfig(level=settings.log_level)
+    server = SeleniumMCP(settings, sources=loaded.sources)
+    log.info(
+        "config=%s grid=%s auth=%s sessions=%s skill=%s flows=%s secrets=%s",
+        settings.config_file or "none",
+        without_userinfo(settings.grid.url),
+        "on" if server.auth_token else "off",
         server.sessions.kind,
         server.skill.skill_info.name if server.skill else "off",
         server.flows.kind if server.flows else "off",
-        len(server.secrets.sources) if server.secrets else "off",
+        _secrets_summary(server.secrets),
     )
-    server.run(transport=args.transport, host=args.host, port=args.port)
+    server.run(transport=settings.transport, host=settings.host, port=settings.port)
 
 
 if __name__ == "__main__":

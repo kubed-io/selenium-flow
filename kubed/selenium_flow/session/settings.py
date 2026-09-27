@@ -5,8 +5,8 @@ size, the two timeouts WebDriver lets you change after creation, and whether it
 accepts an insecure site. Each but the last can come from three places, and the
 useful part is the order:
 
-    server default (env)  <  client default (param/header)  <  this session's
-    last values  <  explicit
+    server default (config: session.*)  <  client default (param/header)  <
+    this session's last values  <  explicit
 
 The server default is the operator's floor. The client default is set once in a
 client's connection config, so an agent never has to think about it. A flow
@@ -29,7 +29,10 @@ same class of silent shape change the stored settings exist to prevent.
 from __future__ import annotations
 
 import logging
-import os
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..config import SessionSettings
 
 log = logging.getLogger(__name__)
 
@@ -62,17 +65,10 @@ def _as_flag(value) -> bool | None:
     return None if value in (None, "") else as_bool(value, False)
 
 
-def _as_browser(value) -> str | None:
-    """A supported browser name, or None for anything unusable.
-
-    Lenient, like ``_as_int``, because this is the coercion the two *default*
-    sources use. `DEFAULT_BROWSER` is deliberately not spelled `BROWSER`: that
-    name is a long-standing Unix convention for the user's preferred web
-    browser command, and plenty of environments — code-server among them — set
-    it to a shell script. A server that refused to open a session because of
-    that would be broken by something that has nothing to do with it.
-    """
-    if value is None or value == "":
+def _as_client_browser(value) -> str | None:
+    """Lenient, like _as_int: a typo in a client's URL must not stop a browser
+    opening."""
+    if value in (None, ""):
         return None
     from ..core.browser import normalize_browser  # local: keeps this module importable
 
@@ -83,42 +79,29 @@ def _as_browser(value) -> str | None:
         return None
 
 
-# name -> (env var, query parameter, header, coercion)
+# name -> (query parameter, header, coercion)
 SETTINGS = {
-    "browser": ("DEFAULT_BROWSER", "browser", "x-browser", _as_browser),
-    "width": ("WINDOW_WIDTH", "width", "x-window-width", _as_int),
-    "height": ("WINDOW_HEIGHT", "height", "x-window-height", _as_int),
-    "page_load_timeout": (
-        "PAGE_LOAD_TIMEOUT",
-        "page_load_timeout",
-        "x-page-load-timeout",
-        _as_int,
-    ),
-    "script_timeout": (
-        "SCRIPT_TIMEOUT",
-        "script_timeout",
-        "x-script-timeout",
-        _as_int,
-    ),
-    # Explicit only: no env var, parameter or header. Only the caller knows the
-    # site it is about to drive is self-signed or plain http, and a default
-    # would weaken every browser for the sake of one (§F3.8). Remembered like
-    # the rest, so a reaped browser comes back able to reach the same site.
-    "insecure": (None, None, None, _as_flag),
+    "browser": ("browser", "x-browser", _as_client_browser),
+    "width": ("width", "x-window-width", _as_int),
+    "height": ("height", "x-window-height", _as_int),
+    "page_load_timeout": ("page_load_timeout", "x-page-load-timeout", _as_int),
+    "script_timeout": ("script_timeout", "x-script-timeout", _as_int),
+    # Explicit only (§F3.8): no parameter, no header, no default.
+    "insecure": (None, None, _as_flag),
 }
 
+# The config's session section, as the operator's floor. `store` and `ttl` are
+# about keeping sessions, not about the browser a session opens.
+FROM_CONFIG = ("browser", "width", "height", "page_load_timeout", "script_timeout")
 
-def from_env(env: dict | None = None) -> dict:
-    """The operator's defaults."""
-    env = os.environ if env is None else env
-    resolved = {}
-    for name, (var, _param, _header, coerce) in SETTINGS.items():
-        if var is None:
-            continue
-        value = coerce(env.get(var))
-        if value is not None:
-            resolved[name] = value
-    return resolved
+
+def from_settings(session: SessionSettings) -> dict:
+    """The operator's defaults: only what is set, so unset stays unset."""
+    return {
+        name: getattr(session, name)
+        for name in FROM_CONFIG
+        if getattr(session, name) is not None
+    }
 
 
 def from_client(params: dict | None, headers: dict | None) -> dict:
@@ -131,7 +114,7 @@ def from_client(params: dict | None, headers: dict | None) -> dict:
     params = params or {}
     headers = headers or {}
     resolved = {}
-    for name, (_var, param, header, coerce) in SETTINGS.items():
+    for name, (param, header, coerce) in SETTINGS.items():
         if header is None:
             continue
         value = coerce(headers.get(header))
@@ -144,10 +127,10 @@ def from_client(params: dict | None, headers: dict | None) -> dict:
 
 def resolve(
     explicit: dict | None = None,
-    env: dict | None = None,
+    defaults: dict | None = None,
     previous: dict | None = None,
 ) -> dict:
-    """The settings a new session should open with.
+    """The settings a new session opens with (the cascade at the top of this module).
 
     Reads the current request for client defaults, so it must be called while
     one is in flight. Off HTTP there simply are none.
@@ -163,7 +146,7 @@ def resolve(
     http = http_request()
     params, headers = http if http else (None, None)
 
-    merged = from_env(env)
+    merged = dict(defaults or {})
     merged.update(from_client(params, headers))
     merged.update({k: v for k, v in (previous or {}).items() if k in SETTINGS})
     for name, value in (explicit or {}).items():
@@ -177,9 +160,9 @@ def resolve(
             # one is not a fallback, it is the wrong answer.
             from ..core.browser import normalize_browser
 
-            merged[name] = normalize_browser(value)
+            merged[name] = normalize_browser(value)  # strict for an explicit argument
             continue
-        coerced = SETTINGS[name][3](value)
+        coerced = SETTINGS[name][2](value)
         if coerced is not None:
             merged[name] = coerced
     return merged

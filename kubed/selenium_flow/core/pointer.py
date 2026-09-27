@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 
 from selenium.webdriver.common.actions.action_builder import ActionBuilder
@@ -128,33 +127,6 @@ class RedisPointers:
             self._client.delete(self._k(session_id))
         except Exception:  # see `get`
             log.debug("could not clear the pointer for %s", session_id, exc_info=True)
-
-
-def from_env(env: dict | None = None):
-    """The pointer store the environment asks for, alongside the session store.
-
-    Deliberately reads the same switches: an install that shares session records
-    between replicas wants to share this too, and a second variable to forget is
-    a second way for one replica to plot a path from another's stale origin.
-
-    Redis configured and unreachable is a startup error here too (§F4.12), not
-    a separate fallback: `redis_client` raises `StoreUnavailable` and this lets
-    it propagate. A pointer store quietly downgraded to memory while the
-    session store it is paired with came up on Redis is exactly the mismatch
-    `matching` exists to rule out.
-    """
-    from ..session import store as store_module
-
-    env = os.environ if env is None else env
-    ttl = int(env.get("SESSION_TTL", DEFAULT_TTL_SECONDS))
-    if store_module.chosen_backend(env) != "redis":
-        return MemoryPointers(ttl=ttl)
-    client = store_module.redis_client(env)  # raises StoreUnavailable rather than None
-    prefix = (
-        env.get("REDIS_PREFIX", store_module.DEFAULT_PREFIX)
-        + store_module.POINTER_NAMESPACE
-    )
-    return RedisPointers(client, prefix=prefix, ttl=ttl)
 
 
 def matching(store):

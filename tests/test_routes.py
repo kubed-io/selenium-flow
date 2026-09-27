@@ -86,10 +86,11 @@ def test_no_ops_endpoint_hands_out_the_grids_credentials(monkeypatch):
     """`GRID_URL` may carry userinfo, and these answer to anyone."""
     import requests
 
+    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
     grid = "http://user:hunter2@[fd00::1]:4444"
-    server = SeleniumMCP(grid_url=grid)
+    server = SeleniumMCP(Settings(grid={"url": grid}))
 
     def quotes_the_url():  # a parse or proxy error, not the HTTPError already cut
         raise requests.exceptions.InvalidURL(f"Failed to parse: {grid}/status")
@@ -179,10 +180,11 @@ def test_a_flow_run_runs_off_the_event_loop(server, monkeypatch):
 def test_the_probes_answer_when_the_grid_url_is_malformed():
     """An operator's typo is not a reason for a probe to raise: a kubelet would
     read the 500 as the process being broken, which it is not."""
+    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
     # No closing bracket: `urlsplit().port` raises on this.
-    server = SeleniumMCP(grid_url="http://user:hunter2@[fd00::1:4444")
+    server = SeleniumMCP(Settings(grid={"url": "http://user:hunter2@[fd00::1:4444"}))
     client = TestClient(server.mcp.http_app())
     info = client.get("/info")
     assert info.status_code == 200 and "hunter2" not in info.text
@@ -511,11 +513,12 @@ def test_every_tree_moves_with_the_prefix():
     while `/mcp`, `/admin` and `/files` stayed fixed. Nobody wants the browser
     endpoints called something else; everybody eventually wants the server
     mounted under a path."""
+    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
-    server = SeleniumMCP(
-        grid_url="http://grid.invalid:4444", auth_token=TOKEN, route_prefix="/flow"
-    )
+    server = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}, route_prefix="/flow",
+    ))
     app = server.mcp.http_app(path=server.mcp_path)  # what `run` serves
     paths = {r.path for r in app.routes if hasattr(r, "path")}
     for tree in (
@@ -532,11 +535,12 @@ def test_every_tree_moves_with_the_prefix():
 def test_the_ui_is_at_the_mount_root_and_the_old_path_redirects():
     """The UI is what a person gets for visiting the server; `/admin/*` is the
     API that page calls. The root used to 404."""
+    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
-    server = SeleniumMCP(
-        grid_url="http://grid.invalid:4444", auth_token=TOKEN, route_prefix="/flow"
-    )
+    server = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}, route_prefix="/flow",
+    ))
     client = TestClient(server.mcp.http_app())
     assert client.get("/flow/").status_code == 200
     moved = client.get("/flow/admin", follow_redirects=False)
@@ -548,11 +552,12 @@ def test_the_ui_is_at_the_mount_root_and_the_old_path_redirects():
 def test_the_ops_endpoints_answer_at_the_root_whatever_the_prefix():
     """The one path whose reader did not choose the mount. A readiness probe
     that 404s after a config change is the failure this avoids."""
+    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
-    server = SeleniumMCP(
-        grid_url="http://grid.invalid:4444", auth_token=TOKEN, route_prefix="/flow"
-    )
+    server = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}, route_prefix="/flow",
+    ))
     client = TestClient(server.mcp.http_app())
     for probe in ("/health", "/started", "/ready", "/info"):
         assert client.get(probe).status_code in (200, GRID_DOWN), probe
@@ -562,13 +567,14 @@ def test_the_ops_endpoints_answer_at_the_root_whatever_the_prefix():
 async def test_the_published_spec_describes_the_paths_actually_served():
     """A document that names a path nothing serves is worse than no document,
     and a prefix is exactly where the two drift apart."""
+    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.routes import ENDPOINTS
     from kubed.selenium_flow.server import SeleniumMCP
     from kubed.selenium_flow.spec import build_spec
 
-    server = SeleniumMCP(
-        grid_url="http://grid.invalid:4444", auth_token=TOKEN, route_prefix="/flow"
-    )
+    server = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}, route_prefix="/flow",
+    ))
     spec = await build_spec(server.mcp, ENDPOINTS, "/flow", authenticated=True)
     served = {r.path for r in server.mcp.http_app().routes if hasattr(r, "path")}
     assert set(spec["paths"]) <= served, set(spec["paths"]) - served
