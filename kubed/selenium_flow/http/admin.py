@@ -393,7 +393,7 @@ def register(
         has those. Read-only, like every admin view of configuration.
         """
         if settings_payload is None:
-            return JSONResponse({"config_file": None, "sections": []})
+            return JSONResponse({"sections": []})
         return JSONResponse(settings_payload())
 
     # Whether the last read of the store failed, so an outage warns once rather

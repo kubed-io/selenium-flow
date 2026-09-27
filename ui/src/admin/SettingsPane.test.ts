@@ -5,10 +5,8 @@ import { createApi } from './api'
 import SettingsPane from './SettingsPane.svelte'
 
 const api = createApi({ base: '', token: () => 't', onUnauthorized: () => {} })
-const FILE = '/etc/selenium-flow/config.yaml'
 
 const body = {
-  config_file: FILE,
   sections: [
     { name: 'server', description: 'Where it listens, and where it lives.', settings: [
       { key: 'port', name: 'port', description: 'Port to listen on.', value: 8000, source: 'args' },
@@ -18,11 +16,11 @@ const body = {
       { key: 'auth.token', name: 'token', description: 'Bearer token for every request. Unset is open.', value: null, source: 'env', sensitive: true, set: true },
     ] },
     { name: 'redis', description: 'The session store’s connection.', settings: [
-      { key: 'redis.db', name: 'db', description: 'Redis database number.', value: 2, source: 'config', file: FILE },
+      { key: 'redis.db', name: 'db', description: 'Redis database number.', value: 2, source: 'config' },
       { key: 'redis.password', name: 'password', description: 'Redis password.', value: null, source: 'default', sensitive: true, set: false },
     ] },
     { name: 'secrets', description: 'Where secrets are read from.', settings: [
-      { key: 'secrets.dirs', name: 'dirs', description: 'Directories of secrets. First match wins.', value: ['/a', '/b'], source: 'config', file: FILE },
+      { key: 'secrets.dirs', name: 'dirs', description: 'Directories of secrets. First match wins.', value: ['/a', '/b'], source: 'config' },
     ] },
   ],
 }
@@ -41,12 +39,13 @@ test('a card per section, a row per setting, a pill per source', async () => {
   expect(row(container, 'secrets.dirs').querySelector('.value')).toHaveTextContent('/a, /b')
 })
 
-test('the file path shows only for a value from config', async () => {
+test('a config-sourced row shows the pill and nothing else about the file', async () => {
   fakeFetch({ 'GET /admin/settings': { body } })
   const { container } = render(SettingsPane, { api })
   await vi.waitFor(() => expect(container.querySelector('.settings-card')).toBeTruthy())
-  expect(row(container, 'redis.db').querySelector('.file')).toHaveTextContent(FILE)
-  expect(row(container, 'port').querySelector('.file')?.textContent).toBe('')
+  expect(row(container, 'redis.db').querySelector('.file')).toBeNull()
+  expect(row(container, 'redis.db')).not.toHaveTextContent(/config\.yaml|\/etc\//)
+  expect(row(container, 'redis.db').querySelector('.pill.src')).toHaveTextContent('config')
 })
 
 test('a sensitive value is dots when set and nothing when not, and never labelled', async () => {

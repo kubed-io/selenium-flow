@@ -46,7 +46,6 @@
             <span class="info" role="button" tabindex="0" aria-label={row.description} data-tip={row.description}>i</span>
             <code class="key">{row.name}</code>
             <span class="value">{shown(row)}</span>
-            <code class="file">{row.source === 'config' ? (row.file ?? '') : ''}</code>
             <span class={['pill', 'src', row.source]}>{row.source}</span>
           </div>
         {/each}
@@ -58,11 +57,8 @@
 <style>
   .legend { display: flex; justify-content: flex-end; gap: 4px; margin: 8px 0; }
   .settings-card { display: flex; flex-direction: column; gap: 2px; margin-bottom: var(--gap); }
-  .setting { display: grid; grid-template-columns: 16px 240px 1fr auto auto; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
-  .key, .file { font-size: 12px; }
-  .file { color: var(--muted); }
-  /* No file to show: draw nothing, not a faint empty box. */
-  .file:empty { background: none; padding: 0; border: 0; }
+  .setting { display: grid; grid-template-columns: 16px 240px 1fr auto; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
+  .key { font-size: 12px; }
   .value { overflow-wrap: anywhere; }
   .info { position: relative; display: inline-grid; place-items: center; width: 14px; height: 14px; border: 1px solid var(--muted); border-radius: 50%; color: var(--muted); font-size: 10px; font-weight: 600; cursor: help; }
   .info:hover::after, .info:focus::after {

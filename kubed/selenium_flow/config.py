@@ -575,7 +575,12 @@ URL_LEAVES = {"grid.url", "grid.console_url", "public_base_url"}
 
 
 def describe(settings: Settings, sources: Mapping[str, str]) -> dict:
-    """The Settings tab's payload. Never a sensitive value, and no secret entries."""
+    """The Settings tab's payload. Never a sensitive value, and no secret entries.
+
+    A row from the config file carries the `config` source, not the file's
+    path — that path is already shown once, as the value of the `config_file`
+    setting itself.
+    """
     rows: dict[str, list[dict]] = {name: [] for name in SECTION_ORDER}
     for leaf in leaves():
         value = value_of(settings, leaf.path)
@@ -599,11 +604,8 @@ def describe(settings: Settings, sources: Mapping[str, str]) -> dict:
             )
         else:
             row.update(value=value, source=sources.get(leaf.path, "default"))
-        if row["source"] == "config":
-            row["file"] = settings.config_file
         rows[leaf.section].append(row)
     return {
-        "config_file": settings.config_file,
         "sections": [
             {
                 "name": name,

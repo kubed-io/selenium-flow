@@ -215,10 +215,9 @@ def test_describe_is_the_payload_the_tab_renders(tmp_path):
     path = _file(tmp_path, "redis:\n  db: 2\n")
     loaded = load(["--config-file", path], {"AUTH_TOKEN": "t0ken"})
     body = config.describe(loaded.settings, loaded.sources)
-    assert body["config_file"] == path
     assert [s["name"] for s in body["sections"]] == config.SECTION_ORDER
     rows = {r["key"]: r for s in body["sections"] for r in s["settings"]}
-    assert rows["redis.db"] == {"key": "redis.db", "name": "db", "description": "Redis database number.", "value": 2, "source": "config", "file": path}
+    assert rows["redis.db"] == {"key": "redis.db", "name": "db", "description": "Redis database number.", "value": 2, "source": "config"}
     assert rows["auth.token"] == {"key": "auth.token", "name": "token", "description": "Bearer token for every request. Unset is open.", "value": None, "source": "env", "sensitive": True, "set": True}
     assert rows["redis.password"]["set"] is False
     assert "secrets.entries" not in rows
