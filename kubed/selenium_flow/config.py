@@ -175,8 +175,12 @@ class SecretsSettings(Section):
     @classmethod
     def _split(cls, value):
         if isinstance(value, str):
-            return [part.strip() for part in value.split(os.pathsep) if part.strip()]
-        return value
+            value = value.split(os.pathsep)
+        # A blank/whitespace entry is dropped, never an error: `dirs: [""]`
+        # means no dirs, same as an unset SECRETS_DIRS — one code path keeps
+        # the YAML list form consistent with the env/CLI string form instead
+        # of letting it bypass this and hand FilesystemSource("") the cwd.
+        return [part.strip() for part in value if part.strip()]
 
     @field_validator("entries")
     @classmethod

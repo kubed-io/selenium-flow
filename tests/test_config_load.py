@@ -112,6 +112,13 @@ def test_secrets_dirs_from_env_and_args():
     assert load(["--secrets-dirs", "/c"], {}).settings.secrets.dirs == ["/c"]
 
 
+def test_a_blank_secrets_dir_in_the_config_file_is_dropped(tmp_path):
+    # The YAML list form: a lone blank entry must mean "no dirs", the same as
+    # an unset SECRETS_DIRS, not a FilesystemSource("") over the cwd.
+    path = _file(tmp_path, 'secrets:\n  dirs:\n  - ""\n')
+    assert load([], {"CONFIG_FILE": path}).settings.secrets.dirs == []
+
+
 def test_booleans_take_a_value_on_the_command_line():
     assert load([], {"MCP_SKILL": "false"}).settings.mcp.skill is False
     assert load(["--mcp-apps", "false"], {}).settings.mcp.apps is False

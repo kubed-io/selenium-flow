@@ -85,6 +85,12 @@ def test_no_dirs_and_no_entries_is_off():
     assert secrets.from_settings(SecretsSettings()) is None
 
 
+def test_a_blank_dirs_entry_is_off_not_the_working_directory():
+    # dirs=[""] must normalise away to no dirs, same as an unset SECRETS_DIRS
+    # — never a FilesystemSource("") exposing the process's cwd.
+    assert secrets.from_settings(SecretsSettings(dirs=[""])) is None
+
+
 def test_a_declared_empty_leash_is_usable_nowhere():
     """`allowed_urls: []` is a leash declared and immediately exhausted — not
     the same as never declaring one, which allows any site."""

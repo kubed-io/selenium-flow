@@ -72,6 +72,14 @@ def test_secrets_dirs_split_like_path(tmp_path):
     assert s.secrets.dirs == ["/a", "/b"]
 
 
+def test_secrets_dirs_as_a_list_drops_blanks_too():
+    # The YAML list form must not bypass the same blank-dropping the string
+    # (env/CLI) form gets — a blank/whitespace entry used to sail through and
+    # FilesystemSource("") would resolve to the process's working directory.
+    s = Settings(secrets={"dirs": ["", "  ", "/a"]})
+    assert s.secrets.dirs == ["/a"]
+
+
 def test_a_blank_flow_dir_is_off():
     assert Settings(flow={"data_dir": "   "}).flow.data_dir is None
 
