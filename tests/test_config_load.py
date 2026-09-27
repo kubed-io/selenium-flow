@@ -50,6 +50,30 @@ def test_session_store_is_derived_from_a_redis_setting():
     assert load([], {"REDIS_PORT": "6380"}).settings.session.store == "memory"
 
 
+def test_a_derived_redis_store_reports_where_redis_was_set(tmp_path):
+    # A store derived from Redis must say where Redis was set, not "default".
+    assert load([], {"REDIS_HOST": "r"}).sources["session.store"] == "env"
+    assert load(["--redis-url", "redis://r:6379"], {}).sources["session.store"] == "args"
+
+    path = _file(tmp_path, "redis:\n  host: h\n")
+    assert load([], {"CONFIG_FILE": path}).sources["session.store"] == "config"
+
+    # host from config, url from env: env outranks config.
+    loaded = load([], {"CONFIG_FILE": path, "REDIS_URL": "redis://r:6379"})
+    assert loaded.sources["session.store"] == "env"
+
+    # No redis setting at all: memory IS the default, so the source stays default.
+    loaded = load([], {})
+    assert loaded.settings.session.store == "memory"
+    assert loaded.sources["session.store"] == "default"
+
+    # Explicit SESSION_STORE=memory alongside REDIS_HOST: the explicit env
+    # value wins, and its own source is reported, not derived.
+    loaded = load([], {"REDIS_HOST": "r", "SESSION_STORE": "memory"})
+    assert loaded.settings.session.store == "memory"
+    assert loaded.sources["session.store"] == "env"
+
+
 @pytest.mark.parametrize("name", ["FLOW_UI_PORT", "MCP_KB_PORT", "SESSION_FOO_PORT", "BROWSER", "SELENIUM_FLOW_PORT", "SECRETS_ENTRIES"])
 def test_unknown_env_names_are_ignored(name):
     assert load([], {name: "tcp://10.0.0.1:80"}).settings == config.Settings()

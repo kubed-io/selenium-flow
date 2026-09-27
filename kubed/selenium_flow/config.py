@@ -539,8 +539,16 @@ def load(
     if sources["session.store"] == "default":
         # Today's rule, kept: asking for Redis by naming it is asking for the
         # Redis store. Explicitly `memory` still wins.
-        wanted = sources["redis.url"] != "default" or sources["redis.host"] != "default"
+        redis_sources = (sources["redis.url"], sources["redis.host"])
+        wanted = any(name != "default" for name in redis_sources)
         merged.setdefault("session", {})["store"] = "redis" if wanted else "memory"
+        if wanted:
+            # Provenance follows whichever of redis.url/redis.host was set
+            # with the highest precedence; memory needs no such update, since
+            # memory IS the default.
+            sources["session.store"] = next(
+                name for name in precedence if name in redis_sources
+            )
     try:
         settings = Settings.model_validate(merged)
     except ValidationError as exc:
