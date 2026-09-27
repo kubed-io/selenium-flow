@@ -10,8 +10,7 @@ This round lives in
 `docs/superpowers/` and not in the saga.
 
 **Status:** spec written and drawn. The Penpot file *Admin UI* holds the
-drawing, in version *Configuration design, round 7 — the config pill; example config
-rows*. Plan written; implementation on PR #47.
+drawing, in version *Configuration design, round 9 — no path on config rows*. Plan written; implementation on PR #47.
 
 ## Goal
 
@@ -334,7 +333,6 @@ other admin route. It has no tool and no resource.
 
 ```json
 {
-  "config_file": "/etc/selenium-flow/config.yaml",
   "sections": [
     {
       "name": "session",
@@ -345,8 +343,7 @@ other admin route. It has no tool and no resource.
           "name": "ttl",
           "description": "Seconds a session is kept after its last use.",
           "value": 86400,
-          "source": "config",
-          "file": "/etc/selenium-flow/config.yaml"
+          "source": "config"
         },
         {
           "key": "auth.token",
@@ -364,8 +361,9 @@ other admin route. It has no tool and no resource.
 ```
 
 - **What a row is, and nothing more:** the key, a one-line description, the
-  value, where it came from (`default`, `config`, `env` or `args`), and the
-  file's path when it came from the file. The env name, the flag and the
+  value, and where it came from (`default`, `config`, `env` or `args`). A
+  `config` row carries no path: the path is shown once, as the value of the
+  `config_file` setting (Dr K, 2026-09-26). The env name, the flag and the
   default are **not** in the payload: this tab shows what is running, and the
   wiki's Configuration page documents the names, defaults and options.
 
@@ -397,7 +395,6 @@ Secrets · Settings · Grid console.
     `redis` card, not `redis.port`. The card title already says it;
   - the value: `—` if unset. A sensitive value is `●●●●` when set and blank
     when not, with no label saying it is sensitive;
-  - the config file's path, muted mono, only when the value came from it;
   - a **source pill**: `default`, `config`, `env` or `args`. `default` means the
     value is the default, so no default column is needed.
 - **The description is written to tooltip length** ("Seconds a session is
@@ -476,7 +473,7 @@ different one.
   ⓘ is drawn, not wired. The real text for all of them is in the plan. Rows
   do not click.
 - **Source pills follow precedence in weight**: `default` is a faint outline,
-  `file` an accent outline, `env` accent-filled, and `args` ink-filled. The
+  `config` an accent outline, `env` accent-filled, and `args` ink-filled. The
   strongest source looks strongest. The legend is the four pills, in that
   order, with no words.
 - **Secrets gains the config states**:
@@ -490,7 +487,7 @@ different one.
   env AUTH_TOKEN`, `password · value`). A key read from a directory stays a
   bare name, as today.
 - **Components:** `nav / settings`, a Settings tab in every `nav`,
-  `setting-row` (ⓘ, key, value, file path, source pill),
+  `setting-row` (ⓘ, key, value, source pill),
   `source-pill / default|config|env|args`, `info` and `tooltip`. A section card is a plain board of row instances,
   not a component, because its row count varies.
 - **Checked mechanically before review**, as §F4.11 requires: no main component
@@ -555,7 +552,7 @@ can break in a way no unit test sees, and that is argued in the plan.
 - **`GET /admin/settings`**: 401 without the token, every section, sensitive
   values withheld, `secrets.entries` absent.
 - **UI (vitest)**: the Settings pane renders sections, the four source
-  pills, the file path only on `file` rows, the ⓘ tooltip, dots for a set
+  pills, no path on a `config` row, the ⓘ tooltip, dots for a set
   sensitive value and a blank for an unset one, and the no-config state. The Secrets pane
   shows key sources and the two new warn pills. The router handles
   `#/settings`.
