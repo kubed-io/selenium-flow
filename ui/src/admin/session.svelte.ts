@@ -146,7 +146,11 @@ export class SessionModel {
     return this.#siteLoads.run(
       (signal) => this.#api<SiteDataPayload>(sessionPath(this.key, '/site-data'), 'GET', undefined, signal),
       (data) => { this.siteData = data; this.siteDataError = null },
-      (e) => { this.siteDataError = e.message },
+      (e) => {
+        this.siteDataError = e.message
+        // Unshown again, so the next push at the same rev tries once more.
+        this.#shownSiteData = undefined
+      },
     )
   }
 

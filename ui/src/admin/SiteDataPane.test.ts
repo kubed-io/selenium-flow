@@ -74,6 +74,16 @@ test('first saved row is open, the others shut', async () => {
   expect(c.querySelector('.title')).toHaveAttribute('aria-expanded', 'false')
 })
 
+test('the first saved row opens even when a secret-only row sorts before it', async () => {
+  const [a, b, c] = SITES.sites
+  const { container } = setup({ 'GET /admin/sessions/k/site-data': { body: { ...SITES, sites: [c, a, b] } } })
+  await loaded(container)
+  const [first, second, third] = sections(container)
+  expect(first.querySelector('.title')).toHaveAttribute('aria-expanded', 'false')
+  expect(second.querySelector('.title')).toHaveAttribute('aria-expanded', 'true')
+  expect(third.querySelector('.title')).toHaveAttribute('aria-expanded', 'false')
+})
+
 test('expanded: cookies with dots for httpOnly, flags, expiry; storage; none', async () => {
   const { container } = setup()
   await loaded(container)
@@ -165,6 +175,20 @@ test('a pushed site_data_rev change reloads; the same rev does not', async () =>
   expect(gets()).toBe(1)
   push('r2')
   await vi.waitFor(() => expect(gets()).toBe(2))
+})
+
+test('a failed load is retried by the next push at the same rev', async () => {
+  let n = 0
+  const { container, live } = setup({
+    'GET /admin/sessions/k/site-data': () => (++n <= 2 ? { status: 500, body: { error: 'flaky' } } : { body: SITES }),
+  })
+  await vi.waitFor(() => expect(screen.getByText('flaky')).toBeInTheDocument())
+  live.data = { sessions: [{ ...row, site_data_rev: 'r1' }] }
+  await vi.waitFor(() => expect(n).toBe(2))
+  await new Promise((r) => setTimeout(r, 10))
+  live.data = { sessions: [{ ...row, site_data_rev: 'r1', files_count: 1 }] }
+  await loaded(container)
+  expect(n).toBe(3)
 })
 
 test('an error shows in the pane, Loading… before', async () => {

@@ -25,7 +25,9 @@
   // is the reader's.
   $effect.pre(() => {
     const sites = data?.sites ?? []
-    untrack(() => sites.forEach((r, i) => { folds[idOf(r)] ??= i === 0 && r.saved }))
+    // Not row 0: a secret-only row can sort first and has nothing to open.
+    const first = sites.find((r) => r.saved)
+    untrack(() => sites.forEach((r) => { folds[idOf(r)] ??= r === first }))
   })
 
   const plural = (n: number, one: string, many = one + 's') => n + ' ' + (n === 1 ? one : many)
