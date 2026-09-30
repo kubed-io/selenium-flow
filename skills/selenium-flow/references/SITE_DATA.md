@@ -75,6 +75,8 @@ read `•••`, here and in the admin UI.
 ## Limits
 
 - IndexedDB is not saved.
+- An origin reached only by a redirect or inside a frame is filled but not
+  announced, and stays pending until you land on it yourself.
 - A script cannot set an httpOnly cookie; it is restored through the browser's own
   channel.
 - A save replaces all cookies, so a save after signing out saves you signed out.

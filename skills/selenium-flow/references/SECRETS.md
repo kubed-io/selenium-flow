@@ -59,13 +59,16 @@ It comes back with `"text_from": "secret"` and no value. In a flow, the same
     {"tool": "write", "args": {"selector": {"css": "#password"},
       "secret": {"name": "nextcloud", "key": "password"}}},
     {"tool": "interact", "args": {"action": "click", "selector": {"css": "button[type=submit]"}}},
-    {"tool": "extract", "args": {"selector": {"css": "h1"}}, "return": true},
+    {"tool": "assert", "args": {"script": "return !location.pathname.startsWith('/login')",
+      "stable_for": 1, "message": "Still on the login page."}},
     {"tool": "save_site_data", "args": {}}
   ]
 }
 ```
 
-The report shows that step as `text=<hidden>`. The last step keeps the sign-in:
+The report shows the typing steps as `text=<hidden>`. The `assert` is what proves
+you are in — `extract` reads content and never stops a flow. The last step keeps
+the sign-in:
 a reopened browser comes back signed in, and the password is not typed again
 (`skill://selenium-flow/references/SITE_DATA.md`).
 
