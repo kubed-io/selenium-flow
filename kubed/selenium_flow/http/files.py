@@ -146,6 +146,13 @@ DESCRIPTION = (
 )
 
 
+# Absent from older Pythons' default table, and the host's /etc/mime.types
+# varies by image. Unmapped, these would serve as octet-stream: sandboxed,
+# and never shown as images (Copilot, #48).
+mimetypes.add_type("image/webp", ".webp")
+mimetypes.add_type("image/avif", ".avif")
+
+
 def content_type(name: str) -> str:
     """The type to serve a stored file as, guessed from its name."""
     return mimetypes.guess_type(name)[0] or "application/octet-stream"

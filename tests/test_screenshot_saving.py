@@ -356,6 +356,8 @@ def test_a_kept_page_opens_without_its_scripts(keeping_server):
         ("shot.png", inert),
         ("shot.jpg", inert),
         ("shot.gif", inert),
+        ("shot.webp", inert),
+        ("shot.avif", inert),
     ):
         keeping_server.flows.write_file("stdio", name, b"<script>alert(1)</script>")
         response = client.get(links.kept_url("stdio", name, "tok"))
