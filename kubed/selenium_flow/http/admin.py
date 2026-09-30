@@ -820,11 +820,7 @@ def register(
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return refused(exc, f"site data for {key}")
         data = record.site_data if record else {}
-        listed = site_data.view(data, secrets)
-        details = {
-            row["site"]: site_data.site_view(data, row["site"], secrets)
-            for row in listed["sites"]
-        }
+        listed, details = site_data.views(data, secrets)
         return JSONResponse({"key": key, **listed, "details": details})
 
     @mcp.custom_route(

@@ -94,7 +94,7 @@ def test_forget_keeps_shared_cookies_and_the_secret_row(client, server):
     gone = client.delete(url("/app.example.com")).json()["forgotten"]
     assert gone["site"] == "app.example.com"
     assert gone["cookies"] == ["sid", "theme"]
-    assert gone["kept_shared"] == ["shared"]
+    assert gone["kept_shared"] == [{"name": "shared", "domain": ".example.com", "path": "/"}]
     left = server.sessions.store.get(KEY).site_data
     assert [c["name"] for c in left["cookies"]] == ["shared"]
     assert left["origins"] == {}
@@ -146,7 +146,7 @@ def test_a_cookie_only_resave_moves_the_rev(client, server):
 def test_details_say_what_forget_takes_and_what_it_leaves(client):
     d = client.get(url()).json()["details"]["app.example.com"]
     assert d["own_cookies"] == ["sid", "theme"]
-    assert d["kept_shared"] == ["shared"]
+    assert d["kept_shared"] == [{"name": "shared", "domain": ".example.com", "path": "/"}]
 
 
 def test_a_row_under_only_a_parent_cookie_has_nothing_to_forget(server):
@@ -180,3 +180,23 @@ def test_forget_answers_404_through_the_central_policy(client):
     body = client.delete(url("/nothing.example.net"))
     assert body.status_code == 404
     assert body.json() == {"error": "no saved site data for nothing.example.net"}
+
+
+def test_the_payload_comes_from_one_grouping_of_the_jar(server, monkeypatch):
+    from kubed.selenium_flow.core import site_data
+
+    cookies = [{"name": "c", "value": "v", "domain": f"h{i}.example{i}.com", "path": "/"}
+               for i in range(300)]
+    server.sessions.store.set(KEY, SessionRecord(session_id="", site_data={
+        "cookies": cookies, "origins": {}, "saved_at": 1.0}))
+    calls = {"n": 0}
+    real = site_data._Jar.covering
+
+    def counting(self, host):
+        calls["n"] += 1
+        return real(self, host)
+
+    monkeypatch.setattr(site_data._Jar, "covering", counting)
+    body = TestClient(server.mcp.http_app(), headers=AUTH).get(url()).json()
+    assert len(body["details"]) >= 300
+    assert calls["n"] <= len(body["details"]) + 5

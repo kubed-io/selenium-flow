@@ -158,16 +158,51 @@ def _own(domain: str, host: str) -> bool:
     return domain in (host, "." + host)
 
 
+def _suffixes(host: str) -> list[str]:
+    """``a.b.com`` -> ``b.com``, ``com``: the parents whose dotted cookies
+    cover it."""
+    parts = host.split(".")
+    return [".".join(parts[i:]) for i in range(1, len(parts))]
+
+
+class _Jar:
+    """One pass over the cookies and origins, so every host's slice is a few
+    dict lookups instead of a scan of the whole jar per host."""
+
+    def __init__(self, data: dict):
+        self.data = data or {}
+        self.cookies = self.data.get("cookies") or []
+        self.by_domain: dict[str, list[int]] = {}
+        for i, c in enumerate(self.cookies):
+            if c.get("domain"):
+                self.by_domain.setdefault(c["domain"], []).append(i)
+        self.origins: dict[str, dict] = {}
+        for o, e in (self.data.get("origins") or {}).items():
+            self.origins.setdefault(host_of(o), {})[o] = e
+
+    def covering(self, host: str) -> list[dict]:
+        """Cookies that reach ``host``, in the order the jar holds them."""
+        keys = [host, "." + host, *("." + s for s in _suffixes(host))]
+        found = sorted({i for k in keys for i in self.by_domain.get(k, ())})
+        return [self.cookies[i] for i in found]
+
+    def hosts(self) -> list[str]:
+        # Storage hosts first and never grown while the cookies are read, so
+        # the rows do not depend on the order the browser listed its cookies in.
+        stored = {h for h in self.origins}
+        reached = set(stored)
+        for h in stored:
+            reached.update("." + s for s in _suffixes(h))
+        bare = {
+            d.lstrip(".")
+            for d in self.by_domain
+            if not (d in reached or (d.startswith(".") and d.lstrip(".") in stored))
+        }
+        return sorted(h for h in stored | bare if h)
+
+
 def _hosts(data: dict) -> list[str]:
-    # Storage hosts first and never grown while the cookies are read, so the
-    # rows do not depend on the order the browser listed its cookies in.
-    stored = {host_of(o) for o in (data.get("origins") or {})}
-    bare = {
-        (c.get("domain") or "").lstrip(".")
-        for c in data.get("cookies") or []
-        if c.get("domain") and not any(_covers(c["domain"], h) for h in stored)
-    }
-    return sorted(h for h in stored | bare if h)
+    return _Jar(data).hosts()
 
 
 def _cookie_view(c: dict, host: str) -> dict:
@@ -201,12 +236,9 @@ def matching_secrets(secrets: list[dict] | None, host: str) -> list[dict]:
     ]
 
 
-def _site(data: dict, host: str, secrets) -> dict:
-    stored = data.get("origins") or {}
-    origins = {o: e for o, e in stored.items() if host_of(o) == host}
-    cookies = [
-        c for c in data.get("cookies") or [] if _covers(c.get("domain") or "", host)
-    ]
+def _site(jar: _Jar, host: str, secrets) -> dict:
+    origins = jar.origins.get(host, {})
+    cookies = jar.covering(host)
     own = [c for c in cookies if _own(c.get("domain") or "", host)]
     local, session = {}, {}
     for entry in origins.values():
@@ -219,13 +251,65 @@ def _site(data: dict, host: str, secrets) -> dict:
         # Only what Forget would remove: a row that merely sits under a
         # parent's shared cookie has nothing of its own to forget.
         "saved": bool(origins or own),
-        "saved_at": max(saved) if saved else data.get("saved_at") if own else None,
+        "saved_at": max(saved) if saved else jar.data.get("saved_at") if own else None,
         "uri": site_uri(host),
         "_cookies": cookies,
+        "_own": own,
         "_local": local,
         "_session": session,
         "secrets": matching_secrets(secrets, host),
     }
+
+
+def _shared(cookies: list[dict], host: str) -> list[dict]:
+    """Covering cookies that stay when ``host`` is forgotten: a parent's
+    leading-dot cookie, which other rows use."""
+    return [
+        c for c in cookies
+        if (c.get("domain") or "").startswith(".") and not _own(c["domain"], host)
+    ]
+
+
+def _identity(c: dict) -> dict:
+    # Two cookies can share a name (`sid` on .example.com and .example.org), so
+    # a name alone cannot say which one stays.
+    return {"name": c["name"], "domain": c.get("domain"), "path": c.get("path")}
+
+
+def _rows(data: dict, secrets: list[dict] | None):
+    """Every site once: ``(listing, details)`` from a single grouping of the
+    jar, so neither costs a scan per host."""
+    jar = _Jar(data)
+    hosts = set(jar.hosts())
+    for s in secrets or []:
+        hosts.update(host_of(u) for u in s.get("allowed_urls") or [])
+    rows, details = [], {}
+    for host in sorted(h for h in hosts if h):
+        site = _site(jar, host, secrets)
+        rows.append({
+            "site": site["site"], "origin": site["origin"], "saved": site["saved"],
+            "saved_at": site["saved_at"], "uri": site["uri"],
+            "cookies": len(site["_cookies"]), "local_storage": len(site["_local"]),
+            "session_storage": len(site["_session"]), "secrets": site["secrets"],
+        })
+        details[host] = {
+            "site": host, "origin": site["origin"], "saved": site["saved"],
+            "saved_at": site["saved_at"], "uri": site["uri"],
+            "cookies": [_cookie_view(c, host) for c in site["_cookies"]],
+            "local_storage": site["_local"], "session_storage": site["_session"],
+            # What Forget would do, by the rule Forget itself uses.
+            "own_cookies": [c["name"] for c in site["_own"]],
+            "kept_shared": [_identity(c) for c in _shared(site["_cookies"], host)],
+            "secrets": site["secrets"],
+        }
+    unleashed = sum(1 for s in secrets or [] if not s.get("restricted"))
+    listing = {
+        "sites": rows,
+        "saved_sites": sum(1 for r in rows if r["saved"]),
+        "unleashed_secrets": unleashed,
+        "uri": LIST_URI,
+    }
+    return listing, details
 
 
 def view(data: dict, secrets: list[dict] | None = None) -> dict:
@@ -235,44 +319,18 @@ def view(data: dict, secrets: list[dict] | None = None) -> dict:
     on is listed even with nothing saved — secrets are not ephemeral, so their
     rows are not either.
     """
-    hosts = set(_hosts(data or {}))
-    for s in secrets or []:
-        hosts.update(host_of(u) for u in s.get("allowed_urls") or [])
-    rows = []
-    for host in sorted(h for h in hosts if h):
-        site = _site(data or {}, host, secrets)
-        rows.append({
-            "site": site["site"], "origin": site["origin"], "saved": site["saved"],
-            "saved_at": site["saved_at"], "uri": site["uri"],
-            "cookies": len(site["_cookies"]), "local_storage": len(site["_local"]),
-            "session_storage": len(site["_session"]), "secrets": site["secrets"],
-        })
-    unleashed = sum(1 for s in secrets or [] if not s.get("restricted"))
-    return {
-        "sites": rows,
-        "saved_sites": sum(1 for r in rows if r["saved"]),
-        "unleashed_secrets": unleashed,
-        "uri": LIST_URI,
-    }
+    return _rows(data, secrets)[0]
+
+
+def views(data: dict, secrets: list[dict] | None = None) -> tuple[dict, dict]:
+    """``(listing, details)``: the listing and every site in full, from one
+    pass over the jar."""
+    return _rows(data, secrets)
 
 
 def site_view(data: dict, site: str, secrets: list[dict] | None = None) -> dict | None:
     """One site in full: cookies (httpOnly masked) and both storages."""
-    host = (site or "").lower()
-    listed = {r["site"] for r in view(data, secrets)["sites"]}
-    if host not in listed:
-        return None
-    s = _site(data or {}, host, secrets)
-    # What Forget would do, by the rule Forget itself uses.
-    _, fate = forget(data or {}, host)
-    return {
-        "site": host, "origin": s["origin"], "saved": s["saved"],
-        "saved_at": s["saved_at"], "uri": s["uri"],
-        "cookies": [_cookie_view(c, host) for c in s["_cookies"]],
-        "local_storage": s["_local"], "session_storage": s["_session"],
-        "own_cookies": fate["cookies"], "kept_shared": fate["kept_shared"],
-        "secrets": s["secrets"],
-    }
+    return _rows(data, secrets)[1].get((site or "").lower())
 
 
 def summary(data: dict) -> dict | None:
@@ -284,23 +342,21 @@ def forget(data: dict, host: str) -> tuple[dict, dict]:
     """Remove one site: its origins and the cookies named for it (``host`` or
     ``.host``). A parent-domain cookie of another row stays — others use it."""
     host = (host or "").lower()
-    cookies = data.get("cookies") or []
-    gone = [c for c in cookies if _own(c.get("domain") or "", host)]
-    shared = [
-        c for c in cookies
-        if (c.get("domain") or "").startswith(".") and _covers(c["domain"], host)
-        and c not in gone
-    ]
+    jar = _Jar(data)
+    covering = jar.covering(host)
+    gone = [c for c in covering if _own(c.get("domain") or "", host)]
+    shared = _shared(covering, host)
+    gone_ids = {id(c) for c in gone}
     stored = data.get("origins") or {}
     origins = [o for o in stored if host_of(o) == host]
     left = {
         **data,
-        "cookies": [c for c in cookies if c not in gone],
+        "cookies": [c for c in jar.cookies if id(c) not in gone_ids],
         "origins": {o: e for o, e in stored.items() if o not in origins},
     }
     return left, {
         "site": host, "cookies": [c["name"] for c in gone], "origins": origins,
-        "kept_shared": [c["name"] for c in shared],
+        "kept_shared": [_identity(c) for c in shared],
     }
 
 

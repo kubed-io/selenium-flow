@@ -165,7 +165,7 @@ def test_forget_keeps_shared_cookies_and_other_sites():
     assert [c["name"] for c in left["cookies"]] == ["ab", "kc"]
     assert left["origins"] == {}
     assert removed == {"site": "app.example.com", "cookies": ["sid"], "origins": ["https://app.example.com"],
-                       "kept_shared": ["ab"]}
+                       "kept_shared": [{"name": "ab", "domain": ".example.com", "path": "/"}]}
 
 
 def test_summary_is_none_when_empty():
@@ -586,7 +586,8 @@ def test_the_site_view_names_goes_and_stays_by_the_forget_rule():
                         cookie("ab", ".example.com")], "origins": {}}
     one = sd.site_view(data, "app.example.com")
     assert one["own_cookies"] == ["own", "dot"]
-    assert one["kept_shared"] == ["ab"]
+    assert one["kept_shared"] == [
+        {"name": "ab", "domain": ".example.com", "path": "/"}]
     parent = sd.site_view(data, "example.com")
     assert parent["own_cookies"] == ["ab"] and parent["kept_shared"] == []
 
@@ -692,3 +693,36 @@ def test_a_sites_own_dotted_cookie_is_not_shared_but_a_parents_is():
     ]), NOW)
     shown = {c["name"]: c["shared"] for c in sd.site_view(data, "app.example.com")["cookies"]}
     assert shown == {"own": False, "parent": True, "plain": False}
+
+
+def test_two_shared_cookies_of_one_name_stay_apart():
+    data = {"cookies": [cookie("sid", ".example.com"), cookie("sid", ".example.org"),
+                        cookie("sid", "app.example.com")], "origins": {}}
+    one = sd.site_view(data, "app.example.com")
+    assert one["kept_shared"] == [
+        {"name": "sid", "domain": ".example.com", "path": "/"}]
+    both = {"cookies": [cookie("sid", ".example.com"), cookie("sid", ".example.org")],
+            "origins": {"https://a.example.com": {}, "https://a.example.org": {}}}
+    assert sd.site_view(both, "a.example.com")["kept_shared"][0]["domain"] == ".example.com"
+    assert sd.site_view(both, "a.example.org")["kept_shared"][0]["domain"] == ".example.org"
+
+
+def test_a_jar_of_many_domains_is_not_rescanned_per_host(monkeypatch):
+    """Every host used to rescan the whole jar, and every detail rebuilt the
+    listing: cookies x hosts x hosts. One grouping serves all of them."""
+    calls = {"n": 0}
+    real = {name: getattr(sd, name) for name in ("_covers", "_own")}
+
+    def counting(name):
+        def wrapped(*a):
+            calls["n"] += 1
+            return real[name](*a)
+        return wrapped
+
+    for name in real:
+        monkeypatch.setattr(sd, name, counting(name))
+    cookies = [cookie("c", f"h{i}.example{i}.com") for i in range(500)]
+    listing, details = sd.views({"cookies": cookies, "origins": {}})
+    assert len(listing["sites"]) == 500 and set(details) == {r["site"] for r in listing["sites"]}
+    assert calls["n"] <= 4 * len(cookies)
+    assert sd.view({"cookies": cookies, "origins": {}}) == listing
