@@ -201,7 +201,10 @@ the record has site data and restore is on:
 4. Navigate to the landing page as before; its storage is already in place.
 5. Record `pending` for this browser. If the landing origin had storage,
    the script is swapped at once for one carrying only the origins still
-   waiting (none: it is removed).
+   waiting (none: it is removed). The landing origin is where the browser
+   is after the navigation (`current_url`), not the URL it was sent to: a
+   cross-origin redirect never loads the requested origin, so it stays
+   waiting.
 
 After each call, `SessionManager.settle` compares the page's origin with
 `pending.origins`. A match is announced in the result and leaves `pending`,

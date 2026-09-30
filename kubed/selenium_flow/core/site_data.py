@@ -423,12 +423,14 @@ def _kept(bidi, cookies: list[dict]) -> list[dict] | None:
     return [c for c in cookies if _key(c["name"], c["domain"], c.get("path")) in held]
 
 
-def restore(bidi, data: dict, landing_url: str | None, now: float) -> tuple[dict, dict]:
+def restore(bidi, data: dict, now: float) -> tuple[dict, dict]:
     """Put a session's saved site data into a browser, before its first page.
 
     Cookies go in for every host, even ones never visited. Storage cannot, so
-    one preload script fills each origin as it is first reached. Nothing raises:
-    a report says what came back and what is waiting.
+    one preload script fills each origin as it is first reached, and every
+    origin with storage starts out waiting: which one the first page reached is
+    :func:`arrive`'s to say, after it loaded. Nothing raises: a report says
+    what came back and what is waiting.
     """
     from selenium.webdriver.common.bidi.storage import BytesValue, PartialCookie
 
@@ -463,26 +465,39 @@ def restore(bidi, data: dict, landing_url: str | None, now: float) -> tuple[dict
                 })
         origins = data.get("origins") or {}
         script = _add_preload(bidi, origins) if origins else ""
-        landing = origin_of(landing_url or "")
         stored_hosts = {host_of(o) for o in origins}
-        cookie_only = sorted({
+        report["restored"] = sorted({
             c["domain"].lstrip(".") for c in kept
             if not any(_covers(c["domain"], h) for h in stored_hosts)
         })
-        first = [landing] if landing in origins else []
-        report["restored"] = first + cookie_only
-        report["waiting"] = sorted(o for o in origins if o not in first)
+        report["waiting"] = sorted(origins)
         pending = {"origins": list(report["waiting"]), "script": script}
-        if first and report["waiting"]:
-            # The script still carries the landing origin; it is swapped for
-            # one that does not once the browser settles (see ``replace``).
-            pending["arrived"] = first
     except Exception as e:  # noqa: BLE001 - BiDi failing is a report, not a crash
         return (
             {"restored": [], "waiting": [], "skipped": [{"reason": failure_text(e)}],
              "uri": LIST_URI},
             {"origins": [], "script": ""},
         )
+    return report, pending
+
+
+def arrive(report: dict, pending: dict, url: str) -> tuple[dict, dict]:
+    """The first page loaded at ``url``: if that origin was waiting, it is
+    restored now — the preload script filled it.
+
+    Asked of where the browser *is*, not where it was sent: a redirect to
+    another origin never loads the requested one, so that one stays waiting.
+    """
+    landed = origin_of(url or "")
+    if landed not in (pending.get("origins") or []):
+        return report, pending
+    waiting = [o for o in pending["origins"] if o != landed]
+    report = {**report, "restored": [landed, *report["restored"]], "waiting": waiting}
+    pending = {**pending, "origins": list(waiting)}
+    if waiting:
+        # The script still carries the landing origin; it is swapped for one
+        # that does not once the browser settles (see ``replace``).
+        pending["arrived"] = [landed]
     return report, pending
 
 

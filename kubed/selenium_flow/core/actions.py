@@ -408,13 +408,16 @@ class Actions:
         if site_data and (site_data.get("cookies") or site_data.get("origins")):
             with self.grid.bidi(session_id) as bidi:
                 restored, pending = site_data_module.restore(
-                    bidi, site_data, url, time.time()
+                    bidi, site_data, time.time()
                 )
 
         current_url, title = "about:blank", ""
         if url:
             driver.get(url)
             current_url, title = driver.current_url, driver.title
+        if restored is not None:
+            # Where the browser landed, after any redirect, is what was filled.
+            restored, pending = site_data_module.arrive(restored, pending, current_url)
 
         size = driver.get_window_size()
         # Reported back so a caller can see what the cascade actually resolved
