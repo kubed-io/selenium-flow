@@ -159,7 +159,7 @@ async def browser(server):
         headers={"Authorization": f"Bearer {TOKEN}", "X-Session-Key": SESSION},
     )
     async with Client(transport) as client:
-        await client.call_tool("open_session", {"width": 1280, "height": 900})
+        await client.call_tool("open_session", {"width": 1280, "height": 900, "restore_site_data": False})
         try:
             yield client
         finally:

@@ -109,9 +109,13 @@ unused for `session.ttl` goes, and its site data with it. No new setting.
   are those whose domain is the host or `.host`; only its own cookies and
   origins make a site *saved* (and forgettable) — a parent's shared cookie
   only covers it.
-- **Size cap: 1 000 000 bytes** of JSON for the whole field. A save that would
-  pass it keeps the cookies, leaves that origin's storage out, and says so in
-  its result — it neither fails nor truncates.
+- **Size cap: 1 000 000 bytes** of JSON for the whole field, enforced on what
+  is stored. A save whose origin alone would pass it keeps the cookies, leaves
+  that origin's storage out, and says so in its result. If the new cookies
+  plus the other origins pass it, the oldest-saved other origins are evicted
+  until it fits, each reported in `skipped` as
+  `{site, reason: "evicted: over 1000000 bytes"}`. If the cookies alone pass
+  it, the save raises `ValueError` (a 400) and the record is unchanged.
 - Values are never logged.
 
 ## The surface
@@ -205,7 +209,9 @@ and the preload script is **replaced** by one carrying only the origins
 still waiting, or removed when none are — one BiDi reconnect. Without that,
 the tab marker being per tab, an app opening an arrived origin in a new tab
 would have it refilled over what it changed since. Restore is best effort:
-nothing in it can fail an open.
+nothing in it can fail an open. An origin reached only by a redirect or in a
+frame is filled but not announced, and stays pending until the agent lands
+there.
 
 ## Forgetting a site (admin)
 

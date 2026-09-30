@@ -847,9 +847,7 @@ def register(
             data = record.site_data if record else {}
             left, removed = site_data.forget(data, host)
             if not (removed["cookies"] or removed["origins"]):
-                return JSONResponse(
-                    {"error": f"no saved site data for {host}"}, status_code=404
-                )
+                raise errors.NotFound(f"no saved site data for {host}")
             # Pending origins are restores not yet consumed; a forgotten site
             # must not come back through one.
             pending = left.get("pending")

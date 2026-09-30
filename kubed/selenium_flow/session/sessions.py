@@ -436,6 +436,10 @@ class SessionManager:
                     pending["script"] = self.actions.retire_site_data(
                         record.session_id, script, self._waiting(data, origins)
                     )
+                    if origins and not pending["script"]:
+                        # No script is left to fill them: announcing them
+                        # later would promise a restore that cannot happen.
+                        pending["origins"] = []
             if hint:
                 result["site_data"] = hint
             pending["announce"] = False
@@ -483,6 +487,8 @@ class SessionManager:
                 self._waiting(data, waiting.get("origins") or []),
             )
             waiting = {**waiting, "script": script}
+            if waiting.get("origins") and not script:
+                waiting["origins"] = []
         if waiting and (waiting.get("origins") or extra.get("announce")):
             data["pending"] = {"browser": record.session_id, **waiting, **extra}
         if data != record.site_data:

@@ -19,6 +19,7 @@ class SiteActions(RecordingActions):
         self.landing_only = False
         self.waiting = ["https://w.test"]
         self.arrived = None
+        self.cannot_add = False
 
     def open_session(self, url=None, site_data=None, **kw):
         self.site_data_seen.append(site_data)
@@ -49,7 +50,7 @@ class SiteActions(RecordingActions):
     def retire_site_data(self, session_id, script, keep=None):
         self.retired.append(script)
         self.kept.append(sorted(keep) if keep else None)
-        return f"{script}+" if keep else ""
+        return "" if self.cannot_add or not keep else f"{script}+"
 
 
 def opened_with_save():
@@ -70,7 +71,7 @@ def test_a_save_is_merged_into_the_record_and_never_returned_raw(named_caller):
     result = m.act(NAMED, lambda s: m.actions.save_site_data(s))
     assert site_data.CAPTURED not in result
     assert result["saved"] and result["uri"] == "session://site-data"
-    assert "https://app.example.com" in m.store.get(NAMED).site_data["origins"]
+    assert list(m.store.get(NAMED).site_data["origins"]) == ["https://app.example.com"]
 
 
 def test_open_restores_what_was_saved_and_says_so(named_caller):
@@ -131,7 +132,7 @@ def test_remember_keeps_site_data(named_caller):
     m = opened_with_save()
     m.open_browser(NAMED)
     m.open_browser(NAMED)
-    assert "https://app.example.com" in m.store.get(NAMED).site_data["origins"]
+    assert list(m.store.get(NAMED).site_data["origins"]) == ["https://app.example.com"]
 
 
 def test_describe_summarises_site_data(named_caller):
@@ -205,7 +206,7 @@ def test_a_flow_that_saves_keeps_the_data_and_never_reports_the_capture(
 ):
     store, m = flow_world(tmp_path, [{"tool": "save_site_data", "args": {}, "return": True}])
     m, report = run_flow(store, m, verbose=True)
-    assert "app.example.com" in json.dumps(m.store.get(NAMED).site_data["origins"])
+    assert list(m.store.get(NAMED).site_data["origins"]) == ["https://app.example.com"]
     assert site_data.CAPTURED not in json.dumps(report)
     assert report["steps"][0]["result"]["saved"]["cookies"] == 1
 
@@ -257,6 +258,27 @@ def test_a_landing_that_arrived_at_open_is_swapped_out_at_once(named_caller):
     assert m.actions.retired == ["p1"] and m.actions.kept == [["https://w.test"]]
     pending = m.store.get(NAMED).site_data["pending"]
     assert pending["script"] == "p1+" and "arrived" not in pending
+
+
+def test_origins_that_cannot_fill_are_not_announced_later(named_caller):
+    m = opened_with_save()
+    with_storage_for(m, "https://v.test", "https://w.test")
+    m.actions.waiting = ["https://v.test", "https://w.test"]
+    m.actions.cannot_add = True
+    reopened(m)
+    m.act(NAMED, lambda s: {"url": "https://w.test/page"})
+    assert "pending" not in m.store.get(NAMED).site_data
+    told = m.act(NAMED, lambda s: {"url": "https://v.test/"})
+    assert "site_data" not in told
+
+
+def test_a_landing_swap_that_cannot_add_stops_waiting(named_caller):
+    m = opened_with_save()
+    with_storage_for(m, "https://w.test")
+    m.actions.arrived = ["https://app.example.com"]
+    m.actions.cannot_add = True
+    reopened(m)
+    assert "pending" not in m.store.get(NAMED).site_data
 
 
 def test_the_capture_is_stripped_even_when_the_store_fails(named_caller):

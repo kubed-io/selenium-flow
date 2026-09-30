@@ -36,6 +36,11 @@ def test_origin_of_matches_location_origin():
     assert sd.origin_of("") == ""
 
 
+def test_an_ipv6_origin_keeps_its_brackets():
+    assert sd.origin_of("http://[::1]:3000/") == "http://[::1]:3000"
+    assert sd.origin_of("https://[2001:db8::1]/x") == "https://[2001:db8::1]"
+
+
 def test_a_save_replaces_cookies_and_adds_its_origin():
     first, _ = sd.merge({}, captured(local={"theme": "dark"}), NOW)
     second, saved = sd.merge(
@@ -143,6 +148,9 @@ def test_secrets_are_matched_by_host_and_unleashed_ones_counted():
     ]
     assert sites["admin.example.com"]["saved"] is False, "a secret keeps a row with nothing saved"
     assert listing["unleashed_secrets"] == 1
+    broken = [*secrets, {"name": "dead", "description": "", "keys": [], "allowed_urls": [],
+                         "restricted": True}]
+    assert sd.view(data, broken)["unleashed_secrets"] == 1, "a restricted empty leash is usable nowhere"
     assert listing["saved_sites"] == 1
 
 
@@ -482,7 +490,9 @@ def test_replace_swaps_the_script_for_the_origins_still_waiting():
     bidi = FakeBidi()
     new = sd.replace(bidi, "old", {"https://w.test": {"local": {"a": "1"}, "session": {}}})
     assert bidi.script.removed == ["old"] and new == "preload-1"
-    assert "https://w.test" in bidi.script.added[0]
+    assert bidi.script.added == [sd.preload_source(
+        {"https://w.test": {"local": {"a": "1"}, "session": {}}}
+    )]
     last = FakeBidi()
     assert sd.replace(last, "preload-1", {}) == "" and last.script.added == []
     assert last.script.removed == ["preload-1"]
@@ -602,3 +612,74 @@ def test_every_skipped_item_restore_emits_is_declared():
     for item in items:
         assert set(item) <= set(declared["properties"]), item
         assert set(declared["required"]) <= set(item)
+
+
+def test_a_bidi_failure_never_leaks_the_grid_credential_into_the_report():
+    data, _ = sd.merge({}, captured(local={"a": "1"}), NOW)
+    leak = "http://user:pass@grid:4444"
+
+    class Broken:
+        storage = FakeStorage()
+
+        @property
+        def script(self):
+            raise RuntimeError(f"connect to {leak}/session failed")
+
+    whole, _ = sd.restore(Broken(), data, None, NOW)
+    refusing = FakeBidi(refuse={"sid"})
+
+    def refuse(cookie=None, partition=None):
+        raise RuntimeError(f"refused by {leak}")
+
+    refusing.storage.set_cookie = refuse
+    one, _ = sd.restore(refusing, data, None, NOW)
+    for report in (whole, one):
+        assert "user:pass" not in json.dumps(report)
+        assert report["skipped"][0]["reason"]
+
+
+def test_the_cap_is_on_what_is_stored_and_the_oldest_other_origins_make_room():
+    half = {"blob": "x" * (sd.MAX_BYTES // 3)}
+    data = {"cookies": [], "origins": {
+        "https://old.test": {"local": half, "session": {}, "saved_at": 1.0},
+        "https://mid.test": {"local": half, "session": {}, "saved_at": 2.0},
+    }}
+    merged, receipt = sd.merge(data, captured(local=half), NOW)
+    assert len(json.dumps(merged)) <= sd.MAX_BYTES
+    assert sorted(merged["origins"]) == ["https://app.example.com", "https://mid.test"]
+    assert receipt["sites"] == ["https://app.example.com"]
+    assert receipt["skipped"] == [
+        {"site": "https://old.test", "reason": "evicted: over 1000000 bytes"}
+    ]
+
+
+def test_a_cookie_jar_over_the_cap_raises_and_saves_nothing():
+    big = [cookie("blob", "app.example.com", "x" * (sd.MAX_BYTES + 1))]
+    with pytest.raises(ValueError, match="the cookie jar is over 1000000 bytes; nothing was saved"):
+        sd.merge({"cookies": [], "origins": {}}, captured(cookies=big), NOW)
+    from kubed.selenium_flow import errors
+    assert errors.status_for(ValueError("x")) == 400
+
+
+def test_replace_keeps_the_old_id_when_the_remove_fails():
+    bidi = FakeBidi()
+
+    def dead(script=None):
+        raise RuntimeError("socket closed")
+
+    bidi.script.remove_preload_script = dead
+    keep = {"https://w.test": {"local": {}, "session": {}}}
+    assert sd.replace(bidi, "old", keep) == "old"
+    assert bidi.script.added == []
+
+
+def test_replace_answers_empty_when_the_add_fails_after_the_remove():
+    bidi = FakeBidi()
+
+    def dead(function_declaration=None, **_):
+        raise RuntimeError("socket closed")
+
+    bidi.script.add_preload_script = dead
+    keep = {"https://w.test": {"local": {}, "session": {}}}
+    assert sd.replace(bidi, "old", keep) == ""
+    assert bidi.script.removed == ["old"]

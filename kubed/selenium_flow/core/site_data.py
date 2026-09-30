@@ -22,6 +22,8 @@ import contextlib
 import json
 from urllib.parse import urlsplit
 
+from ..errors import message as failure_text
+
 # The private key an action hands its capture back under. `SessionManager.act`
 # merges it into the record and removes it; no caller ever sees it.
 CAPTURED = "_site_data_captured"
@@ -45,6 +47,9 @@ def origin_of(url: str) -> str:
     if not parts.scheme or not host:
         return ""
     scheme = parts.scheme.lower()
+    # `hostname` drops an IPv6 literal's brackets; `location.origin` keeps them.
+    if ":" in host:
+        host = f"[{host}]"
     shown = f":{port}" if port is not None and port != DEFAULT_PORTS.get(scheme) else ""
     return f"{scheme}://{host}{shown}"
 
@@ -70,13 +75,21 @@ def merge(existing: dict, captured: dict, now: float) -> tuple[dict, dict]:
     """
     data = {
         "cookies": list(captured.get("cookies") or []),
-        "origins": dict((existing or {}).get("origins") or {}),
+        "origins": {},
         "saved_at": now,
     }
     if (existing or {}).get("pending"):
         data["pending"] = existing["pending"]
+    cookies_only = data
+    data = {**data, "origins": dict((existing or {}).get("origins") or {})}
+    if _size(cookies_only) > MAX_BYTES:
+        # The jar is the one thing a save cannot leave out, and evicting other
+        # sites would not make it fit.
+        raise ValueError(
+            f"the cookie jar is over {MAX_BYTES} bytes; nothing was saved"
+        )
     origin = captured.get("origin") or ""
-    sites, skipped = [], []
+    sites, skipped, protect = [], [], None
     if origin:
         entry = {
             "local": dict(captured.get("local") or {}),
@@ -86,14 +99,26 @@ def merge(existing: dict, captured: dict, now: float) -> tuple[dict, dict]:
             },
             "saved_at": now,
         }
-        trial = {**data, "origins": {**data["origins"], origin: entry}}
-        if len(json.dumps(trial)) > MAX_BYTES:
+        alone = {**cookies_only, "origins": {origin: entry}}
+        if _size(alone) > MAX_BYTES:
             reason = f"storage over {MAX_BYTES} bytes"
             skipped.append({"site": origin, "reason": reason})
         else:
-            data = trial
+            data = {**data, "origins": {**data["origins"], origin: entry}}
             sites.append(origin)
+            protect = origin
+    # The cap is on what is stored, not on this one origin: the oldest other
+    # sites make room, each said so.
+    while _size(data) > MAX_BYTES:
+        others = [o for o in data["origins"] if o != protect]
+        oldest = min(others, key=lambda o: data["origins"][o].get("saved_at") or 0)
+        data["origins"] = {o: e for o, e in data["origins"].items() if o != oldest}
+        skipped.append({"site": oldest, "reason": f"evicted: over {MAX_BYTES} bytes"})
     return data, {"cookies": len(data["cookies"]), "sites": sites, "skipped": skipped}
+
+
+def _size(data: dict) -> int:
+    return len(json.dumps(data))
 
 
 def live_cookies(cookies: list[dict], now: float) -> list[dict]:
@@ -219,7 +244,7 @@ def view(data: dict, secrets: list[dict] | None = None) -> dict:
             "cookies": len(site["_cookies"]), "local_storage": len(site["_local"]),
             "session_storage": len(site["_session"]), "secrets": site["secrets"],
         })
-    unleashed = sum(1 for s in secrets or [] if not s.get("allowed_urls"))
+    unleashed = sum(1 for s in secrets or [] if not s.get("restricted"))
     return {
         "sites": rows,
         "saved_sites": sum(1 for r in rows if r["saved"]),
@@ -365,7 +390,7 @@ def restore(bidi, data: dict, landing_url: str | None, now: float) -> tuple[dict
             except Exception as e:  # noqa: BLE001 - one refusal must not stop the rest
                 report["skipped"].append({
                     "cookie": c.get("name"), "domain": c.get("domain"),
-                    "reason": str(e),
+                    "reason": failure_text(e),
                 })
         # A browser can refuse a cookie without an error; only the jar says.
         kept = _kept(bidi, sent)
@@ -395,7 +420,7 @@ def restore(bidi, data: dict, landing_url: str | None, now: float) -> tuple[dict
             pending["arrived"] = first
     except Exception as e:  # noqa: BLE001 - BiDi failing is a report, not a crash
         return (
-            {"restored": [], "waiting": [], "skipped": [{"reason": str(e)}],
+            {"restored": [], "waiting": [], "skipped": [{"reason": failure_text(e)}],
              "uri": LIST_URI},
             {"origins": [], "script": ""},
         )
@@ -415,10 +440,17 @@ def replace(bidi, script: str, keep: dict | None) -> str:
     A preload script runs on every new document, and its once-per-tab marker
     lives in one tab's sessionStorage: left in place, it would refill an
     origin that already arrived the moment the app opened it in a new tab,
-    over whatever the app changed since. Returns the new script's id, or ""
-    when nothing is left to wait for or it could not be added.
+    over whatever the app changed since.
+
+    Returns the id of the script now in the browser. A failed remove leaves the
+    old one running, so its id is returned and nothing else happens; "" means
+    none is left — nothing to keep, or the new one could not be added, in which
+    case those origins cannot fill and the caller must stop waiting for them.
     """
-    retire(bidi, script)
+    try:
+        bidi.script.remove_preload_script(script=script)
+    except Exception:  # noqa: BLE001 - the old script is still live; keep its id
+        return script
     if not keep:
         return ""
     try:

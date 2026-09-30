@@ -100,8 +100,8 @@ def test_forget_keeps_shared_cookies_and_the_secret_row(client, server):
     assert left["origins"] == {}
     assert left["pending"] == {"browser": "b-1", "origins": ["https://keep.dev"],
                                "script": "preload-1", "announce": False}
-    sites = {s["site"] for s in client.get(url()).json()["sites"]}
-    assert "mail.example.org" in sites
+    sites = sorted(s["site"] for s in client.get(url()).json()["sites"])
+    assert sites == ["example.com", "mail.example.org"]
     second = client.delete(url("/app.example.com"))
     assert second.status_code == 404
     assert second.json() == {"error": "no saved site data for app.example.com"}
@@ -171,3 +171,12 @@ def test_a_parent_only_row_can_be_forgotten(client):
     assert client.delete(url("/example.com")).status_code == 200
     rows = client.get("/admin/sessions").json()["sessions"]
     assert next(r for r in rows if r["key"] == KEY)["site_data_count"] == 0
+
+
+def test_forget_answers_404_through_the_central_policy(client):
+    from kubed.selenium_flow import errors
+
+    assert errors.status_for(errors.NotFound("x")) == 404
+    body = client.delete(url("/nothing.example.net"))
+    assert body.status_code == 404
+    assert body.json() == {"error": "no saved site data for nothing.example.net"}
