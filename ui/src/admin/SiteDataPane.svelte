@@ -18,7 +18,8 @@
   } = $props()
 
   const data = $derived(m.siteData)
-  const idOf = (r: SiteRow) => 'siteSection-' + m.key + ':' + r.site
+  // Ends in `Section`: Section derives its body's id by replacing that.
+  const idOf = (r: SiteRow) => 'site-' + m.key + ':' + r.site + 'Section'
 
   // The first saved row opens, the rest stay shut — once; after that the fold
   // is the reader's.
@@ -40,19 +41,22 @@
 
   function forget(r: SiteRow) {
     const d: SiteDetail | undefined = data?.details[r.site]
-    const cookies = d?.cookies ?? []
+    // Which cookies go is the server's call (Forget's own rule); the domain
+    // is looked up only to say whose shared cookie stays.
+    const sharedFrom = (name: string) =>
+      d?.cookies.find((c) => c.name === name && c.shared && c.domain !== '.' + r.site)?.domain
     ask<Forget>({
       title: 'Forget site data',
       body: forgetBody,
       data: {
         origin: r.origin ?? r.site,
         goes: [
-          ...cookies.filter((c) => !c.shared).map((c) => c.name),
+          ...(d?.own_cookies ?? []),
           ...Object.keys(d?.local_storage ?? {}),
           ...Object.keys(d?.session_storage ?? {}),
         ],
         stays: [
-          ...cookies.filter((c) => c.shared).map((c) => c.name + ', shared with ' + c.domain),
+          ...(d?.kept_shared ?? []).map((n) => n + ', shared with ' + sharedFrom(n)),
           ...r.secrets.map((s) => s.name + ' secret'),
         ],
       },
@@ -67,7 +71,7 @@
 </script>
 
 {#snippet forgetBody(f: Forget)}
-  <p>{f.origin} — a reopened browser comes back signed out here.</p>
+  <p>{f.origin} — the next browser comes back signed out here; one open now keeps what it has.</p>
   <div class="pairs fate-list">
     {#if f.goes.length}<div class="pair"><span class="pk">goes</span><span class="pv">{f.goes.join(' · ')}</span></div>{/if}
     {#each f.stays as s (s)}<div class="pair"><span class="pk">stays</span><span class="pv">{s}</span></div>{/each}

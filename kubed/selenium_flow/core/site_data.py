@@ -127,13 +127,22 @@ def _covers(domain: str, host: str) -> bool:
     return host == bare or (domain.startswith(".") and host.endswith(domain))
 
 
+def _own(domain: str, host: str) -> bool:
+    """A cookie a host's row owns: set for the host itself, or ``.host``.
+    A parent's leading-dot cookie only covers it; other rows use that one."""
+    return domain in (host, "." + host)
+
+
 def _hosts(data: dict) -> list[str]:
+    # Storage hosts first and never grown while the cookies are read, so the
+    # rows do not depend on the order the browser listed its cookies in.
     stored = {host_of(o) for o in (data.get("origins") or {})}
-    for c in data.get("cookies") or []:
-        domain = c.get("domain") or ""
-        if domain and not any(_covers(domain, h) for h in stored):
-            stored.add(domain.lstrip("."))
-    return sorted(h for h in stored if h)
+    bare = {
+        (c.get("domain") or "").lstrip(".")
+        for c in data.get("cookies") or []
+        if c.get("domain") and not any(_covers(c["domain"], h) for h in stored)
+    }
+    return sorted(h for h in stored | bare if h)
 
 
 def _cookie_view(c: dict) -> dict:
@@ -170,6 +179,7 @@ def _site(data: dict, host: str, secrets) -> dict:
     cookies = [
         c for c in data.get("cookies") or [] if _covers(c.get("domain") or "", host)
     ]
+    own = [c for c in cookies if _own(c.get("domain") or "", host)]
     local, session = {}, {}
     for entry in origins.values():
         local.update(entry.get("local") or {})
@@ -178,8 +188,10 @@ def _site(data: dict, host: str, secrets) -> dict:
     return {
         "site": host,
         "origin": next(iter(sorted(origins)), None),
-        "saved": bool(origins or cookies),
-        "saved_at": max(saved) if saved else data.get("saved_at") if cookies else None,
+        # Only what Forget would remove: a row that merely sits under a
+        # parent's shared cookie has nothing of its own to forget.
+        "saved": bool(origins or own),
+        "saved_at": max(saved) if saved else data.get("saved_at") if own else None,
         "uri": site_uri(host),
         "_cookies": cookies,
         "_local": local,
@@ -223,11 +235,14 @@ def site_view(data: dict, site: str, secrets: list[dict] | None = None) -> dict 
     if host not in listed:
         return None
     s = _site(data or {}, host, secrets)
+    # What Forget would do, by the rule Forget itself uses.
+    _, fate = forget(data or {}, host)
     return {
         "site": host, "origin": s["origin"], "saved": s["saved"],
         "saved_at": s["saved_at"], "uri": s["uri"],
         "cookies": [_cookie_view(c) for c in s["_cookies"]],
         "local_storage": s["_local"], "session_storage": s["_session"],
+        "own_cookies": fate["cookies"], "kept_shared": fate["kept_shared"],
         "secrets": s["secrets"],
     }
 
@@ -242,8 +257,7 @@ def forget(data: dict, host: str) -> tuple[dict, dict]:
     ``.host``). A parent-domain cookie of another row stays — others use it."""
     host = (host or "").lower()
     cookies = data.get("cookies") or []
-    own = (host, "." + host)
-    gone = [c for c in cookies if (c.get("domain") or "") in own]
+    gone = [c for c in cookies if _own(c.get("domain") or "", host)]
     shared = [
         c for c in cookies
         if (c.get("domain") or "").startswith(".") and _covers(c["domain"], host)

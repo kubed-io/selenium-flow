@@ -597,11 +597,15 @@ def register(
             # what the tab must repaint for. Cookies in it because a save
             # changes them without touching the host or the time of the origin.
             site_data_rev = json.dumps(
-                sorted(
-                    [s["site"], s["saved_at"], s["cookies"]]
-                    for s in saved["sites"]
-                    if s["saved"]
-                )
+                [
+                    # A cookie-only re-save moves nothing below but this.
+                    record.site_data.get("saved_at"),
+                    sorted(
+                        [s["site"], s["saved_at"], s["cookies"]]
+                        for s in saved["sites"]
+                        if s["saved"]
+                    ),
+                ]
             )
             rows.append(
                 {
@@ -830,7 +834,12 @@ def register(
     )
     @guarded
     async def admin_site_data_forget(request: Request) -> JSONResponse:
-        """Forget one site. Parent-domain cookies stay: other sites use them."""
+        """Forget one site. Parent-domain cookies stay: other sites use them.
+
+        It applies from the next browser. One open now keeps what it has — the
+        cookies are in its jar, and a preload script already in it still fills
+        a forgotten origin that was waiting — and nothing here reaches into it.
+        """
         key = request.path_params["key"]
         host = request.path_params["site"].lower()
         try:
@@ -847,10 +856,9 @@ def register(
             if pending and pending.get("origins"):
                 left["pending"] = {
                     **pending,
-                    "origins": {
-                        o: e for o, e in pending["origins"].items()
-                        if site_data.host_of(o) != host
-                    },
+                    "origins": [
+                        o for o in pending["origins"] if site_data.host_of(o) != host
+                    ],
                 }
             await run_in_threadpool(
                 sessions.store.set, key, record.with_site_data(left)

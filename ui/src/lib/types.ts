@@ -121,6 +121,9 @@ export interface SiteDetail extends Omit<SiteRow, 'cookies' | 'local_storage' | 
   cookies: SiteCookie[]
   local_storage: Record<string, string>
   session_storage: Record<string, string>
+  /** What Forget removes and what it leaves, by the server's own rule. */
+  own_cookies: string[]
+  kept_shared: string[]
 }
 export interface SiteDataPayload {
   key: string

@@ -1028,6 +1028,20 @@ SITE_DATA_SCHEMAS = {
             },
             "local_storage": {"type": "object"},
             "session_storage": {"type": "object"},
+            "own_cookies": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Cookies this site owns (host or .host): what Forget removes."
+                ),
+            },
+            "kept_shared": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Parent-domain cookies it only sits under: Forget keeps them."
+                ),
+            },
             "secrets": {"type": "array", "items": {"type": "object"}},
         },
     },

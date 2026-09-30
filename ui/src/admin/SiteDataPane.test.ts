@@ -19,6 +19,7 @@ const detail = {
     cookie('optimizelyEndUserId', 'oeu1', { domain: '.herokuapp.com', expiry: 1790800000, shared: true }),
   ],
   local_storage: { theme: 'dark', 'tour-seen': 'true' }, session_storage: {}, secrets: [THE_INTERNET],
+  own_cookies: ['rack.session'], kept_shared: ['optimizelyEndUserId'],
 }
 const summary = (d: typeof detail) => ({ ...d, cookies: d.cookies.length, local_storage: 2, session_storage: 0 })
 const SITES = {
@@ -30,8 +31,8 @@ const SITES = {
   ],
   details: {
     'the-internet.herokuapp.com': detail,
-    'grafana.kellyferrone.com': { ...summary(detail), site: 'grafana.kellyferrone.com', cookies: [], local_storage: {} },
-    'selenium.kellyferrone.com': { site: 'selenium.kellyferrone.com', origin: 'https://selenium.kellyferrone.com', saved: false, saved_at: null, cookies: [], local_storage: {}, session_storage: {}, secrets: [] },
+    'grafana.kellyferrone.com': { ...summary(detail), site: 'grafana.kellyferrone.com', cookies: [], local_storage: {}, own_cookies: [], kept_shared: [] },
+    'selenium.kellyferrone.com': { site: 'selenium.kellyferrone.com', origin: 'https://selenium.kellyferrone.com', saved: false, saved_at: null, cookies: [], local_storage: {}, session_storage: {}, secrets: [], own_cookies: [], kept_shared: [] },
   },
 }
 const row = { key: 'k', name: 'mine', live: true, attached: true, session_id: 'b1', files_rev: 1, flows_rev: 1, files_count: 0, site_data_count: 2, site_data_rev: 'r1' }
@@ -130,7 +131,7 @@ test('Forget confirms with goes and stays, then DELETEs the site and reloads', a
   await fireEvent.click(within(sections(container)[0]).getByRole('button', { name: 'Forget' }))
   const dlg = document.querySelector('.modal')! as HTMLElement
   expect(dlg.querySelector('.head')).toHaveTextContent('Forget site data')
-  expect(dlg).toHaveTextContent('https://the-internet.herokuapp.com — a reopened browser comes back signed out here.')
+  expect(dlg).toHaveTextContent('https://the-internet.herokuapp.com — the next browser comes back signed out here; one open now keeps what it has.')
   const pairs = [...dlg.querySelectorAll('.pair')].map((p) => p.textContent)
   expect(pairs).toEqual([
     'goesrack.session · theme · tour-seen',
@@ -172,4 +173,42 @@ test('an error shows in the pane, Loading… before', async () => {
   expect(within(container.querySelector('#paneSiteData') as HTMLElement).getByText('Loading…')).toBeInTheDocument()
   d.resolve({ status: 500, body: { error: 'nope' } })
   await vi.waitFor(() => expect(screen.getByText('nope')).toHaveClass('error'))
+})
+
+// A parent-only row: example.com exists only because of `.example.com`, which
+// is its own, so Forget takes it. Beneath it, a row listed for a secret whose
+// only cookie is that parent's has nothing of its own to forget.
+const PARENT = cookie('shared', 's', { domain: '.example.com', shared: true })
+const PARENTS = {
+  key: 'k', saved_sites: 1,
+  sites: [
+    { site: 'app.example.com', origin: null, saved: false, saved_at: null, cookies: 1, local_storage: 0, session_storage: 0, secrets: [{ name: 'app', keys: ['a'] }] },
+    { site: 'example.com', origin: null, saved: true, saved_at: Date.now() / 1000 - 60, cookies: 1, local_storage: 0, session_storage: 0, secrets: [] },
+  ],
+  details: {
+    'app.example.com': { site: 'app.example.com', origin: null, saved: false, saved_at: null, cookies: [PARENT], local_storage: {}, session_storage: {}, secrets: [{ name: 'app', keys: ['a'] }], own_cookies: [], kept_shared: ['shared'] },
+    'example.com': { site: 'example.com', origin: null, saved: true, saved_at: Date.now() / 1000 - 60, cookies: [PARENT], local_storage: {}, session_storage: {}, secrets: [], own_cookies: ['shared'], kept_shared: [] },
+  },
+}
+
+test('a parent-only row: its dotted cookie goes, and the row under it has no Forget', async () => {
+  const { container } = setup({ 'GET /admin/sessions/k/site-data': { body: PARENTS } })
+  await vi.waitFor(() => expect(sections(container)).toHaveLength(2))
+  const [child, parent] = sections(container)
+  expect(within(child).queryByRole('button', { name: 'Forget' })).toBeNull()
+  await fireEvent.click(within(parent).getByRole('button', { name: 'Forget' }))
+  const pairs = [...document.querySelectorAll('.modal .pair')].map((p) => p.textContent)
+  expect(pairs).toEqual(['goesshared'])
+})
+
+test('every id in the pane is unique, and each fold controls its own body', async () => {
+  const { container } = setup()
+  await loaded(container)
+  const ids = [...container.querySelectorAll('#paneSiteData [id]')].map((e) => e.id)
+  expect(new Set(ids).size).toBe(ids.length)
+  for (const s of sections(container)) {
+    const body = s.querySelector('.title')!.getAttribute('aria-controls')!
+    expect(body).not.toBe(s.id)
+    expect(s.querySelector('.body')!.id).toBe(body)
+  }
 })

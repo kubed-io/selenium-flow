@@ -548,3 +548,34 @@ def test_actions_retire_replaces_and_keeps_the_old_id_when_bidi_is_down(actions,
 
     monkeypatch.setattr(actions.grid, "bidi", down)
     assert actions.retire_site_data("sid", "old", keep) == "old"
+
+
+# ---- a site's own cookies, and the ones it only sits under --------------------
+
+
+def test_rows_do_not_depend_on_the_order_the_cookies_came_in():
+    a = [cookie("ab", ".example.com"), cookie("sid", "app.example.com")]
+    first = sd.view({"cookies": a, "origins": {}})
+    second = sd.view({"cookies": list(reversed(a)), "origins": {}})
+    assert [r["site"] for r in first["sites"]] == ["app.example.com", "example.com"]
+    assert first == second
+
+
+def test_saved_counts_only_what_forget_would_remove():
+    data = {"cookies": [cookie("ab", ".example.com")], "origins": {}, "saved_at": NOW}
+    secrets = [{"name": "app", "keys": [], "allowed_urls": ["https://app.example.com"]}]
+    sites = {r["site"]: r for r in sd.view(data, secrets)["sites"]}
+    assert sites["app.example.com"]["saved"] is False, "a parent's cookie is not its own"
+    assert sites["app.example.com"]["saved_at"] is None
+    assert sites["example.com"]["saved"] is True
+    assert sd.view(data, secrets)["saved_sites"] == 1
+
+
+def test_the_site_view_names_goes_and_stays_by_the_forget_rule():
+    data = {"cookies": [cookie("own", "app.example.com"), cookie("dot", ".app.example.com"),
+                        cookie("ab", ".example.com")], "origins": {}}
+    one = sd.site_view(data, "app.example.com")
+    assert one["own_cookies"] == ["own", "dot"]
+    assert one["kept_shared"] == ["ab"]
+    parent = sd.site_view(data, "example.com")
+    assert parent["own_cookies"] == ["ab"] and parent["kept_shared"] == []
