@@ -364,7 +364,7 @@ def test_an_arrival_keeps_a_save_that_landed_meanwhile(named_caller):
     during_retire(m, save_elsewhere(m, "https://late.test"))
     m.act(NAMED, lambda s: {"url": "https://w.test/page"})
     data = m.store.get(NAMED).site_data
-    assert "https://late.test" in data["origins"]
+    assert data["origins"].get("https://late.test") is not None
     assert "pending" not in data, "the arrival itself still settled"
 
 
@@ -388,7 +388,7 @@ def test_a_landing_swap_keeps_a_save_that_landed_meanwhile(named_caller):
     during_retire(m, save_elsewhere(m, "https://late.test"))
     m.open_browser(NAMED)
     data = m.store.get(NAMED).site_data
-    assert "https://late.test" in data["origins"]
+    assert data["origins"].get("https://late.test") is not None
     assert data["pending"]["script"] == "p1+"
 
 
@@ -404,4 +404,4 @@ def test_ending_a_browser_keeps_a_save_that_landed_while_it_quit(named_caller):
     m.end_browser(NAMED)
     record = m.store.get(NAMED)
     assert not record.attached
-    assert "https://late.test" in record.site_data["origins"]
+    assert record.site_data["origins"].get("https://late.test") is not None
