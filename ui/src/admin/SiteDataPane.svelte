@@ -37,6 +37,9 @@
     plural(r.secrets.length, 'secret'),
   ].join(' · ')
 
+  const covered = (d: SiteDetail) =>
+    d.cookies.length > 0 || Object.keys(d.local_storage).length > 0 || Object.keys(d.session_storage).length > 0
+
   const expires = (c: SiteCookie) => (c.expiry ? new Date(c.expiry * 1000).toLocaleDateString() : 'session')
 
   interface Forget { origin: string; goes: string[]; stays: { key: string; label: string }[] }
@@ -110,7 +113,10 @@
         {/snippet}
         {#if !r.saved}
           <p class="small muted">Nothing saved. It stays listed because a secret is allowed here.</p>
-        {:else if d}
+        {/if}
+        <!-- Not saved means nothing to forget, not nothing to show: a parent's
+             shared cookie still covers this site. -->
+        {#if d && (r.saved || covered(d))}
           <h3>Cookies</h3>
           {#each d.cookies as c (c.name + c.domain + c.path)}
             <div class="line cookie">

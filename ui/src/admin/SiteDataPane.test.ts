@@ -240,6 +240,33 @@ test('a parent-only row: its dotted cookie goes, and the row under it has no For
   expect(pairs).toEqual(['goesshared'])
 })
 
+test('a row with nothing of its own still shows the shared cookie that covers it', async () => {
+  const { container } = setup({ 'GET /admin/sessions/k/site-data': { body: PARENTS } })
+  await vi.waitFor(() => expect(sections(container)).toHaveLength(2))
+  const [child] = sections(container)
+  await fireEvent.click(child.querySelector('.title')!)
+  expect(child).toHaveTextContent('Nothing saved. It stays listed because a secret is allowed here.')
+  const shared = within(child).getByText('shared', { selector: 'code' }).closest('.line') as HTMLElement
+  expect(shared).toHaveTextContent('.example.com')
+  expect(shared.querySelector('.pill.shared')).toHaveTextContent('shared')
+  expect(child.querySelector('.line.secret')).toHaveTextContent('app')
+})
+
+test('after Forget the tab counts the reloaded payload, before any push', async () => {
+  let n = 0
+  const after = { ...SITES, saved_sites: 1, sites: SITES.sites.slice(1) }
+  const { container } = setup({
+    'GET /admin/sessions/k/site-data': () => ({ body: ++n === 1 ? SITES : after }),
+    'DELETE /admin/sessions/k/site-data/the-internet.herokuapp.com': { body: { forgotten: {} } },
+  })
+  await loaded(container)
+  expect(container.querySelector('#siteDataTotal')).toHaveTextContent('2')
+  await fireEvent.click(within(sections(container)[0]).getByRole('button', { name: 'Forget' }))
+  await fireEvent.click(within(document.querySelector('.modal') as HTMLElement).getByRole('button', { name: 'Forget' }))
+  await vi.waitFor(() => expect(sections(container)).toHaveLength(2))
+  expect(container.querySelector('#siteDataTotal')).toHaveTextContent('1')
+})
+
 test('every id in the pane is unique, and each fold controls its own body', async () => {
   const { container } = setup()
   await loaded(container)
