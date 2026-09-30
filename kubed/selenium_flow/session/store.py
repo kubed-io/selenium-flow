@@ -28,7 +28,10 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from typing import TYPE_CHECKING, Protocol
 
@@ -55,6 +58,14 @@ DEFAULT_DB = 0
 # named session in daily use never expires, one abandoned yesterday is gone.
 # The browser it names is still reaped on the Grid's schedule, not this one.
 DEFAULT_TTL_SECONDS = 86400
+# How many times a Redis update re-reads after another writer got there first.
+# Each retry is one round trip, and a key rewritten this often in the time one
+# takes is something wrong rather than something to wait out.
+UPDATE_RETRIES = 10
+
+# What `update` applies: the record as it is now in, the record to store out,
+# or None to store nothing.
+Change = Callable[["SessionRecord"], "SessionRecord | None"]
 
 
 class StoreUnavailable(RuntimeError):
@@ -69,6 +80,10 @@ class StoreUnavailable(RuntimeError):
     Memory is the answer only when nothing asked for Redis in the first
     place.
     """
+
+
+class StoreConflict(RuntimeError):
+    """An update kept losing to other writers and gave up (Redis only)."""
 
 
 @dataclass(frozen=True)
@@ -180,6 +195,14 @@ class SessionStore(Protocol):
 
     def set(self, key: str, record: SessionRecord) -> None: ...
 
+    # A read-change-write that cannot revert a concurrent write. `set` stores
+    # a whole record, so a caller that read one, waited on the Grid, and set it
+    # back undid whatever opened, ended or saved in between. `fn` gets the
+    # record as it is at write time and returns the one to store, or None to
+    # store nothing; it may run more than once, so it must only compute. It is
+    # never called for an absent key. Returns what is stored afterwards.
+    def update(self, key: str, fn: Change) -> SessionRecord | None: ...
+
     def delete(self, key: str) -> None: ...
 
     # Optional, and only the admin view needs it: the MCP surface never lists
@@ -204,6 +227,10 @@ class MemoryStore:
         self._data: dict[str, tuple[float, SessionRecord]] = {}
         self._ttl = ttl
         self._clock = clock
+        # One lock per key, held only while someone is using it, so a session
+        # named once does not keep a lock for the life of the process.
+        self._guard = threading.Lock()
+        self._locks: dict[str, list] = {}
 
     @property
     def ttl(self) -> int:
@@ -223,11 +250,39 @@ class MemoryStore:
             return None
         return record
 
+    @contextmanager
+    def _locked(self, key: str) -> Iterator[None]:
+        with self._guard:
+            held = self._locks.setdefault(key, [threading.Lock(), 0])
+            held[1] += 1
+        try:
+            with held[0]:
+                yield
+        finally:
+            with self._guard:
+                held[1] -= 1
+                if not held[1]:
+                    del self._locks[key]
+
     def set(self, key: str, record: SessionRecord) -> None:
-        self._data[key] = (self._clock() + self._ttl, record)
+        # Under the key's lock, so a plain write cannot land inside an update.
+        with self._locked(key):
+            self._data[key] = (self._clock() + self._ttl, record)
+
+    def update(self, key: str, fn: Change) -> SessionRecord | None:
+        with self._locked(key):
+            current = self.get(key)
+            if current is None:
+                return None
+            changed = fn(current)
+            if changed is None:
+                return current
+            self._data[key] = (self._clock() + self._ttl, changed)
+            return changed
 
     def delete(self, key: str) -> None:
-        self._data.pop(key, None)
+        with self._locked(key):
+            self._data.pop(key, None)
 
     def records(self) -> dict[str, SessionRecord]:
         """Every live flow session, keyed the way it is stored.
@@ -299,6 +354,33 @@ class RedisStore:
 
     def set(self, key: str, record: SessionRecord) -> None:
         self._redis.set(self._k(key), record.to_json(), ex=self._ttl)
+
+    def update(self, key: str, fn: Change) -> SessionRecord | None:
+        """WATCH, read, MULTI, write: EXEC refuses if another replica wrote the
+        key in between, and the change is re-applied to what it wrote."""
+        from redis.exceptions import WatchError  # optional dependency, as above
+
+        k = self._k(key)
+        with self._redis.pipeline() as pipe:
+            for _ in range(UPDATE_RETRIES):
+                try:
+                    pipe.watch(k)
+                    raw = pipe.get(k)
+                    current = SessionRecord.from_json(raw) if raw is not None else None
+                    changed = fn(current) if current is not None else None
+                    if changed is None:
+                        pipe.unwatch()
+                        return current
+                    pipe.multi()
+                    pipe.set(k, changed.to_json(), ex=self._ttl)
+                    pipe.execute()
+                    return changed
+                except WatchError:
+                    continue
+        raise StoreConflict(
+            f"session {key!r} kept changing while it was being updated; "
+            f"gave up after {UPDATE_RETRIES} tries"
+        )
 
     def delete(self, key: str) -> None:
         self._redis.delete(self._k(key))

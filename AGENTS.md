@@ -404,6 +404,11 @@ or the leak `caller_key` existed to prevent comes straight back.
 - An action returns the capture under `CAPTURED`; `SessionManager.settle` merges it and strips
   it, so it is never returned. `act` and every flow step go through `settle`, which is why a
   flow's save is merged and a run report never carries the capture.
+- Every record write goes through `store.update(key, fn)`, which applies `fn` to the record as
+  it is at write time (memory: a per-key lock; Redis: `WATCH`/`MULTI`/`EXEC`, retried, then
+  `StoreConflict`). Retiring a preload script is a BiDi round trip, and a record read before it
+  and `set` after reverted a browser opened or a save made meanwhile. Do slow work outside
+  `fn`; `fn` only computes, and may run twice.
 
 ### Refresh, not cleanup
 

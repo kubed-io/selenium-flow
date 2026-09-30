@@ -11,6 +11,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow.config import Settings
+from kubed.selenium_flow.core import site_data
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.session.store import SessionRecord
 
@@ -183,8 +184,6 @@ def test_forget_answers_404_through_the_central_policy(client):
 
 
 def test_the_payload_comes_from_one_grouping_of_the_jar(server, monkeypatch):
-    from kubed.selenium_flow.core import site_data
-
     cookies = [{"name": "c", "value": "v", "domain": f"h{i}.example{i}.com", "path": "/"}
                for i in range(300)]
     server.sessions.store.set(KEY, SessionRecord(session_id="", site_data={
@@ -200,3 +199,32 @@ def test_the_payload_comes_from_one_grouping_of_the_jar(server, monkeypatch):
     body = TestClient(server.mcp.http_app(), headers=AUTH).get(url()).json()
     assert len(body["details"]) >= 300
     assert calls["n"] <= len(body["details"]) + 5
+
+
+def test_forget_keeps_a_save_that_lands_while_it_works(client, server, monkeypatch):
+    """The handler used to read the record, work, and set it back whole: a save
+    landing in between was reverted. The save here runs on another thread the
+    moment Forget starts computing, and must survive it."""
+    import threading
+
+    store = server.sessions.store
+    real = site_data.forget
+    saver = []
+
+    def save(r):
+        origins = {**r.site_data["origins"], "https://late.example.net": {
+            "local": {"b": "2"}, "session": {}, "saved_at": 11.0}}
+        return r.with_site_data({**r.site_data, "origins": origins})
+
+    def forget(data, host):
+        if not saver:
+            saver.append(threading.Thread(target=store.update, args=(KEY, save)))
+            saver[0].start()
+            saver[0].join(0.3)
+        return real(data, host)
+
+    monkeypatch.setattr(site_data, "forget", forget)
+    assert client.delete(url("/app.example.com")).status_code == 200
+    saver[0].join(5)
+    origins = store.get(KEY).site_data["origins"]
+    assert list(origins) == ["https://late.example.net"]

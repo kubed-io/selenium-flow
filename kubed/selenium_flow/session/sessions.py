@@ -402,57 +402,79 @@ class SessionManager:
         replaced in the result by a short receipt; a page arriving on an origin
         still waiting to be restored says so once, and the last arrival retires
         the preload script; a silent reopen is announced on its first result.
+
+        Every write goes through ``store.update``, applied to the record as it
+        is then: retiring a script is a BiDi round trip, and a whole record
+        read before it and set after reverted whatever opened or saved meanwhile.
         """
         # Popped before the store is asked anything, so a store that fails
         # cannot leave the capture — every value — in what the caller gets.
         captured = result.pop(site_data_module.CAPTURED, None)
+        if captured:
+            receipt = {}
+
+            def save(r: SessionRecord) -> SessionRecord:
+                data, receipt["saved"] = site_data_module.merge(
+                    r.site_data, captured, time.time()
+                )
+                return r.with_site_data(data)
+
+            if self.store.update(name, save) is None:
+                return
+            result["saved"] = receipt["saved"]
+            result["uri"] = site_data_module.LIST_URI
         record = self.store.get(name)
         if record is None:
             return
-        data = record.site_data
-        if captured:
-            data, receipt = site_data_module.merge(data, captured, time.time())
-            result["saved"] = receipt
-            result["uri"] = site_data_module.LIST_URI
-        pending = dict(data.get("pending") or {})
-        if pending and pending.get("browser") == record.session_id:
-            hint = {}
-            if pending.pop("announce", False):
-                hint = dict(pending.pop("report", None) or {})
-            origin = site_data_module.origin_of(result.get("url") or "")
-            origins = list(pending.get("origins") or [])
-            if origin in origins:
-                origins.remove(origin)
-                pending["origins"] = origins
-                hint["restored"] = [*hint.get("restored", []), origin]
-                if "waiting" in hint:
-                    # The reopen's own report listed it as waiting; one answer
-                    # must not call the same origin both.
-                    hint["waiting"] = [o for o in hint["waiting"] if o != origin]
-                hint["uri"] = site_data_module.site_uri(
-                    site_data_module.host_of(origin)
+        pending = record.site_data.get("pending") or {}
+        browser = record.session_id
+        if not pending or pending.get("browser") != browser:
+            return
+        hint = dict(pending.get("report") or {}) if pending.get("announce") else {}
+        origin = site_data_module.origin_of(result.get("url") or "")
+        arrived = origin if origin in (pending.get("origins") or []) else None
+        swapped = None
+        if arrived:
+            hint["restored"] = [*hint.get("restored", []), arrived]
+            if "waiting" in hint:
+                # The reopen's own report listed it as waiting; one answer
+                # must not call the same origin both.
+                hint["waiting"] = [o for o in hint["waiting"] if o != arrived]
+            hint["uri"] = site_data_module.site_uri(site_data_module.host_of(arrived))
+            if pending.get("script"):
+                # Still carrying the origin that just arrived, the script
+                # would refill it in every new tab; the replacement carries
+                # only what still waits.
+                still = [o for o in pending["origins"] if o != arrived]
+                keep = self._waiting(record.site_data, still)
+                swapped = (
+                    pending["script"],
+                    self.actions.retire_site_data(browser, pending["script"], keep),
                 )
-                script = pending.get("script") or ""
-                if script:
-                    # Still carrying the origin that just arrived, the script
-                    # would refill it in every new tab; the replacement carries
-                    # only what still waits.
-                    pending["script"] = self.actions.retire_site_data(
-                        record.session_id, script, self._waiting(data, origins)
-                    )
-                    if origins and not pending["script"]:
-                        # No script is left to fill them: announcing them
-                        # later would promise a restore that cannot happen.
-                        pending["origins"] = []
-            if hint:
-                result["site_data"] = hint
-            pending["announce"] = False
-            pending.pop("report", None)
-            data = {k: v for k, v in data.items() if k != "pending"}
-            if pending.get("origins") or pending.get("script"):
-                data["pending"] = pending
-        if data is not record.site_data:
-            self.store.set(name, record.with_site_data(data))
+        if hint:
+            result["site_data"] = hint
+
+        def settle(r: SessionRecord) -> SessionRecord | None:
+            now = dict(r.site_data.get("pending") or {})
+            if r.session_id != browser or now.get("browser") != browser:
+                # Another browser opened meanwhile, with a note of its own.
+                return None
+            now["announce"] = False
+            now.pop("report", None)
+            if arrived:
+                now["origins"] = [o for o in now.get("origins") or [] if o != arrived]
+            if swapped and now.get("script") == swapped[0]:
+                now["script"] = swapped[1]
+                if now["origins"] and not now["script"]:
+                    # No script is left to fill them: announcing them later
+                    # would promise a restore that cannot happen.
+                    now["origins"] = []
+            data = {k: v for k, v in r.site_data.items() if k != "pending"}
+            if now.get("origins") or now.get("script"):
+                data["pending"] = now
+            return None if data == r.site_data else r.with_site_data(data)
+
+        self.store.update(name, settle)
 
     @staticmethod
     def _waiting(data: dict, origins: list[str]) -> dict:
@@ -477,7 +499,7 @@ class SessionManager:
         record = self.store.get(name)
         if record is None:
             return
-        data = {k: v for k, v in record.site_data.items() if k != "pending"}
+        browser = record.session_id
         arrived = (waiting or {}).pop("arrived", None)
         if waiting and waiting.get("script") and (
             arrived or not waiting.get("origins")
@@ -486,17 +508,24 @@ class SessionManager:
             # it would overwrite what the app changes since, on every later
             # tab: swap it for one carrying only what still waits, if anything.
             script = self.actions.retire_site_data(
-                record.session_id,
+                browser,
                 waiting["script"],
-                self._waiting(data, waiting.get("origins") or []),
+                self._waiting(record.site_data, waiting.get("origins") or []),
             )
             waiting = {**waiting, "script": script}
             if waiting.get("origins") and not script:
                 waiting["origins"] = []
-        if waiting and (waiting.get("origins") or extra.get("announce")):
-            data["pending"] = {"browser": record.session_id, **waiting, **extra}
-        if data != record.site_data:
-            self.store.set(name, record.with_site_data(data))
+
+        def hold(r: SessionRecord) -> SessionRecord | None:
+            if r.session_id != browser:
+                # A newer browser, whose own open holds its own note.
+                return None
+            data = {k: v for k, v in r.site_data.items() if k != "pending"}
+            if waiting and (waiting.get("origins") or extra.get("announce")):
+                data["pending"] = {"browser": browser, **waiting, **extra}
+            return None if data == r.site_data else r.with_site_data(data)
+
+        self.store.update(name, hold)
 
     def open_browser(
         self,
@@ -550,9 +579,7 @@ class SessionManager:
             url=url or inherited, **({"site_data": saved} if saved else {}), **resolved
         )
         if forgotten is not None:
-            current = self.store.get(name)
-            if current is not None:
-                self.store.set(name, current.with_site_data({}))
+            self.store.update(name, lambda r: r.with_site_data({}))
         self.remember(name, opened["session_id"], opened.get("url", ""), resolved)
         self._hold_pending(name, opened, {"announce": False})
         if forgotten is not None:
@@ -576,17 +603,18 @@ class SessionManager:
         for the node default, midway through a task would be a silent change of
         shape. They are also what ``open_session`` with no arguments inherits.
         """
-        earlier = self.store.get(name)
-        self.store.set(
-            name,
-            SessionRecord(
+        def bound(site_data: dict) -> SessionRecord:
+            return SessionRecord(
                 session_id=session_id,
                 url=url,
                 opened_at=time.time(),
                 settings=dict(settings or {}),
-                site_data=dict(earlier.site_data) if earlier else {},
-            ),
-        )
+                site_data=dict(site_data),
+            )
+
+        # Through `update`, so a save landing while the browser opened is kept.
+        if self.store.update(name, lambda r: bound(r.site_data)) is None:
+            self.store.set(name, bound({}))
 
     def touch(self, name: str, url: str | None) -> None:
         """Record where the browser ended up, and slide the record's TTL.
@@ -604,9 +632,7 @@ class SessionManager:
         clock — so a flow that logs in every few minutes, the one thing secrets
         exist for, expired out of the store while it was being used.
         """
-        record = self.store.get(name)
-        if record is not None:
-            self.store.set(name, record.at(url))
+        self.store.update(name, lambda r: r.at(url))
 
     def reshape(self, name: str, result: dict) -> None:
         """Record the window size an action just gave the browser.
@@ -617,9 +643,8 @@ class SessionManager:
         browser would be silently undone the next time the Grid reaps it.
         """
         size = {k: result[k] for k in ("width", "height") if result.get(k)}
-        record = self.store.get(name) if size else None
-        if record is not None:
-            self.store.set(name, record.reshaped(size))
+        if size:
+            self.store.update(name, lambda r: r.reshaped(size))
 
     def context(self, name: str) -> dict:
         """The browser and page this session last had, for a reopen.
@@ -659,6 +684,10 @@ class SessionManager:
             # record naming a browser that cannot be ended is worse than one
             # naming nothing, because the next call would try to use it.
             log.info("could not end browser %s: %s", target, exc)
-        self.store.set(name, record.detached())
+        # Ending took a Grid round trip: detach the record as it is now, and
+        # only if it still names this browser — one opened meanwhile stays.
+        self.store.update(
+            name, lambda r: r.detached() if r.session_id == target else None
+        )
         log.info("ended browser %s for session %s", target, name)
         return target

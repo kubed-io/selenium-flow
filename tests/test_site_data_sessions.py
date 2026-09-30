@@ -318,3 +318,90 @@ def test_the_capture_is_stripped_even_when_the_store_fails(named_caller):
     with pytest.raises(ConnectionError):
         m.settle(NAMED, result, touch=False)
     assert site_data.CAPTURED not in result
+
+
+# ---- a site-data write never reverts what landed while it worked -------------
+#
+# Retiring a script is a BiDi round trip, up to seconds. Another request can
+# open a browser or save in that window; the site-data write that follows is
+# applied to the record as it is then, not to the one read before it.
+
+
+def during_retire(m, then):
+    real = m.actions.retire_site_data
+
+    def retire(session_id, script, keep=None):
+        then()
+        m.actions.retire_site_data = real
+        return real(session_id, script, keep)
+
+    m.actions.retire_site_data = retire
+
+
+def test_an_arrival_does_not_undo_a_browser_opened_meanwhile(named_caller):
+    m = opened_with_save()
+    reopened(m)
+    during_retire(m, lambda: m.remember(NAMED, "brand-new", "https://new.test", {"width": 9}))
+    m.act(NAMED, lambda s: {"url": "https://w.test/page"})
+    record = m.store.get(NAMED)
+    assert (record.session_id, record.url, record.settings) == (
+        "brand-new", "https://new.test", {"width": 9},
+    )
+
+
+def save_elsewhere(m, origin):
+    def save(r):
+        data = dict(r.site_data)
+        data["origins"] = {**data.get("origins", {}), origin: {"local": {}, "session": {}, "saved_at": 2.0}}
+        return r.with_site_data(data)
+
+    return lambda: m.store.update(NAMED, save)
+
+
+def test_an_arrival_keeps_a_save_that_landed_meanwhile(named_caller):
+    m = opened_with_save()
+    reopened(m)
+    during_retire(m, save_elsewhere(m, "https://late.test"))
+    m.act(NAMED, lambda s: {"url": "https://w.test/page"})
+    data = m.store.get(NAMED).site_data
+    assert "https://late.test" in data["origins"]
+    assert "pending" not in data, "the arrival itself still settled"
+
+
+def test_a_landing_swap_does_not_undo_a_browser_opened_meanwhile(named_caller):
+    m = opened_with_save()
+    with_storage_for(m, "https://w.test")
+    m.actions.arrived = ["https://app.example.com"]
+    m.end_browser(NAMED)
+    during_retire(m, lambda: m.remember(NAMED, "brand-new", "https://new.test"))
+    m.open_browser(NAMED)
+    record = m.store.get(NAMED)
+    assert (record.session_id, record.url) == ("brand-new", "https://new.test")
+    assert "pending" not in record.site_data, "the old browser's note is not the new one's"
+
+
+def test_a_landing_swap_keeps_a_save_that_landed_meanwhile(named_caller):
+    m = opened_with_save()
+    with_storage_for(m, "https://w.test")
+    m.actions.arrived = ["https://app.example.com"]
+    m.end_browser(NAMED)
+    during_retire(m, save_elsewhere(m, "https://late.test"))
+    m.open_browser(NAMED)
+    data = m.store.get(NAMED).site_data
+    assert "https://late.test" in data["origins"]
+    assert data["pending"]["script"] == "p1+"
+
+
+def test_ending_a_browser_keeps_a_save_that_landed_while_it_quit(named_caller):
+    m = opened_with_save()
+    real = m.actions.end_browser
+
+    def end(session_id):
+        save_elsewhere(m, "https://late.test")()
+        return real(session_id)
+
+    m.actions.end_browser = end
+    m.end_browser(NAMED)
+    record = m.store.get(NAMED)
+    assert not record.attached
+    assert "https://late.test" in record.site_data["origins"]

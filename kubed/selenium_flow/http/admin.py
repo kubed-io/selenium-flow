@@ -45,6 +45,7 @@ from ..core.browser import DEFAULT_BROWSER, is_partial
 from ..flows import api as flowapi
 from ..flows import document as flowdoc
 from ..flows import library as flows
+from ..session.store import SessionRecord
 from . import auth, files, links
 
 log = logging.getLogger(__name__)
@@ -838,12 +839,15 @@ def register(
         """
         key = request.path_params["key"]
         host = request.path_params["site"].lower()
-        try:
-            record = await run_in_threadpool(sessions.store.get, key)
-            data = record.site_data if record else {}
-            left, removed = site_data.forget(data, host)
-            if not (removed["cookies"] or removed["origins"]):
-                raise errors.NotFound(f"no saved site data for {host}")
+        missing = f"no saved site data for {host}"
+        removed: dict = {}
+
+        # Applied to the record as it is when written, so a save or an open
+        # landing while this runs is kept rather than set back.
+        def forget(record: SessionRecord) -> SessionRecord:
+            left, removed["what"] = site_data.forget(record.site_data, host)
+            if not (removed["what"]["cookies"] or removed["what"]["origins"]):
+                raise errors.NotFound(missing)
             # Pending origins are restores not yet consumed; a forgotten site
             # must not come back through one.
             pending = left.get("pending")
@@ -854,12 +858,14 @@ def register(
                         o for o in pending["origins"] if site_data.host_of(o) != host
                     ],
                 }
-            await run_in_threadpool(
-                sessions.store.set, key, record.with_site_data(left)
-            )
+            return record.with_site_data(left)
+
+        try:
+            if await run_in_threadpool(sessions.store.update, key, forget) is None:
+                raise errors.NotFound(missing)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return refused(exc, f"forgetting {host} for {key}")
-        return JSONResponse({"forgotten": removed})
+        return JSONResponse({"forgotten": removed["what"]})
 
     @mcp.custom_route(
         f"{prefix}/admin/sessions/{{key}}/files", methods=["GET"], name="admin_files"
