@@ -444,7 +444,13 @@ class SessionManager:
         if record is None:
             return
         data = {k: v for k, v in record.site_data.items() if k != "pending"}
-        if waiting:
+        if waiting and not waiting.get("origins") and waiting.get("script"):
+            # Only the landing origin had storage, and that page already loaded
+            # under the script. Left in place it would overwrite what the app
+            # changes since, on every later tab.
+            self.actions.retire_site_data(record.session_id, waiting["script"])
+            waiting = {**waiting, "script": ""}
+        if waiting and (waiting.get("origins") or extra.get("announce")):
             data["pending"] = {"browser": record.session_id, **waiting, **extra}
         if data != record.site_data:
             self.store.set(name, record.with_site_data(data))

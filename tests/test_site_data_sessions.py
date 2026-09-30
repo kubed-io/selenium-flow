@@ -11,6 +11,7 @@ class SiteActions(RecordingActions):
         super().__init__()
         self.site_data_seen = []
         self.retired = []
+        self.landing_only = False
 
     def open_session(self, url=None, site_data=None, **kw):
         self.site_data_seen.append(site_data)
@@ -20,7 +21,8 @@ class SiteActions(RecordingActions):
                 "restored": ["x"], "waiting": ["https://w.test"], "skipped": [],
             }
             opened["_site_data_pending"] = {
-                "origins": ["https://w.test"], "script": "p1",
+                "origins": [] if self.landing_only else ["https://w.test"],
+                "script": "p1",
             }
         return opened
 
@@ -133,3 +135,30 @@ def test_restore_site_data_accepts_a_string_false(named_caller):
     m = opened_with_save()
     reopened(m, restore_site_data="false")
     assert m.store.get(NAMED).site_data == {}
+
+
+def test_a_landing_only_restore_retires_the_script_at_open(named_caller):
+    m = opened_with_save()
+    m.actions.landing_only = True
+    reopened(m)
+    assert m.actions.retired == ["p1"]
+    assert "pending" not in m.store.get(NAMED).site_data
+
+
+def test_a_landing_only_silent_reopen_retires_and_still_announces(named_caller):
+    m = opened_with_save()
+    m.actions.landing_only = True
+    m.actions.grid.alive.clear()
+    first = m.act(NAMED, lambda s: {"url": "https://elsewhere.test"})
+    assert m.actions.retired == ["p1"]
+    assert first["site_data"]["restored"] == ["x"]
+    assert "pending" not in m.store.get(NAMED).site_data
+    assert "site_data" not in m.act(NAMED, lambda s: {"url": "https://e.test"})
+
+
+def test_the_pending_note_never_reaches_the_browser(named_caller):
+    m = opened_with_save()
+    reopened(m)
+    reopened(m)
+    assert m.actions.site_data_seen[-1]
+    assert "pending" not in m.actions.site_data_seen[-1]
