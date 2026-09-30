@@ -150,7 +150,7 @@ def test_a_reopen_that_lands_on_a_waiting_origin_does_not_call_it_both(named_cal
     m = opened_with_save()
     m.actions.grid.alive.clear()
     first = m.act(NAMED, lambda s: {"url": "https://w.test/page"})
-    assert "https://w.test" in first["site_data"]["restored"]
+    assert first["site_data"]["restored"] == ["x", "https://w.test"]
     assert first["site_data"]["waiting"] == []
 
 
