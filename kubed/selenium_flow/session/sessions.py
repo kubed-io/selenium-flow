@@ -40,6 +40,7 @@ import logging
 import time
 from dataclasses import dataclass
 
+from ..core import site_data as site_data_module
 from ..core.actions import Actions
 from ..core.browser import DEFAULT_BROWSER
 from ..mcp import guidance
@@ -273,6 +274,9 @@ class SessionManager:
         # something is off-screen or a layout has collapsed, and it should not
         # have to dig it out of settings or take a screenshot to find out.
         status["window"] = record.window
+        saved = site_data_module.summary(record.site_data)
+        if saved is not None:
+            status["site_data"] = saved
         # A record with no browser is an ordinary state, not a broken one: the
         # Grid reaped it or an admin ended it, and the context it left behind is
         # what the next open_session inherits.
@@ -338,14 +342,21 @@ class SessionManager:
             record.session_id,
             name,
         )
+        saved = self._restorable(record)
         opened = self.actions.open_session(
-            url=record.url or None, **(record.settings or {})
+            url=record.url or None,
+            **({"site_data": saved} if saved else {}),
+            **(record.settings or {}),
         )
         self.remember(
             name,
             opened["session_id"],
             opened.get("url", record.url or ""),
             record.settings,
+        )
+        # Nobody asked for this reopen, so the next result says it happened.
+        self._hold_pending(
+            name, opened, {"announce": True, "report": opened.get("site_data")}
         )
         return opened["session_id"]
 
@@ -367,10 +378,84 @@ class SessionManager:
             self.touch(name, result.get("url"))
             if reshapes:
                 self.reshape(name, result)
+            self._site_data_after(name, result)
         return result
 
+    def _site_data_after(self, name: str, result: dict) -> None:
+        """What a finished call means for this session's site data.
+
+        Three things, in order: a captured save is merged into the record and
+        replaced in the result by a short receipt; a page arriving on an origin
+        still waiting to be restored says so once, and the last arrival retires
+        the preload script; a silent reopen is announced on its first result.
+        """
+        record = self.store.get(name)
+        captured = result.pop(site_data_module.CAPTURED, None)
+        if record is None:
+            return
+        data = record.site_data
+        if captured:
+            data, _ = site_data_module.merge(data, captured, time.time())
+            result["saved"] = site_data_module.summary(data)
+            result["uri"] = site_data_module.LIST_URI
+        pending = dict(data.get("pending") or {})
+        if pending and pending.get("browser") == record.session_id:
+            hint = {}
+            if pending.pop("announce", False):
+                hint = dict(pending.pop("report", None) or {})
+            origin = site_data_module.origin_of(result.get("url") or "")
+            origins = list(pending.get("origins") or [])
+            if origin in origins:
+                origins.remove(origin)
+                pending["origins"] = origins
+                hint["restored"] = [*hint.get("restored", []), origin]
+                hint["uri"] = site_data_module.site_uri(
+                    site_data_module.host_of(origin)
+                )
+                script = pending.get("script") or ""
+                if not origins and script:
+                    self.actions.retire_site_data(record.session_id, script)
+                    pending["script"] = ""
+            if hint:
+                result["site_data"] = hint
+            pending["announce"] = False
+            pending.pop("report", None)
+            data = {k: v for k, v in data.items() if k != "pending"}
+            if pending.get("origins") or pending.get("script"):
+                data["pending"] = pending
+        if data is not record.site_data:
+            self.store.set(name, record.with_site_data(data))
+
+    @staticmethod
+    def _restorable(record: SessionRecord) -> dict:
+        """The saved data a browser can be given: the pending note is ours."""
+        if site_data_module.summary(record.site_data) is None:
+            return {}
+        return {k: v for k, v in record.site_data.items() if k != "pending"}
+
+    def _hold_pending(self, name: str, opened: dict, extra: dict) -> None:
+        """Note in the record what a fresh browser is still waiting to restore.
+
+        Consumes ``_site_data_pending`` from ``opened``, so it never reaches a
+        caller. Whatever an earlier browser was waiting on is dropped.
+        """
+        waiting = opened.pop("_site_data_pending", None)
+        record = self.store.get(name)
+        if record is None:
+            return
+        data = {k: v for k, v in record.site_data.items() if k != "pending"}
+        if waiting:
+            data["pending"] = {"browser": record.session_id, **waiting, **extra}
+        if data != record.site_data:
+            self.store.set(name, record.with_site_data(data))
+
     def open_browser(
-        self, name: str, url: str | None = None, fresh: bool = False, **wanted
+        self,
+        name: str,
+        url: str | None = None,
+        fresh: bool = False,
+        restore_site_data: bool = True,
+        **wanted,
     ) -> dict:
         """Open this session's browser, or pick up the one it was using.
 
@@ -403,8 +488,21 @@ class SessionManager:
         # start - and an explicit `url` is a start the caller named, which
         # `fresh` has no business overriding.
         inherited = None if as_bool(fresh) else (previous.get("url") or None)
-        opened = self.actions.open_session(url=url or inherited, **resolved)
+        record = self.store.get(name)
+        saved = self._restorable(record) if record else {}
+        forgotten = None
+        if saved and not as_bool(restore_site_data, True):
+            # Declining a restore is also how saved data is thrown away.
+            forgotten = site_data_module.summary(saved)["sites"]
+            self.store.set(name, record.with_site_data({}))
+            saved = {}
+        opened = self.actions.open_session(
+            url=url or inherited, **({"site_data": saved} if saved else {}), **resolved
+        )
         self.remember(name, opened["session_id"], opened.get("url", ""), resolved)
+        self._hold_pending(name, opened, {"announce": False})
+        if forgotten is not None:
+            opened["site_data"] = {"forgotten": forgotten}
         # The Grid's id is dropped here rather than never fetched: it is how the
         # browser is reached, and it is not part of what a caller is told.
         told = {k: v for k, v in opened.items() if k != "session_id"}
@@ -424,6 +522,7 @@ class SessionManager:
         for the node default, midway through a task would be a silent change of
         shape. They are also what ``open_session`` with no arguments inherits.
         """
+        earlier = self.store.get(name)
         self.store.set(
             name,
             SessionRecord(
@@ -431,6 +530,7 @@ class SessionManager:
                 url=url,
                 opened_at=time.time(),
                 settings=dict(settings or {}),
+                site_data=dict(earlier.site_data) if earlier else {},
             ),
         )
 
