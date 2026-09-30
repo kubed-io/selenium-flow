@@ -91,6 +91,9 @@ class SessionRecord:
     # What the session was opened with, so a reopen uses the same browser
     # rather than a default one.
     settings: dict = field(default_factory=dict)
+    # Cookies and storage the session saved (core/site_data.py). Kept with the
+    # record so it expires with it, and never on disk.
+    site_data: dict = field(default_factory=dict)
 
     @property
     def attached(self) -> bool:
@@ -124,11 +127,13 @@ class SessionRecord:
                 # clause below does not catch.
                 return None
             settings = data.get("settings")
+            site_data = data.get("site_data")
             return cls(
                 session_id=str(data.get("session_id") or ""),
                 url=str(data.get("url", "")),
                 opened_at=float(data.get("opened_at", 0.0)),
                 settings=settings if isinstance(settings, dict) else {},
+                site_data=site_data if isinstance(site_data, dict) else {},
             )
         except (ValueError, TypeError):
             # A malformed entry is a cache miss, not an outage.
@@ -146,6 +151,10 @@ class SessionRecord:
         have to survive or a reopen would replay a browser nobody asked for.
         """
         return replace(self, settings={**self.settings, **settings})
+
+    def with_site_data(self, site_data: dict) -> SessionRecord:
+        """The same record holding this site data."""
+        return replace(self, site_data=dict(site_data or {}))
 
     def detached(self) -> SessionRecord:
         """The same record with no browser, keeping the context it had.
