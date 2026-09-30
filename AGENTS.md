@@ -398,8 +398,9 @@ or the leak `caller_key` existed to prevent comes straight back.
 ### Site data
 
 - Saved **explicitly** by `save_site_data`, never captured per call.
-- Kept on `SessionRecord.site_data` in the store, never on disk, never logged; it expires with
-  the record. httpOnly values are shown as `•••` on every surface.
+- Kept on `SessionRecord.site_data` in the store, never on this server's disk (with the Redis
+  store it is as durable as Redis), never logged — `main.py` holds Selenium's wire loggers at
+  INFO for that; it expires with the record. httpOnly values are shown as `•••` on every surface.
 - An action returns the capture under `CAPTURED`; `SessionManager.settle` merges it and strips
   it, so it is never returned. `act` and every flow step go through `settle`, which is why a
   flow's save is merged and a run report never carries the capture.

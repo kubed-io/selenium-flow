@@ -764,3 +764,19 @@ async def test_a_whole_reference_is_not_checked_against_the_set(step_schema_map)
         steps=[{"tool": "interact", "args": {"action": "${gesture}", "selector": {"css": "a"}}}],
     )
     assert validate(document, step_schema_map)
+
+
+async def test_a_flow_that_saves_site_data_confirms_the_sign_in_first(step_schema_map):
+    """The skill's rule, held by the one flow that saves: an `assert` between
+    the sign-in click and `save_site_data`, never a save on faith."""
+    from pathlib import Path
+
+    import yaml
+
+    path = Path(__file__).parent / "integration" / "flows" / "save-site-data.yaml"
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert validate(document, step_schema_map)
+    tools = [step["tool"] for step in document["steps"]]
+    save = tools.index("save_site_data")
+    click = max(i for i, t in enumerate(tools[:save]) if t == "interact")
+    assert "assert" in tools[click + 1:save]

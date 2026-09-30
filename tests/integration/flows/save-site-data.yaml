@@ -19,6 +19,14 @@ steps:
   args:
     action: click
     selector: {css: "#loginForm button[type=submit]"}
+# Confirm the sign-in landed before saving: a save before that keeps a
+# signed-out browser, which is what the skill teaches against.
+- tool: assert
+  args:
+    script: >-
+      return [...document.querySelectorAll('#sessions .pill.name')]
+      .some((pill) => pill.textContent === '${session}')
+    message: The sign-in did not land, so there is nothing worth saving yet.
 - tool: save_site_data
 - tool: navigate
   args: {url: "${admin}/#/sessions/${session}/site-data"}

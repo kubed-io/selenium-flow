@@ -75,7 +75,8 @@ holds and now names BiDi as part of it.
 ## The model
 
 A `site_data` field on `SessionRecord`, in the session store (memory or
-Redis) and **never on disk**. It rides the record's own expiry — a session
+Redis) and **never on this server's disk**; with the Redis store it is as
+durable as Redis. It rides the record's own expiry — a session
 unused for `session.ttl` goes, and its site data with it. No new setting.
 
 ```json
@@ -104,7 +105,10 @@ unused for `session.ttl` goes, and its site data with it. No new setting.
 - **A site is a host.** Cookies carry a domain and no scheme or port, so the
   view groups by host: every host with saved storage, plus every cookie
   domain no such host covers. A cookie whose domain starts with `.` is
-  **shared** and shows under every host it covers.
+  **shared** and shows under every host it covers. A site's **own** cookies
+  are those whose domain is the host or `.host`; only its own cookies and
+  origins make a site *saved* (and forgettable) — a parent's shared cookie
+  only covers it.
 - **Size cap: 1 000 000 bytes** of JSON for the whole field. A save that would
   pass it keeps the cookies, leaves that origin's storage out, and says so in
   its result — it neither fails nor truncates.
@@ -146,7 +150,8 @@ agent reads is the result, not the docstring):
   `"site_data": {"restored": [...], "waiting": [...], "skipped": [...], "uri": "session://site-data"}`
   `restored` is every host whose data is fully in place: the cookie-only hosts
   and the landing page's host. `waiting` is every origin whose storage fills
-  on arrival. `skipped` names a cookie the browser refused, with the reason.
+  on arrival. `skipped` names a cookie the browser refused, with the reason
+  (`{cookie, domain, reason}`, or `{site, reason}` for storage).
 - `open_session(restore_site_data=false)` → `"site_data": {"forgotten": 2}`
   when there was something to forget.
 - Any call that lands on a waiting origin →
@@ -176,27 +181,44 @@ nothing changed.
 On every browser open (`open_session`, and the reopen inside `resolve`), when
 the record has site data and restore is on:
 
-1. Drop expired cookies; set the rest with `storage.setCookie`. A refused
-   cookie is skipped with its reason, never fatal.
-2. If any origin has storage, add **one** preload script carrying every
+1. Drop expired cookies; set the rest with `storage.setCookie`. A cookie
+   saved with SameSite `none` and not Secure is set as `lax`: Chrome reports
+   an unspecified SameSite as `none` and silently refuses None without
+   Secure (found live). A refused cookie is skipped with its reason, never
+   fatal.
+2. Read the jar back once. A cookie the browser did not keep is skipped with
+   "the browser did not keep it", and a host none of whose cookies were kept
+   is not reported as restored.
+3. If any origin has storage, add **one** preload script carrying every
    origin's storage. On each new document it checks `location.origin`, fills
    that origin's localStorage and sessionStorage **once per tab**, and marks
    the tab with a sessionStorage key `selenium-flow:restored:<origin>`. Keys
    with that prefix are never saved.
-3. Navigate to the landing page as before; its storage is already in place.
-4. Record `pending` for this browser.
+4. Navigate to the landing page as before; its storage is already in place.
+5. Record `pending` for this browser. If the landing origin had storage,
+   the script is swapped at once for one carrying only the origins still
+   waiting (none: it is removed).
 
-After each call, `SessionManager.act` compares the page's origin with
-`pending.origins`. A match is announced in the result and leaves `pending`;
-when nothing is waiting any more, the preload script is removed. Restore is
-best effort: nothing in it can fail an open.
+After each call, `SessionManager.settle` compares the page's origin with
+`pending.origins`. A match is announced in the result and leaves `pending`,
+and the preload script is **replaced** by one carrying only the origins
+still waiting, or removed when none are — one BiDi reconnect. Without that,
+the tab marker being per tab, an app opening an arrived origin in a new tab
+would have it refilled over what it changed since. Restore is best effort:
+nothing in it can fail an open.
 
 ## Forgetting a site (admin)
 
 Removes that host's origins and its own cookies — those whose domain is the
 host or `.host`, so a row that exists only because of a parent-domain cookie
 can be forgotten. Other parents' leading-dot cookies stay, because other sites
-use them; the confirm says which stay. **Secrets are never touched.**
+use them; the confirm says which stay, from `own_cookies` and `kept_shared`
+in the site's detail — computed by Forget's own rule, so the confirm and the
+DELETE cannot disagree. **Secrets are never touched.**
+
+Forget applies from the **next** browser. One open now keeps what it has:
+the cookies are in its jar, and a preload script already in it still fills
+a forgotten origin that was waiting. The confirm says so.
 
 ## The admin UI
 

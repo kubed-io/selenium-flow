@@ -49,9 +49,12 @@ SITE_DATA_HINT = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "site": {"type": "string"},
+                    "cookie": {"type": "string", "description": "A cookie's name."},
+                    "domain": {"type": "string", "description": "Its domain."},
+                    "site": {"type": "string", "description": "An origin's storage."},
                     "reason": {"type": "string"},
                 },
+                "required": ["reason"],
             },
             "description": "Items that could not be restored, each with a reason.",
         },

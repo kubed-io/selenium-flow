@@ -92,7 +92,8 @@ class SessionRecord:
     # rather than a default one.
     settings: dict = field(default_factory=dict)
     # Cookies and storage the session saved (core/site_data.py). Kept with the
-    # record so it expires with it, and never on disk.
+    # record so it expires with it; never on this server's disk (with Redis,
+    # as durable as Redis).
     site_data: dict = field(default_factory=dict)
 
     @property

@@ -579,3 +579,26 @@ def test_the_site_view_names_goes_and_stays_by_the_forget_rule():
     assert one["kept_shared"] == ["ab"]
     parent = sd.site_view(data, "example.com")
     assert parent["own_cookies"] == ["ab"] and parent["kept_shared"] == []
+
+
+def test_every_skipped_item_restore_emits_is_declared():
+    from kubed.selenium_flow.spec.schemas import SITE_DATA_HINT
+
+    declared = SITE_DATA_HINT["properties"]["skipped"]["items"]
+    data = {"cookies": [cookie("gone", "a.test"), cookie("bad", "b.test")], "origins": {}}
+    report, _ = sd.restore(FakeBidi(drop={"gone"}, refuse={"bad"}), data, None, NOW)
+
+    class Broken:
+        storage = FakeStorage()
+
+        @property
+        def script(self):
+            raise RuntimeError("no socket")
+
+    stored = {**data, "origins": {"https://a.test": {"local": {}, "session": {}}}}
+    whole, _ = sd.restore(Broken(), stored, None, NOW)
+    items = report["skipped"] + whole["skipped"]
+    assert len(items) == 3
+    for item in items:
+        assert set(item) <= set(declared["properties"]), item
+        assert set(declared["required"]) <= set(item)
