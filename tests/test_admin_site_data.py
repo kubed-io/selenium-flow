@@ -124,3 +124,10 @@ def test_the_row_carries_a_count_and_a_rev_that_move_on_forget(client):
     # The shared cookie still stands as a site of its own.
     assert [r[0] for r in json.loads(after["site_data_rev"])] == ["example.com"]
     assert after["site_data_rev"] != before["site_data_rev"]
+
+
+def test_a_parent_only_row_can_be_forgotten(client):
+    client.delete(url("/app.example.com"))
+    assert client.delete(url("/example.com")).status_code == 200
+    rows = client.get("/admin/sessions").json()["sessions"]
+    assert next(r for r in rows if r["key"] == KEY)["site_data_count"] == 0

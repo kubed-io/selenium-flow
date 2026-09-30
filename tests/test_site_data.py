@@ -383,3 +383,13 @@ def test_open_session_says_nothing_without_site_data(actions, monkeypatch):
         result, order = _open(actions, monkeypatch, empty)
         assert order == ["get"]
         assert "site_data" not in result and "_site_data_pending" not in result
+
+
+def test_forgetting_a_parent_only_row_removes_its_dotted_cookie():
+    data = {"cookies": [cookie("shared", ".example.com")], "origins": {}}
+    assert [r["site"] for r in sd.view(data)["sites"]] == ["example.com"]
+    left, removed = sd.forget(data, "example.com")
+    assert removed["cookies"] == ["shared"]
+    assert removed["kept_shared"] == []
+    assert left["cookies"] == []
+    assert sd.view(left)["sites"] == []

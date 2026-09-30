@@ -238,14 +238,16 @@ def summary(data: dict) -> dict | None:
 
 
 def forget(data: dict, host: str) -> tuple[dict, dict]:
-    """Remove one site: its origins and the cookies that are its own. A
-    parent-domain cookie stays — other sites use it."""
+    """Remove one site: its origins and the cookies named for it (``host`` or
+    ``.host``). A parent-domain cookie of another row stays — others use it."""
     host = (host or "").lower()
     cookies = data.get("cookies") or []
-    gone = [c for c in cookies if (c.get("domain") or "") == host]
+    own = (host, "." + host)
+    gone = [c for c in cookies if (c.get("domain") or "") in own]
     shared = [
         c for c in cookies
         if (c.get("domain") or "").startswith(".") and _covers(c["domain"], host)
+        and c not in gone
     ]
     stored = data.get("origins") or {}
     origins = [o for o in stored if host_of(o) == host]
