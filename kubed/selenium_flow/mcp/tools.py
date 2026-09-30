@@ -732,25 +732,20 @@ def register(
             ),
         )
         image = Image(data=base64.b64decode(result["image"]), format="png")
-        entry = result.get("file")
-        unsaved = result.get("file_error")
-        if entry is None and unsaved is None:
+        # Beside the image, each only when present:
+        # - `file`: a saved screenshot has a name the caller cannot derive (a
+        #   second `shot.png` is kept as `shot (1).png`);
+        # - `file_error`: the capture survived and the file did not, and an MCP
+        #   caller given only the image would look for a name never coming;
+        # - `site_data`: the call landed on a waiting origin, which says so
+        #   once (``sessions.act``) — dropped here, it is never said at all.
+        told = {
+            k: result[k] for k in ("file", "file_error", "site_data")
+            if result.get(k) is not None
+        }
+        if not told:
             return image
-        if entry is None:
-            # The capture survived and the file did not. The HTTP surface says
-            # why; an MCP caller that got only the image would be told nothing
-            # and would look for a name that is never coming.
-            return ToolResult(
-                content=[image.to_image_content()],
-                structured_content={"file_error": unsaved},
-            )
-        # A saved screenshot has a name, and the caller cannot derive it: a
-        # second `shot.png` is kept as `shot (1).png`. Returning the image alone
-        # left the link discoverable only by listing the files and guessing
-        # which entry was yours.
-        return ToolResult(
-            content=[image.to_image_content()], structured_content={"file": entry}
-        )
+        return ToolResult(content=[image.to_image_content()], structured_content=told)
 
     @mcp.tool(name="print", annotations=hints("Print the page"))
     def print_page(

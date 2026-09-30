@@ -424,6 +424,24 @@ async def test_print_is_a_tool_that_keeps_the_file(keeping_server, monkeypatch):
     assert result.structured_content["file"]["uri"] == "session://files/page.html"
 
 
+@pytest.mark.parametrize("kept", [{}, {"file": {"name": "shot.png"}},
+                                  {"file_error": "not kept"}])
+async def test_a_screenshot_carries_the_site_data_hint(keeping_server, monkeypatch, kept):
+    """The call can land on a waiting origin like any other; the image must not
+    swallow the hint that says it was restored."""
+    from fastmcp import Client
+
+    hint = {"restored": ["https://w.test"], "uri": "session://site-data/w.test"}
+    png = base64.b64encode(b"\x89PNG\r\n\x1a\n").decode()
+    monkeypatch.setattr(keeping_server.sessions, "act", lambda name, call, **kw: {
+        "image": png, "site_data": hint, **kept})
+    monkeypatch.setattr(keeping_server.sessions, "name", lambda: "s")
+    async with Client(keeping_server.mcp) as client:
+        result = await client.call_tool("screenshot", {})
+    assert result.content[0].type == "image"
+    assert result.structured_content == {"site_data": hint, **kept}
+
+
 # ---- what the tools promise ----------------------------------------------------
 
 
