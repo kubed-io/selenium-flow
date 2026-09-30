@@ -101,6 +101,16 @@ test('expanded: cookies with dots for httpOnly, flags, expiry; storage; none', a
   expect(session).toHaveTextContent('none')
 })
 
+test('the shared pill follows the payload: a site\'s own dotted cookie has none', async () => {
+  const own = cookie('own', 'o', { domain: '.the-internet.herokuapp.com', shared: false })
+  const d = { ...detail, cookies: [own, ...detail.cookies.slice(1)] }
+  const { container } = setup({ 'GET /admin/sessions/k/site-data': { body: { ...SITES, details: { ...SITES.details, [detail.site]: d } } } })
+  await loaded(container)
+  const a = within(sections(container)[0])
+  expect(a.getByText('own').closest('.line')!.querySelector('.pill.shared')).toBeNull()
+  expect(a.getByText('optimizelyEndUserId').closest('.line')!.querySelector('.pill.shared')).not.toBeNull()
+})
+
 test('secret rows: name, description, one pill per key name', async () => {
   const { container } = setup()
   await loaded(container)

@@ -683,3 +683,12 @@ def test_replace_answers_empty_when_the_add_fails_after_the_remove():
     keep = {"https://w.test": {"local": {}, "session": {}}}
     assert sd.replace(bidi, "old", keep) == ""
     assert bidi.script.removed == ["old"]
+
+
+def test_a_sites_own_dotted_cookie_is_not_shared_but_a_parents_is():
+    data, _ = sd.merge({}, captured(cookies=[
+        cookie("own", ".app.example.com"), cookie("parent", ".example.com"),
+        cookie("plain", "app.example.com"),
+    ]), NOW)
+    shown = {c["name"]: c["shared"] for c in sd.site_view(data, "app.example.com")["cookies"]}
+    assert shown == {"own": False, "parent": True, "plain": False}

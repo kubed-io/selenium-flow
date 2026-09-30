@@ -170,7 +170,7 @@ def _hosts(data: dict) -> list[str]:
     return sorted(h for h in stored | bare if h)
 
 
-def _cookie_view(c: dict) -> dict:
+def _cookie_view(c: dict, host: str) -> dict:
     return {
         "name": c.get("name"),
         "value": MASK if c.get("http_only") else c.get("value"),
@@ -180,7 +180,10 @@ def _cookie_view(c: dict) -> dict:
         "http_only": bool(c.get("http_only")),
         "secure": bool(c.get("secure")),
         "same_site": c.get("same_site"),
-        "shared": (c.get("domain") or "").startswith("."),
+        # Shared with other sites only when a parent domain set it; `.host`
+        # is this row's own (Forget removes it).
+        "shared": (c.get("domain") or "").startswith(".")
+        and not _own(c.get("domain") or "", host),
     }
 
 
@@ -265,7 +268,7 @@ def site_view(data: dict, site: str, secrets: list[dict] | None = None) -> dict 
     return {
         "site": host, "origin": s["origin"], "saved": s["saved"],
         "saved_at": s["saved_at"], "uri": s["uri"],
-        "cookies": [_cookie_view(c) for c in s["_cookies"]],
+        "cookies": [_cookie_view(c, host) for c in s["_cookies"]],
         "local_storage": s["_local"], "session_storage": s["_session"],
         "own_cookies": fate["cookies"], "kept_shared": fate["kept_shared"],
         "secrets": s["secrets"],
