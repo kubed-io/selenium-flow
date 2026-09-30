@@ -218,8 +218,8 @@ there.
 Removes that host's origins and its own cookies — those whose domain is the
 host or `.host`, so a row that exists only because of a parent-domain cookie
 can be forgotten. Other parents' leading-dot cookies stay, because other sites
-use them; the confirm says which stay, from `own_cookies` and `kept_shared`
-in the site's detail — computed by Forget's own rule, so the confirm and the
+use them; the confirm says which stay, from `own_cookies` (names) and `kept_shared`
+(each `{name, domain, path}`, since two can share a name) in the site's detail — computed by Forget's own rule, so the confirm and the
 DELETE cannot disagree. **Secrets are never touched.**
 
 Forget applies from the **next** browser. One open now keeps what it has:

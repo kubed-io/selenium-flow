@@ -19,7 +19,7 @@ const detail = {
     cookie('optimizelyEndUserId', 'oeu1', { domain: '.herokuapp.com', expiry: 1790800000, shared: true }),
   ],
   local_storage: { theme: 'dark', 'tour-seen': 'true' }, session_storage: {}, secrets: [THE_INTERNET],
-  own_cookies: ['rack.session'], kept_shared: ['optimizelyEndUserId'],
+  own_cookies: ['rack.session'], kept_shared: [{ name: 'optimizelyEndUserId', domain: '.herokuapp.com', path: '/' }],
 }
 const summary = (d: typeof detail) => ({ ...d, cookies: d.cookies.length, local_storage: 2, session_storage: 0 })
 const SITES = {
@@ -225,7 +225,7 @@ const PARENTS = {
     { site: 'example.com', origin: null, saved: true, saved_at: Date.now() / 1000 - 60, cookies: 1, local_storage: 0, session_storage: 0, secrets: [] },
   ],
   details: {
-    'app.example.com': { site: 'app.example.com', origin: null, saved: false, saved_at: null, cookies: [PARENT], local_storage: {}, session_storage: {}, secrets: [{ name: 'app', keys: ['a'] }], own_cookies: [], kept_shared: ['shared'] },
+    'app.example.com': { site: 'app.example.com', origin: null, saved: false, saved_at: null, cookies: [PARENT], local_storage: {}, session_storage: {}, secrets: [{ name: 'app', keys: ['a'] }], own_cookies: [], kept_shared: [{ name: 'shared', domain: '.example.com', path: '/' }] },
     'example.com': { site: 'example.com', origin: null, saved: true, saved_at: Date.now() / 1000 - 60, cookies: [PARENT], local_storage: {}, session_storage: {}, secrets: [], own_cookies: ['shared'], kept_shared: [] },
   },
 }
@@ -250,4 +250,28 @@ test('every id in the pane is unique, and each fold controls its own body', asyn
     expect(body).not.toBe(s.id)
     expect(s.querySelector('.body')!.id).toBe(body)
   }
+})
+
+test('two shared cookies of one name both stay, each under its own domain', async () => {
+  const sid = (domain: string, path = '/') => ({ name: 'sid', domain, path })
+  const data = {
+    key: 'k', saved_sites: 1,
+    sites: [{ site: 'app.example.com', origin: 'https://app.example.com', saved: true, saved_at: Date.now() / 1000, cookies: 2, local_storage: 1, session_storage: 0, secrets: [] }],
+    details: {
+      'app.example.com': {
+        site: 'app.example.com', origin: 'https://app.example.com', saved: true, saved_at: Date.now() / 1000,
+        cookies: [], local_storage: { a: '1' }, session_storage: {}, secrets: [],
+        own_cookies: [], kept_shared: [sid('.example.com'), sid('.example.org', '/app')],
+      },
+    },
+  }
+  const { container } = setup({ 'GET /admin/sessions/k/site-data': { body: data } })
+  await vi.waitFor(() => expect(sections(container)).toHaveLength(1))
+  await fireEvent.click(within(sections(container)[0]).getByRole('button', { name: 'Forget' }))
+  const pairs = [...document.querySelectorAll('.modal .pair')].map((p) => p.textContent)
+  expect(pairs).toEqual([
+    'goesa',
+    'stayssid, shared with .example.com',
+    'stayssid, shared with .example.org /app',
+  ])
 })

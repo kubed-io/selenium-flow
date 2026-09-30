@@ -39,14 +39,12 @@
 
   const expires = (c: SiteCookie) => (c.expiry ? new Date(c.expiry * 1000).toLocaleDateString() : 'session')
 
-  interface Forget { origin: string; goes: string[]; stays: string[] }
+  interface Forget { origin: string; goes: string[]; stays: { key: string; label: string }[] }
 
   function forget(r: SiteRow) {
     const d: SiteDetail | undefined = data?.details[r.site]
-    // Which cookies go is the server's call (Forget's own rule); the domain
-    // is looked up only to say whose shared cookie stays.
-    const sharedFrom = (name: string) =>
-      d?.cookies.find((c) => c.name === name && c.shared && c.domain !== '.' + r.site)?.domain
+    // Which cookies go, and which stay, is the server's call (Forget's own
+    // rule); each staying cookie arrives with its own domain and path.
     ask<Forget>({
       title: 'Forget site data',
       body: forgetBody,
@@ -58,8 +56,11 @@
           ...Object.keys(d?.session_storage ?? {}),
         ],
         stays: [
-          ...(d?.kept_shared ?? []).map((n) => n + ', shared with ' + sharedFrom(n)),
-          ...r.secrets.map((s) => s.name + ' secret'),
+          ...(d?.kept_shared ?? []).map((c) => ({
+            key: [c.name, c.domain, c.path].join('|'),
+            label: c.name + ', shared with ' + c.domain + (c.path && c.path !== '/' ? ' ' + c.path : ''),
+          })),
+          ...r.secrets.map((s) => ({ key: 'secret|' + s.name, label: s.name + ' secret' })),
         ],
       },
       confirm: 'Forget', danger: true,
@@ -76,7 +77,7 @@
   <p>{f.origin} — the next browser comes back signed out here; one open now keeps what it has.</p>
   <div class="pairs fate-list">
     {#if f.goes.length}<div class="pair"><span class="pk">goes</span><span class="pv">{f.goes.join(' · ')}</span></div>{/if}
-    {#each f.stays as s (s)}<div class="pair"><span class="pk">stays</span><span class="pv">{s}</span></div>{/each}
+    {#each f.stays as s (s.key)}<div class="pair"><span class="pk">stays</span><span class="pv">{s.label}</span></div>{/each}
   </div>
 {/snippet}
 

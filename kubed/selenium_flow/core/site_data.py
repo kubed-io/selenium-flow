@@ -189,7 +189,7 @@ class _Jar:
     def hosts(self) -> list[str]:
         # Storage hosts first and never grown while the cookies are read, so
         # the rows do not depend on the order the browser listed its cookies in.
-        stored = {h for h in self.origins}
+        stored = set(self.origins)
         reached = set(stored)
         for h in stored:
             reached.update("." + s for s in _suffixes(h))

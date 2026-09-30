@@ -117,13 +117,15 @@ export interface SiteRow {
   session_storage: number
   secrets: SiteSecret[]
 }
+/** A parent-domain cookie Forget leaves, named whole: two can share a name. */
+export interface SharedCookie { name: string; domain: string; path: string }
 export interface SiteDetail extends Omit<SiteRow, 'cookies' | 'local_storage' | 'session_storage'> {
   cookies: SiteCookie[]
   local_storage: Record<string, string>
   session_storage: Record<string, string>
   /** What Forget removes and what it leaves, by the server's own rule. */
   own_cookies: string[]
-  kept_shared: string[]
+  kept_shared: SharedCookie[]
 }
 export interface SiteDataPayload {
   key: string
