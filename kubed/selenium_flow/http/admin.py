@@ -227,10 +227,6 @@ def disposition(name: str) -> str:
     return f"inline; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(base, safe='')}"
 
 
-# Raster images: what a person opens a signed link to look at, and types a
-# browser only ever decodes. SVG is not one — it carries script.
-INERT = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"})
-
 # No script and nothing fetched, for a document that needs neither: an inert
 # file opened in a tab, and the page saying a link would not open.
 NO_SCRIPT = "default-src 'none'; style-src 'unsafe-inline'"
@@ -287,12 +283,22 @@ def unsigned(request: Request, token: str | None, path: str) -> Response | None:
     return None if why is None else link_refused(request, why)
 
 
-def served(name: str, data: bytes) -> Response:
+def fresh_for(request: Request) -> int:
+    """Seconds a file may be reused from cache: never past its own link's
+    expiry, or a copy cached under a short ``link_ttl`` reopens after the link
+    stopped working (Copilot, #48). Unsigned, with auth off, an hour."""
+    try:
+        return max(0, int(request.query_params["exp"]) - int(time.time()))
+    except (KeyError, ValueError):
+        return 3600
+
+
+def served(name: str, data: bytes, max_age: int) -> Response:
     """One stored file's bytes, however it was stored.
 
-    Shared by the two signed routes — a browser's download and a kept file —
-    because the only thing that differs between them is where the bytes came
-    from. Two copies of this is how one of them ends up without the
+    Shared by the signed routes — a browser's download, a kept file and a
+    screenshot — because the only thing that differs between them is where the
+    bytes came from. Two copies of this is how one of them ends up without the
     ``Content-Disposition`` and downloads as ``shot.png`` called ``name``.
     """
     kind = files.content_type(name)
@@ -300,13 +306,13 @@ def served(name: str, data: bytes) -> Response:
         # Named for download, but shown inline when the browser can: the
         # common case is looking at a screenshot, not saving it.
         "Content-Disposition": disposition(name),
-        # Safe to cache hard — the signature already bounds the lifetime,
-        # and a stored file never changes under its own name.
-        "Cache-Control": "private, max-age=3600",
+        # Safe to cache for as long as the link lasts: a stored file never
+        # changes under its own name.
+        "Cache-Control": f"private, max-age={max_age}",
         # Served as what its name says and nothing a browser sniffs instead.
         "X-Content-Type-Options": "nosniff",
     }
-    if kind in INERT:
+    if kind in files.RASTER_TYPES:
         # No sandbox: its opaque origin is felt by every extension in the tab,
         # and one that reads localStorage threw on each render until a link
         # hung. With nosniff these types cannot run anything, and `default-src
@@ -1185,7 +1191,7 @@ def register(
             # that tells a client to stop retrying something that could work on
             # a retry (Copilot, PR #41).
             return signed_refused(exc, f"reading {name} for {session_id}")
-        return served(name, data)
+        return served(name, data, fresh_for(request))
 
     @mcp.custom_route(
         f"{prefix}/kept/{{session}}/{{name}}", methods=["GET"], name="kept_file"
@@ -1215,7 +1221,7 @@ def register(
             return JSONResponse({"error": "not found"}, status_code=404)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return signed_refused(exc, f"reading kept {name} for {session}")
-        return served(name, data)
+        return served(name, data, fresh_for(request))
 
     @mcp.custom_route(
         f"{prefix}/screenshots/{{session}}/{{name}}",
@@ -1250,4 +1256,4 @@ def register(
             return JSONResponse({"error": "not found"}, status_code=404)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return signed_refused(exc, f"reading screenshot {name} for {session}")
-        return served(name, data)
+        return served(name, data, fresh_for(request))

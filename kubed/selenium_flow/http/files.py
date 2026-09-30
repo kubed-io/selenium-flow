@@ -127,7 +127,14 @@ FILE_ROUTES = {
     "keep": ("put", "/{folder}/{name}/kept"),
 }
 
-IMAGE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml")
+# Raster images: shown as pictures, and served unsandboxed because a browser
+# only ever decodes them. One list for both, since a second one drifted and
+# left AVIF served as an image but tiled as a file (Copilot, #48).
+RASTER_TYPES = frozenset(
+    {"image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"}
+)
+# SVG is shown as a picture too, but carries script, so it is not raster.
+IMAGE_TYPES = RASTER_TYPES | {"image/svg+xml"}
 
 OFF = (
     "keeping files is not enabled on this server: it was started with no "

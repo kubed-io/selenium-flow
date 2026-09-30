@@ -144,6 +144,27 @@ def test_downloads_in_flight_are_not_files():
     assert not browser.is_partial("report.pdf")
 
 
+def test_every_image_served_unsandboxed_is_shown_as_one():
+    """Two lists drifted once: AVIF was served as an image and tiled as a
+    file (Copilot, #48)."""
+    assert files.RASTER_TYPES.issubset(files.IMAGE_TYPES)
+    for name in ("x.png", "x.jpg", "x.gif", "x.webp", "x.avif"):
+        assert files.describe(files.FILES, {"name": name}, "/x")["image"], name
+
+
+def test_a_file_is_cached_no_longer_than_its_link_lasts(client):
+    """A short `link_ttl` is a promise; a copy cached for an hour would reopen
+    after the link stopped working (Copilot, #48)."""
+    path = links.file_path("abc", "shot.png")
+    exp = int(time.time()) + 90
+    url = f"{path}?exp={exp}&sig={links.signature(path, exp, TOKEN)}"
+    with patch.object(browser.Grid, "read_file", return_value=b"\x89PNG\r\n\x1a\n"):
+        response = client.get(url)
+    assert response.status_code == 200
+    max_age = int(response.headers["cache-control"].split("max-age=")[1])
+    assert 80 <= max_age <= 90
+
+
 def test_describe_marks_images_and_types():
     url = links.file_url("abc", "shot.png", TOKEN)
     described = files.describe(files.DOWNLOADS, ENTRIES[0], url)
