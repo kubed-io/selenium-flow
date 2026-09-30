@@ -163,6 +163,7 @@ class SeleniumMCP:
             app_config,
             base,
             prefix=self.prefix,
+            ttl=settings.link_ttl,
         )
         # How an action keeps a file it made. Wired here because this is where
         # the store, the token and the public base all exist; the behaviour
@@ -171,7 +172,8 @@ class SeleniumMCP:
         # a default here would let some future two-argument call silently land
         # in Files.
         self.actions.keep = lambda name, data, folder: files.keep_made(
-            self.sessions, self.flows, name, data, auth_token, base, self.prefix, folder
+            self.sessions, self.flows, name, data, auth_token, base, self.prefix,
+            folder, ttl=settings.link_ttl,
         )
         # And how it reads one back, for `upload_file(file=...)`. Wired here for
         # the same reason: which flow session owns a file is a question about
@@ -237,6 +239,7 @@ class SeleniumMCP:
             schemas=schemas,
             catalogue=self.secrets,
             settings_payload=lambda: config.describe(self.settings, self.sources),
+            link_ttl=settings.link_ttl,
         )
 
     def run(

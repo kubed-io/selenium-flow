@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from functools import wraps
 from html import escape
 from pathlib import Path, PurePosixPath
@@ -226,12 +227,78 @@ def disposition(name: str) -> str:
     return f"inline; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(base, safe='')}"
 
 
-def served(name: str, data: bytes) -> Response:
+# No script and nothing fetched, for a document that needs neither: an inert
+# file opened in a tab, and the page saying a link would not open.
+NO_SCRIPT = "default-src 'none'; style-src 'unsafe-inline'"
+
+REFUSED_PAGE = """<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>{title}</title>
+<style>body{{font:16px system-ui,sans-serif;display:grid;place-items:center;
+min-height:90vh;margin:0;text-align:center}}p{{opacity:.7}}</style>
+<main><h1>{title}</h1><p>{detail}</p></main>
+"""
+
+
+def link_refused(request: Request, why: str) -> Response:
+    """The answer to a signed link that does not open, for whoever followed it.
+
+    A person gets a page: a raw JSON error in a browser tab reads as the server
+    being broken, when the fix is only to ask for a fresh link — and people
+    open these from chat transcripts, well after they were made. Anything that
+    did not ask for HTML (an ``<img>``, a script) keeps the JSON it always had.
+    """
+    if why == "expired":
+        title, message = "This link has expired", "expired link"
+        when = time.strftime(
+            "%Y-%m-%d %H:%M UTC", time.gmtime(int(request.query_params["exp"]))
+        )
+        detail = f"It stopped working at {when}. Ask for a fresh one."
+    else:
+        title, message = "This link is not valid", "invalid link"
+        detail = "It may have been cut short, or this server's key has changed."
+    if "text/html" not in request.headers.get("accept", ""):
+        return JSONResponse({"error": message}, status_code=403)
+    return HTMLResponse(
+        REFUSED_PAGE.format(title=title, detail=detail),
+        status_code=403,
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Security-Policy": NO_SCRIPT,
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+def unsigned(request: Request, token: str | None, path: str) -> Response | None:
+    """The refusal for a request whose signature does not open ``path``, or
+    None when it does — or when there is no token, so nothing is signed."""
+    if not token:
+        return None
+    why = links.refusal(
+        path, request.query_params.get("exp"), request.query_params.get("sig"), token
+    )
+    return None if why is None else link_refused(request, why)
+
+
+def fresh_for(request: Request) -> int:
+    """Seconds a file may be reused from cache: never past its own link's
+    expiry, or a copy cached under a short ``link_ttl`` reopens after the link
+    stopped working (Copilot, #48). Unsigned, with auth off, an hour."""
+    try:
+        return max(0, int(request.query_params["exp"]) - int(time.time()))
+    except (KeyError, ValueError):
+        return 3600
+
+
+def served(name: str, data: bytes, max_age: int) -> Response:
     """One stored file's bytes, however it was stored.
 
-    Shared by the two signed routes — a browser's download and a kept file —
-    because the only thing that differs between them is where the bytes came
-    from. Two copies of this is how one of them ends up without the
+    Shared by the signed routes — a browser's download, a kept file and a
+    screenshot — because the only thing that differs between them is where the
+    bytes came from. Two copies of this is how one of them ends up without the
     ``Content-Disposition`` and downloads as ``shot.png`` called ``name``.
     """
     kind = files.content_type(name)
@@ -239,20 +306,27 @@ def served(name: str, data: bytes) -> Response:
         # Named for download, but shown inline when the browser can: the
         # common case is looking at a screenshot, not saving it.
         "Content-Disposition": disposition(name),
-        # Safe to cache hard — the signature already bounds the lifetime,
-        # and a stored file never changes under its own name.
-        "Cache-Control": "private, max-age=3600",
+        # Safe to cache for as long as the link lasts: a stored file never
+        # changes under its own name.
+        "Cache-Control": f"private, max-age={max_age}",
         # Served as what its name says and nothing a browser sniffs instead.
         "X-Content-Type-Options": "nosniff",
     }
-    if kind != "application/pdf":
+    if kind in files.RASTER_TYPES:
+        # No sandbox: its opaque origin is felt by every extension in the tab,
+        # and one that reads localStorage threw on each render until a link
+        # hung. With nosniff these types cannot run anything, and `default-src
+        # 'none'` backs that — as GitHub serves its avatars. The inline style is
+        # Firefox's image viewer.
+        headers["Content-Security-Policy"] = NO_SCRIPT
+    elif kind != "application/pdf":
         # These bytes are a site's: a page kept by `print(format="html")`, an
         # SVG, an .html some site downloaded. Opened inline on this origin,
         # their scripts would run beside the admin UI and could read its token
         # (Copilot, #40). `sandbox` gives the document an opaque origin and no
-        # scripts, so it still shows and cannot act. Every type rather than a
-        # list of dangerous ones, because a list is what misses `.xht`; a PDF
-        # is the exception, since Chrome's viewer does not load under it.
+        # scripts, so it still shows and cannot act. Every type but the few
+        # known inert, because a list of dangerous ones is what misses `.xht`;
+        # a PDF is the exception, since Chrome's viewer does not load under it.
         headers["Content-Security-Policy"] = "sandbox"
     return Response(data, media_type=kind, headers=headers)
 
@@ -268,6 +342,7 @@ def register(
     catalogue=None,
     prefix: str = "",
     settings_payload=None,
+    link_ttl: int = links.DEFAULT_TTL,
 ) -> None:
     """Mount the admin pages, their JSON API, and the two signed file routes.
 
@@ -768,6 +843,7 @@ def register(
                     mount=prefix,
                     session_id=live_id,
                     downloads=downloads,
+                    ttl=link_ttl,
                 )
             return JSONResponse(
                 {**listing, "key": key, "session": await header(key, attached)}
@@ -1101,13 +1177,9 @@ def register(
         """
         session_id = request.path_params["session_id"]
         name = request.path_params["name"]
-        if token and not links.valid(
-            links.file_path(session_id, name),
-            request.query_params.get("exp"),
-            request.query_params.get("sig"),
-            token,
-        ):
-            return JSONResponse({"error": "invalid or expired link"}, status_code=403)
+        refused_link = unsigned(request, token, links.file_path(session_id, name))
+        if refused_link is not None:
+            return refused_link
         if is_partial(name):
             return JSONResponse({"error": "not found"}, status_code=404)
         try:
@@ -1119,7 +1191,7 @@ def register(
             # that tells a client to stop retrying something that could work on
             # a retry (Copilot, PR #41).
             return signed_refused(exc, f"reading {name} for {session_id}")
-        return served(name, data)
+        return served(name, data, fresh_for(request))
 
     @mcp.custom_route(
         f"{prefix}/kept/{{session}}/{{name}}", methods=["GET"], name="kept_file"
@@ -1134,13 +1206,9 @@ def register(
         """
         session = request.path_params["session"]
         name = request.path_params["name"]
-        if token and not links.valid(
-            links.kept_path(session, name),
-            request.query_params.get("exp"),
-            request.query_params.get("sig"),
-            token,
-        ):
-            return JSONResponse({"error": "invalid or expired link"}, status_code=403)
+        refused_link = unsigned(request, token, links.kept_path(session, name))
+        if refused_link is not None:
+            return refused_link
         if flow_store is None:
             return JSONResponse({"error": "not found"}, status_code=404)
         try:
@@ -1153,7 +1221,7 @@ def register(
             return JSONResponse({"error": "not found"}, status_code=404)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return signed_refused(exc, f"reading kept {name} for {session}")
-        return served(name, data)
+        return served(name, data, fresh_for(request))
 
     @mcp.custom_route(
         f"{prefix}/screenshots/{{session}}/{{name}}",
@@ -1171,13 +1239,9 @@ def register(
         """
         session = request.path_params["session"]
         name = request.path_params["name"]
-        if token and not links.valid(
-            links.screenshot_path(session, name),
-            request.query_params.get("exp"),
-            request.query_params.get("sig"),
-            token,
-        ):
-            return JSONResponse({"error": "invalid or expired link"}, status_code=403)
+        refused_link = unsigned(request, token, links.screenshot_path(session, name))
+        if refused_link is not None:
+            return refused_link
         if flow_store is None:
             return JSONResponse({"error": "not found"}, status_code=404)
         try:
@@ -1192,4 +1256,4 @@ def register(
             return JSONResponse({"error": "not found"}, status_code=404)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return signed_refused(exc, f"reading screenshot {name} for {session}")
-        return served(name, data)
+        return served(name, data, fresh_for(request))

@@ -240,6 +240,9 @@ class Settings(Section):
     public_base_url: str | None = Field(
         None, description="Where browsers reach this server, for links."
     )
+    link_ttl: int = Field(
+        3600, ge=60, description="Seconds a file link opens for, at least 60."
+    )
     auth: AuthSettings = Field(
         default_factory=AuthSettings,
         description="The bearer token every request needs.",

@@ -52,20 +52,36 @@ def sign(
     return f"{path}?exp={expires}&sig={signature(path, expires, token)}"
 
 
-def valid(path: str, expires, provided, token: str, now: float | None = None) -> bool:
-    """Whether a request's ``exp``/``sig`` actually authorise ``path``.
+def refusal(
+    path: str, expires, provided, token: str, now: float | None = None
+) -> str | None:
+    """Why a request's ``exp``/``sig`` do not authorise ``path`` — ``"invalid"``
+    or ``"expired"`` — or None when they do.
+
+    The signature is checked before the expiry, so "expired" is only ever said
+    of a link this server really minted: a person holding one is told to ask
+    for a fresh link, not that theirs was mangled.
 
     Compared with :func:`hmac.compare_digest` rather than ``==``: this runs on
     an unauthenticated route, so a timing side channel here would be a way to
-    forge a signature one byte at a time.
+    forge a signature one byte at a time. As bytes, because it raises on a
+    ``str`` that is not ASCII, and ``sig`` is whatever the caller typed.
     """
     try:
         expires = int(expires)
     except (TypeError, ValueError):
-        return False
+        return "invalid"
+    expected = signature(path, expires, token).encode()
+    if not hmac.compare_digest(expected, str(provided or "").encode()):
+        return "invalid"
     if expires < (time.time() if now is None else now):
-        return False
-    return hmac.compare_digest(signature(path, expires, token), str(provided or ""))
+        return "expired"
+    return None
+
+
+def valid(path: str, expires, provided, token: str, now: float | None = None) -> bool:
+    """Whether a request's ``exp``/``sig`` actually authorise ``path``."""
+    return refusal(path, expires, provided, token, now) is None
 
 
 def file_path(session_id: str, name: str) -> str:

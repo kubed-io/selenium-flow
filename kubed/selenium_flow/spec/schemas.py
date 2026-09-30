@@ -817,12 +817,9 @@ FILE_SCHEMAS = {
             },
             "url": {
                 "type": "string",
-                "description": "Signed and time-limited; needs no bearer token.",
-            },
-            "absolute_url": {
-                "type": "string",
                 "description": (
-                    "The same URL made absolute, when PUBLIC_BASE_URL is set."
+                    "Signed and time-limited; needs no bearer token. Absolute "
+                    "when PUBLIC_BASE_URL is set, else a path on this server."
                 ),
             },
         },

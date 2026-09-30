@@ -482,9 +482,22 @@ used as a liveness probe in this cluster before they existed; it is not one.
 
 A URL this server hands out is a **server path with the mount in it**, signed
 over the **unprefixed** path — the route knows where it is mounted, and the
-signature has to mean the same thing on both sides of the wire. `absolute_url`
-puts `PUBLIC_BASE_URL`, where the server's own root is reachable, in front. The
-page resolves these against `ROOT`, what an ingress stripped, never its own path.
+signature has to mean the same thing on both sides of the wire. With
+`PUBLIC_BASE_URL` set, where the server's own root is reachable, an MCP or HTTP
+result's `url` has it in front; there is no second field. The admin API passes
+no base, so the page gets paths and resolves them against `ROOT`, what an
+ingress stripped, never its own path.
+
+**A file opened from a link is sandboxed unless it is a raster image.**
+Everything else a site made — HTML, SVG, anything unknown — gets
+`Content-Security-Policy: sandbox`, so its scripts cannot reach the admin
+token on this origin. Images get `default-src 'none'` and no sandbox, and
+this is not an oversight to tidy away: the sandbox's opaque origin is felt by
+every extension in the tab, and one reading `localStorage` threw on each
+render until screenshot links opened black and hung. A PDF gets neither,
+since Chrome's viewer does not load under a sandbox. A link that does not open
+is a page saying why for a browser and JSON for anything else, and
+`link_ttl` sets how long one lasts.
 
 ## A selector is one object
 
