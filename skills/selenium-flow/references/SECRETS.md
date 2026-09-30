@@ -59,12 +59,15 @@ It comes back with `"text_from": "secret"` and no value. In a flow, the same
     {"tool": "write", "args": {"selector": {"css": "#password"},
       "secret": {"name": "nextcloud", "key": "password"}}},
     {"tool": "interact", "args": {"action": "click", "selector": {"css": "button[type=submit]"}}},
-    {"tool": "extract", "args": {"selector": {"css": "h1"}}, "return": true}
+    {"tool": "extract", "args": {"selector": {"css": "h1"}}, "return": true},
+    {"tool": "save_site_data", "args": {}}
   ]
 }
 ```
 
-The report shows that step as `text=<hidden>`.
+The report shows that step as `text=<hidden>`. The last step keeps the sign-in:
+a reopened browser comes back signed in, and the password is not typed again
+(`skill://selenium-flow/references/SITE_DATA.md`).
 
 The rules, each of which is refused rather than guessed at:
 

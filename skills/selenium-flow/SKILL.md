@@ -11,7 +11,8 @@ calls. You are steering one tab, not sending independent requests.
 
 Three consequences drive everything else:
 
-- **State carries over.** Log in once and every later call is logged in. But a
+- **State carries over** — and across a reaped browser, if you saved it
+  (`save_site_data`). Log in once and every later call is logged in. But a
   browser left on the wrong page makes your next XPath fail for a reason that
   has nothing to do with the XPath.
 - **Slots are scarce.** The Grid runs a handful of browsers in total. An
@@ -117,6 +118,7 @@ Load only what the task needs.
 | Setting the server up, connecting a client, which env var to change | `skill://selenium-flow/references/CONFIGURATION.md` |
 | Doing a sequence you or another agent will repeat — save it once, run it in one call | `skill://selenium-flow/references/FLOWS.md` |
 | Typing a password, token or anything else you must not see | `skill://selenium-flow/references/SECRETS.md` |
+| Staying signed in across a reaped or ended browser | `skill://selenium-flow/references/SITE_DATA.md` |
 
 ## A whole task, minimally
 
@@ -129,6 +131,7 @@ write(selector={"xpath": "//input[@name='password']"},
       secret={"name": "example", "key": "password"})
 interact(action="click", selector={"xpath": "//button[@type='submit']"})
 extract(selector={"xpath": "//h1"})            # confirm you landed
+save_site_data()                               # the next browser comes back signed in
 end_browser()
 ```
 

@@ -152,7 +152,9 @@ agent reads is the result, not the docstring):
 - Any call that lands on a waiting origin →
   `"site_data": {"restored": ["https://keycloak.example.com"], "uri": "session://site-data/keycloak.example.com"}`
 - The first call after a silent reopen carries the reopen's own report, once.
-- A flow step that restored carries it in its own entry.
+- A flow step that restored carries it in its own entry: each step's entry
+  carries its own `site_data`, built via `SessionManager.settle`, which both
+  `act` and the flow runner call.
 
 `waiting` appears only in `open_session`'s answer; a quiet result means
 nothing changed.
@@ -191,9 +193,10 @@ best effort: nothing in it can fail an open.
 
 ## Forgetting a site (admin)
 
-Removes that host's origins and its own cookies — domain equal to the host.
-Shared parent-domain cookies stay, because other sites use them; the confirm
-says which stay. **Secrets are never touched.**
+Removes that host's origins and its own cookies — those whose domain is the
+host or `.host`, so a row that exists only because of a parent-domain cookie
+can be forgotten. Other parents' leading-dot cookies stay, because other sites
+use them; the confirm says which stay. **Secrets are never touched.**
 
 ## The admin UI
 
@@ -216,8 +219,9 @@ Drawn: page **Session · Site data**, flow *Site data*.
 - The Forget confirm names what goes and what stays.
 - There is **no restore on/off pill**: `restore_site_data=false` deletes, so it
   could only ever say "on".
-- Live: the session row's `site_data_rev` changes on a save, a restore or a
-  Forget, and the pane reloads, the way Files and Flows follow theirs.
+- Live: the session row's `site_data_rev` changes on a save or a Forget, and
+  the pane reloads, the way Files and Flows follow theirs. A restore changes
+  nothing the pane displays, so it does not repaint for one.
 - Secrets with no `allowed_urls` are not listed under every site.
 
 Behind it: `GET /admin/sessions/{key}/site-data` and

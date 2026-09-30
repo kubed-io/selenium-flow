@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A YAML config file (`--config-file` / `CONFIG_FILE`): every setting can be set there, in env or as a flag, and a later one wins.
 - Secrets can be defined in the config file, merged over the ones in `secrets.dirs`, with keys read from a file or an env var.
 - The admin UI has a Settings tab showing every setting and where its value came from.
+- `save_site_data` keeps a session's cookies and storage, so a reopened browser comes back signed in.
+- `open_session(restore_site_data=false)` starts without that data and deletes it.
+- The admin UI has a Site data tab.
 - The Secrets tab no longer lists which flows use a secret.
 - Screenshot and image links open in any browser again, including ones whose extensions hung the tab on a blank screen.
 - An expired or broken file link opened in a browser shows a page saying which, and when it expired.

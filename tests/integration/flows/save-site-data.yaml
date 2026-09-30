@@ -1,0 +1,35 @@
+description: >-
+  Sign in to the admin UI, save the session's site data, and see the sign-in
+  arrive in the Site data tab — save_site_data through the real browser, and
+  the admin pane that shows it.
+parameters:
+  type: object
+  required: [admin, session]
+  properties:
+    admin: {type: string, description: The origin the browser reaches this server at}
+    session: {type: string, description: The name the caller running this flow gave its session}
+steps:
+- tool: navigate
+  args: {url: "${admin}/"}
+- tool: write
+  args:
+    selector: {css: "#token"}
+    secret: {name: admin, key: token}
+- tool: interact
+  args:
+    action: click
+    selector: {css: "#loginForm button[type=submit]"}
+- tool: save_site_data
+- tool: navigate
+  args: {url: "${admin}/#/sessions/${session}/site-data"}
+- tool: assert
+  args:
+    script: >-
+      const row = [...document.querySelectorAll('#paneSiteData section.section')]
+      .find((s) => s.querySelector('.title').textContent.includes(location.hostname));
+      if (!row) return false;
+      const fold = row.querySelector('.title');
+      if (fold.getAttribute('aria-expanded') === 'false') { fold.click(); return false }
+      return [...row.querySelectorAll('code.key')].some((k) => k.textContent === 'sf-token')
+    message: The sign-in this flow saved did not appear in the Site data tab.
+    stable_for: 0.5
