@@ -184,12 +184,23 @@ def test_a_record_written_before_site_data_reads_as_empty():
 
 
 class FakeStorage:
-    def __init__(self, cookies=(), refuse=()):
-        self.cookies, self.set, self.refuse = list(cookies), [], set(refuse)
+    """A jar: what is set is what reads back, except a ``drop``ped name, which
+    is accepted without an error and never kept — as Chrome does to a
+    SameSite=None cookie that is not Secure."""
+
+    def __init__(self, cookies=(), refuse=(), drop=()):
+        self.cookies, self.set = list(cookies), []
+        self.refuse, self.drop = set(refuse), set(drop)
 
     def get_cookies(self, filter=None, partition=None):
         from types import SimpleNamespace
-        return SimpleNamespace(cookies=self.cookies)
+        held = [
+            SimpleNamespace(name=c.name, domain=c.domain, path=c.path)
+            for c in self.set
+            if c.name not in self.drop
+            and not (c.same_site == "none" and not c.secure)
+        ]
+        return SimpleNamespace(cookies=self.cookies + held)
 
     def set_cookie(self, cookie=None, partition=None):
         if cookie.name in self.refuse:
@@ -258,7 +269,9 @@ def test_restore_sets_live_cookies_and_one_preload_script():
     assert len(bidi.script.added) == 1
     assert report["restored"] == ["https://app.example.com", "sso.example.com"]
     assert report["waiting"] == ["https://other.example.com"]
-    assert pending == {"origins": ["https://other.example.com"], "script": "preload-1"}
+    assert report["uri"] == "session://site-data"
+    assert pending == {"origins": ["https://other.example.com"], "script": "preload-1",
+                       "arrived": ["https://app.example.com"]}
 
 
 def test_a_refused_cookie_is_skipped_not_fatal():
@@ -290,7 +303,8 @@ def test_a_bidi_failure_as_a_whole_is_reported_not_raised():
 
     report, pending = sd.restore(Broken(), data, None, NOW)
     assert report == {"restored": [], "waiting": [],
-                      "skipped": [{"reason": "no socket"}]}
+                      "skipped": [{"reason": "no socket"}],
+                      "uri": "session://site-data"}
     assert pending == {"origins": [], "script": ""}
 
 
@@ -393,3 +407,144 @@ def test_forgetting_a_parent_only_row_removes_its_dotted_cookie():
     assert removed["kept_shared"] == []
     assert left["cookies"] == []
     assert sd.view(left)["sites"] == []
+
+
+# ---- what the live Grid taught (2026-09-30) ---------------------------------
+
+
+def test_a_none_same_site_without_secure_is_restored_as_lax():
+    """Chrome reports an unspecified SameSite as "none" and silently refuses
+    None without Secure: the reopened session came back signed out."""
+    loose = {**cookie("sid", "app.example.com", secure=False), "same_site": "none"}
+    tight = {**cookie("tok", "app.example.com", secure=True), "same_site": "none"}
+    fox = {**cookie("fx", "app.example.com", secure=False), "same_site": "default"}
+    bidi = FakeBidi()
+    report, _ = sd.restore(bidi, {"cookies": [loose, tight, fox], "origins": {}}, None, NOW)
+    sent = {c.name: c.same_site for c in bidi.storage.set}
+    assert sent == {"sid": "lax", "tok": "none", "fx": "default"}
+    assert report["skipped"] == []
+    assert report["restored"] == ["app.example.com"]
+
+
+def test_a_cookie_the_browser_did_not_keep_is_skipped():
+    data = {"cookies": [cookie("gone", "only.example.com"), cookie("ok", "app.example.com"),
+                        cookie("bad", "refused.example.com")], "origins": {}}
+    bidi = FakeBidi(drop={"gone"}, refuse={"bad"})
+    report, _ = sd.restore(bidi, data, None, NOW)
+    assert {"cookie": "gone", "domain": "only.example.com",
+            "reason": "the browser did not keep it"} in report["skipped"]
+    assert report["restored"] == ["app.example.com"], "a host with nothing kept is not restored"
+
+
+def test_an_unreadable_jar_trusts_the_set():
+    class Blind(FakeStorage):
+        def get_cookies(self, filter=None, partition=None):
+            raise RuntimeError("no read")
+
+    bidi = FakeBidi()
+    bidi.storage = Blind()
+    report, _ = sd.restore(bidi, {"cookies": [cookie("ok", "app.example.com")],
+                                  "origins": {}}, None, NOW)
+    assert report["restored"] == ["app.example.com"] and report["skipped"] == []
+
+
+def test_read_storage_reaches_each_store_inside_its_try():
+    assert "dump(() => localStorage)" in sd.READ_STORAGE
+    assert "dump(() => sessionStorage)" in sd.READ_STORAGE
+
+
+@pytest.mark.skipif(__import__("shutil").which("node") is None, reason="needs node")
+def test_read_storage_on_a_page_with_no_storage_returns_the_empty_shape(tmp_path):
+    """about:blank and data: throw SecurityError on merely naming localStorage."""
+    import subprocess
+    path = tmp_path / "read.js"
+    path.write_text(
+        "const location = {origin: 'null'};\n"
+        "Object.defineProperty(globalThis, 'localStorage', {get() { throw new Error('SecurityError') }});\n"
+        "Object.defineProperty(globalThis, 'sessionStorage', {get() { throw new Error('SecurityError') }});\n"
+        "console.log(JSON.stringify((function () {" + sd.READ_STORAGE + "})()));\n",
+        encoding="utf-8",
+    )
+    out = subprocess.run(["node", str(path)], capture_output=True, text=True, check=False)
+    assert out.returncode == 0, out.stderr
+    assert json.loads(out.stdout) == {"origin": "", "local": {}, "session": {}}
+
+
+def test_a_save_on_a_page_with_no_storage_keeps_the_cookies():
+    bidi = FakeBidi(cookies=[bidi_cookie("sid", "app.example.com")])
+    got = sd.capture(bidi, PageDriver({"origin": "", "local": {}, "session": {}}))
+    data, saved = sd.merge({}, got, NOW)
+    assert saved == {"cookies": 1, "sites": [], "skipped": []}
+    assert data["origins"] == {}
+
+
+def test_replace_swaps_the_script_for_the_origins_still_waiting():
+    bidi = FakeBidi()
+    new = sd.replace(bidi, "old", {"https://w.test": {"local": {"a": "1"}, "session": {}}})
+    assert bidi.script.removed == ["old"] and new == "preload-1"
+    assert "https://w.test" in bidi.script.added[0]
+    last = FakeBidi()
+    assert sd.replace(last, "preload-1", {}) == "" and last.script.added == []
+    assert last.script.removed == ["preload-1"]
+
+
+def test_the_bidi_socket_gives_up_in_seconds_not_thirty():
+    from kubed.selenium_flow.core.browser import BIDI_TIMEOUT, Grid
+    with Grid("http://grid.example:4444").bidi("abc") as driver:
+        assert driver.command_executor.client_config.websocket_timeout == BIDI_TIMEOUT
+    assert BIDI_TIMEOUT <= 5
+
+
+def test_the_wire_loggers_never_log_at_debug(monkeypatch):
+    """LOG_LEVEL=DEBUG would otherwise write every BiDi frame, cookie values
+    included. Through the real entry point."""
+    import logging
+    from types import SimpleNamespace
+
+    from kubed.selenium_flow import main as entry
+    from kubed.selenium_flow.config import Settings
+
+    settings = Settings(grid={"url": "http://grid.invalid:4444"}, log_level="DEBUG")
+    monkeypatch.setattr(entry.config, "load",
+                        lambda argv: SimpleNamespace(settings=settings, sources={}))
+
+    class Server:
+        auth_token = skill = flows = secrets = None
+        sessions = SimpleNamespace(kind="memory")
+
+        def __init__(self, *a, **kw):
+            pass
+
+        def run(self, **kw):
+            pass
+
+    monkeypatch.setattr(entry, "SeleniumMCP", Server)
+    root = logging.getLogger()
+    monkeypatch.setattr(logging, "basicConfig", lambda level: root.setLevel(level))
+    names = ("selenium.webdriver.remote.websocket_connection",
+             "selenium.webdriver.remote.remote_connection")
+    before = root.level, [logging.getLogger(n).level for n in names]
+    try:
+        entry.main([])
+        assert root.isEnabledFor(logging.DEBUG)
+        for name in names:
+            assert not logging.getLogger(name).isEnabledFor(logging.DEBUG), name
+    finally:
+        root.setLevel(before[0])
+        for name, level in zip(names, before[1], strict=True):
+            logging.getLogger(name).setLevel(level)
+
+
+def test_actions_retire_replaces_and_keeps_the_old_id_when_bidi_is_down(actions, monkeypatch):
+    fake = FakeBidi()
+    monkeypatch.setattr(actions.grid, "bidi", bidi_cm(fake))
+    keep = {"https://w.test": {"local": {}, "session": {}}}
+    assert actions.retire_site_data("sid", "old", keep) == "preload-1"
+    assert fake.script.removed == ["old"]
+    assert actions.retire_site_data("sid", "preload-1") == ""
+
+    def down(session_id):
+        raise RuntimeError("no socket")
+
+    monkeypatch.setattr(actions.grid, "bidi", down)
+    assert actions.retire_site_data("sid", "old", keep) == "old"

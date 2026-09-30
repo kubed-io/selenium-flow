@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from kubed.selenium_flow.core import site_data
 from tests.conftest import NAMED, RecordingActions, manager
 
@@ -13,7 +15,10 @@ class SiteActions(RecordingActions):
         super().__init__()
         self.site_data_seen = []
         self.retired = []
+        self.kept = []
         self.landing_only = False
+        self.waiting = ["https://w.test"]
+        self.arrived = None
 
     def open_session(self, url=None, site_data=None, **kw):
         self.site_data_seen.append(site_data)
@@ -23,8 +28,9 @@ class SiteActions(RecordingActions):
                 "restored": ["x"], "waiting": ["https://w.test"], "skipped": [],
             }
             opened["_site_data_pending"] = {
-                "origins": [] if self.landing_only else ["https://w.test"],
+                "origins": [] if self.landing_only else list(self.waiting),
                 "script": "p1",
+                **({"arrived": self.arrived} if self.arrived else {}),
             }
         return opened
 
@@ -40,8 +46,10 @@ class SiteActions(RecordingActions):
             },
         }
 
-    def retire_site_data(self, session_id, script):
+    def retire_site_data(self, session_id, script, keep=None):
         self.retired.append(script)
+        self.kept.append(sorted(keep) if keep else None)
+        return f"{script}+" if keep else ""
 
 
 def opened_with_save():
@@ -211,3 +219,54 @@ def test_a_flow_step_arriving_on_a_waiting_origin_carries_the_hint(
     reopened(m)
     report = run_flow(store, m)[1]
     assert report["steps"][0]["site_data"]["restored"] == ["https://w.test"]
+
+
+# ---- one tab's arrival never refills another's --------------------------------
+
+
+def with_storage_for(m, *origins):
+    record = m.store.get(NAMED)
+    data = dict(record.site_data)
+    data["origins"] = {
+        **data.get("origins", {}),
+        **{o: {"local": {"k": o}, "session": {}, "saved_at": 1.0} for o in origins},
+    }
+    m.store.set(NAMED, record.with_site_data(data))
+
+
+def test_an_arrival_swaps_the_script_for_one_carrying_only_what_waits(named_caller):
+    m = opened_with_save()
+    with_storage_for(m, "https://v.test", "https://w.test")
+    m.actions.waiting = ["https://v.test", "https://w.test"]
+    reopened(m)
+    m.act(NAMED, lambda s: {"url": "https://w.test/page"})
+    assert m.actions.retired == ["p1"]
+    assert m.actions.kept == [["https://v.test"]], "w.test no longer rides along"
+    pending = m.store.get(NAMED).site_data["pending"]
+    assert pending["script"] == "p1+" and pending["origins"] == ["https://v.test"]
+    m.act(NAMED, lambda s: {"url": "https://v.test/"})
+    assert m.actions.retired == ["p1", "p1+"] and m.actions.kept[-1] is None
+    assert "pending" not in m.store.get(NAMED).site_data
+
+
+def test_a_landing_that_arrived_at_open_is_swapped_out_at_once(named_caller):
+    m = opened_with_save()
+    with_storage_for(m, "https://w.test")
+    m.actions.arrived = ["https://app.example.com"]
+    reopened(m)
+    assert m.actions.retired == ["p1"] and m.actions.kept == [["https://w.test"]]
+    pending = m.store.get(NAMED).site_data["pending"]
+    assert pending["script"] == "p1+" and "arrived" not in pending
+
+
+def test_the_capture_is_stripped_even_when_the_store_fails(named_caller):
+    m = opened_with_save()
+    result = m.actions.save_site_data("x")
+
+    def down(name):
+        raise ConnectionError("redis is down")
+
+    m.store.get = down
+    with pytest.raises(ConnectionError):
+        m.settle(NAMED, result, touch=False)
+    assert site_data.CAPTURED not in result

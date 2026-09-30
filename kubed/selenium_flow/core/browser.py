@@ -50,6 +50,8 @@ DEFAULT_BROWSER = CHROME
 # nowhere waits this out, so it trades a small delay on those for a correct
 # answer on the ones that do navigate.
 NAVIGATION_SETTLE = 2.0
+# Seconds a site data BiDi socket may take to connect or answer.
+BIDI_TIMEOUT = 5.0
 
 
 def normalize_browser(value=None) -> str:
@@ -299,6 +301,9 @@ class Grid:
         driver = ReattachDriver(command_executor=self.url, options=self._options())
         driver.session_id = session_id
         driver.caps = {"webSocketUrl": f"{socket}/session/{session_id}/se/bidi"}
+        # Selenium waits 30 s for a socket that never answers; an open would
+        # stall that long on a Grid whose BiDi route is down.
+        driver.command_executor.client_config.websocket_timeout = BIDI_TIMEOUT
         try:
             yield driver
         finally:

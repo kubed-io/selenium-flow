@@ -403,8 +403,10 @@ class SessionManager:
         still waiting to be restored says so once, and the last arrival retires
         the preload script; a silent reopen is announced on its first result.
         """
-        record = self.store.get(name)
+        # Popped before the store is asked anything, so a store that fails
+        # cannot leave the capture — every value — in what the caller gets.
         captured = result.pop(site_data_module.CAPTURED, None)
+        record = self.store.get(name)
         if record is None:
             return
         data = record.site_data
@@ -427,9 +429,13 @@ class SessionManager:
                     site_data_module.host_of(origin)
                 )
                 script = pending.get("script") or ""
-                if not origins and script:
-                    self.actions.retire_site_data(record.session_id, script)
-                    pending["script"] = ""
+                if script:
+                    # Still carrying the origin that just arrived, the script
+                    # would refill it in every new tab; the replacement carries
+                    # only what still waits.
+                    pending["script"] = self.actions.retire_site_data(
+                        record.session_id, script, self._waiting(data, origins)
+                    )
             if hint:
                 result["site_data"] = hint
             pending["announce"] = False
@@ -439,6 +445,12 @@ class SessionManager:
                 data["pending"] = pending
         if data is not record.site_data:
             self.store.set(name, record.with_site_data(data))
+
+    @staticmethod
+    def _waiting(data: dict, origins: list[str]) -> dict:
+        """The saved storage of the origins still waiting to be restored."""
+        saved = data.get("origins") or {}
+        return {o: saved[o] for o in origins if o in saved}
 
     @staticmethod
     def _restorable(record: SessionRecord) -> dict:
@@ -458,12 +470,19 @@ class SessionManager:
         if record is None:
             return
         data = {k: v for k, v in record.site_data.items() if k != "pending"}
-        if waiting and not waiting.get("origins") and waiting.get("script"):
-            # Only the landing origin had storage, and that page already loaded
-            # under the script. Left in place it would overwrite what the app
-            # changes since, on every later tab.
-            self.actions.retire_site_data(record.session_id, waiting["script"])
-            waiting = {**waiting, "script": ""}
+        arrived = (waiting or {}).pop("arrived", None)
+        if waiting and waiting.get("script") and (
+            arrived or not waiting.get("origins")
+        ):
+            # The landing origin already loaded under the script. Left in place
+            # it would overwrite what the app changes since, on every later
+            # tab: swap it for one carrying only what still waits, if anything.
+            script = self.actions.retire_site_data(
+                record.session_id,
+                waiting["script"],
+                self._waiting(data, waiting.get("origins") or []),
+            )
+            waiting = {**waiting, "script": script}
         if waiting and (waiting.get("origins") or extra.get("announce")):
             data["pending"] = {"browser": record.session_id, **waiting, **extra}
         if data != record.site_data:

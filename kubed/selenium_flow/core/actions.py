@@ -460,13 +460,20 @@ class Actions:
             captured = site_data_module.capture(bidi, driver)
         return {**browser.page_state(driver), site_data_module.CAPTURED: captured}
 
-    def retire_site_data(self, session_id: str, script: str) -> None:
-        """Remove the preload script once it has nothing left to wait for."""
+    def retire_site_data(
+        self, session_id: str, script: str, keep: dict | None = None
+    ) -> str:
+        """Replace the preload script with one carrying only ``keep``'s
+        origins — the ones still waiting — or remove it when none are.
+
+        Returns the id of the script now in the browser, "" for none.
+        """
         try:
             with self.grid.bidi(session_id) as bidi:
-                site_data_module.retire(bidi, script)
+                return site_data_module.replace(bidi, script, keep)
         except Exception:  # noqa: BLE001 - best effort, it dies with the browser
             log.info("could not retire the site data script for %s", session_id)
+            return script
 
     def end_browser(self, session_id: str) -> dict:
         """Quit the browser and free its Grid slot.

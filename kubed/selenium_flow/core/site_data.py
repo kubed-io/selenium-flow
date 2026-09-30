@@ -262,11 +262,15 @@ def forget(data: dict, host: str) -> tuple[dict, dict]:
     }
 
 
+# Each store is reached inside the try: on a page with no usable storage
+# (about:blank, data:) merely naming `localStorage` throws SecurityError, and
+# that page still saves its cookies.
 READ_STORAGE = (
-    "const dump = (s) => { const out = {}; try { for (let i = 0; i < s.length; i++) "
+    "const dump = (get) => { const out = {}; try { const s = get(); "
+    "for (let i = 0; i < s.length; i++) "
     "{ const k = s.key(i); out[k] = s.getItem(k); } } catch (e) {} return out; }; "
     "return {origin: location.origin === 'null' ? '' : location.origin, "
-    "local: dump(localStorage), session: dump(sessionStorage)};"
+    "local: dump(() => localStorage), session: dump(() => sessionStorage)};"
 )
 
 
@@ -291,6 +295,36 @@ def capture(bidi, driver) -> dict:
     }
 
 
+def _add_preload(bidi, origins: dict) -> str:
+    added = bidi.script.add_preload_script(preload_source(origins))
+    return added.get("script", "") if isinstance(added, dict) else added
+
+
+def _same_site(c: dict):
+    # Chrome reports an unspecified SameSite as "none" and silently refuses
+    # None without Secure, so the cookie would never come back.
+    if c.get("same_site") == "none" and not c.get("secure"):
+        return "lax"
+    return c.get("same_site")
+
+
+def _key(name, domain, path) -> tuple:
+    return (name, domain, path or "/")
+
+
+def _kept(bidi, cookies: list[dict]) -> list[dict] | None:
+    """The cookies the browser actually holds after setting, or None when the
+    jar cannot be read back (then the set is trusted)."""
+    from selenium.webdriver.common.bidi.storage import CookieFilter
+
+    try:
+        jar = bidi.storage.get_cookies(CookieFilter()).cookies
+    except Exception:  # noqa: BLE001 - an unverified restore is still a restore
+        return None
+    held = {_key(c.name, c.domain, c.path) for c in jar}
+    return [c for c in cookies if _key(c["name"], c["domain"], c.get("path")) in held]
+
+
 def restore(bidi, data: dict, landing_url: str | None, now: float) -> tuple[dict, dict]:
     """Put a session's saved site data into a browser, before its first page.
 
@@ -300,41 +334,55 @@ def restore(bidi, data: dict, landing_url: str | None, now: float) -> tuple[dict
     """
     from selenium.webdriver.common.bidi.storage import BytesValue, PartialCookie
 
-    report = {"restored": [], "waiting": [], "skipped": []}
+    report = {"restored": [], "waiting": [], "skipped": [], "uri": LIST_URI}
     pending = {"origins": [], "script": ""}
     try:
         cookies = live_cookies(data.get("cookies") or [], now)
+        sent = []
         for c in cookies:
             try:
                 bidi.storage.set_cookie(PartialCookie(
                     c["name"], BytesValue(c.get("value_type") or "string", c["value"]),
                     c["domain"], path=c.get("path"), http_only=c.get("http_only"),
-                    secure=c.get("secure"), same_site=c.get("same_site"),
+                    secure=c.get("secure"), same_site=_same_site(c),
                     expiry=c.get("expiry"),
                 ))
+                sent.append(c)
             except Exception as e:  # noqa: BLE001 - one refusal must not stop the rest
                 report["skipped"].append({
                     "cookie": c.get("name"), "domain": c.get("domain"),
                     "reason": str(e),
                 })
+        # A browser can refuse a cookie without an error; only the jar says.
+        kept = _kept(bidi, sent)
+        if kept is None:
+            kept = sent
+        for c in sent:
+            if c not in kept:
+                report["skipped"].append({
+                    "cookie": c.get("name"), "domain": c.get("domain"),
+                    "reason": "the browser did not keep it",
+                })
         origins = data.get("origins") or {}
-        script = ""
-        if origins:
-            added = bidi.script.add_preload_script(preload_source(origins))
-            script = added.get("script", "") if isinstance(added, dict) else added
+        script = _add_preload(bidi, origins) if origins else ""
         landing = origin_of(landing_url or "")
         stored_hosts = {host_of(o) for o in origins}
         cookie_only = sorted({
-            c["domain"].lstrip(".") for c in cookies
+            c["domain"].lstrip(".") for c in kept
             if not any(_covers(c["domain"], h) for h in stored_hosts)
         })
         first = [landing] if landing in origins else []
         report["restored"] = first + cookie_only
         report["waiting"] = sorted(o for o in origins if o not in first)
         pending = {"origins": list(report["waiting"]), "script": script}
+        if first and report["waiting"]:
+            # The script still carries the landing origin; it is swapped for
+            # one that does not once the browser settles (see ``replace``).
+            pending["arrived"] = first
     except Exception as e:  # noqa: BLE001 - BiDi failing is a report, not a crash
         return (
-            {"restored": [], "waiting": [], "skipped": [{"reason": str(e)}]},
+            {"restored": [], "waiting": [], "skipped": [{"reason": str(e)}],
+             "uri": LIST_URI},
             {"origins": [], "script": ""},
         )
     return report, pending
@@ -345,3 +393,21 @@ def retire(bidi, script: str) -> None:
     Best effort: it dies with the browser anyway."""
     with contextlib.suppress(Exception):
         bidi.script.remove_preload_script(script=script)
+
+
+def replace(bidi, script: str, keep: dict | None) -> str:
+    """Swap the preload script for one carrying only ``keep``'s origins.
+
+    A preload script runs on every new document, and its once-per-tab marker
+    lives in one tab's sessionStorage: left in place, it would refill an
+    origin that already arrived the moment the app opened it in a new tab,
+    over whatever the app changed since. Returns the new script's id, or ""
+    when nothing is left to wait for or it could not be added.
+    """
+    retire(bidi, script)
+    if not keep:
+        return ""
+    try:
+        return _add_preload(bidi, keep)
+    except Exception:  # noqa: BLE001 - those origins then come back signed out
+        return ""
