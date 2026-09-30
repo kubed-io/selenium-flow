@@ -374,12 +374,26 @@ class SessionManager:
         """
         resolved = self.resolve(name)
         result = call(resolved)
-        if isinstance(result, dict):
-            self.touch(name, result.get("url"))
-            if reshapes:
-                self.reshape(name, result)
-            self._site_data_after(name, result)
+        self.settle(name, result, reshapes=reshapes)
         return result
+
+    def settle(
+        self, name: str, result, *, reshapes: bool = False, touch: bool = True
+    ) -> None:
+        """What a finished action means for the record, in place on ``result``.
+
+        The one place a result is merged into site data and stripped of its
+        private capture, so a flow step reaches it the same way a single call
+        does. ``touch=False`` is for the flow runner, which touches once per
+        run rather than once per step.
+        """
+        if not isinstance(result, dict):
+            return
+        if touch:
+            self.touch(name, result.get("url"))
+        if reshapes:
+            self.reshape(name, result)
+        self._site_data_after(name, result)
 
     def _site_data_after(self, name: str, result: dict) -> None:
         """What a finished call means for this session's site data.

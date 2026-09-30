@@ -1,5 +1,7 @@
 """The session's side of site data: merge a save, restore on open, announce."""
 
+import json
+
 from kubed.selenium_flow.core import site_data
 from tests.conftest import NAMED, RecordingActions, manager
 
@@ -162,3 +164,50 @@ def test_the_pending_note_never_reaches_the_browser(named_caller):
     reopened(m)
     assert m.actions.site_data_seen[-1]
     assert "pending" not in m.actions.site_data_seen[-1]
+
+
+# ---- a flow step is settled the same way a single call is ---------------------
+
+
+class FlowActions(SiteActions):
+    def navigate(self, session_id, url=None, **kw):
+        return {"url": "https://w.test/page", "title": "w"}
+
+
+def flow_world(tmp_path, steps):
+    from kubed.selenium_flow.config import Settings
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    server = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"}, flow={"data_dir": str(tmp_path)},
+    ))
+    server.flows.save(NAMED, "login", {"steps": steps})
+    return server.flows, manager(FlowActions())
+
+
+def run_flow(store, m, **kw):
+    from kubed.selenium_flow.flows import api as flowapi
+
+    m.open_browser(NAMED)
+    return m, flowapi.run_for(store, m.actions, m, NAMED, "login", **kw)
+
+
+def test_a_flow_that_saves_keeps_the_data_and_never_reports_the_capture(
+    named_caller, tmp_path
+):
+    store, m = flow_world(tmp_path, [{"tool": "save_site_data", "args": {}, "return": True}])
+    m, report = run_flow(store, m, verbose=True)
+    assert "app.example.com" in json.dumps(m.store.get(NAMED).site_data["origins"])
+    assert site_data.CAPTURED not in json.dumps(report)
+    assert report["steps"][0]["result"]["saved"]["cookies"] == 1
+
+
+def test_a_flow_step_arriving_on_a_waiting_origin_carries_the_hint(
+    named_caller, tmp_path
+):
+    store, m = flow_world(tmp_path, [{"tool": "navigate", "args": {"url": "https://w.test/page"}}])
+    m.open_browser(NAMED)
+    m.act(NAMED, lambda s: m.actions.save_site_data(s))
+    reopened(m)
+    report = run_flow(store, m)[1]
+    assert report["steps"][0]["site_data"]["restored"] == ["https://w.test"]

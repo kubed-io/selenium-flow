@@ -549,12 +549,11 @@ def run_for(
     resolved = sessions.resolve(session)
 
     def remember(tool, result):
-        # `resize` changes something the session RECORD stores, not just the
-        # page it is on. A flow that skipped it would resize the live browser
-        # and then come back the old size the next time the Grid reaped it —
-        # the silent shape change `sessions.reshape` exists to prevent.
-        if tool == "resize" and isinstance(result, dict):
-            sessions.reshape(session, result)
+        # The same post-action work a single call gets from `sessions.act`:
+        # `resize` changes something the session RECORD stores, and a save's
+        # capture is merged into it and stripped from the result. The touch is
+        # left to the one at the end of the run.
+        sessions.settle(session, result, reshapes=tool == "resize", touch=False)
 
     report = run_one(
         store,

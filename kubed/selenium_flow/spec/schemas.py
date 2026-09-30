@@ -46,7 +46,13 @@ SITE_DATA_HINT = {
         },
         "skipped": {
             "type": "array",
-            "items": {"type": "object"},
+            "items": {
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
             "description": "Items that could not be restored, each with a reason.",
         },
         "uri": {"type": "string", "description": "Where to read what is saved."},
