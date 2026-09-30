@@ -97,6 +97,11 @@ test('expanded: cookies with dots for httpOnly, flags, expiry; storage; none', a
   expect(opt.querySelector('.pill.shared')).toHaveTextContent('shared')
   expect(a.getByText('Local storage')).toBeInTheDocument()
   expect(a.getByText('theme').closest('.line')).toHaveTextContent('dark')
+  // One line each, the whole value on hover: a long cookie wrapped to seven.
+  const value = opt.querySelector('.value') as HTMLElement
+  expect(value).toHaveClass('clip')
+  expect(value).toHaveAttribute('title', value.textContent!)
+  expect(a.getByText('dark')).toHaveAttribute('title', 'dark')
   const session = a.getByText('Session storage').nextElementSibling!
   expect(session).toHaveTextContent('none')
 })

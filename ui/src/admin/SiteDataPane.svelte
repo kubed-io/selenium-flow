@@ -82,7 +82,7 @@
 
 {#snippet kv(entries: [string, string][])}
   {#each entries as [k, v] (k)}
-    <div class="line"><code class="key">{k}</code><span class="value">{v}</span></div>
+    <div class="line"><code class="key">{k}</code><span class="value clip" title={v}>{v}</span></div>
   {:else}
     <div class="line"><span class="value muted">none</span></div>
   {/each}
@@ -114,7 +114,7 @@
           {#each d.cookies as c (c.name + c.domain + c.path)}
             <div class="line cookie">
               <code class="key">{c.name}</code>
-              <span class="value">{c.value}</span>
+              <span class="value clip" title={c.value}>{c.value}</span>
               <span class="small muted">{c.domain} · {expires(c)}</span>
               <span class="flags">
                 {#if c.http_only}<span class="pill">httpOnly</span>{/if}
@@ -150,7 +150,10 @@
   .line { display: grid; grid-template-columns: 240px 1fr auto; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
   .line.cookie { grid-template-columns: 240px 1fr auto auto; }
   .key { font-size: 12px; overflow-wrap: anywhere; }
-  .value { overflow-wrap: anywhere; }
+  .value { overflow-wrap: anywhere; min-width: 0; }
+  /* One line per entry; the whole value is on hover. A pending-events cookie
+     wrapped to seven lines and pushed its neighbours apart. */
+  .value.clip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .flags { display: inline-flex; gap: 4px; justify-content: flex-end; }
   .pill.shared { color: var(--accent); border-color: currentColor; }
   .fate-list { padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--ink) 5%, transparent); }
