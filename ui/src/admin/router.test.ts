@@ -12,6 +12,7 @@ test('parse (R2)', () => {
   expect(parse('#/sessions/a%20b')).toEqual({ view: 'session', key: 'a b', tab: 'files', flow: undefined })
   expect(parse('#/sessions/k/flows')).toEqual({ view: 'session', key: 'k', tab: 'flows', flow: undefined })
   expect(parse('#/sessions/k/flows/my%2Fflow')).toEqual({ view: 'session', key: 'k', tab: 'flows', flow: 'my/flow' })
+  expect(parse('#/sessions/x/site-data')).toEqual({ view: 'session', key: 'x', tab: 'site-data', flow: undefined })
   expect(parse('#/nonsense')).toEqual({ view: 'list' })
 })
 
@@ -24,6 +25,8 @@ test('hashes round-trip through parse', () => {
   expect(parse(hashes.flow('a b', 'f/1'))).toEqual({ view: 'session', key: 'a b', tab: 'flows', flow: 'f/1' })
   expect(hashes.session('k')).toBe('#/sessions/k')
   expect(hashes.flows('k')).toBe('#/sessions/k/flows')
+  expect(hashes.siteData('a b')).toBe('#/sessions/a%20b/site-data')
+  expect(parse(hashes.siteData('a b'))).toEqual({ view: 'session', key: 'a b', tab: 'site-data', flow: undefined })
   expect(hashes.settings).toBe('#/settings')
 })
 
