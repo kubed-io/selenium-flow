@@ -18,6 +18,7 @@ never logged, and an httpOnly cookie's value is never shown on any surface.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from urllib.parse import urlsplit
 
@@ -257,3 +258,88 @@ def forget(data: dict, host: str) -> tuple[dict, dict]:
         "site": host, "cookies": [c["name"] for c in gone], "origins": origins,
         "kept_shared": [c["name"] for c in shared],
     }
+
+
+READ_STORAGE = (
+    "const dump = (s) => { const out = {}; try { for (let i = 0; i < s.length; i++) "
+    "{ const k = s.key(i); out[k] = s.getItem(k); } } catch (e) {} return out; }; "
+    "return {origin: location.origin === 'null' ? '' : location.origin, "
+    "local: dump(localStorage), session: dump(sessionStorage)};"
+)
+
+
+def capture(bidi, driver) -> dict:
+    """The whole cookie jar (BiDi sees httpOnly ones) and the page's storage."""
+    from selenium.webdriver.common.bidi.storage import CookieFilter
+
+    cookies = [
+        {
+            "name": c.name, "value": c.value.value, "value_type": c.value.type,
+            "domain": c.domain, "path": c.path, "http_only": c.http_only,
+            "secure": c.secure, "same_site": c.same_site, "expiry": c.expiry,
+        }
+        for c in bidi.storage.get_cookies(CookieFilter()).cookies
+    ]
+    page = driver.execute_script(READ_STORAGE) or {}
+    return {
+        "cookies": cookies,
+        "origin": page.get("origin") or "",
+        "local": page.get("local") or {},
+        "session": page.get("session") or {},
+    }
+
+
+def restore(bidi, data: dict, landing_url: str | None, now: float) -> tuple[dict, dict]:
+    """Put a session's saved site data into a browser, before its first page.
+
+    Cookies go in for every host, even ones never visited. Storage cannot, so
+    one preload script fills each origin as it is first reached. Nothing raises:
+    a report says what came back and what is waiting.
+    """
+    from selenium.webdriver.common.bidi.storage import BytesValue, PartialCookie
+
+    report = {"restored": [], "waiting": [], "skipped": []}
+    pending = {"origins": [], "script": ""}
+    try:
+        cookies = live_cookies(data.get("cookies") or [], now)
+        for c in cookies:
+            try:
+                bidi.storage.set_cookie(PartialCookie(
+                    c["name"], BytesValue(c.get("value_type") or "string", c["value"]),
+                    c["domain"], path=c.get("path"), http_only=c.get("http_only"),
+                    secure=c.get("secure"), same_site=c.get("same_site"),
+                    expiry=c.get("expiry"),
+                ))
+            except Exception as e:  # noqa: BLE001 - one refusal must not stop the rest
+                report["skipped"].append({
+                    "cookie": c.get("name"), "domain": c.get("domain"),
+                    "reason": str(e),
+                })
+        origins = data.get("origins") or {}
+        script = ""
+        if origins:
+            added = bidi.script.add_preload_script(preload_source(origins))
+            script = added.get("script", "") if isinstance(added, dict) else added
+        landing = origin_of(landing_url or "")
+        stored_hosts = {host_of(o) for o in origins}
+        cookie_only = sorted({
+            c["domain"].lstrip(".") for c in cookies
+            if not any(_covers(c["domain"], h) for h in stored_hosts)
+        })
+        first = [landing] if landing in origins else []
+        report["restored"] = first + cookie_only
+        report["waiting"] = sorted(o for o in origins if o not in first)
+        pending = {"origins": list(report["waiting"]), "script": script}
+    except Exception as e:  # noqa: BLE001 - BiDi failing is a report, not a crash
+        return (
+            {"restored": [], "waiting": [], "skipped": [{"reason": str(e)}]},
+            {"origins": [], "script": ""},
+        )
+    return report, pending
+
+
+def retire(bidi, script: str) -> None:
+    """Drop the preload script once every origin it waited on was filled.
+    Best effort: it dies with the browser anyway."""
+    with contextlib.suppress(Exception):
+        bidi.script.remove_preload_script(script=script)
