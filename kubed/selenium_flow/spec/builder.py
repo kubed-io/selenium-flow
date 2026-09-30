@@ -49,6 +49,7 @@ from .schemas import (
     RESPONSES,
     SECRET_SCHEMAS,
     SESSION_PARAMETERS,
+    SITE_DATA_SCHEMAS,
     STARTED,
 )
 
@@ -287,6 +288,8 @@ async def build_spec(
     paths.update(_file_paths(prefix))
     schemas.update(SECRET_SCHEMAS)
     paths.update(_secret_paths(prefix))
+    schemas.update(SITE_DATA_SCHEMAS)
+    paths.update(_site_data_paths(prefix))
 
     # The ops endpoints. One per question a probe asks — `/openapi.json` was
     # standing in for a liveness probe in this cluster, which it is not (Dr K).
@@ -744,6 +747,64 @@ def _file_paths(prefix: str = "") -> dict:
             }
         paths.setdefault(f"{prefix}/files{template}", {})[method] = operation
     return paths
+
+
+def _site_data_paths(prefix: str = "") -> dict:
+    """The two reads of saved site data, which are resources over MCP."""
+    from ..mcp import resources
+
+    def operation(op, uri, summary, description, schema, parameters=()):
+        return {
+            "get": {
+                "operationId": op,
+                "x-mcp-resource": uri,
+                "parameters": [*parameters, *SESSION_PARAMETERS],
+                "summary": summary,
+                "description": description,
+                "tags": ["browser"],
+                "responses": {
+                    "200": {
+                        "description": summary,
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": f"#/components/schemas/{schema}"}
+                            }
+                        },
+                    },
+                    "400": _error(
+                        "No session named, two names given, or no saved data for "
+                        "that site. Do not retry it unchanged."
+                    ),
+                    "401": _error("Missing or wrong bearer token."),
+                    "500": _error("Something failed that this server did not expect."),
+                },
+            }
+        }
+
+    site = {
+        "name": "site",
+        "in": "path",
+        "required": True,
+        "schema": {"type": "string"},
+        "description": "A host from the listing, such as app.example.com.",
+    }
+    return {
+        f"{prefix}/site-data": operation(
+            "listSiteData",
+            resources.site_data.LIST_URI,
+            "The sites this session has saved data for.",
+            resources.SITE_DESCRIPTION,
+            "SiteList",
+        ),
+        f"{prefix}/site-data/{{site}}": operation(
+            "getSiteData",
+            f"{resources.site_data.LIST_URI}/{{site}}",
+            "One site's saved cookies and storage.",
+            resources.ONE_SITE_DESCRIPTION,
+            "SiteData",
+            [site],
+        ),
+    }
 
 
 def _secret_paths(prefix: str = "") -> dict:

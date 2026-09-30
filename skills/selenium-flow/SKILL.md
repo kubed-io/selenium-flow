@@ -146,7 +146,7 @@ check this table twice before reaching for it.
 
 | Tool | Does | Key arguments |
 |---|---|---|
-| `open_session` | start a browser, or come back to the one you had | `browser`: `chrome` \| `firefox`, `width`, `height`, `url`, `fresh` |
+| `open_session` | start a browser, or come back to the one you had | `browser`: `chrome` \| `firefox`, `width`, `height`, `url`, `fresh`, `restore_site_data` |
 | `end_browser` | free the Grid slot; your session survives | — |
 | `navigate` | go to a URL | `url` |
 | `interact` | a mouse gesture on an element | `selector`, `action`: `click` \| `double_click` \| `right_click` \| `hover` \| `scroll_to`, `glide` |
@@ -163,6 +163,7 @@ check this table twice before reaching for it.
 | `resize` | change the window size | `width`, `height` |
 | `execute_script` | run JavaScript — only for what nothing above does | `script` |
 | `assert` | JavaScript that must return true, or the call fails | `script`, `message`, `stable_for` |
+| `save_site_data` | keep this browser's cookies and storage, so a replacement comes back signed in | `url` |
 | `keep_file` | keep a file in Files, past the browser | `uri` |
 | `save_flow` | save a sequence of steps under a name | `name`, `parameters`, `steps`, `timeout` |
 | `run_flow` | run a saved flow in one call | `name`, `params` |
@@ -179,6 +180,8 @@ And everything to read:
 | `session://files/screenshots/{name}` | one of those, as bytes |
 | `session://files/downloads` | this session's browser downloads |
 | `session://files/downloads/{name}` | one of those, as bytes, while the browser is open |
+| `session://site-data` | the sites you have saved cookies or storage for — never a value |
+| `session://site-data/{site}` | one site's saved cookies and storage; httpOnly values are masked |
 | `secret://secrets` | the secrets you may type — never their values |
 | `flow://flows` | the saved flows you can run |
 | `flow://flows/{name}` | one flow's parameters and steps |

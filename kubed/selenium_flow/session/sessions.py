@@ -395,8 +395,8 @@ class SessionManager:
             return
         data = record.site_data
         if captured:
-            data, _ = site_data_module.merge(data, captured, time.time())
-            result["saved"] = site_data_module.summary(data)
+            data, receipt = site_data_module.merge(data, captured, time.time())
+            result["saved"] = receipt
             result["uri"] = site_data_module.LIST_URI
         pending = dict(data.get("pending") or {})
         if pending and pending.get("browser") == record.session_id:

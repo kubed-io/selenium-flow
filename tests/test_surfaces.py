@@ -74,6 +74,7 @@ EXPECTED = {
     "print",
     "assert",
     "outline",
+    "save_site_data",
 }
 
 
