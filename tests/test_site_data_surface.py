@@ -127,3 +127,23 @@ def test_the_capture_never_leaves_the_server(monkeypatch):
 async def test_current_session_names_site_data(saved):
     current = await read(saved, "session://current")
     assert current["site_data"] == {"sites": 1, "uri": "session://site-data"}
+
+
+def test_the_published_kept_shared_is_the_shape_returned():
+    """Generated clients read the spec: `kept_shared` is a cookie's identity,
+    not a bare name, so the published shape has to say so (Copilot, #49)."""
+    from kubed.selenium_flow.spec.schemas import SITE_DATA_SCHEMAS
+
+    items = SITE_DATA_SCHEMAS["SiteData"]["properties"]["kept_shared"]["items"]
+    assert items["type"] == "object"
+    assert set(items["required"]) == {"name", "domain", "path"}
+    data, _ = site_data.merge(
+        {},
+        {"cookies": [{"name": "ab", "value": "1", "domain": ".example.com",
+                      "path": "/", "http_only": False, "secure": True,
+                      "same_site": "lax", "expiry": None}],
+         "origin": "https://app.example.com", "local": {}, "session": {}},
+        0.0,
+    )
+    shared = site_data.site_view(data, "app.example.com")["kept_shared"]
+    assert shared and set(shared[0]) == set(items["required"])

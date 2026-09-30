@@ -143,6 +143,17 @@ def test_a_silent_reopen_restores_and_the_next_result_says_so(named_caller):
     assert "site_data" not in m.act(NAMED, lambda s: {"url": "https://elsewhere.test"})
 
 
+def test_a_reopen_that_lands_on_a_waiting_origin_does_not_call_it_both(named_caller):
+    """The first call after a silent reopen carries the reopen's report; if
+    it lands on an origin that report lists as waiting, that origin is
+    restored, and only restored (Copilot, #49)."""
+    m = opened_with_save()
+    m.actions.grid.alive.clear()
+    first = m.act(NAMED, lambda s: {"url": "https://w.test/page"})
+    assert "https://w.test" in first["site_data"]["restored"]
+    assert first["site_data"]["waiting"] == []
+
+
 def test_remember_keeps_site_data(named_caller):
     m = opened_with_save()
     m.open_browser(NAMED)

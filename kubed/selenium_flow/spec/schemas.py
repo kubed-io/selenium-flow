@@ -33,7 +33,11 @@ SITE_DATA_HINT = {
         "restored": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "Origins whose storage is now in the browser.",
+            "description": (
+                "What is in the browser now: the landing page's origin "
+                "(https://app.example.com) when its storage was saved, and each "
+                "host that had cookies only (sso.example.com)."
+            ),
         },
         "waiting": {
             "type": "array",
@@ -1057,7 +1061,15 @@ SITE_DATA_SCHEMAS = {
             },
             "kept_shared": {
                 "type": "array",
-                "items": {"type": "string"},
+                "items": {
+                    "type": "object",
+                    "required": ["name", "domain", "path"],
+                    "properties": {
+                        "name": {"type": "string"},
+                        "domain": {"type": "string"},
+                        "path": {"type": "string"},
+                    },
+                },
                 "description": (
                     "Parent-domain cookies it only sits under: Forget keeps them."
                 ),

@@ -425,6 +425,10 @@ class SessionManager:
                 origins.remove(origin)
                 pending["origins"] = origins
                 hint["restored"] = [*hint.get("restored", []), origin]
+                if "waiting" in hint:
+                    # The reopen's own report listed it as waiting; one answer
+                    # must not call the same origin both.
+                    hint["waiting"] = [o for o in hint["waiting"] if o != origin]
                 hint["uri"] = site_data_module.site_uri(
                     site_data_module.host_of(origin)
                 )
