@@ -92,6 +92,21 @@ def test_restore_off_deletes_and_says_how_many(named_caller):
     assert m.store.get(NAMED).site_data == {}
 
 
+def test_a_failed_open_does_not_erase_what_was_saved(named_caller):
+    """Declining a restore deletes only once the clean browser is open: a
+    transient Grid failure must not cost the saved sign-in (Copilot, #49)."""
+    m = opened_with_save()
+    m.end_browser(NAMED)
+
+    def refuse(**_):
+        raise RuntimeError("the grid is full")
+
+    m.actions.open_session = refuse
+    with pytest.raises(RuntimeError):
+        m.open_browser(NAMED, restore_site_data=False)
+    assert list(m.store.get(NAMED).site_data["origins"]) == ["https://app.example.com"]
+
+
 def test_nothing_saved_means_no_hint(named_caller):
     m = manager(SiteActions())
     assert "site_data" not in m.open_browser(NAMED)

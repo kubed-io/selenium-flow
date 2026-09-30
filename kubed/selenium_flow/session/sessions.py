@@ -537,13 +537,18 @@ class SessionManager:
         saved = self._restorable(record) if record else {}
         forgotten = None
         if saved and not as_bool(restore_site_data, True):
-            # Declining a restore is also how saved data is thrown away.
+            # Declining a restore is also how saved data is thrown away — but
+            # only once the clean browser is open, so a failed open cannot
+            # erase a sign-in the caller never got a new browser for.
             forgotten = site_data_module.summary(saved)["sites"]
-            self.store.set(name, record.with_site_data({}))
             saved = {}
         opened = self.actions.open_session(
             url=url or inherited, **({"site_data": saved} if saved else {}), **resolved
         )
+        if forgotten is not None:
+            current = self.store.get(name)
+            if current is not None:
+                self.store.set(name, current.with_site_data({}))
         self.remember(name, opened["session_id"], opened.get("url", ""), resolved)
         self._hold_pending(name, opened, {"announce": False})
         if forgotten is not None:
