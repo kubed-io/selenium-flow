@@ -11,8 +11,8 @@ test('three titled rows with counts, in order, read-only (P1)', () => {
   expect(container.querySelector('button')).toBeNull()
 })
 
-test('a signed absolute_url replaces the relative one; without it the relative url stands (Copilot, #42)', async () => {
-  const withAbs = { name: 'a.png', size: 1, url: '/f/a', absolute_url: 'https://host.example/f/a', image: true }
+test('an absolute url is used as given, and so is a relative one (Copilot, #42)', async () => {
+  const withAbs = { name: 'a.png', size: 1, url: 'https://host.example/f/a', image: true }
   const noAbs = { name: 'b.png', size: 1, url: '/f/b', image: true }
   const { container } = render(FileSections, { data: { downloads: [withAbs, noAbs], screenshots: [], files: [] } })
   const tiles = container.querySelectorAll('section.row')[0].querySelectorAll('.files > .file')

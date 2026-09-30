@@ -152,13 +152,13 @@ nowhere to keep files says `file_error` instead, and you still get the image.
 
 **Give a person the link, not the picture.** They cannot see a tool result, many
 clients cannot render an image block at all, and describing it is worse than
-both. Paste the URL, or `![](absolute_url)` — it opens in any browser and needs
-no token. A server that has not been told its public address returns only the
-relative `url`; hand that over with the address you reached the server on.
+both. Paste the `url`, or `![](url)` — it opens in any browser and needs no
+token. A server that has not been told its public address returns it relative;
+hand that over with the address you reached the server on.
 
 ```
 screenshot(selector={"xpath": "//div[@class='chart']"})
-→ file: {name: "screenshot.png", absolute_url: "https://…/kept/…?exp=…&sig=…"}
+→ file: {name: "screenshot.png", url: "https://…/screenshots/…?exp=…&sig=…"}
 ```
 
 It outlives the browser, and a second `screenshot.png` is kept as
@@ -175,7 +175,7 @@ its scripts ran.
 
 ```
 print(format="pdf", background=true, filename="invoice")
-→ file: {name: "invoice.pdf", absolute_url: "https://…/kept/…?exp=…&sig=…"}
+→ file: {name: "invoice.pdf", url: "https://…/kept/…?exp=…&sig=…"}
 ```
 
 ## XPath that keeps working

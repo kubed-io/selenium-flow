@@ -691,8 +691,8 @@ def register(
         answer; extract reads content far more cheaply.
 
         By default the capture is also kept with the session's files. To show a
-        person what you saw, give them the file's absolute_url: it opens in any
-        browser without a token, and ![](absolute_url) works. Do not describe the
+        person what you saw, give them the file's url: it opens in any
+        browser without a token, and ![](url) works. Do not describe the
         image instead.
 
         save=false stores nothing; file_error says why a save failed, and the image
@@ -747,9 +747,9 @@ def register(
         a print drops. format="html" is the page as it stands now, after its
         scripts ran.
 
-        To give it to a person, give them the file's absolute_url: it opens in any
-        browser without a token. A server with no public address configured returns
-        a relative url instead.
+        To give it to a person, give them the file's url: it opens in any browser
+        without a token. A server with no public address configured returns it
+        relative instead.
         """
         return run(
             lambda s: actions.print_(

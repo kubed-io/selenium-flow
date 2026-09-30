@@ -110,6 +110,19 @@ def test_junk_is_refused_rather_than_raising():
     path = links.file_path("abc", "shot.png")
     assert not links.valid(path, "not-a-number", "x", TOKEN)
     assert not links.valid(path, None, None, TOKEN)
+    # compare_digest raises on a str that is not ASCII; `sig` is the caller's.
+    assert not links.valid(path, int(time.time()) + 60, "ü", TOKEN)
+
+
+def test_a_refusal_says_expired_only_of_a_real_link():
+    """"Ask for a fresh one" is only the right advice for a link this server
+    minted, so a forged one is invalid however old its `exp`."""
+    path = links.file_path("abc", "shot.png")
+    past = int(time.time()) - 1
+    real = links.signature(path, past, TOKEN)
+    assert links.refusal(path, past, real, TOKEN) == "expired"
+    assert links.refusal(path, past, "forged", TOKEN) == "invalid"
+    assert links.refusal(path, "soon", real, TOKEN) == "invalid"
 
 
 def test_without_a_token_the_url_is_unsigned():
@@ -219,6 +232,43 @@ def test_a_file_needs_a_valid_signature_not_a_token(client):
     """The route exists to be put in an <img>, which cannot send a header."""
     assert client.get("/files/abc/shot.png").status_code == 403
     assert client.get("/files/abc/shot.png?exp=1&sig=x").status_code == 403
+
+
+BROWSER = {"accept": "text/html,application/xhtml+xml,*/*;q=0.8"}
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        links.file_path("abc", "shot.png"),
+        links.kept_path("desk", "shot.png"),
+        links.screenshot_path("desk", "shot.png"),
+    ],
+)
+def test_a_dead_link_opened_in_a_browser_says_why(client, path):
+    """People open these from chat transcripts, after they expire; a raw JSON
+    error in a tab reads as the server being broken."""
+    past = int(time.time()) - 1
+    expired = client.get(
+        f"{path}?exp={past}&sig={links.signature(path, past, TOKEN)}", headers=BROWSER
+    )
+    assert expired.status_code == 403
+    assert expired.headers["content-type"].startswith("text/html")
+    assert expired.headers["cache-control"] == "no-store"
+    assert "This link has expired" in expired.text
+    assert time.strftime("%H:%M UTC", time.gmtime(past)) in expired.text
+
+    forged = client.get(f"{path}?exp={past}&sig=forged", headers=BROWSER)
+    assert forged.status_code == 403
+    assert "This link is not valid" in forged.text
+
+
+def test_a_dead_link_fetched_by_a_program_is_json(client):
+    path = links.file_path("abc", "shot.png")
+    past = int(time.time()) - 1
+    response = client.get(f"{path}?exp={past}&sig={links.signature(path, past, TOKEN)}")
+    assert response.status_code == 403
+    assert response.json() == {"error": "expired link"}
 
 
 def test_a_signed_file_is_served_without_any_header(client):

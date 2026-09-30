@@ -1342,14 +1342,14 @@ def test_a_step_that_makes_a_file_says_where_it_went():
                 "url": "https://x.test/shot",
                 "file": {
                     "name": "shot.png",
-                    "absolute_url": "https://x.test/files/abc/shot.png?sig=1",
+                    "url": "https://x.test/files/abc/shot.png?sig=1",
                 },
             }
 
     report = run(Shoots(), flow([{"tool": "screenshot", "args": {}}]), "b")
     entry = report["steps"][0]
     assert entry["file"]["name"] == "shot.png"
-    assert entry["file"]["absolute_url"].endswith("sig=1")
+    assert entry["file"]["url"].endswith("sig=1")
     assert "result" not in entry, "the full result still belongs to return: true"
 
 

@@ -7,10 +7,6 @@ export interface FileEntry {
   image?: boolean
   created?: number | null
   content_type?: string | null
-  // Set only when the server was told what it's externally reachable at. The
-  // MCP App renders in a host's sandbox, where `url` (server-relative) does
-  // not resolve; the admin page never reads this field.
-  absolute_url?: string | null
 }
 
 export interface FilesData {

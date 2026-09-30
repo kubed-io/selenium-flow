@@ -236,8 +236,9 @@ def test_the_server_keeps_it_on_disk_with_a_signed_link(keeping_server, tmp_path
     missing link looks exactly like a server that has no public base."""
     entry = keeping_server.actions.keep("shot.png", b"png", "files")
     assert entry["name"] == "shot.png"
-    assert entry["absolute_url"].startswith("https://selenium.example.com/")
-    assert "sig=" in entry["absolute_url"], "the link must be signed"
+    assert entry["url"].startswith("https://selenium.example.com/")
+    assert "sig=" in entry["url"], "the link must be signed"
+    assert "absolute_url" not in entry, "one link, not two"
     assert [p.read_bytes() for p in tmp_path.rglob("shot.png")] == [b"png"]
 
 
@@ -281,14 +282,14 @@ def test_a_server_with_no_data_dir_refuses_to_keep_with_the_reason():
 
 
 @pytest.mark.parametrize(
-    ("public", "absolute"),
+    ("public", "expected"),
     [
-        ("", None),  # a path is not an absolute URL, however it looks
+        ("", "/flow/kept/"),  # a path, since nobody said where the server is
         ("https://sf.example", "https://sf.example/flow/kept/"),
         ("https://sf.example/flow", "https://sf.example/flow/kept/"),
     ],
 )
-def test_a_mounted_server_hands_out_links_it_serves(tmp_path, public, absolute):
+def test_a_mounted_server_hands_out_links_it_serves(tmp_path, public, expected):
     """The route is at `/flow/kept`, so the link must be too — whether or not a
     public base is set, and once only when that base already names the mount."""
     from kubed.selenium_flow.config import Settings
@@ -302,11 +303,7 @@ def test_a_mounted_server_hands_out_links_it_serves(tmp_path, public, absolute):
         flow={"data_dir": str(tmp_path)},
     ))
     described = server.actions.keep("shot.png", b"png", "files")
-    assert described["url"].startswith("/flow/kept/")
-    if absolute is None:
-        assert "absolute_url" not in described
-    else:
-        assert described["absolute_url"].startswith(absolute)
+    assert described["url"].startswith(expected)
 
 
 def test_print_over_http_keeps_the_file_for_the_session_that_asked(
@@ -339,18 +336,78 @@ def test_print_over_http_keeps_the_file_for_the_session_that_asked(
 
 def test_a_kept_page_opens_without_its_scripts(keeping_server):
     """A printed page is a site's HTML. Served inline on this origin, its
-    scripts would run beside the admin UI and its token (Copilot, #40)."""
+    scripts would run beside the admin UI and its token (Copilot, #40).
+
+    A raster image cannot script, and is not sandboxed: the opaque origin broke
+    an extension reading localStorage, which threw until the tab hung.
+    """
     from starlette.testclient import TestClient
 
     from kubed.selenium_flow.http import links
 
+    inert = "default-src 'none'; style-src 'unsafe-inline'"
     client = TestClient(keeping_server.mcp.http_app())
-    for name, sandboxed in (("page.html", True), ("shot.svg", True), ("page.pdf", False)):
+    for name, csp in (
+        ("page.html", "sandbox"),
+        ("shot.svg", "sandbox"),
+        ("page.xht", "sandbox"),
+        ("mystery", "sandbox"),
+        ("page.pdf", None),
+        ("shot.png", inert),
+        ("shot.jpg", inert),
+        ("shot.gif", inert),
+    ):
         keeping_server.flows.write_file("stdio", name, b"<script>alert(1)</script>")
         response = client.get(links.kept_url("stdio", name, "tok"))
         assert response.status_code == 200
         assert response.headers["x-content-type-options"] == "nosniff"
-        assert (response.headers.get("content-security-policy") == "sandbox") is sandboxed
+        assert response.headers.get("content-security-policy") == csp, name
+
+
+async def test_link_ttl_is_how_long_a_link_opens(tmp_path):
+    """Through the real wiring, on every surface that signs: a result's link,
+    the MCP listing, and the admin page's listing."""
+    import json
+    import time
+
+    from fastmcp import Client
+    from starlette.testclient import TestClient
+
+    from kubed.selenium_flow.config import Settings
+    from kubed.selenium_flow.http import links
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    day = 86400
+    server = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"},
+        auth={"token": "tok"},
+        link_ttl=day,
+        flow={"data_dir": str(tmp_path)},
+    ))
+
+    def lasts(url: str) -> float:
+        return int(url.split("exp=")[1].split("&")[0]) - time.time()
+
+    kept = server.actions.keep("shot.png", b"png", "screenshots")
+    assert day - 5 <= lasts(kept["url"]) < day + links.EXPIRY_STEP
+
+    async with Client(server.mcp) as client:
+        listed = await client.read_resource("session://files/screenshots")
+    entry = json.loads(listed[0].text)["files"][0]
+    assert day - 5 <= lasts(entry["url"]) < day + links.EXPIRY_STEP
+
+    body = TestClient(server.mcp.http_app()).get(
+        "/admin/sessions/stdio/files", headers={"Authorization": "Bearer tok"}
+    ).json()
+    assert [f["name"] for f in body["screenshots"]] == ["shot.png"]
+    assert day - 5 <= lasts(body["screenshots"][0]["url"]) < day + links.EXPIRY_STEP
+
+
+def test_a_link_opens_for_at_least_a_minute():
+    from kubed.selenium_flow.config import Settings
+
+    with pytest.raises(ValueError, match="link_ttl"):
+        Settings(link_ttl=30)
 
 
 async def test_print_is_a_tool_that_keeps_the_file(keeping_server, monkeypatch):
@@ -372,7 +429,7 @@ async def test_the_tools_tell_the_agent_to_hand_over_the_link(server):
     """A hint the model reads while deciding, not after."""
     for name in ("screenshot", "print"):
         description = (await server.mcp.get_tool(name)).description or ""
-        assert "absolute_url" in description, f"{name} does not mention the link"
+        assert "the file's url" in description, f"{name} does not mention the link"
 
 
 async def test_the_prompt_does_not_promise_a_file_that_may_not_exist(server):

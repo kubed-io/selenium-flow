@@ -211,6 +211,11 @@ def describe(folder: str, entry: dict, url: str, base: str = "") -> dict:
     """
     name = entry.get("name", "")
     kind = content_type(name)
+    if base:
+        # Absolute whenever the server knows where it is reachable, and one
+        # field rather than two: `url` sat beside `absolute_url`, relative to a
+        # root the ingress had stripped, and was the one a caller took.
+        url = base.rstrip("/") + url
     described = {
         "name": name,
         "uri": uri_of(folder, name),
@@ -231,11 +236,6 @@ def describe(folder: str, entry: dict, url: str, base: str = "") -> dict:
         # double quote, and a browser will happily save `Q4 "final".csv` - which
         # rendered as a call nobody could paste (Copilot, #31).
         described["keep_with"] = f"{KEEP_TOOL}({json.dumps(described['uri'])})"
-    if base:
-        # An app renders on a sandbox origin of the host's choosing, so a path
-        # would resolve against the wrong server. Absolute only when the server
-        # has been told what it is reachable at.
-        described["absolute_url"] = base.rstrip("/") + url
     return described
 
 
@@ -246,6 +246,7 @@ def url_for(
     token,
     mount: str = "",
     session_id: str = "",
+    ttl: int = links.DEFAULT_TTL,
 ) -> str:
     """The signed link for one entry, keyed by whichever id its folder uses.
 
@@ -253,10 +254,10 @@ def url_for(
     are ours, reached by the session name that outlives any browser (§F1.10).
     """
     if folder == DOWNLOADS:
-        return links.file_url(session_id, name, token, mount)
+        return links.file_url(session_id, name, token, mount, ttl)
     if folder == SCREENSHOTS:
-        return links.screenshot_url(session, name, token, mount)
-    return links.kept_url(session, name, token, mount)
+        return links.screenshot_url(session, name, token, mount, ttl)
+    return links.kept_url(session, name, token, mount, ttl)
 
 
 def owner(store, name: str) -> str:
@@ -278,6 +279,7 @@ def listing_of(
     base: str = "",
     mount: str = "",
     downloads: list[dict] | None = None,
+    ttl: int = links.DEFAULT_TTL,
 ) -> list[dict]:
     """One folder's entries, described and signed, newest first.
 
@@ -302,7 +304,9 @@ def listing_of(
         describe(
             folder,
             entry,
-            url_for(folder, session, entry.get("name", ""), token, mount, session_id),
+            url_for(
+                folder, session, entry.get("name", ""), token, mount, session_id, ttl
+            ),
             base,
         )
         for entry in entries
@@ -320,7 +324,14 @@ def downloads_count(actions, session_id: str) -> int:
 
 
 def root(
-    actions, sessions, store, token, name: str, base: str = "", mount: str = ""
+    actions,
+    sessions,
+    store,
+    token,
+    name: str,
+    base: str = "",
+    mount: str = "",
+    ttl: int = links.DEFAULT_TTL,
 ) -> dict:
     """``session://files``: the Files section's own files, and its two folders.
 
@@ -333,7 +344,9 @@ def root(
     target = sessions.browser(name)
     if not target and store is None:
         raise ValueError(NOTHING)
-    file_list = listing_of(actions, store, FILES, owned, target, token, base, mount)
+    file_list = listing_of(
+        actions, store, FILES, owned, target, token, base, mount, ttl=ttl
+    )
     screenshots_count = (
         len(store.files(owned, SCREENSHOTS)) if store is not None and owned else 0
     )
@@ -366,6 +379,7 @@ def folder(
     which: str,
     base: str = "",
     mount: str = "",
+    ttl: int = links.DEFAULT_TTL,
 ) -> dict:
     """One section's own listing: Files, Screenshots or Downloads."""
     if which not in (FILES, SCREENSHOTS, DOWNLOADS):
@@ -375,7 +389,9 @@ def folder(
     target = sessions.browser(name)
     if not target and store is None:
         raise ValueError(NOTHING)
-    entries = listing_of(actions, store, which, owned, target, token, base, mount)
+    entries = listing_of(
+        actions, store, which, owned, target, token, base, mount, ttl=ttl
+    )
     result = {
         "session": owned or None,
         "folder": which,
@@ -398,6 +414,7 @@ def sections(
     mount: str = "",
     session_id: str | None = None,
     downloads: list[dict] | None = None,
+    ttl: int = links.DEFAULT_TTL,
 ) -> dict:
     """All three sections at once, for `session_files` and the admin page.
 
@@ -416,12 +433,14 @@ def sections(
         "session": owned or None,
         "browser": bool(target),
         "downloads": listing_of(
-            actions, store, DOWNLOADS, owned, target, token, base, mount, downloads
+            actions, store, DOWNLOADS, owned, target, token, base, mount, downloads, ttl
         ),
         "screenshots": listing_of(
-            actions, store, SCREENSHOTS, owned, target, token, base, mount
+            actions, store, SCREENSHOTS, owned, target, token, base, mount, ttl=ttl
         ),
-        "files": listing_of(actions, store, FILES, owned, target, token, base, mount),
+        "files": listing_of(
+            actions, store, FILES, owned, target, token, base, mount, ttl=ttl
+        ),
     }
 
 
@@ -521,6 +540,7 @@ def keep_made(
     base: str = "",
     mount: str = "",
     folder=FILES,
+    ttl: int = links.DEFAULT_TTL,
 ) -> dict:
     """Keep bytes this server made — a screenshot, a print — for the caller.
 
@@ -534,7 +554,7 @@ def keep_made(
     session = owner(store, sessions.name())
     wanted = flows.valid_file_name(name)
     entry = _claim(store, session, wanted, data, folder)
-    url = url_for(folder, session, entry["name"], token, mount)
+    url = url_for(folder, session, entry["name"], token, mount, ttl=ttl)
     return describe(folder, entry, url, base)
 
 
@@ -628,6 +648,7 @@ def register(
     app_config=None,
     base="",
     prefix: str = "",
+    ttl: int = links.DEFAULT_TTL,
 ) -> set[str]:
     """Register the resources, the mirroring tool, and the file actions.
 
@@ -644,14 +665,15 @@ def register(
     )
     def files_resource() -> dict:
         return root(
-            actions, sessions, store, token, sessions.name(), base=base, mount=prefix
+            actions, sessions, store, token, sessions.name(),
+            base=base, mount=prefix, ttl=ttl,
         )
 
     def _folder_resource(which: str):
         def read() -> dict:
             return folder(
                 actions, sessions, store, token, sessions.name(), which,
-                base=base, mount=prefix,
+                base=base, mount=prefix, ttl=ttl,
             )
 
         return read
@@ -695,7 +717,8 @@ def register(
     )
     def session_files() -> dict:
         return sections(
-            actions, sessions, store, token, sessions.name(), base=base, mount=prefix
+            actions, sessions, store, token, sessions.name(),
+            base=base, mount=prefix, ttl=ttl,
         )
 
     @mcp.tool(
@@ -714,11 +737,11 @@ def register(
     def keep_file(uri: str) -> dict:
         return keep(actions, sessions, store, uri)
 
-    _routes(mcp, actions, sessions, store, token, base, prefix)
+    _routes(mcp, actions, sessions, store, token, base, prefix, ttl)
     return {FILES_TOOL}
 
 
-def _routes(mcp, actions, sessions, store, token, base, prefix) -> None:
+def _routes(mcp, actions, sessions, store, token, base, prefix, ttl) -> None:
     """The same operations as REST, for callers that are not MCP.
 
     Their own tree under ``/files``, for the reason ``/flows`` has one: these
@@ -746,7 +769,8 @@ def _routes(mcp, actions, sessions, store, token, base, prefix) -> None:
             request,
             "list",
             lambda name, _body: root(
-                actions, sessions, store, token, name, base=base, mount=prefix
+                actions, sessions, store, token, name,
+                base=base, mount=prefix, ttl=ttl,
             ),
         )
 
@@ -760,7 +784,7 @@ def _routes(mcp, actions, sessions, store, token, base, prefix) -> None:
             "screenshots",
             lambda name, _body: folder(
                 actions, sessions, store, token, name, SCREENSHOTS,
-                base=base, mount=prefix,
+                base=base, mount=prefix, ttl=ttl,
             ),
         )
 
@@ -774,7 +798,7 @@ def _routes(mcp, actions, sessions, store, token, base, prefix) -> None:
             "downloads",
             lambda name, _body: folder(
                 actions, sessions, store, token, name, DOWNLOADS,
-                base=base, mount=prefix,
+                base=base, mount=prefix, ttl=ttl,
             ),
         )
 

@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Secrets can be defined in the config file, merged over the ones in `secrets.dirs`, with keys read from a file or an env var.
 - The admin UI has a Settings tab showing every setting and where its value came from.
 - The Secrets tab no longer lists which flows use a secret.
+- Screenshot and image links open in any browser again, including ones whose extensions hung the tab on a blank screen.
+- An expired or broken file link opened in a browser shows a page saying which, and when it expired.
+- `link_ttl` (`LINK_TTL`) sets how long a file link works; the default is still an hour.
+- **BREAKING:** a file's `url` is absolute when `PUBLIC_BASE_URL` is set, and `absolute_url` is gone.
 - **BREAKING:** `MCP_AUTH_TOKEN` is `AUTH_TOKEN`; `DEFAULT_BROWSER`, `WINDOW_WIDTH`, `WINDOW_HEIGHT`, `PAGE_LOAD_TIMEOUT` and `SCRIPT_TIMEOUT` are `SESSION_*`; `--no-skill`/`--no-apps` are `--mcp-skill false`/`--mcp-apps false`; `SKILL_ENABLED`/`APPS_ENABLED` are `MCP_SKILL`/`MCP_APPS`.
 
 ## [0.3.0] - 2026-09-26
