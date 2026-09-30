@@ -131,6 +131,22 @@ RESPONSES = {
             },
             "store": {"type": "string", "enum": ["memory", "redis"]},
             "settings": {"type": "object"},
+            "site_data": {
+                "type": "object",
+                "description": (
+                    "Present only when the session has saved site data."
+                ),
+                "properties": {
+                    "sites": {
+                        "type": "integer",
+                        "description": "How many sites have saved data.",
+                    },
+                    "uri": {
+                        "type": "string",
+                        "description": "Where to read what is saved.",
+                    },
+                },
+            },
             "guidance": {
                 "type": "string",
                 "description": "The skill reference that explains sessions.",
@@ -592,6 +608,7 @@ FLOW_SCHEMAS = {
                         "summary": {"type": "string"},
                         "note": {"type": "string"},
                         "error": {"type": "string"},
+                        "site_data": SITE_DATA_HINT,
                         "url": {
                             "type": "string",
                             "description": (

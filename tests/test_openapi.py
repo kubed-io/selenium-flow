@@ -341,3 +341,17 @@ async def test_uploading_a_kept_file_needs_no_library_field_on_either_surface(
     assert "session" not in upload["multipart/form-data"]["schema"]["properties"]
     tool = await server.mcp.get_tool("upload_file")
     assert "session" not in tool.parameters["properties"]
+
+
+async def test_a_flow_step_declares_the_site_data_it_reports(spec):
+    from kubed.selenium_flow.spec.schemas import SITE_DATA_HINT
+
+    step = spec["components"]["schemas"]["FlowRun"]["properties"]["steps"]["items"]
+    assert step["properties"]["site_data"] == SITE_DATA_HINT
+
+
+async def test_the_session_status_declares_its_site_data_summary(spec):
+    declared = spec["components"]["schemas"]["SessionStatus"]["properties"]["site_data"]
+    assert declared["properties"]["sites"]["type"] == "integer"
+    assert declared["properties"]["uri"]["type"] == "string"
+    assert "only" in declared["description"]
