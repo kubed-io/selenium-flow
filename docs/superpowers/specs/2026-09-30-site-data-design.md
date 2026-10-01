@@ -6,9 +6,11 @@ was written 2026-09-30 and shipped in #49 and #50. Round 2 was written
 2026-10-01, after Dr K saw round 1 live. This round lives in
 `docs/superpowers/` and not in the saga.
 
-**Status:** round 2 is a draft. The BiDi spike passed (below); it waits on
-one more round of questions. The Penpot file *Admin UI*, page **Session · Site
-data**, still shows round 1 and is redrawn once this settles.
+**Status:** round 2 is settled. The BiDi spike passed (below) and every
+question is ruled. The Penpot file *Admin UI* holds the drawing on the pages
+**Session · Site data** and **Session · History**, in version *Site data
+design, round 2 — History tab*; the session tab bar on every page gains
+History.
 
 ## What round 2 changes, and why
 
@@ -239,36 +241,52 @@ row: each is built per request by the admin API.
 ### History
 
 Where the session has been, joined by **host** to what can be used there.
+Drawn: page **Session · History**, flow *History*.
 
 - **The current site is on top**, then the history, most recent first. One
-  row per host: its latest URL and when it was visited.
-- Joined onto each row: the **secrets allowed on that host** (🔑 name,
-  description, one pill per key), and **whether the snapshot holds data for
-  it** (its counts, which link to that host in Site data).
+  row per host, always open (no fold): its latest URL in bold, when it was
+  visited ("1m ago"), and a pill with the snapshot's counts for that host
+  ("2 cookies · 2 local", zero counts left out), which links to that host in
+  Site data. No pill when nothing is saved for it. The top row carries no
+  marker: it is the session card's last page.
+- Under the head, one line per **secret allowed on that host**: 🔑 name,
+  description, one pill per key — the Secrets tab's own line.
 - **Secrets never make a row.** A site the session never landed on is not
   listed, whatever the secrets say.
 - The tab counts the hosts listed.
-- **Clear** empties the history, except the current site's entry. There is
-  no per-row action: the history expires on its own.
+- **Clear** sits above the rows on the right, and only while there is more
+  than the current site. Its confirm, *Clear history*: "History only: site
+  data and the browser are untouched.", then `goes` (the hosts) and `stays`
+  (the current site). There is no per-row action: the history expires on
+  its own.
 - Later, not now: flows and runs on a row, and every path visited.
 
 ### Site data
 
-What a reopened browser gets back: the snapshot and nothing else.
+What a reopened browser gets back: the snapshot and nothing else. Drawn:
+page **Session · Site data**, flow *Site data*.
 
+- Above the rows: one "saved 2m ago" pill for the snapshot on the left, and
+  **Clear** on the right.
 - One row per host the snapshot holds data for — the ad server, the CDN and
   the identity provider reached only by a redirect included, because they
   are restored. Hosts in the history come first, most recent first, then the
   rest alphabetically. No secrets here.
+- A row head: its origin (the host when it has none or several), its counts
+  ("2 cookies · 2 local · 0 session", or "3 cookies" for a cookie-only
+  host), and **Forget**. Expanded as in round 1: COOKIES, LOCAL STORAGE and
+  SESSION STORAGE ("none" when empty), per origin.
 - A cookie is listed under its own domain. A parent's leading-dot cookie is
   listed under every row it covers, marked shared; it belongs to none.
-  Storage is shown per origin.
-- One "saved 2m ago" for the snapshot, in the tab's header.
 - The tab counts the hosts listed.
 - **Forget (one row)** removes the host's storage and its own cookies
-  (`host` or `.host`) from the snapshot. **Clear** deletes the snapshot.
-  Neither touches the history or the live browser: the browser keeps what
-  it has, and only the next browser opened comes back without it.
+  (`host` or `.host`) from the snapshot; its confirm keeps round 1's
+  `goes`/`stays` lines without the secret line. **Clear** deletes the
+  snapshot; its confirm, *Clear site data*: "3 sites — a reopened browser
+  comes back signed out.", then `goes` and the hosts. Neither touches the
+  history or the live browser: the browser keeps what it has, and only the
+  next browser opened comes back without it.
+- Empty: "Nothing saved — an agent calls `save_site_data` after signing in."
 - **Copy dropped:** "Nothing saved. It stays listed because a secret is
   allowed here." and "nothing saved". Every row here has something saved.
 
@@ -305,25 +323,29 @@ save after signing out saves you signed out).
 - **Live before the PR:** Chrome and Firefox, two apps signed in, one save, a
   real end and reopen, both signed in, timed.
 
-## Open questions (round 2)
+## Service workers at save time
 
-1. **A save meets a site with a service worker.** The spare tab is answered
-   by the site's own worker, so the real app runs for a moment in a hidden
-   tab. Proposed, W3C only: the spare tab serves a page with a marker; when
-   the marker is missing, the tab closes without reading, that origin keeps
-   its storage from the last snapshot, and `skipped` says to save while on
-   that site. The worst case is round 1's behaviour for that one site.
+A save meets a site with a service worker. The spare tab is answered by the
+site's own worker, so the real app runs for a moment in a hidden tab, and an
+app that rotates its sign-in token there can leave the saved one stale.
 
-   Why not CDP here: service workers are W3C (the spec is a Candidate
-   Recommendation Draft, implemented by every engine), but BiDi has no
-   switch to bypass one — Puppeteer lists `setBypassServiceWorker` as
-   unsupported over BiDi, and the nearest BiDi issue (#846, only a "from
-   service worker" flag) is still in discussion. CDP's switch is
-   Chromium-only: Firefox turned CDP off by default in 129 and Selenium
-   dropped it for Firefox in February 2025. So CDP would fix Chrome alone,
-   Firefox would still need the skip, and the rule "no CDP" would buy two
-   code paths for one narrow case. If a real site needs it, a single
-   Chromium-only call can be added later without undoing anything.
+**W3C only, with a fallback (Dr K).** The spare tab serves a page with a
+marker; when the marker is missing, the tab closes without reading, that
+origin keeps its storage from the last snapshot, and `skipped` says
+`{site, reason: "a service worker answered: save while on this site"}`. A save
+made while on that site reads its storage directly, as always. The worst case
+is round 1's behaviour for that one site, and cookies are never affected.
+
+Why not CDP here: service workers are W3C (the spec is a Candidate
+Recommendation Draft, implemented by every engine), but BiDi has no
+switch to bypass one — Puppeteer lists `setBypassServiceWorker` as
+unsupported over BiDi, and the nearest BiDi issue (#846, only a "from
+service worker" flag) is still in discussion. CDP's switch is
+Chromium-only: Firefox turned CDP off by default in 129 and Selenium
+dropped it for Firefox in February 2025. So CDP would fix Chrome alone,
+Firefox would still need the skip, and the rule "no CDP" would buy two
+code paths for one narrow case. If a real site needs it, a single
+Chromium-only call can be added later without undoing anything.
 
 ## Rulings
 
@@ -357,6 +379,8 @@ Round 2 (2026-10-01):
   (browser-use's flaw); localStorage is read for every visited origin
   through a spare tab with network interception; cookie provenance is
   unknowable, so cookies show under their own domain.
+- Dr K: service workers are handled W3C only, with the fallback in *Service
+  workers at save time*; no CDP.
 - No browser history API: WebDriver and BiDi can step back and forward but
   cannot list where a tab has been, and a browser's own history dies with
   it on a reap. The session records its own, from the URL each call already
