@@ -49,6 +49,10 @@ from .store import MemoryStore, SessionRecord, SessionStore
 
 log = logging.getLogger(__name__)
 
+REPLACED_BEFORE_SAVE = (
+    "another browser took this session before the save landed: nothing was saved"
+)
+
 # A client names its session with either of these. The query parameter is the
 # one most clients can set, since an MCP server is usually configured by URL.
 NAME_PARAM = "session"
@@ -429,7 +433,13 @@ class SessionManager:
         if captured:
             receipt = {}
 
-            def save(r: SessionRecord) -> SessionRecord:
+            def save(r: SessionRecord) -> SessionRecord | None:
+                if producer is not None and r.session_id != producer:
+                    # Another browser holds the session now — perhaps one
+                    # opened with restore_site_data=false. What this one
+                    # captured is not its to keep (Copilot, #50).
+                    receipt["replaced"] = True
+                    return None
                 data, receipt["saved"] = site_data_module.merge(
                     r.site_data, captured, time.time()
                 )
@@ -440,13 +450,25 @@ class SessionManager:
                 receipt["evicted"] = gone & set(
                     (r.site_data.get("pending") or {}).get("origins") or []
                 )
+                pending = data.get("pending")
+                if receipt["evicted"] and pending and pending.get("script"):
+                    # Marked in the same write: until the swap below lands,
+                    # the live script still carries what was evicted, and a
+                    # crash in between must leave that visible to retry.
+                    data = {**data, "pending": {**pending, "stale": True}}
                 return r.with_site_data(data)
 
-            if self.store.update(name, save) is None:
+            if self.store.update(name, save) is None and not receipt.get("replaced"):
+                return
+            result["uri"] = site_data_module.LIST_URI
+            if receipt.get("replaced"):
+                result["saved"] = {
+                    "cookies": 0, "sites": [],
+                    "skipped": [{"reason": REPLACED_BEFORE_SAVE}],
+                }
                 return
             evicted = receipt.pop("evicted", set())
             result["saved"] = receipt["saved"]
-            result["uri"] = site_data_module.LIST_URI
         record = self.store.get(name)
         if record is None:
             return

@@ -114,7 +114,11 @@ def test_the_capture_never_leaves_the_server(monkeypatch):
     server = SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
     )
-    server.sessions.store.set(NAMED, SessionRecord(url=f"https://{SITE}/"))
+    # The record names the browser `resolve` hands back, as it does for real:
+    # a save is kept only by the browser that captured it.
+    server.sessions.store.set(
+        NAMED, SessionRecord(session_id="live-id", url=f"https://{SITE}/")
+    )
     client = TestClient(server.mcp.http_app())
     response = client.post(
         "/browser/save-site-data", headers=AUTH, params={"session": NAMED}, json={}

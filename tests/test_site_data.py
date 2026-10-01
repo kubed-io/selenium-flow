@@ -832,6 +832,15 @@ def test_one_malformed_cookie_is_skipped_not_the_whole_restore():
     ]
 
 
+def test_a_nonnumeric_expiry_is_skipped_not_the_whole_restore():
+    good = cookie("ok", "app.example.com", expiry=int(NOW) + 60)
+    stringy = cookie("odd", "app.example.com", expiry="tomorrow")
+    bidi = FakeBidi()
+    report, _ = sd.restore(bidi, {"cookies": [stringy, good], "origins": {}}, NOW)
+    assert [c.name for c in bidi.storage.set] == ["ok"]
+    assert report["skipped"][0]["cookie"] == "odd"
+
+
 def test_a_failure_after_the_script_is_added_never_loses_its_id(monkeypatch):
     """The id is what retires the script; a restore that added one and then
     reported "" left it filling storage for the life of the browser."""

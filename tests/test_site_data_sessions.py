@@ -477,6 +477,50 @@ def test_an_eviction_whose_swap_fails_keeps_retrying(named_caller):
     assert pending["script"] == "p1+" and "stale" not in pending
 
 
+def test_an_eviction_is_marked_stale_before_the_swap_runs(named_caller):
+    """The eviction and the stale marker land in one write: a crash before
+    the swap must leave the evicted origin visible to retry (Copilot, #50)."""
+    m = opened_with_save()
+    record = m.store.get(NAMED)
+    data = dict(record.site_data)
+    data["origins"] = {
+        "https://v.test": {"local": {"big": "x" * 600_000}, "session": {}, "saved_at": 1.0},
+        "https://w.test": {"local": {"k": "w"}, "session": {}, "saved_at": 2.0},
+    }
+    m.store.set(NAMED, record.with_site_data(data))
+    m.actions.waiting = ["https://v.test", "https://w.test"]
+    reopened(m)
+    seen = []
+
+    def retire(session_id, script, keep=None):
+        seen.append(m.store.get(NAMED).site_data["pending"].get("stale"))
+        return f"{script}+"
+
+    m.actions.retire_site_data = retire
+    big = m.actions.save_site_data("x")
+    big[site_data.CAPTURED]["local"] = {"big": "y" * 500_000}
+    m.act(NAMED, lambda s: big)
+    assert seen == [True], "stored before the swap ran"
+    assert "stale" not in m.store.get(NAMED).site_data["pending"], "cleared after"
+
+
+def test_a_save_from_a_replaced_browser_keeps_nothing(named_caller):
+    """open_session(restore_site_data=false) on another request deletes the
+    data; a save still finishing on the old browser must not bring it back."""
+    m = manager(SiteActions())
+    m.open_browser(NAMED)
+
+    def save_while_replaced(resolved):
+        m.store.update(NAMED, lambda r: replace(r, session_id="newer", site_data={}))
+        return m.actions.save_site_data(resolved)
+
+    told = m.act(NAMED, save_while_replaced)
+    assert site_data.CAPTURED not in told
+    assert told["saved"]["sites"] == [] and told["saved"]["cookies"] == 0
+    assert told["saved"]["skipped"][0]["reason"].startswith("another browser took")
+    assert m.store.get(NAMED).site_data == {}
+
+
 def test_an_eviction_is_not_announced_by_a_silent_reopen_report(named_caller):
     m = opened_with_save()
     record = m.store.get(NAMED)

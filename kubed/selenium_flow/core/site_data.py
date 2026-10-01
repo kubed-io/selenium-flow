@@ -465,6 +465,11 @@ def _usable(c) -> bool:
         isinstance(c, dict)
         and isinstance(c.get("name"), str) and bool(c["name"])
         and isinstance(c.get("domain"), str) and bool(c["domain"])
+        # Compared with `now` before any per-cookie guard: a string here took
+        # the whole restore down instead of skipping one cookie (Copilot, #50).
+        and (c.get("expiry") is None or (
+            isinstance(c["expiry"], (int, float)) and not isinstance(c["expiry"], bool)
+        ))
     )
 
 
