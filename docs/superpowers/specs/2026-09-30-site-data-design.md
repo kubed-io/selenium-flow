@@ -6,8 +6,8 @@ was written 2026-09-30 and shipped in #49 and #50. Round 2 was written
 2026-10-01, after Dr K saw round 1 live. This round lives in
 `docs/superpowers/` and not in the saga.
 
-**Status:** round 2 is a draft. It waits on the BiDi spike (below) and one
-more round of questions. The Penpot file *Admin UI*, page **Session · Site
+**Status:** round 2 is a draft. The BiDi spike passed (below); it waits on
+one more round of questions. The Penpot file *Admin UI*, page **Session · Site
 data**, still shows round 1 and is redrawn once this settles.
 
 ## What round 2 changes, and why
@@ -77,27 +77,38 @@ Firefox alike. Round 2 uses three of its modules:
 `Grid.bidi(session_id)` binds a reattached driver whose `webSocketUrl` is
 `ws://<grid>/session/<id>/se/bidi`, and closes the socket when done.
 
-## The spike, before any code
+## The spike (2026-10-01): the spare tab works
 
-The spare tab is the one unproved piece. Against this Grid, in Chrome and in
-Firefox:
+Run against this Grid: Chrome 152 and Firefox 155. Throwaway; nothing kept.
 
-1. The Grid's browser versions (Firefox must be ≥ 129).
-2. A spare tab with an intercept that answers every request with `' '`:
-   navigate it to an https origin, set and read localStorage, close it.
-   Then send the main tab to that origin for real, and the value is there.
-3. The same for sessionStorage in the **main** tab: intercept it, stand on
-   the origin, set it, drop the intercept, navigate for real, and it is
-   still there.
-4. Whether Selenium 4.49's Python BiDi API reaches `provideResponse`, or the
-   raw command has to be sent.
-5. The time per origin.
-6. Whether a registered service worker answers the spare tab's navigation
-   before the intercept does. A restore always starts in a fresh browser,
-   which has none, so this only affects a save.
+| Check | Chrome | Firefox |
+|---|---|---|
+| Write another origin's localStorage from a spare tab, then load it for real | pass | pass |
+| Read another origin's localStorage from a spare tab | pass | pass |
+| sessionStorage in the main tab before a real load | pass | pass |
+| An origin with a registered service worker | the worker answers | the worker answers |
 
-If Firefox fails 2 or 3, round 2 falls back: a save still becomes a
-snapshot, and a restore keeps round 1's preload script.
+- **The site never loads** in the spare tab: it stood on
+  `the-internet.herokuapp.com` with a blank body. An unresolvable host works
+  too, since no DNS lookup happens.
+- **Selenium 4.49's own BiDi API is enough**, with no raw commands:
+  `browsing_context.create(background=True)`, a context-scoped
+  `network.add_intercept`, `network.provide_response` with a body, and
+  `add_event_handler("before_request", …, contexts=[ctx])`. The other
+  event name (`before_request_sent`) drops the request fields, and one
+  subscription per event means a handler is removed before the next tab.
+- **Time per origin**, one tab reused: 30–75 ms in Chrome and 55–140 ms in
+  Firefox, plus about 50–100 ms to set up and tear down the tab. That needs
+  the client's WebSocket polling lowered from Selenium's 100 ms, which
+  otherwise puts a 100 ms floor under **every** BiDi call. `Grid.bidi` sets
+  only the timeout today; round 2 lowers the polling too, which speeds up
+  round 1's calls as well.
+- **A service worker answers first.** On an origin it controls (Squoosh), the
+  real app loaded in the spare tab in both browsers. Chrome's intercept never
+  saw the navigation; Firefox's saw it and then failed with "no such request".
+  Only a CDP call got Chrome past it, and CDP is ruled out. A restore always
+  starts in a fresh browser, which has no service worker, so **restore is
+  unaffected**; only a save's read of other origins is. See open question 5.
 
 ## The model
 
@@ -283,6 +294,13 @@ save after signing out saves you signed out).
 3. Does `restore_site_data=false` keep the history? Proposed: yes — it
    forgets the sign-in, not where the session has been.
 4. What does the tab count: visited sites, or sites with saved data?
+5. A save meets an origin with a service worker. The spare tab is served
+   the real app, so the site's scripts run for a moment in a hidden tab, and
+   an app that rotates its refresh token there can make the saved token
+   stale. Proposed: the spare tab serves a page with a marker; when the
+   marker is missing, the tab closes without reading, that origin keeps its
+   storage from the last snapshot, and `skipped` says to save while on it.
+   Its storage is still read whenever the save happens on that site.
 
 ## Rulings
 
