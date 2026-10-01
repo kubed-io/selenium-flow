@@ -26,6 +26,7 @@ const HISTORY = {
     { site: 'admin.example.com', url: 'https://admin.example.com/flow/', at: now - 5 * 3600, saved: null,
       secrets: [{ name: 'selenium-admin', description: 'Admin token for this server', keys: ['token'] }] },
   ],
+  clears: ['https://grafana.example.com', 'https://example.com', 'https://admin.example.com'],
 }
 const counted = (origin: string, local: number) => ({ origin, local_storage: local, session_storage: 0 })
 const empty = (site: string) => ({ site, uri: '', cookies: [], storage: [], own_cookies: [], kept_shared: [] })
@@ -163,9 +164,20 @@ test('Clear is offered only while there is more than the current site', async ()
   await loaded(container)
   expect(container.querySelector('#clearHistory')).not.toBeNull()
   unmount()
-  const again = setup({ 'GET /admin/sessions/k/history': { body: { key: 'k', sites: HISTORY.sites.slice(0, 1) } } })
+  const again = setup({ 'GET /admin/sessions/k/history': { body: { key: 'k', sites: HISTORY.sites.slice(0, 1), clears: [] } } })
   await loaded(again.container, 1)
   expect(again.container.querySelector('#clearHistory')).toBeNull()
+})
+
+test('one row can still have something to clear: another origin of the current host', async () => {
+  const body = { key: 'k', sites: HISTORY.sites.slice(0, 1), clears: ['http://the-internet.herokuapp.com:8080'] }
+  const { container } = setup({ 'GET /admin/sessions/k/history': { body } })
+  await loaded(container, 1)
+  await fireEvent.click(container.querySelector('#clearHistory')!)
+  expect([...modal().querySelectorAll('.pair')].map((p) => p.textContent)).toEqual([
+    'goeshttp://the-internet.herokuapp.com:8080',
+    'staysthe-internet.herokuapp.com, the current site',
+  ])
 })
 
 test('Clear confirms what goes and what stays, then DELETEs the history and reloads', async () => {
@@ -175,7 +187,7 @@ test('Clear confirms what goes and what stays, then DELETEs the history and relo
   expect(modal().querySelector('.head')).toHaveTextContent('Clear history')
   expect(modal()).toHaveTextContent('History only: site data and the browser are untouched.')
   expect([...modal().querySelectorAll('.pair')].map((p) => p.textContent)).toEqual([
-    'goesgrafana.example.com · example.com · admin.example.com',
+    'goeshttps://grafana.example.com · https://example.com · https://admin.example.com',
     'staysthe-internet.herokuapp.com, the current site',
   ])
   const gets = () => calls.filter((c) => c.method === 'GET' && c.path.endsWith('/history')).length
@@ -204,6 +216,6 @@ test('Loading… first, an error in the pane, and nowhere yet when empty', async
   d.resolve({ status: 500, body: { error: 'nope' } })
   await vi.waitFor(() => expect(screen.getByText('nope')).toHaveClass('error'))
   unmount()
-  const none = setup({ 'GET /admin/sessions/k/history': { body: { key: 'k', sites: [] } } })
+  const none = setup({ 'GET /admin/sessions/k/history': { body: { key: 'k', sites: [], clears: [] } } })
   await vi.waitFor(() => expect(none.container.querySelector('#paneHistory')).toHaveTextContent('Nowhere yet.'))
 })

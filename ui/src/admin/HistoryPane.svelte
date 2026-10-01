@@ -46,7 +46,7 @@
     ask<Clear>({
       title: 'Clear history',
       body: clearBody,
-      data: { goes: sites.slice(1).map((r) => r.site), stays: sites[0]?.site ?? '' },
+      data: { goes: data?.clears ?? [], stays: sites[0]?.site ?? '' },
       confirm: 'Clear', danger: true,
       onconfirm: async () => {
         refuseIfGone()
@@ -81,7 +81,7 @@
   {:else if !data.sites.length}
     <div class="empty">Nowhere yet.</div>
   {:else}
-    {#if data.sites.length > 1}
+    {#if data.clears?.length}
       <div class="row bar">
         <span class="grow"></span>
         <button id="clearHistory" class="danger" onclick={clear}>Clear</button>

@@ -822,9 +822,13 @@ def register(
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return refused(exc, f"history for {key}")
         if record is None:
-            return JSONResponse({"key": key, "sites": []})
+            return JSONResponse({"key": key, "sites": [], "clears": []})
         joined = site_data.history_view(record.history, record.site_data, secrets)
-        return JSONResponse({"key": key, **joined})
+        # What Clear would take, by origin: rows are by host, so a second port
+        # of the current host is no row of its own and would otherwise leave
+        # Clear hidden with something still to clear (Copilot, #51).
+        clears = [v["origin"] for v in record.history[1:]]
+        return JSONResponse({"key": key, **joined, "clears": clears})
 
     @mcp.custom_route(
         f"{prefix}/admin/sessions/{{key}}/history",

@@ -280,8 +280,10 @@ Drawn: page **Session · History**, flow *History*.
   listed, whatever the secrets say.
 - The tab counts the hosts listed. A session that has been nowhere shows
   "Nowhere yet." — the session card's own words.
-- **Clear** sits above the rows on the right, and only while there is more
-  than the current site. Its confirm, *Clear history*: "History only: site
+- **Clear** sits above the rows on the right, and only while the history
+  holds anything but the current origin — a second port of the current host
+  included, which is no row of its own; the API names those origins
+  (`clears`), and the confirm's `goes` lists them (Copilot, #51). Its confirm, *Clear history*: "History only: site
   data and the browser are untouched.", then `goes` (the hosts) and `stays`
   (the current site). There is no per-row action: the history expires on
   its own.
@@ -403,6 +405,11 @@ Chromium-only call can be added later without undoing anything.
   fn. Next: per-origin sizes once.
 - Every touch rewrites a record that can hold up to 1 MB of site data. Later:
   site data under its own store key.
+
+- A flow step that fails and is continued past (`onError: continue`) can
+  land on a safe page, but only successful steps enter the history, so a
+  later save in that run does not read that origin. Next: let `run.py` mark a
+  failed step's page as safe (not scrubbed) and count it (Copilot, #51).
 
 ## Rulings
 

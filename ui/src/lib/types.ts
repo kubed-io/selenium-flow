@@ -149,4 +149,5 @@ export interface HistoryRow {
   saved: SavedCounts | null
   secrets: SiteSecret[]
 }
-export interface HistoryPayload { key: string; sites: HistoryRow[] }
+/** `clears`: the origins Clear would take (every one but the current). */
+export interface HistoryPayload { key: string; sites: HistoryRow[]; clears: string[] }

@@ -97,7 +97,17 @@ def test_secrets_join_the_hosts_they_allow_and_never_make_a_row(client):
 
 
 def test_a_key_with_no_record_has_no_rows(client):
-    assert client.get("/admin/sessions/nobody/history").json() == {"key": "nobody", "sites": []}
+    assert client.get("/admin/sessions/nobody/history").json() == {
+        "key": "nobody", "sites": [], "clears": [],
+    }
+
+
+def test_the_view_names_every_origin_clear_would_take(client):
+    # Rows are by host: the second port of the current host is no row of its
+    # own, yet Clear takes it.
+    assert client.get(URL).json()["clears"] == [
+        "http://app.example.com:8080", "https://mail.example.org",
+    ]
 
 
 def test_clear_keeps_the_current_site_and_nothing_else(client, server):
