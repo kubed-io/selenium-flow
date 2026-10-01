@@ -132,6 +132,9 @@ use). No new setting.
 - **Every call that lands on a page** bumps that origin to the top with its
   URL and time, or adds it there. A flow writes its steps' origins in one
   update at the end of the run, in order.
+- Before a `save_site_data` step, a flow first writes the pages it reached so
+  far, in one update and in order, so the save reads their storage; the end of
+  the run then writes only what came after.
 - **`record.url` is gone: the current URL is `history[0].url`.** A reopen
   navigates there, as it did to `url`.
 - Only what `touch` records today enters it. A URL withheld after a secret
@@ -141,6 +144,9 @@ use). No new setting.
   next write; `history[0]` is never dropped while the record lives. At most
   100 entries; the oldest goes first.
 - Never contains a value. It holds what `url` already held.
+- No migration: a record written before round 2 reads as one that has been
+  nowhere and loses its last page once; its browser, settings and site data
+  stand.
 
 ### `site_data`: one snapshot
 
@@ -197,13 +203,16 @@ underneath:
 
 - **True (default):** before the browser goes to its page, write in every
   unexpired cookie, then every origin's localStorage through the spare tab,
-  then the saved sessionStorage in the main tab. Then land. The browser is
-  fully restored when `open_session` returns. The silent reopen after a reap
-  does the same.
+  then the saved sessionStorage in the main tab, which then returns to
+  about:blank so an open with no url never shows the stand-in page. Then
+  land. The browser is fully restored when `open_session` returns. The silent
+  reopen after a reap does the same.
 - **False:** nothing is restored and the snapshot is **deleted** (Dr K). The
   history stays: it forgets the sign-in, not where the session has been.
 - `fresh` keeps its meaning. `insecure=true` still restores nothing and
   deletes nothing, with the same hint.
+- `restore_site_data=false` with `insecure=true` still deletes, as false
+  always does.
 - Restore is best effort: nothing in it can fail an open.
 
 ### The hint
@@ -213,13 +222,20 @@ underneath:
 - `open_session(restore_site_data=false)` → `"site_data": {"forgotten": 2}`
   when there was something to forget.
 - The first call after a silent reopen carries the reopen's report, once.
+  `SessionRecord.reopened` holds it until `touch` hands it to the first
+  result from that browser. A flow carries it at run level
+  (`FlowRun.site_data`); no step carries `site_data` any more.
 - **No arrival hint and no `waiting`:** every origin is in place before the
   open returns.
 
 ### Resources (agent)
 
 - `session://site-data` — one entry per host the snapshot holds data for,
-  counts only. Unchanged in shape; the history is not on the agent surface.
+  counts only, the hosts the session went to first: `{site, uri, cookies,
+  storage}` per row, and `saved_at` at the top of the listing (one save, one
+  time). Round 1's admin-only fields (`saved`, `secrets`,
+  `unleashed_secrets`, `saved_sites`) and the per-row `saved_at` are gone. The
+  history is not on the agent surface.
 - `session://site-data/{site}` — one host in full, httpOnly values `"•••"`.
 - `session://current` — `url` is `history[0].url`; `site_data` as before.
 
@@ -253,12 +269,15 @@ Drawn: page **Session · History**, flow *History*.
   description, one pill per key — the Secrets tab's own line.
 - **Secrets never make a row.** A site the session never landed on is not
   listed, whatever the secrets say.
-- The tab counts the hosts listed.
+- The tab counts the hosts listed. A session that has been nowhere shows
+  "Nowhere yet." — the session card's own words.
 - **Clear** sits above the rows on the right, and only while there is more
   than the current site. Its confirm, *Clear history*: "History only: site
   data and the browser are untouched.", then `goes` (the hosts) and `stays`
   (the current site). There is no per-row action: the history expires on
   its own.
+- Clear keeps only the top entry: another origin of the current host (a
+  second port) goes too, and the host's row stays.
 - Later, not now: flows and runs on a row, and every path visited.
 
 ### Site data
@@ -296,9 +315,15 @@ page **Session · Site data**, flow *Site data*.
   per-host snapshot counts; `DELETE …/history` for Clear.
 - `GET /admin/sessions/{key}/site-data` — the snapshot by host, no secrets;
   `DELETE …/site-data/{site}` for Forget; `DELETE …/site-data` for Clear.
-- Token-gated. The session row gains `history_count` and `history_rev` (the
-  history's origins in order) beside `site_data_count` and `site_data_rev`
-  (the snapshot's `saved_at`), so each pane repaints for its own changes.
+- Token-gated. The session row gains `history_count` and `history_rev` beside
+  `site_data_count` and `site_data_rev`, so each pane repaints for its own
+  changes.
+- `history_rev` is the history's origins in order and `history[0]`'s URL: a
+  new site, a return to an older one, or a page within the top site repaints
+  History, whose top row is the session card's last page; only the clock
+  moving does not.
+- `site_data_rev` is `[saved_at, hosts]`: a save moves the time, a Forget or a
+  Clear moves the hosts (neither is a save, so neither moves `saved_at`).
 
 ## The skill
 
@@ -318,6 +343,8 @@ save after signing out saves you signed out).
   Each new test broken on purpose once.
 - The standing guards: `test_surfaces`, the declared response shapes, the
   wiki regenerating.
+- Fixtures use `example.com`-style hosts, never a real person's domain — the
+  drawing's hosts included.
 - The integration flow stays: sign in to the admin page, save, and the Site
   data tab lists the token's sessionStorage key.
 - **Live before the PR:** Chrome and Firefox, two apps signed in, one save, a
