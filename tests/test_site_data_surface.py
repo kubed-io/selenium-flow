@@ -36,7 +36,7 @@ def saved_record():
         },
         1000.0,
     )
-    return SessionRecord(url=f"https://{SITE}/x", site_data=data)
+    return SessionRecord(site_data=data).at(f"https://{SITE}/x")
 
 
 @pytest.fixture
@@ -117,7 +117,7 @@ def test_the_capture_never_leaves_the_server(monkeypatch):
     # The record names the browser `resolve` hands back, as it does for real:
     # a save is kept only by the browser that captured it.
     server.sessions.store.set(
-        NAMED, SessionRecord(session_id="live-id", url=f"https://{SITE}/")
+        NAMED, SessionRecord(session_id="live-id").at(f"https://{SITE}/")
     )
     client = TestClient(server.mcp.http_app())
     response = client.post(
@@ -183,7 +183,7 @@ def test_save_with_bidi_unreachable_is_a_scrubbed_503(monkeypatch):
     server = SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
     )
-    server.sessions.store.set(NAMED, SessionRecord(url=f"https://{SITE}/"))
+    server.sessions.store.set(NAMED, SessionRecord().at(f"https://{SITE}/"))
     client = TestClient(server.mcp.http_app())
     response = client.post(
         "/browser/save-site-data", headers=AUTH, params={"session": NAMED}, json={}
@@ -219,7 +219,7 @@ def test_an_unexpected_cookie_read_failure_stays_a_500(monkeypatch):
     server = SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
     )
-    server.sessions.store.set(NAMED, SessionRecord(url=f"https://{SITE}/"))
+    server.sessions.store.set(NAMED, SessionRecord().at(f"https://{SITE}/"))
     client = TestClient(server.mcp.http_app())
     response = client.post(
         "/browser/save-site-data", headers=AUTH, params={"session": NAMED}, json={}

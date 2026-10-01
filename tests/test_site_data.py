@@ -203,7 +203,7 @@ def test_summary_is_none_when_empty():
 
 def test_the_record_round_trips_its_site_data():
     data, _ = sd.merge({}, captured(), NOW)
-    record = SessionRecord(session_id="s", url="u").with_site_data(data)
+    record = SessionRecord(session_id="s").at("u").with_site_data(data)
     again = SessionRecord.from_json(record.to_json())
     assert again.site_data == data
     assert again.detached().site_data == data, "ending a browser keeps site data"

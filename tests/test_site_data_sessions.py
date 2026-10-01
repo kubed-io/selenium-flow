@@ -584,7 +584,7 @@ def test_a_stale_result_does_not_move_the_newer_browsers_page_or_window(named_ca
     page or size over the newer browser's: a reap would reopen B at A's page
     (Copilot, #50). The TTL still slides."""
     m = opened_with_save()
-    m.store.update(NAMED, lambda r: replace(r, url="https://b.test/"))
+    m.store.update(NAMED, lambda r: r.at("https://b.test/"))
 
     def meanwhile(resolved):
         m.store.update(NAMED, lambda r: replace(r, session_id="newer"))

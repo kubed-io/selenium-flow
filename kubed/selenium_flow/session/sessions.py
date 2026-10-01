@@ -726,6 +726,7 @@ class SessionManager:
         the same write that binds, so an open that loses erases nothing from
         the browser that won.
         """
+        ttl = self.store.ttl
         loser: dict = {}
 
         def bound(r: SessionRecord | None) -> SessionRecord | None:
@@ -735,11 +736,12 @@ class SessionManager:
                 return None
             return SessionRecord(
                 session_id=session_id,
-                url=url,
                 opened_at=time.time(),
                 settings=dict(settings or {}),
+                # Where the session has been survives a new browser.
+                history=list(r.history) if r is not None else [],
                 site_data={} if forget_site_data or r is None else dict(r.site_data),
-            )
+            ).at(url, ttl=ttl)
 
         # One atomic create-or-update: a save landing while the browser
         # opened is kept, and two first opens on a new name cannot both write.
@@ -760,28 +762,32 @@ class SessionManager:
                 )
         return loser["kept"]
 
-    def touch(self, name: str, url: str | None, browser: str | None = None) -> None:
-        """Record where the browser ended up, and slide the record's TTL.
+    def touch(
+        self, name: str, *urls: str | None, browser: str | None = None
+    ) -> None:
+        """Record where the browser landed, and slide the record's TTL.
 
-        Called after an action so a later reopen restores the right page, and so
-        a session in active use does not expire out of the store underneath the
-        caller.
+        Called after an action so a later reopen goes back to the right page —
+        the top of the history — and so a session in active use does not
+        expire out of the store underneath the caller. A flow run passes every
+        page it reached, in order (`flows/api.run_for`).
 
-        **No URL still slides the TTL**, keeping the page already recorded —
-        `SessionRecord.at` was written for exactly that (`url or self.url`) and
-        an early return here contradicted it. The two halves are separate facts:
-        "the browser is somewhere I should not write down" is not "this session
-        is idle". A bound write lands on `?q=<the password>` and its URL is
-        deliberately withheld (§F1.24), and withholding it used to stop the
-        clock — so a flow that logs in every few minutes, the one thing secrets
-        exist for, expired out of the store while it was being used.
+        **No URL still slides the TTL**, and records nothing. The two halves
+        are separate facts: "the browser is somewhere I should not write down"
+        is not "this session is idle". A bound write lands on `?q=<the
+        password>` and its URL is deliberately withheld (§F1.24); withholding
+        it used to stop the clock, so a flow that logs in every few minutes —
+        the one thing secrets exist for — expired out of the store while it
+        was being used.
 
         ``browser`` is the one that produced the result. Once the record names
         another, this page is not that browser's: the TTL still slides, the
-        page it would replay after a reap is left alone (Copilot, #50).
+        history is left alone (Copilot, #50).
         """
+        ttl = self.store.ttl
+
         def at(r: SessionRecord) -> SessionRecord:
-            return r if browser and r.session_id != browser else r.at(url)
+            return r if browser and r.session_id != browser else r.at(*urls, ttl=ttl)
 
         self.store.update(name, at)
 
