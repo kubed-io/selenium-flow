@@ -127,3 +127,64 @@ def test_ending_a_browser_keeps_the_history():
     sessions.remember(NAMED, "one", "https://a.test/")
     sessions.end_browser(NAMED)
     assert sessions.store.get(NAMED).url == "https://a.test/"
+
+
+# ---- a flow run writes every page it reached, in one update ------------------
+
+
+def run_reporting(monkeypatch, report):
+    """`run_for` around a canned run report: what reaches the history is
+    decided from the report alone, in one store write."""
+    from kubed.selenium_flow.flows import api as flowapi
+
+    monkeypatch.setattr(flowapi, "run_one", lambda *a, **kw: report)
+    sessions = manager(RecordingActions())
+    sessions.open_browser(NAMED, url="https://start.test/")
+    writes = []
+    real = sessions.store.update
+
+    def counting(key, fn):
+        writes.append(key)
+        return real(key, fn)
+
+    monkeypatch.setattr(sessions.store, "update", counting)
+    flowapi.run_for(None, sessions.actions, sessions, NAMED, "login")
+    return sessions, writes
+
+
+def test_a_flow_run_records_each_steps_page_in_order_in_one_write(monkeypatch):
+    sessions, writes = run_reporting(monkeypatch, {
+        "status": "ok",
+        "steps": [
+            {"n": 1, "ok": True, "url": "https://app.test/login"},
+            {"n": 2, "ok": True, "url": "https://sso.test/auth"},
+            {"n": 3, "ok": True},
+            {"n": 4, "ok": True, "url": "https://app.test/home"},
+        ],
+        "url": "https://app.test/home",
+    })
+    assert [v["url"] for v in sessions.store.get(NAMED).history] == [
+        "https://app.test/home", "https://sso.test/auth", "https://start.test/",
+    ]
+    assert writes == [NAMED], "one update for the whole run"
+
+
+def test_a_failed_step_and_a_redacted_end_record_nothing(monkeypatch):
+    sessions, _ = run_reporting(monkeypatch, {
+        "status": "failed",
+        "steps": [
+            {"n": 1, "ok": True, "url": "https://app.test/login"},
+            {"n": 2, "ok": False, "url": "https://other.test/?q=[hidden]"},
+        ],
+        "url": "https://other.test/?q=[hidden]",
+        "url_redacted": True,
+    })
+    assert [v["url"] for v in sessions.store.get(NAMED).history] == [
+        "https://app.test/login", "https://start.test/",
+    ]
+
+
+def test_a_run_that_went_nowhere_still_slides_the_ttl(monkeypatch):
+    sessions, writes = run_reporting(monkeypatch, {"status": "ok", "steps": [{"n": 1, "ok": True}]})
+    assert writes == [NAMED]
+    assert sessions.store.get(NAMED).url == "https://start.test/"

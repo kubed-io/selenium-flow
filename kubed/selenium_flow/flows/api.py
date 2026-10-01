@@ -572,20 +572,26 @@ def run_for(
         skill_available=skill_available,
     )
     # One touch for the whole run, not one per step: the point of running
-    # server-side is that the bookkeeping happens once.
+    # server-side is that the bookkeeping happens once. It carries every page
+    # the run reached, in order, so the history has each step's site and not
+    # only the last.
     #
-    # But not a page the redaction had to touch. A submitting bound write lands
-    # on `?q=<what was typed>`, which comes back scrubbed — storing that would
-    # persist a URL which does not exist, and `sessions.resolve` would reopen
-    # the browser there after the Grid reaped it.
+    # Only pages the report itself shows. A step's `url` is there only when
+    # the step moved and the page was safe to show, so a failed step's — the
+    # scrubbed one, a URL that does not exist — is left out. And the run's own
+    # page is withheld when redaction had to touch it: a submitting bound
+    # write lands on `?q=<what was typed>`, and `sessions.resolve` would
+    # reopen the browser there after the Grid reaped it.
     #
-    # The touch happens regardless: it slides the TTL, and a run is the clearest
-    # evidence there is that a session is in use. Only the page is withheld.
-    sessions.touch(
-        session,
-        None if report.get("url_redacted") else report.get("url"),
-        browser=resolved,
-    )
+    # The touch happens regardless: it slides the TTL, and a run is the
+    # clearest evidence there is that a session is in use.
+    visited = [
+        step["url"] for step in report.get("steps") or []
+        if step.get("ok") and step.get("url")
+    ]
+    if report.get("url") and not report.get("url_redacted"):
+        visited.append(report["url"])
+    sessions.touch(session, *visited, browser=resolved)
     return report
 
 
