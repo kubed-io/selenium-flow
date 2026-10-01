@@ -157,9 +157,14 @@ def test_an_existing_tab_is_intercepted_and_left_open():
     bidi = FakeBidi(value=1)
     with spare_tab(bidi, context="main-1") as run:
         run("https://app.test", "1")
-    kinds = [entry[0] for entry in bidi.log]
-    assert "create" not in kinds and "close" not in kinds
-    assert ("intercept", ["beforeRequestSent"], ["main-1"]) in bidi.log
+    assert bidi.log == [
+        ("intercept", ["beforeRequestSent"], ["main-1"]),
+        ("handler", "before_request", ["main-1"]),
+        ("navigate", "main-1", "https://app.test/", "complete"),
+        ("evaluate", {"context": "main-1"}, True),
+        ("unhandler", "before_request", 7),
+        ("unintercept", "i-1"),
+    ], "no create, no close; the intercept is gone from the user's own tab"
 
 
 def test_the_bidi_socket_is_polled_every_few_milliseconds():
