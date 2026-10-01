@@ -405,3 +405,54 @@ def test_ending_a_browser_keeps_a_save_that_landed_while_it_quit(named_caller):
     record = m.store.get(NAMED)
     assert not record.attached
     assert record.site_data["origins"].get("https://late.test") is not None
+
+
+# ---- an evicted origin is gone, from the browser too --------------------------
+
+
+def test_an_evicted_origin_is_never_restored_or_announced(named_caller):
+    """A save that evicts an older origin over the cap must take it out of
+    the live browser's wait list and its preload script: visiting it used to
+    refill all the evicted storage and call it restored (live, after #49)."""
+    m = opened_with_save()
+    record = m.store.get(NAMED)
+    data = dict(record.site_data)
+    data["origins"] = {
+        "https://v.test": {"local": {"big": "x" * 600_000}, "session": {}, "saved_at": 1.0},
+        "https://w.test": {"local": {"k": "w"}, "session": {}, "saved_at": 2.0},
+    }
+    m.store.set(NAMED, record.with_site_data(data))
+    m.actions.waiting = ["https://v.test", "https://w.test"]
+    reopened(m)
+    assert m.store.get(NAMED).site_data["pending"]["origins"] == [
+        "https://v.test", "https://w.test",
+    ]
+
+    big = m.actions.save_site_data("x")
+    big[site_data.CAPTURED]["local"] = {"big": "y" * 500_000}
+    saved = m.act(NAMED, lambda s: big)
+    assert {"site": "https://v.test", "reason": "evicted: over 1000000 bytes"} in (
+        saved["saved"]["skipped"]
+    )
+
+    pending = m.store.get(NAMED).site_data["pending"]
+    assert pending["origins"] == ["https://w.test"]
+    assert m.actions.retired == ["p1"] and m.actions.kept == [["https://w.test"]]
+    assert pending["script"] == "p1+", "the live script no longer carries v.test"
+    assert "site_data" not in m.act(NAMED, lambda s: {"url": "https://v.test/"})
+
+
+def test_an_eviction_is_not_announced_by_a_silent_reopen_report(named_caller):
+    m = opened_with_save()
+    record = m.store.get(NAMED)
+    data = dict(record.site_data)
+    data["origins"] = {
+        "https://w.test": {"local": {"big": "x" * 600_000}, "session": {}, "saved_at": 1.0},
+    }
+    m.store.set(NAMED, record.with_site_data(data))
+    m.actions.grid.alive.clear()
+    big = m.actions.save_site_data("x")
+    big[site_data.CAPTURED]["local"] = {"big": "y" * 500_000}
+    told = m.act(NAMED, lambda s: big)
+    assert "https://w.test" not in told["site_data"].get("waiting", [])
+    assert "https://w.test" not in told["site_data"].get("restored", [])

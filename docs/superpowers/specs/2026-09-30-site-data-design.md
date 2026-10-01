@@ -114,8 +114,10 @@ unused for `session.ttl` goes, and its site data with it. No new setting.
   that origin's storage out, and says so in its result. If the new cookies
   plus the other origins pass it, the oldest-saved other origins are evicted
   until it fits, each reported in `skipped` as
-  `{site, reason: "evicted: over 1000000 bytes"}`. If the cookies alone pass
-  it, the save raises `ValueError` (a 400) and the record is unchanged.
+  `{site, reason: "evicted: over 1000000 bytes"}`. An evicted origin also
+  leaves the open browser's `pending`, and its preload script is swapped for
+  one without it, so it is never restored or announced. If the cookies alone
+  pass it, the save raises `ValueError` (a 400) and the record is unchanged.
 - Values are never logged.
 
 ## The surface

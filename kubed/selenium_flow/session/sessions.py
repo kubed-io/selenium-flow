@@ -399,7 +399,8 @@ class SessionManager:
         """What a finished call means for this session's site data.
 
         Three things, in order: a captured save is merged into the record and
-        replaced in the result by a short receipt; a page arriving on an origin
+        replaced in the result by a short receipt, and any origin it evicted
+        stops waiting in the live browser; a page arriving on an origin
         still waiting to be restored says so once, and the last arrival retires
         the preload script; a silent reopen is announced on its first result.
 
@@ -410,6 +411,7 @@ class SessionManager:
         # Popped before the store is asked anything, so a store that fails
         # cannot leave the capture — every value — in what the caller gets.
         captured = result.pop(site_data_module.CAPTURED, None)
+        evicted: set[str] = set()
         if captured:
             receipt = {}
 
@@ -417,10 +419,18 @@ class SessionManager:
                 data, receipt["saved"] = site_data_module.merge(
                     r.site_data, captured, time.time()
                 )
+                gone = set(r.site_data.get("origins") or {}) - set(data["origins"])
+                # An evicted origin has nothing left to restore: the browser
+                # waiting on it stops, or a later visit is announced restored.
+                data = self._without(data, gone)
+                receipt["evicted"] = gone & set(
+                    (r.site_data.get("pending") or {}).get("origins") or []
+                )
                 return r.with_site_data(data)
 
             if self.store.update(name, save) is None:
                 return
+            evicted = receipt.pop("evicted", set())
             result["saved"] = receipt["saved"]
             result["uri"] = site_data_module.LIST_URI
         record = self.store.get(name)
@@ -441,16 +451,17 @@ class SessionManager:
                 # must not call the same origin both.
                 hint["waiting"] = [o for o in hint["waiting"] if o != arrived]
             hint["uri"] = site_data_module.site_uri(site_data_module.host_of(arrived))
-            if pending.get("script"):
-                # Still carrying the origin that just arrived, the script
-                # would refill it in every new tab; the replacement carries
-                # only what still waits.
-                still = [o for o in pending["origins"] if o != arrived]
-                keep = self._waiting(record.site_data, still)
-                swapped = (
-                    pending["script"],
-                    self.actions.retire_site_data(browser, pending["script"], keep),
-                )
+        if (arrived or evicted) and pending.get("script"):
+            # Still carrying an origin that arrived, the script would refill
+            # it in every new tab; carrying an evicted one, it would restore
+            # what the save just dropped. The replacement carries only what
+            # still waits.
+            still = [o for o in pending.get("origins") or [] if o != arrived]
+            keep = self._waiting(record.site_data, still)
+            swapped = (
+                pending["script"],
+                self.actions.retire_site_data(browser, pending["script"], keep),
+            )
         if hint:
             result["site_data"] = hint
 
@@ -475,6 +486,24 @@ class SessionManager:
             return None if data == r.site_data else r.with_site_data(data)
 
         self.store.update(name, settle)
+
+    @staticmethod
+    def _without(data: dict, origins: set[str]) -> dict:
+        """``data`` with ``origins`` gone from the pending note and its report."""
+        pending = data.get("pending")
+        if not origins or not pending:
+            return data
+        pending = {
+            **pending,
+            "origins": [o for o in pending.get("origins") or [] if o not in origins],
+        }
+        report = pending.get("report")
+        if report and report.get("waiting"):
+            pending["report"] = {
+                **report,
+                "waiting": [o for o in report["waiting"] if o not in origins],
+            }
+        return {**data, "pending": pending}
 
     @staticmethod
     def _waiting(data: dict, origins: list[str]) -> dict:
