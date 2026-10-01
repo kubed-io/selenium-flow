@@ -9,7 +9,7 @@ was written 2026-09-30 and shipped in #49 and #50. Round 2 was written
 **Status:** round 2 is settled. The BiDi spike passed (below) and every
 question is ruled. The Penpot file *Admin UI* holds the drawing on the pages
 **Session · Site data** and **Session · History**, in version *Site data
-design, round 2 — History tab*; the session tab bar on every page gains
+design, round 2 — History rows fold*; the session tab bar on every page gains
 History.
 
 ## What round 2 changes, and why
@@ -260,13 +260,16 @@ Where the session has been, joined by **host** to what can be used there.
 Drawn: page **Session · History**, flow *History*.
 
 - **The current site is on top**, then the history, most recent first. One
-  row per host, always open (no fold): its latest URL in bold, when it was
-  visited ("1m ago"), and a pill with the snapshot's counts for that host
-  ("2 cookies · 2 local", zero counts left out), which links to that host in
-  Site data. No pill when nothing is saved for it. The top row carries no
-  marker: it is the session card's last page.
-- Under the head, one line per **secret allowed on that host**: 🔑 name,
-  description, one pill per key — the Secrets tab's own line.
+  row per host, **folding like Site data's rows** (Dr K: consistent): the top
+  row opens, the rest stay shut, once; after that the fold is the reader's.
+  The head: the caret, its latest URL in bold, when it was visited and how
+  many secrets ("1m ago · 1 secret"), and a pill with the snapshot's counts
+  for that host ("2 cookies · 2 local", zero counts left out), which opens
+  that host in Site data. No pill when nothing is saved for it. The top row
+  carries no marker: it is the session card's last page.
+- Opened, one line per **secret allowed on that host**: 🔑 name, description,
+  one pill per key — the Secrets tab's own line. A row with no secrets has
+  nothing to open: no caret, its place kept.
 - **Secrets never make a row.** A site the session never landed on is not
   listed, whatever the secrets say.
 - The tab counts the hosts listed. A session that has been nowhere shows
@@ -406,6 +409,11 @@ Round 2 (2026-10-01):
   (browser-use's flaw); localStorage is read for every visited origin
   through a spare tab with network interception; cookie provenance is
   unknowable, so cookies show under their own domain.
+- Dr K: History rows fold like Site data's.
+- Proposed, and taken as the simple rule when Dr K moved on to the PR: a
+  page with no origin (`about:blank`, so `open_session(fresh=true)`) records
+  nothing. The last page stays the previous site until the next real page,
+  and a reap in that gap reopens there.
 - Dr K: service workers are handled W3C only, with the fallback in *Service
   workers at save time*; no CDP.
 - No browser history API: WebDriver and BiDi can step back and forward but
