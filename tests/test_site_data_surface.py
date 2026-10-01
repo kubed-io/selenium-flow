@@ -23,19 +23,15 @@ AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
 def saved_record():
-    data, _ = site_data.merge(
-        {},
-        {
-            "cookies": [
-                {"name": "sid", "value": "s3cret", "domain": SITE, "http_only": True},
-                {"name": "theme", "value": "dark", "domain": SITE},
-            ],
-            "origin": f"https://{SITE}",
-            "local": {"k": "v"},
-            "session": {},
-        },
-        1000.0,
-    )
+    data = {
+        "cookies": [
+            {"name": "sid", "value": "s3cret", "domain": SITE, "http_only": True},
+            {"name": "theme", "value": "dark", "domain": SITE},
+        ],
+        "origins": {f"https://{SITE}": {"local": {"k": "v"}}},
+        "session": {"origin": f"https://{SITE}", "items": {}},
+        "saved_at": 1000.0,
+    }
     return SessionRecord(site_data=data).at(f"https://{SITE}/x")
 
 
@@ -143,14 +139,13 @@ def test_the_published_kept_shared_is_the_shape_returned():
     items = SITE_DATA_SCHEMAS["SiteData"]["properties"]["kept_shared"]["items"]
     assert items["type"] == "object"
     assert set(items["required"]) == {"name", "domain", "path"}
-    data, _ = site_data.merge(
-        {},
-        {"cookies": [{"name": "ab", "value": "1", "domain": ".example.com",
-                      "path": "/", "http_only": False, "secure": True,
-                      "same_site": "lax", "expiry": None}],
-         "origin": "https://app.example.com", "local": {}, "session": {}},
-        0.0,
-    )
+    data = {
+        "cookies": [{"name": "ab", "value": "1", "domain": ".example.com", "path": "/",
+                     "http_only": False, "secure": True, "same_site": "lax", "expiry": None}],
+        "origins": {"https://app.example.com": {"local": {"k": "v"}}},
+        "session": {},
+        "saved_at": 0.0,
+    }
     shared = site_data.site_view(data, "app.example.com")["kept_shared"]
     assert shared and set(shared[0]) == set(items["required"])
 

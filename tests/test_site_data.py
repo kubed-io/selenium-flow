@@ -1,5 +1,6 @@
-"""Site data: what a session saves for the sites it signed in to, and how
-it is shown. Pure logic only; BiDi is Task 2's."""
+"""Site data's groundwork: origins as `location.origin` spells them, the
+record field, the page's storage read, and the BiDi socket. A save, a
+restore and the views each have their own module."""
 
 import json
 
@@ -21,13 +22,6 @@ def cookie(name, domain, value="v", http_only=False, expiry=None, secure=True):
     }
 
 
-def captured(origin="https://app.example.com", local=None, session=None, cookies=None):
-    return {
-        "cookies": cookies if cookies is not None else [cookie("sid", "app.example.com")],
-        "origin": origin, "local": local or {}, "session": session or {},
-    }
-
-
 def test_origin_of_matches_location_origin():
     assert sd.origin_of("https://App.Example.com:443/x?y#z") == "https://app.example.com"
     assert sd.origin_of("http://localhost:3000/a") == "http://localhost:3000"
@@ -41,34 +35,6 @@ def test_an_ipv6_origin_keeps_its_brackets():
     assert sd.origin_of("https://[2001:db8::1]/x") == "https://[2001:db8::1]"
 
 
-def test_a_save_replaces_cookies_and_adds_its_origin():
-    first, _ = sd.merge({}, captured(local={"theme": "dark"}), NOW)
-    second, saved = sd.merge(
-        first,
-        captured(origin="https://sso.example.com", cookies=[cookie("kc", "sso.example.com")]),
-        NOW + 5,
-    )
-    assert [c["name"] for c in second["cookies"]] == ["kc"], "cookies are the whole jar, replaced"
-    assert set(second["origins"]) == {"https://app.example.com", "https://sso.example.com"}
-    assert second["origins"]["https://app.example.com"]["local"] == {"theme": "dark"}
-    assert saved == {"cookies": 1, "sites": ["https://sso.example.com"], "skipped": []}
-
-
-def test_a_page_with_no_origin_saves_cookies_only():
-    data, saved = sd.merge({}, captured(origin=""), NOW)
-    assert data["origins"] == {}
-    assert saved["sites"] == []
-
-
-def test_a_save_over_the_cap_keeps_cookies_and_skips_that_storage():
-    big = {"blob": "x" * (sd.MAX_BYTES + 1)}
-    data, saved = sd.merge({}, captured(local=big), NOW)
-    assert data["cookies"] and data["origins"] == {}
-    assert saved["skipped"] == [
-        {"site": "https://app.example.com", "reason": "storage over 1000000 bytes"}
-    ]
-
-
 def test_expired_cookies_are_dropped_and_session_cookies_kept():
     kept = sd.live_cookies(
         [cookie("old", "a.test", expiry=int(NOW) - 1), cookie("new", "a.test", expiry=int(NOW) + 60),
@@ -78,93 +44,12 @@ def test_expired_cookies_are_dropped_and_session_cookies_kept():
     assert [c["name"] for c in kept] == ["new", "session"]
 
 
-def test_the_record_round_trips_its_site_data():
-    data, _ = sd.merge({}, captured(), NOW)
-    record = SessionRecord(session_id="s").at("u").with_site_data(data)
-    again = SessionRecord.from_json(record.to_json())
-    assert again.site_data == data
-    assert again.detached().site_data == data, "ending a browser keeps site data"
-    assert again.at("https://x").site_data == data
-
-
 def test_a_record_written_before_site_data_reads_as_empty():
     assert SessionRecord.from_json('{"session_id": "s", "url": "u"}').site_data == {}
     assert SessionRecord.from_json('{"session_id": "s", "site_data": [1]}').site_data == {}
 
 
 # ---- BiDi ------------------------------------------------------------------
-
-
-class FakeStorage:
-    """A jar: what is set is what reads back, except a ``drop``ped name, which
-    is accepted without an error and never kept — as Chrome does to a
-    SameSite=None cookie that is not Secure."""
-
-    def __init__(self, cookies=(), refuse=(), drop=()):
-        self.cookies, self.set = list(cookies), []
-        self.refuse, self.drop = set(refuse), set(drop)
-
-    def get_cookies(self, filter=None, partition=None):
-        from types import SimpleNamespace
-        held = [
-            SimpleNamespace(name=c.name, domain=c.domain, path=c.path)
-            for c in self.set
-            if c.name not in self.drop
-            and not (c.same_site == "none" and not c.secure)
-        ]
-        return SimpleNamespace(cookies=self.cookies + held)
-
-    def set_cookie(self, cookie=None, partition=None):
-        if cookie.name in self.refuse:
-            raise RuntimeError("unable to set cookie")
-        self.set.append(cookie)
-
-
-class FakeScript:
-    def __init__(self, order=None):
-        self.added, self.removed, self.order = [], [], order
-
-    def add_preload_script(self, function_declaration=None, **_):
-        self.added.append(function_declaration)
-        if self.order is not None:
-            self.order.append("preload")
-        return {"script": "preload-1"}
-
-    def remove_preload_script(self, script=None):
-        self.removed.append(script)
-
-
-class FakeBidi:
-    def __init__(self, order=None, **kw):
-        self.storage, self.script = FakeStorage(**kw), FakeScript(order)
-
-
-def bidi_cookie(name, domain, value="v", http_only=False):
-    from types import SimpleNamespace
-    return SimpleNamespace(name=name, domain=domain, path="/", http_only=http_only,
-                           secure=True, same_site="lax", expiry=None,
-                           value=SimpleNamespace(type="string", value=value))
-
-
-class PageDriver:
-    def __init__(self, dump):
-        self.dump = dump
-
-    def execute_script(self, script, *args):
-        return self.dump
-
-
-def test_capture_reads_every_cookie_and_this_page_storage():
-    bidi = FakeBidi(cookies=[bidi_cookie("sid", "app.example.com", http_only=True),
-                             bidi_cookie("kc", "sso.example.com")])
-    got = sd.capture(bidi, PageDriver({"origin": "https://app.example.com",
-                                       "local": {"a": "1"}, "session": {}}))
-    assert [c["name"] for c in got["cookies"]] == ["sid", "kc"]
-    assert got["cookies"][0] == {
-        "name": "sid", "value": "v", "value_type": "string",
-        "domain": "app.example.com", "path": "/", "http_only": True,
-        "secure": True, "same_site": "lax", "expiry": None}
-    assert got["origin"] == "https://app.example.com" and got["local"] == {"a": "1"}
 
 
 def test_grid_bidi_derives_the_socket_from_the_grid_url():
@@ -179,30 +64,6 @@ def test_every_browser_is_opened_with_bidi():
     from kubed.selenium_flow.core.browser import Grid
     for name in ("chrome", "firefox"):
         assert Grid()._options(name).to_capabilities().get("webSocketUrl") is True
-
-
-def bidi_cm(fake):
-    from contextlib import contextmanager
-
-    @contextmanager
-    def cm(session_id):
-        yield fake
-
-    return cm
-
-
-def test_save_site_data_returns_the_capture_privately(actions, monkeypatch):
-    from types import SimpleNamespace
-    page = SimpleNamespace(
-        execute_script=lambda *a: {"origin": "https://app.example.com",
-                                   "local": {}, "session": {}},
-        current_url="https://app.example.com/", title="App")
-    monkeypatch.setattr(actions.grid, "reconnect", lambda sid: page)
-    monkeypatch.setattr(actions.grid, "bidi",
-                        bidi_cm(FakeBidi(cookies=[bidi_cookie("sid", "x.test")])))
-    got = actions.save_site_data("sid")
-    assert got[sd.CAPTURED]["origin"] == "https://app.example.com"
-    assert got["url"] == "https://app.example.com/" and got["title"] == "App"
 
 
 # ---- what the live Grid taught (2026-09-30) ---------------------------------
@@ -228,14 +89,6 @@ def test_read_storage_on_a_page_with_no_storage_returns_the_empty_shape(tmp_path
     out = subprocess.run(["node", str(path)], capture_output=True, text=True, check=False)
     assert out.returncode == 0, out.stderr
     assert json.loads(out.stdout) == {"origin": "", "local": {}, "session": {}}
-
-
-def test_a_save_on_a_page_with_no_storage_keeps_the_cookies():
-    bidi = FakeBidi(cookies=[bidi_cookie("sid", "app.example.com")])
-    got = sd.capture(bidi, PageDriver({"origin": "", "local": {}, "session": {}}))
-    data, saved = sd.merge({}, got, NOW)
-    assert saved == {"cookies": 1, "sites": [], "skipped": []}
-    assert data["origins"] == {}
 
 
 def test_the_bidi_socket_gives_up_in_seconds_not_thirty():
@@ -283,32 +136,6 @@ def test_the_wire_loggers_never_log_at_debug(monkeypatch):
         root.setLevel(before[0])
         for name, level in zip(names, before[1], strict=True):
             logging.getLogger(name).setLevel(level)
-
-
-# ---- a site's own cookies, and the ones it only sits under --------------------
-
-
-def test_the_cap_is_on_what_is_stored_and_the_oldest_other_origins_make_room():
-    half = {"blob": "x" * (sd.MAX_BYTES // 3)}
-    data = {"cookies": [], "origins": {
-        "https://old.test": {"local": half, "session": {}, "saved_at": 1.0},
-        "https://mid.test": {"local": half, "session": {}, "saved_at": 2.0},
-    }}
-    merged, receipt = sd.merge(data, captured(local=half), NOW)
-    assert len(json.dumps(merged)) <= sd.MAX_BYTES
-    assert sorted(merged["origins"]) == ["https://app.example.com", "https://mid.test"]
-    assert receipt["sites"] == ["https://app.example.com"]
-    assert receipt["skipped"] == [
-        {"site": "https://old.test", "reason": "evicted: over 1000000 bytes"}
-    ]
-
-
-def test_a_cookie_jar_over_the_cap_raises_and_saves_nothing():
-    big = [cookie("blob", "app.example.com", "x" * (sd.MAX_BYTES + 1))]
-    with pytest.raises(ValueError, match="the cookie jar is over 1000000 bytes; nothing was saved"):
-        sd.merge({"cookies": [], "origins": {}}, captured(cookies=big), NOW)
-    from kubed.selenium_flow import errors
-    assert errors.status_for(ValueError("x")) == 400
 
 
 # ---- Grid.bidi --------------------------------------------------------------

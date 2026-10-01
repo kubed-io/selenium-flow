@@ -324,6 +324,11 @@ class Actions:
         # is a question about the *caller*, and this layer deliberately cannot
         # see one. Absent, naming a file is refused with a reason.
         self.read_file = read_file
+        # Where the caller's session has been, newest first, so one save reads
+        # every site's localStorage and not only the page's. A function for
+        # the reason `keep` is one: which session is calling is not this
+        # layer's to see. Absent, a save reads only the page it is on.
+        self.visited = None
 
     def _kept(self, name: str, data: bytes, folder=FILES_DIR) -> dict:
         """Keep bytes this server made with the caller's session.
@@ -459,14 +464,16 @@ class Actions:
         return result
 
     def save_site_data(self, session_id: str, url=None) -> dict:
-        """Capture the browser's cookies and this page's storage.
+        """Capture the browser's cookies, the page's storage, and the
+        localStorage of every other origin the session has been to.
 
         The capture rides back under a private key; the session manager stores
         it and no caller sees it.
         """
         driver = self._at(session_id, url)
+        origins = self.visited() if self.visited is not None else []
         with self.grid.bidi(session_id) as bidi:
-            captured = site_data_module.capture(bidi, driver)
+            captured = site_data_module.capture(bidi, driver, origins)
         return {**browser.page_state(driver), site_data_module.CAPTURED: captured}
 
     def end_browser(self, session_id: str) -> dict:

@@ -440,8 +440,8 @@ class SessionManager:
                     "skipped": [{"reason": REPLACED_BEFORE_SAVE}],
                 }
                 return None
-            data, receipt["saved"] = site_data_module.merge(
-                r.site_data, captured, time.time()
+            data, receipt["saved"] = site_data_module.snapshot(
+                r.site_data, captured, r.history, time.time()
             )
             return r.with_site_data(data)
 
@@ -678,6 +678,11 @@ class SessionManager:
         if record is None:
             return {}
         return {"settings": dict(record.settings or {}), "url": record.url or ""}
+
+    def visited(self, name: str) -> list[str]:
+        """The origins this session has been to, newest first."""
+        record = self.store.get(name)
+        return [v["origin"] for v in record.history] if record else []
 
     def end_browser(self, name: str) -> str | None:
         """End the browser a session holds, keeping the session itself.

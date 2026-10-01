@@ -775,16 +775,12 @@ def test_a_losing_open_describes_the_browser_the_session_kept():
 def test_a_losing_clean_open_erases_nothing_from_the_winner():
     """Declining a restore erases the saved data only for the browser that
     binds; the winner was given that data and is still signed in (Copilot, #50)."""
-    from kubed.selenium_flow.core import site_data
-
     actions = InterleavedActions()
     sessions = manager(actions)
-    data, _ = site_data.merge(
-        {},
-        {"cookies": [{"name": "sid", "value": "1", "domain": "app.test"}],
-         "origin": "https://app.test", "local": {}, "session": {}},
-        1000.0,
-    )
+    data = {
+        "cookies": [{"name": "sid", "value": "1", "domain": "app.test"}],
+        "origins": {}, "session": {}, "saved_at": 1000.0,
+    }
     sessions.store.set(NAMED, SessionRecord(site_data=data).at("https://app.test/"))
     actions.during_first = lambda: sessions.open_browser(NAMED)
     told = sessions.open_browser(NAMED, restore_site_data=False)

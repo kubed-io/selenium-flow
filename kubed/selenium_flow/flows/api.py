@@ -286,6 +286,7 @@ def run_one(
     skill_available: bool = True,
     before_step=None,
     stop=None,
+    before_save=None,
 ) -> dict:
     """Run one flow against an already-resolved browser."""
     document = read_one(store, session, name)
@@ -298,6 +299,7 @@ def run_one(
         after_step=after_step,
         before_step=before_step,
         stop=stop,
+        before_save=before_save,
         catalogue=secrets_catalogue,
         skill_available=skill_available,
         # The CALLER's library, not `document["session"]`: a flow read from the
@@ -557,6 +559,16 @@ def run_for(
             session, result, browser=resolved, reshapes=tool == "resize", touch=False
         )
 
+    # A save reads the localStorage of every site in the history, and the run
+    # writes its pages once, at the end: so just before a save step the pages
+    # reached so far go in, in one write, and the end writes only the rest.
+    flushed = {"pages": 0, "told": None}
+
+    def before_save(pages):
+        told = sessions.touch(session, *pages[flushed["pages"]:], browser=resolved)
+        flushed["pages"] = len(pages)
+        flushed["told"] = flushed["told"] or told
+
     report = run_one(
         store,
         actions,
@@ -567,6 +579,7 @@ def run_for(
         session_id=resolved,
         after_step=remember,
         before_step=before_step,
+        before_save=before_save,
         stop=stop,
         secrets_catalogue=secrets_catalogue,
         skill_available=skill_available,
@@ -588,10 +601,11 @@ def run_for(
     visited = [
         step["url"] for step in report.get("steps") or []
         if step.get("ok") and step.get("url")
-    ]
+    ][flushed["pages"]:]
     if report.get("url") and not report.get("url_redacted"):
         visited.append(report["url"])
-    told = sessions.touch(session, *visited, browser=resolved)
+    # A flush may already have handed over a reopen's report.
+    told = sessions.touch(session, *visited, browser=resolved) or flushed["told"]
     if told:
         # The run's browser replaced a reaped one: what came back, once.
         report["site_data"] = told

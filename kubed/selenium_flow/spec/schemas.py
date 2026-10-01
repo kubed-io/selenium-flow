@@ -158,16 +158,16 @@ RESPONSES = {
     "save_site_data": _page(
         saved={
             "type": "object",
-            "description": "What this save kept. Never a value.",
+            "description": "What this save kept, in place of the last. Never a value.",
             "properties": {
                 "cookies": {
                     "type": "integer",
-                    "description": "Cookies now saved, across every site.",
+                    "description": "Cookies saved, across every site.",
                 },
                 "sites": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Origins whose storage this save added.",
+                    "description": "Origins whose storage this save read and kept.",
                 },
                 "skipped": {
                     "type": "array",
@@ -177,8 +177,12 @@ RESPONSES = {
                             "site": {"type": "string"},
                             "reason": {"type": "string"},
                         },
+                        "required": ["reason"],
                     },
-                    "description": "Storage left out, each with why.",
+                    "description": (
+                        "Origins not read this time, each keeping its last saved "
+                        "storage, or left out over the size cap; each with why."
+                    ),
                 },
             },
         },

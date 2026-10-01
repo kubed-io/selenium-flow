@@ -1,12 +1,18 @@
 """Site data: the cookies and storage a session keeps for the sites it uses.
 
 A session outlives its browser, and used to come back signed out: the page it
-was on survived a reap, the sign-in did not. An agent now saves a site's data
-when it knows it is worth keeping — after a sign-in is confirmed — and every
-browser opened for the session gets it back (spec 2026-09-30).
+was on survived a reap, the sign-in did not. An agent saves when it knows the
+browser is worth keeping — after a sign-in is confirmed — and every browser
+opened for the session gets it back (spec 2026-09-30, rounds 1 and 2).
 
 Saved, not captured: every call paying for a snapshot was rejected, and a reap
 gives no warning, so only an explicit save is dependable.
+
+**A save is a snapshot.** It replaces the last one whole: the jar, the
+localStorage of every origin the session has been to, and the sessionStorage
+of the page it is on. Other origins are reached through a spare tab
+(`browser.spare_tab`), which is also how a restore writes them back before the
+first page loads.
 
 **A site is a host.** Cookies carry a domain and no scheme or port, so the view
 groups by host. Storage is kept per origin, as ``location.origin`` spells it.
@@ -70,50 +76,64 @@ def site_uri(host: str) -> str:
     return f"{LIST_URI}/{host}"
 
 
-def merge(existing: dict, captured: dict, now: float) -> tuple[dict, dict]:
-    """Fold one save into what the session already had.
+# Why an origin's storage was left out of a snapshot.
+LEFT_OUT = f"left out: the snapshot would pass {MAX_BYTES} bytes"
 
-    The cookies are the whole jar and replace the last save's; storage is the
-    one origin the page was on, added beside the others. A save that would
-    pass the cap keeps its cookies and leaves that origin's storage out,
-    saying so, rather than failing or truncating.
+
+def snapshot(previous: dict, captured: dict, history, now: float) -> tuple[dict, dict]:
+    """One save, replacing the last whole: nothing is merged, so a sign-out
+    saved after a sign-in is what comes back.
+
+    ``captured`` is what :func:`capture` read. ``origins`` keeps the
+    localStorage of every origin read that has any, newest first — the page,
+    then the history. ``session`` is the page's sessionStorage, for its
+    origin. An origin that could not be read keeps its storage from
+    ``previous``, so a blip does not sign the agent out. Over
+    :data:`MAX_BYTES` the origins visited longest ago go first and the page's
+    own storage last; a jar that alone passes it is a ValueError, and nothing
+    is saved.
+
+    Returns ``(data, receipt)``; the receipt names what was saved, never a
+    value.
     """
+    here = captured.get("origin") or ""
+    read = dict(captured.get("others") or {})
+    if here:
+        read[here] = captured.get("local") or {}
+    skipped = [dict(f) for f in captured.get("failed") or []]
+    last = (previous or {}).get("origins") or {}
+    kept = {
+        f["site"]: (last.get(f["site"]) or {}).get("local")
+        for f in skipped if f.get("site")
+    }
+    newest = (here, *(v["origin"] for v in history or ()), *read, *kept)
+    origins = {}
+    for o in dict.fromkeys(o for o in newest if o):
+        local = read.get(o) or kept.get(o)
+        if local:
+            origins[o] = {"local": dict(local)}
+    items = dict(captured.get("session") or {})
     data = {
         "cookies": list(captured.get("cookies") or []),
-        "origins": {},
+        "origins": origins,
+        "session": {"origin": here, "items": items} if here else {},
         "saved_at": now,
     }
-    cookies_only = data
-    data = {**data, "origins": dict((existing or {}).get("origins") or {})}
-    if _size(cookies_only) > MAX_BYTES:
-        # The jar is the one thing a save cannot leave out, and evicting other
-        # sites would not make it fit.
+    if _size({**data, "origins": {}, "session": {}}) > MAX_BYTES:
+        # The jar is the one thing a save cannot leave out.
         raise ValueError(
             f"the cookie jar is over {MAX_BYTES} bytes; nothing was saved"
         )
-    origin = captured.get("origin") or ""
-    sites, skipped, protect = [], [], None
-    if origin:
-        entry = {
-            "local": dict(captured.get("local") or {}),
-            "session": dict(captured.get("session") or {}),
-            "saved_at": now,
-        }
-        alone = {**cookies_only, "origins": {origin: entry}}
-        if _size(alone) > MAX_BYTES:
-            reason = f"storage over {MAX_BYTES} bytes"
-            skipped.append({"site": origin, "reason": reason})
-        else:
-            data = {**data, "origins": {**data["origins"], origin: entry}}
-            sites.append(origin)
-            protect = origin
-    # The cap is on what is stored, not on this one origin: the oldest other
-    # sites make room, each said so.
     while _size(data) > MAX_BYTES:
-        others = [o for o in data["origins"] if o != protect]
-        oldest = min(others, key=lambda o: data["origins"][o].get("saved_at") or 0)
-        data["origins"] = {o: e for o, e in data["origins"].items() if o != oldest}
-        skipped.append({"site": oldest, "reason": f"evicted: over {MAX_BYTES} bytes"})
+        if data["origins"]:
+            gone = list(data["origins"])[-1]
+            data["origins"] = {o: e for o, e in data["origins"].items() if o != gone}
+        else:
+            gone, data["session"] = data["session"]["origin"], {}
+        skipped.append({"site": gone, "reason": LEFT_OUT})
+    sites = [o for o in data["origins"] if o in read]
+    if data["session"].get("items") and here not in sites:
+        sites.insert(0, here)
     return data, {"cookies": len(data["cookies"]), "sites": sites, "skipped": skipped}
 
 
@@ -432,11 +452,15 @@ READ_STORAGE = (
 )
 
 
-def capture(bidi, driver) -> dict:
-    """The whole cookie jar (BiDi sees httpOnly ones) and the page's storage.
+def capture(bidi, driver, origins=()) -> dict:
+    """The whole cookie jar (BiDi sees httpOnly ones), the page's own two
+    storages, and the localStorage of every other origin in ``origins`` — the
+    history's, newest first — read one at a time in a spare tab.
 
     The browser answered classic WebDriver to get here, so a jar that cannot
-    be read is the BiDi channel failing: :class:`BidiUnavailable`, a 503.
+    be read is the BiDi channel failing: :class:`BidiUnavailable`, a 503, and
+    nothing is saved. An origin that cannot be read is named in ``failed``;
+    the snapshot keeps its storage from the last save.
     """
     from selenium.common import WebDriverException
     from selenium.webdriver.common.bidi.storage import CookieFilter
@@ -458,11 +482,35 @@ def capture(bidi, driver) -> dict:
         for c in jar
     ]
     page = driver.execute_script(READ_STORAGE) or {}
+    here = page.get("origin") or ""
+    # Only http(s) can be stood on; the page's own origin is read in place.
+    wanted = [
+        o for o in dict.fromkeys(origins)
+        if o != here and o.startswith(("http://", "https://"))
+    ]
+    others: dict[str, dict] = {}
+    failed: list[dict] = []
+    if wanted:
+        try:
+            with spare_tab(bidi) as run:
+                for origin in wanted:
+                    try:
+                        found = run(origin, READ_LOCAL)
+                        others[origin] = found if isinstance(found, dict) else {}
+                    except Exception as e:  # noqa: BLE001 - one origin keeps its last storage
+                        failed.append({"site": origin, "reason": _why(e)})
+        except Exception as e:  # noqa: BLE001 - no tab: each origin not read keeps its last
+            done = set(others) | {f["site"] for f in failed}
+            failed.extend(
+                {"site": o, "reason": failure_text(e)} for o in wanted if o not in done
+            )
     return {
         "cookies": cookies,
-        "origin": page.get("origin") or "",
+        "origin": here,
         "local": page.get("local") or {},
         "session": page.get("session") or {},
+        "others": others,
+        "failed": failed,
     }
 
 

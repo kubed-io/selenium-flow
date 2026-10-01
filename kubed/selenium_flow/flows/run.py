@@ -136,6 +136,8 @@ RUN_TIMEOUT = 120
 
 # How a run that ran out of budget reports it; `hint_for` reads it back.
 OUT_OF_TIME = "budget before this step"
+# The step that reads every site in the session's history (`before_save`).
+SAVE_SITE_DATA = "save_site_data"
 
 # Parameter values that may appear in a step's summary. Everything else is
 # omitted rather than redacted, which is the structural version of not leaking:
@@ -554,6 +556,7 @@ def run(
     library: str = "",
     before_step=None,
     stop=None,
+    before_save=None,
 ) -> dict:
     """Run every step of ``document`` against the browser ``session_id``.
 
@@ -572,6 +575,11 @@ def run(
     act, where ``entry`` carries its number, tool, id and safe summary. It is
     how a caller watches a long run; it must not change anything.
 
+    ``before_save`` is called with the pages this run has reached so far, in
+    order — exactly the step URLs its report shows — just before a
+    ``save_site_data`` step acts. A save reads every site in the session's
+    history, and the history is otherwise written once, after the run.
+
     ``stop`` is a `threading.Event`. Once it is set no further step starts, and
     a step that is waiting gives up at its next poll (see `core.cancel`).
 
@@ -581,13 +589,13 @@ def run(
     with cancel.watching(stop):
         return _run(
             actions, document, session_id, params, verbose, timeout, after_step,
-            catalogue, skill_available, library, before_step,
+            catalogue, skill_available, library, before_step, before_save,
         )
 
 
 def _run(
     actions, document, session_id, params, verbose, timeout, after_step,
-    catalogue, skill_available, library, before_step,
+    catalogue, skill_available, library, before_step, before_save,
 ) -> dict:
     # Checked against what the CALLER passed, then filled. The other order lets
     # a `default` satisfy `required`, which would make `required` mean nothing —
@@ -604,6 +612,8 @@ def _run(
     # it went somewhere. Starts unset, which makes step one report where the
     # flow began - a fact about the run nobody else states (§F2.7).
     was_at: str | None = None
+    # The pages the report shows, in order, for `before_save`.
+    reached: list[str] = []
     last: dict = {}
     status = "ok"
     # `is None`, not `or`: an explicit 0 means "no budget" and must not be read
@@ -758,6 +768,8 @@ def _run(
                 kwargs = {**kwargs, "read_back": False}
             if before_step is not None:
                 before_step(dict(entry), total)
+            if tool == SAVE_SITE_DATA and before_save is not None:
+                before_save(list(reached))
             raw = method(session_id, **kwargs)
             # Before the result is copied for the report: the hook strips the
             # private capture from `raw`.
@@ -786,6 +798,7 @@ def _run(
             if went_to and went_to != was_at:
                 if not redacted_url and "url" not in guarded:
                     entry["url"] = went_to
+                    reached.append(went_to)
                 was_at = went_to
             # A step that produced a file says so, even when the report is
             # not verbose. A screenshot whose link appears nowhere cannot show

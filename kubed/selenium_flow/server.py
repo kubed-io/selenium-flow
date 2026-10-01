@@ -181,6 +181,10 @@ class SeleniumMCP:
         self.actions.read_file = lambda uri, session=None: files.read_file(
             self.actions, self.sessions, self.flows, uri, session
         )
+        # And where the caller's session has been, so one save reads every
+        # site's storage. Wired here for the same reason: which session is
+        # calling is a question about the caller.
+        self.actions.visited = lambda: self.sessions.visited(self.sessions.name())
         self.apps = (
             apps.register(self.mcp, self.actions, auth_token, base)
             if apps_enabled
