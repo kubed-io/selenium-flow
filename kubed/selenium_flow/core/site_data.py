@@ -396,11 +396,16 @@ def capture(bidi, driver) -> dict:
     The browser answered classic WebDriver to get here, so a jar that cannot
     be read is the BiDi channel failing: :class:`BidiUnavailable`, a 503.
     """
+    from selenium.common import WebDriverException
     from selenium.webdriver.common.bidi.storage import CookieFilter
+    from websocket import WebSocketException
 
     try:
         jar = bidi.storage.get_cookies(CookieFilter()).cookies
-    except Exception as e:
+    except (WebDriverException, WebSocketException, OSError) as e:
+        # Only a channel that did not answer is a 503. Anything else - an
+        # unexpected return shape, a bug here - stays a 500, as errors.py
+        # decides for every failure it does not recognise (Copilot, #50).
         raise BidiUnavailable(BIDI_DOWN) from e
     cookies = [
         {

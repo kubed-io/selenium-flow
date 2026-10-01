@@ -443,6 +443,40 @@ def test_an_evicted_origin_is_never_restored_or_announced(named_caller):
     assert "site_data" not in m.act(NAMED, lambda s: {"url": "https://v.test/"})
 
 
+def test_an_eviction_whose_swap_fails_keeps_retrying(named_caller):
+    """If the old preload script cannot be removed, retire hands back its id
+    unchanged: the live script still carries the evicted origin, so the note
+    stays marked and the next call retries the swap (Copilot, #50)."""
+    m = opened_with_save()
+    record = m.store.get(NAMED)
+    data = dict(record.site_data)
+    data["origins"] = {
+        "https://v.test": {"local": {"big": "x" * 600_000}, "session": {}, "saved_at": 1.0},
+        "https://w.test": {"local": {"k": "w"}, "session": {}, "saved_at": 2.0},
+    }
+    m.store.set(NAMED, record.with_site_data(data))
+    m.actions.waiting = ["https://v.test", "https://w.test"]
+    reopened(m)
+
+    calls = []
+
+    def retire(session_id, script, keep=None):
+        calls.append(script)
+        return script if len(calls) == 1 else f"{script}+"
+
+    m.actions.retire_site_data = retire
+    big = m.actions.save_site_data("x")
+    big[site_data.CAPTURED]["local"] = {"big": "y" * 500_000}
+    m.act(NAMED, lambda s: big)
+    pending = m.store.get(NAMED).site_data["pending"]
+    assert pending["script"] == "p1" and pending.get("stale") is True
+
+    m.act(NAMED, lambda s: {"url": "https://elsewhere.test"})
+    pending = m.store.get(NAMED).site_data["pending"]
+    assert calls == ["p1", "p1"]
+    assert pending["script"] == "p1+" and "stale" not in pending
+
+
 def test_an_eviction_is_not_announced_by_a_silent_reopen_report(named_caller):
     m = opened_with_save()
     record = m.store.get(NAMED)

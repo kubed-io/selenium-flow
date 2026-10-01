@@ -189,3 +189,36 @@ def test_save_with_bidi_unreachable_is_a_scrubbed_503(monkeypatch):
     assert error.startswith("the browser's BiDi channel is unavailable")
     assert "pw" not in error
     assert server.sessions.store.get(NAMED).site_data == {}
+
+
+def test_an_unexpected_cookie_read_failure_stays_a_500(monkeypatch):
+    """Only a BiDi channel that did not answer is a retryable 503; a bug or an
+    unexpected return shape stays a 500, as errors.py rules (Copilot, #50)."""
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    from kubed.selenium_flow.core.browser import Grid
+
+    page = SimpleNamespace(current_url=f"https://{SITE}/", title="t")
+
+    class Broken:
+        def get_cookies(self, *a, **kw):
+            raise AttributeError("'dict' object has no attribute 'cookies'")
+
+    @contextmanager
+    def bidi(self, session_id):
+        yield SimpleNamespace(storage=Broken())
+
+    monkeypatch.setattr(Grid, "reconnect", lambda self, sid: page)
+    monkeypatch.setattr(Grid, "bidi", bidi)
+    monkeypatch.setattr(SessionManager, "resolve", lambda self, name, **kw: "live-id")
+    server = SeleniumMCP(
+        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
+    )
+    server.sessions.store.set(NAMED, SessionRecord(url=f"https://{SITE}/"))
+    client = TestClient(server.mcp.http_app())
+    response = client.post(
+        "/browser/save-site-data", headers=AUTH, params={"session": NAMED}, json={}
+    )
+    assert response.status_code == 500, response.json()
+

@@ -472,11 +472,12 @@ class SessionManager:
                 # must not call the same origin both.
                 hint["waiting"] = [o for o in hint["waiting"] if o != arrived]
             hint["uri"] = site_data_module.site_uri(site_data_module.host_of(arrived))
-        if (arrived or evicted) and pending.get("script"):
+        if (arrived or evicted or pending.get("stale")) and pending.get("script"):
             # Still carrying an origin that arrived, the script would refill
             # it in every new tab; carrying an evicted one, it would restore
             # what the save just dropped. The replacement carries only what
-            # still waits.
+            # still waits. A swap that could not remove the old script left it
+            # marked stale, and every later call retries it (Copilot, #50).
             still = [o for o in pending.get("origins") or [] if o != arrived]
             keep = self._waiting(record.site_data, still)
             swapped = (
@@ -498,12 +499,21 @@ class SessionManager:
                 now["origins"] = [o for o in now.get("origins") or [] if o != arrived]
             if swapped and now.get("script") == swapped[0]:
                 now["script"] = swapped[1]
+                if swapped[1] == swapped[0]:
+                    # The old script could not be removed and still carries
+                    # what it should not: keep retrying until it goes.
+                    now["stale"] = True
+                else:
+                    now.pop("stale", None)
                 if now["origins"] and not now["script"]:
                     # No script is left to fill them: announcing them later
                     # would promise a restore that cannot happen.
                     now["origins"] = []
             data = {k: v for k, v in r.site_data.items() if k != "pending"}
-            if now.get("origins") or now.get("script") or now.get("announce"):
+            if (
+                now.get("origins") or now.get("script") or now.get("announce")
+                or now.get("stale")
+            ):
                 data["pending"] = now
             return None if data == r.site_data else r.with_site_data(data)
 
