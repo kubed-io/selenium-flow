@@ -226,3 +226,19 @@ def test_an_unexpected_cookie_read_failure_stays_a_500(monkeypatch):
     )
     assert response.status_code == 500, response.json()
 
+
+def test_the_listing_and_one_site_are_the_declared_shapes():
+    from kubed.selenium_flow.spec.schemas import SITE_DATA_SCHEMAS
+
+    data = {
+        "cookies": [{"name": "sid", "value": "1", "domain": SITE, "path": "/"}],
+        "origins": {f"https://{SITE}": {"local": {"k": "v"}}},
+        "session": {"origin": f"https://{SITE}", "items": {"s": "1"}},
+        "saved_at": 1.0,
+    }
+    declared = SITE_DATA_SCHEMAS["SiteList"]["properties"]
+    listing = site_data.view(data)
+    assert set(listing) == set(declared)
+    assert set(listing["sites"][0]) == set(declared["sites"]["items"]["properties"])
+    one = site_data.site_view(data, SITE)
+    assert set(one) == set(SITE_DATA_SCHEMAS["SiteData"]["properties"])

@@ -593,20 +593,10 @@ def register(
                     for name in names
                 )
             )
-            saved = site_data.view(record.site_data)
-            # Like files_rev: a count cannot see a re-save, and a re-save is
-            # what the tab must repaint for. Cookies in it because a save
-            # changes them without touching the host or the time of the origin.
+            listed = site_data.view(record.site_data, record.history)
+            # A save moves the time; a Forget or a Clear moves the hosts.
             site_data_rev = json.dumps(
-                [
-                    # A cookie-only re-save moves nothing below but this.
-                    record.site_data.get("saved_at"),
-                    sorted(
-                        [s["site"], s["saved_at"], s["cookies"]]
-                        for s in saved["sites"]
-                        if s["saved"]
-                    ),
-                ]
+                [record.site_data.get("saved_at"), [s["site"] for s in listed["sites"]]]
             )
             rows.append(
                 {
@@ -626,7 +616,7 @@ def register(
                     "started": record.opened_at or None,
                     "files_count": files_count,
                     "files_rev": files_rev,
-                    "site_data_count": saved["saved_sites"],
+                    "site_data_count": len(listed["sites"]),
                     "site_data_rev": site_data_rev,
                     # Named per section, so a row can say "one screenshot" and
                     # "no browser to have downloads at all" instead of one
@@ -813,16 +803,40 @@ def register(
     )
     @guarded
     async def admin_site_data(request: Request) -> JSONResponse:
-        """Every site this session could use, each in full, values masked."""
+        """What a reopened browser gets back: the snapshot by host, each in
+        full, values masked, the hosts the session went to first. No secrets:
+        those are History's."""
         key = request.path_params["key"]
         try:
-            secrets = await secret_rows()
             record = await run_in_threadpool(sessions.store.get, key)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return refused(exc, f"site data for {key}")
-        data = record.site_data if record else {}
-        listed, details = site_data.views(data, secrets)
+        data, history = (record.site_data, record.history) if record else ({}, [])
+        listed, details = site_data.views(data, history)
         return JSONResponse({"key": key, **listed, "details": details})
+
+    @mcp.custom_route(
+        f"{prefix}/admin/sessions/{{key}}/site-data",
+        methods=["DELETE"],
+        name="admin_site_data_clear",
+    )
+    @guarded
+    async def admin_site_data_clear(request: Request) -> JSONResponse:
+        """Clear: delete the snapshot. The history and the live browser are
+        untouched; only the next browser opened comes back signed out."""
+        key = request.path_params["key"]
+        cleared: dict = {}
+
+        def clear(record: SessionRecord) -> SessionRecord:
+            listed = site_data.view(record.site_data, record.history)
+            cleared["hosts"] = [s["site"] for s in listed["sites"]]
+            return record.with_site_data({})
+
+        try:
+            await run_in_threadpool(sessions.store.update, key, clear)
+        except Exception as exc:  # noqa: BLE001 - errors.py says what it means
+            return refused(exc, f"clearing site data for {key}")
+        return JSONResponse({"cleared": cleared.get("hosts", [])})
 
     @mcp.custom_route(
         f"{prefix}/admin/sessions/{{key}}/site-data/{{site}}",

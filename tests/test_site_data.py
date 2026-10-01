@@ -78,109 +78,6 @@ def test_expired_cookies_are_dropped_and_session_cookies_kept():
     assert [c["name"] for c in kept] == ["new", "session"]
 
 
-def test_the_view_groups_by_host_and_shares_parent_cookies():
-    data, _ = sd.merge(
-        {},
-        captured(
-            local={"theme": "dark"},
-            cookies=[
-                cookie("sid", "app.example.com", value="secret", http_only=True),
-                cookie("ab", ".example.com", value="b1"),
-                cookie("kc", "sso.example.com"),
-            ],
-        ),
-        NOW,
-    )
-    listing = sd.view(data)
-    sites = {s["site"]: s for s in listing["sites"]}
-    assert set(sites) == {"app.example.com", "sso.example.com"}
-    assert [e["origin"] for e in sites["app.example.com"]["storage"]] == [
-        "https://app.example.com"
-    ]
-    assert sites["app.example.com"]["cookies"] == 2, "its own and the shared one"
-    assert sites["sso.example.com"]["cookies"] == 2
-    assert sites["app.example.com"]["uri"] == "session://site-data/app.example.com"
-    one = sd.site_view(data, "app.example.com")
-    by_name = {c["name"]: c for c in one["cookies"]}
-    assert by_name["sid"]["value"] == sd.MASK, "httpOnly is masked"
-    assert by_name["ab"]["value"] == "b1" and by_name["ab"]["shared"] is True
-    assert one["storage"][0]["local_storage"] == {"theme": "dark"}
-    assert sd.site_view(data, "nope.test") is None
-
-
-def test_one_host_on_two_ports_keeps_each_origins_storage_apart():
-    """Restore is per origin, so the view is too: a dev server on :3000 and
-    one on :8080 used to show as one row with one value per key, under one
-    arbitrary origin (live, after #49)."""
-    first, _ = sd.merge(
-        {}, captured(origin="http://localhost:3000", local={"k": "a"}), NOW
-    )
-    data, _ = sd.merge(
-        first, captured(origin="http://localhost:8080", local={"k": "b"}, session={"s": "1"}), NOW
-    )
-    row = sd.view(data)["sites"]
-    row = next(r for r in row if r["site"] == "localhost")
-    assert row["storage"] == [
-        {"origin": "http://localhost:3000", "local_storage": 1, "session_storage": 0},
-        {"origin": "http://localhost:8080", "local_storage": 1, "session_storage": 1},
-    ]
-    one = sd.site_view(data, "localhost")
-    assert one["storage"] == [
-        {"origin": "http://localhost:3000", "local_storage": {"k": "a"}, "session_storage": {}},
-        {"origin": "http://localhost:8080", "local_storage": {"k": "b"}, "session_storage": {"s": "1"}},
-    ]
-    assert "local_storage" not in one and "origin" not in one
-    assert "local_storage" not in row and "origin" not in row
-
-
-def test_a_parent_cookie_with_no_host_gets_its_own_site():
-    data, _ = sd.merge({}, captured(origin="", cookies=[cookie("ab", ".example.com")]), NOW)
-    assert [s["site"] for s in sd.view(data)["sites"]] == ["example.com"]
-
-
-def test_secrets_are_matched_by_host_and_unleashed_ones_counted():
-    secrets = [
-        {"name": "app", "description": "d", "keys": ["username", "password"],
-         "allowed_urls": ["https://app.example.com"], "restricted": True},
-        {"name": "anywhere", "description": "", "keys": ["token"], "allowed_urls": [],
-         "restricted": False},
-        {"name": "admin", "description": "a", "keys": ["token"],
-         "allowed_urls": ["https://admin.example.com"], "restricted": True},
-    ]
-    data, _ = sd.merge({}, captured(), NOW)
-    listing = sd.view(data, secrets)
-    sites = {s["site"]: s for s in listing["sites"]}
-    assert sites["app.example.com"]["secrets"] == [
-        {"name": "app", "description": "d", "keys": ["username", "password"]}
-    ]
-    assert sites["admin.example.com"]["saved"] is False, "a secret keeps a row with nothing saved"
-    assert listing["unleashed_secrets"] == 1
-    broken = [*secrets, {"name": "dead", "description": "", "keys": [], "allowed_urls": [],
-                         "restricted": True}]
-    assert sd.view(data, broken)["unleashed_secrets"] == 1, "a restricted empty leash is usable nowhere"
-    assert listing["saved_sites"] == 1
-
-
-def test_forget_keeps_shared_cookies_and_other_sites():
-    data, _ = sd.merge(
-        {},
-        captured(cookies=[cookie("sid", "app.example.com"), cookie("ab", ".example.com"),
-                          cookie("kc", "sso.example.com")]),
-        NOW,
-    )
-    left, removed = sd.forget(data, "app.example.com")
-    assert [c["name"] for c in left["cookies"]] == ["ab", "kc"]
-    assert left["origins"] == {}
-    assert removed == {"site": "app.example.com", "cookies": ["sid"], "origins": ["https://app.example.com"],
-                       "kept_shared": [{"name": "ab", "domain": ".example.com", "path": "/"}]}
-
-
-def test_summary_is_none_when_empty():
-    assert sd.summary({}) is None
-    data, _ = sd.merge({}, captured(), NOW)
-    assert sd.summary(data) == {"sites": 1, "uri": "session://site-data"}
-
-
 def test_the_record_round_trips_its_site_data():
     data, _ = sd.merge({}, captured(), NOW)
     record = SessionRecord(session_id="s").at("u").with_site_data(data)
@@ -308,16 +205,6 @@ def test_save_site_data_returns_the_capture_privately(actions, monkeypatch):
     assert got["url"] == "https://app.example.com/" and got["title"] == "App"
 
 
-def test_forgetting_a_parent_only_row_removes_its_dotted_cookie():
-    data = {"cookies": [cookie("shared", ".example.com")], "origins": {}}
-    assert [r["site"] for r in sd.view(data)["sites"]] == ["example.com"]
-    left, removed = sd.forget(data, "example.com")
-    assert removed["cookies"] == ["shared"]
-    assert removed["kept_shared"] == []
-    assert left["cookies"] == []
-    assert sd.view(left)["sites"] == []
-
-
 # ---- what the live Grid taught (2026-09-30) ---------------------------------
 
 
@@ -401,35 +288,6 @@ def test_the_wire_loggers_never_log_at_debug(monkeypatch):
 # ---- a site's own cookies, and the ones it only sits under --------------------
 
 
-def test_rows_do_not_depend_on_the_order_the_cookies_came_in():
-    a = [cookie("ab", ".example.com"), cookie("sid", "app.example.com")]
-    first = sd.view({"cookies": a, "origins": {}})
-    second = sd.view({"cookies": list(reversed(a)), "origins": {}})
-    assert [r["site"] for r in first["sites"]] == ["app.example.com", "example.com"]
-    assert first == second
-
-
-def test_saved_counts_only_what_forget_would_remove():
-    data = {"cookies": [cookie("ab", ".example.com")], "origins": {}, "saved_at": NOW}
-    secrets = [{"name": "app", "keys": [], "allowed_urls": ["https://app.example.com"]}]
-    sites = {r["site"]: r for r in sd.view(data, secrets)["sites"]}
-    assert sites["app.example.com"]["saved"] is False, "a parent's cookie is not its own"
-    assert sites["app.example.com"]["saved_at"] is None
-    assert sites["example.com"]["saved"] is True
-    assert sd.view(data, secrets)["saved_sites"] == 1
-
-
-def test_the_site_view_names_goes_and_stays_by_the_forget_rule():
-    data = {"cookies": [cookie("own", "app.example.com"), cookie("dot", ".app.example.com"),
-                        cookie("ab", ".example.com")], "origins": {}}
-    one = sd.site_view(data, "app.example.com")
-    assert one["own_cookies"] == ["own", "dot"]
-    assert one["kept_shared"] == [
-        {"name": "ab", "domain": ".example.com", "path": "/"}]
-    parent = sd.site_view(data, "example.com")
-    assert parent["own_cookies"] == ["ab"] and parent["kept_shared"] == []
-
-
 def test_the_cap_is_on_what_is_stored_and_the_oldest_other_origins_make_room():
     half = {"blob": "x" * (sd.MAX_BYTES // 3)}
     data = {"cookies": [], "origins": {
@@ -451,48 +309,6 @@ def test_a_cookie_jar_over_the_cap_raises_and_saves_nothing():
         sd.merge({"cookies": [], "origins": {}}, captured(cookies=big), NOW)
     from kubed.selenium_flow import errors
     assert errors.status_for(ValueError("x")) == 400
-
-
-def test_a_sites_own_dotted_cookie_is_not_shared_but_a_parents_is():
-    data, _ = sd.merge({}, captured(cookies=[
-        cookie("own", ".app.example.com"), cookie("parent", ".example.com"),
-        cookie("plain", "app.example.com"),
-    ]), NOW)
-    shown = {c["name"]: c["shared"] for c in sd.site_view(data, "app.example.com")["cookies"]}
-    assert shown == {"own": False, "parent": True, "plain": False}
-
-
-def test_two_shared_cookies_of_one_name_stay_apart():
-    data = {"cookies": [cookie("sid", ".example.com"), cookie("sid", ".example.org"),
-                        cookie("sid", "app.example.com")], "origins": {}}
-    one = sd.site_view(data, "app.example.com")
-    assert one["kept_shared"] == [
-        {"name": "sid", "domain": ".example.com", "path": "/"}]
-    both = {"cookies": [cookie("sid", ".example.com"), cookie("sid", ".example.org")],
-            "origins": {"https://a.example.com": {}, "https://a.example.org": {}}}
-    assert sd.site_view(both, "a.example.com")["kept_shared"][0]["domain"] == ".example.com"
-    assert sd.site_view(both, "a.example.org")["kept_shared"][0]["domain"] == ".example.org"
-
-
-def test_a_jar_of_many_domains_is_not_rescanned_per_host(monkeypatch):
-    """Every host used to rescan the whole jar, and every detail rebuilt the
-    listing: cookies x hosts x hosts. One grouping serves all of them."""
-    calls = {"n": 0}
-    real = {name: getattr(sd, name) for name in ("_covers", "_own")}
-
-    def counting(name):
-        def wrapped(*a):
-            calls["n"] += 1
-            return real[name](*a)
-        return wrapped
-
-    for name in real:
-        monkeypatch.setattr(sd, name, counting(name))
-    cookies = [cookie("c", f"h{i}.example{i}.com") for i in range(500)]
-    listing, details = sd.views({"cookies": cookies, "origins": {}})
-    assert len(listing["sites"]) == 500 and set(details) == {r["site"] for r in listing["sites"]}
-    assert calls["n"] <= 4 * len(cookies)
-    assert sd.view({"cookies": cookies, "origins": {}}) == listing
 
 
 # ---- Grid.bidi --------------------------------------------------------------
