@@ -211,6 +211,10 @@ class SessionRecord:
         """The same record holding this site data."""
         return replace(self, site_data=dict(site_data or {}))
 
+    def history_cleared(self) -> SessionRecord:
+        """The same record with only its current page left in the history."""
+        return replace(self, history=self.history[:1])
+
     def delivered(self) -> SessionRecord:
         """The same record, its reopen report handed to a caller."""
         return replace(self, reopened={})

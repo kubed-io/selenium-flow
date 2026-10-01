@@ -357,6 +357,35 @@ def site_view(data: dict, site: str) -> dict | None:
     return _rows(data)[1].get((site or "").lower())
 
 
+def history_view(history, data: dict, secrets: list[dict] | None = None) -> dict:
+    """The History tab: one row per host the session landed on, the current
+    one first, each with its latest URL and when, what the snapshot holds for
+    it (None when nothing), and the secrets allowed there.
+
+    Secrets join a row and never make one: a host the session never reached
+    is not listed, whatever a secret allows.
+    """
+    saved = {r["site"]: r for r in view(data, history)["sites"]}
+    latest: dict[str, dict] = {}
+    for v in history or ():
+        latest.setdefault(host_of(v["origin"]), v)
+    rows = []
+    for host in history_hosts(history):
+        row = saved.get(host)
+        rows.append({
+            "site": host,
+            "url": latest[host]["url"],
+            "at": latest[host]["at"],
+            "saved": {
+                "cookies": row["cookies"],
+                "local": sum(e["local_storage"] for e in row["storage"]),
+                "session": sum(e["session_storage"] for e in row["storage"]),
+            } if row else None,
+            "secrets": matching_secrets(secrets, host),
+        })
+    return {"sites": rows}
+
+
 def summary(data: dict) -> dict | None:
     sites = _hosts(data or {})
     return {"sites": len(sites), "uri": LIST_URI} if sites else None

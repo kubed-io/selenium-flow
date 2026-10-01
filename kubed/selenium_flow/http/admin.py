@@ -598,6 +598,7 @@ def register(
             site_data_rev = json.dumps(
                 [record.site_data.get("saved_at"), [s["site"] for s in listed["sites"]]]
             )
+            visited = site_data.history_hosts(record.history)
             rows.append(
                 {
                     # The store key addresses the session on this API. It is not
@@ -618,6 +619,15 @@ def register(
                     "files_rev": files_rev,
                     "site_data_count": len(listed["sites"]),
                     "site_data_rev": site_data_rev,
+                    "history_count": len(visited),
+                    # The origins in order and the top page: a new site, a
+                    # return to an older one, or a page within the top one
+                    # repaints History, whose top row is the card's last
+                    # page. Only the clock moving does not.
+                    "history_rev": json.dumps([
+                        [v["origin"] for v in record.history],
+                        record.history[0]["url"] if record.history else None,
+                    ]),
                     # Named per section, so a row can say "one screenshot" and
                     # "no browser to have downloads at all" instead of one
                     # number that means both.
@@ -795,6 +805,49 @@ def register(
         if catalogue is None:
             return []
         return (await run_in_threadpool(catalogue.listing))["secrets"]
+
+    @mcp.custom_route(
+        f"{prefix}/admin/sessions/{{key}}/history",
+        methods=["GET"],
+        name="admin_history",
+    )
+    @guarded
+    async def admin_history(request: Request) -> JSONResponse:
+        """Where this session has been, by host, the current one first: each
+        joined with the secrets allowed there and what the snapshot holds for
+        it. Built per request; nothing is stored for it."""
+        key = request.path_params["key"]
+        try:
+            secrets = await secret_rows()
+            record = await run_in_threadpool(sessions.store.get, key)
+        except Exception as exc:  # noqa: BLE001 - errors.py says what it means
+            return refused(exc, f"history for {key}")
+        if record is None:
+            return JSONResponse({"key": key, "sites": []})
+        joined = site_data.history_view(record.history, record.site_data, secrets)
+        return JSONResponse({"key": key, **joined})
+
+    @mcp.custom_route(
+        f"{prefix}/admin/sessions/{{key}}/history",
+        methods=["DELETE"],
+        name="admin_history_clear",
+    )
+    @guarded
+    async def admin_history_clear(request: Request) -> JSONResponse:
+        """Clear: the history down to the current site. Site data and the live
+        browser are untouched, and the history expires on its own anyway."""
+        key = request.path_params["key"]
+        cleared: dict = {}
+
+        def clear(record: SessionRecord) -> SessionRecord:
+            cleared["hosts"] = site_data.history_hosts(record.history)[1:]
+            return record.history_cleared()
+
+        try:
+            await run_in_threadpool(sessions.store.update, key, clear)
+        except Exception as exc:  # noqa: BLE001 - errors.py says what it means
+            return refused(exc, f"clearing the history of {key}")
+        return JSONResponse({"cleared": cleared.get("hosts", [])})
 
     @mcp.custom_route(
         f"{prefix}/admin/sessions/{{key}}/site-data",

@@ -194,3 +194,38 @@ def test_a_jar_of_many_domains_is_not_rescanned_per_host(monkeypatch):
     assert len(listing["sites"]) == 500 and set(details) == {r["site"] for r in listing["sites"]}
     assert calls["n"] <= 4 * len(cookies)
     assert sd.view(snapshot(cookies=cookies)) == listing
+
+
+# ---- History: the history joined by host -----------------------------------
+
+
+SECRETS = [
+    {"name": "app", "description": "the app", "keys": ["user", "pass"],
+     "allowed_urls": ["https://app.example.com"], "restricted": True},
+    {"name": "unvisited", "description": "", "keys": ["t"],
+     "allowed_urls": ["https://never.example.net"], "restricted": True},
+    {"name": "anywhere", "description": "", "keys": ["t"], "allowed_urls": [],
+     "restricted": False},
+]
+
+
+def test_the_history_is_one_row_per_host_current_first_with_counts_and_secrets():
+    history = [
+        visit("https://app.example.com/x", NOW - 60),
+        visit("http://app.example.com:8080/dev", NOW - 120),
+        visit("https://example.com/", NOW - 3600),
+    ]
+    data = snapshot(cookies=[cookie("sid", "app.example.com"), cookie("ab", ".example.com")],
+                    origins={APP: {"a": "1", "b": "2"}})
+    assert sd.history_view(history, data, SECRETS) == {"sites": [
+        {"site": "app.example.com", "url": "https://app.example.com/x", "at": NOW - 60,
+         "saved": {"cookies": 2, "local": 2, "session": 0},
+         "secrets": [{"name": "app", "description": "the app", "keys": ["user", "pass"]}]},
+        {"site": "example.com", "url": "https://example.com/", "at": NOW - 3600,
+         "saved": None, "secrets": []},
+    ]}
+
+
+def test_a_secret_never_makes_a_row_and_nothing_visited_is_no_rows():
+    data = snapshot(cookies=[cookie("t", "never.example.net")])
+    assert sd.history_view([], data, SECRETS) == {"sites": []}
