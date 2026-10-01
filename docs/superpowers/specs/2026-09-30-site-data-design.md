@@ -174,7 +174,10 @@ nothing changed.
 
 - `session://site-data` — the listing: counts per site, never values.
 - `session://site-data/{site}` — one site in full: cookies with name, domain,
-  path, expiry and flags; localStorage and sessionStorage keys with values.
+  path, expiry and flags; under `storage`, one entry per origin of the host
+  (`{origin, local_storage, session_storage}`), keys with values. The listing
+  counts keys per origin the same way. A host on two ports or schemes is two
+  origins, restored separately, so it is never shown merged.
   **httpOnly cookie values are `"•••"`** — the one thing the page itself cannot
   read (Dr K). Everything else is shown.
 - `session://current` gains `"site_data": {"sites": 2, "uri": "session://site-data"}`
@@ -245,12 +248,14 @@ Drawn: page **Session · Site data**, flow *Site data*.
   allowed on (Dr K): a secret keeps its site listed when nothing is saved,
   because secrets are not ephemeral. Forget removes the saved data; the row
   stays while a secret matches, and goes when nothing is left.
-- A row header: origin (or host), a "saved 2m ago" pill, counts
+- A row header: its origin (the host when it has none or several), a
+  "saved 2m ago" pill, counts summed over its origins
   ("2 cookies · 2 local · 0 session · 1 secret"), and **Forget** when there is
   saved data.
 - Expanded: COOKIES (name, value or dots, domain · expiry in grey, pills
   httpOnly / secure / shared), LOCAL STORAGE, SESSION STORAGE ("none" when
-  empty), SECRETS (🔑 name, description, **one pill per key name**, as the
+  empty) once per origin, labelled with the origin when the host has more
+  than one, SECRETS (🔑 name, description, **one pill per key name**, as the
   Secrets tab shows them).
 - Empty state: "Nothing saved — an agent calls `save_site_data` after signing
   in."

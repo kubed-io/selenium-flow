@@ -240,14 +240,19 @@ def _site(jar: _Jar, host: str, secrets) -> dict:
     origins = jar.origins.get(host, {})
     cookies = jar.covering(host)
     own = [c for c in cookies if _own(c.get("domain") or "", host)]
-    local, session = {}, {}
-    for entry in origins.values():
-        local.update(entry.get("local") or {})
-        session.update(entry.get("session") or {})
+    # Per origin, never merged: the same host on two ports or schemes is two
+    # origins, each restored with its own storage.
+    storage = [
+        {
+            "origin": o,
+            "local_storage": dict(origins[o].get("local") or {}),
+            "session_storage": dict(origins[o].get("session") or {}),
+        }
+        for o in sorted(origins)
+    ]
     saved = [e.get("saved_at") for e in origins.values() if e.get("saved_at")]
     return {
         "site": host,
-        "origin": next(iter(sorted(origins)), None),
         # Only what Forget would remove: a row that merely sits under a
         # parent's shared cookie has nothing of its own to forget.
         "saved": bool(origins or own),
@@ -255,8 +260,7 @@ def _site(jar: _Jar, host: str, secrets) -> dict:
         "uri": site_uri(host),
         "_cookies": cookies,
         "_own": own,
-        "_local": local,
-        "_session": session,
+        "storage": storage,
         "secrets": matching_secrets(secrets, host),
     }
 
@@ -287,16 +291,24 @@ def _rows(data: dict, secrets: list[dict] | None):
     for host in sorted(h for h in hosts if h):
         site = _site(jar, host, secrets)
         rows.append({
-            "site": site["site"], "origin": site["origin"], "saved": site["saved"],
+            "site": site["site"], "saved": site["saved"],
             "saved_at": site["saved_at"], "uri": site["uri"],
-            "cookies": len(site["_cookies"]), "local_storage": len(site["_local"]),
-            "session_storage": len(site["_session"]), "secrets": site["secrets"],
+            "cookies": len(site["_cookies"]),
+            "storage": [
+                {
+                    "origin": e["origin"],
+                    "local_storage": len(e["local_storage"]),
+                    "session_storage": len(e["session_storage"]),
+                }
+                for e in site["storage"]
+            ],
+            "secrets": site["secrets"],
         })
         details[host] = {
-            "site": host, "origin": site["origin"], "saved": site["saved"],
+            "site": host, "saved": site["saved"],
             "saved_at": site["saved_at"], "uri": site["uri"],
             "cookies": [_cookie_view(c, host) for c in site["_cookies"]],
-            "local_storage": site["_local"], "session_storage": site["_session"],
+            "storage": site["storage"],
             # What Forget would do, by the rule Forget itself uses.
             "own_cookies": [c["name"] for c in site["_own"]],
             "kept_shared": [_identity(c) for c in _shared(site["_cookies"], host)],
@@ -329,7 +341,8 @@ def views(data: dict, secrets: list[dict] | None = None) -> tuple[dict, dict]:
 
 
 def site_view(data: dict, site: str, secrets: list[dict] | None = None) -> dict | None:
-    """One site in full: cookies (httpOnly masked) and both storages."""
+    """One site in full: cookies (httpOnly masked) and both storages, per
+    origin."""
     return _rows(data, secrets)[1].get((site or "").lower())
 
 

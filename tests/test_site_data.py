@@ -114,7 +114,9 @@ def test_the_view_groups_by_host_and_shares_parent_cookies():
     listing = sd.view(data)
     sites = {s["site"]: s for s in listing["sites"]}
     assert set(sites) == {"app.example.com", "sso.example.com"}
-    assert sites["app.example.com"]["origin"] == "https://app.example.com"
+    assert [e["origin"] for e in sites["app.example.com"]["storage"]] == [
+        "https://app.example.com"
+    ]
     assert sites["app.example.com"]["cookies"] == 2, "its own and the shared one"
     assert sites["sso.example.com"]["cookies"] == 2
     assert sites["app.example.com"]["uri"] == "session://site-data/app.example.com"
@@ -122,8 +124,33 @@ def test_the_view_groups_by_host_and_shares_parent_cookies():
     by_name = {c["name"]: c for c in one["cookies"]}
     assert by_name["sid"]["value"] == sd.MASK, "httpOnly is masked"
     assert by_name["ab"]["value"] == "b1" and by_name["ab"]["shared"] is True
-    assert one["local_storage"] == {"theme": "dark"}
+    assert one["storage"][0]["local_storage"] == {"theme": "dark"}
     assert sd.site_view(data, "nope.test") is None
+
+
+def test_one_host_on_two_ports_keeps_each_origins_storage_apart():
+    """Restore is per origin, so the view is too: a dev server on :3000 and
+    one on :8080 used to show as one row with one value per key, under one
+    arbitrary origin (live, after #49)."""
+    first, _ = sd.merge(
+        {}, captured(origin="http://localhost:3000", local={"k": "a"}), NOW
+    )
+    data, _ = sd.merge(
+        first, captured(origin="http://localhost:8080", local={"k": "b"}, session={"s": "1"}), NOW
+    )
+    row = sd.view(data)["sites"]
+    row = next(r for r in row if r["site"] == "localhost")
+    assert row["storage"] == [
+        {"origin": "http://localhost:3000", "local_storage": 1, "session_storage": 0},
+        {"origin": "http://localhost:8080", "local_storage": 1, "session_storage": 1},
+    ]
+    one = sd.site_view(data, "localhost")
+    assert one["storage"] == [
+        {"origin": "http://localhost:3000", "local_storage": {"k": "a"}, "session_storage": {}},
+        {"origin": "http://localhost:8080", "local_storage": {"k": "b"}, "session_storage": {"s": "1"}},
+    ]
+    assert "local_storage" not in one and "origin" not in one
+    assert "local_storage" not in row and "origin" not in row
 
 
 def test_a_parent_cookie_with_no_host_gets_its_own_site():

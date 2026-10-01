@@ -65,7 +65,8 @@ SITE_DESCRIPTION = (
 )
 
 ONE_SITE_DESCRIPTION = (
-    "One site's saved data: its cookies and its localStorage and sessionStorage. "
+    "One site's saved data: its cookies, and the localStorage and sessionStorage "
+    "of each of its origins. "
     "An httpOnly cookie's value is shown as \u2022\u2022\u2022; nothing else is "
     "hidden. The site is a host from the session://site-data listing."
 )

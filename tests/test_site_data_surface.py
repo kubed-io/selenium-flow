@@ -72,7 +72,9 @@ async def test_the_resources_list_and_show_one_site_masking_httponly(saved):
     one = await read(saved, f"session://site-data/{SITE}")
     values = {c["name"]: c["value"] for c in one["cookies"]}
     assert values == {"sid": "•••", "theme": "dark"}
-    assert one["local_storage"] == {"k": "v"}
+    assert one["storage"] == [
+        {"origin": f"https://{SITE}", "local_storage": {"k": "v"}, "session_storage": {}}
+    ]
     assert "pending" not in json.dumps([listing, one])
     with pytest.raises(Exception, match="session://site-data"):
         await read(saved, "session://site-data/nowhere.test")

@@ -12,27 +12,30 @@ afterEach(() => resetFolds())
 const THE_INTERNET = { name: 'the-internet', description: 'Public demo login', keys: ['username', 'password'] }
 const cookie = (name: string, value: string, extra = {}) =>
   ({ name, value, domain: 'the-internet.herokuapp.com', path: '/', expiry: null, http_only: false, secure: false, same_site: null, shared: false, ...extra })
+const ORIGIN = 'https://the-internet.herokuapp.com'
 const detail = {
-  site: 'the-internet.herokuapp.com', origin: 'https://the-internet.herokuapp.com', saved: true, saved_at: Date.now() / 1000 - 120,
+  site: 'the-internet.herokuapp.com', saved: true, saved_at: Date.now() / 1000 - 120,
   cookies: [
     cookie('rack.session', '•••', { http_only: true, secure: true }),
     cookie('optimizelyEndUserId', 'oeu1', { domain: '.herokuapp.com', expiry: 1790800000, shared: true }),
   ],
-  local_storage: { theme: 'dark', 'tour-seen': 'true' }, session_storage: {}, secrets: [THE_INTERNET],
+  storage: [{ origin: ORIGIN, local_storage: { theme: 'dark', 'tour-seen': 'true' } as Record<string, string>, session_storage: {} as Record<string, string> }],
+  secrets: [THE_INTERNET],
   own_cookies: ['rack.session'], kept_shared: [{ name: 'optimizelyEndUserId', domain: '.herokuapp.com', path: '/' }],
 }
-const summary = (d: typeof detail) => ({ ...d, cookies: d.cookies.length, local_storage: 2, session_storage: 0 })
+const counted = (origin: string, local: number, session = 0) => ({ origin, local_storage: local, session_storage: session })
+const summary = (d: typeof detail) => ({ ...d, cookies: d.cookies.length, storage: [counted(ORIGIN, 2)] })
 const SITES = {
   key: 'k', saved_sites: 2, uri: 'https://x',
   sites: [
     summary(detail),
-    { site: 'grafana.kellyferrone.com', origin: 'https://grafana.kellyferrone.com', saved: true, saved_at: Date.now() / 1000 - 3600, cookies: 5, local_storage: 12, session_storage: 0, secrets: [{ name: 'grafana', keys: ['token'] }] },
-    { site: 'selenium.kellyferrone.com', origin: 'https://selenium.kellyferrone.com', saved: false, saved_at: null, cookies: 0, local_storage: 0, session_storage: 0, secrets: [{ name: 'sel', description: 'd', keys: ['a'] }] },
+    { site: 'grafana.kellyferrone.com', saved: true, saved_at: Date.now() / 1000 - 3600, cookies: 5, storage: [counted('https://grafana.kellyferrone.com', 12)], secrets: [{ name: 'grafana', keys: ['token'] }] },
+    { site: 'selenium.kellyferrone.com', saved: false, saved_at: null, cookies: 0, storage: [], secrets: [{ name: 'sel', description: 'd', keys: ['a'] }] },
   ],
   details: {
     'the-internet.herokuapp.com': detail,
-    'grafana.kellyferrone.com': { ...summary(detail), site: 'grafana.kellyferrone.com', cookies: [], local_storage: {}, own_cookies: [], kept_shared: [] },
-    'selenium.kellyferrone.com': { site: 'selenium.kellyferrone.com', origin: 'https://selenium.kellyferrone.com', saved: false, saved_at: null, cookies: [], local_storage: {}, session_storage: {}, secrets: [], own_cookies: [], kept_shared: [] },
+    'grafana.kellyferrone.com': { ...detail, site: 'grafana.kellyferrone.com', cookies: [], storage: [{ origin: 'https://grafana.kellyferrone.com', local_storage: {}, session_storage: {} }], own_cookies: [], kept_shared: [] },
+    'selenium.kellyferrone.com': { site: 'selenium.kellyferrone.com', saved: false, saved_at: null, cookies: [], storage: [], secrets: [], own_cookies: [], kept_shared: [] },
   },
 }
 const row = { key: 'k', name: 'mine', live: true, attached: true, session_id: 'b1', files_rev: 1, flows_rev: 1, files_count: 0, site_data_count: 2, site_data_rev: 'r1' }
@@ -221,12 +224,12 @@ const PARENT = cookie('shared', 's', { domain: '.example.com', shared: true })
 const PARENTS = {
   key: 'k', saved_sites: 1,
   sites: [
-    { site: 'app.example.com', origin: null, saved: false, saved_at: null, cookies: 1, local_storage: 0, session_storage: 0, secrets: [{ name: 'app', keys: ['a'] }] },
-    { site: 'example.com', origin: null, saved: true, saved_at: Date.now() / 1000 - 60, cookies: 1, local_storage: 0, session_storage: 0, secrets: [] },
+    { site: 'app.example.com', saved: false, saved_at: null, cookies: 1, storage: [], secrets: [{ name: 'app', keys: ['a'] }] },
+    { site: 'example.com', saved: true, saved_at: Date.now() / 1000 - 60, cookies: 1, storage: [], secrets: [] },
   ],
   details: {
-    'app.example.com': { site: 'app.example.com', origin: null, saved: false, saved_at: null, cookies: [PARENT], local_storage: {}, session_storage: {}, secrets: [{ name: 'app', keys: ['a'] }], own_cookies: [], kept_shared: [{ name: 'shared', domain: '.example.com', path: '/' }] },
-    'example.com': { site: 'example.com', origin: null, saved: true, saved_at: Date.now() / 1000 - 60, cookies: [PARENT], local_storage: {}, session_storage: {}, secrets: [], own_cookies: ['shared'], kept_shared: [] },
+    'app.example.com': { site: 'app.example.com', saved: false, saved_at: null, cookies: [PARENT], storage: [], secrets: [{ name: 'app', keys: ['a'] }], own_cookies: [], kept_shared: [{ name: 'shared', domain: '.example.com', path: '/' }] },
+    'example.com': { site: 'example.com', saved: true, saved_at: Date.now() / 1000 - 60, cookies: [PARENT], storage: [], secrets: [], own_cookies: ['shared'], kept_shared: [] },
   },
 }
 
@@ -283,11 +286,11 @@ test('two shared cookies of one name both stay, each under its own domain', asyn
   const sid = (domain: string, path = '/') => ({ name: 'sid', domain, path })
   const data = {
     key: 'k', saved_sites: 1,
-    sites: [{ site: 'app.example.com', origin: 'https://app.example.com', saved: true, saved_at: Date.now() / 1000, cookies: 2, local_storage: 1, session_storage: 0, secrets: [] }],
+    sites: [{ site: 'app.example.com', saved: true, saved_at: Date.now() / 1000, cookies: 2, storage: [counted('https://app.example.com', 1)], secrets: [] }],
     details: {
       'app.example.com': {
-        site: 'app.example.com', origin: 'https://app.example.com', saved: true, saved_at: Date.now() / 1000,
-        cookies: [], local_storage: { a: '1' }, session_storage: {}, secrets: [],
+        site: 'app.example.com', saved: true, saved_at: Date.now() / 1000,
+        cookies: [], storage: [{ origin: 'https://app.example.com', local_storage: { a: '1' }, session_storage: {} }], secrets: [],
         own_cookies: [], kept_shared: [sid('.example.com'), sid('.example.org', '/app')],
       },
     },
@@ -301,4 +304,30 @@ test('two shared cookies of one name both stay, each under its own domain', asyn
     'stayssid, shared with .example.com',
     'stayssid, shared with .example.org /app',
   ])
+})
+
+test('one host on two ports: a storage group per origin, each labelled, and the host as the title', async () => {
+  const dev = (port: number, local: Record<string, string>) => ({ origin: 'http://localhost:' + port, local_storage: local, session_storage: {} })
+  const data = {
+    key: 'k', saved_sites: 1,
+    sites: [{ site: 'localhost', saved: true, saved_at: Date.now() / 1000, cookies: 0, storage: [counted('http://localhost:3000', 1), counted('http://localhost:8080', 1)], secrets: [] }],
+    details: {
+      localhost: {
+        site: 'localhost', saved: true, saved_at: Date.now() / 1000, cookies: [], secrets: [], own_cookies: [], kept_shared: [],
+        storage: [dev(3000, { k: 'a' }), dev(8080, { k: 'b' })],
+      },
+    },
+  }
+  const { container } = setup({ 'GET /admin/sessions/k/site-data': { body: data } })
+  await vi.waitFor(() => expect(sections(container)).toHaveLength(1))
+  const [s] = sections(container)
+  expect(s.querySelector('.title')).toHaveTextContent('localhost')
+  expect(s.querySelector('.head')).toHaveTextContent('0 cookies · 2 local · 0 session · 0 secrets')
+  expect([...s.querySelectorAll('h3')].map((h) => h.textContent)).toEqual([
+    'Cookies',
+    'Local storage · http://localhost:3000', 'Session storage · http://localhost:3000',
+    'Local storage · http://localhost:8080', 'Session storage · http://localhost:8080',
+  ])
+  const values = [...s.querySelectorAll('.line')].filter((l) => l.querySelector('code.key')?.textContent === 'k').map((l) => l.querySelector('.value')!.textContent)
+  expect(values).toEqual(['a', 'b'])
 })
