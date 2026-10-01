@@ -429,6 +429,8 @@ class SessionManager:
         receipt: dict = {}
 
         def save(r: SessionRecord) -> SessionRecord | None:
+            # The store may run this again on a newer record; only the last run counts.
+            receipt.clear()
             if producer is not None and r.session_id != producer:
                 # Another browser holds the session now — perhaps one opened
                 # with restore_site_data=false. What this one captured is not
@@ -443,10 +445,11 @@ class SessionManager:
             )
             return r.with_site_data(data)
 
-        self.store.update(name, save)
-        if "saved" in receipt:
-            result["saved"] = receipt["saved"]
-            result["uri"] = site_data_module.LIST_URI
+        if self.store.update(name, save) is None:
+            # The record expired before `save` ever ran, or between its runs.
+            return
+        result["saved"] = receipt["saved"]
+        result["uri"] = site_data_module.LIST_URI
 
     @staticmethod
     def _restorable(record: SessionRecord) -> dict:
@@ -636,6 +639,8 @@ class SessionManager:
         told: dict = {}
 
         def at(r: SessionRecord) -> SessionRecord:
+            # The store may run this again on a newer record; only the last run counts.
+            told.clear()
             if browser and r.session_id != browser:
                 return r
             note = r.reopened

@@ -7,6 +7,7 @@ from dataclasses import replace
 import pytest
 
 from kubed.selenium_flow.core import site_data
+from kubed.selenium_flow.session.store import MemoryStore
 from tests.conftest import NAMED, RecordingActions, manager
 
 URL = "https://app.example.com/x"
@@ -36,6 +37,23 @@ class SiteActions(RecordingActions):
                 "session": {},
             },
         }
+
+
+class RetryingStore(MemoryStore):
+    """Redis refusing the first EXEC: `fn` runs on the record `first`, that
+    run is thrown away, `between` happens, and `fn` runs again on what is
+    stored. The store contract allows it, so nothing `fn` leaves outside
+    itself may outlive its last run."""
+
+    first = None
+    between = staticmethod(lambda: None)
+
+    def upsert(self, key, fn):
+        if self.first is not None:
+            fn(self.first)
+            self.first = None
+            self.between()
+        return super().upsert(key, fn)
 
 
 def opened_with_save():
@@ -164,6 +182,21 @@ def test_a_report_is_never_handed_to_a_result_from_another_browser(named_caller)
     assert m.act(NAMED, lambda s: {"url": URL})["site_data"] == REPORT
 
 
+def test_a_retried_touch_hands_over_only_what_its_last_run_saw(named_caller):
+    """The first run met this browser holding the report; by the retry another
+    browser is bound, nothing of this one's is committed, and nothing is told."""
+    store = RetryingStore()
+    m = manager(SiteActions(), store)
+    m.open_browser(NAMED)
+    m.act(NAMED, lambda s: m.actions.save_site_data(s))
+    reaped(m)
+    browser = m.resolve(NAMED)
+    store.first = store.get(NAMED)
+    store.between = lambda: store.update(NAMED, lambda r: replace(r, session_id="newer"))
+    assert m.touch(NAMED, URL, browser=browser) is None
+    assert store.get(NAMED).reopened["report"] == REPORT
+
+
 def test_an_open_drops_a_report_nobody_collected(named_caller):
     m = opened_with_save()
     reaped(m)
@@ -233,6 +266,21 @@ def test_the_capture_is_stripped_even_when_the_store_fails(named_caller):
     with pytest.raises(ConnectionError):
         m.settle(NAMED, result, touch=False)
     assert site_data.CAPTURED not in result
+
+
+def test_a_retried_save_into_an_expired_record_claims_nothing(named_caller):
+    """The first run merged; the record expired before the retry, so nothing
+    was stored and the result must not say it was."""
+    store = RetryingStore()
+    m = manager(SiteActions(), store)
+    m.open_browser(NAMED)
+    store.first = store.get(NAMED)
+    store.between = lambda: store.delete(NAMED)
+    result = m.actions.save_site_data("x")
+    m.settle(NAMED, result, touch=False)
+    assert site_data.CAPTURED not in result
+    assert "saved" not in result and "uri" not in result
+    assert store.get(NAMED) is None
 
 
 def save_elsewhere(m, origin):
