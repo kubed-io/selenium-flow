@@ -684,9 +684,16 @@ class SessionManager:
         return {"settings": dict(record.settings or {}), "url": record.url or ""}
 
     def visited(self, name: str) -> list[str]:
-        """The origins this session has been to, newest first."""
+        """The origins this session has been to, newest first.
+
+        As the next write would keep them: a save reads this before its own
+        touch prunes, so an origin that aged out since the last call would
+        otherwise still be read and saved (Copilot, #51).
+        """
         record = self.store.get(name)
-        return [v["origin"] for v in record.history] if record else []
+        if record is None:
+            return []
+        return [v["origin"] for v in record.at(ttl=self.store.ttl).history]
 
     def end_browser(self, name: str) -> str | None:
         """End the browser a session holds, keeping the session itself.

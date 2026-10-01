@@ -263,7 +263,9 @@ def _cookie_view(c: dict, host: str) -> dict:
 
 def matching_secrets(secrets: list[dict] | None, host: str) -> list[dict]:
     """The secrets allowed on ``host``, names and keys only. A secret with no
-    `allowed_urls` is usable anywhere and is not listed under every site."""
+    `allowed_urls` is usable anywhere and is not listed under every site; one
+    with `allowed_urls_rejected` is usable nowhere, its valid lines included
+    (`Catalogue.allows`), so it is not listed either."""
     return [
         {
             "name": s["name"],
@@ -271,7 +273,8 @@ def matching_secrets(secrets: list[dict] | None, host: str) -> list[dict]:
             "keys": list(s.get("keys") or []),
         }
         for s in secrets or []
-        if any(host_of(u) == host for u in s.get("allowed_urls") or [])
+        if not s.get("allowed_urls_rejected")
+        and any(host_of(u) == host for u in s.get("allowed_urls") or [])
     ]
 
 

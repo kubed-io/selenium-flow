@@ -3,6 +3,7 @@ every other origin the session has been to, read in a spare tab — one
 snapshot that replaces the last (spec round 2, *save_site_data*)."""
 
 import json
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -231,8 +232,11 @@ def test_one_save_through_the_server_keeps_every_site_the_session_went_to(monkey
     monkeypatch.setattr(Grid, "bidi", lambda self, sid: bidi_cm(FakeBidi())(sid))
     monkeypatch.setattr(SessionManager, "resolve", lambda self, name: "live-id")
     server = SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}))
+    # Stamped now, not at NOW: the save reads the history as the next write
+    # would keep it, and a fixed stamp ages out of the store's TTL.
+    now = time.time()
     server.sessions.store.set(
-        NAMED, SessionRecord(session_id="live-id").at(SSO + "/", now=NOW - 60).at(APP + "/x", now=NOW)
+        NAMED, SessionRecord(session_id="live-id").at(SSO + "/", now=now - 60).at(APP + "/x", now=now)
     )
     response = TestClient(server.mcp.http_app()).post(
         "/browser/save-site-data", headers={"Authorization": f"Bearer {TOKEN}"},

@@ -226,3 +226,14 @@ def test_the_history_is_one_row_per_host_current_first_with_counts_and_secrets()
 def test_a_secret_never_makes_a_row_and_nothing_visited_is_no_rows():
     data = snapshot(cookies=[cookie("t", "never.example.net")])
     assert sd.history_view([], data, SECRETS) == {"sites": []}
+
+
+def test_a_secret_whose_leash_is_rejected_is_allowed_nowhere():
+    # Catalogue.allows refuses the whole secret, its valid lines included, so
+    # History must not offer it on the host one of those lines names.
+    secrets = [
+        {"name": "ok", "allowed_urls": ["https://app.example.com"], "keys": ["k"]},
+        {"name": "broken", "allowed_urls": ["https://app.example.com"],
+         "allowed_urls_rejected": ["not a url"], "keys": ["k"]},
+    ]
+    assert [s["name"] for s in sd.matching_secrets(secrets, "app.example.com")] == ["ok"]

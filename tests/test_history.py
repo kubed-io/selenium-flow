@@ -5,6 +5,8 @@ a page with an origin enters it, and a URL withheld after a secret write
 records nothing (§F1.24). Entries expire with the record's TTL, the top one
 excepted."""
 
+import time
+
 import pytest
 
 from kubed.selenium_flow.session.store import (
@@ -125,6 +127,17 @@ def test_touch_from_a_browser_the_record_no_longer_names_records_nothing():
     sessions.remember(NAMED, "new", "https://a.test/")
     sessions.touch(NAMED, "https://elsewhere.test/", browser="old")
     assert sessions.store.get(NAMED).url == "https://a.test/"
+
+
+def test_a_save_never_reads_an_origin_that_aged_out_since_the_last_call():
+    # The save reads `visited` before its own touch prunes.
+    m = manager(RecordingActions())
+    now = time.time()
+    m.store.set(NAMED, SessionRecord(history=[
+        {"origin": "https://new.test", "url": "https://new.test/", "at": now},
+        {"origin": "https://old.test", "url": "https://old.test/", "at": now - DAY - 10},
+    ]))
+    assert m.visited(NAMED) == ["https://new.test"]
 
 
 def test_opening_another_browser_keeps_where_the_session_has_been():
