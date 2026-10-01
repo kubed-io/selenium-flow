@@ -73,10 +73,12 @@ def test_an_origin_that_fails_is_skipped_and_the_rest_go_on(spare):
 def test_session_storage_that_fails_is_skipped_not_fatal(spare):
     spare.refuse = {APP}
     data = snapshot(session={"origin": APP, "items": {"t": "1"}})
-    assert sd.restore(FakeBidi(), data, NOW) == {
+    bidi = FakeBidi()
+    assert sd.restore(bidi, data, NOW) == {
         "restored": [], "uri": LIST,
         "skipped": [{"site": APP, "reason": "the navigation failed"}],
     }
+    assert bidi.browsing_context.navigated == [(MAIN, "about:blank")], "never left on the stand-in"
 
 
 def test_a_tab_that_cannot_open_skips_its_origins_and_the_cookies_stand(spare):
@@ -92,6 +94,11 @@ def test_a_tab_that_cannot_open_skips_its_origins_and_the_cookies_stand(spare):
         {"site": APP, "reason": "socket is already closed"},
         {"site": "https://sso.example.com", "reason": "socket is already closed"},
     ]
+
+
+def test_a_malformed_snapshot_is_a_skip_not_a_raise(spare):
+    report = sd.restore(FakeBidi(), {"cookies": 5}, NOW)
+    assert report["restored"] == [] and [set(s) for s in report["skipped"]] == [{"reason"}]
 
 
 def test_a_dead_channel_is_reported_never_raised(spare):
@@ -272,6 +279,13 @@ def test_open_session_says_nothing_without_site_data(actions, monkeypatch, spare
         result, order = opened(actions, monkeypatch, spare, empty)
         assert order == ["get"]
         assert "site_data" not in result
+
+
+def test_a_corrupt_record_never_fails_an_open(actions, monkeypatch, spare):
+    """Restore is best effort: nothing in it can fail an open."""
+    for corrupt in ({"session": "x"}, {"session": ["a"]}, ["a"], "x"):
+        result, order = opened(actions, monkeypatch, spare, corrupt)
+        assert order == ["get"] and "site_data" not in result and result["session_id"] == "new-1"
 
 
 def test_a_restore_with_nothing_to_say_carries_no_hint(actions, monkeypatch, spare):

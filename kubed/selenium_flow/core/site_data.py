@@ -150,10 +150,12 @@ def fill(store: str, items: dict) -> str:
 
 def restorable(data: dict) -> bool:
     """Whether a snapshot holds anything a restore could put back."""
-    data = data or {}
+    if not isinstance(data, dict):
+        return False
+    session = data.get("session")
     return bool(
         data.get("cookies") or data.get("origins")
-        or (data.get("session") or {}).get("items")
+        or (isinstance(session, dict) and session.get("items"))
     )
 
 
@@ -567,13 +569,16 @@ def restore(bidi, data: dict, now: float) -> dict:
             try:
                 main = bidi.current_window_handle
                 with spare_tab(bidi, context=main) as run:
-                    run(session["origin"], fill("sessionStorage", session["items"]))
-                    # The stand-in page must never be what an open with no url
-                    # leaves on screen; the tab keeps its sessionStorage.
-                    with contextlib.suppress(Exception):
-                        bidi.browsing_context.navigate(
-                            context=main, url="about:blank", wait="complete"
-                        )
+                    try:
+                        run(session["origin"], fill("sessionStorage", session["items"]))
+                    finally:
+                        # The stand-in page must never be what an open with no
+                        # url leaves on screen, filled or not; the tab keeps its
+                        # sessionStorage.
+                        with contextlib.suppress(Exception):
+                            bidi.browsing_context.navigate(
+                                context=main, url="about:blank", wait="complete"
+                            )
                 filled.append(session["origin"])
             except Exception as e:  # noqa: BLE001 - the rest stands
                 skipped.append({"site": session["origin"], "reason": _why(e)})
