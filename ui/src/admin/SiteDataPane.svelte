@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte'
+  import { tick, untrack } from 'svelte'
   import { ago } from '../lib/format'
   import type { SiteCookie, SiteDetail, SiteRow, SiteStorage } from '../lib/types'
   import { sessionPath, type Api } from './api'
@@ -8,12 +8,14 @@
   import Section from './Section.svelte'
   import type { SessionModel } from './session.svelte'
 
-  let { m, api, ask, refuseIfGone, isGone, hidden }: {
+  let { m, api, ask, refuseIfGone, isGone, site, hidden }: {
     m: SessionModel
     api: Api
     ask: <T>(spec: ModalSpec<T>) => void
     refuseIfGone: () => void
     isGone: () => boolean
+    /** A host linked from History: opened and brought into view. */
+    site?: string
     hidden: boolean
   } = $props()
 
@@ -26,6 +28,18 @@
   $effect.pre(() => {
     const sites = data?.sites ?? []
     untrack(() => sites.forEach((r, i) => { folds[idOf(r)] ??= i === 0 }))
+  })
+
+  // A link from History opens its host and brings it into view, once per link.
+  let linked: string | undefined
+  $effect.pre(() => {
+    // No host in the route: the next link, even to the same host, is a new one.
+    if (!site) linked = undefined
+    const r = (data?.sites ?? []).find((x) => x.site === site)
+    if (!r || site === linked) return
+    linked = site
+    untrack(() => { folds[idOf(r)] = true })
+    void tick().then(() => document.getElementById(idOf(r))?.scrollIntoView?.({ block: 'start' }))
   })
 
   const plural = (n: number, one: string, many = one + 's') => n + ' ' + (n === 1 ? one : many)
@@ -130,33 +144,37 @@
     </div>
     {#each data.sites as r (r.site)}
       {@const d = data.details[r.site]}
-      <Section id={idOf(r)} title={titleOf(r)}>
-        {#snippet summary()}<span class="small muted">{counts(r)}</span>{/snippet}
-        {#snippet actions()}<button class="danger" onclick={() => forget(r)}>Forget</button>{/snippet}
-        {#if d}
-          <h3>Cookies</h3>
-          {#each d.cookies as c (c.name + c.domain + c.path)}
-            <div class="line cookie">
-              <code class="key">{c.name}</code>
-              <span class="value clip" title={c.value}>{c.value}</span>
-              <span class="small muted">{c.domain} · {expires(c)}</span>
-              <span class="flags">
-                {#if c.http_only}<span class="pill">httpOnly</span>{/if}
-                {#if c.secure}<span class="pill">secure</span>{/if}
-                {#if c.shared}<span class="pill shared">shared</span>{/if}
-              </span>
-            </div>
-          {:else}
-            <div class="line"><span class="value muted">none</span></div>
-          {/each}
-          {#each groups(d) as e (e.origin)}
-            <h3>Local storage{@render from(d, e)}</h3>
-            {@render kv(Object.entries(e.local_storage))}
-            <h3>Session storage{@render from(d, e)}</h3>
-            {@render kv(Object.entries(e.session_storage))}
-          {/each}
-        {/if}
-      </Section>
+      <!-- Remounted when it becomes the linked row: a Section reads its fold
+           once, at mount. -->
+      {#key r.site === site}
+        <Section id={idOf(r)} title={titleOf(r)}>
+          {#snippet summary()}<span class="small muted">{counts(r)}</span>{/snippet}
+          {#snippet actions()}<button class="danger" onclick={() => forget(r)}>Forget</button>{/snippet}
+          {#if d}
+            <h3>Cookies</h3>
+            {#each d.cookies as c (c.name + c.domain + c.path)}
+              <div class="line cookie">
+                <code class="key">{c.name}</code>
+                <span class="value clip" title={c.value}>{c.value}</span>
+                <span class="small muted">{c.domain} · {expires(c)}</span>
+                <span class="flags">
+                  {#if c.http_only}<span class="pill">httpOnly</span>{/if}
+                  {#if c.secure}<span class="pill">secure</span>{/if}
+                  {#if c.shared}<span class="pill shared">shared</span>{/if}
+                </span>
+              </div>
+            {:else}
+              <div class="line"><span class="value muted">none</span></div>
+            {/each}
+            {#each groups(d) as e (e.origin)}
+              <h3>Local storage{@render from(d, e)}</h3>
+              {@render kv(Object.entries(e.local_storage))}
+              <h3>Session storage{@render from(d, e)}</h3>
+              {@render kv(Object.entries(e.session_storage))}
+            {/each}
+          {/if}
+        </Section>
+      {/key}
     {/each}
   {/if}
 </div>

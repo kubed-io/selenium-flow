@@ -40,6 +40,7 @@ const row = { key: 'k', name: 'mine', live: true, attached: true, session_id: 'b
 const base = {
   'GET /admin/sessions/k/files': { body: { session: row, downloads: [], screenshots: [], files: [], browser: true } },
   'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [], rev: 1, session: 'k' } },
+  'GET /admin/sessions/k/history': { body: { key: 'k', sites: [] } },
 }
 
 function setup(routes = {}) {

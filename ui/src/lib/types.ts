@@ -37,6 +37,8 @@ export interface SessionRow {
   flows_rev?: string | number | null
   site_data_count?: number | null
   site_data_rev?: string | null
+  history_count?: number | null
+  history_rev?: string | null
 }
 
 export interface SessionsPayload { sessions: SessionRow[]; events_url?: string }
@@ -136,3 +138,15 @@ export interface SiteDataPayload {
   uri?: string
   details: Record<string, SiteDetail>
 }
+
+/** What the snapshot holds for one host, as History's pill counts it. */
+export interface SavedCounts { cookies: number; local: number; session: number }
+/** A host the session landed on: its latest page, and what can be used there. */
+export interface HistoryRow {
+  site: string
+  url: string
+  at: number
+  saved: SavedCounts | null
+  secrets: SiteSecret[]
+}
+export interface HistoryPayload { key: string; sites: HistoryRow[] }

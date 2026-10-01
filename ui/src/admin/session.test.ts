@@ -64,7 +64,7 @@ test('filesSettled sees the newest data even when the poll overtook the caller (
 })
 
 test('a pushed row refetches files only when the stamp moves (F8)', async () => {
-  const { calls } = fakeFetch({ 'GET /admin/sessions/k/site-data': { body: { sites: [], details: {} } }, 'GET /admin/sessions/k/files': { body: files() }, 'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [], rev: 1 } } })
+  const { calls } = fakeFetch({ 'GET /admin/sessions/k/site-data': { body: { sites: [], details: {} } }, 'GET /admin/sessions/k/history': { body: { key: 'k', sites: [] } }, 'GET /admin/sessions/k/files': { body: files() }, 'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [], rev: 1 } } })
   const m = new SessionModel('k', api)
   await m.loadFiles(); await m.loadFlows(() => null, () => {})
   const before = calls.length
@@ -75,7 +75,7 @@ test('a pushed row refetches files only when the stamp moves (F8)', async () => 
 })
 
 test('a pushed row refetches flows only when flows_rev moves (F8, W7)', async () => {
-  const { calls } = fakeFetch({ 'GET /admin/sessions/k/site-data': { body: { sites: [], details: {} } }, 'GET /admin/sessions/k/files': { body: files() }, 'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [], rev: 1 } } })
+  const { calls } = fakeFetch({ 'GET /admin/sessions/k/site-data': { body: { sites: [], details: {} } }, 'GET /admin/sessions/k/history': { body: { key: 'k', sites: [] } }, 'GET /admin/sessions/k/files': { body: files() }, 'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [], rev: 1 } } })
   const m = new SessionModel('k', api)
   await m.loadFiles(); await m.loadFlows(() => null, () => {})
   const flowLoads = () => calls.filter((c) => c.path === '/admin/sessions/k/flows').length
@@ -127,4 +127,21 @@ test('a still-listed open flow reloads its document (W7)', async () => {
   const m = new SessionModel('k', api)
   await m.loadFlows(() => 'a', () => {})
   await vi.waitFor(() => expect(m.flowDoc?.name).toBe('a'))
+})
+
+test('a pushed row refetches the history only when history_rev moves', async () => {
+  const { calls } = fakeFetch({
+    'GET /admin/sessions/k/history': { body: { key: 'k', sites: [] } },
+    'GET /admin/sessions/k/files': { body: files() },
+    'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [], rev: 1 } },
+  })
+  const m = new SessionModel('k', api)
+  const loads = () => calls.filter((c) => c.path === '/admin/sessions/k/history').length
+  const push = (rev: string) => m.onPushed({ sessions: [{ key: 'k', live: true, session_id: 'b1', files_rev: 1, flows_rev: 1, history_rev: rev }] }, () => null, () => {}, () => {})
+  push('h1')
+  expect(loads()).toBe(1)
+  push('h1')
+  expect(loads()).toBe(1)
+  push('h2')
+  expect(loads()).toBe(2)
 })

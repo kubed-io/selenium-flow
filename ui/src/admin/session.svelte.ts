@@ -1,7 +1,7 @@
 import type { Api } from './api'
 import { sessionPath } from './api'
 import { Latest } from './latest'
-import type { FileEntry, FilesData, FilesResponse, FlowDoc, FlowsListing, SessionRow, SiteDataPayload, SessionsPayload } from '../lib/types'
+import type { FileEntry, FilesData, FilesResponse, FlowDoc, FlowsListing, HistoryPayload, SessionRow, SiteDataPayload, SessionsPayload } from '../lib/types'
 
 /* Handed to a session that has not answered yet, or whose load failed: the
    clears must never act on a previous session's names. */
@@ -47,6 +47,8 @@ export class SessionModel {
   flowsBlanked = $state(false)
   siteData = $state.raw<SiteDataPayload | null>(null)
   siteDataError = $state<string | null>(null)
+  history = $state.raw<HistoryPayload | null>(null)
+  historyError = $state<string | null>(null)
   flowDoc = $state.raw<FlowDoc | null>(null)
   flowDocError = $state<{ name: string; message: string } | null>(null)
 
@@ -56,7 +58,9 @@ export class SessionModel {
   #shownFlows: string | number | null = null
   // undefined until a row is seen, so the first row always loads.
   #shownSiteData: string | null | undefined = undefined
+  #shownHistory: string | null | undefined = undefined
   #siteLoads = new Latest()
+  #historyLoads = new Latest()
   #fileLoads = new Latest()
   #flowLoads = new Latest()
   #docLoads = new Latest()
@@ -154,6 +158,19 @@ export class SessionModel {
     )
   }
 
+  loadHistory(): Promise<void> {
+    if (this.#disposed) return Promise.resolve()
+    return this.#historyLoads.run(
+      (signal) => this.#api<HistoryPayload>(sessionPath(this.key, '/history'), 'GET', undefined, signal),
+      (data) => { this.history = data; this.historyError = null },
+      (e) => {
+        this.historyError = e.message
+        // Unshown again, so the next push at the same rev tries once more.
+        this.#shownHistory = undefined
+      },
+    )
+  }
+
   loadFlow(name: string): Promise<void> {
     if (this.#disposed) return Promise.resolve()
     return this.#docLoads.run(
@@ -192,6 +209,10 @@ export class SessionModel {
       this.#shownSiteData = row.site_data_rev ?? null
       void this.loadSiteData()
     }
+    if ((row.history_rev ?? null) !== this.#shownHistory) {
+      this.#shownHistory = row.history_rev ?? null
+      void this.loadHistory()
+    }
     this.filesBlanked = false
   }
 
@@ -201,6 +222,7 @@ export class SessionModel {
     this.#fileLoads.abort()
     this.#flowLoads.abort()
     this.#siteLoads.abort()
+    this.#historyLoads.abort()
     this.#docLoads.abort()
   }
 }

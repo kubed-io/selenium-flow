@@ -98,7 +98,7 @@
           <!-- Keyed: a switch destroys the old session's subtree — its loads,
                its lightbox, its modal — and builds the new one from nothing. -->
           {#key route.key}
-            <SessionDetail key={route.key} tab={route.tab} flow={route.flow} {api} {live} root={ROOT} />
+            <SessionDetail key={route.key} tab={route.tab} flow={route.flow} site={route.site} {api} {live} root={ROOT} />
           {/key}
         {:else}
           <SessionsView {live} />
