@@ -27,7 +27,7 @@ discussion that followed:
   on each. A save on the second one quietly left the first one out.
 
 Round 2 adds a history, makes a save a full snapshot, writes a restore
-straight into the browser, and rebuilds the tab as a view over the history.
+straight into the browser, and splits the tab in two: History and Site data.
 
 ## Goal
 
@@ -56,7 +56,8 @@ straight into the browser, and rebuilds the tab as a view over the history.
 
 **Site data** — the browsers' own term for these three stores together
 ("Cookies and site data" in Chrome and Firefox, the `Clear-Site-Data`
-header). The tab keeps the name and now opens on the history.
+header). The tab keeps the name and shows only the snapshot; **History** is
+its own tab beside it.
 
 ## Why WebDriver BiDi
 
@@ -197,7 +198,8 @@ underneath:
   then the saved sessionStorage in the main tab. Then land. The browser is
   fully restored when `open_session` returns. The silent reopen after a reap
   does the same.
-- **False:** nothing is restored and the snapshot is **deleted** (Dr K).
+- **False:** nothing is restored and the snapshot is **deleted** (Dr K). The
+  history stays: it forgets the sign-in, not where the session has been.
 - `fresh` keeps its meaning. `insecure=true` still restores nothing and
   deletes nothing, with the same hint.
 - Restore is best effort: nothing in it can fail an open.
@@ -227,39 +229,58 @@ The preload script and everything that kept it honest: `pending`, the
 `SessionManager._hold_pending`, the `MARKER` tab key, and the per-origin
 `saved_at`. Most of the bugs found in #49 and #50 lived here.
 
-## The admin UI
+## The admin UI: two tabs
 
-A view, built per request by the admin API from three things: the history,
-the snapshot, and the secret catalogue. Nothing in it is stored as a row.
+History and site data are kept apart, in the model and on screen, the way a
+browser keeps its history apart from its cookies and storage. The session
+subtabs become **Files · Flows · Site data · History**. Neither tab stores a
+row: each is built per request by the admin API.
 
-- **The current site is on top**, then the history, most recent first.
-  Each row is one **host** (its origins' storage shown per origin). Each row
-  shows its latest URL, when it was visited, counts, and the secrets
-  allowed on that host (🔑 name, description, one pill per key).
+### History
+
+Where the session has been, joined by **host** to what can be used there.
+
+- **The current site is on top**, then the history, most recent first. One
+  row per host: its latest URL and when it was visited.
+- Joined onto each row: the **secrets allowed on that host** (🔑 name,
+  description, one pill per key), and **whether the snapshot holds data for
+  it** (its counts, which link to that host in Site data).
 - **Secrets never make a row.** A site the session never landed on is not
   listed, whatever the secrets say.
-- **Other cookies**, collapsed at the bottom: one row per cookie domain that
-  no visited host covers — the ad server, the CDN, the identity provider
-  reached only by a redirect. They are in the snapshot and are restored, so
-  they are shown; they are not history, so they are not mixed into it.
+- The tab counts the hosts listed.
+- **Clear** empties the history, except the current site's entry. There is
+  no per-row action: the history expires on its own.
+- Later, not now: flows and runs on a row, and every path visited.
+
+### Site data
+
+What a reopened browser gets back: the snapshot and nothing else.
+
+- One row per host the snapshot holds data for — the ad server, the CDN and
+  the identity provider reached only by a redirect included, because they
+  are restored. Hosts in the history come first, most recent first, then the
+  rest alphabetically. No secrets here.
 - A cookie is listed under its own domain. A parent's leading-dot cookie is
-  listed under every visited host it covers, marked shared; it belongs to
-  none of them.
+  listed under every row it covers, marked shared; it belongs to none.
+  Storage is shown per origin.
 - One "saved 2m ago" for the snapshot, in the tab's header.
-- **Forget (one row):** removes the host's storage and its own cookies
-  (`host` or `.host`) from the snapshot, and its history entries. On the
-  current site the history entry stays, and only the data goes. A row with
-  nothing saved and no history to drop has no Forget.
-- **Clear (the whole tab):** deletes the snapshot and the history, except
-  the current site's entry.
+- The tab counts the hosts listed.
+- **Forget (one row)** removes the host's storage and its own cookies
+  (`host` or `.host`) from the snapshot. **Clear** deletes the snapshot.
+  Neither touches the history or the live browser: the browser keeps what
+  it has, and only the next browser opened comes back without it.
 - **Copy dropped:** "Nothing saved. It stays listed because a secret is
-  allowed here." and "nothing saved". A row with nothing saved shows no
-  counts.
-- Live: `site_data_rev` covers the history's origins in order and the
-  snapshot's `saved_at`, so the pane repaints on a navigation and on a save.
-- Behind it: `GET /admin/sessions/{key}/site-data` (now with `history`),
-  `DELETE /admin/sessions/{key}/site-data/{site}`, and
-  `DELETE /admin/sessions/{key}/site-data` for Clear. Token-gated.
+  allowed here." and "nothing saved". Every row here has something saved.
+
+### Behind them
+
+- `GET /admin/sessions/{key}/history` — the history joined with secrets and
+  per-host snapshot counts; `DELETE …/history` for Clear.
+- `GET /admin/sessions/{key}/site-data` — the snapshot by host, no secrets;
+  `DELETE …/site-data/{site}` for Forget; `DELETE …/site-data` for Clear.
+- Token-gated. The session row gains `history_count` and `history_rev` (the
+  history's origins in order) beside `site_data_count` and `site_data_rev`
+  (the snapshot's `saved_at`), so each pane repaints for its own changes.
 
 ## The skill
 
@@ -272,35 +293,29 @@ save after signing out saves you signed out).
 
 - Unit: the history's bump, expiry, cap and withheld URLs; `url` derived from
   `history[0]`; the snapshot replacing rather than merging; a failed origin
-  keeping its last storage; the cap leaving out the oldest; the view (current
-  on top, secrets joining only visited hosts, other cookies); Forget on a
-  past site and on the current site; Clear. BiDi faked at `Grid.bidi`. Each
-  new test broken on purpose once.
+  keeping its last storage; the cap leaving out the oldest; the History view
+  (current on top, secrets joining only visited hosts, snapshot counts per
+  host); the Site data view (history hosts first, then the rest); Forget and
+  both Clears leaving the other tab's data alone. BiDi faked at `Grid.bidi`.
+  Each new test broken on purpose once.
 - The standing guards: `test_surfaces`, the declared response shapes, the
   wiki regenerating.
-- The integration flow stays: sign in to the admin page, save, and the tab
-  lists the token's sessionStorage key.
+- The integration flow stays: sign in to the admin page, save, and the Site
+  data tab lists the token's sessionStorage key.
 - **Live before the PR:** Chrome and Firefox, two apps signed in, one save, a
   real end and reopen, both signed in, timed.
 
 ## Open questions (round 2)
 
-1. Do Forget and Clear also clear the **live** browser? Round 1 applied
-   Forget from the next browser. With snapshots, a Forget followed by a save
-   brings the data straight back, because the browser still holds it.
-   Proposed: yes, through BiDi and the spare tab.
-2. Is one row per host with its latest URL enough of an audit trail, or
-   should a row expand to every URL visited on that host?
-3. Does `restore_site_data=false` keep the history? Proposed: yes — it
-   forgets the sign-in, not where the session has been.
-4. What does the tab count: visited sites, or sites with saved data?
-5. A save meets an origin with a service worker. The spare tab is served
-   the real app, so the site's scripts run for a moment in a hidden tab, and
-   an app that rotates its refresh token there can make the saved token
-   stale. Proposed: the spare tab serves a page with a marker; when the
-   marker is missing, the tab closes without reading, that origin keeps its
-   storage from the last snapshot, and `skipped` says to save while on it.
-   Its storage is still read whenever the save happens on that site.
+1. **A Forget is undone by the next save while the same browser lives.** The
+   browser still holds what was forgotten, and a save snapshots the
+   browser. Accepted as the simple rule, or should a save skip hosts
+   forgotten since the browser opened?
+2. **A save meets a site with a service worker.** The spare tab is answered
+   by the site's own worker, so the real app runs for a moment in a hidden
+   tab. Proposed: the spare tab serves a page with a marker; when the marker
+   is missing, the tab closes without reading, that origin keeps its storage
+   from the last snapshot, and `skipped` says to save while on that site.
 
 ## Rulings
 
@@ -314,15 +329,25 @@ Round 1:
 
 Round 2 (2026-10-01):
 
-- Dr K: the tab is a history of where the session went, not a list of what
-  it could use; secrets join a row and never make one; history is per
-  session and expires; Forget on the current site keeps the row; both
-  Forget and Clear; the two "nothing saved" lines go; the
-  `save_site_data` interface stays; keep sessionStorage.
-- Dr K: the current URL becomes the top of the history; cookie domains the
-  session never visited stay out of the history, in their own group.
+- Dr K: the history is where the session went, not a list of what it could
+  use; secrets join a row and never make one; history is per session and
+  expires; the two "nothing saved" lines go; the `save_site_data` interface
+  stays; keep sessionStorage; the current URL becomes the top of the
+  history.
+- Dr K: **History is its own tab**, a join view by host of the history, the
+  secrets and the snapshot. Site data is only the snapshot. The two are
+  separate in the model and meet only in the admin view.
+- Dr K: Forget and Clear change the session's store, never the live
+  browser.
+- Dr K: one row per host with its latest URL is the audit trail for now;
+  deeper history (flows, runs, paths) is a later discussion.
+- Dr K: `restore_site_data=false` deletes the snapshot and keeps the
+  history.
 - Research: a save is a full snapshot (Playwright), not a merge
   (browser-use's flaw); localStorage is read for every visited origin
   through a spare tab with network interception; cookie provenance is
-  unknowable, so cookies show under their own domain; never-visited cookie
-  domains are kept in their own group, out of the history.
+  unknowable, so cookies show under their own domain.
+- No browser history API: WebDriver and BiDi can step back and forward but
+  cannot list where a tab has been, and a browser's own history dies with
+  it on a reap. The session records its own, from the URL each call already
+  reports.
