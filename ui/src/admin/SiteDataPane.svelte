@@ -113,7 +113,7 @@
       {@const d = data.details[r.site]}
       <Section id={idOf(r)} title={titleOf(r)}>
         {#snippet summary()}
-          {#if r.saved_at}<span class="pill saved">saved {ago(r.saved_at * 1000)}</span>{/if}
+          {#if r.saved_at}<span class="pill">saved {ago(r.saved_at * 1000)}</span>{/if}
           <span class="small muted">{counts(r)}</span>
         {/snippet}
         {#snippet actions()}

@@ -809,3 +809,113 @@ def test_a_jar_of_many_domains_is_not_rescanned_per_host(monkeypatch):
     assert len(listing["sites"]) == 500 and set(details) == {r["site"] for r in listing["sites"]}
     assert calls["n"] <= 4 * len(cookies)
     assert sd.view({"cookies": cookies, "origins": {}}) == listing
+
+
+# ---- restore never loses a cookie, or a script, to one bad entry --------------
+
+
+def test_one_malformed_cookie_is_skipped_not_the_whole_restore():
+    good = cookie("ok", "app.example.com")
+    nameless = {k: v for k, v in cookie("x", "app.example.com").items() if k != "name"}
+    domainless = {**cookie("nodomain", "app.example.com"), "domain": None}
+    bidi = FakeBidi()
+    report, _ = sd.restore(bidi, {"cookies": [nameless, domainless, good], "origins": {}}, NOW)
+    assert [c.name for c in bidi.storage.set] == ["ok"]
+    assert report["restored"] == ["app.example.com"]
+    reasons = [s["reason"] for s in report["skipped"]]
+    assert reasons == ["a stored cookie with no name or domain"] * 2
+
+
+def test_a_failure_after_the_script_is_added_never_loses_its_id(monkeypatch):
+    """The id is what retires the script; a restore that added one and then
+    reported "" left it filling storage for the life of the browser."""
+    data, _ = sd.merge({}, captured(local={"a": "1"}), NOW)
+
+    def boom(_):
+        raise RuntimeError("late")
+
+    monkeypatch.setattr(sd, "host_of", boom)
+    bidi = FakeBidi()
+    _, pending = sd.restore(bidi, data, NOW)
+    assert not bidi.script.added or pending["script"] == "preload-1"
+
+
+# ---- the preload script, run --------------------------------------------------
+
+
+PRELOAD_HARNESS = """
+const stores = () => {
+  const s = new Map();
+  return {
+    getItem: (k) => (s.has(k) ? s.get(k) : null),
+    setItem: (k, v) => { s.set(k, String(v)); },
+    get length() { return s.size; },
+    key: (i) => [...s.keys()][i],
+    dump: () => Object.fromEntries(s),
+  };
+};
+const tab = (origin) => ({ location: { origin }, localStorage: stores(), sessionStorage: stores() });
+const run = (t, src) => {
+  globalThis.location = t.location;
+  globalThis.localStorage = t.localStorage;
+  globalThis.sessionStorage = t.sessionStorage;
+  eval(src)();
+};
+const src = process.argv[2];
+const app = tab('https://app.example.com');
+run(app, src);
+app.localStorage.setItem('theme', 'light');   // the app changes it since
+run(app, src);                                 // a second page in the same tab
+const other = tab('https://other.test');
+run(other, src);
+console.log(JSON.stringify({
+  app: { local: app.localStorage.dump(), session: app.sessionStorage.dump() },
+  other: { local: other.localStorage.dump(), session: other.sessionStorage.dump() },
+}));
+"""
+
+
+@pytest.mark.skipif(__import__("shutil").which("node") is None, reason="needs node")
+def test_the_preload_script_fills_its_own_origin_once_per_tab_and_no_other(tmp_path):
+    import subprocess
+
+    src = sd.preload_source({
+        "https://app.example.com": {"local": {"theme": "dark"}, "session": {"s": "1"}},
+        "https://sso.example.com": {"local": {"kc": "token"}, "session": {}},
+    })
+    path = tmp_path / "preload.js"
+    path.write_text(PRELOAD_HARNESS, encoding="utf-8")
+    out = subprocess.run(["node", str(path), src], capture_output=True, text=True, check=False)
+    assert out.returncode == 0, out.stderr
+    got = json.loads(out.stdout)
+    assert got["app"]["local"] == {"theme": "light"}, "filled once, never over the app"
+    assert got["app"]["session"] == {
+        "s": "1", "selenium-flow:restored:https://app.example.com": "1",
+    }
+    assert got["other"] == {"local": {}, "session": {}}, "no other origin's keys"
+
+
+# ---- Grid.bidi --------------------------------------------------------------
+
+
+class FakeSocket:
+    def __init__(self):
+        self.closed = 0
+
+    def close(self):
+        self.closed += 1
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_grid_bidi_closes_a_socket_it_opened(fails):
+    from contextlib import nullcontext
+
+    from kubed.selenium_flow.core.browser import Grid
+
+    socket = FakeSocket()
+    raised = pytest.raises(RuntimeError) if fails else nullcontext()
+    with raised, Grid("http://grid.example:4444").bidi("abc") as driver:
+        driver._websocket_connection = socket
+        if fails:
+            raise RuntimeError("mid-call")
+    assert socket.closed == 1

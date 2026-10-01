@@ -22,6 +22,7 @@ import contextlib
 import json
 from urllib.parse import urlsplit
 
+from ..errors import BidiUnavailable
 from ..errors import message as failure_text
 
 # The private key an action hands its capture back under. `SessionManager.act`
@@ -32,6 +33,10 @@ CAPTURED = "_site_data_captured"
 MARKER = "selenium-flow:restored:"
 MAX_BYTES = 1_000_000
 MASK = "•••"
+BIDI_DOWN = (
+    "the browser's BiDi channel is unavailable, so nothing was saved: retry, "
+    "and if it persists the Grid's /se/bidi route is down"
+)
 LIST_URI = "session://site-data"
 DEFAULT_PORTS = {"http": 80, "https": 443}
 
@@ -386,16 +391,24 @@ READ_STORAGE = (
 
 
 def capture(bidi, driver) -> dict:
-    """The whole cookie jar (BiDi sees httpOnly ones) and the page's storage."""
+    """The whole cookie jar (BiDi sees httpOnly ones) and the page's storage.
+
+    The browser answered classic WebDriver to get here, so a jar that cannot
+    be read is the BiDi channel failing: :class:`BidiUnavailable`, a 503.
+    """
     from selenium.webdriver.common.bidi.storage import CookieFilter
 
+    try:
+        jar = bidi.storage.get_cookies(CookieFilter()).cookies
+    except Exception as e:
+        raise BidiUnavailable(BIDI_DOWN) from e
     cookies = [
         {
             "name": c.name, "value": c.value.value, "value_type": c.value.type,
             "domain": c.domain, "path": c.path, "http_only": c.http_only,
             "secure": c.secure, "same_site": c.same_site, "expiry": c.expiry,
         }
-        for c in bidi.storage.get_cookies(CookieFilter()).cookies
+        for c in jar
     ]
     page = driver.execute_script(READ_STORAGE) or {}
     return {
@@ -433,7 +446,21 @@ def _kept(bidi, cookies: list[dict]) -> list[dict] | None:
     except Exception:  # noqa: BLE001 - an unverified restore is still a restore
         return None
     held = {_key(c.name, c.domain, c.path) for c in jar}
-    return [c for c in cookies if _key(c["name"], c["domain"], c.get("path")) in held]
+    return [
+        c for c in cookies
+        if _key(c.get("name"), c.get("domain"), c.get("path")) in held
+    ]
+
+
+MALFORMED = "a stored cookie with no name or domain"
+
+
+def _usable(c) -> bool:
+    return (
+        isinstance(c, dict)
+        and isinstance(c.get("name"), str) and bool(c["name"])
+        and isinstance(c.get("domain"), str) and bool(c["domain"])
+    )
 
 
 def restore(bidi, data: dict, now: float) -> tuple[dict, dict]:
@@ -450,12 +477,21 @@ def restore(bidi, data: dict, now: float) -> tuple[dict, dict]:
     report = {"restored": [], "waiting": [], "skipped": [], "uri": LIST_URI}
     pending = {"origins": [], "script": ""}
     try:
-        cookies = live_cookies(data.get("cookies") or [], now)
+        stored = data.get("cookies") or []
+        cookies = live_cookies([c for c in stored if _usable(c)], now)
+        # One bad entry is skipped, not the whole restore.
+        report["skipped"] = [
+            {"cookie": c.get("name") if isinstance(c, dict) else None,
+             "domain": c.get("domain") if isinstance(c, dict) else None,
+             "reason": MALFORMED}
+            for c in stored if not _usable(c)
+        ]
         sent = []
         for c in cookies:
             try:
                 bidi.storage.set_cookie(PartialCookie(
-                    c["name"], BytesValue(c.get("value_type") or "string", c["value"]),
+                    c["name"],
+                    BytesValue(c.get("value_type") or "string", c.get("value")),
                     c["domain"], path=c.get("path"), http_only=c.get("http_only"),
                     secure=c.get("secure"), same_site=_same_site(c),
                     expiry=c.get("expiry"),
@@ -477,13 +513,14 @@ def restore(bidi, data: dict, now: float) -> tuple[dict, dict]:
                     "reason": "the browser did not keep it",
                 })
         origins = data.get("origins") or {}
-        script = _add_preload(bidi, origins) if origins else ""
         stored_hosts = {host_of(o) for o in origins}
         report["restored"] = sorted({
             c["domain"].lstrip(".") for c in kept
             if not any(_covers(c["domain"], h) for h in stored_hosts)
         })
         report["waiting"] = sorted(origins)
+        # Added last: nothing after it can fail and lose the id that retires it.
+        script = _add_preload(bidi, origins) if origins else ""
         pending = {"origins": list(report["waiting"]), "script": script}
     except Exception as e:  # noqa: BLE001 - BiDi failing is a report, not a crash
         return (

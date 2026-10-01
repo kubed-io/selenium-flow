@@ -132,6 +132,8 @@ One new tool, and its endpoint `POST /browser/save-site-data` (one to one).
 - The result names what was saved, never a value:
   `{"url": …, "title": …, "saved": {"cookies": 14, "sites": ["https://app.example.com"], "skipped": []}, "uri": "session://site-data"}`
 - A page with no origin (`about:blank`, `data:`) saves cookies only.
+- With the browser's BiDi channel down the save is a **503** ("the browser's
+  BiDi channel is unavailable…", never the socket's URL), and nothing is saved.
 - It is a flow step like any other, so a login flow ends with it.
 - Annotations: not read-only (it writes the session's store), not destructive
   (it tells the page nothing), idempotent.
@@ -199,12 +201,13 @@ the record has site data and restore is on:
    saved with SameSite `none` and not Secure is set as `lax`: Chrome reports
    an unspecified SameSite as `none` and silently refuses None without
    Secure (found live). A refused cookie is skipped with its reason, never
-   fatal.
+   fatal, and so is a stored one with no name or domain.
 2. Read the jar back once. A cookie the browser did not keep is skipped with
    "the browser did not keep it", and a host none of whose cookies were kept
    is not reported as restored.
 3. If any origin has storage, add **one** preload script carrying every
-   origin's storage. On each new document it checks `location.origin`, fills
+   origin's storage, as the last BiDi call of the restore so no later
+   failure can lose its id. On each new document it checks `location.origin`, fills
    that origin's localStorage and sessionStorage **once per tab**, and marks
    the tab with a sessionStorage key `selenium-flow:restored:<origin>`. Keys
    with that prefix are never saved.

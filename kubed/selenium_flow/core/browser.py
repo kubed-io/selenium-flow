@@ -298,8 +298,7 @@ class Grid:
         parts = urlsplit(self.url)
         scheme = "wss" if parts.scheme == "https" else "ws"
         socket = urlunsplit((scheme, parts.netloc, parts.path.rstrip("/"), "", ""))
-        driver = ReattachDriver(command_executor=self.url, options=self._options())
-        driver.session_id = session_id
+        driver = self.reconnect(session_id)
         driver.caps = {"webSocketUrl": f"{socket}/session/{session_id}/se/bidi"}
         # Selenium waits 30 s for a socket that never answers; an open would
         # stall that long on a Grid whose BiDi route is down.
