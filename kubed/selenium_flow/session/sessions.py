@@ -353,6 +353,7 @@ class SessionManager:
             opened["session_id"],
             opened.get("url", record.url or ""),
             record.settings,
+            replacing=record.session_id,
         )
         # Nobody asked for this reopen, so the next result says it happened.
         self._hold_pending(
@@ -610,7 +611,7 @@ class SessionManager:
         # A session holds one browser. Opening a second without ending the first
         # leaves it on the Grid referenced by nothing, holding a slot until the
         # idle timeout — which switching browser did.
-        self.end_browser(name)
+        ended = self.end_browser(name)
         # `fresh` drops only the remembered page. The settings still come
         # through the cascade above, because coming back as Chrome when the
         # session was using Firefox is a silent change of shape, not a fresh
@@ -631,7 +632,10 @@ class SessionManager:
         )
         if forgotten is not None:
             self.store.update(name, lambda r: r.with_site_data({}))
-        self.remember(name, opened["session_id"], opened.get("url", ""), resolved)
+        self.remember(
+            name, opened["session_id"], opened.get("url", ""), resolved,
+            replacing=ended,
+        )
         self._hold_pending(name, opened, {"announce": False})
         if forgotten is not None:
             opened["site_data"] = {"forgotten": forgotten}
@@ -646,6 +650,7 @@ class SessionManager:
         session_id: str,
         url: str = "",
         settings: dict | None = None,
+        replacing: str | None = None,
     ) -> None:
         """Bind a browser to this session.
 
@@ -653,19 +658,38 @@ class SessionManager:
         not a default one — swapping Firefox for Chrome, or a 1400x900 window
         for the node default, midway through a task would be a silent change of
         shape. They are also what ``open_session`` with no arguments inherits.
+
+        ``replacing`` is the browser this open ended or found dead. A record
+        naming any other one was bound by an open that ran alongside this one;
+        the newest browser is kept and that one is quit, or it would hold a
+        Grid slot referenced by nothing until the idle reap.
         """
-        def bound(site_data: dict) -> SessionRecord:
+        loser = {}
+
+        def bound(r: SessionRecord | None) -> SessionRecord:
+            current = r.session_id if r is not None else ""
+            loser["id"] = (
+                current if current and current not in (session_id, replacing) else None
+            )
             return SessionRecord(
                 session_id=session_id,
                 url=url,
                 opened_at=time.time(),
                 settings=dict(settings or {}),
-                site_data=dict(site_data),
+                site_data=dict(r.site_data if r is not None else {}),
             )
 
         # Through `update`, so a save landing while the browser opened is kept.
-        if self.store.update(name, lambda r: bound(r.site_data)) is None:
-            self.store.set(name, bound({}))
+        if self.store.update(name, bound) is None:
+            self.store.set(name, bound(None))
+        if loser.get("id"):
+            log.info(
+                "two opens raced for session %s: quitting browser %s", name, loser["id"]
+            )
+            try:
+                self.actions.end_browser(loser["id"])
+            except Exception as exc:  # noqa: BLE001 - it may be gone already
+                log.info("could not end browser %s: %s", loser["id"], exc)
 
     def touch(self, name: str, url: str | None) -> None:
         """Record where the browser ended up, and slide the record's TTL.

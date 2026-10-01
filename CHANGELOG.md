@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `open_session(restore_site_data=false)` starts without that data and deletes it.
 - The admin UI has a Site data tab.
 - Site data a save evicts over the size cap no longer comes back in a browser already open.
+- Two `open_session` calls at once on one session no longer leave a browser running on the Grid.
 - The Secrets tab no longer lists which flows use a secret.
 - Screenshot and image links open in any browser again, including ones whose extensions hung the tab on a blank screen.
 - An expired or broken file link opened in a browser shows a page saying which, and when it expired.

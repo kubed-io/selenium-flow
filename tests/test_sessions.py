@@ -1125,3 +1125,45 @@ async def test_a_url_given_alongside_fresh_still_wins(server, monkeypatch):
             "open_session", {"fresh": True, "url": "https://app.test/login"}
         )
     assert seen["url"] == "https://app.test/login"
+
+
+# ---- two opens at once ------------------------------------------------------
+
+
+class InterleavedActions(RecordingActions):
+    """The second open of one name starts and finishes inside the first."""
+
+    def __init__(self):
+        super().__init__()
+        self.during_first = None
+
+    def open_session(self, url=None, **kwargs):
+        opened = super().open_session(url=url, **kwargs)
+        during, self.during_first = self.during_first, None
+        if during:
+            during()
+        return opened
+
+
+def test_two_opens_at_once_leave_exactly_one_browser():
+    """Both ended nothing and both opened: the one whose record lost used to
+    sit on the Grid referenced by nothing until the idle reap."""
+    actions = InterleavedActions()
+    sessions = manager(actions)
+    actions.during_first = lambda: sessions.open_browser(NAMED)
+    sessions.open_browser(NAMED)
+    assert actions.opened == 2
+    kept = sessions.store.get(NAMED).session_id
+    assert actions.grid.alive == {kept}
+    assert actions.closed == [({"generated-1", "generated-2"} - {kept}).pop()]
+
+
+def test_two_reopens_after_a_reap_leave_exactly_one_browser():
+    actions = InterleavedActions()
+    sessions = manager(actions)
+    sessions.remember(NAMED, "reaped", "https://x/")
+    actions.during_first = lambda: sessions.resolve(NAMED)
+    sessions.resolve(NAMED)
+    kept = sessions.store.get(NAMED).session_id
+    assert actions.grid.alive == {kept}
+    assert len(actions.closed) == 1 and actions.closed[0] != kept
