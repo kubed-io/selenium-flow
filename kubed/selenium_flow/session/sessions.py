@@ -36,9 +36,10 @@ usable as one and not the other (§F2.12).
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .. import errors
 from ..core import site_data as site_data_module
@@ -407,13 +408,30 @@ class SessionManager:
         # Popped before the store is asked anything, so a store that fails
         # cannot leave the capture — every value — in what the caller gets.
         captured = result.pop(site_data_module.CAPTURED, None)
-        if touch:
-            told = self.touch(name, result.get("url"), browser=browser)
+        told = self.touch(name, result.get("url"), browser=browser) if touch else None
+        if told:
+            result["site_data"] = told
+        try:
+            if reshapes:
+                self.reshape(name, result, browser=browser)
+            self._save_site_data(name, result, captured, browser)
+        except Exception:
+            # The caller gets the error, not this result: the reopen's report
+            # goes back on the record for the next one (Copilot, #51).
             if told:
-                result["site_data"] = told
-        if reshapes:
-            self.reshape(name, result, browser=browser)
-        self._save_site_data(name, result, captured, browser)
+                self._hold_again(name, told, browser)
+            raise
+
+    def _hold_again(self, name: str, report: dict, browser: str | None) -> None:
+        """Put a reopen's report back when the result carrying it failed."""
+
+        def held(r: SessionRecord) -> SessionRecord | None:
+            if r.reopened or (browser and r.session_id != browser):
+                return None
+            return replace(r, reopened={"browser": r.session_id, "report": report})
+
+        with contextlib.suppress(Exception):  # the caller's own error is the one to see
+            self.store.update(name, held)
 
     def _save_site_data(
         self,

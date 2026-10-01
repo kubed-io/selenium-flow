@@ -363,3 +363,21 @@ def test_a_result_from_the_browser_held_still_moves_the_page(named_caller):
     record = m.store.get(NAMED)
     assert record.url == "https://a.test/page"
     assert record.settings["width"] == 640
+
+
+def test_a_report_survives_a_result_that_fails_after_it_was_handed_over(named_caller, monkeypatch):
+    # The touch hands the report to the result; a save that then fails turns
+    # that result into an error, and the report must wait for the next one.
+    m = opened_with_save()
+    reaped(m)
+    real = m._save_site_data
+
+    def broken(*args, **kwargs):
+        raise ValueError("the cookie jar is over the cap")
+
+    monkeypatch.setattr(m, "_save_site_data", broken)
+    with pytest.raises(ValueError):
+        m.act(NAMED, lambda s: {"url": URL})
+    monkeypatch.setattr(m, "_save_site_data", real)
+    assert m.act(NAMED, lambda s: {"url": URL})["site_data"] == REPORT
+    assert "site_data" not in m.act(NAMED, lambda s: {"url": URL})
