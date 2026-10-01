@@ -131,8 +131,9 @@ The header beats the parameter, as everywhere else here, because the header is
 in the credential an admin controls.
 
 `insecure` has no default anywhere: only `open_session(insecure=true)` sets it,
-for that session's browser, and all it does is accept a self-signed certificate.
-Use it for the site that needs it.
+for that session's browser. It accepts a self-signed certificate, and because
+that browser would accept any certificate, it gets none of the session's saved
+site data: sign in there afresh. Use it for the site that needs it.
 
 **`SESSION_PAGE_LOAD_TIMEOUT` is the one worth setting.** Without it a
 navigation can hang indefinitely, holding one of the Grid's few slots until

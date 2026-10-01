@@ -581,7 +581,11 @@ def run_for(
     #
     # The touch happens regardless: it slides the TTL, and a run is the clearest
     # evidence there is that a session is in use. Only the page is withheld.
-    sessions.touch(session, None if report.get("url_redacted") else report.get("url"))
+    sessions.touch(
+        session,
+        None if report.get("url_redacted") else report.get("url"),
+        browser=resolved,
+    )
     return report
 
 

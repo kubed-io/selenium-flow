@@ -528,6 +528,33 @@ def test_act_settles_as_the_browser_it_resolved(named_caller):
     assert m.store.get(NAMED).site_data["pending"] == {**before, "browser": "newer"}
 
 
+def test_a_stale_result_does_not_move_the_newer_browsers_page_or_window(named_caller):
+    """A result from a browser the record no longer names must not write its
+    page or size over the newer browser's: a reap would reopen B at A's page
+    (Copilot, #50). The TTL still slides."""
+    m = opened_with_save()
+    m.store.update(NAMED, lambda r: replace(r, url="https://b.test/"))
+
+    def meanwhile(resolved):
+        m.store.update(NAMED, lambda r: replace(r, session_id="newer"))
+        return {"url": "https://a.test/page", "width": 640, "height": 480}
+
+    m.act(NAMED, meanwhile, reshapes=True)
+    record = m.store.get(NAMED)
+    assert record.session_id == "newer"
+    assert record.url == "https://b.test/"
+    assert record.settings.get("width") != 640
+
+
+def test_a_result_from_the_browser_held_still_moves_the_page(named_caller):
+    m = opened_with_save()
+    m.act(NAMED, lambda s: {"url": "https://a.test/page", "width": 640, "height": 480},
+          reshapes=True)
+    record = m.store.get(NAMED)
+    assert record.url == "https://a.test/page"
+    assert record.settings["width"] == 640
+
+
 def test_a_pending_note_for_a_browser_the_record_no_longer_names_is_discarded(
     named_caller,
 ):

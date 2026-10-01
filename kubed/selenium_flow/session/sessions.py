@@ -401,9 +401,9 @@ class SessionManager:
         if not isinstance(result, dict):
             return
         if touch:
-            self.touch(name, result.get("url"))
+            self.touch(name, result.get("url"), browser=browser)
         if reshapes:
-            self.reshape(name, result)
+            self.reshape(name, result, browser=browser)
         self._site_data_after(name, result, browser)
 
     def _site_data_after(
@@ -701,7 +701,7 @@ class SessionManager:
             except Exception as exc:  # noqa: BLE001 - it may be gone already
                 log.info("could not end browser %s: %s", loser["id"], exc)
 
-    def touch(self, name: str, url: str | None) -> None:
+    def touch(self, name: str, url: str | None, browser: str | None = None) -> None:
         """Record where the browser ended up, and slide the record's TTL.
 
         Called after an action so a later reopen restores the right page, and so
@@ -716,10 +716,17 @@ class SessionManager:
         deliberately withheld (§F1.24), and withholding it used to stop the
         clock — so a flow that logs in every few minutes, the one thing secrets
         exist for, expired out of the store while it was being used.
-        """
-        self.store.update(name, lambda r: r.at(url))
 
-    def reshape(self, name: str, result: dict) -> None:
+        ``browser`` is the one that produced the result. Once the record names
+        another, this page is not that browser's: the TTL still slides, the
+        page it would replay after a reap is left alone (Copilot, #50).
+        """
+        def at(r: SessionRecord) -> SessionRecord:
+            return r if browser and r.session_id != browser else r.at(url)
+
+        self.store.update(name, at)
+
+    def reshape(self, name: str, result: dict, browser: str | None = None) -> None:
         """Record the window size an action just gave the browser.
 
         Only ``resize`` reaches this, because it is the only action that changes
@@ -729,7 +736,12 @@ class SessionManager:
         """
         size = {k: result[k] for k in ("width", "height") if result.get(k)}
         if size:
-            self.store.update(name, lambda r: r.reshaped(size))
+            self.store.update(
+                name,
+                lambda r: None
+                if browser and r.session_id != browser
+                else r.reshaped(size),
+            )
 
     def context(self, name: str) -> dict:
         """The browser and page this session last had, for a reopen.
