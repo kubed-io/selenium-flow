@@ -307,15 +307,23 @@ save after signing out saves you signed out).
 
 ## Open questions (round 2)
 
-1. **A Forget is undone by the next save while the same browser lives.** The
-   browser still holds what was forgotten, and a save snapshots the
-   browser. Accepted as the simple rule, or should a save skip hosts
-   forgotten since the browser opened?
-2. **A save meets a site with a service worker.** The spare tab is answered
+1. **A save meets a site with a service worker.** The spare tab is answered
    by the site's own worker, so the real app runs for a moment in a hidden
-   tab. Proposed: the spare tab serves a page with a marker; when the marker
-   is missing, the tab closes without reading, that origin keeps its storage
-   from the last snapshot, and `skipped` says to save while on that site.
+   tab. Proposed, W3C only: the spare tab serves a page with a marker; when
+   the marker is missing, the tab closes without reading, that origin keeps
+   its storage from the last snapshot, and `skipped` says to save while on
+   that site. The worst case is round 1's behaviour for that one site.
+
+   Why not CDP here: service workers are W3C (the spec is a Candidate
+   Recommendation Draft, implemented by every engine), but BiDi has no
+   switch to bypass one — Puppeteer lists `setBypassServiceWorker` as
+   unsupported over BiDi, and the nearest BiDi issue (#846, only a "from
+   service worker" flag) is still in discussion. CDP's switch is
+   Chromium-only: Firefox turned CDP off by default in 129 and Selenium
+   dropped it for Firefox in February 2025. So CDP would fix Chrome alone,
+   Firefox would still need the skip, and the rule "no CDP" would buy two
+   code paths for one narrow case. If a real site needs it, a single
+   Chromium-only call can be added later without undoing anything.
 
 ## Rulings
 
@@ -338,7 +346,9 @@ Round 2 (2026-10-01):
   secrets and the snapshot. Site data is only the snapshot. The two are
   separate in the model and meet only in the admin view.
 - Dr K: Forget and Clear change the session's store, never the live
-  browser.
+  browser. A save after a Forget saves the browser again, forgotten site
+  included: a save is intentional, and wiping the browser can be added
+  later rather than taken away.
 - Dr K: one row per host with its latest URL is the audit trail for now;
   deeper history (flows, runs, paths) is a later discussion.
 - Dr K: `restore_site_data=false` deletes the snapshot and keeps the
