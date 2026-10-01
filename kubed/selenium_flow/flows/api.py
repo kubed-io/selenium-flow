@@ -553,8 +553,8 @@ def run_for(
     def remember(tool, result):
         # The same post-action work a single call gets from `sessions.act`:
         # `resize` changes something the session RECORD stores, and a save's
-        # capture is merged into it and stripped from the result. The touch is
-        # left to the one at the end of the run.
+        # capture is stored as the snapshot and stripped from the result. The
+        # touch is left to `before_save` and the one at the end of the run.
         sessions.settle(
             session, result, browser=resolved, reshapes=tool == "resize", touch=False
         )
@@ -584,10 +584,10 @@ def run_for(
         secrets_catalogue=secrets_catalogue,
         skill_available=skill_available,
     )
-    # One touch for the whole run, not one per step: the point of running
-    # server-side is that the bookkeeping happens once. It carries every page
-    # the run reached, in order, so the history has each step's site and not
-    # only the last.
+    # A touch at the end, not one per step: the point of running server-side
+    # is that the bookkeeping happens once (a save step flushes the pages so
+    # far first, above). It carries every page the run reached since, in
+    # order, so the history has each step's site and not only the last.
     #
     # Only pages the report itself shows. A step's `url` is there only when
     # the step moved and the page was safe to show, so a failed step's — the

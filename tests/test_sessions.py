@@ -769,7 +769,7 @@ def test_a_losing_open_describes_the_browser_the_session_kept():
     assert actions.grid.alive == {kept.session_id}
     assert told["browser"] == "firefox"
     assert told["url"] == "https://won.test/"
-    assert "session_id" not in told and "_site_data_pending" not in told
+    assert "session_id" not in told
 
 
 def test_a_losing_clean_open_erases_nothing_from_the_winner():

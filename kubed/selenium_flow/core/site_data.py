@@ -31,8 +31,8 @@ from ..errors import BidiUnavailable
 from ..errors import message as failure_text
 from .browser import ServiceWorkerAnswered, spare_tab
 
-# The private key an action hands its capture back under. `SessionManager.act`
-# merges it into the record and removes it; no caller ever sees it.
+# The private key an action hands its capture back under. `SessionManager.settle`
+# removes it and stores it as the snapshot; no caller ever sees it.
 CAPTURED = "_site_data_captured"
 MAX_BYTES = 1_000_000
 MASK = "•••"
@@ -179,11 +179,6 @@ def restorable(data: dict) -> bool:
 
 def _why(exc: Exception) -> str:
     return SW_REASON if isinstance(exc, ServiceWorkerAnswered) else failure_text(exc)
-
-
-def _covers(domain: str, host: str) -> bool:
-    bare = domain.lstrip(".")
-    return host == bare or (domain.startswith(".") and host.endswith(domain))
 
 
 def _own(domain: str, host: str) -> bool:

@@ -503,8 +503,9 @@ def spare_tab(bidi, context: str | None = None):
         )["intercept"]
 
         def answer(event):
-            # On Selenium's own thread, one per event: a refusal shows up as a
-            # page without the marker, not as an error here.
+            # On Selenium's own thread, one per event: a refused response is
+            # not an error here, it leaves the request blocked and the
+            # navigate times out (BIDI_TIMEOUT).
             if not isinstance(event, dict) or not event.get("isBlocked"):
                 return
             with contextlib.suppress(Exception):

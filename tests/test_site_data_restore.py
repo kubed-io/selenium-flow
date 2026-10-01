@@ -260,7 +260,6 @@ def test_open_session_restores_everything_before_the_first_page(actions, monkeyp
     result, order = opened(actions, monkeypatch, spare, FULL)
     assert order == ["cookie", "spare", MAIN, "get"]
     assert result["site_data"] == {"restored": ["app.example.com"], "skipped": [], "uri": LIST}
-    assert "_site_data_pending" not in result
 
 
 def test_an_insecure_browser_gets_no_saved_site_data(actions, monkeypatch, spare):

@@ -395,25 +395,32 @@ class SessionManager:
 
         The one place a result is stripped of its private capture and the
         capture stored, so a flow step reaches it the same way a single call
-        does. ``touch=False`` is for the flow runner, which touches once per
-        run rather than once per step — and so carries a reopen's report on
-        the run, not on a step.
+        does. ``touch=False`` is for the flow runner, which touches before a
+        save step and at the end rather than after every step — and so carries
+        a reopen's report on the run, not on a step.
 
         ``browser`` is the one that produced ``result``: once the record names
         another, its page is not recorded and its save is not kept.
         """
         if not isinstance(result, dict):
             return
+        # Popped before the store is asked anything, so a store that fails
+        # cannot leave the capture — every value — in what the caller gets.
+        captured = result.pop(site_data_module.CAPTURED, None)
         if touch:
             told = self.touch(name, result.get("url"), browser=browser)
             if told:
                 result["site_data"] = told
         if reshapes:
             self.reshape(name, result, browser=browser)
-        self._save_site_data(name, result, browser)
+        self._save_site_data(name, result, captured, browser)
 
     def _save_site_data(
-        self, name: str, result: dict, producer: str | None = None
+        self,
+        name: str,
+        result: dict,
+        captured: dict | None,
+        producer: str | None = None,
     ) -> None:
         """A captured save, stored on the record and replaced in the result by
         a short receipt, so no caller ever sees a value.
@@ -421,9 +428,6 @@ class SessionManager:
         Written through ``store.update``, applied to the record as it is then,
         and only by the browser that captured it.
         """
-        # Popped before the store is asked anything, so a store that fails
-        # cannot leave the capture — every value — in what the caller gets.
-        captured = result.pop(site_data_module.CAPTURED, None)
         if not captured:
             return
         receipt: dict = {}

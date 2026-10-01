@@ -87,8 +87,6 @@ def test_open_restores_what_was_saved_and_says_so(named_caller):
     told = reopened(m)
     assert m.actions.site_data_seen[-1]["cookies"]
     assert told["site_data"] == REPORT
-    assert "_site_data_pending" not in told
-    assert "pending" not in m.store.get(NAMED).site_data
 
 
 def test_restore_off_deletes_the_snapshot_and_keeps_the_history(named_caller):
@@ -265,6 +263,22 @@ def test_the_capture_is_stripped_even_when_the_store_fails(named_caller):
     m.store.get = down
     with pytest.raises(ConnectionError):
         m.settle(NAMED, result, touch=False)
+    assert site_data.CAPTURED not in result
+
+
+def test_the_capture_is_stripped_even_when_the_touch_fails(named_caller):
+    """`settle` asks the store for the touch before it stores the save: the
+    capture is gone before either, or a failing touch leaves every value in
+    what the caller gets."""
+    m = opened_with_save()
+    result = m.actions.save_site_data("x")
+
+    def down(name, fn):
+        raise ConnectionError("redis is down")
+
+    m.store.update = down
+    with pytest.raises(ConnectionError):
+        m.settle(NAMED, result)
     assert site_data.CAPTURED not in result
 
 

@@ -53,8 +53,9 @@ says which sites, and never a value:
 
 No `site_data` key means nothing happened: nothing was saved, or only cookies that
 have since expired. When the Grid reaps your browser, the
-next call reopens it, restores the same way, and that call's result carries this
-report once.
+next call reopens it and restores the same way; the first result that succeeds
+after the reopen carries this report, once. A call that reopens and then fails
+passes it on.
 
 `skipped` names a cookie or a site that did not come back, and why. "the browser
 did not keep it" means the browser took a cookie without an error and dropped it;

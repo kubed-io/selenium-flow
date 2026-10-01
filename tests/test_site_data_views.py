@@ -179,16 +179,13 @@ def test_a_jar_of_many_domains_is_not_rescanned_per_host(monkeypatch):
     """Every host used to rescan the whole jar, and every detail rebuilt the
     listing: cookies x hosts x hosts. One grouping serves all of them."""
     calls = {"n": 0}
-    real = {name: getattr(sd, name) for name in ("_covers", "_own")}
+    real = sd._own
 
-    def counting(name):
-        def wrapped(*a):
-            calls["n"] += 1
-            return real[name](*a)
-        return wrapped
+    def counting(*a):
+        calls["n"] += 1
+        return real(*a)
 
-    for name in real:
-        monkeypatch.setattr(sd, name, counting(name))
+    monkeypatch.setattr(sd, "_own", counting)
     cookies = [cookie("c", f"h{i}.example{i}.com") for i in range(500)]
     listing, details = sd.views(snapshot(cookies=cookies))
     assert len(listing["sites"]) == 500 and set(details) == {r["site"] for r in listing["sites"]}

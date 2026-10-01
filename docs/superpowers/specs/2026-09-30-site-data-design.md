@@ -377,6 +377,28 @@ Firefox would still need the skip, and the rule "no CDP" would buy two
 code paths for one narrow case. If a real site needs it, a single
 Chromium-only call can be added later without undoing anything.
 
+## Known, for the next round
+
+- A failed spare-tab teardown on the main tab (both removals are `suppress`ed)
+  can leave a blocking intercept on the user's tab: `driver.get` then hangs to
+  the page-load timeout and later navigations block until the browser is
+  replaced. Next: retry the main tab's `remove_intercept` once, report it if it
+  still fails, and have `open_session` replace a browser whose main tab may
+  still be intercepted; reorder teardown (intercept before handler) and test
+  never-raises / navigate-raises; a failed unsubscribe leaves Selenium's
+  subscription entry.
+- No overall time budget on the spare-tab loops: each origin is bounded only
+  by `BIDI_TIMEOUT` (5 s), so a systematic failure costs 5 s per origin (up to
+  ~8 min for 100). Next: stop at the first timeout-class failure, or a total
+  deadline.
+- A call landing between `visited()` and the save's write can drop a newly
+  visited origin's previous storage (not read, not kept). Next: keep storage
+  for history origins the save did not attempt.
+- The size-cap loop re-serialises the snapshot per eviction inside the store
+  fn. Next: per-origin sizes once.
+- Every touch rewrites a record that can hold up to 1 MB of site data. Later:
+  site data under its own store key.
+
 ## Rulings
 
 Round 1:
