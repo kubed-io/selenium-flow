@@ -112,14 +112,12 @@ export interface SiteStorage<T = Record<string, string>> {
   local_storage: T
   session_storage: T
 }
+/** A host the snapshot holds data for: counts only. */
 export interface SiteRow {
   site: string
-  saved: boolean
-  saved_at: number | null
   uri?: string
   cookies: number
   storage: SiteStorage<number>[]
-  secrets: SiteSecret[]
 }
 /** A parent-domain cookie Forget leaves, named whole: two can share a name. */
 export interface SharedCookie { name: string; domain: string; path: string }
@@ -130,11 +128,11 @@ export interface SiteDetail extends Omit<SiteRow, 'cookies' | 'storage'> {
   own_cookies: string[]
   kept_shared: SharedCookie[]
 }
+/** What a reopened browser gets back: the last save, by host. */
 export interface SiteDataPayload {
   key: string
   sites: SiteRow[]
-  saved_sites: number
-  unleashed_secrets?: unknown
+  saved_at: number | null
   uri?: string
   details: Record<string, SiteDetail>
 }

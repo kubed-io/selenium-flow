@@ -242,9 +242,9 @@
   const GONE = ' — gone'
 
   const filesTotal = $derived(m.filesBlanked ? '' : String(m.row.files_count ?? ''))
-  // The loaded payload, not the last pushed row: a Forget reloads the pane
-  // before the next push brings the row's count up to date.
-  const siteDataTotal = $derived(m.siteDataError || !m.siteData ? '' : String(m.siteData.saved_sites))
+  // The hosts listed, from the loaded payload rather than the last pushed
+  // row: a Forget reloads the pane before the next push brings the row up.
+  const siteDataTotal = $derived(m.siteDataError || !m.siteData ? '' : String(m.siteData.sites.length))
   const flowsTotal = $derived(!m.flows || m.flowsBlanked ? '' : m.flows.enabled ? String((m.flows.flows || []).length) : 'off')
 </script>
 

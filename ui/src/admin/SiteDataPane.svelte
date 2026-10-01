@@ -21,28 +21,25 @@
   // Ends in `Section`: Section derives its body's id by replacing that.
   const idOf = (r: SiteRow) => 'site-' + m.key + ':' + r.site + 'Section'
 
-  // The first saved row opens, the rest stay shut — once; after that the fold
-  // is the reader's.
+  // The first row opens, the rest stay shut — once; after that the fold is
+  // the reader's.
   $effect.pre(() => {
     const sites = data?.sites ?? []
-    // Not row 0: a secret-only row can sort first and has nothing to open.
-    const first = sites.find((r) => r.saved)
-    untrack(() => sites.forEach((r) => { folds[idOf(r)] ??= r === first }))
+    untrack(() => sites.forEach((r, i) => { folds[idOf(r)] ??= i === 0 }))
   })
 
   const plural = (n: number, one: string, many = one + 's') => n + ' ' + (n === 1 ? one : many)
   const sum = (r: SiteRow, k: 'local_storage' | 'session_storage') => r.storage.reduce((n, e) => n + e[k], 0)
+  // A cookie-only host reads "3 cookies"; one with storage gives every count.
   const counts = (r: SiteRow) => [
-    r.saved ? plural(r.cookies, 'cookie') : 'nothing saved',
-    ...(r.saved ? [sum(r, 'local_storage') + ' local', sum(r, 'session_storage') + ' session'] : []),
-    plural(r.secrets.length, 'secret'),
+    plural(r.cookies, 'cookie'),
+    ...(r.storage.length ? [sum(r, 'local_storage') + ' local', sum(r, 'session_storage') + ' session'] : []),
   ].join(' · ')
   // The origin when the host has one, the host when it has none or several.
   const titleOf = (r: SiteRow) => (r.storage.length === 1 ? r.storage[0].origin : r.site)
 
   const keysOf = (d: SiteDetail | undefined) =>
     [...new Set((d?.storage ?? []).flatMap((e) => [...Object.keys(e.local_storage), ...Object.keys(e.session_storage)]))]
-  const covered = (d: SiteDetail) => d.cookies.length > 0 || keysOf(d).length > 0
   // A host with no storage still shows both groups, as "none".
   const groups = (d: SiteDetail): SiteStorage[] =>
     d.storage.length ? d.storage : [{ origin: '', local_storage: {}, session_storage: {} }]
@@ -61,13 +58,10 @@
       data: {
         origin: titleOf(r),
         goes: [...(d?.own_cookies ?? []), ...keysOf(d)],
-        stays: [
-          ...(d?.kept_shared ?? []).map((c) => ({
-            key: [c.name, c.domain, c.path].join('|'),
-            label: c.name + ', shared with ' + c.domain + (c.path && c.path !== '/' ? ' ' + c.path : ''),
-          })),
-          ...r.secrets.map((s) => ({ key: 'secret|' + s.name, label: s.name + ' secret' })),
-        ],
+        stays: (d?.kept_shared ?? []).map((c) => ({
+          key: [c.name, c.domain, c.path].join('|'),
+          label: c.name + ', shared with ' + c.domain + (c.path && c.path !== '/' ? ' ' + c.path : ''),
+        })),
       },
       confirm: 'Forget', danger: true,
       onconfirm: async () => {
@@ -77,13 +71,34 @@
       },
     })
   }
+
+  function clear() {
+    ask<string[]>({
+      title: 'Clear site data',
+      body: clearBody,
+      data: (data?.sites ?? []).map((r) => r.site),
+      confirm: 'Clear', danger: true,
+      onconfirm: async () => {
+        refuseIfGone()
+        await api(sessionPath(m.key, '/site-data'), 'DELETE')
+        if (!isGone()) void m.loadSiteData()
+      },
+    })
+  }
 </script>
 
 {#snippet forgetBody(f: Forget)}
-  <p>{f.origin} — the next browser comes back signed out here; one open now keeps what it has.</p>
+  <p>{f.origin} — a reopened browser comes back signed out here.</p>
   <div class="pairs fate-list">
     {#if f.goes.length}<div class="pair"><span class="pk">goes</span><span class="pv">{f.goes.join(' · ')}</span></div>{/if}
     {#each f.stays as s (s.key)}<div class="pair"><span class="pk">stays</span><span class="pv">{s.label}</span></div>{/each}
+  </div>
+{/snippet}
+
+{#snippet clearBody(hosts: string[])}
+  <p>{plural(hosts.length, 'site')} — a reopened browser comes back signed out.</p>
+  <div class="pairs fate-list">
+    <div class="pair"><span class="pk">goes</span><span class="pv">{hosts.join(' · ')}</span></div>
   </div>
 {/snippet}
 
@@ -105,26 +120,20 @@
     <div class="empty error">{m.siteDataError}</div>
   {:else if !data}
     <div class="empty">Loading…</div>
+  {:else if !data.sites.length}
+    <p class="small muted">Nothing saved — an agent calls <code>save_site_data</code> after signing in.</p>
   {:else}
-    {#if data.saved_sites === 0}
-      <p class="small muted">Nothing saved — an agent calls <code>save_site_data</code> after signing in.</p>
-    {/if}
+    <div class="row bar">
+      {#if data.saved_at}<span class="pill">saved {ago(data.saved_at * 1000)}</span>{/if}
+      <span class="grow"></span>
+      <button id="clearSiteData" class="danger" onclick={clear}>Clear</button>
+    </div>
     {#each data.sites as r (r.site)}
       {@const d = data.details[r.site]}
       <Section id={idOf(r)} title={titleOf(r)}>
-        {#snippet summary()}
-          {#if r.saved_at}<span class="pill">saved {ago(r.saved_at * 1000)}</span>{/if}
-          <span class="small muted">{counts(r)}</span>
-        {/snippet}
-        {#snippet actions()}
-          {#if r.saved}<button class="danger" onclick={() => forget(r)}>Forget</button>{/if}
-        {/snippet}
-        {#if !r.saved}
-          <p class="small muted">Nothing saved. It stays listed because a secret is allowed here.</p>
-        {/if}
-        <!-- Not saved means nothing to forget, not nothing to show: a parent's
-             shared cookie still covers this site. -->
-        {#if d && (r.saved || covered(d))}
+        {#snippet summary()}<span class="small muted">{counts(r)}</span>{/snippet}
+        {#snippet actions()}<button class="danger" onclick={() => forget(r)}>Forget</button>{/snippet}
+        {#if d}
           <h3>Cookies</h3>
           {#each d.cookies as c (c.name + c.domain + c.path)}
             <div class="line cookie">
@@ -147,22 +156,13 @@
             {@render kv(Object.entries(e.session_storage))}
           {/each}
         {/if}
-        {#if r.secrets.length}
-          <h3>Secrets</h3>
-          {#each r.secrets as s (s.name)}
-            <div class="line secret">
-              <span class="key"><span>🔑</span> <code>{s.name}</code></span>
-              <span class="value">{s.description ?? ''}</span>
-              <span class="flags">{#each s.keys as k (k)}<span class="pill">{k}</span>{/each}</span>
-            </div>
-          {/each}
-        {/if}
       </Section>
     {/each}
   {/if}
 </div>
 
 <style>
+  .bar { margin-bottom: 12px; }
   h3 { margin: 14px 0 4px; font-size: 11px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
   .line { display: grid; grid-template-columns: 240px 1fr auto; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
   .line.cookie { grid-template-columns: 240px 1fr auto auto; }
