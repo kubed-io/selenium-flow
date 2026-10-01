@@ -218,6 +218,11 @@ nothing in it can fail an open. An origin reached only by a redirect or in a
 frame is filled but not announced, and stays pending until the agent lands
 there.
 
+`settle` is told which browser produced the result — `act`'s resolved id,
+or the flow run's — and leaves the pending note alone when the record names
+another browser by then. An open's own note is written only while the record
+still names the browser that open started.
+
 ## Forgetting a site (admin)
 
 Removes that host's origins and its own cookies — those whose domain is the

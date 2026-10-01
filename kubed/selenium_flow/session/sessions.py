@@ -374,11 +374,17 @@ class SessionManager:
         """
         resolved = self.resolve(name)
         result = call(resolved)
-        self.settle(name, result, reshapes=reshapes)
+        self.settle(name, result, browser=resolved, reshapes=reshapes)
         return result
 
     def settle(
-        self, name: str, result, *, reshapes: bool = False, touch: bool = True
+        self,
+        name: str,
+        result,
+        *,
+        browser: str | None = None,
+        reshapes: bool = False,
+        touch: bool = True,
     ) -> None:
         """What a finished action means for the record, in place on ``result``.
 
@@ -386,6 +392,10 @@ class SessionManager:
         private capture, so a flow step reaches it the same way a single call
         does. ``touch=False`` is for the flow runner, which touches once per
         run rather than once per step.
+
+        ``browser`` is the one that produced ``result``. When the record names
+        another by now, that browser's pending note is not this result's to
+        settle.
         """
         if not isinstance(result, dict):
             return
@@ -393,9 +403,11 @@ class SessionManager:
             self.touch(name, result.get("url"))
         if reshapes:
             self.reshape(name, result)
-        self._site_data_after(name, result)
+        self._site_data_after(name, result, browser)
 
-    def _site_data_after(self, name: str, result: dict) -> None:
+    def _site_data_after(
+        self, name: str, result: dict, producer: str | None = None
+    ) -> None:
         """What a finished call means for this session's site data.
 
         Three things, in order: a captured save is merged into the record and
@@ -440,8 +452,16 @@ class SessionManager:
         browser = record.session_id
         if not pending or pending.get("browser") != browser:
             return
-        hint = dict(pending.get("report") or {}) if pending.get("announce") else {}
-        origin = site_data_module.origin_of(result.get("url") or "")
+        # A result from a browser the record no longer names says nothing
+        # about where this one is; only an eviction still concerns its note.
+        ours = producer is None or producer == browser
+        if not ours and not evicted:
+            return
+        hint = (
+            dict(pending.get("report") or {})
+            if ours and pending.get("announce") else {}
+        )
+        origin = site_data_module.origin_of(result.get("url") or "") if ours else ""
         arrived = origin if origin in (pending.get("origins") or []) else None
         swapped = None
         if arrived:
@@ -470,8 +490,9 @@ class SessionManager:
             if r.session_id != browser or now.get("browser") != browser:
                 # Another browser opened meanwhile, with a note of its own.
                 return None
-            now["announce"] = False
-            now.pop("report", None)
+            if ours:
+                now["announce"] = False
+                now.pop("report", None)
             if arrived:
                 now["origins"] = [o for o in now.get("origins") or [] if o != arrived]
             if swapped and now.get("script") == swapped[0]:
@@ -481,7 +502,7 @@ class SessionManager:
                     # would promise a restore that cannot happen.
                     now["origins"] = []
             data = {k: v for k, v in r.site_data.items() if k != "pending"}
-            if now.get("origins") or now.get("script"):
+            if now.get("origins") or now.get("script") or now.get("announce"):
                 data["pending"] = now
             return None if data == r.site_data else r.with_site_data(data)
 
@@ -526,9 +547,10 @@ class SessionManager:
         """
         waiting = opened.pop("_site_data_pending", None)
         record = self.store.get(name)
-        if record is None:
+        browser = opened["session_id"]
+        if record is None or record.session_id != browser:
+            # Another open replaced this browser already; its note is its own.
             return
-        browser = record.session_id
         arrived = (waiting or {}).pop("arrived", None)
         if waiting and waiting.get("script") and (
             arrived or not waiting.get("origins")

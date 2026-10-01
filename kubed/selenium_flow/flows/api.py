@@ -553,7 +553,9 @@ def run_for(
         # `resize` changes something the session RECORD stores, and a save's
         # capture is merged into it and stripped from the result. The touch is
         # left to the one at the end of the run.
-        sessions.settle(session, result, reshapes=tool == "resize", touch=False)
+        sessions.settle(
+            session, result, browser=resolved, reshapes=tool == "resize", touch=False
+        )
 
     report = run_one(
         store,

@@ -1,6 +1,7 @@
 """The session's side of site data: merge a save, restore on open, announce."""
 
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -456,3 +457,75 @@ def test_an_eviction_is_not_announced_by_a_silent_reopen_report(named_caller):
     told = m.act(NAMED, lambda s: big)
     assert "https://w.test" not in told["site_data"].get("waiting", [])
     assert "https://w.test" not in told["site_data"].get("restored", [])
+
+
+# ---- bookkeeping belongs to the browser that produced the result --------------
+
+
+def test_settle_from_a_browser_the_record_no_longer_names_leaves_pending(named_caller):
+    m = opened_with_save()
+    reopened(m)
+    before = m.store.get(NAMED).site_data["pending"]
+    told = {"url": "https://w.test/page"}
+    m.settle(NAMED, told, browser="an-older-browser", touch=False)
+    assert "site_data" not in told
+    assert m.actions.retired == []
+    assert m.store.get(NAMED).site_data["pending"] == before
+
+
+def test_act_settles_as_the_browser_it_resolved(named_caller):
+    m = opened_with_save()
+    reopened(m)
+    before = m.store.get(NAMED).site_data["pending"]
+
+    def newer(r):
+        pending = {**r.site_data["pending"], "browser": "newer"}
+        return replace(r, session_id="newer", site_data={**r.site_data, "pending": pending})
+
+    def meanwhile(resolved):
+        # Another request opened a browser, with its own note, while this
+        # call ran on the old one.
+        m.store.update(NAMED, newer)
+        return {"url": "https://w.test/page"}
+
+    told = m.act(NAMED, meanwhile)
+    assert "site_data" not in told
+    assert m.actions.retired == []
+    assert m.store.get(NAMED).site_data["pending"] == {**before, "browser": "newer"}
+
+
+def test_a_pending_note_for_a_browser_the_record_no_longer_names_is_discarded(
+    named_caller,
+):
+    m = opened_with_save()
+    m.store.update(NAMED, lambda r: replace(r, session_id="other"))
+    opened = {
+        "session_id": "mine",
+        "_site_data_pending": {"origins": ["https://w.test"], "script": "p1"},
+    }
+    m._hold_pending(NAMED, opened, {"announce": False})
+    assert "_site_data_pending" not in opened
+    assert "pending" not in m.store.get(NAMED).site_data
+
+
+def test_a_flow_step_settles_as_the_browser_the_run_resolved(named_caller, tmp_path):
+    store, m = flow_world(tmp_path, [{"tool": "navigate", "args": {"url": "https://w.test/page"}}])
+    m.open_browser(NAMED)
+    m.act(NAMED, lambda s: m.actions.save_site_data(s))
+    reopened(m)
+    real = m.actions.navigate
+
+    def navigate(session_id, url=None, **kw):
+        def newer(r):
+            pending = {**r.site_data["pending"], "browser": "newer"}
+            return replace(r, session_id="newer", site_data={**r.site_data, "pending": pending})
+
+        m.store.update(NAMED, newer)
+        return real(session_id, url=url, **kw)
+
+    m.actions.navigate = navigate
+    from kubed.selenium_flow.flows import api as flowapi
+
+    report = flowapi.run_for(store, m.actions, m, NAMED, "login")
+    assert "site_data" not in report["steps"][0]
+    assert m.actions.retired == []
