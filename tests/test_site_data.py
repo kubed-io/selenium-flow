@@ -69,11 +69,6 @@ def test_a_save_over_the_cap_keeps_cookies_and_skips_that_storage():
     ]
 
 
-def test_merge_keeps_pending():
-    data, _ = sd.merge({"pending": {"browser": "b", "origins": [], "script": ""}}, captured(), NOW)
-    assert data["pending"]["browser"] == "b"
-
-
 def test_expired_cookies_are_dropped_and_session_cookies_kept():
     kept = sd.live_cookies(
         [cookie("old", "a.test", expiry=int(NOW) - 1), cookie("new", "a.test", expiry=int(NOW) + 60),

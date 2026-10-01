@@ -833,9 +833,9 @@ def register(
     async def admin_site_data_forget(request: Request) -> JSONResponse:
         """Forget one site. Parent-domain cookies stay: other sites use them.
 
-        It applies from the next browser. One open now keeps what it has — the
-        cookies are in its jar, and a preload script already in it still fills
-        a forgotten origin that was waiting — and nothing here reaches into it.
+        It changes the session's store and nothing else: the history stays,
+        and a browser open now keeps what it has — only the next one opened
+        comes back without it. A save after this saves the site again.
         """
         key = request.path_params["key"]
         host = request.path_params["site"].lower()
@@ -848,16 +848,6 @@ def register(
             left, removed["what"] = site_data.forget(record.site_data, host)
             if not (removed["what"]["cookies"] or removed["what"]["origins"]):
                 raise errors.NotFound(missing)
-            # Pending origins are restores not yet consumed; a forgotten site
-            # must not come back through one.
-            pending = left.get("pending")
-            if pending and pending.get("origins"):
-                left["pending"] = {
-                    **pending,
-                    "origins": [
-                        o for o in pending["origins"] if site_data.host_of(o) != host
-                    ],
-                }
             return record.with_site_data(left)
 
         try:

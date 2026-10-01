@@ -610,7 +610,6 @@ FLOW_SCHEMAS = {
                         "summary": {"type": "string"},
                         "note": {"type": "string"},
                         "error": {"type": "string"},
-                        "site_data": SITE_DATA_HINT,
                         "url": {
                             "type": "string",
                             "description": (
@@ -648,6 +647,8 @@ FLOW_SCHEMAS = {
             },
             "url": {"type": "string"},
             "title": {"type": "string"},
+            # Present only when the run's browser was reopened after a reap.
+            "site_data": SITE_DATA_HINT,
         },
     },
     "FlowDeleted": {

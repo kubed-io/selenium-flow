@@ -591,7 +591,10 @@ def run_for(
     ]
     if report.get("url") and not report.get("url_redacted"):
         visited.append(report["url"])
-    sessions.touch(session, *visited, browser=resolved)
+    told = sessions.touch(session, *visited, browser=resolved)
+    if told:
+        # The run's browser replaced a reaped one: what came back, once.
+        report["site_data"] = told
     return report
 
 

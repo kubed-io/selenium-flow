@@ -760,12 +760,10 @@ def _run(
                 before_step(dict(entry), total)
             raw = method(session_id, **kwargs)
             # Before the result is copied for the report: the hook strips the
-            # private capture from `raw` and may add the site data hint.
+            # private capture from `raw`.
             if after_step is not None:
                 after_step(tool, raw)
             result = _clean(raw, guarded, hidden)
-            if isinstance(raw, dict) and raw.get("site_data"):
-                entry["site_data"] = raw["site_data"]
             entry["ok"] = True
             # Recorded rather than inferred later by searching the string for
             # the marker, and asked of the raw URL rather than by comparing it

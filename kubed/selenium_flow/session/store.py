@@ -118,6 +118,9 @@ class SessionRecord:
     # record so it expires with it; never on this server's disk (with Redis,
     # as durable as Redis).
     site_data: dict = field(default_factory=dict)
+    # A silent reopen's site data report, held until the first result from
+    # that browser carries it: {"browser": id, "report": {...}}, or {}.
+    reopened: dict = field(default_factory=dict)
 
     @property
     def url(self) -> str:
@@ -157,12 +160,14 @@ class SessionRecord:
                 return None
             settings = data.get("settings")
             site_data = data.get("site_data")
+            reopened = data.get("reopened")
             return cls(
                 session_id=str(data.get("session_id") or ""),
                 opened_at=float(data.get("opened_at", 0.0)),
                 settings=settings if isinstance(settings, dict) else {},
                 history=_visits(data.get("history")),
                 site_data=site_data if isinstance(site_data, dict) else {},
+                reopened=reopened if isinstance(reopened, dict) else {},
             )
         except (ValueError, TypeError):
             # A malformed entry is a cache miss, not an outage.
@@ -205,6 +210,10 @@ class SessionRecord:
     def with_site_data(self, site_data: dict) -> SessionRecord:
         """The same record holding this site data."""
         return replace(self, site_data=dict(site_data or {}))
+
+    def delivered(self) -> SessionRecord:
+        """The same record, its reopen report handed to a caller."""
+        return replace(self, reopened={})
 
     def detached(self) -> SessionRecord:
         """The same record with no browser, keeping the context it had.

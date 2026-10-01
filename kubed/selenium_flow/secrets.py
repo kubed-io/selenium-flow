@@ -758,7 +758,10 @@ def perform_write(catalogue, actions, sessions, name: str, kwargs: dict) -> dict
     # `touch` slides the TTL, and skipping it entirely let a session expire
     # *because* its URL was correctly kept out of the store.
     safe = None if flowrun.taints(result.get("url"), hidden) else shown.get("url")
-    sessions.touch(name, safe, browser=resolved)
+    told = sessions.touch(name, safe, browser=resolved)
+    if told:
+        # The first call after a silent reopen says what came back.
+        shown["site_data"] = told
     return shown
 
 

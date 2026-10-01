@@ -35,9 +35,6 @@ DATA = {
         },
     },
     "saved_at": 10.0,
-    # The shape SessionManager writes: a list of origins, not a mapping.
-    "pending": {"browser": "b-1", "origins": ["https://app.example.com", "https://keep.dev"],
-                "script": "preload-1", "announce": False},
 }
 
 
@@ -99,8 +96,6 @@ def test_forget_keeps_shared_cookies_and_the_secret_row(client, server):
     left = server.sessions.store.get(KEY).site_data
     assert [c["name"] for c in left["cookies"]] == ["shared"]
     assert left["origins"] == {}
-    assert left["pending"] == {"browser": "b-1", "origins": ["https://keep.dev"],
-                               "script": "preload-1", "announce": False}
     sites = sorted(s["site"] for s in client.get(url()).json()["sites"])
     assert sites == ["example.com", "mail.example.org"]
     second = client.delete(url("/app.example.com"))

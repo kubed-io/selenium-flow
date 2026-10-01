@@ -343,11 +343,13 @@ async def test_uploading_a_kept_file_needs_no_library_field_on_either_surface(
     assert "session" not in tool.parameters["properties"]
 
 
-async def test_a_flow_step_declares_the_site_data_it_reports(spec):
+async def test_a_flow_run_declares_the_site_data_it_reports(spec):
+    """A reopen's report rides on the run; no step carries one any more."""
     from kubed.selenium_flow.spec.schemas import SITE_DATA_HINT
 
-    step = spec["components"]["schemas"]["FlowRun"]["properties"]["steps"]["items"]
-    assert step["properties"]["site_data"] == SITE_DATA_HINT
+    run = spec["components"]["schemas"]["FlowRun"]
+    assert run["properties"]["site_data"] == SITE_DATA_HINT
+    assert "site_data" not in run["properties"]["steps"]["items"]["properties"]
 
 
 async def test_the_session_status_declares_its_site_data_summary(spec):

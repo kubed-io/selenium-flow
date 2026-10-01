@@ -737,8 +737,8 @@ def register(
         #   second `shot.png` is kept as `shot (1).png`);
         # - `file_error`: the capture survived and the file did not, and an MCP
         #   caller given only the image would look for a name never coming;
-        # - `site_data`: the call landed on a waiting origin, which says so
-        #   once (``sessions.act``) — dropped here, it is never said at all.
+        # - `site_data`: the first call after a silent reopen says what came
+        #   back (``sessions.settle``) — dropped here, it is never said at all.
         told = {
             k: result[k] for k in ("file", "file_error", "site_data")
             if result.get(k) is not None

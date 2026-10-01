@@ -83,8 +83,6 @@ def merge(existing: dict, captured: dict, now: float) -> tuple[dict, dict]:
         "origins": {},
         "saved_at": now,
     }
-    if (existing or {}).get("pending"):
-        data["pending"] = existing["pending"]
     cookies_only = data
     data = {**data, "origins": dict((existing or {}).get("origins") or {})}
     if _size(cookies_only) > MAX_BYTES:

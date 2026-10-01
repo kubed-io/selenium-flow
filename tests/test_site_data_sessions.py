@@ -1,4 +1,5 @@
-"""The session's side of site data: merge a save, restore on open, announce."""
+"""The session's side of site data: a save stored and never returned, a
+restore on open and on a silent reopen, and the one report each makes."""
 
 import json
 from dataclasses import replace
@@ -9,31 +10,19 @@ from kubed.selenium_flow.core import site_data
 from tests.conftest import NAMED, RecordingActions, manager
 
 URL = "https://app.example.com/x"
+REPORT = {"restored": ["app.example.com"], "skipped": [], "uri": "session://site-data"}
 
 
 class SiteActions(RecordingActions):
     def __init__(self):
         super().__init__()
         self.site_data_seen = []
-        self.retired = []
-        self.kept = []
-        self.landing_only = False
-        self.waiting = ["https://w.test"]
-        self.arrived = None
-        self.cannot_add = False
 
     def open_session(self, url=None, site_data=None, **kw):
         self.site_data_seen.append(site_data)
         opened = super().open_session(url=url, **kw)
         if site_data:
-            opened["site_data"] = {
-                "restored": ["x"], "waiting": ["https://w.test"], "skipped": [],
-            }
-            opened["_site_data_pending"] = {
-                "origins": [] if self.landing_only else list(self.waiting),
-                "script": "p1",
-                **({"arrived": self.arrived} if self.arrived else {}),
-            }
+            opened["site_data"] = dict(REPORT)
         return opened
 
     def save_site_data(self, session_id, url=None):
@@ -48,11 +37,6 @@ class SiteActions(RecordingActions):
             },
         }
 
-    def retire_site_data(self, session_id, script, keep=None):
-        self.retired.append(script)
-        self.kept.append(sorted(keep) if keep else None)
-        return "" if self.cannot_add or not keep else f"{script}+"
-
 
 def opened_with_save():
     m = manager(SiteActions())
@@ -66,30 +50,42 @@ def reopened(m, **kw):
     return m.open_browser(NAMED, **kw)
 
 
-def test_a_save_is_merged_into_the_record_and_never_returned_raw(named_caller):
+def reaped(m):
+    """The Grid took the browser: the next call reopens it on its own."""
+    m.actions.grid.alive.clear()
+
+
+def test_a_save_is_stored_and_never_returned_raw(named_caller):
     m = manager(SiteActions())
     m.open_browser(NAMED)
     result = m.act(NAMED, lambda s: m.actions.save_site_data(s))
     assert site_data.CAPTURED not in result
-    assert result["saved"] and result["uri"] == "session://site-data"
+    assert result["saved"]["cookies"] == 1 and result["uri"] == "session://site-data"
     assert list(m.store.get(NAMED).site_data["origins"]) == ["https://app.example.com"]
 
 
 def test_open_restores_what_was_saved_and_says_so(named_caller):
     m = opened_with_save()
     told = reopened(m)
-    assert m.actions.site_data_seen[-1]
-    assert told["site_data"]["waiting"] == ["https://w.test"]
+    assert m.actions.site_data_seen[-1]["cookies"]
+    assert told["site_data"] == REPORT
     assert "_site_data_pending" not in told
-    record = m.store.get(NAMED)
-    assert record.site_data["pending"]["browser"] == record.session_id
+    assert "pending" not in m.store.get(NAMED).site_data
 
 
-def test_restore_off_deletes_and_says_how_many(named_caller):
+def test_restore_off_deletes_the_snapshot_and_keeps_the_history(named_caller):
     m = opened_with_save()
     told = reopened(m, restore_site_data=False)
     assert m.actions.site_data_seen[-1] is None
     assert told["site_data"] == {"forgotten": 1}
+    record = m.store.get(NAMED)
+    assert record.site_data == {}
+    assert "https://app.example.com" in [v["origin"] for v in record.history]
+
+
+def test_restore_site_data_accepts_a_string_false(named_caller):
+    m = opened_with_save()
+    reopened(m, restore_site_data="false")
     assert m.store.get(NAMED).site_data == {}
 
 
@@ -113,46 +109,12 @@ def test_nothing_saved_means_no_hint(named_caller):
     assert "site_data" not in m.open_browser(NAMED)
 
 
-def test_arriving_on_a_waiting_origin_is_announced_once_and_retires_the_script(
-    named_caller,
-):
+def test_an_insecure_open_keeps_what_was_saved(named_caller):
+    """No restore into an insecure browser, but nothing is deleted either:
+    the next secure browser gets it all back."""
     m = opened_with_save()
-    reopened(m)
-    arrive = {"url": "https://w.test/page"}
-    first = m.act(NAMED, lambda s: dict(arrive))
-    assert first["site_data"] == {
-        "restored": ["https://w.test"], "uri": "session://site-data/w.test",
-    }
-    assert m.actions.retired == ["p1"]
-    assert "site_data" not in m.act(NAMED, lambda s: dict(arrive))
-    assert m.actions.retired == ["p1"]
-
-
-def test_a_quiet_call_carries_no_hint(named_caller):
-    m = opened_with_save()
-    reopened(m)
-    quiet = m.act(NAMED, lambda s: {"url": "https://elsewhere.test"})
-    assert "site_data" not in quiet
-
-
-def test_a_silent_reopen_restores_and_the_next_result_says_so(named_caller):
-    m = opened_with_save()
-    m.actions.grid.alive.clear()
-    first = m.act(NAMED, lambda s: {"url": "https://elsewhere.test"})
-    assert m.actions.site_data_seen[-1]
-    assert first["site_data"]["waiting"] == ["https://w.test"]
-    assert "site_data" not in m.act(NAMED, lambda s: {"url": "https://elsewhere.test"})
-
-
-def test_a_reopen_that_lands_on_a_waiting_origin_does_not_call_it_both(named_caller):
-    """The first call after a silent reopen carries the reopen's report; if
-    it lands on an origin that report lists as waiting, that origin is
-    restored, and only restored (Copilot, #49)."""
-    m = opened_with_save()
-    m.actions.grid.alive.clear()
-    first = m.act(NAMED, lambda s: {"url": "https://w.test/page"})
-    assert first["site_data"]["restored"] == ["x", "https://w.test"]
-    assert first["site_data"]["waiting"] == []
+    reopened(m, insecure=True)
+    assert m.store.get(NAMED).site_data["origins"]
 
 
 def test_remember_keeps_site_data(named_caller):
@@ -164,50 +126,58 @@ def test_remember_keeps_site_data(named_caller):
 
 def test_describe_summarises_site_data(named_caller):
     m = opened_with_save()
-    assert m.describe(NAMED)["site_data"] == {
-        "sites": 1, "uri": "session://site-data",
-    }
+    assert m.describe(NAMED)["site_data"] == {"sites": 1, "uri": "session://site-data"}
 
 
-def test_restore_site_data_accepts_a_string_false(named_caller):
+# ---- a silent reopen says what came back, on the first result after it --------
+
+
+def test_the_call_that_reopens_a_reaped_browser_says_what_came_back(named_caller):
     m = opened_with_save()
-    reopened(m, restore_site_data="false")
-    assert m.store.get(NAMED).site_data == {}
+    reaped(m)
+    first = m.act(NAMED, lambda s: {"url": "https://elsewhere.example.com/"})
+    assert m.actions.site_data_seen[-1]["cookies"], "the reopen restored"
+    assert first["site_data"] == REPORT
+    assert "site_data" not in m.act(NAMED, lambda s: {"url": "https://elsewhere.example.com/"})
+    assert m.store.get(NAMED).reopened == {}
 
 
-def test_a_landing_only_restore_retires_the_script_at_open(named_caller):
+def test_a_report_waits_for_a_call_that_finishes(named_caller):
     m = opened_with_save()
-    m.actions.landing_only = True
-    reopened(m)
-    assert m.actions.retired == ["p1"]
-    assert "pending" not in m.store.get(NAMED).site_data
+    reaped(m)
+
+    def fails(_):
+        raise RuntimeError("the page broke")
+
+    with pytest.raises(RuntimeError):
+        m.act(NAMED, fails)
+    assert m.act(NAMED, lambda s: {"url": URL})["site_data"] == REPORT
 
 
-def test_a_landing_only_silent_reopen_retires_and_still_announces(named_caller):
+def test_a_report_is_never_handed_to_a_result_from_another_browser(named_caller):
     m = opened_with_save()
-    m.actions.landing_only = True
-    m.actions.grid.alive.clear()
-    first = m.act(NAMED, lambda s: {"url": "https://elsewhere.test"})
-    assert m.actions.retired == ["p1"]
-    assert first["site_data"]["restored"] == ["x"]
-    assert "pending" not in m.store.get(NAMED).site_data
-    assert "site_data" not in m.act(NAMED, lambda s: {"url": "https://e.test"})
+    reaped(m)
+    m.resolve(NAMED)
+    told = {"url": URL}
+    m.settle(NAMED, told, browser="an-older-browser")
+    assert "site_data" not in told
+    assert m.act(NAMED, lambda s: {"url": URL})["site_data"] == REPORT
 
 
-def test_the_pending_note_never_reaches_the_browser(named_caller):
+def test_an_open_drops_a_report_nobody_collected(named_caller):
     m = opened_with_save()
-    reopened(m)
-    reopened(m)
-    assert m.actions.site_data_seen[-1]
-    assert "pending" not in m.actions.site_data_seen[-1]
+    reaped(m)
+    m.resolve(NAMED)
+    assert m.open_browser(NAMED)["site_data"] == REPORT, "the open's own report"
+    assert "site_data" not in m.act(NAMED, lambda s: {"url": URL})
 
 
-# ---- a flow step is settled the same way a single call is ---------------------
+# ---- a flow is settled the way a single call is ---------------------------------
 
 
 class FlowActions(SiteActions):
     def navigate(self, session_id, url=None, **kw):
-        return {"url": "https://w.test/page", "title": "w"}
+        return {"url": url, "title": "w"}
 
 
 def flow_world(tmp_path, steps):
@@ -218,94 +188,38 @@ def flow_world(tmp_path, steps):
         grid={"url": "http://grid.invalid:4444"}, flow={"data_dir": str(tmp_path)},
     ))
     server.flows.save(NAMED, "login", {"steps": steps})
-    return server.flows, manager(FlowActions())
+    m = manager(FlowActions())
+    m.open_browser(NAMED)
+    return server.flows, m
 
 
-def run_flow(store, m, **kw):
+def run(store, m):
     from kubed.selenium_flow.flows import api as flowapi
 
-    m.open_browser(NAMED)
-    return m, flowapi.run_for(store, m.actions, m, NAMED, "login", **kw)
+    return flowapi.run_for(store, m.actions, m, NAMED, "login", verbose=True)
 
 
 def test_a_flow_that_saves_keeps_the_data_and_never_reports_the_capture(
     named_caller, tmp_path
 ):
     store, m = flow_world(tmp_path, [{"tool": "save_site_data", "args": {}, "return": True}])
-    m, report = run_flow(store, m, verbose=True)
+    report = run(store, m)
     assert list(m.store.get(NAMED).site_data["origins"]) == ["https://app.example.com"]
     assert site_data.CAPTURED not in json.dumps(report)
     assert report["steps"][0]["result"]["saved"]["cookies"] == 1
 
 
-def test_a_flow_step_arriving_on_a_waiting_origin_carries_the_hint(
-    named_caller, tmp_path
-):
-    store, m = flow_world(tmp_path, [{"tool": "navigate", "args": {"url": "https://w.test/page"}}])
-    m.open_browser(NAMED)
+def test_a_flow_run_that_reopened_the_browser_says_so_once(named_caller, tmp_path):
+    store, m = flow_world(tmp_path, [{"tool": "navigate", "args": {"url": "https://w.example.com/"}}])
     m.act(NAMED, lambda s: m.actions.save_site_data(s))
-    reopened(m)
-    report = run_flow(store, m)[1]
-    assert report["steps"][0]["site_data"]["restored"] == ["https://w.test"]
+    reaped(m)
+    report = run(store, m)
+    assert report["site_data"] == REPORT
+    assert "site_data" not in report["steps"][0]
+    assert "site_data" not in run(store, m)
 
 
-# ---- one tab's arrival never refills another's --------------------------------
-
-
-def with_storage_for(m, *origins):
-    record = m.store.get(NAMED)
-    data = dict(record.site_data)
-    data["origins"] = {
-        **data.get("origins", {}),
-        **{o: {"local": {"k": o}, "session": {}, "saved_at": 1.0} for o in origins},
-    }
-    m.store.set(NAMED, record.with_site_data(data))
-
-
-def test_an_arrival_swaps_the_script_for_one_carrying_only_what_waits(named_caller):
-    m = opened_with_save()
-    with_storage_for(m, "https://v.test", "https://w.test")
-    m.actions.waiting = ["https://v.test", "https://w.test"]
-    reopened(m)
-    m.act(NAMED, lambda s: {"url": "https://w.test/page"})
-    assert m.actions.retired == ["p1"]
-    assert m.actions.kept == [["https://v.test"]], "w.test no longer rides along"
-    pending = m.store.get(NAMED).site_data["pending"]
-    assert pending["script"] == "p1+" and pending["origins"] == ["https://v.test"]
-    m.act(NAMED, lambda s: {"url": "https://v.test/"})
-    assert m.actions.retired == ["p1", "p1+"] and m.actions.kept[-1] is None
-    assert "pending" not in m.store.get(NAMED).site_data
-
-
-def test_a_landing_that_arrived_at_open_is_swapped_out_at_once(named_caller):
-    m = opened_with_save()
-    with_storage_for(m, "https://w.test")
-    m.actions.arrived = ["https://app.example.com"]
-    reopened(m)
-    assert m.actions.retired == ["p1"] and m.actions.kept == [["https://w.test"]]
-    pending = m.store.get(NAMED).site_data["pending"]
-    assert pending["script"] == "p1+" and "arrived" not in pending
-
-
-def test_origins_that_cannot_fill_are_not_announced_later(named_caller):
-    m = opened_with_save()
-    with_storage_for(m, "https://v.test", "https://w.test")
-    m.actions.waiting = ["https://v.test", "https://w.test"]
-    m.actions.cannot_add = True
-    reopened(m)
-    m.act(NAMED, lambda s: {"url": "https://w.test/page"})
-    assert "pending" not in m.store.get(NAMED).site_data
-    told = m.act(NAMED, lambda s: {"url": "https://v.test/"})
-    assert "site_data" not in told
-
-
-def test_a_landing_swap_that_cannot_add_stops_waiting(named_caller):
-    m = opened_with_save()
-    with_storage_for(m, "https://w.test")
-    m.actions.arrived = ["https://app.example.com"]
-    m.actions.cannot_add = True
-    reopened(m)
-    assert "pending" not in m.store.get(NAMED).site_data
+# ---- a save never reverts what landed while it worked -------------------------
 
 
 def test_the_capture_is_stripped_even_when_the_store_fails(named_caller):
@@ -321,83 +235,13 @@ def test_the_capture_is_stripped_even_when_the_store_fails(named_caller):
     assert site_data.CAPTURED not in result
 
 
-# ---- a site-data write never reverts what landed while it worked -------------
-#
-# Retiring a script is a BiDi round trip, up to seconds. Another request can
-# open a browser or save in that window; the site-data write that follows is
-# applied to the record as it is then, not to the one read before it.
-
-
-def during_retire(m, then):
-    real = m.actions.retire_site_data
-
-    def retire(session_id, script, keep=None):
-        then()
-        m.actions.retire_site_data = real
-        return real(session_id, script, keep)
-
-    m.actions.retire_site_data = retire
-
-
-def test_an_arrival_does_not_undo_a_browser_opened_meanwhile(named_caller):
-    m = opened_with_save()
-    reopened(m)
-    # A real open ends the browser it replaces first, and says so.
-    during_retire(m, lambda: m.remember(
-        NAMED, "brand-new", "https://new.test", {"width": 9},
-        replacing=m.store.get(NAMED).session_id,
-    ))
-    m.act(NAMED, lambda s: {"url": "https://w.test/page"})
-    record = m.store.get(NAMED)
-    assert (record.session_id, record.url, record.settings) == (
-        "brand-new", "https://new.test", {"width": 9},
-    )
-
-
 def save_elsewhere(m, origin):
     def save(r):
         data = dict(r.site_data)
-        data["origins"] = {**data.get("origins", {}), origin: {"local": {}, "session": {}, "saved_at": 2.0}}
+        data["origins"] = {**data.get("origins", {}), origin: {"local": {"k": "1"}}}
         return r.with_site_data(data)
 
     return lambda: m.store.update(NAMED, save)
-
-
-def test_an_arrival_keeps_a_save_that_landed_meanwhile(named_caller):
-    m = opened_with_save()
-    reopened(m)
-    during_retire(m, save_elsewhere(m, "https://late.test"))
-    m.act(NAMED, lambda s: {"url": "https://w.test/page"})
-    data = m.store.get(NAMED).site_data
-    assert data["origins"].get("https://late.test") is not None
-    assert "pending" not in data, "the arrival itself still settled"
-
-
-def test_a_landing_swap_does_not_undo_a_browser_opened_meanwhile(named_caller):
-    m = opened_with_save()
-    with_storage_for(m, "https://w.test")
-    m.actions.arrived = ["https://app.example.com"]
-    m.end_browser(NAMED)
-    during_retire(m, lambda: m.remember(
-        NAMED, "brand-new", "https://new.test",
-        replacing=m.store.get(NAMED).session_id,
-    ))
-    m.open_browser(NAMED)
-    record = m.store.get(NAMED)
-    assert (record.session_id, record.url) == ("brand-new", "https://new.test")
-    assert "pending" not in record.site_data, "the old browser's note is not the new one's"
-
-
-def test_a_landing_swap_keeps_a_save_that_landed_meanwhile(named_caller):
-    m = opened_with_save()
-    with_storage_for(m, "https://w.test")
-    m.actions.arrived = ["https://app.example.com"]
-    m.end_browser(NAMED)
-    during_retire(m, save_elsewhere(m, "https://late.test"))
-    m.open_browser(NAMED)
-    data = m.store.get(NAMED).site_data
-    assert data["origins"].get("https://late.test") is not None
-    assert data["pending"]["script"] == "p1+"
 
 
 def test_ending_a_browser_keeps_a_save_that_landed_while_it_quit(named_caller):
@@ -405,110 +249,14 @@ def test_ending_a_browser_keeps_a_save_that_landed_while_it_quit(named_caller):
     real = m.actions.end_browser
 
     def end(session_id):
-        save_elsewhere(m, "https://late.test")()
+        save_elsewhere(m, "https://late.example.com")()
         return real(session_id)
 
     m.actions.end_browser = end
     m.end_browser(NAMED)
     record = m.store.get(NAMED)
     assert not record.attached
-    assert record.site_data["origins"].get("https://late.test") is not None
-
-
-# ---- an evicted origin is gone, from the browser too --------------------------
-
-
-def test_an_evicted_origin_is_never_restored_or_announced(named_caller):
-    """A save that evicts an older origin over the cap must take it out of
-    the live browser's wait list and its preload script: visiting it used to
-    refill all the evicted storage and call it restored (live, after #49)."""
-    m = opened_with_save()
-    record = m.store.get(NAMED)
-    data = dict(record.site_data)
-    data["origins"] = {
-        "https://v.test": {"local": {"big": "x" * 600_000}, "session": {}, "saved_at": 1.0},
-        "https://w.test": {"local": {"k": "w"}, "session": {}, "saved_at": 2.0},
-    }
-    m.store.set(NAMED, record.with_site_data(data))
-    m.actions.waiting = ["https://v.test", "https://w.test"]
-    reopened(m)
-    assert m.store.get(NAMED).site_data["pending"]["origins"] == [
-        "https://v.test", "https://w.test",
-    ]
-
-    big = m.actions.save_site_data("x")
-    big[site_data.CAPTURED]["local"] = {"big": "y" * 500_000}
-    saved = m.act(NAMED, lambda s: big)
-    assert {"site": "https://v.test", "reason": "evicted: over 1000000 bytes"} in (
-        saved["saved"]["skipped"]
-    )
-
-    pending = m.store.get(NAMED).site_data["pending"]
-    assert pending["origins"] == ["https://w.test"]
-    assert m.actions.retired == ["p1"] and m.actions.kept == [["https://w.test"]]
-    assert pending["script"] == "p1+", "the live script no longer carries v.test"
-    assert "site_data" not in m.act(NAMED, lambda s: {"url": "https://v.test/"})
-
-
-def test_an_eviction_whose_swap_fails_keeps_retrying(named_caller):
-    """If the old preload script cannot be removed, retire hands back its id
-    unchanged: the live script still carries the evicted origin, so the note
-    stays marked and the next call retries the swap (Copilot, #50)."""
-    m = opened_with_save()
-    record = m.store.get(NAMED)
-    data = dict(record.site_data)
-    data["origins"] = {
-        "https://v.test": {"local": {"big": "x" * 600_000}, "session": {}, "saved_at": 1.0},
-        "https://w.test": {"local": {"k": "w"}, "session": {}, "saved_at": 2.0},
-    }
-    m.store.set(NAMED, record.with_site_data(data))
-    m.actions.waiting = ["https://v.test", "https://w.test"]
-    reopened(m)
-
-    calls = []
-
-    def retire(session_id, script, keep=None):
-        calls.append(script)
-        return script if len(calls) == 1 else f"{script}+"
-
-    m.actions.retire_site_data = retire
-    big = m.actions.save_site_data("x")
-    big[site_data.CAPTURED]["local"] = {"big": "y" * 500_000}
-    m.act(NAMED, lambda s: big)
-    pending = m.store.get(NAMED).site_data["pending"]
-    assert pending["script"] == "p1" and pending.get("stale") is True
-
-    m.act(NAMED, lambda s: {"url": "https://elsewhere.test"})
-    pending = m.store.get(NAMED).site_data["pending"]
-    assert calls == ["p1", "p1"]
-    assert pending["script"] == "p1+" and "stale" not in pending
-
-
-def test_an_eviction_is_marked_stale_before_the_swap_runs(named_caller):
-    """The eviction and the stale marker land in one write: a crash before
-    the swap must leave the evicted origin visible to retry (Copilot, #50)."""
-    m = opened_with_save()
-    record = m.store.get(NAMED)
-    data = dict(record.site_data)
-    data["origins"] = {
-        "https://v.test": {"local": {"big": "x" * 600_000}, "session": {}, "saved_at": 1.0},
-        "https://w.test": {"local": {"k": "w"}, "session": {}, "saved_at": 2.0},
-    }
-    m.store.set(NAMED, record.with_site_data(data))
-    m.actions.waiting = ["https://v.test", "https://w.test"]
-    reopened(m)
-    seen = []
-
-    def retire(session_id, script, keep=None):
-        seen.append(m.store.get(NAMED).site_data["pending"].get("stale"))
-        return f"{script}+"
-
-    m.actions.retire_site_data = retire
-    big = m.actions.save_site_data("x")
-    big[site_data.CAPTURED]["local"] = {"big": "y" * 500_000}
-    m.act(NAMED, lambda s: big)
-    assert seen == [True], "stored before the swap ran"
-    assert "stale" not in m.store.get(NAMED).site_data["pending"], "cleared after"
+    assert record.site_data["origins"].get("https://late.example.com") is not None
 
 
 def test_a_save_from_a_replaced_browser_keeps_nothing(named_caller):
@@ -526,57 +274,6 @@ def test_a_save_from_a_replaced_browser_keeps_nothing(named_caller):
     assert told["saved"]["sites"] == [] and told["saved"]["cookies"] == 0
     assert told["saved"]["skipped"][0]["reason"].startswith("another browser took")
     assert m.store.get(NAMED).site_data == {}
-
-
-def test_an_eviction_is_not_announced_by_a_silent_reopen_report(named_caller):
-    m = opened_with_save()
-    record = m.store.get(NAMED)
-    data = dict(record.site_data)
-    data["origins"] = {
-        "https://w.test": {"local": {"big": "x" * 600_000}, "session": {}, "saved_at": 1.0},
-    }
-    m.store.set(NAMED, record.with_site_data(data))
-    m.actions.grid.alive.clear()
-    big = m.actions.save_site_data("x")
-    big[site_data.CAPTURED]["local"] = {"big": "y" * 500_000}
-    told = m.act(NAMED, lambda s: big)
-    assert told["site_data"]["waiting"] == [], "the evicted origin is not waiting"
-    assert told["site_data"]["restored"] == ["x"]
-
-
-# ---- bookkeeping belongs to the browser that produced the result --------------
-
-
-def test_settle_from_a_browser_the_record_no_longer_names_leaves_pending(named_caller):
-    m = opened_with_save()
-    reopened(m)
-    before = m.store.get(NAMED).site_data["pending"]
-    told = {"url": "https://w.test/page"}
-    m.settle(NAMED, told, browser="an-older-browser", touch=False)
-    assert "site_data" not in told
-    assert m.actions.retired == []
-    assert m.store.get(NAMED).site_data["pending"] == before
-
-
-def test_act_settles_as_the_browser_it_resolved(named_caller):
-    m = opened_with_save()
-    reopened(m)
-    before = m.store.get(NAMED).site_data["pending"]
-
-    def newer(r):
-        pending = {**r.site_data["pending"], "browser": "newer"}
-        return replace(r, session_id="newer", site_data={**r.site_data, "pending": pending})
-
-    def meanwhile(resolved):
-        # Another request opened a browser, with its own note, while this
-        # call ran on the old one.
-        m.store.update(NAMED, newer)
-        return {"url": "https://w.test/page"}
-
-    told = m.act(NAMED, meanwhile)
-    assert "site_data" not in told
-    assert m.actions.retired == []
-    assert m.store.get(NAMED).site_data["pending"] == {**before, "browser": "newer"}
 
 
 def test_a_stale_result_does_not_move_the_newer_browsers_page_or_window(named_caller):
@@ -604,48 +301,3 @@ def test_a_result_from_the_browser_held_still_moves_the_page(named_caller):
     record = m.store.get(NAMED)
     assert record.url == "https://a.test/page"
     assert record.settings["width"] == 640
-
-
-def test_a_pending_note_for_a_browser_the_record_no_longer_names_is_discarded(
-    named_caller,
-):
-    m = opened_with_save()
-    m.store.update(NAMED, lambda r: replace(r, session_id="other"))
-    opened = {
-        "session_id": "mine",
-        "_site_data_pending": {"origins": ["https://w.test"], "script": "p1"},
-    }
-    m._hold_pending(NAMED, opened, {"announce": False})
-    assert "_site_data_pending" not in opened
-    assert "pending" not in m.store.get(NAMED).site_data
-
-
-def test_a_flow_step_settles_as_the_browser_the_run_resolved(named_caller, tmp_path):
-    store, m = flow_world(tmp_path, [{"tool": "navigate", "args": {"url": "https://w.test/page"}}])
-    m.open_browser(NAMED)
-    m.act(NAMED, lambda s: m.actions.save_site_data(s))
-    reopened(m)
-    real = m.actions.navigate
-
-    def navigate(session_id, url=None, **kw):
-        def newer(r):
-            pending = {**r.site_data["pending"], "browser": "newer"}
-            return replace(r, session_id="newer", site_data={**r.site_data, "pending": pending})
-
-        m.store.update(NAMED, newer)
-        return real(session_id, url=url, **kw)
-
-    m.actions.navigate = navigate
-    from kubed.selenium_flow.flows import api as flowapi
-
-    report = flowapi.run_for(store, m.actions, m, NAMED, "login")
-    assert "site_data" not in report["steps"][0]
-    assert m.actions.retired == []
-
-
-def test_an_insecure_open_keeps_what_was_saved(named_caller):
-    """No restore into an insecure browser, but nothing is deleted either:
-    the next secure browser gets it all back."""
-    m = opened_with_save()
-    reopened(m, insecure=True)
-    assert m.store.get(NAMED).site_data["origins"]
