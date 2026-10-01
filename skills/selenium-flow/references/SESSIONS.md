@@ -66,11 +66,11 @@ next call notices the browser is gone, reopens one **with the same settings**,
 and navigates back to the last URL it recorded. It is invisible except in the
 server log.
 
-A refresh restores what you saved with `save_site_data` too: cookies and
-storage, so you are still signed in
-(`skill://selenium-flow/references/SITE_DATA.md`). What it cannot restore is
-in-page state the URL does not capture — scroll position, an open dropdown, an
-unsubmitted form — and anything you never saved. If a long pause is
+A refresh restores what you saved with `save_site_data` too — cookies and every
+site's storage, so you are still signed in — and the call that noticed says so
+in `site_data` (`skill://selenium-flow/references/SITE_DATA.md`). What it cannot
+restore is in-page state the URL does not capture — scroll position, an open
+dropdown, an unsubmitted form — and anything you never saved. If a long pause is
 coming before a step that depends on unsaved state, do that step first.
 
 ## Ending a browser

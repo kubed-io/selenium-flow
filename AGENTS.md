@@ -397,18 +397,33 @@ or the leak `caller_key` existed to prevent comes straight back.
 
 ### Site data
 
-- Saved **explicitly** by `save_site_data`, never captured per call.
-- Kept on `SessionRecord.site_data` in the store, never on this server's disk (with the Redis
-  store it is as durable as Redis), never logged — `main.py` holds Selenium's wire loggers at
-  INFO for that; it expires with the record. httpOnly values are shown as `•••` on every surface.
-- An action returns the capture under `CAPTURED`; `SessionManager.settle` merges it and strips
-  it, so it is never returned. `act` and every flow step go through `settle`, which is why a
-  flow's save is merged and a run report never carries the capture.
+- Saved **explicitly** by `save_site_data`, never captured per call. A save is a **snapshot**
+  that replaces the last whole (`site_data.snapshot`): the jar, the localStorage of every origin
+  in the record's `history`, and the page's sessionStorage. An origin that cannot be read keeps
+  its last storage; over 1 MB the oldest-visited origins go first.
+- `SessionRecord.history` is where the session has been: one entry per origin, newest first,
+  written by `touch` (a flow run: once at the end, every step's page in order — and, before a
+  `save_site_data` step, the pages reached so far, so the save reads them). `record.url` is
+  `history[0].url`. A withheld URL (§F1.24) or a page with no origin records nothing.
+- Other origins are reached through `browser.spare_tab`: a background tab whose requests a BiDi
+  intercept answers with a marked blank page, so the site never loads. A save reads there; a
+  restore writes there, then sets sessionStorage in the main tab the same way, all before the
+  first page. A page without the marker is a service worker's and is never read. No CDP.
+- Kept on `SessionRecord` in the store, never on this server's disk (with the Redis store it is
+  as durable as Redis), never logged — `main.py` holds Selenium's wire loggers at INFO for that;
+  it expires with the record. httpOnly values are shown as `•••` on every surface.
+- An action returns the capture under `CAPTURED`; `SessionManager.settle` stores it and strips
+  it, so it is never returned. `act` and every flow step go through `settle`.
+- A silent reopen's report waits on `SessionRecord.reopened` until `touch` hands it to the first
+  result from that browser — for a flow, to the run.
+- The admin tabs keep the two apart: History (the history joined by host with secrets and the
+  snapshot's counts) and Site data (the snapshot). Forget and both Clears change the store
+  only — never the live browser, never the other tab's data.
 - Every record write goes through `store.update(key, fn)`, which applies `fn` to the record as
   it is at write time (memory: a per-key lock; Redis: `WATCH`/`MULTI`/`EXEC`, retried, then
-  `StoreConflict`). Retiring a preload script is a BiDi round trip, and a record read before it
-  and `set` after reverted a browser opened or a save made meanwhile. Do slow work outside
-  `fn`; `fn` only computes, and may run twice.
+  `StoreConflict`). A whole record read before slow work and `set` after reverts a browser
+  opened or a save made meanwhile. Do slow work outside `fn`; `fn` only computes, and may run
+  twice.
 
 ### Refresh, not cleanup
 
