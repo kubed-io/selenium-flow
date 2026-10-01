@@ -620,14 +620,13 @@ def register(
                     "site_data_count": len(listed["sites"]),
                     "site_data_rev": site_data_rev,
                     "history_count": len(visited),
-                    # The origins in order and the top page: a new site, a
-                    # return to an older one, or a page within the top one
-                    # repaints History, whose top row is the card's last
-                    # page. Only the clock moving does not.
-                    "history_rev": json.dumps([
-                        [v["origin"] for v in record.history],
-                        record.history[0]["url"] if record.history else None,
-                    ]),
+                    # Every row's origin and page, in order: a new site, a
+                    # return to an older one, or a new page on any row
+                    # repaints History. Only the clock moving does not, so the
+                    # times are left out (Copilot, #51).
+                    "history_rev": json.dumps(
+                        [[v["origin"], v["url"]] for v in record.history]
+                    ),
                     # Named per section, so a row can say "one screenshot" and
                     # "no browser to have downloads at all" instead of one
                     # number that means both.

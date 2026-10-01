@@ -327,10 +327,9 @@ page **Session · Site data**, flow *Site data*.
 - Token-gated. The session row gains `history_count` and `history_rev` beside
   `site_data_count` and `site_data_rev`, so each pane repaints for its own
   changes.
-- `history_rev` is the history's origins in order and `history[0]`'s URL: a
-  new site, a return to an older one, or a page within the top site repaints
-  History, whose top row is the session card's last page; only the clock
-  moving does not.
+- `history_rev` is every entry's origin and URL, in order: a new site, a
+  return to an older one, or a new page on any row repaints History; only the
+  clock moving does not (Copilot, #51).
 - `site_data_rev` is `[saved_at, hosts]`: a save moves the time, a Forget or a
   Clear moves the hosts (neither is a save, so neither moves `saved_at`).
 

@@ -118,8 +118,9 @@ def test_the_row_counts_hosts_and_its_rev_follows_the_origins_and_the_top_page(c
     before = row(client)
     assert before["history_count"] == 2
     assert json.loads(before["history_rev"]) == [
-        ["https://app.example.com", "http://app.example.com:8080", "https://mail.example.org"],
-        "https://app.example.com/x",
+        ["https://app.example.com", "https://app.example.com/x"],
+        ["http://app.example.com:8080", "http://app.example.com:8080/dev"],
+        ["https://mail.example.org", "https://mail.example.org/inbox"],
     ]
     server.sessions.store.update(KEY, lambda r: r.at("https://mail.example.org/sent", now=NOW))
     moved = row(client)
@@ -137,3 +138,18 @@ def test_a_page_within_the_top_site_moves_the_rev_and_the_clock_alone_does_not(c
     assert within != before, "a page within the top site"
     server.sessions.store.update(KEY, lambda r: r.at("https://app.example.com/y", now=NOW + 5))
     assert row(client)["history_rev"] == within, "only the clock moved"
+
+
+def test_a_row_below_the_top_that_changed_its_page_moves_the_rev(client, server):
+    """There and back within one push: the origins and the top page end up as
+    they were, but the mail row now shows another page."""
+    before = row(client)["history_rev"]
+    for i, page in enumerate((
+        "https://mail.example.org/sent",
+        "http://app.example.com:8080/dev",
+        "https://app.example.com/x",
+    )):
+        server.sessions.store.update(KEY, lambda r, page=page, i=i: r.at(page, now=NOW + i))
+    after = json.loads(row(client)["history_rev"])
+    assert [o for o, _ in after] == [o for o, _ in json.loads(before)], "the same order"
+    assert after != json.loads(before), "the mail row shows /sent now"
