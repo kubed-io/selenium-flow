@@ -40,6 +40,7 @@ import logging
 import time
 from dataclasses import dataclass
 
+from .. import errors
 from ..core import site_data as site_data_module
 from ..core.actions import Actions
 from ..core.browser import DEFAULT_BROWSER
@@ -689,9 +690,9 @@ class SessionManager:
                 site_data=dict(r.site_data if r is not None else {}),
             )
 
-        # Through `update`, so a save landing while the browser opened is kept.
-        if self.store.update(name, bound) is None:
-            self.store.set(name, bound(None))
+        # One atomic create-or-update: a save landing while the browser
+        # opened is kept, and two first opens on a new name cannot both write.
+        self.store.upsert(name, bound)
         if loser.get("id"):
             log.info(
                 "two opens raced for session %s: quitting browser %s", name, loser["id"]
@@ -699,7 +700,11 @@ class SessionManager:
             try:
                 self.actions.end_browser(loser["id"])
             except Exception as exc:  # noqa: BLE001 - it may be gone already
-                log.info("could not end browser %s: %s", loser["id"], exc)
+                # errors.message strips the Grid URL's credentials, which a
+                # requests HTTPError quotes whole (Copilot, #50).
+                log.info(
+                    "could not end browser %s: %s", loser["id"], errors.message(exc)
+                )
 
     def touch(self, name: str, url: str | None, browser: str | None = None) -> None:
         """Record where the browser ended up, and slide the record's TTL.
@@ -780,7 +785,7 @@ class SessionManager:
             # Already gone, or the Grid is unreachable. Detach regardless: a
             # record naming a browser that cannot be ended is worse than one
             # naming nothing, because the next call would try to use it.
-            log.info("could not end browser %s: %s", target, exc)
+            log.info("could not end browser %s: %s", target, errors.message(exc))
         # Ending took a Grid round trip: detach the record as it is now, and
         # only if it still names this browser — one opened meanwhile stays.
         self.store.update(

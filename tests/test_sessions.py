@@ -676,6 +676,72 @@ def test_redis_update_retries_when_another_writer_lands_first():
     assert store.get("k") == got
 
 
+def test_two_first_writes_to_a_memory_key_cannot_both_land():
+    """`upsert` on a key nobody has written: the second writer sees the first
+    one's record, never None (Copilot, #50)."""
+    import threading
+    import time
+
+    store = MemoryStore()
+    seen = []
+
+    def first_write(name):
+        def fn(r):
+            seen.append(r)
+            time.sleep(0.01)  # the window a get-then-set loses a write in
+            return SessionRecord(session_id=name)
+
+        store.upsert("k", fn)
+
+    threads = [threading.Thread(target=first_write, args=(n,)) for n in ("a", "b")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert [r is None for r in seen] == [True, False], "the second saw the first"
+
+
+def test_redis_upsert_on_an_absent_key_retries_when_another_first_write_lands():
+    fake = FakeRedis()
+    store = RedisStore(fake, prefix="p:")
+
+    def open_elsewhere():
+        fake.interfere = None
+        store.set("k", SessionRecord(session_id="other"))
+
+    fake.interfere = open_elsewhere
+    seen = []
+
+    def fn(r):
+        seen.append(r.session_id if r else None)
+        return SessionRecord(session_id="mine")
+
+    store.upsert("k", fn)
+    assert seen == [None, "other"], "the second try saw the record that landed"
+    assert store.get("k").session_id == "mine"
+
+
+def test_two_first_opens_on_a_new_name_leave_exactly_one_browser():
+    """Both opens of a never-seen name read no record. The one that writes
+    second must still see the first's browser and quit the loser."""
+    fake = FakeRedis()
+    store = RedisStore(fake, prefix="p:")
+    actions = RecordingActions()
+    sessions = manager(actions, store)
+
+    def first_open_lands():
+        fake.interfere = None
+        opened = actions.open_session()
+        store.set(NAMED, SessionRecord(session_id=opened["session_id"]))
+
+    fake.interfere = first_open_lands
+    sessions.remember(NAMED, "late-browser")
+    actions.grid.alive.add("late-browser")
+    kept = store.get(NAMED).session_id
+    assert kept == "late-browser"
+    assert actions.closed == ["generated-1"], "the browser that lost was quit"
+
+
 def test_redis_update_gives_up_after_bounded_retries_and_says_so():
     from kubed.selenium_flow.session.store import StoreConflict
 
@@ -1167,3 +1233,26 @@ def test_two_reopens_after_a_reap_leave_exactly_one_browser():
     kept = sessions.store.get(NAMED).session_id
     assert actions.grid.alive == {kept}
     assert len(actions.closed) == 1 and actions.closed[0] != kept
+
+
+def test_a_failed_quit_never_logs_the_grids_credentials(caplog):
+    """requests' HTTPError quotes the whole request URL, userinfo included;
+    the cleanup log goes through errors.message like every caller-facing line
+    (Copilot, #50)."""
+    import logging
+
+    actions = RecordingActions()
+    sessions = manager(actions)
+    sessions.remember(NAMED, "abc")
+    actions.grid.alive.add("abc")
+
+    def refuse(session_id):
+        raise RuntimeError(
+            "500 Server Error for url: http://admin:hunter2@grid:4444/session/abc"
+        )
+
+    actions.end_browser = refuse
+    with caplog.at_level(logging.INFO):
+        sessions.end_browser(NAMED)
+    assert "could not end browser" in caplog.text
+    assert "hunter2" not in caplog.text
