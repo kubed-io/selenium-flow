@@ -759,7 +759,13 @@ def _run(
             if before_step is not None:
                 before_step(dict(entry), total)
             raw = method(session_id, **kwargs)
+            # Before the result is copied for the report: the hook strips the
+            # private capture from `raw` and may add the site data hint.
+            if after_step is not None:
+                after_step(tool, raw)
             result = _clean(raw, guarded, hidden)
+            if isinstance(raw, dict) and raw.get("site_data"):
+                entry["site_data"] = raw["site_data"]
             entry["ok"] = True
             # Recorded rather than inferred later by searching the string for
             # the marker, and asked of the raw URL rather than by comparing it
@@ -791,8 +797,6 @@ def _run(
             if made and not taints(str(made), hidden):
                 entry["file"] = made
             last = result
-            if after_step is not None:
-                after_step(tool, raw)
             if verbose or step.get("return"):
                 entry["result"] = result
         except Exception as exc:  # noqa: BLE001 - a failing step is an outcome

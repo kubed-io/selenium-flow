@@ -35,6 +35,8 @@ export interface SessionRow {
   files_count?: number | null
   files_rev?: string | number | null
   flows_rev?: string | number | null
+  site_data_count?: number | null
+  site_data_rev?: string | null
 }
 
 export interface SessionsPayload { sessions: SessionRow[]; events_url?: string }
@@ -91,3 +93,45 @@ export interface SettingRow {
 }
 export interface SettingsSection { name: string; description: string; settings: SettingRow[] }
 export interface SettingsPayload { sections: SettingsSection[] }
+
+export interface SiteSecret { name: string; description?: string; keys: string[] }
+export interface SiteCookie {
+  name: string
+  value: string
+  domain?: string
+  path?: string
+  expiry?: number | null
+  http_only?: boolean
+  secure?: boolean
+  same_site?: string | null
+  shared?: boolean
+}
+export interface SiteRow {
+  site: string
+  origin: string | null
+  saved: boolean
+  saved_at: number | null
+  uri?: string
+  cookies: number
+  local_storage: number
+  session_storage: number
+  secrets: SiteSecret[]
+}
+/** A parent-domain cookie Forget leaves, named whole: two can share a name. */
+export interface SharedCookie { name: string; domain: string; path: string }
+export interface SiteDetail extends Omit<SiteRow, 'cookies' | 'local_storage' | 'session_storage'> {
+  cookies: SiteCookie[]
+  local_storage: Record<string, string>
+  session_storage: Record<string, string>
+  /** What Forget removes and what it leaves, by the server's own rule. */
+  own_cookies: string[]
+  kept_shared: SharedCookie[]
+}
+export interface SiteDataPayload {
+  key: string
+  sites: SiteRow[]
+  saved_sites: number
+  unleashed_secrets?: unknown
+  uri?: string
+  details: Record<string, SiteDetail>
+}

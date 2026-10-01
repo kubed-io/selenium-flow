@@ -39,6 +39,7 @@ from . import secrets as secrets_module
 from .core import browser
 from .core.actions import Actions
 from .http import answer as answer_module
+from .mcp import resources
 from .session import settings
 from .session.sessions import SessionManager
 from .spec import build_spec
@@ -69,6 +70,7 @@ ENDPOINTS = {
     "dialog": "dialog",
     "upload": "upload_file",
     "print": "print",
+    "save-site-data": "save_site_data",
 }
 
 # `interact` is the one action whose choice is a path segment rather than a body
@@ -288,6 +290,7 @@ def register(
                 name,
                 url=body.get("url"),
                 fresh=body.get("fresh", False),
+                restore_site_data=body.get("restore_site_data", True),
                 **{k: v for k, v in body.items() if k in settings.SETTINGS},
             )
         ))
@@ -310,6 +313,27 @@ def register(
         return await _answer(request, token, "status", lambda name, _body: (
             sessions.describe(name)
         ))
+
+    # The same two reads the resources make, beside them the way `/files` is
+    # beside its own. Literal route first, so the listing is never the template.
+    @mcp.custom_route(f"{prefix}/site-data", methods=["GET"], name="site_data_list")
+    async def site_data_list(request: Request) -> JSONResponse:
+        """The sites this session has saved data for. Never a value."""
+        return await answer_module.answer(
+            request, token, "site-data/list",
+            lambda name, _body: resources.site_listing(sessions, name), log,
+        )
+
+    @mcp.custom_route(
+        f"{prefix}/site-data/{{site}}", methods=["GET"], name="site_data_one"
+    )
+    async def site_data_one(request: Request) -> JSONResponse:
+        """One site's saved cookies and storage, httpOnly values masked."""
+        site = request.path_params["site"]
+        return await answer_module.answer(
+            request, token, "site-data/get",
+            lambda name, _body: resources.one_site(sessions, name, site), log,
+        )
 
     for path, method_name in ENDPOINTS.items():
         _add(

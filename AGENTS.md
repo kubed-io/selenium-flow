@@ -144,7 +144,8 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   already caught real failures.
 - **Plain W3C WebDriver only.** No CDP. It is Chrome-only, which forfeits running against
   any other browser the Grid offers, and the CDP DevTools API is deprecated for removal in
-  Selenium 5. CDP `Page.captureScreenshot` with `captureBeyondViewport` does produce a
+  Selenium 5. WebDriver BiDi is W3C and allowed, used **only** for site data, and reattached
+  per call through `Grid.bidi(session_id)`, which closes its socket on exit. CDP `Page.captureScreenshot` with `captureBeyondViewport` does produce a
   better full-page image, and `Emulation.setDeviceMetricsOverride` adds JPEG and a 2x
   retina render — both tested working against this Grid. If that capability is wanted, add
   it as a **separate** tool so the portable path keeps working when CDP goes away.
@@ -393,6 +394,21 @@ If a new way to supply a name is ever added, it must be one the client controls,
 or the leak `caller_key` existed to prevent comes straight back.
 `test_a_request_that_names_nothing_names_nothing` and
 `test_repeated_calls_on_one_key_open_exactly_one_browser` are the guards.
+
+### Site data
+
+- Saved **explicitly** by `save_site_data`, never captured per call.
+- Kept on `SessionRecord.site_data` in the store, never on this server's disk (with the Redis
+  store it is as durable as Redis), never logged — `main.py` holds Selenium's wire loggers at
+  INFO for that; it expires with the record. httpOnly values are shown as `•••` on every surface.
+- An action returns the capture under `CAPTURED`; `SessionManager.settle` merges it and strips
+  it, so it is never returned. `act` and every flow step go through `settle`, which is why a
+  flow's save is merged and a run report never carries the capture.
+- Every record write goes through `store.update(key, fn)`, which applies `fn` to the record as
+  it is at write time (memory: a per-key lock; Redis: `WATCH`/`MULTI`/`EXEC`, retried, then
+  `StoreConflict`). Retiring a preload script is a BiDi round trip, and a record read before it
+  and `set` after reverted a browser opened or a save made meanwhile. Do slow work outside
+  `fn`; `fn` only computes, and may run twice.
 
 ### Refresh, not cleanup
 

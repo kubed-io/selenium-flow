@@ -40,6 +40,7 @@ import logging
 import time
 from dataclasses import dataclass
 
+from ..core import site_data as site_data_module
 from ..core.actions import Actions
 from ..core.browser import DEFAULT_BROWSER
 from ..mcp import guidance
@@ -273,6 +274,9 @@ class SessionManager:
         # something is off-screen or a layout has collapsed, and it should not
         # have to dig it out of settings or take a screenshot to find out.
         status["window"] = record.window
+        saved = site_data_module.summary(record.site_data)
+        if saved is not None:
+            status["site_data"] = saved
         # A record with no browser is an ordinary state, not a broken one: the
         # Grid reaped it or an admin ended it, and the context it left behind is
         # what the next open_session inherits.
@@ -338,14 +342,21 @@ class SessionManager:
             record.session_id,
             name,
         )
+        saved = self._restorable(record)
         opened = self.actions.open_session(
-            url=record.url or None, **(record.settings or {})
+            url=record.url or None,
+            **({"site_data": saved} if saved else {}),
+            **(record.settings or {}),
         )
         self.remember(
             name,
             opened["session_id"],
             opened.get("url", record.url or ""),
             record.settings,
+        )
+        # Nobody asked for this reopen, so the next result says it happened.
+        self._hold_pending(
+            name, opened, {"announce": True, "report": opened.get("site_data")}
         )
         return opened["session_id"]
 
@@ -363,14 +374,166 @@ class SessionManager:
         """
         resolved = self.resolve(name)
         result = call(resolved)
-        if isinstance(result, dict):
-            self.touch(name, result.get("url"))
-            if reshapes:
-                self.reshape(name, result)
+        self.settle(name, result, reshapes=reshapes)
         return result
 
+    def settle(
+        self, name: str, result, *, reshapes: bool = False, touch: bool = True
+    ) -> None:
+        """What a finished action means for the record, in place on ``result``.
+
+        The one place a result is merged into site data and stripped of its
+        private capture, so a flow step reaches it the same way a single call
+        does. ``touch=False`` is for the flow runner, which touches once per
+        run rather than once per step.
+        """
+        if not isinstance(result, dict):
+            return
+        if touch:
+            self.touch(name, result.get("url"))
+        if reshapes:
+            self.reshape(name, result)
+        self._site_data_after(name, result)
+
+    def _site_data_after(self, name: str, result: dict) -> None:
+        """What a finished call means for this session's site data.
+
+        Three things, in order: a captured save is merged into the record and
+        replaced in the result by a short receipt; a page arriving on an origin
+        still waiting to be restored says so once, and the last arrival retires
+        the preload script; a silent reopen is announced on its first result.
+
+        Every write goes through ``store.update``, applied to the record as it
+        is then: retiring a script is a BiDi round trip, and a whole record
+        read before it and set after reverted whatever opened or saved meanwhile.
+        """
+        # Popped before the store is asked anything, so a store that fails
+        # cannot leave the capture — every value — in what the caller gets.
+        captured = result.pop(site_data_module.CAPTURED, None)
+        if captured:
+            receipt = {}
+
+            def save(r: SessionRecord) -> SessionRecord:
+                data, receipt["saved"] = site_data_module.merge(
+                    r.site_data, captured, time.time()
+                )
+                return r.with_site_data(data)
+
+            if self.store.update(name, save) is None:
+                return
+            result["saved"] = receipt["saved"]
+            result["uri"] = site_data_module.LIST_URI
+        record = self.store.get(name)
+        if record is None:
+            return
+        pending = record.site_data.get("pending") or {}
+        browser = record.session_id
+        if not pending or pending.get("browser") != browser:
+            return
+        hint = dict(pending.get("report") or {}) if pending.get("announce") else {}
+        origin = site_data_module.origin_of(result.get("url") or "")
+        arrived = origin if origin in (pending.get("origins") or []) else None
+        swapped = None
+        if arrived:
+            hint["restored"] = [*hint.get("restored", []), arrived]
+            if "waiting" in hint:
+                # The reopen's own report listed it as waiting; one answer
+                # must not call the same origin both.
+                hint["waiting"] = [o for o in hint["waiting"] if o != arrived]
+            hint["uri"] = site_data_module.site_uri(site_data_module.host_of(arrived))
+            if pending.get("script"):
+                # Still carrying the origin that just arrived, the script
+                # would refill it in every new tab; the replacement carries
+                # only what still waits.
+                still = [o for o in pending["origins"] if o != arrived]
+                keep = self._waiting(record.site_data, still)
+                swapped = (
+                    pending["script"],
+                    self.actions.retire_site_data(browser, pending["script"], keep),
+                )
+        if hint:
+            result["site_data"] = hint
+
+        def settle(r: SessionRecord) -> SessionRecord | None:
+            now = dict(r.site_data.get("pending") or {})
+            if r.session_id != browser or now.get("browser") != browser:
+                # Another browser opened meanwhile, with a note of its own.
+                return None
+            now["announce"] = False
+            now.pop("report", None)
+            if arrived:
+                now["origins"] = [o for o in now.get("origins") or [] if o != arrived]
+            if swapped and now.get("script") == swapped[0]:
+                now["script"] = swapped[1]
+                if now["origins"] and not now["script"]:
+                    # No script is left to fill them: announcing them later
+                    # would promise a restore that cannot happen.
+                    now["origins"] = []
+            data = {k: v for k, v in r.site_data.items() if k != "pending"}
+            if now.get("origins") or now.get("script"):
+                data["pending"] = now
+            return None if data == r.site_data else r.with_site_data(data)
+
+        self.store.update(name, settle)
+
+    @staticmethod
+    def _waiting(data: dict, origins: list[str]) -> dict:
+        """The saved storage of the origins still waiting to be restored."""
+        saved = data.get("origins") or {}
+        return {o: saved[o] for o in origins if o in saved}
+
+    @staticmethod
+    def _restorable(record: SessionRecord) -> dict:
+        """The saved data a browser can be given: the pending note is ours."""
+        if site_data_module.summary(record.site_data) is None:
+            return {}
+        return {k: v for k, v in record.site_data.items() if k != "pending"}
+
+    def _hold_pending(self, name: str, opened: dict, extra: dict) -> None:
+        """Note in the record what a fresh browser is still waiting to restore.
+
+        Consumes ``_site_data_pending`` from ``opened``, so it never reaches a
+        caller. Whatever an earlier browser was waiting on is dropped.
+        """
+        waiting = opened.pop("_site_data_pending", None)
+        record = self.store.get(name)
+        if record is None:
+            return
+        browser = record.session_id
+        arrived = (waiting or {}).pop("arrived", None)
+        if waiting and waiting.get("script") and (
+            arrived or not waiting.get("origins")
+        ):
+            # The landing origin already loaded under the script. Left in place
+            # it would overwrite what the app changes since, on every later
+            # tab: swap it for one carrying only what still waits, if anything.
+            script = self.actions.retire_site_data(
+                browser,
+                waiting["script"],
+                self._waiting(record.site_data, waiting.get("origins") or []),
+            )
+            waiting = {**waiting, "script": script}
+            if waiting.get("origins") and not script:
+                waiting["origins"] = []
+
+        def hold(r: SessionRecord) -> SessionRecord | None:
+            if r.session_id != browser:
+                # A newer browser, whose own open holds its own note.
+                return None
+            data = {k: v for k, v in r.site_data.items() if k != "pending"}
+            if waiting and (waiting.get("origins") or extra.get("announce")):
+                data["pending"] = {"browser": browser, **waiting, **extra}
+            return None if data == r.site_data else r.with_site_data(data)
+
+        self.store.update(name, hold)
+
     def open_browser(
-        self, name: str, url: str | None = None, fresh: bool = False, **wanted
+        self,
+        name: str,
+        url: str | None = None,
+        fresh: bool = False,
+        restore_site_data: bool = True,
+        **wanted,
     ) -> dict:
         """Open this session's browser, or pick up the one it was using.
 
@@ -403,8 +566,24 @@ class SessionManager:
         # start - and an explicit `url` is a start the caller named, which
         # `fresh` has no business overriding.
         inherited = None if as_bool(fresh) else (previous.get("url") or None)
-        opened = self.actions.open_session(url=url or inherited, **resolved)
+        record = self.store.get(name)
+        saved = self._restorable(record) if record else {}
+        forgotten = None
+        if saved and not as_bool(restore_site_data, True):
+            # Declining a restore is also how saved data is thrown away — but
+            # only once the clean browser is open, so a failed open cannot
+            # erase a sign-in the caller never got a new browser for.
+            forgotten = site_data_module.summary(saved)["sites"]
+            saved = {}
+        opened = self.actions.open_session(
+            url=url or inherited, **({"site_data": saved} if saved else {}), **resolved
+        )
+        if forgotten is not None:
+            self.store.update(name, lambda r: r.with_site_data({}))
         self.remember(name, opened["session_id"], opened.get("url", ""), resolved)
+        self._hold_pending(name, opened, {"announce": False})
+        if forgotten is not None:
+            opened["site_data"] = {"forgotten": forgotten}
         # The Grid's id is dropped here rather than never fetched: it is how the
         # browser is reached, and it is not part of what a caller is told.
         told = {k: v for k, v in opened.items() if k != "session_id"}
@@ -424,15 +603,18 @@ class SessionManager:
         for the node default, midway through a task would be a silent change of
         shape. They are also what ``open_session`` with no arguments inherits.
         """
-        self.store.set(
-            name,
-            SessionRecord(
+        def bound(site_data: dict) -> SessionRecord:
+            return SessionRecord(
                 session_id=session_id,
                 url=url,
                 opened_at=time.time(),
                 settings=dict(settings or {}),
-            ),
-        )
+                site_data=dict(site_data),
+            )
+
+        # Through `update`, so a save landing while the browser opened is kept.
+        if self.store.update(name, lambda r: bound(r.site_data)) is None:
+            self.store.set(name, bound({}))
 
     def touch(self, name: str, url: str | None) -> None:
         """Record where the browser ended up, and slide the record's TTL.
@@ -450,9 +632,7 @@ class SessionManager:
         clock — so a flow that logs in every few minutes, the one thing secrets
         exist for, expired out of the store while it was being used.
         """
-        record = self.store.get(name)
-        if record is not None:
-            self.store.set(name, record.at(url))
+        self.store.update(name, lambda r: r.at(url))
 
     def reshape(self, name: str, result: dict) -> None:
         """Record the window size an action just gave the browser.
@@ -463,9 +643,8 @@ class SessionManager:
         browser would be silently undone the next time the Grid reaps it.
         """
         size = {k: result[k] for k in ("width", "height") if result.get(k)}
-        record = self.store.get(name) if size else None
-        if record is not None:
-            self.store.set(name, record.reshaped(size))
+        if size:
+            self.store.update(name, lambda r: r.reshaped(size))
 
     def context(self, name: str) -> dict:
         """The browser and page this session last had, for a reopen.
@@ -505,6 +684,10 @@ class SessionManager:
             # record naming a browser that cannot be ended is worse than one
             # naming nothing, because the next call would try to use it.
             log.info("could not end browser %s: %s", target, exc)
-        self.store.set(name, record.detached())
+        # Ending took a Grid round trip: detach the record as it is now, and
+        # only if it still names this browser — one opened meanwhile stays.
+        self.store.update(
+            name, lambda r: r.detached() if r.session_id == target else None
+        )
         log.info("ended browser %s for session %s", target, name)
         return target

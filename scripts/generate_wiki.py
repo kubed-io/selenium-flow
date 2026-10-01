@@ -120,6 +120,12 @@ GROUPS = [
         "See [Secrets](Secrets).",
         ["list_secrets"],
     ),
+    (
+        "Site data",
+        "The cookies and storage a session keeps, so a browser that replaces "
+        "another comes back signed in. See [Sessions](Sessions).",
+        ["save_site_data", "list_site_data", "get_site_data"],
+    ),
 ]
 
 ORDER = [tool for _, _, tools in GROUPS for tool in tools]

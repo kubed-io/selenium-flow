@@ -11,7 +11,8 @@ calls. You are steering one tab, not sending independent requests.
 
 Three consequences drive everything else:
 
-- **State carries over.** Log in once and every later call is logged in. But a
+- **State carries over** — and across a reaped browser, if you saved it
+  (`save_site_data`). Log in once and every later call is logged in. But a
   browser left on the wrong page makes your next XPath fail for a reason that
   has nothing to do with the XPath.
 - **Slots are scarce.** The Grid runs a handful of browsers in total. An
@@ -117,6 +118,7 @@ Load only what the task needs.
 | Setting the server up, connecting a client, which env var to change | `skill://selenium-flow/references/CONFIGURATION.md` |
 | Doing a sequence you or another agent will repeat — save it once, run it in one call | `skill://selenium-flow/references/FLOWS.md` |
 | Typing a password, token or anything else you must not see | `skill://selenium-flow/references/SECRETS.md` |
+| Staying signed in across a reaped or ended browser | `skill://selenium-flow/references/SITE_DATA.md` |
 
 ## A whole task, minimally
 
@@ -129,6 +131,7 @@ write(selector={"xpath": "//input[@name='password']"},
       secret={"name": "example", "key": "password"})
 interact(action="click", selector={"xpath": "//button[@type='submit']"})
 extract(selector={"xpath": "//h1"})            # confirm you landed
+save_site_data()                               # the next browser comes back signed in
 end_browser()
 ```
 
@@ -146,7 +149,7 @@ check this table twice before reaching for it.
 
 | Tool | Does | Key arguments |
 |---|---|---|
-| `open_session` | start a browser, or come back to the one you had | `browser`: `chrome` \| `firefox`, `width`, `height`, `url`, `fresh` |
+| `open_session` | start a browser, or come back to the one you had | `browser`: `chrome` \| `firefox`, `width`, `height`, `url`, `fresh`, `restore_site_data` |
 | `end_browser` | free the Grid slot; your session survives | — |
 | `navigate` | go to a URL | `url` |
 | `interact` | a mouse gesture on an element | `selector`, `action`: `click` \| `double_click` \| `right_click` \| `hover` \| `scroll_to`, `glide` |
@@ -163,6 +166,7 @@ check this table twice before reaching for it.
 | `resize` | change the window size | `width`, `height` |
 | `execute_script` | run JavaScript — only for what nothing above does | `script` |
 | `assert` | JavaScript that must return true, or the call fails | `script`, `message`, `stable_for` |
+| `save_site_data` | keep this browser's cookies and storage, so a replacement comes back signed in | `url` |
 | `keep_file` | keep a file in Files, past the browser | `uri` |
 | `save_flow` | save a sequence of steps under a name | `name`, `parameters`, `steps`, `timeout` |
 | `run_flow` | run a saved flow in one call | `name`, `params` |
@@ -179,6 +183,8 @@ And everything to read:
 | `session://files/screenshots/{name}` | one of those, as bytes |
 | `session://files/downloads` | this session's browser downloads |
 | `session://files/downloads/{name}` | one of those, as bytes, while the browser is open |
+| `session://site-data` | the sites you have saved cookies or storage for — never a value |
+| `session://site-data/{site}` | one site's saved cookies and storage; httpOnly values are masked |
 | `secret://secrets` | the secrets you may type — never their values |
 | `flow://flows` | the saved flows you can run |
 | `flow://flows/{name}` | one flow's parameters and steps |

@@ -40,10 +40,12 @@ from starlette.responses import (
 )
 
 from .. import errors
+from ..core import site_data
 from ..core.browser import DEFAULT_BROWSER, is_partial
 from ..flows import api as flowapi
 from ..flows import document as flowdoc
 from ..flows import library as flows
+from ..session.store import SessionRecord
 from . import auth, files, links
 
 log = logging.getLogger(__name__)
@@ -591,6 +593,21 @@ def register(
                     for name in names
                 )
             )
+            saved = site_data.view(record.site_data)
+            # Like files_rev: a count cannot see a re-save, and a re-save is
+            # what the tab must repaint for. Cookies in it because a save
+            # changes them without touching the host or the time of the origin.
+            site_data_rev = json.dumps(
+                [
+                    # A cookie-only re-save moves nothing below but this.
+                    record.site_data.get("saved_at"),
+                    sorted(
+                        [s["site"], s["saved_at"], s["cookies"]]
+                        for s in saved["sites"]
+                        if s["saved"]
+                    ),
+                ]
+            )
             rows.append(
                 {
                     # The store key addresses the session on this API. It is not
@@ -609,6 +626,8 @@ def register(
                     "started": record.opened_at or None,
                     "files_count": files_count,
                     "files_rev": files_rev,
+                    "site_data_count": saved["saved_sites"],
+                    "site_data_rev": site_data_rev,
                     # Named per section, so a row can say "one screenshot" and
                     # "no browser to have downloads at all" instead of one
                     # number that means both.
@@ -781,6 +800,72 @@ def register(
         except Exception as exc:  # noqa: BLE001 - a Grid blip, not a failure
             log.info("session header for %s unavailable: %s", key, exc)
             return detail
+
+    async def secret_rows() -> list[dict]:
+        if catalogue is None:
+            return []
+        return (await run_in_threadpool(catalogue.listing))["secrets"]
+
+    @mcp.custom_route(
+        f"{prefix}/admin/sessions/{{key}}/site-data",
+        methods=["GET"],
+        name="admin_site_data",
+    )
+    @guarded
+    async def admin_site_data(request: Request) -> JSONResponse:
+        """Every site this session could use, each in full, values masked."""
+        key = request.path_params["key"]
+        try:
+            secrets = await secret_rows()
+            record = await run_in_threadpool(sessions.store.get, key)
+        except Exception as exc:  # noqa: BLE001 - errors.py says what it means
+            return refused(exc, f"site data for {key}")
+        data = record.site_data if record else {}
+        listed, details = site_data.views(data, secrets)
+        return JSONResponse({"key": key, **listed, "details": details})
+
+    @mcp.custom_route(
+        f"{prefix}/admin/sessions/{{key}}/site-data/{{site}}",
+        methods=["DELETE"],
+        name="admin_site_data_forget",
+    )
+    @guarded
+    async def admin_site_data_forget(request: Request) -> JSONResponse:
+        """Forget one site. Parent-domain cookies stay: other sites use them.
+
+        It applies from the next browser. One open now keeps what it has — the
+        cookies are in its jar, and a preload script already in it still fills
+        a forgotten origin that was waiting — and nothing here reaches into it.
+        """
+        key = request.path_params["key"]
+        host = request.path_params["site"].lower()
+        missing = f"no saved site data for {host}"
+        removed: dict = {}
+
+        # Applied to the record as it is when written, so a save or an open
+        # landing while this runs is kept rather than set back.
+        def forget(record: SessionRecord) -> SessionRecord:
+            left, removed["what"] = site_data.forget(record.site_data, host)
+            if not (removed["what"]["cookies"] or removed["what"]["origins"]):
+                raise errors.NotFound(missing)
+            # Pending origins are restores not yet consumed; a forgotten site
+            # must not come back through one.
+            pending = left.get("pending")
+            if pending and pending.get("origins"):
+                left["pending"] = {
+                    **pending,
+                    "origins": [
+                        o for o in pending["origins"] if site_data.host_of(o) != host
+                    ],
+                }
+            return record.with_site_data(left)
+
+        try:
+            if await run_in_threadpool(sessions.store.update, key, forget) is None:
+                raise errors.NotFound(missing)
+        except Exception as exc:  # noqa: BLE001 - errors.py says what it means
+            return refused(exc, f"forgetting {host} for {key}")
+        return JSONResponse({"forgotten": removed["what"]})
 
     @mcp.custom_route(
         f"{prefix}/admin/sessions/{{key}}/files", methods=["GET"], name="admin_files"

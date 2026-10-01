@@ -243,6 +243,22 @@ all.
     message: Already signed in - you don't need to run this flow.
 ```
 
+## Keeping a sign-in
+
+A login flow ends with `save_site_data`, after a step that proves you are in:
+
+```yaml
+- tool: assert
+  args:
+    script: return !document.querySelector('#login-username')
+    stable_for: 1
+    message: Still on the login form.
+- tool: save_site_data
+```
+
+Saved from a flow, it is saved like any other: a run's report never carries it
+(`skill://selenium-flow/references/SITE_DATA.md`).
+
 ## When a flow fails
 
 A run that fails names the step, what went wrong, and the page it was on. It also

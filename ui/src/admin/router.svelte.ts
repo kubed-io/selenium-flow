@@ -6,7 +6,7 @@ export type Route =
   | { view: 'console' }
   | { view: 'secrets' }
   | { view: 'settings' }
-  | { view: 'session'; key: string; tab: 'files' | 'flows'; flow: string | undefined }
+  | { view: 'session'; key: string; tab: 'files' | 'flows' | 'site-data'; flow: string | undefined }
 
 export function parse(hash: string): Route {
   const [view, key, tab, flow] = hash.replace(/^#\/?/, '').split('/')
@@ -19,7 +19,7 @@ export function parse(hash: string): Route {
       return {
         view: 'session',
         key: decodeURIComponent(key),
-        tab: tab === 'flows' ? 'flows' : 'files',
+        tab: tab === 'flows' ? 'flows' : tab === 'site-data' ? 'site-data' : 'files',
         flow: flow ? decodeURIComponent(flow) : undefined,
       }
     } catch {
@@ -37,6 +37,7 @@ export const hashes = {
   settings: '#/settings',
   session: (key: string) => '#/sessions/' + enc(key),
   flows: (key: string) => '#/sessions/' + enc(key) + '/flows',
+  siteData: (key: string) => '#/sessions/' + enc(key) + '/site-data',
   flow: (key: string, name: string) => '#/sessions/' + enc(key) + '/flows/' + enc(name),
 }
 

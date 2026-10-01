@@ -65,6 +65,10 @@ class AssertionFailed(Exception):
     """
 
 
+class NotFound(LookupError):
+    """The thing the caller named is not there: a 404, with its own words."""
+
+
 CALLER = (
     AssertionFailed,
     TimeoutException,
@@ -137,7 +141,7 @@ def formatted(exc: BaseException) -> str:
 
 def status_for(exc: BaseException) -> int:
     """The HTTP status that tells the truth about ``exc``."""
-    if isinstance(exc, GONE):
+    if isinstance(exc, (GONE, NotFound)):
         return 404
     if isinstance(exc, requests.HTTPError):
         # The Grid answered, and its answer was no. Every plain HTTP call to it

@@ -59,12 +59,18 @@ It comes back with `"text_from": "secret"` and no value. In a flow, the same
     {"tool": "write", "args": {"selector": {"css": "#password"},
       "secret": {"name": "nextcloud", "key": "password"}}},
     {"tool": "interact", "args": {"action": "click", "selector": {"css": "button[type=submit]"}}},
-    {"tool": "extract", "args": {"selector": {"css": "h1"}}, "return": true}
+    {"tool": "assert", "args": {"script": "return !location.pathname.startsWith('/login')",
+      "stable_for": 1, "message": "Still on the login page."}},
+    {"tool": "save_site_data", "args": {}}
   ]
 }
 ```
 
-The report shows that step as `text=<hidden>`.
+The report shows the typing steps as `text=<hidden>`. The `assert` is what proves
+you are in — `extract` reads content and never stops a flow. The last step keeps
+the sign-in:
+a reopened browser comes back signed in, and the password is not typed again
+(`skill://selenium-flow/references/SITE_DATA.md`).
 
 The rules, each of which is refused rather than guessed at:
 
@@ -102,6 +108,12 @@ read it back — `execute_script` most obviously. The server scrubs it from ever
 report, error and URL it returns to you; it cannot unsee the DOM. A flow that
 binds a secret is not a sandbox. Do not read a field you have just filled with
 one, and do not screenshot a page that shows it.
+
+A site that stores what you typed makes it readable in site data: a token typed
+through a secret that the page keeps in localStorage or sessionStorage is saved
+by `save_site_data` and shown in `session://site-data/{site}` and the admin UI.
+httpOnly cookies stay masked
+(`skill://selenium-flow/references/SITE_DATA.md`).
 
 Filesystem secrets are visible to every session on the server. The listing is
 not scoped to you, so treat every name you see as shared.

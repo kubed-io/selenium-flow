@@ -15,7 +15,7 @@ export const own = <T>(map: Record<string, T>, key: string): T | undefined =>
 export const TOOL_ICON: Record<string, string> = {
   navigate: '🧭', interact: '👆', drag: '🤜', write: '✍️', press_key: '⌨️',
   extract: '🔍', execute_script: '📜', screenshot: '📷', frame: '🪟', resize: '📐',
-  dialog: '💬', upload_file: '📤', print: '🖨️', assert: '✅',
+  dialog: '💬', upload_file: '📤', print: '🖨️', assert: '✅', save_site_data: '🍪',
 }
 
 /* JSON types already have glyphs everyone reads; at 12px an emoji is a smudge. */

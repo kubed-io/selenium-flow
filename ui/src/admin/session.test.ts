@@ -64,7 +64,7 @@ test('filesSettled sees the newest data even when the poll overtook the caller (
 })
 
 test('a pushed row refetches files only when the stamp moves (F8)', async () => {
-  const { calls } = fakeFetch({ 'GET /admin/sessions/k/files': { body: files() }, 'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [], rev: 1 } } })
+  const { calls } = fakeFetch({ 'GET /admin/sessions/k/site-data': { body: { sites: [], details: {} } }, 'GET /admin/sessions/k/files': { body: files() }, 'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [], rev: 1 } } })
   const m = new SessionModel('k', api)
   await m.loadFiles(); await m.loadFlows(() => null, () => {})
   const before = calls.length
@@ -75,7 +75,7 @@ test('a pushed row refetches files only when the stamp moves (F8)', async () => 
 })
 
 test('a pushed row refetches flows only when flows_rev moves (F8, W7)', async () => {
-  const { calls } = fakeFetch({ 'GET /admin/sessions/k/files': { body: files() }, 'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [], rev: 1 } } })
+  const { calls } = fakeFetch({ 'GET /admin/sessions/k/site-data': { body: { sites: [], details: {} } }, 'GET /admin/sessions/k/files': { body: files() }, 'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [], rev: 1 } } })
   const m = new SessionModel('k', api)
   await m.loadFiles(); await m.loadFlows(() => null, () => {})
   const flowLoads = () => calls.filter((c) => c.path === '/admin/sessions/k/flows').length

@@ -448,6 +448,64 @@ class FakeRedis:
         prefix = match.rstrip("*")
         return [k for k in list(self.data) if k.startswith(prefix)]
 
+    def pipeline(self):
+        return FakePipeline(self)
+
+
+class FakePipeline:
+    """redis-py's optimistic transaction: WATCH reads at once, MULTI buffers,
+    EXEC refuses with WatchError if a watched key was written since.
+
+    ``fake.interfere`` runs just before EXEC — another replica's write landing
+    between this one's read and its write.
+    """
+
+    def __init__(self, fake):
+        self.fake = fake
+        self.watched = {}
+        self.queued = []
+        self.buffering = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.reset()
+
+    def reset(self):
+        self.watched, self.queued, self.buffering = {}, [], False
+
+    def watch(self, key):
+        self.watched[key] = self.fake.data.get(key)
+
+    def unwatch(self):
+        self.watched = {}
+
+    def get(self, key):
+        return self.fake.get(key)
+
+    def multi(self):
+        self.buffering = True
+
+    def set(self, key, value, ex=None):
+        assert self.buffering, "a write outside MULTI is not a transaction"
+        self.queued.append((key, value, ex))
+
+    def execute(self):
+        from redis.exceptions import WatchError
+
+        interfere = getattr(self.fake, "interfere", None)
+        if interfere:
+            interfere()
+        changed = any(self.fake.data.get(k) != v for k, v in self.watched.items())
+        queued = self.queued
+        self.reset()
+        if changed:
+            raise WatchError("watched key changed")
+        for key, value, ex in queued:
+            self.fake.set(key, value, ex=ex)
+        return [True] * len(queued)
+
 
 def test_redis_store_round_trips_a_record_and_expires_it():
     fake = FakeRedis()
@@ -526,6 +584,114 @@ def test_listing_collects_the_records_nobody_asks_for_again():
 
     assert set(store.records()) == {"stays"}
     assert "gone" not in store._data, "the expired record was filtered, not freed"
+
+
+# ---- update: a write applied to the record as it is at write time -----------
+
+
+def _stores():
+    return [MemoryStore(ttl=99), RedisStore(FakeRedis(), prefix="p:", ttl=99)]
+
+
+@pytest.mark.parametrize("store", _stores(), ids=lambda s: s.kind)
+def test_update_applies_the_change_to_the_stored_record(store):
+    store.set("k", SessionRecord(session_id="abc", url="https://a.test"))
+    got = store.update("k", lambda r: r.with_site_data({"cookies": []}))
+    assert got == store.get("k")
+    assert (got.session_id, got.url, got.site_data) == ("abc", "https://a.test", {"cookies": []})
+
+
+@pytest.mark.parametrize("store", _stores(), ids=lambda s: s.kind)
+def test_update_of_an_absent_session_writes_nothing(store):
+    called = []
+    assert store.update("k", lambda r: called.append(r) or r) is None
+    assert called == [] and store.get("k") is None
+
+
+def test_an_update_that_changes_nothing_writes_nothing():
+    now = [1000.0]
+    store = MemoryStore(ttl=60, clock=lambda: now[0])
+    store.set("k", SessionRecord(session_id="abc"))
+    now[0] += 50
+    assert store.update("k", lambda r: None).session_id == "abc"
+    assert store._data["k"][0] == 1060, "no write, so no slide"
+
+    fake = FakeRedis()
+    redis_store = RedisStore(fake, prefix="p:")
+    redis_store.set("k", SessionRecord(session_id="abc"))
+    fake.expiries["p:k"] = None
+    assert redis_store.update("k", lambda r: None).session_id == "abc"
+    assert fake.expiries["p:k"] is None
+
+
+def test_redis_update_slides_the_expiry_like_set_does():
+    fake = FakeRedis()
+    store = RedisStore(fake, prefix="p:", ttl=99)
+    store.set("k", SessionRecord(session_id="abc"))
+    fake.expiries["p:k"] = None
+    store.update("k", lambda r: r.with_site_data({"a": 1}))
+    assert fake.expiries["p:k"] == 99
+
+
+def test_two_threads_updating_one_memory_session_lose_nothing():
+    """Every site-data write goes through `update`; two at once — a save and
+    a reopen's hint on another request — must both land."""
+    import threading
+    import time
+
+    store = MemoryStore()
+    store.set("k", SessionRecord(settings={"a": 0, "b": 0}))
+
+    def bump(which):
+        def fn(r):
+            seen = r.settings[which]
+            time.sleep(0.0005)  # the window a read-then-write loses a write in
+            return r.reshaped({which: seen + 1})
+
+        for _ in range(40):
+            store.update("k", fn)
+
+    threads = [threading.Thread(target=bump, args=(w,)) for w in ("a", "b", "a")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert store.get("k").settings == {"a": 80, "b": 40}
+
+
+def test_redis_update_retries_when_another_writer_lands_first():
+    """Another replica binds a new browser between this read and this write:
+    the change is re-applied to its record rather than reverting it."""
+    fake = FakeRedis()
+    store = RedisStore(fake, prefix="p:")
+    store.set("k", SessionRecord(session_id="old", url="https://old.test"))
+
+    def open_elsewhere():
+        fake.interfere = None
+        store.set("k", SessionRecord(session_id="new", url="https://new.test"))
+
+    fake.interfere = open_elsewhere
+    got = store.update("k", lambda r: r.with_site_data({"a": 1}))
+    assert (got.session_id, got.url, got.site_data) == ("new", "https://new.test", {"a": 1})
+    assert store.get("k") == got
+
+
+def test_redis_update_gives_up_after_bounded_retries_and_says_so():
+    from kubed.selenium_flow.session.store import StoreConflict
+
+    fake = FakeRedis()
+    store = RedisStore(fake, prefix="p:")
+    store.set("k", SessionRecord(session_id="abc"))
+    n = [0]
+
+    def always():
+        n[0] += 1
+        fake.set("p:k", SessionRecord(session_id=f"s{n[0]}").to_json())
+
+    fake.interfere = always
+    with pytest.raises(StoreConflict, match="kept changing"):
+        store.update("k", lambda r: r.with_site_data({"a": 1}))
+    assert 1 < n[0] <= 20, "bounded, and retried at least once"
 
 
 def test_touch_slides_the_expiry_of_a_session_in_use():

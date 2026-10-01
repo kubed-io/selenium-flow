@@ -32,6 +32,7 @@ from selenium.webdriver.common.print_page_options import PrintOptions
 from ..errors import GONE, UNAVAILABLE, AssertionFailed
 from ..flows.library import FILES_DIR, SCREENSHOTS_DIR
 from . import browser, cancel, pointer, probe
+from . import site_data as site_data_module
 from .browser import Grid, as_bool, as_int, normalize_browser
 
 # What a failed pointer move must never be mistaken for. See `_move_onto`.
@@ -367,6 +368,7 @@ class Actions:
         page_load_timeout=None,
         script_timeout=None,
         insecure=None,
+        site_data=None,
     ) -> dict:
         """Start a browser session with the settings it should run under.
 
@@ -375,6 +377,8 @@ class Actions:
         ``resize``, but the browser and the timeouts are set here and then
         simply hold. There is no switching a live session to another browser:
         that is a different browser, so it is a different session.
+
+        A session's saved site data is restored here, before the first page loads.
         """
         name = normalize_browser(browser)
         insecure = as_bool(insecure, False)
@@ -400,10 +404,20 @@ class Actions:
         # makes that a fact rather than an assumption.
         self._moved(session_id, None)
 
+        restored = pending = None
+        if site_data and (site_data.get("cookies") or site_data.get("origins")):
+            with self.grid.bidi(session_id) as bidi:
+                restored, pending = site_data_module.restore(
+                    bidi, site_data, time.time()
+                )
+
         current_url, title = "about:blank", ""
         if url:
             driver.get(url)
             current_url, title = driver.current_url, driver.title
+        if restored is not None:
+            # Where the browser landed, after any redirect, is what was filled.
+            restored, pending = site_data_module.arrive(restored, pending, current_url)
 
         size = driver.get_window_size()
         # Reported back so a caller can see what the cascade actually resolved
@@ -424,7 +438,7 @@ class Actions:
             applied["script_timeout"] = as_int(script_timeout, 0)
         if insecure:
             applied["insecure"] = True
-        return {
+        result = {
             "session_id": session_id,
             "browser": name,
             "url": current_url,
@@ -433,6 +447,36 @@ class Actions:
             "height": size["height"],
             "settings": applied,
         }
+        if restored is not None:
+            result["site_data"] = restored
+            result["_site_data_pending"] = pending
+        return result
+
+    def save_site_data(self, session_id: str, url=None) -> dict:
+        """Capture the browser's cookies and this page's storage.
+
+        The capture rides back under a private key; the session manager stores
+        it and no caller sees it.
+        """
+        driver = self._at(session_id, url)
+        with self.grid.bidi(session_id) as bidi:
+            captured = site_data_module.capture(bidi, driver)
+        return {**browser.page_state(driver), site_data_module.CAPTURED: captured}
+
+    def retire_site_data(
+        self, session_id: str, script: str, keep: dict | None = None
+    ) -> str:
+        """Replace the preload script with one carrying only ``keep``'s
+        origins — the ones still waiting — or remove it when none are.
+
+        Returns the id of the script now in the browser, "" for none.
+        """
+        try:
+            with self.grid.bidi(session_id) as bidi:
+                return site_data_module.replace(bidi, script, keep)
+        except Exception:  # noqa: BLE001 - best effort, it dies with the browser
+            log.info("could not retire the site data script for %s", session_id)
+            return script
 
     def end_browser(self, session_id: str) -> dict:
         """Quit the browser and free its Grid slot.

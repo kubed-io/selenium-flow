@@ -4,12 +4,15 @@
   import { ms } from '../motion'
   import { folds } from './folds.svelte'
 
-  let { id, title, count, children, actions }: {
+  let { id, title, count, children, actions, summary }: {
     id: string
     title: string
-    count: string | number
+    // Absent: no pill (a row that has nothing to count).
+    count?: string | number
     children: Snippet
     actions?: Snippet
+    // Beside the count, before the gap: the row's own one-line account of itself.
+    summary?: Snippet
   } = $props()
   // Persisted across remounts by id, in `folds` — the static page's sections
   // never remounted at all, so a fold stayed closed for the page's life; a
@@ -44,7 +47,8 @@
          so it must be reachable by keyboard and announce its state. -->
     <button type="button" class="title" aria-expanded={open} aria-controls={bodyId} onclick={toggle}>
       <span class="caret" style="transform: rotate({open ? 0 : -90}deg)">▾</span>{title}</button>
-    <span id={countId} class="pill">{count}</span>
+    {#if count !== undefined}<span id={countId} class="pill">{count}</span>{/if}
+    {@render summary?.()}
     <span class="grow"></span>
     {@render actions?.()}
   </div>

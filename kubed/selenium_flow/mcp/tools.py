@@ -269,6 +269,7 @@ def register(
         script_timeout: int | None = None,
         insecure: bool | None = None,
         fresh: bool = False,
+        restore_site_data: bool = True,
     ) -> dict:
         """Start this session's browser, or come back to the one it had. Call it before
         anything else: nothing opens a browser for you.
@@ -280,7 +281,9 @@ def register(
         go with it.
 
         Set width and height when layout matters; the headless default is narrow.
-        fresh=true starts on about:blank. page_load_timeout bounds a navigation that
+        fresh=true starts on about:blank. Saved site data comes back by default;
+        restore_site_data=false opens without it and deletes it, which is how you
+        start as a new user. page_load_timeout bounds a navigation that
         hangs. insecure=true accepts a self-signed certificate; use it only for a site
         you know has one.
         """
@@ -288,6 +291,7 @@ def register(
             sessions.name(),
             url=url,
             fresh=fresh,
+            restore_site_data=restore_site_data,
             browser=browser,
             width=width,
             height=height,
@@ -295,6 +299,22 @@ def register(
             script_timeout=script_timeout,
             insecure=insecure,
         )
+
+    @mcp.tool(
+        annotations=hints("Save site data", destructive=False, idempotent=True)
+    )
+    def save_site_data(url: str | None = None) -> dict:
+        """Save this session's site data: every cookie the browser holds, and the
+        localStorage and sessionStorage of the page it is on. Call it right after a
+        sign-in is confirmed, and after changing a setting you want kept; never before
+        checking you landed, or you keep a failed sign-in.
+
+        Every browser opened for this session gets it back, the one that replaces a
+        reaped browser included, so you come back signed in. Saving replaces the
+        cookies and adds this page's storage beside other sites'. Values are never
+        returned; session://site-data lists what is saved.
+        """
+        return run(lambda s: actions.save_site_data(s, url=url))
 
     @mcp.tool(annotations=hints("End browser", destructive=True, idempotent=True))
     def end_browser() -> dict:
@@ -712,25 +732,20 @@ def register(
             ),
         )
         image = Image(data=base64.b64decode(result["image"]), format="png")
-        entry = result.get("file")
-        unsaved = result.get("file_error")
-        if entry is None and unsaved is None:
+        # Beside the image, each only when present:
+        # - `file`: a saved screenshot has a name the caller cannot derive (a
+        #   second `shot.png` is kept as `shot (1).png`);
+        # - `file_error`: the capture survived and the file did not, and an MCP
+        #   caller given only the image would look for a name never coming;
+        # - `site_data`: the call landed on a waiting origin, which says so
+        #   once (``sessions.act``) — dropped here, it is never said at all.
+        told = {
+            k: result[k] for k in ("file", "file_error", "site_data")
+            if result.get(k) is not None
+        }
+        if not told:
             return image
-        if entry is None:
-            # The capture survived and the file did not. The HTTP surface says
-            # why; an MCP caller that got only the image would be told nothing
-            # and would look for a name that is never coming.
-            return ToolResult(
-                content=[image.to_image_content()],
-                structured_content={"file_error": unsaved},
-            )
-        # A saved screenshot has a name, and the caller cannot derive it: a
-        # second `shot.png` is kept as `shot (1).png`. Returning the image alone
-        # left the link discoverable only by listing the files and guessing
-        # which entry was yours.
-        return ToolResult(
-            content=[image.to_image_content()], structured_content={"file": entry}
-        )
+        return ToolResult(content=[image.to_image_content()], structured_content=told)
 
     @mcp.tool(name="print", annotations=hints("Print the page"))
     def print_page(

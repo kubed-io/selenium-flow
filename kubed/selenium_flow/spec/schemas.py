@@ -21,8 +21,57 @@ PAGE_STATE = {
 }
 
 
+# Present only when a call did something with site data, so it is left out of
+# `required` and of every response that never carries it.
+SITE_DATA_HINT = {
+    "type": "object",
+    "description": (
+        "Present only when site data was restored, is waiting, or was forgotten "
+        "in this call."
+    ),
+    "properties": {
+        "restored": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": (
+                "What is in the browser now: the landing page's origin "
+                "(https://app.example.com) when its storage was saved, and each "
+                "host that had cookies only (sso.example.com)."
+            ),
+        },
+        "waiting": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Origins restored when the page first arrives there.",
+        },
+        "forgotten": {
+            "type": "integer",
+            "description": "Sites deleted because restore_site_data was false.",
+        },
+        "skipped": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "cookie": {"type": "string", "description": "A cookie's name."},
+                    "domain": {"type": "string", "description": "Its domain."},
+                    "site": {"type": "string", "description": "An origin's storage."},
+                    "reason": {"type": "string"},
+                },
+                "required": ["reason"],
+            },
+            "description": "Items that could not be restored, each with a reason.",
+        },
+        "uri": {"type": "string", "description": "Where to read what is saved."},
+    },
+}
+
+
 def _page(**extra) -> dict:
-    return {"type": "object", "properties": {**extra, **PAGE_STATE}}
+    return {
+        "type": "object",
+        "properties": {**extra, **PAGE_STATE, "site_data": SITE_DATA_HINT},
+    }
 
 
 RESPONSES = {
@@ -41,6 +90,7 @@ RESPONSES = {
                 "description": "The browser this session is running.",
             },
             **PAGE_STATE,
+            "site_data": SITE_DATA_HINT,
             "width": {"type": "integer", "description": "Window width in use."},
             "height": {"type": "integer", "description": "Window height in use."},
             "settings": {
@@ -85,12 +135,60 @@ RESPONSES = {
             },
             "store": {"type": "string", "enum": ["memory", "redis"]},
             "settings": {"type": "object"},
+            "site_data": {
+                "type": "object",
+                "description": (
+                    "Present only when the session has saved site data."
+                ),
+                "properties": {
+                    "sites": {
+                        "type": "integer",
+                        "description": "How many sites have saved data.",
+                    },
+                    "uri": {
+                        "type": "string",
+                        "description": "Where to read what is saved.",
+                    },
+                },
+            },
             "guidance": {
                 "type": "string",
                 "description": "The skill reference that explains sessions.",
             },
         },
     },
+    "save_site_data": _page(
+        saved={
+            "type": "object",
+            "description": "What this save kept. Never a value.",
+            "properties": {
+                "cookies": {
+                    "type": "integer",
+                    "description": "Cookies now saved, across every site.",
+                },
+                "sites": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Origins whose storage this save added.",
+                },
+                "skipped": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "site": {"type": "string"},
+                            "reason": {"type": "string"},
+                        },
+                    },
+                    "description": "Storage left out, each with why.",
+                },
+            },
+        },
+        uri={
+            "type": "string",
+            "description": "session://site-data, which lists what is saved.",
+        },
+    ),
     "navigate": _page(),
     "interact": _page(
         action={"type": "string", "description": "The gesture that was performed."},
@@ -514,6 +612,7 @@ FLOW_SCHEMAS = {
                         "summary": {"type": "string"},
                         "note": {"type": "string"},
                         "error": {"type": "string"},
+                        "site_data": SITE_DATA_HINT,
                         "url": {
                             "type": "string",
                             "description": (
@@ -891,6 +990,91 @@ FILE_SCHEMAS = {
             "name": {"type": "string"},
             "size": {"type": "integer"},
             "created": {"type": ["integer", "null"]},
+        },
+    },
+}
+
+SITE_DATA_SCHEMAS = {
+    "SiteList": {
+        "type": "object",
+        "description": "session://site-data: one entry per site, counts only.",
+        "properties": {
+            "sites": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "site": {"type": "string"},
+                        "origin": {"type": ["string", "null"]},
+                        "saved": {"type": "boolean"},
+                        "saved_at": {"type": ["number", "null"]},
+                        "uri": {"type": "string"},
+                        "cookies": {"type": "integer"},
+                        "local_storage": {"type": "integer"},
+                        "session_storage": {"type": "integer"},
+                        "secrets": {"type": "array", "items": {"type": "object"}},
+                    },
+                },
+            },
+            "saved_sites": {"type": "integer"},
+            "unleashed_secrets": {"type": "integer"},
+            "uri": {"type": "string"},
+        },
+    },
+    "SiteData": {
+        "type": "object",
+        "description": (
+            "session://site-data/{site}: one site in full. An httpOnly cookie's "
+            "value is shown as \u2022\u2022\u2022."
+        ),
+        "properties": {
+            "site": {"type": "string"},
+            "origin": {"type": ["string", "null"]},
+            "saved": {"type": "boolean"},
+            "saved_at": {"type": ["number", "null"]},
+            "uri": {"type": "string"},
+            "cookies": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "value": {"type": "string"},
+                        "domain": {"type": "string"},
+                        "path": {"type": "string"},
+                        "expiry": {"type": ["integer", "null"]},
+                        "http_only": {"type": "boolean"},
+                        "secure": {"type": "boolean"},
+                        "same_site": {"type": ["string", "null"]},
+                        "shared": {"type": "boolean"},
+                    },
+                },
+            },
+            "local_storage": {"type": "object"},
+            "session_storage": {"type": "object"},
+            "own_cookies": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Cookies this site owns (host or .host): what Forget removes."
+                ),
+            },
+            "kept_shared": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["name", "domain", "path"],
+                    "properties": {
+                        "name": {"type": "string"},
+                        "domain": {"type": "string"},
+                        "path": {"type": "string"},
+                    },
+                },
+                "description": (
+                    "Parent-domain cookies it only sits under: Forget keeps them."
+                ),
+            },
+            "secrets": {"type": "array", "items": {"type": "object"}},
         },
     },
 }

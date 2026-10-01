@@ -1,7 +1,7 @@
 import type { Api } from './api'
 import { sessionPath } from './api'
 import { Latest } from './latest'
-import type { FileEntry, FilesData, FilesResponse, FlowDoc, FlowsListing, SessionRow, SessionsPayload } from '../lib/types'
+import type { FileEntry, FilesData, FilesResponse, FlowDoc, FlowsListing, SessionRow, SiteDataPayload, SessionsPayload } from '../lib/types'
 
 /* Handed to a session that has not answered yet, or whose load failed: the
    clears must never act on a previous session's names. */
@@ -45,6 +45,8 @@ export class SessionModel {
   flowsError = $state<string | null>(null)
   /* The Flows count blanks with a failed files load, until flows answer again. */
   flowsBlanked = $state(false)
+  siteData = $state.raw<SiteDataPayload | null>(null)
+  siteDataError = $state<string | null>(null)
   flowDoc = $state.raw<FlowDoc | null>(null)
   flowDocError = $state<{ name: string; message: string } | null>(null)
 
@@ -52,6 +54,9 @@ export class SessionModel {
   #shownBrowser: string | null = null
   #shownLive: boolean | null = null
   #shownFlows: string | number | null = null
+  // undefined until a row is seen, so the first row always loads.
+  #shownSiteData: string | null | undefined = undefined
+  #siteLoads = new Latest()
   #fileLoads = new Latest()
   #flowLoads = new Latest()
   #docLoads = new Latest()
@@ -136,6 +141,19 @@ export class SessionModel {
     )
   }
 
+  loadSiteData(): Promise<void> {
+    if (this.#disposed) return Promise.resolve()
+    return this.#siteLoads.run(
+      (signal) => this.#api<SiteDataPayload>(sessionPath(this.key, '/site-data'), 'GET', undefined, signal),
+      (data) => { this.siteData = data; this.siteDataError = null },
+      (e) => {
+        this.siteDataError = e.message
+        // Unshown again, so the next push at the same rev tries once more.
+        this.#shownSiteData = undefined
+      },
+    )
+  }
+
   loadFlow(name: string): Promise<void> {
     if (this.#disposed) return Promise.resolve()
     return this.#docLoads.run(
@@ -170,6 +188,10 @@ export class SessionModel {
   #showRow(row: SessionRow) {
     this.row = row
     this.headed = true
+    if ((row.site_data_rev ?? null) !== this.#shownSiteData) {
+      this.#shownSiteData = row.site_data_rev ?? null
+      void this.loadSiteData()
+    }
     this.filesBlanked = false
   }
 
@@ -178,6 +200,7 @@ export class SessionModel {
     this.#disposed = true
     this.#fileLoads.abort()
     this.#flowLoads.abort()
+    this.#siteLoads.abort()
     this.#docLoads.abort()
   }
 }

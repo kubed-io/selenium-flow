@@ -7,6 +7,7 @@
   import FilesPane from './FilesPane.svelte'
   import FlowsPane from './FlowsPane.svelte'
   import type { Live } from './live.svelte'
+  import SiteDataPane from './SiteDataPane.svelte'
   import Modal from './Modal.svelte'
   import type { ModalSpec } from './modal'
   import { go, hashes, replace } from './router.svelte'
@@ -14,7 +15,7 @@
 
   let { key, tab, flow, api, live, root }: {
     key: string
-    tab: 'files' | 'flows'
+    tab: 'files' | 'flows' | 'site-data'
     flow: string | undefined
     api: Api
     live: Live
@@ -241,6 +242,9 @@
   const GONE = ' — gone'
 
   const filesTotal = $derived(m.filesBlanked ? '' : String(m.row.files_count ?? ''))
+  // The loaded payload, not the last pushed row: a Forget reloads the pane
+  // before the next push brings the row's count up to date.
+  const siteDataTotal = $derived(m.siteDataError || !m.siteData ? '' : String(m.siteData.saved_sites))
   const flowsTotal = $derived(!m.flows || m.flowsBlanked ? '' : m.flows.enabled ? String((m.flows.flows || []).length) : 'off')
 </script>
 
@@ -280,6 +284,7 @@
   <div class="tabs subtabs" id="sessionTabs" role="tablist">
     <button id="tabFiles" role="tab" aria-selected={tab === 'files'} onclick={() => go(hashes.session(key))}>Files <span id="filesTotal" class="count">{filesTotal}</span></button>
     <button id="tabFlows" role="tab" aria-selected={tab === 'flows'} onclick={() => go(hashes.flows(key))}>Flows <span id="flowsTotal" class="count">{flowsTotal}</span></button>
+    <button id="tabSiteData" role="tab" aria-selected={tab === 'site-data'} onclick={() => go(hashes.siteData(key))}>Site data <span id="siteDataTotal" class="count">{siteDataTotal}</span></button>
   </div>
 
   <!-- Both panes stay mounted and toggle `hidden`, as today: a section
@@ -292,6 +297,7 @@
       {m} {flowName} {api} {ask} {refuseIfGone} isGone={() => destroyed}
       onpick={(name) => void openFlow(name)} onclosed={closeFlow} reload={reloadFlows} /></div></div>
   </div>
+  <SiteDataPane {m} {api} {ask} {refuseIfGone} isGone={() => destroyed} hidden={tab !== 'site-data'} />
 </div>
 
 <!-- An each of one, keyed by the viewer, not {#if}: a viewer's props must

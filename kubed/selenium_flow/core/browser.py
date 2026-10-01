@@ -13,6 +13,7 @@ losing a browser.
 from __future__ import annotations
 
 import base64
+import contextlib
 import io
 import json
 import zipfile
@@ -49,6 +50,8 @@ DEFAULT_BROWSER = CHROME
 # nowhere waits this out, so it trades a small delay on those for a correct
 # answer on the ones that do navigate.
 NAVIGATION_SETTLE = 2.0
+# Seconds a site data BiDi socket may take to connect or answer.
+BIDI_TIMEOUT = 5.0
 
 
 def normalize_browser(value=None) -> str:
@@ -205,6 +208,9 @@ class Grid:
         # is the whole file store — listed, read and reaped by the Grid itself.
         # Without this the browser downloads into a directory nothing can reach.
         options.set_capability("se:downloadsEnabled", True)
+        # Every browser speaks BiDi so a saved site can be restored into it;
+        # every other tool still uses classic WebDriver.
+        options.enable_bidi = True
         # `open_session(insecure=true)`: the caller knows this site's
         # certificate is self-signed, and says so for this one browser. Chosen
         # per browser and never server-wide, because only the caller knows which
@@ -281,6 +287,32 @@ class Grid:
         driver = ReattachDriver(command_executor=self.url, options=self._options())
         driver.session_id = session_id
         return driver
+
+    @contextlib.contextmanager
+    def bidi(self, session_id: str):
+        """A reattached driver whose ``.storage`` and ``.script`` speak BiDi.
+
+        The socket address is derived, not discovered: the Grid proxies it at
+        ``/session/<id>/se/bidi``.
+        """
+        parts = urlsplit(self.url)
+        scheme = "wss" if parts.scheme == "https" else "ws"
+        socket = urlunsplit((scheme, parts.netloc, parts.path.rstrip("/"), "", ""))
+        driver = ReattachDriver(command_executor=self.url, options=self._options())
+        driver.session_id = session_id
+        driver.caps = {"webSocketUrl": f"{socket}/session/{session_id}/se/bidi"}
+        # Selenium waits 30 s for a socket that never answers; an open would
+        # stall that long on a Grid whose BiDi route is down.
+        driver.command_executor.client_config.websocket_timeout = BIDI_TIMEOUT
+        try:
+            yield driver
+        finally:
+            # Selenium opens the socket lazily on `.storage`/`.script`; closing
+            # it is the only cleanup, the browser is not ours to quit.
+            connection = getattr(driver, "_websocket_connection", None)
+            if connection is not None:
+                with contextlib.suppress(Exception):
+                    connection.close()
 
     def is_alive(self, session_id: str) -> bool:
         """Whether a session still exists on the Grid.

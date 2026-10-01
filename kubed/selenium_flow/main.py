@@ -24,6 +24,21 @@ def _secrets_summary(catalogue) -> str:
     return f"{dirs} dir{'s' if dirs != 1 else ''}, {entries} from config"
 
 
+# Selenium logs every BiDi frame and command body at DEBUG, and site data's
+# frames carry cookie values, which are never logged.
+WIRE_LOGGERS = (
+    "selenium.webdriver.remote.websocket_connection",
+    "selenium.webdriver.remote.remote_connection",
+)
+
+
+def quiet_the_wire() -> None:
+    """Hold Selenium's wire loggers at INFO or above, whatever LOG_LEVEL is."""
+    level = max(logging.INFO, logging.getLogger().getEffectiveLevel())
+    for name in WIRE_LOGGERS:
+        logging.getLogger(name).setLevel(level)
+
+
 def main(argv: list[str] | None = None) -> None:
     """Entry point for the ``selenium-flow`` console script."""
     try:
@@ -34,6 +49,7 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(f"selenium-flow: {exc}") from None
     settings = loaded.settings
     logging.basicConfig(level=settings.log_level)
+    quiet_the_wire()
     server = SeleniumMCP(settings, sources=loaded.sources)
     log.info(
         "config=%s grid=%s auth=%s sessions=%s skill=%s flows=%s secrets=%s",

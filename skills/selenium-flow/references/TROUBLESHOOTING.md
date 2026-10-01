@@ -60,6 +60,13 @@ Nothing opens a browser implicitly — `open_session` is the only place that
 happens, because it is the only place window size and timeouts can be chosen.
 Call it once, then carry on.
 
+## Signed in yesterday, signed out today
+
+A new browser starts empty unless you saved the old one's cookies and storage.
+Sign in, `save_site_data()`, and the next browser comes back signed in. Saved
+and still signed out? The site ended its own session:
+`skill://selenium-flow/references/SITE_DATA.md`.
+
 ## An invalid or unknown session
 
 The Grid reaped the browser. Nothing to do: your session survives it, and the
