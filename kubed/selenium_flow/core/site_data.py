@@ -468,6 +468,17 @@ def _usable(c) -> bool:
     )
 
 
+def _malformed(c) -> dict:
+    """A skip entry for a stored cookie restore cannot use: only the fields
+    that are strings, since the published shape says so (Copilot, #50)."""
+    entry = {"reason": MALFORMED}
+    if isinstance(c, dict):
+        for field, key in (("cookie", "name"), ("domain", "domain")):
+            if isinstance(c.get(key), str):
+                entry[field] = c[key]
+    return entry
+
+
 def restore(bidi, data: dict, now: float) -> tuple[dict, dict]:
     """Put a session's saved site data into a browser, before its first page.
 
@@ -485,12 +496,7 @@ def restore(bidi, data: dict, now: float) -> tuple[dict, dict]:
         stored = data.get("cookies") or []
         cookies = live_cookies([c for c in stored if _usable(c)], now)
         # One bad entry is skipped, not the whole restore.
-        report["skipped"] = [
-            {"cookie": c.get("name") if isinstance(c, dict) else None,
-             "domain": c.get("domain") if isinstance(c, dict) else None,
-             "reason": MALFORMED}
-            for c in stored if not _usable(c)
-        ]
+        report["skipped"] = [_malformed(c) for c in stored if not _usable(c)]
         sent = []
         for c in cookies:
             try:

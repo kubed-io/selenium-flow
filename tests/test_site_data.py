@@ -824,6 +824,12 @@ def test_one_malformed_cookie_is_skipped_not_the_whole_restore():
     assert report["restored"] == ["app.example.com"]
     reasons = [s["reason"] for s in report["skipped"]]
     assert reasons == ["a stored cookie with no name or domain"] * 2
+    # Only string fields ride along: the published shape declares them strings.
+    assert report["skipped"] == [
+        {"reason": "a stored cookie with no name or domain",
+         "domain": "app.example.com"},
+        {"reason": "a stored cookie with no name or domain", "cookie": "nodomain"},
+    ]
 
 
 def test_a_failure_after_the_script_is_added_never_loses_its_id(monkeypatch):
