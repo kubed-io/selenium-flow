@@ -9,8 +9,7 @@ Saved, not captured: every call paying for a snapshot was rejected, and a reap
 gives no warning, so only an explicit save is dependable.
 
 **A site is a host.** Cookies carry a domain and no scheme or port, so the view
-groups by host. Storage is kept per origin, keyed by the page's own
-``location.origin`` because that is the string the preload script compares.
+groups by host. Storage is kept per origin, as ``location.origin`` spells it.
 
 Values are credentials. They live in the session store and nowhere else, are
 never logged, and an httpOnly cookie's value is never shown on any surface.
@@ -24,19 +23,20 @@ from urllib.parse import urlsplit
 
 from ..errors import BidiUnavailable
 from ..errors import message as failure_text
+from .browser import ServiceWorkerAnswered, spare_tab
 
 # The private key an action hands its capture back under. `SessionManager.act`
 # merges it into the record and removes it; no caller ever sees it.
 CAPTURED = "_site_data_captured"
-# Marks a tab whose storage was already filled, so a later page on the same
-# origin never overwrites what the app changed since. Never saved.
-MARKER = "selenium-flow:restored:"
 MAX_BYTES = 1_000_000
 MASK = "•••"
 BIDI_DOWN = (
     "the browser's BiDi channel is unavailable, so nothing was saved: retry, "
     "and if it persists the Grid's /se/bidi route is down"
 )
+# Why an origin's storage was not read: its own service worker answered the
+# spare tab (spec round 2, *Service workers at save time*).
+SW_REASON = "a service worker answered: save while on this site"
 LIST_URI = "session://site-data"
 DEFAULT_PORTS = {"http": 80, "https": 443}
 
@@ -98,10 +98,7 @@ def merge(existing: dict, captured: dict, now: float) -> tuple[dict, dict]:
     if origin:
         entry = {
             "local": dict(captured.get("local") or {}),
-            "session": {
-                k: v for k, v in (captured.get("session") or {}).items()
-                if not k.startswith(MARKER)
-            },
+            "session": dict(captured.get("session") or {}),
             "saved_at": now,
         }
         alone = {**cookies_only, "origins": {origin: entry}}
@@ -133,23 +130,35 @@ def live_cookies(cookies: list[dict], now: float) -> list[dict]:
     return [c for c in cookies if c.get("expiry") is None or c["expiry"] > now]
 
 
-def preload_source(origins: dict[str, dict]) -> str:
-    """The script that fills each origin's storage before the page's own
-    scripts run, once per tab. Every origin rides in one script because a
-    preload script cannot be scoped to a URL."""
-    payload = json.dumps(
-        {o: {"local": e.get("local") or {}, "session": e.get("session") or {}}
-         for o, e in origins.items()}
-    )
-    marker = json.dumps(MARKER)
+# Evaluated in a spare tab standing on an origin: its localStorage, whole.
+READ_LOCAL = (
+    "(() => { const out = {}; for (let i = 0; i < localStorage.length; i++) "
+    "{ const k = localStorage.key(i); out[k] = localStorage.getItem(k); } "
+    "return out; })()"
+)
+
+
+def fill(store: str, items: dict) -> str:
+    """An expression that sets every item in ``store`` (``localStorage`` or
+    ``sessionStorage``) and evaluates to how many it set."""
     return (
-        "() => { const all = " + payload + "; const o = location.origin; "
-        "const s = all[o]; if (!s) return; const m = " + marker + " + o; "
-        "try { if (sessionStorage.getItem(m)) return; "
-        "for (const [k, v] of Object.entries(s.local)) localStorage.setItem(k, v); "
-        "for (const [k, v] of Object.entries(s.session)) sessionStorage.setItem(k, v); "
-        "sessionStorage.setItem(m, '1'); } catch (e) {} }"
+        "(() => { const items = " + json.dumps(items) + "; "
+        "for (const [k, v] of Object.entries(items)) " + store + ".setItem(k, v); "
+        "return Object.keys(items).length; })()"
     )
+
+
+def restorable(data: dict) -> bool:
+    """Whether a snapshot holds anything a restore could put back."""
+    data = data or {}
+    return bool(
+        data.get("cookies") or data.get("origins")
+        or (data.get("session") or {}).get("items")
+    )
+
+
+def _why(exc: Exception) -> str:
+    return SW_REASON if isinstance(exc, ServiceWorkerAnswered) else failure_text(exc)
 
 
 def _covers(domain: str, host: str) -> bool:
@@ -424,11 +433,6 @@ def capture(bidi, driver) -> dict:
     }
 
 
-def _add_preload(bidi, origins: dict) -> str:
-    added = bidi.script.add_preload_script(preload_source(origins))
-    return added.get("script", "") if isinstance(added, dict) else added
-
-
 def _same_site(c: dict):
     # Chrome reports an unspecified SameSite as "none" and silently refuses
     # None without Secure, so the cookie would never come back.
@@ -489,116 +493,94 @@ def _malformed(c) -> dict:
     return entry
 
 
-def restore(bidi, data: dict, now: float) -> tuple[dict, dict]:
-    """Put a session's saved site data into a browser, before its first page.
-
-    Cookies go in for every host, even ones never visited. Storage cannot, so
-    one preload script fills each origin as it is first reached, and every
-    origin with storage starts out waiting: which one the first page reached is
-    :func:`arrive`'s to say, after it loaded. Nothing raises: a report says
-    what came back and what is waiting.
-    """
+def _restore_cookies(bidi, stored: list, now: float, skipped: list) -> list[dict]:
+    """Set every live, usable cookie; return the ones the browser kept. Each
+    one refused, dropped or unusable is added to ``skipped``."""
     from selenium.webdriver.common.bidi.storage import BytesValue, PartialCookie
 
-    report = {"restored": [], "waiting": [], "skipped": [], "uri": LIST_URI}
-    pending = {"origins": [], "script": ""}
+    cookies = live_cookies([c for c in stored if _usable(c)], now)
+    # One bad entry is skipped, not the whole restore.
+    skipped.extend(_malformed(c) for c in stored if not _usable(c))
+    sent = []
+    for c in cookies:
+        try:
+            bidi.storage.set_cookie(PartialCookie(
+                c["name"],
+                BytesValue(c.get("value_type") or "string", c.get("value")),
+                c["domain"], path=c.get("path"), http_only=c.get("http_only"),
+                secure=c.get("secure"), same_site=_same_site(c),
+                expiry=c.get("expiry"),
+            ))
+            sent.append(c)
+        except Exception as e:  # noqa: BLE001 - one refusal must not stop the rest
+            skipped.append({
+                "cookie": c.get("name"), "domain": c.get("domain"),
+                "reason": failure_text(e),
+            })
+    # A browser can refuse a cookie without an error; only the jar says.
+    kept = _kept(bidi, sent)
+    if kept is None:
+        kept = sent
+    skipped.extend(
+        {"cookie": c.get("name"), "domain": c.get("domain"),
+         "reason": "the browser did not keep it"}
+        for c in sent if c not in kept
+    )
+    return kept
+
+
+def restore(bidi, data: dict, now: float) -> dict:
+    """Put a snapshot into a browser before its first page: every live
+    cookie, then each origin's localStorage in a spare tab, then the saved
+    sessionStorage in the main tab, which is left on about:blank for the
+    landing. Everything is in place when this returns.
+
+    Best effort, and nothing raises: the report names each host that came
+    back and each item that did not, with why.
+    """
+    skipped: list[dict] = []
+    kept: list[dict] = []
+    filled: list[str] = []
     try:
-        stored = data.get("cookies") or []
-        cookies = live_cookies([c for c in stored if _usable(c)], now)
-        # One bad entry is skipped, not the whole restore.
-        report["skipped"] = [_malformed(c) for c in stored if not _usable(c)]
-        sent = []
-        for c in cookies:
+        kept = _restore_cookies(bidi, data.get("cookies") or [], now, skipped)
+        local = {
+            o: e["local"] for o, e in (data.get("origins") or {}).items()
+            if isinstance(e, dict) and e.get("local")
+        }
+        if local:
             try:
-                bidi.storage.set_cookie(PartialCookie(
-                    c["name"],
-                    BytesValue(c.get("value_type") or "string", c.get("value")),
-                    c["domain"], path=c.get("path"), http_only=c.get("http_only"),
-                    secure=c.get("secure"), same_site=_same_site(c),
-                    expiry=c.get("expiry"),
-                ))
-                sent.append(c)
-            except Exception as e:  # noqa: BLE001 - one refusal must not stop the rest
-                report["skipped"].append({
-                    "cookie": c.get("name"), "domain": c.get("domain"),
-                    "reason": failure_text(e),
-                })
-        # A browser can refuse a cookie without an error; only the jar says.
-        kept = _kept(bidi, sent)
-        if kept is None:
-            kept = sent
-        for c in sent:
-            if c not in kept:
-                report["skipped"].append({
-                    "cookie": c.get("name"), "domain": c.get("domain"),
-                    "reason": "the browser did not keep it",
-                })
-        origins = data.get("origins") or {}
-        stored_hosts = {host_of(o) for o in origins}
-        report["restored"] = sorted({
-            c["domain"].lstrip(".") for c in kept
-            if not any(_covers(c["domain"], h) for h in stored_hosts)
-        })
-        report["waiting"] = sorted(origins)
-        # Added last: nothing after it can fail and lose the id that retires it.
-        script = _add_preload(bidi, origins) if origins else ""
-        pending = {"origins": list(report["waiting"]), "script": script}
+                with spare_tab(bidi) as run:
+                    for origin, items in local.items():
+                        try:
+                            run(origin, fill("localStorage", items))
+                            filled.append(origin)
+                        except Exception as e:  # noqa: BLE001 - one origin, not the rest
+                            skipped.append({"site": origin, "reason": _why(e)})
+            except Exception as e:  # noqa: BLE001 - no tab: each origin not yet filled
+                done = {s.get("site") for s in skipped}
+                skipped.extend(
+                    {"site": o, "reason": failure_text(e)}
+                    for o in local if o not in filled and o not in done
+                )
+        session = data.get("session") or {}
+        if session.get("origin") and session.get("items"):
+            try:
+                main = bidi.current_window_handle
+                with spare_tab(bidi, context=main) as run:
+                    run(session["origin"], fill("sessionStorage", session["items"]))
+                    # The stand-in page must never be what an open with no url
+                    # leaves on screen; the tab keeps its sessionStorage.
+                    with contextlib.suppress(Exception):
+                        bidi.browsing_context.navigate(
+                            context=main, url="about:blank", wait="complete"
+                        )
+                filled.append(session["origin"])
+            except Exception as e:  # noqa: BLE001 - the rest stands
+                skipped.append({"site": session["origin"], "reason": _why(e)})
     except Exception as e:  # noqa: BLE001 - BiDi failing is a report, not a crash
-        return (
-            {"restored": [], "waiting": [], "skipped": [{"reason": failure_text(e)}],
-             "uri": LIST_URI},
-            {"origins": [], "script": ""},
-        )
-    return report, pending
-
-
-def arrive(report: dict, pending: dict, url: str) -> tuple[dict, dict]:
-    """The first page loaded at ``url``: if that origin was waiting, it is
-    restored now — the preload script filled it.
-
-    Asked of where the browser *is*, not where it was sent: a redirect to
-    another origin never loads the requested one, so that one stays waiting.
-    """
-    landed = origin_of(url or "")
-    if landed not in (pending.get("origins") or []):
-        return report, pending
-    waiting = [o for o in pending["origins"] if o != landed]
-    report = {**report, "restored": [landed, *report["restored"]], "waiting": waiting}
-    pending = {**pending, "origins": list(waiting)}
-    if waiting:
-        # The script still carries the landing origin; it is swapped for one
-        # that does not once the browser settles (see ``replace``).
-        pending["arrived"] = [landed]
-    return report, pending
-
-
-def retire(bidi, script: str) -> None:
-    """Drop the preload script once every origin it waited on was filled.
-    Best effort: it dies with the browser anyway."""
-    with contextlib.suppress(Exception):
-        bidi.script.remove_preload_script(script=script)
-
-
-def replace(bidi, script: str, keep: dict | None) -> str:
-    """Swap the preload script for one carrying only ``keep``'s origins.
-
-    A preload script runs on every new document, and its once-per-tab marker
-    lives in one tab's sessionStorage: left in place, it would refill an
-    origin that already arrived the moment the app opened it in a new tab,
-    over whatever the app changed since.
-
-    Returns the id of the script now in the browser. A failed remove leaves the
-    old one running, so its id is returned and nothing else happens; "" means
-    none is left — nothing to keep, or the new one could not be added, in which
-    case those origins cannot fill and the caller must stop waiting for them.
-    """
-    try:
-        bidi.script.remove_preload_script(script=script)
-    except Exception:  # noqa: BLE001 - the old script is still live; keep its id
-        return script
-    if not keep:
-        return ""
-    try:
-        return _add_preload(bidi, keep)
-    except Exception:  # noqa: BLE001 - those origins then come back signed out
-        return ""
+        skipped.append({"reason": failure_text(e)})
+    return {
+        "restored": _hosts({"cookies": kept, "origins": {o: {} for o in filled}}),
+        "skipped": skipped,
+        "uri": LIST_URI,
+    }

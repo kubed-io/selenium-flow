@@ -26,23 +26,18 @@ PAGE_STATE = {
 SITE_DATA_HINT = {
     "type": "object",
     "description": (
-        "Present only when site data was restored, is waiting, or was forgotten "
-        "in this call."
+        "Present only when site data was restored, skipped or forgotten in "
+        "this call."
     ),
     "properties": {
         "restored": {
             "type": "array",
             "items": {"type": "string"},
             "description": (
-                "What is in the browser now: the landing page's origin "
-                "(https://app.example.com) when its storage was saved, and each "
-                "host that had cookies only (sso.example.com)."
+                "Each host whose saved cookies or storage are in the browser "
+                "now (app.example.com). All of it is in place before the call "
+                "returns."
             ),
-        },
-        "waiting": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "Origins restored when the page first arrives there.",
         },
         "forgotten": {
             "type": "integer",
@@ -55,7 +50,10 @@ SITE_DATA_HINT = {
                 "properties": {
                     "cookie": {"type": "string", "description": "A cookie's name."},
                     "domain": {"type": "string", "description": "Its domain."},
-                    "site": {"type": "string", "description": "An origin's storage."},
+                    "site": {
+                        "type": "string",
+                        "description": "An origin whose storage did not come back.",
+                    },
                     "reason": {"type": "string"},
                 },
                 "required": ["reason"],

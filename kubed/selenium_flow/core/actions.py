@@ -380,8 +380,9 @@ class Actions:
         simply hold. There is no switching a live session to another browser:
         that is a different browser, so it is a different session.
 
-        A session's saved site data is restored here, before the first page
-        loads — except into an ``insecure`` browser, which gets none.
+        A session's saved site data is restored here — cookies, every origin's
+        storage, the saved sessionStorage — before the first page loads, except
+        into an ``insecure`` browser, which gets none.
         """
         name = normalize_browser(browser)
         insecure = as_bool(insecure, False)
@@ -407,30 +408,23 @@ class Actions:
         # makes that a fact rather than an assumption.
         self._moved(session_id, None)
 
-        restored = pending = None
-        saved = site_data and (site_data.get("cookies") or site_data.get("origins"))
-        if saved and insecure:
-            # It accepts any certificate, so anyone in the middle would get
-            # every saved cookie. Nothing is set, and nothing is deleted.
-            restored = {
-                "restored": [], "waiting": [],
-                "skipped": [{"reason": INSECURE_SKIP}],
-                "uri": site_data_module.LIST_URI,
-            }
-            pending = {"origins": [], "script": ""}
-        elif saved:
-            with self.grid.bidi(session_id) as bidi:
-                restored, pending = site_data_module.restore(
-                    bidi, site_data, time.time()
-                )
+        report = None
+        if site_data_module.restorable(site_data or {}):
+            if insecure:
+                # It accepts any certificate, so anyone in the middle would get
+                # every saved cookie. Nothing is set, and nothing is deleted.
+                report = {
+                    "restored": [], "skipped": [{"reason": INSECURE_SKIP}],
+                    "uri": site_data_module.LIST_URI,
+                }
+            else:
+                with self.grid.bidi(session_id) as bidi:
+                    report = site_data_module.restore(bidi, site_data, time.time())
 
         current_url, title = "about:blank", ""
         if url:
             driver.get(url)
             current_url, title = driver.current_url, driver.title
-        if restored is not None:
-            # Where the browser landed, after any redirect, is what was filled.
-            restored, pending = site_data_module.arrive(restored, pending, current_url)
 
         size = driver.get_window_size()
         # Reported back so a caller can see what the cascade actually resolved
@@ -460,9 +454,8 @@ class Actions:
             "height": size["height"],
             "settings": applied,
         }
-        if restored is not None:
-            result["site_data"] = restored
-            result["_site_data_pending"] = pending
+        if report and (report["restored"] or report["skipped"]):
+            result["site_data"] = report
         return result
 
     def save_site_data(self, session_id: str, url=None) -> dict:
@@ -475,21 +468,6 @@ class Actions:
         with self.grid.bidi(session_id) as bidi:
             captured = site_data_module.capture(bidi, driver)
         return {**browser.page_state(driver), site_data_module.CAPTURED: captured}
-
-    def retire_site_data(
-        self, session_id: str, script: str, keep: dict | None = None
-    ) -> str:
-        """Replace the preload script with one carrying only ``keep``'s
-        origins — the ones still waiting — or remove it when none are.
-
-        Returns the id of the script now in the browser, "" for none.
-        """
-        try:
-            with self.grid.bidi(session_id) as bidi:
-                return site_data_module.replace(bidi, script, keep)
-        except Exception:  # noqa: BLE001 - best effort, it dies with the browser
-            log.info("could not retire the site data script for %s", session_id)
-            return script
 
     def end_browser(self, session_id: str) -> dict:
         """Quit the browser and free its Grid slot.
