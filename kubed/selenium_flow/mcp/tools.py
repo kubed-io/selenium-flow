@@ -304,17 +304,20 @@ def register(
         annotations=hints("Save site data", destructive=False, idempotent=True)
     )
     def save_site_data(url: str | None = None) -> dict:
-        """Save this session's site data: every cookie the browser holds, the
-        localStorage of every site this session has been to, and the sessionStorage of
-        the page it is on. Call it right after a sign-in is confirmed, and after
-        changing a setting you want kept; never before checking you landed, or you keep
-        a failed sign-in.
+        """Save this session's site data, so a new browser comes back signed in.
 
-        One save covers every site the sign-in touched. Each save replaces the last, so
-        a save after signing out saves you signed out. Every browser opened for this
-        session has it back before open_session returns, the one that replaces a reaped
-        browser included. Values are never returned; session://site-data lists what is
-        saved.
+        It keeps every cookie the browser holds, the localStorage of the sites it has
+        been to, and the sessionStorage of the page it is on. Call it right after a
+        sign-in is confirmed, and after changing a setting you want kept; never before
+        checking you landed, or you keep a failed sign-in.
+
+        One save covers every site a call ended on, while the session keeps its
+        history (a day by default, 100 sites): one passed through inside a call is not
+        read, and one last visited longer ago loses its storage at the next save, its
+        cookies staying. Each save replaces the last, so a save after signing out
+        saves you signed out. Every browser opened for this session has it back before
+        open_session returns, the one that replaces a reaped browser included. Values
+        are never returned; session://site-data lists what is saved.
         """
         return run(lambda s: actions.save_site_data(s, url=url))
 

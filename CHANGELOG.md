@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A YAML config file (`--config-file` / `CONFIG_FILE`): every setting can be set there, in env or as a flag, and a later one wins.
 - Secrets can be defined in the config file, merged over the ones in `secrets.dirs`, with keys read from a file or an env var.
 - The admin UI has a Settings tab showing every setting and where its value came from.
-- `save_site_data` keeps the cookies and storage of every site a session has been to, so a reopened browser comes back signed in to all of them.
+- `save_site_data` keeps the cookies and storage of the sites a session has been to, so a reopened browser comes back signed in to all of them.
 - `open_session(restore_site_data=false)` starts without that data and deletes it.
 - The admin UI has a Site data tab.
 - The admin UI has a History tab: where a session has been, with the secrets allowed and what is saved there.

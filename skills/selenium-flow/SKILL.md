@@ -166,7 +166,7 @@ check this table twice before reaching for it.
 | `resize` | change the window size | `width`, `height` |
 | `execute_script` | run JavaScript — only for what nothing above does | `script` |
 | `assert` | JavaScript that must return true, or the call fails | `script`, `message`, `stable_for` |
-| `save_site_data` | keep the cookies and storage of every site you have been to, so a replacement comes back signed in | `url` |
+| `save_site_data` | keep the cookies and storage of the sites you have been to, so a replacement comes back signed in | `url` |
 | `keep_file` | keep a file in Files, past the browser | `uri` |
 | `save_flow` | save a sequence of steps under a name | `name`, `parameters`, `steps`, `timeout` |
 | `run_flow` | run a saved flow in one call | `name`, `params` |

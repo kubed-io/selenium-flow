@@ -1,9 +1,9 @@
 # Site data — stay signed in across a reaped browser
 
 A new browser starts empty. `save_site_data` keeps this one's cookies and the
-storage of every site this session has been to, and every browser opened for the
-session afterwards has them back — the one that replaces a reaped browser, or the
-one after `end_browser()`.
+storage of the sites this session has been to (see Limits), and every browser
+opened for the session afterwards has them back — the one that replaces a reaped
+browser, or the one after `end_browser()`.
 
 ## When to save
 
@@ -18,8 +18,8 @@ assert(script="return !!document.querySelector('#avatar')")   # am I in?
 save_site_data()
 ```
 
-One save covers every site the sign-in touched — the identity provider it went
-through, and an app you signed in to earlier in the session. Save again after a
+One save covers every site a call ended on — the identity provider you signed in
+at, and an app you signed in to earlier in the session. Save again after a
 setting you want kept.
 
 Each save **replaces** the last. A save after signing out saves you signed out.
@@ -33,10 +33,12 @@ The result names what was kept, never a value:
  "uri": "session://site-data"}
 ```
 
-`skipped` names a site whose storage was not read this time; it keeps what the
-last save had for it. "a service worker answered: save while on this site" means
-the site's own worker answered first: `navigate` there and save again, and it is
-read from the page itself.
+`skipped` names a site whose storage is not in this save, and why. One that could
+not be read keeps what the last save had for it: "a service worker answered: save
+while on this site" means the site's own worker answered first, so `navigate`
+there and save again, and it is read from the page itself. One "left out: the
+snapshot would pass 1000000 bytes" was read and then dropped, the sites visited
+longest ago first: it is gone, not kept.
 
 ## What comes back
 
@@ -49,7 +51,8 @@ says which sites, and never a value:
                "uri": "session://site-data"}}
 ```
 
-No `site_data` key means nothing was saved. When the Grid reaps your browser, the
+No `site_data` key means nothing happened: nothing was saved, or only cookies that
+have since expired. When the Grid reaps your browser, the
 next call reopens it, restores the same way, and that call's result carries this
 report once.
 
@@ -89,6 +92,10 @@ read `•••`, here and in the admin UI.
 
 ## Limits
 
+- A save reads the sites a call **ended on**, for as long as the session keeps its
+  history: a day by default, 100 sites at most, the page you are on always. A site
+  passed through inside one call is not read, and an app last visited more than a
+  day ago loses its saved storage at the next save — its cookies stay.
 - IndexedDB is not saved (Firebase Auth keeps its sign-in there).
 - sessionStorage belongs to one tab, so only the page you save on keeps it.
 - A browser opened with `insecure=true` gets none of it back: it accepts any

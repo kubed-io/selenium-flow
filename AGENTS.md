@@ -404,14 +404,17 @@ or the leak `caller_key` existed to prevent comes straight back.
 - `SessionRecord.history` is where the session has been: one entry per origin, newest first,
   written by `touch` (a flow run: once at the end, every step's page in order — and, before a
   `save_site_data` step, the pages reached so far, so the save reads them). `record.url` is
-  `history[0].url`. A withheld URL (§F1.24) or a page with no origin records nothing.
+  `history[0].url`. A withheld URL (§F1.24) or a page with no origin records nothing. Only pages
+  a call ended on are recorded; entries older than the session TTL go (the top one stays), at
+  most `HISTORY_CAP` (100), so a save never reads an origin that has aged out.
 - Other origins are reached through `browser.spare_tab`: a background tab whose requests a BiDi
   intercept answers with a marked blank page, so the site never loads. A save reads there; a
   restore writes there, then sets sessionStorage in the main tab the same way, all before the
   first page. A page without the marker is a service worker's and is never read. No CDP.
 - Kept on `SessionRecord` in the store, never on this server's disk (with the Redis store it is
   as durable as Redis), never logged — `main.py` holds Selenium's wire loggers at INFO for that;
-  it expires with the record. httpOnly values are shown as `•••` on every surface.
+  it expires with the record. httpOnly values are shown as `•••` on every surface; a secret a
+  site keeps in its localStorage is saved and shown as it is.
 - An action returns the capture under `CAPTURED`; `SessionManager.settle` stores it and strips
   it, so it is never returned. `act` and every flow step go through `settle`.
 - A silent reopen's report waits on `SessionRecord.reopened` until `touch` hands it to the first

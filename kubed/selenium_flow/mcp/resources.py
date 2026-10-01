@@ -58,8 +58,8 @@ def register(mcp: FastMCP, sessions: SessionManager) -> None:
 
 SITE_DESCRIPTION = (
     "What this session's last save_site_data holds: one entry per site with "
-    "counts, never a value, the sites it went to first. Every browser this "
-    "session opens has it back before open_session returns.\n\n"
+    "counts, never a value; the sites the session went to come first. Every "
+    "browser this session opens has it back before open_session returns.\n\n"
     "session://site-data/{site} shows one site in full. Reading this never "
     "opens a browser."
 )
