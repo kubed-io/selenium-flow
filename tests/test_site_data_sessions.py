@@ -342,7 +342,11 @@ def during_retire(m, then):
 def test_an_arrival_does_not_undo_a_browser_opened_meanwhile(named_caller):
     m = opened_with_save()
     reopened(m)
-    during_retire(m, lambda: m.remember(NAMED, "brand-new", "https://new.test", {"width": 9}))
+    # A real open ends the browser it replaces first, and says so.
+    during_retire(m, lambda: m.remember(
+        NAMED, "brand-new", "https://new.test", {"width": 9},
+        replacing=m.store.get(NAMED).session_id,
+    ))
     m.act(NAMED, lambda s: {"url": "https://w.test/page"})
     record = m.store.get(NAMED)
     assert (record.session_id, record.url, record.settings) == (
@@ -374,7 +378,10 @@ def test_a_landing_swap_does_not_undo_a_browser_opened_meanwhile(named_caller):
     with_storage_for(m, "https://w.test")
     m.actions.arrived = ["https://app.example.com"]
     m.end_browser(NAMED)
-    during_retire(m, lambda: m.remember(NAMED, "brand-new", "https://new.test"))
+    during_retire(m, lambda: m.remember(
+        NAMED, "brand-new", "https://new.test",
+        replacing=m.store.get(NAMED).session_id,
+    ))
     m.open_browser(NAMED)
     record = m.store.get(NAMED)
     assert (record.session_id, record.url) == ("brand-new", "https://new.test")

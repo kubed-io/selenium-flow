@@ -735,11 +735,25 @@ def test_two_first_opens_on_a_new_name_leave_exactly_one_browser():
         store.set(NAMED, SessionRecord(session_id=opened["session_id"]))
 
     fake.interfere = first_open_lands
-    sessions.remember(NAMED, "late-browser")
     actions.grid.alive.add("late-browser")
-    kept = store.get(NAMED).session_id
-    assert kept == "late-browser"
-    assert actions.closed == ["generated-1"], "the browser that lost was quit"
+    kept = sessions.remember(NAMED, "late-browser")
+    assert kept == store.get(NAMED).session_id == "generated-1", "the first bind wins"
+    assert actions.closed == ["late-browser"], "the late browser is the one quit"
+
+
+def test_a_browser_handed_to_a_caller_is_never_the_one_quit():
+    """Two refreshes after a reap: the first binds its browser and hands it
+    to its caller; the second must adopt it, not quit it under that caller
+    (Copilot, #50)."""
+    actions = InterleavedActions()
+    sessions = manager(actions)
+    sessions.remember(NAMED, "reaped", "https://x/")
+    inner = {}
+    actions.during_first = lambda: inner.setdefault("id", sessions.resolve(NAMED))
+    outer = sessions.resolve(NAMED)
+    assert outer == inner["id"] == sessions.store.get(NAMED).session_id
+    assert inner["id"] not in actions.closed
+    assert actions.grid.alive == {inner["id"]}
 
 
 def test_redis_update_gives_up_after_bounded_retries_and_says_so():

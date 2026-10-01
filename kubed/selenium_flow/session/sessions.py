@@ -353,13 +353,16 @@ class SessionManager:
             **({"site_data": saved} if saved else {}),
             **(record.settings or {}),
         )
-        self.remember(
+        kept = self.remember(
             name,
             opened["session_id"],
             opened.get("url", record.url or ""),
             record.settings,
             replacing=record.session_id,
         )
+        if kept != opened["session_id"]:
+            # A reopen alongside this one bound first; act on its browser.
+            return kept
         # Nobody asked for this reopen, so the next result says it happened.
         self._hold_pending(
             name, opened, {"announce": True, "report": opened.get("site_data")}
@@ -665,11 +668,12 @@ class SessionManager:
         )
         if forgotten is not None:
             self.store.update(name, lambda r: r.with_site_data({}))
-        self.remember(
+        kept = self.remember(
             name, opened["session_id"], opened.get("url", ""), resolved,
             replacing=ended,
         )
-        self._hold_pending(name, opened, {"announce": False})
+        if kept == opened["session_id"]:
+            self._hold_pending(name, opened, {"announce": False})
         if forgotten is not None:
             opened["site_data"] = {"forgotten": forgotten}
         # The Grid's id is dropped here rather than never fetched: it is how the
@@ -684,8 +688,8 @@ class SessionManager:
         url: str = "",
         settings: dict | None = None,
         replacing: str | None = None,
-    ) -> None:
-        """Bind a browser to this session.
+    ) -> str:
+        """Bind a browser to this session, and say which browser it holds.
 
         The settings are stored because a reopen has to use the *same* browser,
         not a default one — swapping Firefox for Chrome, or a 1400x900 window
@@ -693,17 +697,19 @@ class SessionManager:
         shape. They are also what ``open_session`` with no arguments inherits.
 
         ``replacing`` is the browser this open ended or found dead. A record
-        naming any other one was bound by an open that ran alongside this one;
-        the newest browser is kept and that one is quit, or it would hold a
-        Grid slot referenced by nothing until the idle reap.
+        naming any other one was bound by an open that ran alongside this one,
+        and the first to bind wins: that browser may already be in its
+        caller's hands, so quitting it would fail a call (Copilot, #50). This
+        one is quit instead — or it would hold a Grid slot referenced by
+        nothing — and its caller is handed the browser that was kept.
         """
-        loser = {}
+        loser: dict = {}
 
-        def bound(r: SessionRecord | None) -> SessionRecord:
+        def bound(r: SessionRecord | None) -> SessionRecord | None:
             current = r.session_id if r is not None else ""
-            loser["id"] = (
-                current if current and current not in (session_id, replacing) else None
-            )
+            if current and current not in (session_id, replacing):
+                loser["id"], loser["kept"] = session_id, current
+                return None
             return SessionRecord(
                 session_id=session_id,
                 url=url,
@@ -715,6 +721,8 @@ class SessionManager:
         # One atomic create-or-update: a save landing while the browser
         # opened is kept, and two first opens on a new name cannot both write.
         self.store.upsert(name, bound)
+        if not loser:
+            return session_id
         if loser.get("id"):
             log.info(
                 "two opens raced for session %s: quitting browser %s", name, loser["id"]
@@ -727,6 +735,7 @@ class SessionManager:
                 log.info(
                     "could not end browser %s: %s", loser["id"], errors.message(exc)
                 )
+        return loser["kept"]
 
     def touch(self, name: str, url: str | None, browser: str | None = None) -> None:
         """Record where the browser ended up, and slide the record's TTL.

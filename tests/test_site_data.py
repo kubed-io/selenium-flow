@@ -838,7 +838,10 @@ def test_a_nonnumeric_expiry_is_skipped_not_the_whole_restore():
     bidi = FakeBidi()
     report, _ = sd.restore(bidi, {"cookies": [stringy, good], "origins": {}}, NOW)
     assert [c.name for c in bidi.storage.set] == ["ok"]
-    assert report["skipped"][0]["cookie"] == "odd"
+    assert report["skipped"] == [{
+        "reason": "a stored cookie whose expiry is not a time",
+        "cookie": "odd", "domain": "app.example.com",
+    }]
 
 
 def test_a_failure_after_the_script_is_added_never_loses_its_id(monkeypatch):

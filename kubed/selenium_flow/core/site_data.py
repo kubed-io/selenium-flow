@@ -458,6 +458,7 @@ def _kept(bidi, cookies: list[dict]) -> list[dict] | None:
 
 
 MALFORMED = "a stored cookie with no name or domain"
+BAD_EXPIRY = "a stored cookie whose expiry is not a time"
 
 
 def _usable(c) -> bool:
@@ -481,6 +482,10 @@ def _malformed(c) -> dict:
         for field, key in (("cookie", "name"), ("domain", "domain")):
             if isinstance(c.get(key), str):
                 entry[field] = c[key]
+        if entry.get("cookie") and entry.get("domain"):
+            # Name and domain are fine, so it was the expiry: say which field
+            # is corrupt rather than blaming the two that are not (Copilot, #50).
+            entry["reason"] = BAD_EXPIRY
     return entry
 
 
