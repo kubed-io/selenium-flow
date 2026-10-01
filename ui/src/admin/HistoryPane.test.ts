@@ -1,4 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { deferred, fakeFetch } from '../test/helpers'
 import { createApi } from './api'
@@ -118,6 +120,42 @@ test('a second link to the same host opens it again, once the reader has shut it
   await rerender({ tab: 'history', site: undefined })
   await rerender({ tab: 'site-data', site: 'grafana.example.com' })
   await vi.waitFor(() => expect(title()).toHaveAttribute('aria-expanded', 'true'))
+})
+
+test('the fold is the reader\'s once they have made it: a reload and a remount keep it shut', async () => {
+  const { container, calls, live, unmount } = setup()
+  await loaded(container)
+  const top = () => visits(container)[0].querySelector('.title')!
+  await fireEvent.click(top())
+  await vi.waitFor(() => expect(top()).toHaveAttribute('aria-expanded', 'false'))
+  live.data = { sessions: [{ ...row, history_rev: 'h2' }] }
+  await vi.waitFor(() => expect(calls.filter((c) => c.method === 'GET' && c.path.endsWith('/history'))).toHaveLength(2))
+  unmount()
+  // A mounted Section reads its fold once, so only a remount shows what the
+  // reload did to the shared fold.
+  const again = setup()
+  await loaded(again.container)
+  expect(visits(again.container)[0].querySelector('.title')).toHaveAttribute('aria-expanded', 'false')
+})
+
+test('a row with nothing to open does not look clickable', async () => {
+  // The real stylesheet: the rule that matters is app.css's `.title`, which
+  // styles every title as a button's, whatever the element.
+  const sheet = document.createElement('style')
+  // Read, not imported: vitest answers a .css import, `?raw` too, with nothing.
+  sheet.textContent = readFileSync(join(__dirname, '../app.css'), 'utf8')
+  document.head.append(sheet)
+  try {
+    const { container } = setup()
+    await loaded(container)
+    const [open, , plain] = visits(container)
+    expect(open.querySelector('button.title')).not.toBeNull()
+    expect(getComputedStyle(open.querySelector('.title')!).cursor).toBe('pointer')
+    expect(plain.querySelector('span.title')).not.toBeNull()
+    expect(getComputedStyle(plain.querySelector('.title')!).cursor).toBe('default')
+  } finally {
+    sheet.remove()
+  }
 })
 
 test('Clear is offered only while there is more than the current site', async () => {
