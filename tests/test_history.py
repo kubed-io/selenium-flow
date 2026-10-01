@@ -46,6 +46,18 @@ def test_a_page_with_no_origin_or_a_withheld_url_records_nothing():
         assert record.at(nowhere, now=2.0).history == record.history
 
 
+def test_only_the_current_page_keeps_its_query_and_fragment():
+    # An OAuth callback's code, a reset link's token: values that only a reopen
+    # of the current page could need.
+    record = SessionRecord().at("https://u:p@a.test/cb?code=XYZ#state=1", now=1.0)
+    assert record.url == "https://u:p@a.test/cb?code=XYZ#state=1"
+    record = record.at("https://b.test/reset?token=T", now=2.0)
+    assert [v["url"] for v in record.history] == [
+        "https://b.test/reset?token=T",
+        "https://a.test/cb",
+    ]
+
+
 def test_several_pages_are_recorded_in_order():
     record = SessionRecord().at("https://a.test/", "https://b.test/", "https://a.test/z", now=5.0)
     assert [v["url"] for v in record.history] == ["https://a.test/z", "https://b.test/"]

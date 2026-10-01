@@ -407,6 +407,8 @@ or the leak `caller_key` existed to prevent comes straight back.
   `history[0].url`. A withheld URL (§F1.24) or a page with no origin records nothing. Only pages
   a call ended on are recorded; entries older than the session TTL go (the top one stays), at
   most `HISTORY_CAP` (100), so a save never reads an origin that has aged out.
+  Only the top entry keeps its whole URL; below it a URL keeps its origin and path, because a
+  query string or fragment carries OAuth codes and reset tokens.
 - Other origins are reached through `browser.spare_tab`: a background tab whose requests a BiDi
   intercept answers with a marked blank page, so the site never loads. A save reads there; a
   restore writes there, then sets sessionStorage in the main tab the same way, all before the

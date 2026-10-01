@@ -143,7 +143,9 @@ use). No new setting.
 - One entry per origin. An entry older than `session.ttl` is dropped on the
   next write; `history[0]` is never dropped while the record lives. At most
   100 entries; the oldest goes first.
-- Never contains a value. It holds what `url` already held.
+- Only the top entry keeps its whole URL, as `url` always did: a reopen goes
+  back there. Below it a URL keeps its origin and path; a query string or
+  fragment carries OAuth codes and reset tokens (Copilot, #51).
 - No migration: a record written before round 2 reads as one that has been
   nowhere and loses its last page once; its browser, settings and site data
   stand.
@@ -165,8 +167,9 @@ use). No new setting.
 }
 ```
 
-- **Each save replaces the whole field.** Nothing is merged, so a sign-out
-  saved after a sign-in is the state that comes back.
+- **Each save replaces the whole field**, so a sign-out saved after a
+  sign-in is the state that comes back. The one thing carried over is the
+  last storage of an origin the save could not read (below).
 - `cookies` — the whole jar.
 - `origins` — localStorage for every origin in the history that has any.
   Origins with empty storage are left out.
@@ -197,7 +200,10 @@ underneath:
 - The result names what was saved, never a value:
   `{"url": …, "title": …, "saved": {"cookies": 14, "sites": [...origins], "skipped": []}, "uri": "session://site-data"}`
 - BiDi down is still a 503 with nothing saved. It is still a flow step.
-- Annotations unchanged: not read-only, not destructive, idempotent.
+- Annotations unchanged: not read-only, not destructive, idempotent. A
+  service worker's page loading in the spare tab is a navigation, which
+  `navigate` is too; destructive is for handing the page an instruction
+  (AGENTS.md), and a save clicks, types and runs nothing.
 
 ### `open_session(restore_site_data=true)`
 

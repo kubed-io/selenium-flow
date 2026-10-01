@@ -34,6 +34,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from typing import TYPE_CHECKING, Protocol
+from urllib.parse import urlsplit
 
 from .. import errors
 from ..core.site_data import origin_of
@@ -89,6 +90,11 @@ class StoreUnavailable(RuntimeError):
 
 class StoreConflict(RuntimeError):
     """An update kept losing to other writers and gave up (Redis only)."""
+
+
+def _page(url: str) -> str:
+    """``url`` without its query, fragment or credentials: its origin and path."""
+    return origin_of(url) + urlsplit(url).path
 
 
 @dataclass(frozen=True)
@@ -185,6 +191,10 @@ class SessionRecord:
         the time. One without — None for a URL withheld after a secret write
         (§F1.24), ``about:blank``, ``data:`` — records nothing. Entries older
         than ``ttl`` go, except the top one: it is where a reopen goes back to.
+
+        Only the top entry keeps its whole URL. Below it a URL keeps its origin
+        and path: a query string or fragment carries OAuth codes and reset
+        tokens, and nothing but a reopen needs them (Copilot, #51).
         """
         now = time.time() if now is None else now
         history = list(self.history)
@@ -195,7 +205,9 @@ class SessionRecord:
                     {"origin": origin, "url": url, "at": now},
                     *(v for v in history if v["origin"] != origin),
                 ]
-        kept = history[:1] + [v for v in history[1:] if v["at"] >= now - ttl]
+        kept = history[:1] + [
+            {**v, "url": _page(v["url"])} for v in history[1:] if v["at"] >= now - ttl
+        ]
         return replace(self, history=kept[:HISTORY_CAP])
 
     def reshaped(self, settings: dict) -> SessionRecord:

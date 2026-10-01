@@ -96,7 +96,7 @@ def test_restore_off_deletes_the_snapshot_and_keeps_the_history(named_caller):
     assert told["site_data"] == {"forgotten": 1}
     record = m.store.get(NAMED)
     assert record.site_data == {}
-    assert "https://app.example.com" in [v["origin"] for v in record.history]
+    assert any(v["origin"] == "https://app.example.com" for v in record.history)
 
 
 def test_restore_site_data_accepts_a_string_false(named_caller):
