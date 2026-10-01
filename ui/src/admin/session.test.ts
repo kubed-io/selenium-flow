@@ -145,3 +145,36 @@ test('a pushed row refetches the history only when history_rev moves', async () 
   push('h2')
   expect(loads()).toBe(2)
 })
+
+test('a pushed save loads the history once too: its saved pills are snapshot data', async () => {
+  const { calls } = fakeFetch({
+    'GET /admin/sessions/k/site-data': { body: { sites: [], details: {} } },
+    'GET /admin/sessions/k/history': { body: { key: 'k', sites: [] } },
+    'GET /admin/sessions/k/files': { body: files() },
+    'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [], rev: 1 } },
+  })
+  const m = new SessionModel('k', api)
+  const loads = (tab: string) => calls.filter((c) => c.path === '/admin/sessions/k/' + tab).length
+  const push = (site_data_rev: string) => m.onPushed({ sessions: [{ key: 'k', live: true, session_id: 'b1', files_rev: 1, flows_rev: 1, history_rev: 'h1', site_data_rev }] }, () => null, () => {}, () => {})
+  push('s1')
+  expect([loads('site-data'), loads('history')]).toEqual([1, 1])
+  push('s2')                                       // a save on the current page: no new origin, no new top URL
+  expect([loads('site-data'), loads('history')]).toEqual([2, 2])
+  push('s2')
+  expect([loads('site-data'), loads('history')]).toEqual([2, 2])
+})
+
+test('both revs moving in one push is still one history load', async () => {
+  const { calls } = fakeFetch({
+    'GET /admin/sessions/k/site-data': { body: { sites: [], details: {} } },
+    'GET /admin/sessions/k/history': { body: { key: 'k', sites: [] } },
+    'GET /admin/sessions/k/files': { body: files() },
+    'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [], rev: 1 } },
+  })
+  const m = new SessionModel('k', api)
+  const loads = (tab: string) => calls.filter((c) => c.path === '/admin/sessions/k/' + tab).length
+  const push = (rev: string) => m.onPushed({ sessions: [{ key: 'k', live: true, session_id: 'b1', files_rev: 1, flows_rev: 1, history_rev: rev, site_data_rev: rev }] }, () => null, () => {}, () => {})
+  push('1')
+  push('2')
+  expect([loads('site-data'), loads('history')]).toEqual([2, 2])
+})

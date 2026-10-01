@@ -205,14 +205,14 @@ export class SessionModel {
   #showRow(row: SessionRow) {
     this.row = row
     this.headed = true
-    if ((row.site_data_rev ?? null) !== this.#shownSiteData) {
-      this.#shownSiteData = row.site_data_rev ?? null
-      void this.loadSiteData()
-    }
-    if ((row.history_rev ?? null) !== this.#shownHistory) {
-      this.#shownHistory = row.history_rev ?? null
-      void this.loadHistory()
-    }
+    const siteMoved = (row.site_data_rev ?? null) !== this.#shownSiteData
+    const historyMoved = (row.history_rev ?? null) !== this.#shownHistory
+    this.#shownSiteData = row.site_data_rev ?? null
+    this.#shownHistory = row.history_rev ?? null
+    if (siteMoved) void this.loadSiteData()
+    // History's saved pills are site data: a save, a Forget or a Clear moves
+    // them without moving the origins or the top URL.
+    if (siteMoved || historyMoved) void this.loadHistory()
     this.filesBlanked = false
   }
 

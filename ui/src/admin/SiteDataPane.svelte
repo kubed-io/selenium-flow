@@ -81,7 +81,8 @@
       onconfirm: async () => {
         refuseIfGone()
         await api(sessionPath(m.key, '/site-data/' + encodeURIComponent(r.site)), 'DELETE')
-        if (!isGone()) void m.loadSiteData()
+        // History's saved pills read this snapshot too.
+        if (!isGone()) { void m.loadSiteData(); void m.loadHistory() }
       },
     })
   }
@@ -95,7 +96,7 @@
       onconfirm: async () => {
         refuseIfGone()
         await api(sessionPath(m.key, '/site-data'), 'DELETE')
-        if (!isGone()) void m.loadSiteData()
+        if (!isGone()) { void m.loadSiteData(); void m.loadHistory() }
       },
     })
   }

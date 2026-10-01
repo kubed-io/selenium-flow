@@ -169,6 +169,22 @@ test('Clear confirms with the hosts, then DELETEs the snapshot and reloads', asy
   await vi.waitFor(() => expect(gets()).toBe(before + 1))
 })
 
+test('Forget and Clear reload History too: its saved pills would point at a gone row', async () => {
+  const { container, calls } = setup({
+    'DELETE /admin/sessions/k/site-data/the-internet.herokuapp.com': { body: { forgotten: {} } },
+    'DELETE /admin/sessions/k/site-data': { body: { cleared: [] } },
+  })
+  await loaded(container)
+  const history = () => calls.filter((c) => c.method === 'GET' && c.path.endsWith('/history')).length
+  await vi.waitFor(() => expect(history()).toBe(1)) // the first load
+  await fireEvent.click(within(sections(container)[0]).getByRole('button', { name: 'Forget' }))
+  await fireEvent.click(within(modal()).getByRole('button', { name: 'Forget' }))
+  await vi.waitFor(() => expect(history()).toBe(2))
+  await fireEvent.click(within(container.querySelector('#paneSiteData .bar') as HTMLElement).getByRole('button', { name: 'Clear' }))
+  await fireEvent.click(within(modal()).getByRole('button', { name: 'Clear' }))
+  await vi.waitFor(() => expect(history()).toBe(3))
+})
+
 test('Cancel forgets and clears nothing', async () => {
   const { container, calls } = setup()
   await loaded(container)
