@@ -455,8 +455,8 @@ def test_an_eviction_is_not_announced_by_a_silent_reopen_report(named_caller):
     big = m.actions.save_site_data("x")
     big[site_data.CAPTURED]["local"] = {"big": "y" * 500_000}
     told = m.act(NAMED, lambda s: big)
-    assert "https://w.test" not in told["site_data"].get("waiting", [])
-    assert "https://w.test" not in told["site_data"].get("restored", [])
+    assert told["site_data"]["waiting"] == [], "the evicted origin is not waiting"
+    assert told["site_data"]["restored"] == ["x"]
 
 
 # ---- bookkeeping belongs to the browser that produced the result --------------
