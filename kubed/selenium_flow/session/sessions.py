@@ -666,20 +666,38 @@ class SessionManager:
         opened = self.actions.open_session(
             url=url or inherited, **({"site_data": saved} if saved else {}), **resolved
         )
-        if forgotten is not None:
-            self.store.update(name, lambda r: r.with_site_data({}))
         kept = self.remember(
             name, opened["session_id"], opened.get("url", ""), resolved,
-            replacing=ended,
+            replacing=ended, forget_site_data=forgotten is not None,
         )
-        if kept == opened["session_id"]:
-            self._hold_pending(name, opened, {"announce": False})
+        if kept != opened["session_id"]:
+            # A concurrent open bound first and this browser was quit: describe
+            # the one the session holds, not the discarded one (Copilot, #50).
+            return self._held(name)
+        self._hold_pending(name, opened, {"announce": False})
         if forgotten is not None:
             opened["site_data"] = {"forgotten": forgotten}
         # The Grid's id is dropped here rather than never fetched: it is how the
         # browser is reached, and it is not part of what a caller is told.
         told = {k: v for k, v in opened.items() if k != "session_id"}
         return {"session": name, **told}
+
+    def _held(self, name: str) -> dict:
+        """What ``open_session`` reports for the browser the record holds."""
+        record = self.store.get(name)
+        settings = dict(record.settings or {}) if record else {}
+        held = {
+            "session": name,
+            "browser": settings.get("browser"),
+            "url": record.url if record else "",
+            "settings": settings,
+            "note": "another open of this session bound its browser first: "
+            "this is that browser",
+        }
+        for key in ("width", "height"):
+            if key in settings:
+                held[key] = settings[key]
+        return held
 
     def remember(
         self,
@@ -688,6 +706,7 @@ class SessionManager:
         url: str = "",
         settings: dict | None = None,
         replacing: str | None = None,
+        forget_site_data: bool = False,
     ) -> str:
         """Bind a browser to this session, and say which browser it holds.
 
@@ -702,6 +721,10 @@ class SessionManager:
         caller's hands, so quitting it would fail a call (Copilot, #50). This
         one is quit instead — or it would hold a Grid slot referenced by
         nothing — and its caller is handed the browser that was kept.
+
+        ``forget_site_data`` is a declined restore: the saved data is erased in
+        the same write that binds, so an open that loses erases nothing from
+        the browser that won.
         """
         loser: dict = {}
 
@@ -715,7 +738,7 @@ class SessionManager:
                 url=url,
                 opened_at=time.time(),
                 settings=dict(settings or {}),
-                site_data=dict(r.site_data if r is not None else {}),
+                site_data={} if forget_site_data or r is None else dict(r.site_data),
             )
 
         # One atomic create-or-update: a save landing while the browser

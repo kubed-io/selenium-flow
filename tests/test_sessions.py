@@ -756,6 +756,42 @@ def test_a_browser_handed_to_a_caller_is_never_the_one_quit():
     assert actions.grid.alive == {inner["id"]}
 
 
+def test_a_losing_open_describes_the_browser_the_session_kept():
+    """The loser's browser was quit: reporting it would describe a browser
+    the caller does not have (Copilot, #50)."""
+    actions = InterleavedActions()
+    sessions = manager(actions)
+    actions.during_first = lambda: sessions.open_browser(
+        NAMED, url="https://won.test/", browser="firefox"
+    )
+    told = sessions.open_browser(NAMED, url="https://lost.test/", browser="chrome")
+    kept = sessions.store.get(NAMED)
+    assert actions.grid.alive == {kept.session_id}
+    assert told["browser"] == "firefox"
+    assert told["url"] == "https://won.test/"
+    assert "session_id" not in told and "_site_data_pending" not in told
+
+
+def test_a_losing_clean_open_erases_nothing_from_the_winner():
+    """Declining a restore erases the saved data only for the browser that
+    binds; the winner was given that data and is still signed in (Copilot, #50)."""
+    from kubed.selenium_flow.core import site_data
+
+    actions = InterleavedActions()
+    sessions = manager(actions)
+    data, _ = site_data.merge(
+        {},
+        {"cookies": [{"name": "sid", "value": "1", "domain": "app.test"}],
+         "origin": "https://app.test", "local": {}, "session": {}},
+        1000.0,
+    )
+    sessions.store.set(NAMED, SessionRecord(url="https://app.test/", site_data=data))
+    actions.during_first = lambda: sessions.open_browser(NAMED)
+    told = sessions.open_browser(NAMED, restore_site_data=False)
+    assert "site_data" not in told, "the loser forgot nothing"
+    assert sessions.store.get(NAMED).site_data["cookies"] == data["cookies"]
+
+
 def test_redis_update_gives_up_after_bounded_retries_and_says_so():
     from kubed.selenium_flow.session.store import StoreConflict
 
