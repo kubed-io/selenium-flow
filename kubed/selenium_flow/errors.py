@@ -69,6 +69,14 @@ class NotFound(LookupError):
     """The thing the caller named is not there: a 404, with its own words."""
 
 
+class BidiUnavailable(ConnectionError):
+    """The browser answers WebDriver but its BiDi socket does not: a 503.
+
+    Selenium surfaces that as a closed websocket or a BiDi timeout, neither of
+    which says what to do; this carries a message that does, and never the
+    socket's URL."""
+
+
 CALLER = (
     AssertionFailed,
     TimeoutException,
@@ -101,6 +109,7 @@ GONE = (InvalidSessionIdException, NoSuchDriverException)
 # the second was classified at first, so the same unreachable Grid answered 503
 # on two endpoints and 500 on the other twelve.
 UNAVAILABLE = (
+    BidiUnavailable,
     SessionNotCreatedException,
     requests.ConnectionError,
     requests.Timeout,

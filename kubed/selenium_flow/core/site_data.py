@@ -22,6 +22,7 @@ import contextlib
 import json
 from urllib.parse import urlsplit
 
+from ..errors import BidiUnavailable
 from ..errors import message as failure_text
 
 # The private key an action hands its capture back under. `SessionManager.act`
@@ -32,6 +33,10 @@ CAPTURED = "_site_data_captured"
 MARKER = "selenium-flow:restored:"
 MAX_BYTES = 1_000_000
 MASK = "•••"
+BIDI_DOWN = (
+    "the browser's BiDi channel is unavailable, so nothing was saved: retry, "
+    "and if it persists the Grid's /se/bidi route is down"
+)
 LIST_URI = "session://site-data"
 DEFAULT_PORTS = {"http": 80, "https": 443}
 
@@ -240,14 +245,19 @@ def _site(jar: _Jar, host: str, secrets) -> dict:
     origins = jar.origins.get(host, {})
     cookies = jar.covering(host)
     own = [c for c in cookies if _own(c.get("domain") or "", host)]
-    local, session = {}, {}
-    for entry in origins.values():
-        local.update(entry.get("local") or {})
-        session.update(entry.get("session") or {})
+    # Per origin, never merged: the same host on two ports or schemes is two
+    # origins, each restored with its own storage.
+    storage = [
+        {
+            "origin": o,
+            "local_storage": dict(origins[o].get("local") or {}),
+            "session_storage": dict(origins[o].get("session") or {}),
+        }
+        for o in sorted(origins)
+    ]
     saved = [e.get("saved_at") for e in origins.values() if e.get("saved_at")]
     return {
         "site": host,
-        "origin": next(iter(sorted(origins)), None),
         # Only what Forget would remove: a row that merely sits under a
         # parent's shared cookie has nothing of its own to forget.
         "saved": bool(origins or own),
@@ -255,8 +265,7 @@ def _site(jar: _Jar, host: str, secrets) -> dict:
         "uri": site_uri(host),
         "_cookies": cookies,
         "_own": own,
-        "_local": local,
-        "_session": session,
+        "storage": storage,
         "secrets": matching_secrets(secrets, host),
     }
 
@@ -287,16 +296,24 @@ def _rows(data: dict, secrets: list[dict] | None):
     for host in sorted(h for h in hosts if h):
         site = _site(jar, host, secrets)
         rows.append({
-            "site": site["site"], "origin": site["origin"], "saved": site["saved"],
+            "site": site["site"], "saved": site["saved"],
             "saved_at": site["saved_at"], "uri": site["uri"],
-            "cookies": len(site["_cookies"]), "local_storage": len(site["_local"]),
-            "session_storage": len(site["_session"]), "secrets": site["secrets"],
+            "cookies": len(site["_cookies"]),
+            "storage": [
+                {
+                    "origin": e["origin"],
+                    "local_storage": len(e["local_storage"]),
+                    "session_storage": len(e["session_storage"]),
+                }
+                for e in site["storage"]
+            ],
+            "secrets": site["secrets"],
         })
         details[host] = {
-            "site": host, "origin": site["origin"], "saved": site["saved"],
+            "site": host, "saved": site["saved"],
             "saved_at": site["saved_at"], "uri": site["uri"],
             "cookies": [_cookie_view(c, host) for c in site["_cookies"]],
-            "local_storage": site["_local"], "session_storage": site["_session"],
+            "storage": site["storage"],
             # What Forget would do, by the rule Forget itself uses.
             "own_cookies": [c["name"] for c in site["_own"]],
             "kept_shared": [_identity(c) for c in _shared(site["_cookies"], host)],
@@ -329,7 +346,8 @@ def views(data: dict, secrets: list[dict] | None = None) -> tuple[dict, dict]:
 
 
 def site_view(data: dict, site: str, secrets: list[dict] | None = None) -> dict | None:
-    """One site in full: cookies (httpOnly masked) and both storages."""
+    """One site in full: cookies (httpOnly masked) and both storages, per
+    origin."""
     return _rows(data, secrets)[1].get((site or "").lower())
 
 
@@ -373,16 +391,29 @@ READ_STORAGE = (
 
 
 def capture(bidi, driver) -> dict:
-    """The whole cookie jar (BiDi sees httpOnly ones) and the page's storage."""
-    from selenium.webdriver.common.bidi.storage import CookieFilter
+    """The whole cookie jar (BiDi sees httpOnly ones) and the page's storage.
 
+    The browser answered classic WebDriver to get here, so a jar that cannot
+    be read is the BiDi channel failing: :class:`BidiUnavailable`, a 503.
+    """
+    from selenium.common import WebDriverException
+    from selenium.webdriver.common.bidi.storage import CookieFilter
+    from websocket import WebSocketException
+
+    try:
+        jar = bidi.storage.get_cookies(CookieFilter()).cookies
+    except (WebDriverException, WebSocketException, OSError) as e:
+        # Only a channel that did not answer is a 503. Anything else - an
+        # unexpected return shape, a bug here - stays a 500, as errors.py
+        # decides for every failure it does not recognise (Copilot, #50).
+        raise BidiUnavailable(BIDI_DOWN) from e
     cookies = [
         {
             "name": c.name, "value": c.value.value, "value_type": c.value.type,
             "domain": c.domain, "path": c.path, "http_only": c.http_only,
             "secure": c.secure, "same_site": c.same_site, "expiry": c.expiry,
         }
-        for c in bidi.storage.get_cookies(CookieFilter()).cookies
+        for c in jar
     ]
     page = driver.execute_script(READ_STORAGE) or {}
     return {
@@ -420,7 +451,42 @@ def _kept(bidi, cookies: list[dict]) -> list[dict] | None:
     except Exception:  # noqa: BLE001 - an unverified restore is still a restore
         return None
     held = {_key(c.name, c.domain, c.path) for c in jar}
-    return [c for c in cookies if _key(c["name"], c["domain"], c.get("path")) in held]
+    return [
+        c for c in cookies
+        if _key(c.get("name"), c.get("domain"), c.get("path")) in held
+    ]
+
+
+MALFORMED = "a stored cookie with no name or domain"
+BAD_EXPIRY = "a stored cookie whose expiry is not a time"
+
+
+def _usable(c) -> bool:
+    return (
+        isinstance(c, dict)
+        and isinstance(c.get("name"), str) and bool(c["name"])
+        and isinstance(c.get("domain"), str) and bool(c["domain"])
+        # Compared with `now` before any per-cookie guard: a string here took
+        # the whole restore down instead of skipping one cookie (Copilot, #50).
+        and (c.get("expiry") is None or (
+            isinstance(c["expiry"], (int, float)) and not isinstance(c["expiry"], bool)
+        ))
+    )
+
+
+def _malformed(c) -> dict:
+    """A skip entry for a stored cookie restore cannot use: only the fields
+    that are strings, since the published shape says so (Copilot, #50)."""
+    entry = {"reason": MALFORMED}
+    if isinstance(c, dict):
+        for field, key in (("cookie", "name"), ("domain", "domain")):
+            if isinstance(c.get(key), str):
+                entry[field] = c[key]
+        if entry.get("cookie") and entry.get("domain"):
+            # Name and domain are fine, so it was the expiry: say which field
+            # is corrupt rather than blaming the two that are not (Copilot, #50).
+            entry["reason"] = BAD_EXPIRY
+    return entry
 
 
 def restore(bidi, data: dict, now: float) -> tuple[dict, dict]:
@@ -437,12 +503,16 @@ def restore(bidi, data: dict, now: float) -> tuple[dict, dict]:
     report = {"restored": [], "waiting": [], "skipped": [], "uri": LIST_URI}
     pending = {"origins": [], "script": ""}
     try:
-        cookies = live_cookies(data.get("cookies") or [], now)
+        stored = data.get("cookies") or []
+        cookies = live_cookies([c for c in stored if _usable(c)], now)
+        # One bad entry is skipped, not the whole restore.
+        report["skipped"] = [_malformed(c) for c in stored if not _usable(c)]
         sent = []
         for c in cookies:
             try:
                 bidi.storage.set_cookie(PartialCookie(
-                    c["name"], BytesValue(c.get("value_type") or "string", c["value"]),
+                    c["name"],
+                    BytesValue(c.get("value_type") or "string", c.get("value")),
                     c["domain"], path=c.get("path"), http_only=c.get("http_only"),
                     secure=c.get("secure"), same_site=_same_site(c),
                     expiry=c.get("expiry"),
@@ -464,13 +534,14 @@ def restore(bidi, data: dict, now: float) -> tuple[dict, dict]:
                     "reason": "the browser did not keep it",
                 })
         origins = data.get("origins") or {}
-        script = _add_preload(bidi, origins) if origins else ""
         stored_hosts = {host_of(o) for o in origins}
         report["restored"] = sorted({
             c["domain"].lstrip(".") for c in kept
             if not any(_covers(c["domain"], h) for h in stored_hosts)
         })
         report["waiting"] = sorted(origins)
+        # Added last: nothing after it can fail and lose the id that retires it.
+        script = _add_preload(bidi, origins) if origins else ""
         pending = {"origins": list(report["waiting"]), "script": script}
     except Exception as e:  # noqa: BLE001 - BiDi failing is a report, not a crash
         return (

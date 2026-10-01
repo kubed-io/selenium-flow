@@ -1005,13 +1005,25 @@ SITE_DATA_SCHEMAS = {
                     "type": "object",
                     "properties": {
                         "site": {"type": "string"},
-                        "origin": {"type": ["string", "null"]},
                         "saved": {"type": "boolean"},
                         "saved_at": {"type": ["number", "null"]},
                         "uri": {"type": "string"},
                         "cookies": {"type": "integer"},
-                        "local_storage": {"type": "integer"},
-                        "session_storage": {"type": "integer"},
+                        "storage": {
+                            "type": "array",
+                            "description": "Key counts per origin of this host.",
+                            "items": {
+                                "type": "object",
+                                "required": [
+                                    "origin", "local_storage", "session_storage",
+                                ],
+                                "properties": {
+                                    "origin": {"type": "string"},
+                                    "local_storage": {"type": "integer"},
+                                    "session_storage": {"type": "integer"},
+                                },
+                            },
+                        },
                         "secrets": {"type": "array", "items": {"type": "object"}},
                     },
                 },
@@ -1029,7 +1041,6 @@ SITE_DATA_SCHEMAS = {
         ),
         "properties": {
             "site": {"type": "string"},
-            "origin": {"type": ["string", "null"]},
             "saved": {"type": "boolean"},
             "saved_at": {"type": ["number", "null"]},
             "uri": {"type": "string"},
@@ -1050,8 +1061,22 @@ SITE_DATA_SCHEMAS = {
                     },
                 },
             },
-            "local_storage": {"type": "object"},
-            "session_storage": {"type": "object"},
+            "storage": {
+                "type": "array",
+                "description": (
+                    "localStorage and sessionStorage per origin: the same host "
+                    "on another port or scheme is another origin."
+                ),
+                "items": {
+                    "type": "object",
+                    "required": ["origin", "local_storage", "session_storage"],
+                    "properties": {
+                        "origin": {"type": "string"},
+                        "local_storage": {"type": "object"},
+                        "session_storage": {"type": "object"},
+                    },
+                },
+            },
             "own_cookies": {
                 "type": "array",
                 "items": {"type": "string"},

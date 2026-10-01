@@ -72,7 +72,9 @@ async def test_the_resources_list_and_show_one_site_masking_httponly(saved):
     one = await read(saved, f"session://site-data/{SITE}")
     values = {c["name"]: c["value"] for c in one["cookies"]}
     assert values == {"sid": "•••", "theme": "dark"}
-    assert one["local_storage"] == {"k": "v"}
+    assert one["storage"] == [
+        {"origin": f"https://{SITE}", "local_storage": {"k": "v"}, "session_storage": {}}
+    ]
     assert "pending" not in json.dumps([listing, one])
     with pytest.raises(Exception, match="session://site-data"):
         await read(saved, "session://site-data/nowhere.test")
@@ -112,7 +114,11 @@ def test_the_capture_never_leaves_the_server(monkeypatch):
     server = SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
     )
-    server.sessions.store.set(NAMED, SessionRecord(url=f"https://{SITE}/"))
+    # The record names the browser `resolve` hands back, as it does for real:
+    # a save is kept only by the browser that captured it.
+    server.sessions.store.set(
+        NAMED, SessionRecord(session_id="live-id", url=f"https://{SITE}/")
+    )
     client = TestClient(server.mcp.http_app())
     response = client.post(
         "/browser/save-site-data", headers=AUTH, params={"session": NAMED}, json={}
@@ -147,3 +153,76 @@ def test_the_published_kept_shared_is_the_shape_returned():
     )
     shared = site_data.site_view(data, "app.example.com")["kept_shared"]
     assert shared and set(shared[0]) == set(items["required"])
+
+
+def test_save_with_bidi_unreachable_is_a_scrubbed_503(monkeypatch):
+    """Selenium surfaces a dead BiDi route as a closed websocket: a 500 saying
+    "socket is already closed." told nobody what to do."""
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    from websocket import WebSocketConnectionClosedException
+
+    from kubed.selenium_flow.core.browser import Grid
+
+    page = SimpleNamespace(current_url=f"https://{SITE}/", title="t")
+
+    class Dead:
+        def get_cookies(self, *a, **kw):
+            raise WebSocketConnectionClosedException(
+                "ws://user:pw@grid.invalid/session/x/se/bidi is closed"
+            )
+
+    @contextmanager
+    def bidi(self, session_id):
+        yield SimpleNamespace(storage=Dead())
+
+    monkeypatch.setattr(Grid, "reconnect", lambda self, sid: page)
+    monkeypatch.setattr(Grid, "bidi", bidi)
+    monkeypatch.setattr(SessionManager, "resolve", lambda self, name, **kw: "live-id")
+    server = SeleniumMCP(
+        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
+    )
+    server.sessions.store.set(NAMED, SessionRecord(url=f"https://{SITE}/"))
+    client = TestClient(server.mcp.http_app())
+    response = client.post(
+        "/browser/save-site-data", headers=AUTH, params={"session": NAMED}, json={}
+    )
+    assert response.status_code == 503, response.json()
+    error = response.json()["error"]
+    assert error.startswith("the browser's BiDi channel is unavailable")
+    assert "pw" not in error
+    assert server.sessions.store.get(NAMED).site_data == {}
+
+
+def test_an_unexpected_cookie_read_failure_stays_a_500(monkeypatch):
+    """Only a BiDi channel that did not answer is a retryable 503; a bug or an
+    unexpected return shape stays a 500, as errors.py rules (Copilot, #50)."""
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    from kubed.selenium_flow.core.browser import Grid
+
+    page = SimpleNamespace(current_url=f"https://{SITE}/", title="t")
+
+    class Broken:
+        def get_cookies(self, *a, **kw):
+            raise AttributeError("'dict' object has no attribute 'cookies'")
+
+    @contextmanager
+    def bidi(self, session_id):
+        yield SimpleNamespace(storage=Broken())
+
+    monkeypatch.setattr(Grid, "reconnect", lambda self, sid: page)
+    monkeypatch.setattr(Grid, "bidi", bidi)
+    monkeypatch.setattr(SessionManager, "resolve", lambda self, name, **kw: "live-id")
+    server = SeleniumMCP(
+        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
+    )
+    server.sessions.store.set(NAMED, SessionRecord(url=f"https://{SITE}/"))
+    client = TestClient(server.mcp.http_app())
+    response = client.post(
+        "/browser/save-site-data", headers=AUTH, params={"session": NAMED}, json={}
+    )
+    assert response.status_code == 500, response.json()
+

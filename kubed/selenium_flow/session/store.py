@@ -66,6 +66,8 @@ UPDATE_RETRIES = 10
 # What `update` applies: the record as it is now in, the record to store out,
 # or None to store nothing.
 Change = Callable[["SessionRecord"], "SessionRecord | None"]
+# For `upsert`: the record as it is, or None when the key is absent.
+Create = Callable[["SessionRecord | None"], "SessionRecord | None"]
 
 
 class StoreUnavailable(RuntimeError):
@@ -203,6 +205,10 @@ class SessionStore(Protocol):
     # never called for an absent key. Returns what is stored afterwards.
     def update(self, key: str, fn: Change) -> SessionRecord | None: ...
 
+    # `update`, and an absent key too: `fn` gets None, so a first write can
+    # never land between a read and a fallback `set` (Copilot, #50).
+    def upsert(self, key: str, fn: Create) -> SessionRecord | None: ...
+
     def delete(self, key: str) -> None: ...
 
     # Optional, and only the admin view needs it: the MCP surface never lists
@@ -270,10 +276,11 @@ class MemoryStore:
             self._data[key] = (self._clock() + self._ttl, record)
 
     def update(self, key: str, fn: Change) -> SessionRecord | None:
+        return self.upsert(key, lambda r: fn(r) if r is not None else None)
+
+    def upsert(self, key: str, fn: Create) -> SessionRecord | None:
         with self._locked(key):
             current = self.get(key)
-            if current is None:
-                return None
             changed = fn(current)
             if changed is None:
                 return current
@@ -356,8 +363,13 @@ class RedisStore:
         self._redis.set(self._k(key), record.to_json(), ex=self._ttl)
 
     def update(self, key: str, fn: Change) -> SessionRecord | None:
+        return self.upsert(key, lambda r: fn(r) if r is not None else None)
+
+    def upsert(self, key: str, fn: Create) -> SessionRecord | None:
         """WATCH, read, MULTI, write: EXEC refuses if another replica wrote the
-        key in between, and the change is re-applied to what it wrote."""
+        key in between, and the change is re-applied to what it wrote. An
+        absent key is watched the same way, so two first writes cannot both
+        land."""
         from redis.exceptions import WatchError  # optional dependency, as above
 
         k = self._k(key)
@@ -367,7 +379,7 @@ class RedisStore:
                     pipe.watch(k)
                     raw = pipe.get(k)
                     current = SessionRecord.from_json(raw) if raw is not None else None
-                    changed = fn(current) if current is not None else None
+                    changed = fn(current)
                     if changed is None:
                         pipe.unwatch()
                         return current

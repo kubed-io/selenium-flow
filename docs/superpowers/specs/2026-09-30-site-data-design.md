@@ -114,8 +114,10 @@ unused for `session.ttl` goes, and its site data with it. No new setting.
   that origin's storage out, and says so in its result. If the new cookies
   plus the other origins pass it, the oldest-saved other origins are evicted
   until it fits, each reported in `skipped` as
-  `{site, reason: "evicted: over 1000000 bytes"}`. If the cookies alone pass
-  it, the save raises `ValueError` (a 400) and the record is unchanged.
+  `{site, reason: "evicted: over 1000000 bytes"}`. An evicted origin also
+  leaves the open browser's `pending`, and its preload script is swapped for
+  one without it, so it is never restored or announced. If the cookies alone
+  pass it, the save raises `ValueError` (a 400) and the record is unchanged.
 - Values are never logged.
 
 ## The surface
@@ -130,6 +132,8 @@ One new tool, and its endpoint `POST /browser/save-site-data` (one to one).
 - The result names what was saved, never a value:
   `{"url": …, "title": …, "saved": {"cookies": 14, "sites": ["https://app.example.com"], "skipped": []}, "uri": "session://site-data"}`
 - A page with no origin (`about:blank`, `data:`) saves cookies only.
+- With the browser's BiDi channel down the save is a **503** ("the browser's
+  BiDi channel is unavailable…", never the socket's URL), and nothing is saved.
 - It is a flow step like any other, so a login flow ends with it.
 - Annotations: not read-only (it writes the session's store), not destructive
   (it tells the page nothing), idempotent.
@@ -144,6 +148,11 @@ One new tool, and its endpoint `POST /browser/save-site-data` (one to one).
   **deleted** (Dr K). It is also how an agent starts as a brand new user.
 - `fresh` is independent and keeps its meaning: a blank page, possibly signed
   in.
+- **`insecure=true` restores nothing** (security review, #49): a browser that
+  accepts any certificate would hand every saved cookie to whoever sits in the
+  middle. Nothing is deleted; the hint reports
+  `{"restored": [], "waiting": [], "skipped": [{"reason": "an insecure browser gets no saved site data"}], "uri": …}`.
+  This covers the silent reopen too, since it replays the stored settings.
 
 ### The hint
 
@@ -172,7 +181,10 @@ nothing changed.
 
 - `session://site-data` — the listing: counts per site, never values.
 - `session://site-data/{site}` — one site in full: cookies with name, domain,
-  path, expiry and flags; localStorage and sessionStorage keys with values.
+  path, expiry and flags; under `storage`, one entry per origin of the host
+  (`{origin, local_storage, session_storage}`), keys with values. The listing
+  counts keys per origin the same way. A host on two ports or schemes is two
+  origins, restored separately, so it is never shown merged.
   **httpOnly cookie values are `"•••"`** — the one thing the page itself cannot
   read (Dr K). Everything else is shown.
 - `session://current` gains `"site_data": {"sites": 2, "uri": "session://site-data"}`
@@ -189,12 +201,13 @@ the record has site data and restore is on:
    saved with SameSite `none` and not Secure is set as `lax`: Chrome reports
    an unspecified SameSite as `none` and silently refuses None without
    Secure (found live). A refused cookie is skipped with its reason, never
-   fatal.
+   fatal, and so is a stored one with no name or domain.
 2. Read the jar back once. A cookie the browser did not keep is skipped with
    "the browser did not keep it", and a host none of whose cookies were kept
    is not reported as restored.
 3. If any origin has storage, add **one** preload script carrying every
-   origin's storage. On each new document it checks `location.origin`, fills
+   origin's storage, as the last BiDi call of the restore so no later
+   failure can lose its id. On each new document it checks `location.origin`, fills
    that origin's localStorage and sessionStorage **once per tab**, and marks
    the tab with a sessionStorage key `selenium-flow:restored:<origin>`. Keys
    with that prefix are never saved.
@@ -215,6 +228,11 @@ would have it refilled over what it changed since. Restore is best effort:
 nothing in it can fail an open. An origin reached only by a redirect or in a
 frame is filled but not announced, and stays pending until the agent lands
 there.
+
+`settle` is told which browser produced the result — `act`'s resolved id,
+or the flow run's — and leaves the pending note alone when the record names
+another browser by then. An open's own note is written only while the record
+still names the browser that open started.
 
 ## Forgetting a site (admin)
 
@@ -238,12 +256,14 @@ Drawn: page **Session · Site data**, flow *Site data*.
   allowed on (Dr K): a secret keeps its site listed when nothing is saved,
   because secrets are not ephemeral. Forget removes the saved data; the row
   stays while a secret matches, and goes when nothing is left.
-- A row header: origin (or host), a "saved 2m ago" pill, counts
+- A row header: its origin (the host when it has none or several), a
+  "saved 2m ago" pill, counts summed over its origins
   ("2 cookies · 2 local · 0 session · 1 secret"), and **Forget** when there is
   saved data.
 - Expanded: COOKIES (name, value or dots, domain · expiry in grey, pills
   httpOnly / secure / shared), LOCAL STORAGE, SESSION STORAGE ("none" when
-  empty), SECRETS (🔑 name, description, **one pill per key name**, as the
+  empty) once per origin, labelled with the origin when the host has more
+  than one, SECRETS (🔑 name, description, **one pill per key name**, as the
   Secrets tab shows them).
 - Empty state: "Nothing saved — an agent calls `save_site_data` after signing
   in."

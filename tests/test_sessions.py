@@ -676,6 +676,122 @@ def test_redis_update_retries_when_another_writer_lands_first():
     assert store.get("k") == got
 
 
+def test_two_first_writes_to_a_memory_key_cannot_both_land():
+    """`upsert` on a key nobody has written: the second writer sees the first
+    one's record, never None (Copilot, #50)."""
+    import threading
+    import time
+
+    store = MemoryStore()
+    seen = []
+
+    def first_write(name):
+        def fn(r):
+            seen.append(r)
+            time.sleep(0.01)  # the window a get-then-set loses a write in
+            return SessionRecord(session_id=name)
+
+        store.upsert("k", fn)
+
+    threads = [threading.Thread(target=first_write, args=(n,)) for n in ("a", "b")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert [r is None for r in seen] == [True, False], "the second saw the first"
+
+
+def test_redis_upsert_on_an_absent_key_retries_when_another_first_write_lands():
+    fake = FakeRedis()
+    store = RedisStore(fake, prefix="p:")
+
+    def open_elsewhere():
+        fake.interfere = None
+        store.set("k", SessionRecord(session_id="other"))
+
+    fake.interfere = open_elsewhere
+    seen = []
+
+    def fn(r):
+        seen.append(r.session_id if r else None)
+        return SessionRecord(session_id="mine")
+
+    store.upsert("k", fn)
+    assert seen == [None, "other"], "the second try saw the record that landed"
+    assert store.get("k").session_id == "mine"
+
+
+def test_two_first_opens_on_a_new_name_leave_exactly_one_browser():
+    """Both opens of a never-seen name read no record. The one that writes
+    second must still see the first's browser and quit the loser."""
+    fake = FakeRedis()
+    store = RedisStore(fake, prefix="p:")
+    actions = RecordingActions()
+    sessions = manager(actions, store)
+
+    def first_open_lands():
+        fake.interfere = None
+        opened = actions.open_session()
+        store.set(NAMED, SessionRecord(session_id=opened["session_id"]))
+
+    fake.interfere = first_open_lands
+    actions.grid.alive.add("late-browser")
+    kept = sessions.remember(NAMED, "late-browser")
+    assert kept == store.get(NAMED).session_id == "generated-1", "the first bind wins"
+    assert actions.closed == ["late-browser"], "the late browser is the one quit"
+
+
+def test_a_browser_handed_to_a_caller_is_never_the_one_quit():
+    """Two refreshes after a reap: the first binds its browser and hands it
+    to its caller; the second must adopt it, not quit it under that caller
+    (Copilot, #50)."""
+    actions = InterleavedActions()
+    sessions = manager(actions)
+    sessions.remember(NAMED, "reaped", "https://x/")
+    inner = {}
+    actions.during_first = lambda: inner.setdefault("id", sessions.resolve(NAMED))
+    outer = sessions.resolve(NAMED)
+    assert outer == inner["id"] == sessions.store.get(NAMED).session_id
+    assert inner["id"] not in actions.closed
+    assert actions.grid.alive == {inner["id"]}
+
+
+def test_a_losing_open_describes_the_browser_the_session_kept():
+    """The loser's browser was quit: reporting it would describe a browser
+    the caller does not have (Copilot, #50)."""
+    actions = InterleavedActions()
+    sessions = manager(actions)
+    actions.during_first = lambda: sessions.open_browser(
+        NAMED, url="https://won.test/", browser="firefox"
+    )
+    told = sessions.open_browser(NAMED, url="https://lost.test/", browser="chrome")
+    kept = sessions.store.get(NAMED)
+    assert actions.grid.alive == {kept.session_id}
+    assert told["browser"] == "firefox"
+    assert told["url"] == "https://won.test/"
+    assert "session_id" not in told and "_site_data_pending" not in told
+
+
+def test_a_losing_clean_open_erases_nothing_from_the_winner():
+    """Declining a restore erases the saved data only for the browser that
+    binds; the winner was given that data and is still signed in (Copilot, #50)."""
+    from kubed.selenium_flow.core import site_data
+
+    actions = InterleavedActions()
+    sessions = manager(actions)
+    data, _ = site_data.merge(
+        {},
+        {"cookies": [{"name": "sid", "value": "1", "domain": "app.test"}],
+         "origin": "https://app.test", "local": {}, "session": {}},
+        1000.0,
+    )
+    sessions.store.set(NAMED, SessionRecord(url="https://app.test/", site_data=data))
+    actions.during_first = lambda: sessions.open_browser(NAMED)
+    told = sessions.open_browser(NAMED, restore_site_data=False)
+    assert "site_data" not in told, "the loser forgot nothing"
+    assert sessions.store.get(NAMED).site_data["cookies"] == data["cookies"]
+
+
 def test_redis_update_gives_up_after_bounded_retries_and_says_so():
     from kubed.selenium_flow.session.store import StoreConflict
 
@@ -1125,3 +1241,68 @@ async def test_a_url_given_alongside_fresh_still_wins(server, monkeypatch):
             "open_session", {"fresh": True, "url": "https://app.test/login"}
         )
     assert seen["url"] == "https://app.test/login"
+
+
+# ---- two opens at once ------------------------------------------------------
+
+
+class InterleavedActions(RecordingActions):
+    """The second open of one name starts and finishes inside the first."""
+
+    def __init__(self):
+        super().__init__()
+        self.during_first = None
+
+    def open_session(self, url=None, **kwargs):
+        opened = super().open_session(url=url, **kwargs)
+        during, self.during_first = self.during_first, None
+        if during:
+            during()
+        return opened
+
+
+def test_two_opens_at_once_leave_exactly_one_browser():
+    """Both ended nothing and both opened: the one whose record lost used to
+    sit on the Grid referenced by nothing until the idle reap."""
+    actions = InterleavedActions()
+    sessions = manager(actions)
+    actions.during_first = lambda: sessions.open_browser(NAMED)
+    sessions.open_browser(NAMED)
+    assert actions.opened == 2
+    kept = sessions.store.get(NAMED).session_id
+    assert actions.grid.alive == {kept}
+    assert actions.closed == [({"generated-1", "generated-2"} - {kept}).pop()]
+
+
+def test_two_reopens_after_a_reap_leave_exactly_one_browser():
+    actions = InterleavedActions()
+    sessions = manager(actions)
+    sessions.remember(NAMED, "reaped", "https://x/")
+    actions.during_first = lambda: sessions.resolve(NAMED)
+    sessions.resolve(NAMED)
+    kept = sessions.store.get(NAMED).session_id
+    assert actions.grid.alive == {kept}
+    assert len(actions.closed) == 1 and actions.closed[0] != kept
+
+
+def test_a_failed_quit_never_logs_the_grids_credentials(caplog):
+    """requests' HTTPError quotes the whole request URL, userinfo included;
+    the cleanup log goes through errors.message like every caller-facing line
+    (Copilot, #50)."""
+    import logging
+
+    actions = RecordingActions()
+    sessions = manager(actions)
+    sessions.remember(NAMED, "abc")
+    actions.grid.alive.add("abc")
+
+    def refuse(session_id):
+        raise RuntimeError(
+            "500 Server Error for url: http://admin:hunter2@grid:4444/session/abc"
+        )
+
+    actions.end_browser = refuse
+    with caplog.at_level(logging.INFO):
+        sessions.end_browser(NAMED)
+    assert "could not end browser" in caplog.text
+    assert "hunter2" not in caplog.text

@@ -106,23 +106,26 @@ export interface SiteCookie {
   same_site?: string | null
   shared?: boolean
 }
+/** One origin of a host: the same host on another port or scheme is another. */
+export interface SiteStorage<T = Record<string, string>> {
+  origin: string
+  local_storage: T
+  session_storage: T
+}
 export interface SiteRow {
   site: string
-  origin: string | null
   saved: boolean
   saved_at: number | null
   uri?: string
   cookies: number
-  local_storage: number
-  session_storage: number
+  storage: SiteStorage<number>[]
   secrets: SiteSecret[]
 }
 /** A parent-domain cookie Forget leaves, named whole: two can share a name. */
 export interface SharedCookie { name: string; domain: string; path: string }
-export interface SiteDetail extends Omit<SiteRow, 'cookies' | 'local_storage' | 'session_storage'> {
+export interface SiteDetail extends Omit<SiteRow, 'cookies' | 'storage'> {
   cookies: SiteCookie[]
-  local_storage: Record<string, string>
-  session_storage: Record<string, string>
+  storage: SiteStorage[]
   /** What Forget removes and what it leaves, by the server's own rule. */
   own_cookies: string[]
   kept_shared: SharedCookie[]

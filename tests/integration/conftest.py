@@ -63,8 +63,12 @@ def pytest_collection_modifyitems(items):
             item.add_marker(skip)
 
 
+# A starved 2-core runner, with py-spy sampling the server, took ~30 s to start.
+STARTUP_SECONDS = 90
+
+
 def _wait_until_serving(url: str, process: subprocess.Popen, log: Path) -> None:
-    deadline = time.monotonic() + 30
+    deadline = time.monotonic() + STARTUP_SECONDS
     while time.monotonic() < deadline:
         if process.poll() is not None:
             raise RuntimeError(f"the server exited:\n{log.read_text()}")
@@ -96,7 +100,8 @@ def _profiled(command: list[str]) -> list[str]:
         return command
     Path(directory).mkdir(parents=True, exist_ok=True)
     svg = str(Path(directory, "server.svg"))
-    return [spy, "record", "--threads", "--rate", "100",
+    # 20 Hz is plenty for a flamegraph; 100 Hz starved a 2-core runner's server.
+    return [spy, "record", "--threads", "--rate", "20",
             "--format", "flamegraph", "-o", svg, "--", *command]
 
 

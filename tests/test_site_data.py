@@ -114,7 +114,9 @@ def test_the_view_groups_by_host_and_shares_parent_cookies():
     listing = sd.view(data)
     sites = {s["site"]: s for s in listing["sites"]}
     assert set(sites) == {"app.example.com", "sso.example.com"}
-    assert sites["app.example.com"]["origin"] == "https://app.example.com"
+    assert [e["origin"] for e in sites["app.example.com"]["storage"]] == [
+        "https://app.example.com"
+    ]
     assert sites["app.example.com"]["cookies"] == 2, "its own and the shared one"
     assert sites["sso.example.com"]["cookies"] == 2
     assert sites["app.example.com"]["uri"] == "session://site-data/app.example.com"
@@ -122,8 +124,33 @@ def test_the_view_groups_by_host_and_shares_parent_cookies():
     by_name = {c["name"]: c for c in one["cookies"]}
     assert by_name["sid"]["value"] == sd.MASK, "httpOnly is masked"
     assert by_name["ab"]["value"] == "b1" and by_name["ab"]["shared"] is True
-    assert one["local_storage"] == {"theme": "dark"}
+    assert one["storage"][0]["local_storage"] == {"theme": "dark"}
     assert sd.site_view(data, "nope.test") is None
+
+
+def test_one_host_on_two_ports_keeps_each_origins_storage_apart():
+    """Restore is per origin, so the view is too: a dev server on :3000 and
+    one on :8080 used to show as one row with one value per key, under one
+    arbitrary origin (live, after #49)."""
+    first, _ = sd.merge(
+        {}, captured(origin="http://localhost:3000", local={"k": "a"}), NOW
+    )
+    data, _ = sd.merge(
+        first, captured(origin="http://localhost:8080", local={"k": "b"}, session={"s": "1"}), NOW
+    )
+    row = sd.view(data)["sites"]
+    row = next(r for r in row if r["site"] == "localhost")
+    assert row["storage"] == [
+        {"origin": "http://localhost:3000", "local_storage": 1, "session_storage": 0},
+        {"origin": "http://localhost:8080", "local_storage": 1, "session_storage": 1},
+    ]
+    one = sd.site_view(data, "localhost")
+    assert one["storage"] == [
+        {"origin": "http://localhost:3000", "local_storage": {"k": "a"}, "session_storage": {}},
+        {"origin": "http://localhost:8080", "local_storage": {"k": "b"}, "session_storage": {"s": "1"}},
+    ]
+    assert "local_storage" not in one and "origin" not in one
+    assert "local_storage" not in row and "origin" not in row
 
 
 def test_a_parent_cookie_with_no_host_gets_its_own_site():
@@ -398,6 +425,25 @@ def test_open_session_restores_before_the_first_page_loads(actions, monkeypatch)
     assert order == ["preload", "get"]
     assert result["site_data"]["restored"] == ["https://app.example.com"]
     assert result["_site_data_pending"] == {"origins": [], "script": "preload-1"}
+
+
+def test_an_insecure_browser_gets_no_saved_site_data(actions, monkeypatch):
+    """A browser that accepts any certificate would hand saved cookies for
+    every site to whoever sits in the middle (security review, #49)."""
+    data, _ = sd.merge({}, captured(local={"a": "1"}), NOW)
+    order = []
+    monkeypatch.setattr(actions.grid, "open",
+                        lambda name, insecure=False: OpenedDriver(order))
+    monkeypatch.setattr(actions.grid, "bidi", bidi_cm(FakeBidi(order=order)))
+    result = actions.open_session(url="https://app.example.com/", insecure=True,
+                                  site_data=data)
+    assert order == ["get"], "nothing set, no preload script"
+    assert result["site_data"] == {
+        "restored": [], "waiting": [],
+        "skipped": [{"reason": "an insecure browser gets no saved site data"}],
+        "uri": "session://site-data",
+    }
+    assert result["_site_data_pending"] == {"origins": [], "script": ""}
 
 
 def _redirected_to(actions, monkeypatch, data, landed):
@@ -763,3 +809,131 @@ def test_a_jar_of_many_domains_is_not_rescanned_per_host(monkeypatch):
     assert len(listing["sites"]) == 500 and set(details) == {r["site"] for r in listing["sites"]}
     assert calls["n"] <= 4 * len(cookies)
     assert sd.view({"cookies": cookies, "origins": {}}) == listing
+
+
+# ---- restore never loses a cookie, or a script, to one bad entry --------------
+
+
+def test_one_malformed_cookie_is_skipped_not_the_whole_restore():
+    good = cookie("ok", "app.example.com")
+    nameless = {k: v for k, v in cookie("x", "app.example.com").items() if k != "name"}
+    domainless = {**cookie("nodomain", "app.example.com"), "domain": None}
+    bidi = FakeBidi()
+    report, _ = sd.restore(bidi, {"cookies": [nameless, domainless, good], "origins": {}}, NOW)
+    assert [c.name for c in bidi.storage.set] == ["ok"]
+    assert report["restored"] == ["app.example.com"]
+    reasons = [s["reason"] for s in report["skipped"]]
+    assert reasons == ["a stored cookie with no name or domain"] * 2
+    # Only string fields ride along: the published shape declares them strings.
+    assert report["skipped"] == [
+        {"reason": "a stored cookie with no name or domain",
+         "domain": "app.example.com"},
+        {"reason": "a stored cookie with no name or domain", "cookie": "nodomain"},
+    ]
+
+
+def test_a_nonnumeric_expiry_is_skipped_not_the_whole_restore():
+    good = cookie("ok", "app.example.com", expiry=int(NOW) + 60)
+    stringy = cookie("odd", "app.example.com", expiry="tomorrow")
+    bidi = FakeBidi()
+    report, _ = sd.restore(bidi, {"cookies": [stringy, good], "origins": {}}, NOW)
+    assert [c.name for c in bidi.storage.set] == ["ok"]
+    assert report["skipped"] == [{
+        "reason": "a stored cookie whose expiry is not a time",
+        "cookie": "odd", "domain": "app.example.com",
+    }]
+
+
+def test_a_failure_after_the_script_is_added_never_loses_its_id(monkeypatch):
+    """The id is what retires the script; a restore that added one and then
+    reported "" left it filling storage for the life of the browser."""
+    data, _ = sd.merge({}, captured(local={"a": "1"}), NOW)
+
+    def boom(_):
+        raise RuntimeError("late")
+
+    monkeypatch.setattr(sd, "host_of", boom)
+    bidi = FakeBidi()
+    _, pending = sd.restore(bidi, data, NOW)
+    assert not bidi.script.added or pending["script"] == "preload-1"
+
+
+# ---- the preload script, run --------------------------------------------------
+
+
+PRELOAD_HARNESS = """
+const stores = () => {
+  const s = new Map();
+  return {
+    getItem: (k) => (s.has(k) ? s.get(k) : null),
+    setItem: (k, v) => { s.set(k, String(v)); },
+    get length() { return s.size; },
+    key: (i) => [...s.keys()][i],
+    dump: () => Object.fromEntries(s),
+  };
+};
+const tab = (origin) => ({ location: { origin }, localStorage: stores(), sessionStorage: stores() });
+const run = (t, src) => {
+  globalThis.location = t.location;
+  globalThis.localStorage = t.localStorage;
+  globalThis.sessionStorage = t.sessionStorage;
+  eval(src)();
+};
+const src = process.argv[2];
+const app = tab('https://app.example.com');
+run(app, src);
+app.localStorage.setItem('theme', 'light');   // the app changes it since
+run(app, src);                                 // a second page in the same tab
+const other = tab('https://other.test');
+run(other, src);
+console.log(JSON.stringify({
+  app: { local: app.localStorage.dump(), session: app.sessionStorage.dump() },
+  other: { local: other.localStorage.dump(), session: other.sessionStorage.dump() },
+}));
+"""
+
+
+@pytest.mark.skipif(__import__("shutil").which("node") is None, reason="needs node")
+def test_the_preload_script_fills_its_own_origin_once_per_tab_and_no_other(tmp_path):
+    import subprocess
+
+    src = sd.preload_source({
+        "https://app.example.com": {"local": {"theme": "dark"}, "session": {"s": "1"}},
+        "https://sso.example.com": {"local": {"kc": "token"}, "session": {}},
+    })
+    path = tmp_path / "preload.js"
+    path.write_text(PRELOAD_HARNESS, encoding="utf-8")
+    out = subprocess.run(["node", str(path), src], capture_output=True, text=True, check=False)
+    assert out.returncode == 0, out.stderr
+    got = json.loads(out.stdout)
+    assert got["app"]["local"] == {"theme": "light"}, "filled once, never over the app"
+    assert got["app"]["session"] == {
+        "s": "1", "selenium-flow:restored:https://app.example.com": "1",
+    }
+    assert got["other"] == {"local": {}, "session": {}}, "no other origin's keys"
+
+
+# ---- Grid.bidi --------------------------------------------------------------
+
+
+class FakeSocket:
+    def __init__(self):
+        self.closed = 0
+
+    def close(self):
+        self.closed += 1
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_grid_bidi_closes_a_socket_it_opened(fails):
+    from contextlib import nullcontext
+
+    from kubed.selenium_flow.core.browser import Grid
+
+    socket = FakeSocket()
+    raised = pytest.raises(RuntimeError) if fails else nullcontext()
+    with raised, Grid("http://grid.example:4444").bidi("abc") as driver:
+        driver._websocket_connection = socket
+        if fails:
+            raise RuntimeError("mid-call")
+    assert socket.closed == 1

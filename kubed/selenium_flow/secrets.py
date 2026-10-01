@@ -758,7 +758,7 @@ def perform_write(catalogue, actions, sessions, name: str, kwargs: dict) -> dict
     # `touch` slides the TTL, and skipping it entirely let a session expire
     # *because* its URL was correctly kept out of the store.
     safe = None if flowrun.taints(result.get("url"), hidden) else shown.get("url")
-    sessions.touch(name, safe)
+    sessions.touch(name, safe, browser=resolved)
     return shown
 
 

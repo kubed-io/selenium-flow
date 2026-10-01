@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import { ago } from '../lib/format'
-  import type { SiteCookie, SiteDetail, SiteRow } from '../lib/types'
+  import type { SiteCookie, SiteDetail, SiteRow, SiteStorage } from '../lib/types'
   import { sessionPath, type Api } from './api'
   import { folds } from './folds.svelte'
   import type { ModalSpec } from './modal'
@@ -31,14 +31,21 @@
   })
 
   const plural = (n: number, one: string, many = one + 's') => n + ' ' + (n === 1 ? one : many)
+  const sum = (r: SiteRow, k: 'local_storage' | 'session_storage') => r.storage.reduce((n, e) => n + e[k], 0)
   const counts = (r: SiteRow) => [
     r.saved ? plural(r.cookies, 'cookie') : 'nothing saved',
-    ...(r.saved ? [r.local_storage + ' local', r.session_storage + ' session'] : []),
+    ...(r.saved ? [sum(r, 'local_storage') + ' local', sum(r, 'session_storage') + ' session'] : []),
     plural(r.secrets.length, 'secret'),
   ].join(' · ')
+  // The origin when the host has one, the host when it has none or several.
+  const titleOf = (r: SiteRow) => (r.storage.length === 1 ? r.storage[0].origin : r.site)
 
-  const covered = (d: SiteDetail) =>
-    d.cookies.length > 0 || Object.keys(d.local_storage).length > 0 || Object.keys(d.session_storage).length > 0
+  const keysOf = (d: SiteDetail | undefined) =>
+    [...new Set((d?.storage ?? []).flatMap((e) => [...Object.keys(e.local_storage), ...Object.keys(e.session_storage)]))]
+  const covered = (d: SiteDetail) => d.cookies.length > 0 || keysOf(d).length > 0
+  // A host with no storage still shows both groups, as "none".
+  const groups = (d: SiteDetail): SiteStorage[] =>
+    d.storage.length ? d.storage : [{ origin: '', local_storage: {}, session_storage: {} }]
 
   const expires = (c: SiteCookie) => (c.expiry ? new Date(c.expiry * 1000).toLocaleDateString() : 'session')
 
@@ -52,12 +59,8 @@
       title: 'Forget site data',
       body: forgetBody,
       data: {
-        origin: r.origin ?? r.site,
-        goes: [
-          ...(d?.own_cookies ?? []),
-          ...Object.keys(d?.local_storage ?? {}),
-          ...Object.keys(d?.session_storage ?? {}),
-        ],
+        origin: titleOf(r),
+        goes: [...(d?.own_cookies ?? []), ...keysOf(d)],
         stays: [
           ...(d?.kept_shared ?? []).map((c) => ({
             key: [c.name, c.domain, c.path].join('|'),
@@ -84,6 +87,11 @@
   </div>
 {/snippet}
 
+<!-- Which origin a group is, only when the host has more than one. -->
+{#snippet from(d: SiteDetail, e: SiteStorage)}
+  {#if d.storage.length > 1}<span class="origin">{' · ' + e.origin}</span>{/if}
+{/snippet}
+
 {#snippet kv(entries: [string, string][])}
   {#each entries as [k, v] (k)}
     <div class="line"><code class="key">{k}</code><span class="value clip" title={v}>{v}</span></div>
@@ -103,9 +111,9 @@
     {/if}
     {#each data.sites as r (r.site)}
       {@const d = data.details[r.site]}
-      <Section id={idOf(r)} title={r.origin ?? r.site}>
+      <Section id={idOf(r)} title={titleOf(r)}>
         {#snippet summary()}
-          {#if r.saved_at}<span class="pill saved">saved {ago(r.saved_at * 1000)}</span>{/if}
+          {#if r.saved_at}<span class="pill">saved {ago(r.saved_at * 1000)}</span>{/if}
           <span class="small muted">{counts(r)}</span>
         {/snippet}
         {#snippet actions()}
@@ -132,10 +140,12 @@
           {:else}
             <div class="line"><span class="value muted">none</span></div>
           {/each}
-          <h3>Local storage</h3>
-          {@render kv(Object.entries(d.local_storage))}
-          <h3>Session storage</h3>
-          {@render kv(Object.entries(d.session_storage))}
+          {#each groups(d) as e (e.origin)}
+            <h3>Local storage{@render from(d, e)}</h3>
+            {@render kv(Object.entries(e.local_storage))}
+            <h3>Session storage{@render from(d, e)}</h3>
+            {@render kv(Object.entries(e.session_storage))}
+          {/each}
         {/if}
         {#if r.secrets.length}
           <h3>Secrets</h3>
@@ -156,6 +166,7 @@
   h3 { margin: 14px 0 4px; font-size: 11px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
   .line { display: grid; grid-template-columns: 240px 1fr auto; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
   .line.cookie { grid-template-columns: 240px 1fr auto auto; }
+  h3 .origin { text-transform: none; letter-spacing: 0; }
   .key { font-size: 12px; overflow-wrap: anywhere; }
   .value { overflow-wrap: anywhere; min-width: 0; }
   /* One line per entry; the whole value is on hover. A pending-events cookie

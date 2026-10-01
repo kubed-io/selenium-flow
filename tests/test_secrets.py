@@ -889,7 +889,7 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
     touched = []
     monkeypatch.setattr(
         server.sessions, "touch",
-        lambda name, url: touched.append(url),
+        lambda name, url, browser=None: touched.append((url, browser)),
     )
 
     write = await server.mcp.get_tool("write")
@@ -900,7 +900,7 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
     # The page the value reached is never remembered, whatever the value is —
     # but the session is still touched, because withholding the page must not
     # also stop the clock that keeps the session alive.
-    assert touched == [None]
+    assert touched == [(None, "browser-1")], "touched as the browser it resolved"
     assert result["url"] == f"https://nc.example.com/?q={flowrun.HIDDEN}"
 
 
@@ -939,7 +939,7 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
     )
     touched = []
     monkeypatch.setattr(
-        server.sessions, "touch", lambda name, url: touched.append(url)
+        server.sessions, "touch", lambda name, url, browser=None: touched.append((url, browser))
     )
 
     write = await server.mcp.get_tool("write")
@@ -947,7 +947,7 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
         selector={"css": "#password"},
         secret={"name": "nextcloud", "key": "password"},
     )
-    assert touched == ["https://nc.example.com/home"]
+    assert touched == [("https://nc.example.com/home", "browser-1")]
 
 
 def test_an_http_binding_naming_two_sources_is_refused(bound_http, monkeypatch):
