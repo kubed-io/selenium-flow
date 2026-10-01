@@ -529,3 +529,11 @@ def test_a_flow_step_settles_as_the_browser_the_run_resolved(named_caller, tmp_p
     report = flowapi.run_for(store, m.actions, m, NAMED, "login")
     assert "site_data" not in report["steps"][0]
     assert m.actions.retired == []
+
+
+def test_an_insecure_open_keeps_what_was_saved(named_caller):
+    """No restore into an insecure browser, but nothing is deleted either:
+    the next secure browser gets it all back."""
+    m = opened_with_save()
+    reopened(m, insecure=True)
+    assert m.store.get(NAMED).site_data["origins"]

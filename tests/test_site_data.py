@@ -427,6 +427,25 @@ def test_open_session_restores_before_the_first_page_loads(actions, monkeypatch)
     assert result["_site_data_pending"] == {"origins": [], "script": "preload-1"}
 
 
+def test_an_insecure_browser_gets_no_saved_site_data(actions, monkeypatch):
+    """A browser that accepts any certificate would hand saved cookies for
+    every site to whoever sits in the middle (security review, #49)."""
+    data, _ = sd.merge({}, captured(local={"a": "1"}), NOW)
+    order = []
+    monkeypatch.setattr(actions.grid, "open",
+                        lambda name, insecure=False: OpenedDriver(order))
+    monkeypatch.setattr(actions.grid, "bidi", bidi_cm(FakeBidi(order=order)))
+    result = actions.open_session(url="https://app.example.com/", insecure=True,
+                                  site_data=data)
+    assert order == ["get"], "nothing set, no preload script"
+    assert result["site_data"] == {
+        "restored": [], "waiting": [],
+        "skipped": [{"reason": "an insecure browser gets no saved site data"}],
+        "uri": "session://site-data",
+    }
+    assert result["_site_data_pending"] == {"origins": [], "script": ""}
+
+
 def _redirected_to(actions, monkeypatch, data, landed):
     class Redirected(OpenedDriver):
         current_url = landed

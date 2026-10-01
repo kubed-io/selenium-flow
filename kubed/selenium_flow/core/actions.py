@@ -40,6 +40,8 @@ INFRASTRUCTURE = (*GONE, *UNAVAILABLE)
 
 log = logging.getLogger(__name__)
 
+INSECURE_SKIP = "an insecure browser gets no saved site data"
+
 # Named keys a caller can press. Selenium's Keys members are unicode private-use
 # characters, so a caller cannot reasonably type them into JSON by hand.
 KEYS = {
@@ -378,7 +380,8 @@ class Actions:
         simply hold. There is no switching a live session to another browser:
         that is a different browser, so it is a different session.
 
-        A session's saved site data is restored here, before the first page loads.
+        A session's saved site data is restored here, before the first page
+        loads — except into an ``insecure`` browser, which gets none.
         """
         name = normalize_browser(browser)
         insecure = as_bool(insecure, False)
@@ -405,7 +408,17 @@ class Actions:
         self._moved(session_id, None)
 
         restored = pending = None
-        if site_data and (site_data.get("cookies") or site_data.get("origins")):
+        saved = site_data and (site_data.get("cookies") or site_data.get("origins"))
+        if saved and insecure:
+            # It accepts any certificate, so anyone in the middle would get
+            # every saved cookie. Nothing is set, and nothing is deleted.
+            restored = {
+                "restored": [], "waiting": [],
+                "skipped": [{"reason": INSECURE_SKIP}],
+                "uri": site_data_module.LIST_URI,
+            }
+            pending = {"origins": [], "script": ""}
+        elif saved:
             with self.grid.bidi(session_id) as bidi:
                 restored, pending = site_data_module.restore(
                     bidi, site_data, time.time()

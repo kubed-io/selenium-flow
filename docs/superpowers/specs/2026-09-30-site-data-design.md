@@ -146,6 +146,11 @@ One new tool, and its endpoint `POST /browser/save-site-data` (one to one).
   **deleted** (Dr K). It is also how an agent starts as a brand new user.
 - `fresh` is independent and keeps its meaning: a blank page, possibly signed
   in.
+- **`insecure=true` restores nothing** (security review, #49): a browser that
+  accepts any certificate would hand every saved cookie to whoever sits in the
+  middle. Nothing is deleted; the hint reports
+  `{"restored": [], "waiting": [], "skipped": [{"reason": "an insecure browser gets no saved site data"}], "uri": …}`.
+  This covers the silent reopen too, since it replays the stored settings.
 
 ### The hint
 

@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Site data a save evicts over the size cap no longer comes back in a browser already open.
 - Two `open_session` calls at once on one session no longer leave a browser running on the Grid.
 - The Site data views show storage per origin, so one host on two ports no longer merges.
+- A browser opened with `insecure=true` gets no saved site data.
 - The Secrets tab no longer lists which flows use a secret.
 - Screenshot and image links open in any browser again, including ones whose extensions hung the tab on a blank screen.
 - An expired or broken file link opened in a browser shows a page saying which, and when it expired.

@@ -285,7 +285,7 @@ def register(
         restore_site_data=false opens without it and deletes it, which is how you
         start as a new user. page_load_timeout bounds a navigation that
         hangs. insecure=true accepts a self-signed certificate; use it only for a site
-        you know has one.
+        you know has one. An insecure browser gets no saved site data.
         """
         return sessions.open_browser(
             sessions.name(),

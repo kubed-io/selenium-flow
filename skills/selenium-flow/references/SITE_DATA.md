@@ -75,6 +75,9 @@ read `•••`, here and in the admin UI.
 ## Limits
 
 - IndexedDB is not saved.
+- A browser opened with `insecure=true` gets none of it back: it accepts any
+  certificate, so saved cookies could reach whoever sits in the middle. What was
+  saved is kept for the next secure browser.
 - An origin reached only by a redirect or inside a frame is filled but not
   announced, and stays pending until you land on it yourself.
 - A script cannot set an httpOnly cookie; it is restored through the browser's own
