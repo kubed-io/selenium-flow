@@ -34,6 +34,9 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       setupFiles: ['src/test/setup.ts'],
       include: ['src/**/*.test.ts'],
+      // jsdom is built once per worker, not once per file; each file still gets
+      // its own module graph and globals.
+      pool: 'vmThreads',
       restoreMocks: true,
       unstubGlobals: true,
     },
