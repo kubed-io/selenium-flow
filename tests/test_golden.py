@@ -413,5 +413,9 @@ async def test_the_tool_and_the_endpoint_answer_alike(twin, tool, route, args):
     # What was asked of the action is the same too, up to the arguments a
     # surface fills in from its own defaults.
     asked_tool, asked_http = tool_calls[0][2], double.calls[0][2]
+    # An argument the caller passed is never dropped by either surface.
+    for key in args:
+        assert key in asked_tool, f"the tool dropped {key}"
+        assert key in asked_http, f"the endpoint dropped {key}"
     for key in set(asked_tool) & set(asked_http):
         assert plain(asked_tool[key]) == plain(asked_http[key]), key

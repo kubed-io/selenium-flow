@@ -193,8 +193,29 @@ def test_every_outline_selector_matches_exactly_the_element_it_describes():
     )
     answer = outline(page)
     assert len(answer["elements"]) == 3
-    for entry in answer["elements"]:
-        assert ("css" in entry) != ("xpath" in entry)
+    # Resolve each selector in the same document the way a later call would,
+    # and name what it finds: the element must be the one the entry describes.
+    resolve = """
+        const named = (el) => el.tagName.toLowerCase() + '|' + el.id + '|'
+          + el.textContent;
+        return arguments[0].map((s) => {
+          if (s.css !== undefined) {
+            return Array.from(document.querySelectorAll(s.css)).map(named);
+          }
+          const hits = document.evaluate(s.xpath, document, null, 5, null);
+          const found = [];
+          for (let n = hits.iterateNext(); n; n = hits.iterateNext()) {
+            found.push(named(n));
+          }
+          return found;
+        });
+    """
+    selectors = [
+        {k: e[k] for k in ("css", "xpath") if k in e} for e in answer["elements"]
+    ]
+    found = run("-", page, [selectors], source=resolve)
+    assert [len(f) for f in found] == [1, 1, 1], (selectors, found)
+    assert [f[0] for f in found] == ["button|a|Same", "button||Same", "a||One"]
 
 
 def test_the_site_data_fill_writes_the_given_keys_and_nothing_else():
