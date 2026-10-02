@@ -100,3 +100,23 @@ def test_the_pool_keeps_no_cookies(fake):
     grid.status()
     grid.status()
     assert fake.cookies == [None, None]
+
+
+def test_both_pools_open_sockets_that_notice_a_dead_hub():
+    """A pooled connection tied to a hub that died with its node is never
+    closed by anyone; keepalive and a user timeout make the kernel find out in
+    about a minute instead of about fifteen."""
+    import socket
+
+    from kubed.selenium_flow.core.browser import SOCKET_OPTIONS
+
+    assert (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1) in SOCKET_OPTIONS
+    assert (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) in SOCKET_OPTIONS
+    if hasattr(socket, "TCP_USER_TIMEOUT"):
+        assert (socket.IPPROTO_TCP, socket.TCP_USER_TIMEOUT, 60_000) in SOCKET_OPTIONS
+    grid = Grid("http://grid.invalid:4444")
+    webdriver = grid.reconnect("abc").command_executor._conn
+    adapter = grid.http.get_adapter("http://grid.invalid:4444")
+    for manager in (webdriver, adapter.poolmanager):
+        assert manager.connection_pool_kw["socket_options"] == SOCKET_OPTIONS
+

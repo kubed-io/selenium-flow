@@ -16,6 +16,7 @@ import base64
 import contextlib
 import io
 import json
+import socket
 import zipfile
 from http.cookiejar import DefaultCookiePolicy
 from urllib.parse import urlsplit, urlunsplit
@@ -33,6 +34,7 @@ from selenium.webdriver.remote.file_detector import LocalFileDetector
 from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
+from urllib3.connection import HTTPConnection
 from urllib3.exceptions import ProtocolError
 
 from ..urls import normalize_url
@@ -53,6 +55,45 @@ GRID_CONNECTIONS = 40
 # default makes an element that renders just after a miss cost up to half a
 # second; each ask is one to three round trips, so this is not a busy loop.
 WAIT_POLL = 0.2
+
+
+def _socket_options() -> list[tuple[int, int, int]]:
+    """urllib3's defaults, plus what makes a pooled connection notice a dead hub.
+
+    The Grid sits behind a Service: a connection kept from the last call is
+    tied to one hub pod, and when that pod dies with its node nothing closes
+    the socket. A request sent on it is retransmitted until the kernel gives up,
+    about 924 s (tcp_retries2), where a fresh connection gave up in about
+    127 s. Keepalive probes after 30 s idle, 10 s apart, three missed, and
+    unacknowledged data abandoned after 60 s, bound that. A long command - a
+    300 s page load, an assert - is not cut short: the hub's kernel answers
+    the probes while the browser works.
+
+    Each option only where the platform has it, so a macOS or Windows install
+    still imports.
+    """
+    options = list(HTTPConnection.default_socket_options)
+    options.append((socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1))
+    for name, value in (
+        ("TCP_KEEPIDLE", 30),
+        ("TCP_KEEPINTVL", 10),
+        ("TCP_KEEPCNT", 3),
+        ("TCP_USER_TIMEOUT", 60_000),
+    ):
+        if hasattr(socket, name):
+            options.append((socket.IPPROTO_TCP, getattr(socket, name), value))
+    return options
+
+
+SOCKET_OPTIONS = _socket_options()
+
+
+class _GridAdapter(HTTPAdapter):
+    """requests' adapter with `SOCKET_OPTIONS` on every connection it opens."""
+
+    def init_poolmanager(self, *args, **kwargs):
+        kwargs["socket_options"] = SOCKET_OPTIONS
+        super().init_poolmanager(*args, **kwargs)
 
 # How long to give a keystroke-triggered navigation to commit before concluding
 # there was not one. See `settled`. Short on purpose: every Enter that navigates
@@ -119,7 +160,7 @@ class Grid:
     def __init__(self, url: str = DEFAULT_GRID_URL):
         self.url = url.rstrip("/")
         self.http = requests.Session()
-        adapter = HTTPAdapter(pool_maxsize=GRID_CONNECTIONS)
+        adapter = _GridAdapter(pool_maxsize=GRID_CONNECTIONS)
         self.http.mount("http://", adapter)
         self.http.mount("https://", adapter)
         # Each call used to be its own session and kept no cookies; a pool
@@ -255,7 +296,10 @@ class Grid:
                 client_config=ClientConfig(
                     remote_server_addr=self.url,
                     init_args_for_pool_manager={
-                        "init_args_for_pool_manager": {"maxsize": GRID_CONNECTIONS}
+                        "init_args_for_pool_manager": {
+                            "maxsize": GRID_CONNECTIONS,
+                            "socket_options": SOCKET_OPTIONS,
+                        }
                     },
                     # Selenium waits 30 s for a BiDi socket that never answers;
                     # `bidi` would stall that long on a Grid whose BiDi route is
