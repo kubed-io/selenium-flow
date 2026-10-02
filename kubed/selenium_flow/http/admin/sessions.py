@@ -3,12 +3,16 @@
 Flow sessions, not Grid sessions. ``sessions_payload`` is built once per
 registration (it remembers whether the store was failing, so an outage warns
 once) and handed to whatever else needs a row — the files tab's header.
+
+One :class:`Broadcast` per registration computes it for every open page.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import time
 
 import anyio
 from sse_starlette import EventSourceResponse
@@ -36,6 +40,9 @@ EVENTS_PATH = "/admin/events"
 POLL_SECONDS = 2.0
 # Seconds of no change before a keepalive comment goes out.
 HEARTBEAT = 20.0
+# How old the last broadcast may be and still be handed out as "now": to a
+# page that has just connected, and to `GET /admin/sessions`.
+FRESH_SECONDS = 1.0
 
 
 def owner_label(key: str) -> dict:
@@ -150,6 +157,126 @@ async def header(sessions_payload, key: str, session_id: str) -> dict:
     except Exception as exc:  # noqa: BLE001 - a Grid blip, not a failure
         log.info("session header for %s unavailable: %s", key, exc)
         return detail
+
+
+class _Page:
+    """One connected page: the newest payload it has not been sent yet.
+
+    A slot rather than a queue: the payload is the whole list, so a page that
+    falls a tick behind wants the latest one, not every one in between. It is
+    also the stream's shutdown event — sse-starlette only ever sets that, and
+    setting it has to wake a page waiting for its next payload.
+    """
+
+    def __init__(self):
+        self.pending: str | None = None
+        self.stopping = False
+        self._wake = anyio.Event()
+
+    def deliver(self, payload: str) -> None:
+        self.pending = payload
+        self._wake.set()
+
+    def set(self) -> None:
+        self.stopping = True
+        self._wake.set()
+
+    def is_set(self) -> bool:
+        return self.stopping
+
+    async def next(self) -> str | None:
+        """The next payload, or None once the stream is stopping."""
+        await self._wake.wait()
+        self._wake = anyio.Event()
+        payload, self.pending = self.pending, None
+        return None if self.stopping else payload
+
+
+class Broadcast:
+    """The session list, computed once a tick for every connected page.
+
+    Each page used to run its own loop, so N open tabs asked the Grid and the
+    store N times a tick for the same answer. One task does it now, and only
+    while somebody is listening: the first page starts it and it ends after the
+    last one leaves (AGENTS.md, "Refresh, not cleanup").
+
+    Everything here but ``compute`` runs on the event loop, so joining, leaving
+    and handing a payload out never interleave with each other; ``compute``
+    runs in a worker thread and touches none of it.
+    """
+
+    def __init__(self, compute):
+        self._compute = compute
+        self._pages: set[_Page] = set()
+        self._task: asyncio.Task | None = None
+        self._nudge = anyio.Event()
+        # (monotonic time the computation started, payload, its JSON).
+        self._latest: tuple[float, dict, str] | None = None
+        # Nothing computed before this may become `_latest`: see `invalidate`.
+        self._floor = 0.0
+
+    def _recent(self) -> tuple[float, dict, str] | None:
+        latest = self._latest
+        if latest and time.monotonic() - latest[0] < FRESH_SECONDS:
+            return latest
+        return None
+
+    def fresh(self) -> dict | None:
+        """The last broadcast, if it is recent enough to stand for now."""
+        recent = self._recent()
+        return recent[1] if recent else None
+
+    def invalidate(self) -> None:
+        """Forget the last broadcast, and any already under way: an admin has
+        just changed what it would say."""
+        self._latest = None
+        self._floor = time.monotonic()
+
+    def join(self, page: _Page) -> None:
+        self._pages.add(page)
+        recent = self._recent()
+        if recent:
+            page.deliver(recent[2])
+        else:
+            # Too old to call "now": tick early. Mid-tick this wakes nothing —
+            # the tick under way delivers to this page too, and the nudge it
+            # set is replaced before the loop next waits.
+            self._nudge.set()
+        loop = asyncio.get_running_loop()
+        task = self._task
+        # A task from another event loop is one a test left behind.
+        if task is None or task.done() or task.get_loop() is not loop:
+            self._task = loop.create_task(self._run())
+
+    def leave(self, page: _Page) -> None:
+        self._pages.discard(page)
+        if not self._pages:
+            self._nudge.set()
+
+    async def _run(self) -> None:
+        while True:
+            started = time.monotonic()
+            try:
+                payload = await run_in_threadpool(self._compute)
+                text = json.dumps(payload, sort_keys=True)
+            except Exception as exc:  # noqa: BLE001 - the Grid can blip
+                # Every page keeps what it has, exactly as a failed poll of its
+                # own used to leave it.
+                log.info("event poll failed: %s", exc)
+            else:
+                if started >= self._floor:
+                    self._latest = (started, payload, text)
+                for page in self._pages:
+                    page.deliver(text)
+            if not self._pages:
+                break
+            self._nudge = anyio.Event()
+            with anyio.move_on_after(POLL_SECONDS):
+                await self._nudge.wait()
+            if not self._pages:
+                break
+        if self._task is asyncio.current_task():
+            self._task = None
 
 
 def mount(
@@ -340,11 +467,15 @@ def mount(
             )
         return {"sessions": rows}
 
+    broadcast = Broadcast(sessions_payload)
+
     @mcp.custom_route(
         f"{prefix}/admin/sessions", methods=["GET"], name="admin_sessions")
     @guarded
     async def admin_sessions(request: Request) -> JSONResponse:
-        payload = await run_in_threadpool(sessions_payload)
+        # What the open pages were just sent, when that is recent: a page loads
+        # this and opens the stream together, and both are the same answer.
+        payload = broadcast.fresh() or await run_in_threadpool(sessions_payload)
         # A signed URL for the event stream, because EventSource cannot send an
         # Authorization header — the same reason the file route is signed. It is
         # minted here so it is only ever handed to a caller that had the token.
@@ -382,29 +513,28 @@ def mount(
         ):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
 
-        stopping = anyio.Event()
+        page = _Page()
 
         async def stream():
+            # Joined here rather than above, so joining and leaving are the two
+            # ends of one generator: a response that never starts it never
+            # joined, and one that does always leaves.
+            broadcast.join(page)
             last = None
-            while not stopping.is_set():
-                try:
-                    payload = json.dumps(
-                        await run_in_threadpool(sessions_payload), sort_keys=True
-                    )
-                except Exception as exc:  # noqa: BLE001 - the Grid can blip
-                    log.info("event poll failed: %s", exc)
-                    payload = last
-                if payload is not None and payload != last:
-                    last = payload
-                    yield {"data": payload}
-                with anyio.move_on_after(POLL_SECONDS):
-                    await stopping.wait()
+            try:
+                while not page.is_set():
+                    payload = await page.next()
+                    if payload is not None and payload != last:
+                        last = payload
+                        yield {"data": payload}
+            finally:
+                broadcast.leave(page)
 
         # sse-starlette rather than a StreamingResponse, for shutdown: uvicorn
         # waits for open connections before it runs the lifespan, so a stream
         # that never ends held every SIGTERM for FastMCP's whole 2s grace, was
         # cancelled, and left a traceback per open admin page in the log. This
-        # one hears uvicorn's exit, sets `stopping`, and the loop above returns,
+        # one hears uvicorn's exit, sets `page`, and the loop above returns,
         # so the response finishes the way any other does (§F4.19). The grace
         # is under FastMCP's 2s. It also sends the heartbeat comment, which
         # keeps proxies from closing an idle stream, and `X-Accel-Buffering: no`.
@@ -412,7 +542,7 @@ def mount(
             stream(),
             ping=HEARTBEAT,
             headers={"Cache-Control": "no-cache, no-transform"},
-            shutdown_event=stopping,
+            shutdown_event=page,
             shutdown_grace_period=1.0,
         )
 
@@ -446,6 +576,9 @@ def mount(
         # key. Blocking HTTP to the Grid, so off the event loop — a slow Grid
         # would stall every connected dashboard.
         await run_in_threadpool(sessions.end_browser, Caller(key, "admin"))
+        # So the page's reload after this sees the browser gone, not the list a
+        # tick ago still holding it.
+        broadcast.invalidate()
         return JSONResponse({"success": True, "key": key, "session_id": session_id})
 
     return sessions_payload

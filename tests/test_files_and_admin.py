@@ -579,15 +579,14 @@ async def _until(condition, what, seconds=5.0):
 
 
 async def test_every_connected_page_is_sent_the_same_events(server, monkeypatch):
-    """Today each connection polls on its own, so three open pages ask the Grid
-    three times a tick. The number below is that fact, not a goal: Task 18 puts
-    one broadcaster behind them and edits it. What must survive is the rest — one
-    payload when something changed, none when nothing did, and a late joiner's
-    first event is the state as it is now.
+    """One broadcaster sits behind every connection, so three open pages ask the
+    Grid once a tick. What must survive is the rest — one payload when something
+    changed, none when nothing did, and a late joiner's first event is the state
+    as it is now.
 
     Ticks are paced by the test, not the clock: `grid.status` blocks on a
-    semaphore, so "three entered" means every connection is mid-tick and the
-    counts are exact on any runner. A tick reads the store *before* it asks the
+    semaphore, so "one entered" means the broadcaster is mid-tick and the counts
+    are exact on any runner. A tick reads the store *before* it asks the
     Grid, so a change made while a tick is blocked is seen by the one after."""
     import asyncio
     import threading
@@ -611,25 +610,24 @@ async def test_every_connected_page_is_sent_the_same_events(server, monkeypatch)
     sinks = [[], [], []]
     tasks = [asyncio.create_task(_listen(app, sink, stop)) for sink in sinks]
 
-    async def tick(number, pages=3):
-        """Wait for every page to be inside its `number`th Grid call, then let
-        them all through."""
+    async def tick(number, pages=1):
+        """Wait for the `number`th Grid call, then let it through."""
         await _until(lambda: len(entered) >= number, f"Grid call {number}")
-        assert len(entered) == number, "one Grid listing per connection, per tick"
+        assert len(entered) == number, "one Grid listing per tick, for every page"
         gate.release(pages)
 
     try:
-        await tick(3)  # first tick: the state as it is
+        await tick(1)  # first tick: the state as it is
         await _until(lambda: all(len(s) == 1 for s in sinks), "the first events")
         assert sinks[0] == sinks[1] == sinks[2]
 
-        await tick(6)  # second tick: nothing changed
-        await tick(9)  # reaching the third means the second finished
+        await tick(2)  # second tick: nothing changed
+        await tick(3)  # reaching the third means the second finished
         assert all(len(s) == 1 for s in sinks), "a tick that found no change spoke"
 
         # Tick three is blocked having already read the store; this lands in four.
         server.sessions.store.set("two", SessionRecord(session_id=""))
-        await tick(12)
+        await tick(4)
         await _until(lambda: all(len(s) == 2 for s in sinks), "the change")
         assert sinks[0] == sinks[1] == sinks[2]
         assert sinks[0][0] != sinks[0][1]
@@ -637,10 +635,9 @@ async def test_every_connected_page_is_sent_the_same_events(server, monkeypatch)
 
         late = []
         tasks.append(asyncio.create_task(_listen(app, late, stop)))
-        # The three old connections are mid-tick again as well, so all four sit at
-        # the gate and one permit each lets every one of them through.
-        await _until(lambda: len(entered) >= 16, "every connection's next Grid call")
-        gate.release(4)
+        # The broadcaster is mid-tick again, and one permit lets it through.
+        await _until(lambda: len(entered) >= 5, "the next Grid call")
+        gate.release(1)
         await _until(lambda: len(late) == 1, "the late joiner's first event")
         assert late[0] == sinks[0][1], "its first event is the state now"
     finally:
