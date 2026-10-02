@@ -11,12 +11,10 @@ import pytest
 
 from kubed.selenium_flow.core import site_data as sd
 
+from .fakes import MAIN, FakeBidi, FakeStorage
 from .site_data_fakes import (
-    MAIN,
     NOW,
-    FakeBidi,
     FakeSpare,
-    FakeStorage,
     bidi_cm,
     cookie,
     snapshot,

@@ -23,6 +23,8 @@ from kubed.selenium_flow.session import sessions as sessions_module
 from kubed.selenium_flow.session.sessions import SessionManager
 from kubed.selenium_flow.session.store import MemoryStore
 
+from .fakes import FakeGrid
+
 TOKEN = "test-token-abc123"
 
 # Two sessions that are stable and distinct, which is the whole premise: the
@@ -62,18 +64,6 @@ def open_server():
 
 
 # ---- doubles ---------------------------------------------------------------
-
-
-class FakeGrid:
-    """Tracks which sessions are still live, and every liveness question asked."""
-
-    def __init__(self):
-        self.alive = set()
-        self.checked = []
-
-    def is_alive(self, session_id):
-        self.checked.append(session_id)
-        return session_id in self.alive
 
 
 class RecordingActions:

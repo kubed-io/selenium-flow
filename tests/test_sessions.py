@@ -22,6 +22,7 @@ from kubed.selenium_flow.session.store import (
 )
 
 from .conftest import NAMED, OTHER, RecordingActions, http, manager
+from .fakes import FakeRedis
 
 pytestmark = pytest.mark.unit
 
@@ -413,98 +414,6 @@ def test_describe_reports_no_browser_when_there_is_no_session(named_caller):
 
 
 # ---- the stores ------------------------------------------------------------
-
-
-class FakeRedis:
-    """Enough of redis-py for the store: get, set with ex, delete, ping."""
-
-    def __init__(self, reachable=True):
-        self.data = {}
-        self.expiries = {}
-        self.reachable = reachable
-        self.calls = []
-
-    def ping(self):
-        if not self.reachable:
-            raise ConnectionError("nope")
-        return True
-
-    def get(self, key):
-        self.calls.append("get")
-        return self.data.get(key)
-
-    def mget(self, keys):
-        self.calls.append("mget")
-        return [self.data.get(key) for key in keys]
-
-    def set(self, key, value, ex=None):
-        self.data[key] = value.encode() if isinstance(value, str) else value
-        self.expiries[key] = ex
-
-    def delete(self, key):
-        self.data.pop(key, None)
-
-    def scan_iter(self, match="*", count=None):
-        prefix = match.rstrip("*")
-        return [k for k in list(self.data) if k.startswith(prefix)]
-
-    def pipeline(self):
-        return FakePipeline(self)
-
-
-class FakePipeline:
-    """redis-py's optimistic transaction: WATCH reads at once, MULTI buffers,
-    EXEC refuses with WatchError if a watched key was written since.
-
-    ``fake.interfere`` runs just before EXEC — another replica's write landing
-    between this one's read and its write.
-    """
-
-    def __init__(self, fake):
-        self.fake = fake
-        self.watched = {}
-        self.queued = []
-        self.buffering = False
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        self.reset()
-
-    def reset(self):
-        self.watched, self.queued, self.buffering = {}, [], False
-
-    def watch(self, key):
-        self.watched[key] = self.fake.data.get(key)
-
-    def unwatch(self):
-        self.watched = {}
-
-    def get(self, key):
-        return self.fake.get(key)
-
-    def multi(self):
-        self.buffering = True
-
-    def set(self, key, value, ex=None):
-        assert self.buffering, "a write outside MULTI is not a transaction"
-        self.queued.append((key, value, ex))
-
-    def execute(self):
-        from redis.exceptions import WatchError
-
-        interfere = getattr(self.fake, "interfere", None)
-        if interfere:
-            interfere()
-        changed = any(self.fake.data.get(k) != v for k, v in self.watched.items())
-        queued = self.queued
-        self.reset()
-        if changed:
-            raise WatchError("watched key changed")
-        for key, value, ex in queued:
-            self.fake.set(key, value, ex=ex)
-        return [True] * len(queued)
 
 
 def test_redis_store_round_trips_a_record_and_expires_it():

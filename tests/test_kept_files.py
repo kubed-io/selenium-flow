@@ -31,6 +31,7 @@ from kubed.selenium_flow.session.store import SessionRecord
 from kubed.selenium_flow.spec import build_spec
 
 from .conftest import NAMED, TOKEN
+from .fakes import FakeActions, FakeGrid
 
 pytestmark = pytest.mark.unit
 
@@ -76,27 +77,6 @@ def live(kept_server):
         KEY, SessionRecord(session_id="abc").at("https://x/")
     )
     return kept_server
-
-
-class FakeGrid:
-    """Just enough Grid to hand out a listing and some bytes."""
-
-    def __init__(self, entries=(), data=b"bytes"):
-        self.entries = list(entries)
-        self.data = data
-        self.reads = []
-
-    def files(self, session_id):
-        return list(self.entries)
-
-    def read_file(self, session_id, name):
-        self.reads.append((session_id, name))
-        return self.data
-
-
-class FakeActions:
-    def __init__(self, grid):
-        self.grid = grid
 
 
 class Sessions:

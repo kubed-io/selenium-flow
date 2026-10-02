@@ -47,10 +47,6 @@ SKILL_DIR = skill_module.skill_path()
 PYPROJECT = pathlib.Path(__file__).parent.parent / "pyproject.toml"
 
 
-def http(params=None, headers=None):
-    return dict(params or {}), dict(headers or {})
-
-
 def frontmatter() -> dict:
     return yaml.safe_load((SKILL_DIR / ENTRY).read_text().split("---", 2)[1])
 

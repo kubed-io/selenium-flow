@@ -26,6 +26,7 @@ from kubed.selenium_flow.mcp import progress
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import NAMED, TOKEN
+from .fakes import FakeClock
 
 pytestmark = pytest.mark.unit
 
@@ -143,15 +144,6 @@ def test_a_cancelled_assert_lets_go_at_its_next_poll(monkeypatch):
 
 
 # ---- the budget belongs to the flow ------------------------------------------
-
-
-class FakeClock:
-    def __init__(self):
-        self.now = 0.0
-
-    def monotonic(self):
-        self.now += 1.0
-        return self.now
 
 
 class Recording:

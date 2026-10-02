@@ -10,48 +10,9 @@ import pytest
 from kubed.selenium_flow.flows import run as flowrun
 from kubed.selenium_flow.flows.run import FlowError, run
 
+from .fakes import FakeActions, FakeClock
+
 pytestmark = pytest.mark.unit
-
-
-class FakeActions:
-    """Records what it was called with, and can be told to fail on a step."""
-
-    def __init__(self, fail_on=None, error="boom"):
-        self.calls = []
-        self.fail_on = fail_on or set()
-        self.error = error
-
-    def _record(self, tool, session_id, **kwargs):
-        self.calls.append((tool, session_id, kwargs))
-        if tool in self.fail_on or len(self.calls) in self.fail_on:
-            raise RuntimeError(self.error)
-        return {"url": f"https://example.test/{tool}", "title": tool.title()}
-
-    def navigate(self, session_id, **kwargs):
-        return self._record("navigate", session_id, **kwargs)
-
-    def write(self, session_id, **kwargs):
-        # The real one reads the field back and returns it, which is the leak
-        # a guarded step has to close.
-        return {
-            **self._record("write", session_id, **kwargs),
-            "value": kwargs.get("text"),
-        }
-
-    def interact(self, session_id, **kwargs):
-        return self._record("interact", session_id, **kwargs)
-
-    def extract(self, session_id, **kwargs):
-        return {**self._record("extract", session_id, **kwargs), "text": "the heading"}
-
-    def screenshot(self, session_id, **kwargs):
-        return {
-            **self._record("screenshot", session_id, **kwargs),
-            "image": "A" * 5000,
-        }
-
-    def open_session(self, session_id, **kwargs):  # pragma: no cover - refused
-        return self._record("open_session", session_id, **kwargs)
 
 
 def flow(steps, **extra):
@@ -244,17 +205,6 @@ def test_a_flow_cannot_open_its_own_browser_even_if_the_document_says_so():
     report = run(actions, flow([{"tool": "open_session", "args": {}}]), "b")
     assert report["status"] == "failed"
     assert actions.calls == []
-
-
-class FakeClock:
-    """A clock that advances a second every time it is read."""
-
-    def __init__(self):
-        self.now = 0.0
-
-    def monotonic(self):
-        self.now += 1.0
-        return self.now
 
 
 def test_a_run_stops_when_it_is_out_of_time(monkeypatch):

@@ -18,7 +18,7 @@ from kubed.selenium_flow.session.store import (
 )
 
 from .conftest import NAMED, RecordingActions, manager
-from .test_sessions import FakeRedis
+from .fakes import FakeRedis
 
 pytestmark = pytest.mark.unit
 

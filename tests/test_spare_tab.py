@@ -3,7 +3,6 @@ page, so it can stand on any origin without the site loading (spec round 2,
 *The spike*). BiDi is faked module by module; what `spare_tab` sends, and in
 which order, is the contract the live spike proved."""
 
-import json
 import re
 
 import pytest
@@ -17,77 +16,10 @@ from kubed.selenium_flow.core.browser import (
     ServiceWorkerAnswered,
     spare_tab,
 )
-from kubed.selenium_flow.core.site_data import origin_of
+
+from .fakes import FakeBidi
 
 pytestmark = pytest.mark.unit
-
-
-class FakeTabs:
-    def __init__(self, log):
-        self.log, self.at = log, {}
-
-    def create(self, type=None, background=None, **_):
-        self.log.append(("create", type, background))
-        return "spare-1"
-
-    def navigate(self, context=None, url=None, wait=None):
-        self.log.append(("navigate", context, url, wait))
-        self.at[context] = origin_of(url)
-
-    def close(self, context=None):
-        self.log.append(("close", context))
-
-
-class FakeNetwork:
-    def __init__(self, log):
-        self.log, self.handlers, self.responses = log, {}, []
-
-    def add_intercept(self, phases=None, contexts=None, url_patterns=None):
-        self.log.append(("intercept", phases, contexts, url_patterns))
-        return {"intercept": "i-1"}
-
-    def remove_intercept(self, intercept=None):
-        self.log.append(("unintercept", intercept))
-
-    def add_event_handler(self, event, callback, contexts=None):
-        self.log.append(("handler", event, contexts))
-        self.handlers[7] = callback
-        return 7
-
-    def remove_event_handler(self, event, callback_id):
-        self.log.append(("unhandler", event, callback_id))
-
-    def provide_response(self, **kw):
-        self.responses.append(kw)
-
-
-class FakeScript:
-    """Answers as the page would: ours, with the marker, or a service
-    worker's. ``stuck`` leaves the tab on the page it was on before."""
-
-    def __init__(self, log, tabs, value=None, workers=(), stuck=False, fail=None):
-        self.log, self.tabs = log, tabs
-        self.value, self.workers, self.stuck, self.fail = value, set(workers), stuck, fail
-        self.expression = None
-
-    def evaluate(self, expression=None, target=None, await_promise=None):
-        self.log.append(("evaluate", target, await_promise))
-        self.expression = expression
-        if self.fail:
-            return {"type": "exception", "exceptionDetails": {"text": self.fail}}
-        origin = "https://before.test" if self.stuck else self.tabs.at[target["context"]]
-        page = {"spare": origin not in self.workers, "origin": origin}
-        if page["spare"]:
-            page["value"] = self.value
-        return {"type": "success", "result": {"type": "string", "value": json.dumps(page)}}
-
-
-class FakeBidi:
-    def __init__(self, **kw):
-        self.log = []
-        self.browsing_context = FakeTabs(self.log)
-        self.network = FakeNetwork(self.log)
-        self.script = FakeScript(self.log, self.browsing_context, **kw)
 
 
 def test_a_spare_tab_stands_on_an_origin_runs_there_and_closes():

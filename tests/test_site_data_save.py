@@ -11,9 +11,9 @@ import pytest
 from kubed.selenium_flow.core import site_data as sd
 from kubed.selenium_flow.session.store import SessionRecord
 
+from .fakes import FakeBidi
 from .site_data_fakes import (
     NOW,
-    FakeBidi,
     FakeSpare,
     bidi_cm,
     bidi_cookie,
