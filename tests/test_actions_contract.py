@@ -21,6 +21,8 @@ from kubed.selenium_flow.core import browser, pointer
 from kubed.selenium_flow.core.browser import NAVIGATION_SETTLE
 from kubed.selenium_flow.errors import status_for
 
+from .fakes import CountingDriver
+
 pytestmark = pytest.mark.unit
 
 PAGE = "https://example.test/"
@@ -251,6 +253,141 @@ def test_a_refused_argument_is_refused_before_the_browser_is_touched(
     with pytest.raises(ValueError):
         refuse(actions)
     assert touched == []
+
+
+# ---- R2: every action takes the same road, in the same order ----------------
+
+OTHER = "https://other.test/"
+AT = {"css": "#x"}
+
+# Each action's whole sequence on its success path, reattach to page state:
+# what `core/recipe.py` must leave exactly as it was. A navigation is asked for
+# wherever an action takes `url`, so the step that may navigate is on the record.
+ROADS = {
+    "navigate": (
+        {}, lambda a: a.navigate("abc", OTHER),
+        ["reconnect", "get", "current_url", "title"],
+    ),
+    "interact click": (
+        {}, lambda a: a.interact("abc", "click", selector=AT, url=OTHER),
+        ["reconnect", "current_url", "get", "find_element", "element.is_displayed",
+         "element.is_enabled", "element.click", "current_url", "title"],
+    ),
+    "interact hover": (
+        {}, lambda a: a.interact("abc", "hover", selector=AT),
+        ["reconnect", "find_element", "current_url", "title"],
+    ),
+    "drag": (
+        {"scripts": {"innerWidth": [1000, 800]}},
+        lambda a: a.drag("abc", selector=AT, by_x=5, url=OTHER),
+        ["reconnect", "current_url", "get", "find_element", "element.is_displayed",
+         "element.is_enabled", "execute_script", "execute", "current_url", "title"],
+    ),
+    "frame switch": (
+        {}, lambda a: a.frame("abc", "switch", selector=AT),
+        ["reconnect", "find_element", "switch_to.frame", "execute_script",
+         "current_url", "title"],
+    ),
+    "frame default": (
+        {}, lambda a: a.frame("abc", "default"),
+        ["reconnect", "switch_to.default_content", "execute_script", "current_url",
+         "title"],
+    ),
+    "resize": (
+        {}, lambda a: a.resize("abc", width=500),
+        ["reconnect", "get_window_size", "set_window_size", "get_window_size",
+         "current_url", "title"],
+    ),
+    "dialog": (
+        {"dialog": DIALOG}, lambda a: a.dialog("abc", "accept"),
+        ["reconnect", "switch_to.alert", "alert.text", "alert.accept", "current_url",
+         "title"],
+    ),
+    "upload_file": (
+        {}, lambda a: a.upload_file("abc", selector=AT, text="hi", url=OTHER),
+        ["reconnect", "current_url", "get", "set.file_detector", "find_element",
+         "element.send_keys", "current_url", "title"],
+    ),
+    "write": (
+        {}, lambda a: a.write("abc", "hi", selector=AT, url=OTHER),
+        ["reconnect", "current_url", "get", "find_element", "element.is_displayed",
+         "element.is_enabled", "element.clear", "element.send_keys",
+         "element.get_attribute", "current_url", "title"],
+    ),
+    "press_key at an element": (
+        {}, lambda a: a.press_key("abc", "Tab", selector=AT, url=OTHER),
+        ["reconnect", "current_url", "get", "find_element", "element.is_displayed",
+         "element.is_enabled", "element.send_keys", "current_url", "title"],
+    ),
+    "press_key wherever focus is": (
+        {}, lambda a: a.press_key("abc", "Tab"),
+        ["reconnect", "find_element", "element.send_keys", "current_url", "title"],
+    ),
+    "outline": (
+        {"scripts": {"": {"elements": [], "total": 0}}},
+        lambda a: a.outline("abc", selector=AT, url=OTHER),
+        ["reconnect", "current_url", "get", "find_element", "execute_script",
+         "current_url", "title"],
+    ),
+    "execute_script": (
+        {}, lambda a: a.execute_script("abc", "return 1", url=OTHER),
+        ["reconnect", "current_url", "get", "execute_script", "current_url", "title"],
+    ),
+    "assert": (
+        {"scripts": {"return true": True}},
+        lambda a: a.assert_("abc", "return true", wait_timeout=0, url=OTHER),
+        ["reconnect", "current_url", "get", "execute_script", "current_url", "title"],
+    ),
+    "extract": (
+        {}, lambda a: a.extract("abc", selector=AT, url=OTHER),
+        ["reconnect", "current_url", "get", "find_element", "element.get_attribute",
+         "current_url", "title"],
+    ),
+    "screenshot": (
+        {}, lambda a: a.screenshot("abc", selector=AT, width=400, url=OTHER,
+                                   save=False),
+        ["reconnect", "current_url", "get", "get_window_size", "set_window_size",
+         "find_element", "current_url", "title"],
+    ),
+}
+
+_NAMED_BY_PART = ("element", "switch_to", "alert", "set")
+
+
+def _road(log):
+    return [
+        f"{entry[0]}.{entry[1]}" if entry[0] in _NAMED_BY_PART else entry[0]
+        for entry in log
+    ]
+
+
+@pytest.mark.parametrize("name", sorted(ROADS))
+def test_each_action_takes_its_road_in_the_same_order(
+    actions, monkeypatch, pointer_lands, name
+):
+    """One reattach, then the navigation if one is due, the wait, the act and the
+    page state, in exactly the order each action has always sent them."""
+    settings, call, road = ROADS[name]
+    driver = CountingDriver(**settings)
+    monkeypatch.setattr(actions.grid, "reconnect", driver.reconnect)
+    call(actions)
+    assert _road(driver.log) == road
+    assert driver.reconnects == 1
+
+
+def test_print_reads_the_page_once_it_is_kept(actions, monkeypatch):
+    driver = CountingDriver()
+    monkeypatch.setattr(actions.grid, "reconnect", driver.reconnect)
+    monkeypatch.setattr(
+        CountingDriver, "page_source", property(lambda d: d.log.append(("page_source",))
+                                                or "<html/>"),
+        raising=False,
+    )
+    kept = []
+    actions.keep = lambda name, data, folder: kept.append(driver.names()) or {}
+    actions.print_("abc", format="html", url=OTHER)
+    assert kept == [["reconnect", "current_url", "get", "page_source"]]
+    assert _road(driver.log) == kept[0] + ["current_url", "title"]
 
 
 # ---- I8, I9 live in test_pointer.py -----------------------------------------

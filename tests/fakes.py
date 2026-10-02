@@ -511,3 +511,22 @@ class ScriptedDriver:
     def names(self):
         """Just the names in the log, for an order assertion."""
         return [entry[0] for entry in self.log]
+
+
+class CountingDriver(ScriptedDriver):
+    """A `ScriptedDriver` that also counts how often it was reattached to.
+
+    Installed as the Grid's ``reconnect`` (``grid.reconnect = driver.reconnect``),
+    it puts a ``("reconnect", session_id)`` entry on the same log as every driver
+    call, so an action's whole road - reattach, maybe navigate, wait, act, read
+    the page - is one sequence a test can compare against what it was before.
+    """
+
+    def __init__(self, **settings):
+        super().__init__(**settings)
+        self.__dict__["reconnects"] = 0
+
+    def reconnect(self, session_id):
+        self.__dict__["reconnects"] += 1
+        self.log.append(("reconnect", session_id))
+        return self
