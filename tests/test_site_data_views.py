@@ -237,3 +237,17 @@ def test_a_secret_whose_leash_is_rejected_is_allowed_nowhere():
          "allowed_urls_rejected": ["not a url"], "keys": ["k"]},
     ]
     assert [s["name"] for s in sd.matching_secrets(secrets, "app.example.com")] == ["ok"]
+
+
+def test_a_stored_cookie_without_a_name_or_a_string_domain_counts_as_nothing():
+    # The admin list, its event stream and the resources all read the jar: one
+    # bad cookie in a stored record must not take them down.
+    data = {"cookies": [
+        {"name": "ok", "value": "1", "domain": "app.example.com", "path": "/"},
+        {"value": "no name", "domain": "app.example.com"},
+        {"name": "n", "domain": 5},
+        {"name": "", "domain": "app.example.com"},
+    ]}
+    listing, details = sd.views(data)
+    assert [(r["site"], r["cookies"]) for r in listing["sites"]] == [("app.example.com", 1)]
+    assert [c["name"] for c in details["app.example.com"]["cookies"]] == ["ok"]

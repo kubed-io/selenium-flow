@@ -208,8 +208,11 @@ class _Jar:
         # shape counts as nothing rather than failing a view, or the clean open
         # that is the way out of it (Copilot, #51).
         self.data = _a(data, dict)
-        cookies = _a(self.data.get("cookies"), list)
-        self.cookies = [c for c in cookies if isinstance(c, dict)]
+        self.cookies = [
+            c for c in _a(self.data.get("cookies"), list)
+            if isinstance(c, dict)
+            and all(isinstance(c.get(k), str) and c[k] for k in ("name", "domain"))
+        ]
         self.by_domain: dict[str, list[int]] = {}
         for i, c in enumerate(self.cookies):
             if c.get("domain"):
