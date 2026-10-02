@@ -295,7 +295,7 @@ def resolve_step(
     step: dict,
     params: dict,
     catalogue=None,
-    page: str | Callable[[], str] = "",
+    page: str | tuple[str, ...] | Callable[[], str | tuple[str, ...]] = "",
 ) -> tuple[dict, set]:
     """A step's keyword arguments, and **which of them** must not be echoed.
 

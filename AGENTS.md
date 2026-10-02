@@ -563,8 +563,9 @@ a forgotten switch a nasty failure: locators on the main page fail for a reason
 that looks nothing like the cause. `session://current` reports `in_frame` for
 exactly that, detected with `window.self !== window.top` because WebDriver has
 no "which frame am I in" command. A secret's leash reads the frame's
-`document.location.origin` the same way: a keystroke reaches the frame, and
-WebDriver's url is always the top page's.
+`document.location.origin` the same way, because a keystroke reaches the frame
+and WebDriver's url is always the top page's. In a frame **both** the top page
+and the frame must be allowed: the frame only tightens the leash.
 
 ## Dialogs, and why the browser must never answer one
 

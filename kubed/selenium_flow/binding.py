@@ -118,22 +118,24 @@ def check_pair(args: dict, say: Wording = AT_RUN) -> list[str]:
     return problems
 
 
-def receiving(page: dict) -> str:
-    """Where a keystroke on ``page`` lands, as the leash checks it.
+def receiving(page: dict) -> tuple[str, ...]:
+    """What the leash checks for a keystroke on ``page``, each one in turn.
 
-    The top page's url, unless the session is in a frame: then the frame's
-    origin, because that is the document receiving the value. An allowed page
-    can frame anyone, and checking the page alone typed into the frame (§F2).
+    The top page's url, and in a frame the frame's origin too, because that is
+    the document receiving the value: an allowed page can frame anyone, and
+    checking the page alone typed into the frame (§F2). Both, never the frame
+    instead: a tightening, so nothing the top-page check refused can pass.
     """
+    top = page.get("url") or ""
     if "frame_origin" in page:
-        return page["frame_origin"] or ""
-    return page.get("url") or ""
+        return (top, page["frame_origin"] or "")
+    return (top,)
 
 
 def bind_into(
     kwargs: dict,
     catalogue,
-    page: str | Callable[[], str],
+    page: str | tuple[str, ...] | Callable[[], str | tuple[str, ...]],
     tool: str,
     say: Wording = AT_RUN,
 ) -> tuple[dict, set]:

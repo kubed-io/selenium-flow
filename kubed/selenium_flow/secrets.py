@@ -625,7 +625,7 @@ class Refused(ValueError):
     """
 
 
-def bind(catalogue, reference, url: str, tool: str = "write") -> str:
+def bind(catalogue, reference, url: str | tuple[str, ...], tool: str = "write") -> str:
     """The value a `secret` reference names, or refuse.
 
     **The only function in this package that returns a secret value**, and it
@@ -634,7 +634,10 @@ def bind(catalogue, reference, url: str, tool: str = "write") -> str:
 
     ``url`` is the page the browser is **actually on**, read at the moment of
     the bind. Checking anything else would check a permission against a page
-    other than the one receiving the keystroke.
+    other than the one receiving the keystroke. In a frame it is the top page
+    and then the frame's origin (`binding.receiving`), and **each** must be
+    allowed: the frame is a tightening, so nothing the top-page check refused
+    can pass. A refusal names the first one that is not.
     """
     # Shape-checked here, not only in the typed MCP parameter: the HTTP surface
     # passes raw JSON straight in, so a bare string reached `.get` and
@@ -688,18 +691,21 @@ def bind(catalogue, reference, url: str, tool: str = "write") -> str:
     known = entry.get("name") or "?"
     known_key = next((k for k in entry["keys"] if k == key), "?")
 
-    if not catalogue.allows(name, url):
+    pages = (url,) if isinstance(url, str) else tuple(url)
+    for here in pages:
+        if catalogue.allows(name, here):
+            continue
         # Logged loudest of anything here: something tried to use a credential
         # on a page its owner did not allow, which is the event an operator most
         # wants to know about.
         log.warning(
             "REFUSED binding secret %s/%s on %s: not an allowed site",
-            known, known_key, origin(url) or "an unknown page",
+            known, known_key, origin(here) or "an unknown page",
         )
         allowed = ", ".join(entry.get("allowed_urls") or [])
         raise Refused(
             f"the secret {name!r} may not be used on "
-            f"{origin(url) or 'this page'}. It allows: "
+            f"{origin(here) or 'this page'}. It allows: "
             # True of both sources of a leash: a directory's `_allowed_urls`
             # that fails to parse, and a config `allowed_urls: []` — declared,
             # and immediately exhausted.
@@ -717,7 +723,10 @@ def bind(catalogue, reference, url: str, tool: str = "write") -> str:
     # The audit trail: what was used, where, by which action. Never the value —
     # these are the identifiers it was looked up by, and `value` above is
     # deliberately not among the arguments.
-    log.info("bound secret %s/%s on %s for %s", known, known_key, origin(url), tool)
+    log.info(
+        "bound secret %s/%s on %s for %s",
+        known, known_key, " in ".join(reversed([origin(p) for p in pages])), tool,
+    )
     return value
 
 

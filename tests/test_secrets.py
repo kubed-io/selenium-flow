@@ -1257,9 +1257,9 @@ def framed(tmp_path):
     catalogue = Catalogue([FilesystemSource(tmp_path)])
     typed = []
 
-    def build(frame_origin=None):
+    def build(frame_origin=None, top=ALLOWED):
         scripts = {"location.origin": frame_origin} if frame_origin else {}
-        driver = ScriptedDriver(url=f"{ALLOWED}/login", title="Log in", scripts=scripts)
+        driver = ScriptedDriver(url=f"{top}/login", title="Log in", scripts=scripts)
         actions = Actions(SimpleNamespace(reconnect=lambda session_id: driver))
         actions.write = lambda session_id, text, **_: typed.append(text) or {
             "value": None, "url": f"{ALLOWED}/login", "title": "Log in",
@@ -1268,9 +1268,9 @@ def framed(tmp_path):
 
     held = SimpleNamespace(resolve=lambda name: "b1", settle=lambda *a, **k: None)
 
-    def write(frame_origin=None):
+    def write(frame_origin=None, top=ALLOWED):
         return secrets.perform_write(
-            catalogue, build(frame_origin), held, "desktop",
+            catalogue, build(frame_origin, top), held, "desktop",
             {"selector": {"css": "#p"}, "secret": {"name": "nextcloud", "key": "password"}},
         )
 
@@ -1280,11 +1280,23 @@ def framed(tmp_path):
 def test_a_secret_is_never_typed_into_a_frame_from_another_origin(framed):
     """The top page is allowed; the field is in a frame the session switched
     into, and the frame is someone else's. The keystroke lands in the frame, so
-    the frame's origin is what the leash checks."""
+    the frame's origin is checked too, and the refusal names it."""
     write, typed = framed
     with pytest.raises(secrets.Refused) as refused:
         write(frame_origin=ELSEWHERE)
     assert f"may not be used on {ELSEWHERE}" in str(refused.value)
+    assert typed == []
+
+
+def test_an_allowed_frame_inside_a_page_that_is_not_allowed_is_refused(framed):
+    """The frame tightens the leash and never loosens it: what the top-page
+    check refused is still refused, in the words it always used."""
+    write, typed = framed
+    with pytest.raises(secrets.Refused) as refused:
+        write(frame_origin=ALLOWED, top=ELSEWHERE)
+    assert str(refused.value) == (
+        f"the secret 'nextcloud' may not be used on {ELSEWHERE}. It allows: {ALLOWED}"
+    )
     assert typed == []
 
 
@@ -1300,8 +1312,12 @@ def test_the_top_page_is_checked_when_no_frame_is_selected(framed):
     assert typed == ["hunter2"]
 
 
-def test_a_flow_step_is_held_to_the_frames_origin_too(tmp_path):
-    """The other place a secret is bound reads the page the same way."""
+@pytest.mark.parametrize(
+    "top,frame,named", [(ALLOWED, ELSEWHERE, ELSEWHERE), (ELSEWHERE, ALLOWED, ELSEWHERE)]
+)
+def test_a_flow_step_is_held_to_the_page_and_the_frame(tmp_path, top, frame, named):
+    """The other place a secret is bound reads the page the same way, and needs
+    both allowed too."""
     from kubed.selenium_flow.flows.run import run
 
     from .fakes import FakeActions
@@ -1310,8 +1326,7 @@ def test_a_flow_step_is_held_to_the_frames_origin_too(tmp_path):
 
     class InAFrame(FakeActions):
         def page(self, session_id):
-            return {"url": f"{ALLOWED}/login", "title": "Log in",
-                    "frame_origin": ELSEWHERE}
+            return {"url": f"{top}/login", "title": "Log in", "frame_origin": frame}
 
     actions = InAFrame()
     step = {"tool": "write", "args": {
@@ -1322,5 +1337,5 @@ def test_a_flow_step_is_held_to_the_frames_origin_too(tmp_path):
         catalogue=Catalogue([FilesystemSource(tmp_path)]),
     )
     assert report["status"] == "failed"
-    assert f"may not be used on {ELSEWHERE}" in report["steps"][0]["error"]
+    assert f"may not be used on {named}" in report["steps"][0]["error"]
     assert actions.calls == []
