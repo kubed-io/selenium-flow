@@ -13,9 +13,12 @@ from selenium.common.exceptions import (
     TimeoutException,
     WebDriverException,
 )
+from starlette.routing import Match
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow import errors, faults
+from kubed.selenium_flow.config import Settings
+from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import TOKEN
 
@@ -403,14 +406,26 @@ def test_an_unsupported_browser_is_a_400_with_the_real_list(open_client):
         assert name in error
 
 
-def test_every_endpoint_is_mounted(open_client):
-    """A 404 here means the route table and the app disagree."""
+@pytest.fixture(scope="module")
+def route_table():
+    """The app's routes, built once. Nothing here sends a request or changes
+    state, so every test in the module may share it."""
+    server = SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}))
+    return server.mcp.http_app().routes
+
+
+def test_every_endpoint_is_mounted(route_table):
+    """A miss here means the route table and the app disagree. It asks the
+    router rather than posting: a POST that gets past validation waits on a DNS
+    failure for the unroutable Grid, which cost 0.3 s a path."""
     from kubed.selenium_flow.core.capabilities import ACTION_IN_PATH, ENDPOINTS
 
     for path, action in ENDPOINTS.items():
         route = f"/browser/{path}" + ("/click" if action == ACTION_IN_PATH else "")
-        response = open_client.post(route, json={})
-        assert response.status_code != 404, f"{route} is not mounted"
+        scope = {"type": "http", "path": route, "method": "POST"}
+        assert any(
+            r.matches(scope)[0] == Match.FULL for r in route_table
+        ), f"{route} is not mounted"
 
 
 def test_the_browser_is_one_resource_addressed_by_naming_yourself(open_client):
