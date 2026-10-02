@@ -150,3 +150,31 @@ def test_every_runnable_action_has_a_glyph_and_no_glyph_is_stale():
     assert keys, "no keys parsed out of TOOL_ICON"
     assert sorted(set(RUNNABLE) - keys) == [], "runnable actions with no glyph"
     assert sorted(keys - set(RUNNABLE)) == [], "glyphs for actions the runner does not know"
+
+
+def test_the_page_is_built_once_and_rebuilt_when_the_ui_is(built_ui, monkeypatch):
+    reads = []
+    real = admin.read
+    monkeypatch.setattr(admin, "read", lambda n: reads.append(n) or real(n))
+    first = admin.page("admin", MOUNT="/flow", CONSOLE="/")
+    assert admin.page("admin", MOUNT="/flow", CONSOLE="/") == first
+    assert len(reads) == 3, "the second call re-read the shell"
+    admin.page("admin", MOUNT="/other", CONSOLE="/")
+    assert len(reads) == 6, "another mount is another page"
+    (built_ui / "admin.js").write_text("/* a rebuilt admin js */")
+    assert "/* a rebuilt admin js */" in admin.page("admin", MOUNT="/flow", CONSOLE="/")
+
+
+def test_the_page_says_to_revalidate_and_answers_304_to_its_etag(built_ui):
+    client = TestClient(_server().mcp.http_app())
+    res = client.get("/")
+    etag = res.headers["etag"]
+    assert res.headers["cache-control"] == "no-cache"
+    assert etag.startswith('"') and etag.endswith('"')
+    for sent in (etag, f"W/{etag}", f'"nope", {etag}', "*"):
+        again = client.get("/", headers={"If-None-Match": sent})
+        assert again.status_code == 304 and again.content == b"", sent
+        assert again.headers["etag"] == etag
+    assert client.get("/", headers={"If-None-Match": '"stale"'}).text == res.text
+    (built_ui / "admin.css").write_text("/* a rebuilt admin css */")
+    assert client.get("/", headers={"If-None-Match": etag}).status_code == 200

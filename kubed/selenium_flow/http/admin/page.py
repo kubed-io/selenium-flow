@@ -7,6 +7,7 @@ place, and an install that skipped the build simply has none (§F4.17).
 
 from __future__ import annotations
 
+import hashlib
 import re
 from html import escape
 from pathlib import Path
@@ -53,7 +54,40 @@ def read(name: str) -> str:
     return (static_path() / name).read_text(encoding="utf-8")
 
 
+# (name, substitutions, the built files' (mtime, size)) -> (html, etag). The files
+# are in the key, so a rebuilt UI is a new entry rather than a stale hit.
+_pages: dict[tuple, tuple[str, str]] = {}
+
+
+def _stamp(name: str) -> tuple:
+    folder = static_path()
+    stamps = []
+    for ext in ("html", "css", "js"):
+        info = (folder / f"{name}.{ext}").stat()
+        stamps.append((info.st_mtime_ns, info.st_size))
+    return tuple(stamps)
+
+
+def page_with_etag(name: str, **substitutions: str) -> tuple[str, str]:
+    """:func:`page`'s answer and a strong ETag for it, built once per
+    (name, substitutions) and per version of the built files."""
+    key = (name, tuple(sorted(substitutions.items())), _stamp(name))
+    if key not in _pages:
+        if len(_pages) >= 16:
+            _pages.clear()
+        html = _build(name, **substitutions)
+        digest = hashlib.sha256(html.encode()).hexdigest()[:32]
+        _pages[key] = (html, f'"{digest}"')
+    return _pages[key]
+
+
 def page(name: str, **substitutions: str) -> str:
+    """Surface ``name``'s shell, built once per (name, substitutions) and
+    rebuilt when any of its three files changes. See :func:`_build`."""
+    return page_with_etag(name, **substitutions)[0]
+
+
+def _build(name: str, **substitutions: str) -> str:
     """Surface ``name``'s shell with its bundle inlined and ``__NAME__`` filled.
 
     Deliberately not a template engine. The shell's own comments go first:
@@ -84,13 +118,22 @@ def page(name: str, **substitutions: str) -> str:
     return re.sub(r"__([A-Z]+)__", fill, html)
 
 
+def _matches(header: str | None, etag: str) -> bool:
+    """Whether an ``If-None-Match`` names ``etag`` (weak validators compare
+    equal for a GET, and ``*`` matches anything)."""
+    if not header:
+        return False
+    tags = [t.strip().removeprefix("W/") for t in header.split(",")]
+    return "*" in tags or etag in tags
+
+
 def mount(mcp, prefix: str, console_url: str | None) -> None:
     """The page at the root of wherever this server is mounted, and the old
     ``/admin`` URL that now redirects to it."""
     console = console_url or DEFAULT_CONSOLE_URL
 
     @mcp.custom_route(f"{prefix}/", methods=["GET"], name="admin_ui")
-    async def admin_ui(_request: Request) -> HTMLResponse:
+    async def admin_ui(request: Request) -> Response:
         """The page itself, at the root of wherever this server is mounted.
 
         The UI is what a person gets for visiting the server; `/admin/*` is the
@@ -103,7 +146,13 @@ def mount(mcp, prefix: str, console_url: str | None) -> None:
         """
         if not ui_built("admin"):
             return HTMLResponse(PLACEHOLDER)
-        return HTMLResponse(page("admin", CONSOLE=console, MOUNT=prefix))
+        html, etag = page_with_etag("admin", CONSOLE=console, MOUNT=prefix)
+        # no-cache is "ask every time", and the ETag makes the ask cheap: a
+        # rebuilt UI is picked up on the next load, an unchanged one is a 304.
+        headers = {"Cache-Control": "no-cache", "ETag": etag}
+        if _matches(request.headers.get("if-none-match"), etag):
+            return Response(status_code=304, headers=headers)
+        return HTMLResponse(html, headers=headers)
 
     @mcp.custom_route(f"{prefix}/admin", methods=["GET"], name="admin_ui_moved")
     async def admin_ui_moved(_request: Request) -> Response:
