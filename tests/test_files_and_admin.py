@@ -637,8 +637,10 @@ async def test_every_connected_page_is_sent_the_same_events(server, monkeypatch)
 
         late = []
         tasks.append(asyncio.create_task(_listen(app, late, stop)))
-        await _until(lambda: len(entered) >= 13, "the late joiner's first Grid call")
-        gate.release(1)
+        # The three old connections are mid-tick again as well, so all four sit at
+        # the gate and one permit each lets every one of them through.
+        await _until(lambda: len(entered) >= 16, "every connection's next Grid call")
+        gate.release(4)
         await _until(lambda: len(late) == 1, "the late joiner's first event")
         assert late[0] == sinks[0][1], "its first event is the state now"
     finally:
