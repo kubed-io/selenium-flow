@@ -226,7 +226,7 @@ class _Jar:
             }
         session = _a(self.data.get("session"), dict)
         items = _a(session.get("items"), dict)
-        if session.get("origin") and items:
+        if isinstance(session.get("origin"), str) and session["origin"] and items:
             entry = self.origins.setdefault(host_of(session["origin"]), {}).setdefault(
                 session["origin"], {"local": {}, "session": {}}
             )

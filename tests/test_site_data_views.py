@@ -251,3 +251,9 @@ def test_a_stored_cookie_without_a_name_or_a_string_domain_counts_as_nothing():
     listing, details = sd.views(data)
     assert [(r["site"], r["cookies"]) for r in listing["sites"]] == [("app.example.com", 1)]
     assert [c["name"] for c in details["app.example.com"]["cookies"]] == ["ok"]
+
+
+@pytest.mark.parametrize("origin", [5, ["https://app.example.com"], ""])
+def test_a_stored_session_storage_origin_that_is_not_a_url_string_counts_as_nothing(origin):
+    listing, _ = sd.views({"session": {"origin": origin, "items": {"t": "1"}}})
+    assert listing["sites"] == []
