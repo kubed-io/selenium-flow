@@ -38,14 +38,19 @@ STEPS = [
 
 
 @pytest.fixture
-def slow_server(tmp_path, monkeypatch):
-    """A server whose `navigate` takes a moment, and records that it ran."""
+def slow_server(tmp_path, tmp_path_factory, monkeypatch):
+    """A server whose `navigate` takes a moment, and records that it ran. It
+    holds one secret, `demo`, usable anywhere."""
     monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    secrets_dir = tmp_path_factory.mktemp("secrets")
+    (secrets_dir / "demo").mkdir()
+    (secrets_dir / "demo" / "password").write_text("hunter2")
     server = SeleniumMCP(
         Settings(
             grid={"url": "http://grid.invalid:4444"},
             auth={"token": TOKEN},
             flow={"data_dir": str(tmp_path)},
+            secrets={"dirs": str(secrets_dir)},
         )
     )
     calling_as(monkeypatch, NAMED)
@@ -254,9 +259,10 @@ async def test_every_field_a_save_or_read_returns_is_published(
     """The /flows schemas are written by hand, and this pull request forgot
     `timeout` in two of them before a reviewer noticed each (Copilot, #37).
     So the guard is the real responses, not a list: save a flow carrying every
-    document key over HTTP, read it back, run it once to the end and once to a
-    failure, and every key that comes out — of a run's steps too — must be
-    declared by the schema that describes that response."""
+    document key over HTTP, read it back, run it to the end, to a failure and
+    to a page that carries a typed secret, and every key that comes out — of a
+    run's steps too — must be declared by the schema that describes that
+    response."""
     from starlette.testclient import TestClient
 
     from kubed.selenium_flow.routes import ENDPOINTS
@@ -294,15 +300,41 @@ async def test_every_field_a_save_or_read_returns_is_published(
     assert ran.json()["status"] == "ok", ran.text
     assert failed.json()["status"] == "failed", failed.text
 
+    def submitting(session_id, text=None, **_):
+        return {"url": f"https://example.test/?q={text}", "title": "t"}
+
+    monkeypatch.setattr(slow_server.actions, "write", submitting)
+    monkeypatch.setattr(
+        slow_server.actions, "page", lambda _id: {"url": "https://example.test/"}
+    )
+    typed = {
+        "steps": [
+            {
+                "tool": "write",
+                "args": {
+                    "selector": {"css": "#q"},
+                    "secret": {"name": "demo", "key": "password"},
+                },
+            }
+        ]
+    }
+    assert client.put("/flows/typed", json=typed, headers=headers).status_code == 200
+    redacted = client.post("/flows/typed/runs", json={}, headers=headers)
+    assert redacted.json().get("url_redacted") is True, redacted.text
+
     spec = await build_spec(slow_server.mcp, ENDPOINTS, "", authenticated=True)
     schemas = spec["components"]["schemas"]
     step = schemas["FlowRun"]["properties"]["steps"]["items"]["properties"]
     for response, schema in (
-        (saved, "FlowSaved"), (read, "Flow"), (ran, "FlowRun"), (failed, "FlowRun")
+        (saved, "FlowSaved"),
+        (read, "Flow"),
+        (ran, "FlowRun"),
+        (failed, "FlowRun"),
+        (redacted, "FlowRun"),
     ):
         undeclared = set(response.json()) - set(schemas[schema]["properties"])
         assert not undeclared, f"{schema} does not declare {sorted(undeclared)}"
-    for response in (ran, failed):
+    for response in (ran, failed, redacted):
         for line in response.json()["steps"]:
             undeclared = set(line) - set(step)
             assert not undeclared, f"a FlowRun step does not declare {sorted(undeclared)}"

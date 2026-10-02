@@ -651,6 +651,14 @@ FLOW_SCHEMAS = {
             },
             "url": {"type": "string"},
             "title": {"type": "string"},
+            "url_redacted": {
+                "type": "boolean",
+                "description": (
+                    "Present, and true, only when the page the run ended on "
+                    "carried a value typed from a secret: `url` is scrubbed, is "
+                    "not a real address, and must not be navigated back to."
+                ),
+            },
             # Present only when the run's browser was reopened after a reap.
             "site_data": SITE_DATA_HINT,
         },
