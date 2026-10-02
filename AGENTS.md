@@ -191,7 +191,7 @@ part that matters:
 | Part of the document | Where it comes from |
 |---|---|
 | **request** schemas | the MCP tool schemas verbatim, which FastMCP derives from the signatures in `mcp/tools.py` |
-| **response** shapes | `RESPONSES` in `spec/schemas.py`, by hand — the actions return plain dicts, so there is nothing to introspect |
+| **response** shapes | each capability's `response` column in `core/capabilities.py`, by hand — the actions return plain dicts, so there is nothing to introspect |
 | info, servers, tags, `/health`, error shape | `spec/schemas.py`, by hand |
 
 So adding a *parameter* to a tool updates the spec on its own; adding a *return field* does

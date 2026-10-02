@@ -6,8 +6,8 @@ merely consistent, they are the same schema. Adding a parameter to a tool
 changes this document with no further work.
 
 Response shapes are the one hand-maintained half: the actions return plain
-dicts, so there is nothing to introspect. ``RESPONSES`` below is that
-declaration, and a test asserts every endpoint has one.
+dicts, so there is nothing to introspect. Each is the ``response`` column of its
+row in ``core/capabilities.py``, so an action cannot be declared without one.
 
 **No transform is applied on the way through, and that is new.** There used to
 be three sanctioned differences, all of them consequences of the HTTP surface
@@ -24,7 +24,7 @@ either surface, which is the whole point of it.
 
 What is described *differently* is the shape, and only the shape: a tool is a
 verb with arguments, an endpoint is a path with a method. Those come from the
-route tables — ``routes.ENDPOINTS``, ``flowapi.FLOW_ROUTES``,
+route tables — ``core.capabilities``, ``flowapi.FLOW_ROUTES``,
 ``files.FILE_ROUTES`` — so this document cannot describe a path that is not
 served.
 """
@@ -37,6 +37,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from fastmcp import FastMCP
 
+from ..core.capabilities import CAPABILITIES, capability
 from .schemas import (
     _FILE_OPERATIONS,
     _FLOW_OPERATIONS,
@@ -78,6 +79,16 @@ times out.
 PLACEHOLDER_VERSION = "0.0.0"
 
 
+# The browser resource's operations are summarised by hand: a command's summary
+# is its tool description's first line, which for these two reads as advice to
+# a model rather than as what the operation is. Keyed by capability, so a new
+# row on the resource without one fails the build rather than going unnamed.
+RESOURCE_SUMMARIES = {
+    "open_session": "Open this session's browser, or pick up the one it was using.",
+    "end_browser": "Quit the browser, keeping the session and its context.",
+}
+
+
 def _version() -> str:
     try:
         return version("kubed-selenium-flow")
@@ -96,6 +107,10 @@ async def build_spec(
     3.1 rather than 3.0 on purpose: it is a strict superset of JSON Schema, so
     the tool schemas can be embedded verbatim instead of being down-converted.
 
+    ``endpoints`` is ``core.capabilities.ENDPOINTS``, the commands under
+    ``/browser`` by path; everything else about each — its method, whether its
+    choice is in the path, what it answers — is read from its row.
+
     ``prefix`` is where the whole server is mounted (§F1.11). Every tree hangs
     off it, `/openapi.*` included. Only the four probes — `/health`, `/started`,
     `/ready`, `/info` — also answer at the root, so a probe never depends on it.
@@ -112,12 +127,11 @@ async def build_spec(
     schemas: dict[str, dict] = {"Error": ERROR, "Health": HEALTH}
     paths: dict[str, dict] = {}
 
-    from ..routes import ACTION_IN_PATH
-
     for path, action in endpoints.items():
         tool = tools.get(action)
         if tool is None:  # pragma: no cover - the surfaces test forbids this
             continue
+        row = capability(action)
 
         request_name = f"{_camel(action)}Request"
         response_name = f"{_camel(action)}Response"
@@ -125,12 +139,11 @@ async def build_spec(
         request, nested = _hoisted(copy.deepcopy(tool.parameters))
         schemas.update(nested)
         schemas[request_name] = request
-        schemas[response_name] = RESPONSES.get(action, {"type": "object"})
+        schemas[response_name] = row.response
 
-        in_path = action == ACTION_IN_PATH
-        route = f"{browser_root}/{path}" + ("/{action}" if in_path else "")
+        route = f"{browser_root}/{path}" + ("/{action}" if row.in_path else "")
         parameters = list(SESSION_PARAMETERS)
-        if in_path:
+        if row.in_path:
             # The mouse action is the path, not a field: /browser/interact/click
             # reads as the thing it does, and the enum is already closed.
             choice = dict(request.get("properties", {}).get("action", {}))
@@ -149,7 +162,7 @@ async def build_spec(
             ]
 
         paths[route] = {
-            "post": {
+            row.http_method.lower(): {
                 "operationId": action,
                 "parameters": parameters,
                 # The MCP tool this endpoint is the other half of. Redundant for
@@ -201,28 +214,21 @@ async def build_spec(
 
     # The browser this caller holds: one resource, three methods. Not one path
     # per verb, because which browser is a question about who is asking and the
-    # answer is in the header (§F2.13).
-    resource = (
-        (
-            "open_session",
-            "post",
-            "Open this session's browser, or pick up the one it was using.",
-        ),
-        (
-            "end_browser",
-            "delete",
-            "Quit the browser, keeping the session and its context.",
-        ),
-    )
-    for action, method, summary in resource:
+    # answer is in the header (§F2.13). Its two capabilities are the rows with
+    # no path of their own; the third method is the status read, below.
+    for row in CAPABILITIES:
+        if row.route:
+            continue
+        action = row.name
+        summary = RESOURCE_SUMMARIES[action]
         tool = await mcp.get_tool(action)
         request_name = f"{_camel(action)}Request"
         response_name = f"{_camel(action)}Response"
         request, nested = _hoisted(copy.deepcopy(tool.parameters))
         schemas.update(nested)
         schemas[request_name] = request
-        schemas[response_name] = RESPONSES.get(action, {"type": "object"})
-        paths.setdefault(browser_root, {})[method] = {
+        schemas[response_name] = row.response
+        paths.setdefault(browser_root, {})[row.http_method.lower()] = {
             "operationId": action,
             "x-mcp-tool": action,
             "parameters": list(SESSION_PARAMETERS),
@@ -597,10 +603,9 @@ def _mcp_tools() -> tuple[dict, dict]:
     read directly, or through ``read_resource`` by a client that cannot
     (§F3.6).
 
-    Imported here rather than at module scope because the import runs the other
-    way at load time: ``routes`` imports ``build_spec`` from this module and
-    ``flowapi`` imports ``ENDPOINTS`` from ``routes``, so naming either one up
-    top closes the loop. Reading the constants is still the point — a second
+    Imported here rather than at module scope: ``routes`` loads this module,
+    and the flow and file trees are not needed until a document is built.
+    Reading the constants is still the point — a second
     hand-written copy of these names is how the wiki ends up generating a page
     for a tool nobody can call.
     """
