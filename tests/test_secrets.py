@@ -276,9 +276,8 @@ def test_a_secret_name_cannot_escape_its_directory(source):
     assert source.value("../../etc", "passwd") is None
 
 
-def test_a_symlinked_secret_directory_is_refused(tmp_path):
-    outside = tmp_path.parent / "elsewhere"
-    outside.mkdir(exist_ok=True)
+def test_a_symlinked_secret_directory_is_refused(tmp_path, tmp_path_factory):
+    outside = tmp_path_factory.mktemp("elsewhere")
     (outside / "token").write_text("leaked")
     root = tmp_path / "secrets"
     root.mkdir()

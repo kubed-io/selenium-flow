@@ -80,6 +80,10 @@ profile = [
 test = [
   "pytest",
   "pytest-asyncio",
+  # Shuffled order finds the test that leans on another; -n 2 --dist loadfile
+  # (.github/workflows/test.yml) keeps each module on one worker.
+  "pytest-randomly",
+  "pytest-xdist",
   # The coverage comment on a pull request (.github/workflows/test.yml).
   "pytest-cov>=7.1",
   "ruff",

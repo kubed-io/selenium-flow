@@ -381,9 +381,12 @@ def test_a_symlink_cannot_redirect_a_session_out_of_the_data_directory(store, tm
     assert list(outside.iterdir()) == []
 
 
-def test_a_symlinked_session_directory_is_refused_too(store, tmp_path):
-    outside = tmp_path.parent / "elsewhere"
-    outside.mkdir()
+def test_a_symlinked_session_directory_is_refused_too(
+    store, tmp_path, tmp_path_factory
+):
+    # Its own directory: tmp_path.parent is shared by every test in the worker,
+    # and another test that made "elsewhere" there turned this into an error.
+    outside = tmp_path_factory.mktemp("elsewhere")
     (tmp_path / "linked").symlink_to(outside, target_is_directory=True)
     with pytest.raises(InvalidName, match="does not resolve to itself"):
         store.save("linked", "flow", {"steps": []})

@@ -110,6 +110,8 @@ jobs:
     - name: Test
       run: >-
         pytest
+        -n 2
+        --dist loadfile
         --junit-xml=dist/test-results.xml
         --cov=kubed.selenium_flow
         --cov-report=xml:dist/coverage.xml
