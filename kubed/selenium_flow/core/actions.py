@@ -32,8 +32,9 @@ from ..site_data import snapshot as site_data_snapshot
 from ..site_data import transfer as site_data_transfer
 from . import browser, pointer, probe
 from .assertion import Assertion, window
-from .browser import Grid, normalize_browser
+from .browser import Grid
 from .coerce import as_bool, as_int
+from .defaults import normalize_browser
 from .keys import SUBMIT_KEYS, resolve_key
 from .naming import _decode, _generated_name, _why_unsaved, safe_name
 

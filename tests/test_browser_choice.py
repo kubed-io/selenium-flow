@@ -10,12 +10,8 @@ import pytest
 from selenium import webdriver
 
 from kubed.selenium_flow.config import SessionSettings
-from kubed.selenium_flow.core.browser import (
-    BROWSERS,
-    Grid,
-    is_partial,
-    normalize_browser,
-)
+from kubed.selenium_flow.core.browser import Grid, is_partial
+from kubed.selenium_flow.core.defaults import BROWSERS, normalize_browser
 from kubed.selenium_flow.session import settings as settings_module
 
 pytestmark = pytest.mark.unit

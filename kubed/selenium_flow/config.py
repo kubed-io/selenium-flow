@@ -30,7 +30,7 @@ from pydantic import (
 from pydantic.fields import FieldInfo
 from pydantic_settings import EnvSettingsSource, NoDecode
 
-from .core.browser import DEFAULT_GRID_URL, normalize_browser
+from .core.defaults import DEFAULT_GRID_URL, normalize_browser
 from .names import valid_name
 from .urls import without_userinfo
 

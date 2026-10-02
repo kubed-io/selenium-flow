@@ -16,7 +16,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from ...core.browser import DEFAULT_BROWSER
+from ...core.defaults import DEFAULT_BROWSER
 from ...names import (
     GLOBAL_SESSION,
     SCREENSHOTS_DIR,

@@ -49,8 +49,9 @@ from dataclasses import dataclass, field, replace
 
 from .. import errors
 from ..core.actions import Actions
-from ..core.browser import DEFAULT_BROWSER, in_frame
+from ..core.browser import in_frame
 from ..core.coerce import as_bool
+from ..core.defaults import DEFAULT_BROWSER
 from ..mcp import guidance
 from ..names import GLOBAL_SESSION, valid_session_name
 from ..site_data import snapshot as site_data_module

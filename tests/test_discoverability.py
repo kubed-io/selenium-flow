@@ -21,7 +21,7 @@ from kubed.selenium_flow.core.actions import (
     MOUSE_ACTIONS,
     PRINT_FORMATS,
 )
-from kubed.selenium_flow.core.browser import BROWSERS
+from kubed.selenium_flow.core.defaults import BROWSERS
 from kubed.selenium_flow.core.keys import KEY_NAMES, KEYS, resolve_key
 
 pytestmark = pytest.mark.unit
@@ -66,7 +66,7 @@ async def test_a_closed_set_is_an_enum_in_the_tool_schema(
 def test_every_closed_set_the_action_layer_checks_is_listed_here():
     """Found by reading the action layer, not by trusting this table."""
     checked = set()
-    for module in ("actions.py", "browser.py"):
+    for module in ("actions.py", "browser.py", "defaults.py"):
         source = (PACKAGE / module).read_text()
         checked |= set(re.findall(r"\bnot in ([A-Z][A-Z_]+)\b", source))
     assert checked == {name for _, _, name, _ in CLOSED_SETS}

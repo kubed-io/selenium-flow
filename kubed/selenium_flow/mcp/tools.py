@@ -35,7 +35,7 @@ from ..core.actions import (
     WAIT_TIMEOUT,
     Actions,
 )
-from ..core.browser import BROWSERS
+from ..core.defaults import BROWSERS
 from ..core.probe import DEFAULT_LIMIT as OUTLINE_LIMIT
 from ..session.sessions import NAME_PARAM, SessionManager
 from . import clients

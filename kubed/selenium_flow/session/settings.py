@@ -31,8 +31,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from ..core.browser import normalize_browser
 from ..core.coerce import as_bool
+from ..core.defaults import normalize_browser
 
 if TYPE_CHECKING:
     from ..config import SessionSettings
