@@ -14,7 +14,7 @@ what matters: the bodies and the results come from the same action signatures,
 so neither can accept something the other refuses.
 
 **The session is who is calling, never a body field and never a path segment**
-— ``X-Session-Key`` or ``?session=``, resolved by ``sessions.name_from``. A
+— ``X-Session-Key`` or ``?session=``, read by ``Caller.from_request``. A
 browser is addressed by naming yourself, which is why there is one browser
 resource here rather than one per id: ``POST /browser`` opens *yours*.
 
@@ -41,7 +41,7 @@ from .core.actions import Actions
 from .http import answer as answer_module
 from .mcp import resources
 from .session import settings
-from .session.sessions import SessionManager
+from .session.sessions import Caller, SessionManager
 from .spec import build_spec
 
 log = logging.getLogger(__name__)
@@ -285,9 +285,9 @@ def register(
     @mcp.custom_route(browser_root, methods=["POST"], name="browser_open")
     async def open_browser(request: Request) -> JSONResponse:
         """Open this session's browser, or pick up the one it was using."""
-        return await _answer(request, token, "open", lambda name, body: (
+        return await _answer(request, token, "open", lambda caller, body: (
             sessions.open_browser(
-                name,
+                caller,
                 url=body.get("url"),
                 fresh=body.get("fresh", False),
                 restore_site_data=body.get("restore_site_data", True),
@@ -298,20 +298,23 @@ def register(
     @mcp.custom_route(browser_root, methods=["DELETE"], name="browser_end")
     async def end_browser(request: Request) -> JSONResponse:
         """Quit the browser, keeping the session and what it was doing."""
-        def ended(name, _body):
+        def ended(caller, _body):
             # The browser that was ended is deliberately NOT reported: the Grid's
             # id is how a browser is reached, not part of what a caller is told
             # (E18). Returning it here was the one place that leaked (Copilot, #34).
-            sessions.end_browser(name)
-            return {"success": True, "session": name}
+            sessions.end_browser(caller)
+            return {"success": True, "session": caller.name}
 
         return await _answer(request, token, "end", ended)
 
     @mcp.custom_route(browser_root, methods=["GET"], name="browser_status")
     async def browser_status(request: Request) -> JSONResponse:
         """What this session is and whether it holds a browser. Opens nothing."""
-        return await _answer(request, token, "status", lambda name, _body: (
-            sessions.describe(name)
+        # Reported as named by `request` on this surface, as it always has been,
+        # where MCP says `query` or `header` (M36): a divergence to settle on
+        # its own, not inside a refactor.
+        return await _answer(request, token, "status", lambda caller, _body: (
+            sessions.describe(Caller(caller.name, "request"))
         ))
 
     # The same two reads the resources make, beside them the way `/files` is
@@ -321,7 +324,7 @@ def register(
         """The sites this session has saved data for. Never a value."""
         return await answer_module.answer(
             request, token, "site-data/list",
-            lambda name, _body: resources.site_listing(sessions, name), log,
+            lambda caller, _body: resources.site_listing(sessions, caller.name), log,
         )
 
     @mcp.custom_route(
@@ -332,7 +335,8 @@ def register(
         site = request.path_params["site"]
         return await answer_module.answer(
             request, token, "site-data/get",
-            lambda name, _body: resources.one_site(sessions, name, site), log,
+            lambda caller, _body: resources.one_site(sessions, caller.name, site),
+            log,
         )
 
     for path, method_name in ENDPOINTS.items():
@@ -385,7 +389,7 @@ def _add(mcp, actions, sessions, token, prefix, path, method_name, catalogue) ->
 
     @mcp.custom_route(route, methods=["POST"], name=f"browser_{path}")
     async def handler(request: Request) -> JSONResponse:
-        def call(name, body):
+        def call(caller, body):
             # Unknown keys are dropped rather than refused: a caller sending a
             # field a newer version accepts should not be a hard failure.
             kwargs = {k: v for k, v in body.items() if k in accepted}
@@ -395,11 +399,11 @@ def _add(mcp, actions, sessions, token, prefix, path, method_name, catalogue) ->
                 # Its own path, because a bound write must not let the shared
                 # wrapper store the page it landed on. See secrets.perform_write.
                 return secrets_module.perform_write(
-                    catalogue, actions, sessions, name, kwargs
+                    catalogue, actions, sessions, caller.name, kwargs
                 )
             kwargs.pop("secret", None)
             return sessions.act(
-                name,
+                caller,
                 lambda s: method(s, **kwargs),
                 reshapes=method_name == RESHAPES,
             )

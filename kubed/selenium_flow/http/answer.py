@@ -25,7 +25,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from .. import errors
-from ..session import sessions as sessions_module
+from ..session.sessions import Caller, values_of
 from . import auth
 
 
@@ -96,15 +96,15 @@ async def answer(
 ) -> JSONResponse:
     """Authorise, read the body, name the session, run ``call``, shape a failure.
 
-    ``call`` takes the session name and the body. One signature is what lets one
-    wrapper serve every tree.
+    ``call`` takes the :class:`Caller` this request describes, read here once,
+    and the body. One signature is what lets one wrapper serve every tree.
 
     ``named`` is why this is a keyword rather than an assumption. A browser or a
-    file belongs to a caller, so naming none is a refusal. A **flow** does not:
-    an unnamed caller reads the shared ``global`` library, which is deliberate
-    (``library_from``, not ``name_from``), and those trees resolve the library
-    themselves from the request. Demanding a name for them turned "here is the
-    shared library" into "name your session" — a refusal in place of an answer.
+    file belongs to a caller, so naming none is a refusal, before ``call`` runs.
+    A **flow** does not: an unnamed caller reads the shared ``global`` library,
+    which is deliberate (``caller.library``, not ``caller.name``). Demanding a
+    name for them turned "here is the shared library" into "name your session"
+    — a refusal in place of an answer.
 
     Naming happens inside the try on purpose: an unnamed request and one
     carrying two names are both refusals ``errors`` already classifies, and they
@@ -116,14 +116,16 @@ async def answer(
     if not isinstance(body, dict):
         return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
     try:
-        name = sessions_module.name_from(request) if named else ""
+        caller = Caller.from_request(*values_of(request))
+        if named:
+            _ = caller.name  # its refusal, if it has one, before the call
         # In a worker thread: almost every call here is synchronous Selenium,
         # a `requests` call to the Grid or a whole flow run, and on the event
         # loop one `assert` waiting 900s stalled every other request, MCP and
         # `/health` included — FastMCP already runs the same sync tools in a
         # thread pool. An `async def` call only builds its coroutine there,
         # and it is awaited back here on the loop (§F4.19).
-        result = await run_in_threadpool(call, name, body)
+        result = await run_in_threadpool(call, caller, body)
         if hasattr(result, "__await__"):
             result = await result
         return JSONResponse(result)

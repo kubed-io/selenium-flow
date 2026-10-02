@@ -226,8 +226,8 @@ class InstructionsFor(Middleware):
         self.skill_available = skill_available
 
     def _text(self, context) -> str:
-        client = clients.named_in(context.message)
-        return instructions(self.skill_available, clients.reads_resources(client))
+        caller = clients.caller(clients.named_in(context.message))
+        return instructions(self.skill_available, clients.reads_resources(caller))
 
     async def on_initialize(self, context, call_next):
         result = await call_next(context)
@@ -257,7 +257,7 @@ def register(
     ) -> dict:
         """Whose browser this is, then act on it. See ``sessions.act``, which
         the HTTP surface calls too so the two cannot drift."""
-        return sessions.act(sessions.name(), call, reshapes=reshapes)
+        return sessions.act(clients.caller(), call, reshapes=reshapes)
 
     @mcp.tool(annotations=hints("Open browser session", destructive=True))
     def open_session(
@@ -288,7 +288,7 @@ def register(
         you know has one. An insecure browser gets no saved site data.
         """
         return sessions.open_browser(
-            sessions.name(),
+            clients.caller(),
             url=url,
             fresh=fresh,
             restore_site_data=restore_site_data,
@@ -330,9 +330,9 @@ def register(
         so a later open_session() comes back to the same page. Files the browser had
         and you did not keep go with it.
         """
-        name = sessions.name()
-        sessions.end_browser(name)
-        return {"success": True, "session": name}
+        caller = clients.caller()
+        sessions.end_browser(caller)
+        return {"success": True, "session": caller.name}
 
     @mcp.tool(annotations=hints("Navigate to URL", idempotent=True))
     def navigate(url: str) -> dict:
@@ -554,7 +554,7 @@ def register(
             catalogue,
             actions,
             sessions,
-            sessions.name(),
+            clients.caller().name,
             {
                 "text": text,
                 "url": url,

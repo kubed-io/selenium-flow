@@ -70,16 +70,16 @@ def acting_as(monkeypatch, server, session):
     `None` is the caller that named no session: it gets the shared library, and
     anything touching a browser refuses it.
     """
-    from kubed.selenium_flow.flows.library import GLOBAL_SESSION
-    from kubed.selenium_flow.session.sessions import UNNAMED
+    from kubed.selenium_flow.flows.library import STDIO_SESSION
+    from kubed.selenium_flow.mcp import clients as clients_module
 
-    def named():
-        if session is None:
-            raise ValueError(UNNAMED)
-        return session
+    from .conftest import calling_as
 
-    monkeypatch.setattr(server.sessions, "name", named)
-    monkeypatch.setattr(server.sessions, "library", lambda: session or GLOBAL_SESSION)
+    if session == STDIO_SESSION:
+        # The stdio caller is the one off HTTP: there is no request to read.
+        monkeypatch.setattr(clients_module, "request_values", lambda: None)
+    else:
+        calling_as(monkeypatch, session)
 
 
 # ---- the surface itself -----------------------------------------------------

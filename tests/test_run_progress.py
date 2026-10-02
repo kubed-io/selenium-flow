@@ -25,7 +25,7 @@ from kubed.selenium_flow.flows import run as flowrun
 from kubed.selenium_flow.mcp import progress
 from kubed.selenium_flow.server import SeleniumMCP
 
-from .conftest import NAMED, TOKEN
+from .conftest import NAMED, TOKEN, calling_as
 from .fakes import FakeClock
 
 pytestmark = pytest.mark.unit
@@ -48,7 +48,7 @@ def slow_server(tmp_path, monkeypatch):
             flow={"data_dir": str(tmp_path)},
         )
     )
-    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
+    calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
     server.ran = []
 
@@ -177,7 +177,9 @@ def test_a_flow_that_declares_a_shorter_budget_is_held_to_it(monkeypatch):
 
 
 @pytest.mark.parametrize("given", ["soon", 0, -5, True, 1.5])
-async def test_a_budget_that_is_not_seconds_is_refused_at_save(tmp_path, given):
+async def test_a_budget_that_is_not_seconds_is_refused_at_save(
+    tmp_path, given, monkeypatch
+):
     server = SeleniumMCP(
         Settings(
             grid={"url": "http://grid.invalid:4444"},
@@ -185,8 +187,7 @@ async def test_a_budget_that_is_not_seconds_is_refused_at_save(tmp_path, given):
             flow={"data_dir": str(tmp_path)},
         )
     )
-    server.sessions.name = lambda: NAMED
-    server.sessions.library = lambda: NAMED
+    calling_as(monkeypatch, NAMED)
     tool = await server.mcp.get_tool(flowapi.SAVE_TOOL)
     with pytest.raises(ValueError, match="timeout must be a whole number of seconds"):
         await tool.fn(name="bad", steps=STEPS[:1], timeout=given)
@@ -200,9 +201,9 @@ def test_a_hand_edited_bad_budget_is_refused_before_step_one():
     assert actions.calls == []
 
 
-async def test_a_saved_budget_survives_the_round_trip(slow_server):
+async def test_a_saved_budget_survives_the_round_trip(slow_server, monkeypatch):
     tool = await slow_server.mcp.get_tool(flowapi.SAVE_TOOL)
-    slow_server.sessions.library = lambda: NAMED
+    calling_as(monkeypatch, NAMED)
     await tool.fn(name="patient", steps=STEPS[:1], timeout=900)
     assert slow_server.flows.get(NAMED, "patient")["timeout"] == 900
 
@@ -222,12 +223,14 @@ def test_a_budget_saved_over_http_is_kept_too(slow_server):
     assert slow_server.flows.get(NAMED, "patient")["timeout"] == 900
 
 
-async def test_a_budget_given_as_text_is_stored_as_the_number_it_means(slow_server):
+async def test_a_budget_given_as_text_is_stored_as_the_number_it_means(
+    slow_server, monkeypatch
+):
     """Coerced on the way in, so it must be kept as what it was coerced to — a
     read would otherwise hand back a string where the schema promises an
     integer (Copilot, #37)."""
     tool = await slow_server.mcp.get_tool(flowapi.SAVE_TOOL)
-    slow_server.sessions.library = lambda: NAMED
+    calling_as(monkeypatch, NAMED)
     saved = await tool.fn(name="patient", steps=STEPS[:1], timeout="900")
     assert saved["timeout"] == 900
     assert slow_server.flows.get(NAMED, "patient")["timeout"] == 900

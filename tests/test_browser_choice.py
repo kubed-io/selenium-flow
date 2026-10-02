@@ -260,11 +260,11 @@ async def test_a_rejected_browser_does_not_cost_you_the_one_you_have(
     then failed — the caller lost its page, its cookies and the form it had
     filled in, for a misspelling. A rejected argument must cost nothing.
     """
-    from .conftest import NAMED
+    from .conftest import NAMED, calling_as
 
     open_session = (await server.mcp.get_tool("open_session")).fn
     ended = []
-    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
+    calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.sessions, "end_browser", lambda *a: ended.append(a))
 
     with pytest.raises(ValueError, match="safari"):

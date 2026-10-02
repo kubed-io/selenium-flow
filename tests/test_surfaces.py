@@ -153,7 +153,7 @@ async def test_every_tool_declares_its_safety_hints(server, monkeypatch, resourc
     advertised as destructive when every one of them merely reads.
     """
     monkeypatch.setattr(
-        clients_module, "_http", lambda: ({"resources": resources}, {})
+        clients_module, "request_values", lambda: ({"resources": [resources]}, {})
     )
     tools = await server.mcp.list_tools()
     assert tools, "no tools listed, so this proves nothing"
@@ -202,10 +202,10 @@ async def test_resize_writes_the_new_size_back_to_the_session(server, monkeypatc
     and only diverge later, when the Grid reaped that browser and it came back
     the size it was opened at. So assert the tool actually asks.
     """
-    from .conftest import NAMED
+    from .conftest import NAMED, calling_as
 
     resize = (await server.mcp.get_tool("resize")).fn
-    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
+    calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.sessions, "resolve", lambda name: "abc")
     monkeypatch.setattr(
         server.actions,

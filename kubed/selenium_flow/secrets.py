@@ -558,17 +558,19 @@ LIST_DESCRIPTION = (
 )
 
 
-def register(mcp, catalogue, sessions, token: str | None, prefix: str = "") -> None:
+def register(mcp, catalogue, token: str | None, prefix: str = "") -> None:
     """Serve the catalogue as a resource and one endpoint."""
     from starlette.responses import JSONResponse
 
     from . import errors
     from .http import auth
+    from .mcp import clients
+    from .session.sessions import Caller, values_of
 
-    def listing() -> dict:
+    def listing(caller) -> dict:
         if catalogue is None:
             raise ValueError(OFF)
-        return catalogue.listing(sessions.name())
+        return catalogue.listing(caller.name)
 
     @mcp.resource(
         LIST_URI,
@@ -577,14 +579,14 @@ def register(mcp, catalogue, sessions, token: str | None, prefix: str = "") -> N
         mime_type="application/json",
     )
     def secrets_resource() -> dict:
-        return listing()
+        return listing(clients.caller())
 
     @mcp.custom_route(f"{prefix}/secrets", methods=["GET"], name="secrets")
     async def secrets_route(request):
         if not auth.authorized(request, token):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         try:
-            return JSONResponse(listing())
+            return JSONResponse(listing(Caller.from_request(*values_of(request))))
         except Exception as exc:  # noqa: BLE001 - errors.py decides what it means
             return JSONResponse(
                 {"error": errors.message(exc)}, status_code=errors.status_for(exc)

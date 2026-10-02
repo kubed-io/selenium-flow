@@ -2,7 +2,7 @@
 
 Everything here was previously duplicated across test modules — two copies of
 ``RecordingActions``, two of ``FakeGrid``, three of the ``http()`` helper, and
-the same four-line ``monkeypatch.setattr(..., http_request, ...)`` incantation in
+the same four-line ``monkeypatch.setattr(..., request_values, ...)`` incantation in
 about twenty tests. They had already drifted: one ``RecordingActions`` counted
 opened browsers, the other also recorded the settings each was opened with, so
 which behaviours a test could assert depended on which file it happened to live
@@ -18,8 +18,8 @@ from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.core.browser import Grid
 from kubed.selenium_flow.http import admin as _admin
+from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.session import sessions as sessions_module
 from kubed.selenium_flow.session.sessions import SessionManager
 from kubed.selenium_flow.session.store import MemoryStore
 
@@ -96,8 +96,12 @@ class RecordingActions:
 
 
 def http(params=None, headers=None):
-    """Stand in for the ambient HTTP request."""
-    return dict(params or {}), dict(headers or {})
+    """Stand in for the ambient HTTP request: every value a list, as
+    ``clients.request_values`` reads one."""
+    return (
+        {k: [v] for k, v in (params or {}).items()},
+        {k: [v] for k, v in (headers or {}).items()},
+    )
 
 
 def manager(actions=None, store=None):
@@ -123,6 +127,19 @@ def scripted(actions, monkeypatch):
 # ---- who is calling --------------------------------------------------------
 
 
+def calling_as(monkeypatch, name):
+    """Make the ambient request name ``name``, or name nothing when it is None.
+
+    The one seam for who is calling: the edge reads the request through
+    ``clients.request_values``, and every surface below it is handed what it
+    read."""
+    monkeypatch.setattr(
+        clients_module,
+        "request_values",
+        lambda: http({"session": name} if name is not None else None),
+    )
+
+
 @pytest.fixture
 def named_caller(monkeypatch):
     """Make the ambient request look like a client that named its session.
@@ -131,7 +148,7 @@ def named_caller(monkeypatch):
     `store[NAMED]` directly.
     """
     monkeypatch.setattr(
-        sessions_module, "http_request", lambda: http({"session": NAMED})
+        clients_module, "request_values", lambda: http({"session": NAMED})
     )
     return NAMED
 
@@ -143,7 +160,7 @@ def unnamed_caller(monkeypatch):
     There is one contract now, and this is the caller that has not met it: every
     call is refused with the message that says how to name yourself (§F2.12).
     """
-    monkeypatch.setattr(sessions_module, "http_request", lambda: http())
+    monkeypatch.setattr(clients_module, "request_values", lambda: http())
     return
 
 

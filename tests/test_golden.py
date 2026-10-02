@@ -36,7 +36,7 @@ from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.session.store import MemoryStore, SessionRecord
 from kubed.selenium_flow.spec import build_spec
 
-from .conftest import NAMED, TOKEN, RecordingActions
+from .conftest import NAMED, TOKEN, RecordingActions, calling_as
 from .fakes import FakeActions, FakeClock, FakeGrid
 from .golden_tools import compare, normalised
 from .test_flowrun import SECRET_STEP, SIMPLE, Vault, flow
@@ -54,7 +54,7 @@ async def published(server, monkeypatch, resources):
     """What a client that reads resources (``on``) or does not (``off``) is
     shown: the per-request shaping in ``mcp.clients`` and ``mcp.mirror``."""
     monkeypatch.setattr(
-        clients_module, "_http", lambda: ({"resources": resources}, {})
+        clients_module, "request_values", lambda: ({"resources": [resources]}, {})
     )
     info = Implementation(name="a spec-complete client", version="1")
     async with Client(server.mcp, client_info=info) as client:
@@ -363,7 +363,7 @@ def twin(monkeypatch):
         monkeypatch.setattr(Actions, name, handed_to(double, name))
     server = SeleniumMCP(Settings(**SETTINGS))
     server.actions.grid = double.grid
-    server.sessions.name = lambda: NAMED
+    calling_as(monkeypatch, NAMED)
     server.sessions.store.set(NAMED, SessionRecord(session_id="b-1"))
     double.grid.alive.add("b-1")
     return server, double

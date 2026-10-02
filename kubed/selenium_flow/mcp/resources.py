@@ -11,6 +11,7 @@ from fastmcp import FastMCP
 
 from ..core import site_data
 from ..session.sessions import SessionManager
+from . import clients
 
 RESOURCE_URI = "session://current"
 
@@ -35,7 +36,7 @@ def register(mcp: FastMCP, sessions: SessionManager) -> None:
         mime_type="application/json",
     )
     def current_session_resource() -> dict:
-        return sessions.describe()
+        return sessions.describe(clients.caller())
 
     @mcp.resource(
         site_data.LIST_URI,
@@ -44,7 +45,7 @@ def register(mcp: FastMCP, sessions: SessionManager) -> None:
         mime_type="application/json",
     )
     def site_data_resource() -> dict:
-        return site_listing(sessions, sessions.name())
+        return site_listing(sessions, clients.caller().name)
 
     @mcp.resource(
         f"{site_data.LIST_URI}/{{site}}",
@@ -53,7 +54,7 @@ def register(mcp: FastMCP, sessions: SessionManager) -> None:
         mime_type="application/json",
     )
     def one_site_resource(site: str) -> dict:
-        return one_site(sessions, sessions.name(), site)
+        return one_site(sessions, clients.caller().name, site)
 
 
 SITE_DESCRIPTION = (

@@ -45,6 +45,7 @@ from ..core.browser import DEFAULT_BROWSER, is_partial
 from ..flows import api as flowapi
 from ..flows import document as flowdoc
 from ..flows import library as flows
+from ..session.sessions import Caller
 from ..session.store import SessionRecord
 from . import auth, files, links
 
@@ -776,9 +777,10 @@ def register(
             # job is "make sure this session is not holding a browser".
             return JSONResponse({"success": True, "key": key, "session_id": None})
         # Through the same command the tool uses, so the button and the tool
-        # cannot mean different things. Blocking HTTP to the Grid, so off the
-        # event loop — a slow Grid would stall every connected dashboard.
-        await run_in_threadpool(sessions.end_browser, key)
+        # cannot mean different things: the admin names the session by its
+        # key. Blocking HTTP to the Grid, so off the event loop — a slow Grid
+        # would stall every connected dashboard.
+        await run_in_threadpool(sessions.end_browser, Caller(key, "admin"))
         return JSONResponse({"success": True, "key": key, "session_id": session_id})
 
     async def header(key: str, session_id: str) -> dict:

@@ -31,6 +31,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from ..core.browser import as_bool, normalize_browser
+
 if TYPE_CHECKING:
     from ..config import SessionSettings
 
@@ -60,8 +62,6 @@ def _as_flag(value) -> bool | None:
     remembered true, or a session that once accepted a bad certificate could
     never stop (Copilot, #40).
     """
-    from ..core.browser import as_bool  # local: keeps this module importable
-
     return None if value in (None, "") else as_bool(value, False)
 
 
@@ -70,8 +70,6 @@ def _as_client_browser(value) -> str | None:
     opening."""
     if value in (None, ""):
         return None
-    from ..core.browser import normalize_browser  # local: keeps this module importable
-
     try:
         return normalize_browser(value)
     except ValueError as exc:
@@ -129,11 +127,12 @@ def resolve(
     explicit: dict | None = None,
     defaults: dict | None = None,
     previous: dict | None = None,
+    client: dict | None = None,
 ) -> dict:
     """The settings a new session opens with (the cascade at the top of this module).
 
-    Reads the current request for client defaults, so it must be called while
-    one is in flight. Off HTTP there simply are none.
+    ``client`` is the caller's own defaults (:func:`from_client`, read off its
+    request by whoever holds it). Off HTTP there are none, and None says so.
 
     ``previous`` is what this flow session was last opened with, and it is
     applied over the two default sources — see the cascade at the top of this
@@ -141,13 +140,8 @@ def resolve(
     of this function, and a value that was good enough to open a browser with is
     not something to second-guess on the way back in.
     """
-    from .sessions import http_request  # local: avoids a circular import
-
-    http = http_request()
-    params, headers = http if http else (None, None)
-
     merged = dict(defaults or {})
-    merged.update(from_client(params, headers))
+    merged.update(client or {})
     merged.update({k: v for k, v in (previous or {}).items() if k in SETTINGS})
     for name, value in (explicit or {}).items():
         if name not in SETTINGS or value is None:
@@ -158,8 +152,6 @@ def resolve(
             # costs nothing; an explicit argument is this caller naming a
             # browser for this session, and quietly running it on a different
             # one is not a fallback, it is the wrong answer.
-            from ..core.browser import normalize_browser
-
             merged[name] = normalize_browser(value)  # strict for an explicit argument
             continue
         coerced = SETTINGS[name][2](value)

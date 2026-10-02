@@ -11,10 +11,10 @@ from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core import site_data
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.session.sessions import Caller, SessionManager
+from kubed.selenium_flow.session.sessions import SessionManager
 from kubed.selenium_flow.session.store import SessionRecord
 
-from .conftest import NAMED, TOKEN
+from .conftest import NAMED, TOKEN, calling_as
 
 pytestmark = pytest.mark.unit
 
@@ -36,9 +36,8 @@ def saved_record():
 
 
 @pytest.fixture
-def saved(server):
-    server.sessions.name = lambda: NAMED
-    server.sessions.caller = lambda: Caller(NAMED, "header")
+def saved(server, monkeypatch):
+    calling_as(monkeypatch, NAMED)
     server.sessions.store.set(NAMED, saved_record())
     return server
 

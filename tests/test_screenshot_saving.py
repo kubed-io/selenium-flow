@@ -18,6 +18,8 @@ from kubed.selenium_flow import errors
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.core.browser import Grid
 
+from .conftest import calling_as
+
 pytestmark = pytest.mark.unit
 
 # A real 1x1 PNG, because the action reads the image's dimensions out of it.
@@ -435,7 +437,7 @@ async def test_a_screenshot_carries_the_site_data_hint(keeping_server, monkeypat
     png = base64.b64encode(b"\x89PNG\r\n\x1a\n").decode()
     monkeypatch.setattr(keeping_server.sessions, "act", lambda name, call, **kw: {
         "image": png, "site_data": hint, **kept})
-    monkeypatch.setattr(keeping_server.sessions, "name", lambda: "s")
+    calling_as(monkeypatch, "s")
     async with Client(keeping_server.mcp) as client:
         result = await client.call_tool("screenshot", {})
     assert result.content[0].type == "image"

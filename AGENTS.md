@@ -358,8 +358,9 @@ The tell was the shape of the key: the server's real ids are undashed hex
 (`131c43cc…`) while the ones in the log were dashed UUIDs (`bf532044-b55e-…`) — a value
 FastMCP had invented, not one the transport negotiated.
 
-`session/sessions.py` therefore reads what the request carries itself, via
-`get_http_request()`. A missing name then shows up as a missing name, which is
+`mcp/clients.py` therefore reads what the request carries itself, via
+`get_http_request()`, into a `Caller` (`session/sessions.py`) that the edge
+hands in. A missing name then shows up as a missing name, which is
 the whole point — and under §F2.12 it is an error with a message rather than a
 silent new identity.
 

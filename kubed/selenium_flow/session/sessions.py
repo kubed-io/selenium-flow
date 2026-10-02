@@ -15,8 +15,13 @@ A name arrives one of two ways, and they are the two things any client can set:
 
 **Both at once is refused**, rather than one quietly winning. A request
 carrying two names has two ideas about who is calling, and picking one hides
-that from whoever wired it up. Neither is refused too, with a message saying
-how to name yourself.
+that from whoever wired it up — and so is one name given twice with two values,
+``?session=a&session=b``, for the same reason. Neither is refused too, with a
+message saying how to name yourself.
+
+The request is read **once, at the edge** — a tool, a route — into a
+:class:`Caller`, and that is what everything below takes. Nothing here reads
+the request itself.
 
 On **stdio** there is no request to read, and one process serves exactly one
 client, so the name is the transport's own: :data:`STDIO_NAME`. That is not a
@@ -39,13 +44,16 @@ from __future__ import annotations
 import contextlib
 import logging
 import time
-from dataclasses import dataclass, replace
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 
 from .. import errors
 from ..core import site_data as site_data_module
 from ..core.actions import Actions
-from ..core.browser import DEFAULT_BROWSER
+from ..core.browser import DEFAULT_BROWSER, as_bool, in_frame
+from ..flows.library import GLOBAL_SESSION, valid_session_name
 from ..mcp import guidance
+from . import settings as settings_module
 from .store import MemoryStore, SessionRecord, SessionStore
 
 log = logging.getLogger(__name__)
@@ -76,109 +84,154 @@ BOTH = (
     "one you control and drop the other."
 )
 
+# What a client may declare about itself in its connection config, beside its
+# name: flag -> (query parameter, header). The header wins, as it does for a
+# setting: it is set in a credential, by an admin.
+FLAGS = {"resources": ("resources", "x-mcp-resources")}
+
+# The names a client's setting defaults and flags arrive under.
+CLIENT_PARAMS = {
+    param for param, _, _ in settings_module.SETTINGS.values() if param
+} | {param for param, _ in FLAGS.values()}
+CLIENT_HEADERS = {
+    header for _, header, _ in settings_module.SETTINGS.values() if header
+} | {header for _, header in FLAGS.values()}
+
 
 @dataclass(frozen=True)
 class Caller:
-    """Who is calling, and how they said so.
+    """Who is calling, read once at the edge of a request and handed in.
 
-    ``source`` exists for the log line: when sessions misbehave, the first
-    question is always which mechanism actually supplied the name.
+    Everything below the edge takes one of these rather than reading the
+    request itself, so the rule for naming a session lives in exactly one
+    place (:meth:`from_request`) and the manager can be driven by any host.
+
+    A request that names no session, or names it badly, still makes a caller:
+    reading the shared flow library and listing tools need no name, so the
+    refusal waits until something asks for :attr:`name` (or, for a name that
+    is malformed or given twice, :attr:`library`).
+
+    ``named_by`` exists for the log line and the status resource: when sessions
+    misbehave, the first question is always which mechanism supplied the name.
+    ``client`` is the calling client's ``clientInfo`` name, or "". ``flags``
+    is what the client declared about itself (``resources``), as it said it.
     """
 
-    name: str
-    source: str
-
-
-def http_request() -> tuple[dict, dict] | None:
-    """(query params, headers) for the current request, or None off HTTP.
-
-    Both are looked up through FastMCP's dependency helpers, which read the
-    request from a context variable set by the ASGI stack. That is a different
-    path from the one ``Context.session_id`` uses, and it keeps working where
-    that one gives up.
-    """
-    try:
-        from fastmcp.server.dependencies import get_http_request
-    except ImportError:  # pragma: no cover - fastmcp is a hard dependency
-        return None
-    try:
-        request = get_http_request()
-    except Exception:  # noqa: BLE001 - outside an HTTP request this raises
-        request = None
-    if request is None:
-        # Headers may still be reachable even when the request object is not.
-        try:
-            from fastmcp.server.dependencies import get_http_headers
-
-            headers = get_http_headers()
-        except Exception:  # noqa: BLE001
-            return None
-        if not headers:
-            return None
-        return {}, {k.lower(): v for k, v in headers.items()}
-    return (
-        dict(request.query_params),
-        {k.lower(): v for k, v in request.headers.items()},
+    named: str = ""
+    named_by: str = ""
+    client: str = ""
+    flags: Mapping[str, str] = field(default_factory=dict)
+    # Why a request's name is not one, raised when the name is asked for.
+    refusal: ValueError | None = None
+    # The client's own setting defaults, as (query, header) values, last of each.
+    said: tuple[Mapping[str, str], Mapping[str, str]] = field(
+        default=({}, {}), repr=False
     )
 
+    @classmethod
+    def from_request(
+        cls,
+        params: Mapping[str, list[str]],
+        headers: Mapping[str, list[str]],
+        *,
+        client: str = "",
+    ) -> Caller:
+        """The caller a request describes: every value a list, headers lowercased.
 
-def name_in(params: dict, headers: dict) -> Caller | None:
-    """The name a request carries, or None if it carries none.
+        Every value is kept, because a repeated ``?session=`` is two names, and
+        a reader that kept only the last would quietly pick one of them.
+        """
+        header = _names(headers.get(NAME_HEADER))
+        param = _names(params.get(NAME_PARAM))
+        named, named_by, refusal = "", "", None
+        if header and param:
+            refusal = ValueError(BOTH)
+        elif header or param:
+            chosen = header or param
+            named_by = "header" if header else "query"
+            if len(chosen) > 1:
+                refusal = ValueError(_two_names(chosen))
+            else:
+                try:
+                    named = valid_session_name(chosen[0])
+                except ValueError as exc:
+                    refusal = exc
+        said = (_last(params, CLIENT_PARAMS), _last(headers, CLIENT_HEADERS))
+        flags = {}
+        for flag, (param_name, header_name) in FLAGS.items():
+            value = said[1].get(header_name) or said[0].get(param_name)
+            if value is not None:
+                flags[flag] = value
+        return cls(named, named_by, client, flags, refusal, said)
 
-    Takes the two dictionaries rather than reading the request itself, so the
-    HTTP routes — which have a Starlette request in hand — resolve a session
-    through exactly this function rather than a second copy of the rule.
+    @classmethod
+    def stdio(cls, *, client: str = "") -> Caller:
+        """The one client a stdio process serves, named by the transport."""
+        return cls(STDIO_NAME, "stdio", client)
+
+    @property
+    def name(self) -> str:
+        """The session this caller is about. Raises when it named none."""
+        if self.refusal is not None:
+            raise type(self.refusal)(*self.refusal.args)
+        if not self.named:
+            raise ValueError(UNNAMED)
+        return self.named
+
+    @property
+    def library(self) -> str:
+        """The flow library this caller is about.
+
+        Its own, or the **shared** one when it named no session. That is the
+        one place a missing name is not an error, and it is not an exception
+        to E18 so much as the other half of it: `global` is read-only to
+        everyone (§F1.2), so an unnamed caller can list and read the shared
+        flows and can write nowhere at all. Anything that touches a browser
+        still has to say who it is (§F2.13).
+        """
+        if self.refusal is not None:
+            raise type(self.refusal)(*self.refusal.args)
+        return self.named or GLOBAL_SESSION
+
+    @property
+    def defaults(self) -> dict:
+        """The setting defaults this client set in its connection config."""
+        return settings_module.from_client(*self.said)
+
+
+def _two_names(names: list[str]) -> str:
+    """The refusal for a request that repeats its name with different values."""
+    count = "two" if len(names) == 2 else str(len(names))
+    return f"the request names {count} sessions: {', '.join(names)}"
+
+
+def _names(values) -> list[str]:
+    """The distinct names a request gives in one place, blanks dropped.
+
+    Surrounding whitespace is not part of a name, and a blank one is no name.
     """
-    from ..flows.library import valid_session_name
-
-    header = str(headers.get(NAME_HEADER) or "").strip()
-    param = str(params.get(NAME_PARAM) or "").strip()
-    if header and param:
-        raise ValueError(BOTH)
-    chosen = header or param
-    if not chosen:
-        return None
-    return Caller(valid_session_name(chosen), "header" if header else "query")
+    return list(dict.fromkeys(str(v).strip() for v in values or () if str(v).strip()))
 
 
-def requested() -> Caller | None:
-    """The caller of the current MCP request, or None if it named no session."""
-    http = http_request()
-    if http is None:
-        return Caller(STDIO_NAME, "stdio")
-    params, headers = http
-    return name_in(params, headers)
+def _last(values: Mapping[str, list[str]], wanted) -> dict[str, str]:
+    """The last value of each name in ``wanted``: a client setting, read as it
+    always has been, where a repeat is the later one."""
+    return {k: v[-1] for k, v in values.items() if k in wanted and v}
 
 
-def name_from(request) -> str:
-    """The session a Starlette request names. Raises when it names none.
+def values_of(request) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """(query params, headers) of a Starlette request, every value a list.
 
-    The HTTP routes hold a request object, so they read it directly rather than
-    through the ambient lookup :func:`requested` uses. Same rule, one
-    implementation: :func:`name_in` is where it lives.
+    Header names are lowercased here, so a header is matched whatever case the
+    client wrote it in.
     """
-    caller = name_in(
-        dict(request.query_params),
-        {k.lower(): v for k, v in request.headers.items()},
-    )
-    if caller is None:
-        raise ValueError(UNNAMED)
-    return caller.name
-
-
-def library_from(request) -> str:
-    """The flow library a Starlette request is about.
-
-    See :meth:`SessionManager.library` for why a missing name is not an error
-    here.
-    """
-    from ..flows.library import GLOBAL_SESSION
-
-    caller = name_in(
-        dict(request.query_params),
-        {k.lower(): v for k, v in request.headers.items()},
-    )
-    return caller.name if caller else GLOBAL_SESSION
+    params: dict[str, list[str]] = {}
+    for key, value in request.query_params.multi_items():
+        params.setdefault(key, []).append(value)
+    headers: dict[str, list[str]] = {}
+    for key, value in request.headers.items():
+        headers.setdefault(key.lower(), []).append(value)
+    return params, headers
 
 
 class SessionManager:
@@ -212,33 +265,7 @@ class SessionManager:
         """Which backend is in play, for /ready, /info and the config log line."""
         return getattr(self.store, "kind", "memory")
 
-    def caller(self) -> Caller:
-        """Who is calling. Raises when the request named no session."""
-        caller = requested()
-        if caller is None:
-            raise ValueError(UNNAMED)
-        return caller
-
-    def name(self) -> str:
-        """The session this request is about. Raises when it named none."""
-        return self.caller().name
-
-    def library(self) -> str:
-        """The flow library this request is about.
-
-        The caller's own, or the **shared** one when the request named no
-        session. That is the one place a missing name is not an error, and it
-        is not an exception to E18 so much as the other half of it: `global` is
-        read-only to everyone (§F1.2), so an unnamed caller can list and read
-        the shared flows and can write nowhere at all. Anything that touches a
-        browser still has to say who it is (§F2.13).
-        """
-        from ..flows.library import GLOBAL_SESSION
-
-        caller = requested()
-        return caller.name if caller else GLOBAL_SESSION
-
-    def describe(self, name: str | None = None) -> dict:
+    def describe(self, caller: Caller) -> dict:
         """What this session is, and whether it currently holds a browser.
 
         Deliberately side-effect free: reading a status resource must never open
@@ -246,13 +273,10 @@ class SessionManager:
         ``resolve``. The Grid's session id is not in it — that is the whole
         point of E18 — so what a caller reads back is what it may say.
         """
-        # A name is passed in by the HTTP routes, which read it off a request
-        # they are holding; the MCP path asks the ambient request instead. Same
-        # rule either way — `name_in` is where it lives.
-        caller = Caller(name, "request") if name else self.caller()
+        name = caller.name
         status = {
-            "session": caller.name,
-            "named_by": caller.source,
+            "session": name,
+            "named_by": caller.named_by,
             "browser": None,
             "url": None,
             "live": False,
@@ -263,7 +287,7 @@ class SessionManager:
         }
         if self.skill_available:
             status["guidance"] = guidance.pointer("SESSIONS.md")
-        record = self.store.get(caller.name)
+        record = self.store.get(name)
         if record is None:
             return status
 
@@ -293,10 +317,8 @@ class SessionManager:
             # Only worth a round trip when there is a live browser to ask, and
             # one reconnect answers both questions.
             try:
-                from ..core import browser as browser_module
-
                 driver = self.actions.grid.reconnect(record.session_id)
-                status["in_frame"] = browser_module.in_frame(driver)
+                status["in_frame"] = in_frame(driver)
                 size = driver.get_window_size()
                 status["window"] = f"{size['width']}x{size['height']}"
             except Exception:  # noqa: BLE001 - status must never fail
@@ -366,7 +388,7 @@ class SessionManager:
             report=opened.get("site_data"),
         )
 
-    def act(self, name: str, call, *, reshapes: bool = False) -> dict:
+    def act(self, caller: Caller, call, *, reshapes: bool = False) -> dict:
         """Resolve this session's browser, act on it, remember where it ended up.
 
         The three steps every action shares, on **both** surfaces. It lives here
@@ -378,6 +400,7 @@ class SessionManager:
         ``reshapes`` is for the one action that changes a setting the record
         *stores* rather than just the page it is on. See :meth:`reshape`.
         """
+        name = caller.name
         resolved = self.resolve(name)
         result = call(resolved)
         self.settle(name, result, browser=resolved, reshapes=reshapes)
@@ -482,7 +505,7 @@ class SessionManager:
 
     def open_browser(
         self,
-        name: str,
+        caller: Caller,
         url: str | None = None,
         fresh: bool = False,
         restore_site_data: bool = True,
@@ -494,9 +517,7 @@ class SessionManager:
         be chosen, which is why it is never done implicitly. Shared by both
         surfaces for the same reason :meth:`act` is.
         """
-        from ..core.browser import as_bool
-        from . import settings as settings_module
-
+        name = caller.name
         # What this session was last using. It sits between the client's
         # defaults and the explicit arguments: a caller that names nothing means
         # "carry on where I was", which is a stronger signal than a server-wide
@@ -507,12 +528,15 @@ class SessionManager:
         # and doing it afterwards meant a typo in `browser=` quit a perfectly
         # good browser and then failed. A rejected argument must cost nothing.
         resolved = settings_module.resolve(
-            wanted, defaults=self.defaults, previous=previous.get("settings")
+            wanted,
+            defaults=self.defaults,
+            previous=previous.get("settings"),
+            client=caller.defaults,
         )
         # A session holds one browser. Opening a second without ending the first
         # leaves it on the Grid referenced by nothing, holding a slot until the
         # idle timeout — which switching browser did.
-        ended = self.end_browser(name)
+        ended = self.end_browser(caller)
         # `fresh` drops only the remembered page. The settings still come
         # through the cascade above, because coming back as Chrome when the
         # session was using Firefox is a silent change of shape, not a fresh
@@ -713,7 +737,7 @@ class SessionManager:
             return []
         return [v["origin"] for v in record.at(ttl=self.store.ttl).history]
 
-    def end_browser(self, name: str) -> str | None:
+    def end_browser(self, caller: Caller) -> str | None:
         """End the browser a session holds, keeping the session itself.
 
         **The one place a browser is ended.** The caller ending its own, the
@@ -729,6 +753,7 @@ class SessionManager:
 
         Returns the browser that was ended, or None if there was none.
         """
+        name = caller.name
         record = self.store.get(name)
         if record is None or not record.attached:
             return None

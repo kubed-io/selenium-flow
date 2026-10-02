@@ -21,7 +21,17 @@ from .core.browser import Grid
 from .flows import api as flowapi
 from .flows import library as flows
 from .http import admin, files
-from .mcp import apps, completions, failures, mirror, prompts, resources, skill, tools
+from .mcp import (
+    apps,
+    clients,
+    completions,
+    failures,
+    mirror,
+    prompts,
+    resources,
+    skill,
+    tools,
+)
 from .session import settings as session_settings
 from .session import store as store_module
 from .session.sessions import SessionManager
@@ -165,6 +175,9 @@ class SeleniumMCP:
             prefix=self.prefix,
             ttl=settings.link_ttl,
         )
+        # These three are called from inside an action, below every edge, so
+        # they ask the edge's own reader who is calling (`clients.caller`).
+        #
         # How an action keeps a file it made. Wired here because this is where
         # the store, the token and the public base all exist; the behaviour
         # layer takes the function and never the key (§F2.9). No default for
@@ -172,19 +185,20 @@ class SeleniumMCP:
         # a default here would let some future two-argument call silently land
         # in Files.
         self.actions.keep = lambda name, data, folder: files.keep_made(
-            self.sessions, self.flows, name, data, auth_token, base, self.prefix,
-            folder, ttl=settings.link_ttl,
+            clients.caller().name, self.flows, name, data, auth_token, base,
+            self.prefix, folder, ttl=settings.link_ttl,
         )
         # And how it reads one back, for `upload_file(file=...)`. Wired here for
         # the same reason: which flow session owns a file is a question about
         # the caller, which the behaviour layer deliberately cannot see.
         self.actions.read_file = lambda uri, session=None: files.read_file(
-            self.actions, self.sessions, self.flows, uri, session
+            self.actions, self.sessions, self.flows, uri,
+            session or clients.caller().name,
         )
         # And where the caller's session has been, so one save reads every
         # site's storage. Wired here for the same reason: which session is
         # calling is a question about the caller.
-        self.actions.visited = lambda: self.sessions.visited(self.sessions.name())
+        self.actions.visited = lambda: self.sessions.visited(clients.caller().name)
         self.apps = (
             apps.register(self.mcp, self.actions, auth_token, base)
             if apps_enabled
@@ -212,9 +226,7 @@ class SeleniumMCP:
             # there is nothing registered to point at.
             skill_available=self.skill is not None,
         )
-        secrets.register(
-            self.mcp, self.secrets, self.sessions, auth_token, prefix=self.prefix
-        )
+        secrets.register(self.mcp, self.secrets, auth_token, prefix=self.prefix)
         self.mcp.add_middleware(mirror.HideMirrors(app_tools, apps_enabled))
         self.mcp.add_middleware(tools.InstructionsFor(self.skill is not None))
         failures.install(self.mcp)

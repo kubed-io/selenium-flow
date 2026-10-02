@@ -79,13 +79,13 @@ def test_the_session_status_omits_guidance_when_no_skill_is_served():
     """Same rule, the other emitter."""
     from kubed.selenium_flow.core.actions import Actions
     from kubed.selenium_flow.core.browser import Grid
-    from kubed.selenium_flow.session.sessions import SessionManager
+    from kubed.selenium_flow.session.sessions import Caller, SessionManager
 
     actions = Actions(Grid("http://grid.invalid:4444"))
     served = SessionManager(actions, skill_available=True)
     silent = SessionManager(actions, skill_available=False)
-    assert "SESSIONS.md" in served.describe("someone")["guidance"]
-    assert "guidance" not in silent.describe("someone")
+    assert "SESSIONS.md" in served.describe(Caller("someone"))["guidance"]
+    assert "guidance" not in silent.describe(Caller("someone"))
 
 
 def test_the_emitted_shapes_are_exactly_what_they_were():

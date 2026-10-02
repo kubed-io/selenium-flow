@@ -10,6 +10,7 @@ import time
 
 import pytest
 
+from kubed.selenium_flow.session.sessions import Caller
 from kubed.selenium_flow.session.store import (
     HISTORY_CAP,
     MemoryStore,
@@ -161,7 +162,7 @@ def test_opening_another_browser_keeps_where_the_session_has_been():
 def test_ending_a_browser_keeps_the_history():
     sessions = manager(RecordingActions())
     sessions.remember(NAMED, "one", "https://a.test/")
-    sessions.end_browser(NAMED)
+    sessions.end_browser(Caller(NAMED))
     assert sessions.store.get(NAMED).url == "https://a.test/"
 
 
@@ -175,7 +176,7 @@ def run_reporting(monkeypatch, report):
 
     monkeypatch.setattr(flowapi, "run_one", lambda *a, **kw: report)
     sessions = manager(RecordingActions())
-    sessions.open_browser(NAMED, url="https://start.test/")
+    sessions.open_browser(Caller(NAMED), url="https://start.test/")
     writes = []
     real = sessions.store.update
 

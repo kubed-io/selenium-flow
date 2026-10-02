@@ -213,7 +213,10 @@ class HideMirrors(Middleware):
 
     async def on_list_tools(self, context, call_next):
         tools = await call_next(context)
-        hidden = set() if not clients.reads_resources() else set(MIRROR_TOOLS)
+        hidden = (
+            set() if not clients.reads_resources(clients.caller())
+            else set(MIRROR_TOOLS)
+        )
         if not (self.apps_enabled and apps.supported()):
             hidden |= self.app_tools
         return [tool for tool in tools if tool.name not in hidden]

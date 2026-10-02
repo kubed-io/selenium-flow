@@ -307,7 +307,7 @@ def secret_server(tmp_path, monkeypatch):
     from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
-    from .conftest import NAMED, TOKEN
+    from .conftest import NAMED, TOKEN, calling_as
 
     make_secret(
         tmp_path / "secrets-src", "nextcloud-admin", username="admin",
@@ -320,7 +320,7 @@ def secret_server(tmp_path, monkeypatch):
         secrets={"dirs": str(tmp_path / "secrets-src")},
         flow={"data_dir": str(tmp_path / "flows")},
     ))
-    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
+    calling_as(monkeypatch, NAMED)
     return server
 
 
@@ -390,11 +390,13 @@ async def test_with_no_directories_the_catalogue_says_so():
 def test_the_endpoint_serves_the_catalogue_and_needs_the_token(secret_server):
     from starlette.testclient import TestClient
 
-    from .conftest import TOKEN
+    from .conftest import NAMED, TOKEN
 
     client = TestClient(secret_server.mcp.http_app())
     assert client.get("/secrets").status_code == 401
-    response = client.get("/secrets", headers={"Authorization": f"Bearer {TOKEN}"})
+    response = client.get(
+        "/secrets", headers={"Authorization": f"Bearer {TOKEN}", "X-Session-Key": NAMED}
+    )
     assert response.status_code == 200
     assert response.json()["secrets"][0]["name"] == "nextcloud-admin"
     assert "hunter2" not in response.text
@@ -858,7 +860,7 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
     from kubed.selenium_flow.flows import run as flowrun
     from kubed.selenium_flow.server import SeleniumMCP
 
-    from .conftest import NAMED, TOKEN
+    from .conftest import NAMED, TOKEN, calling_as
 
     monkeypatch.delenv("SECRETS_DIRS", raising=False)
     monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
@@ -871,7 +873,7 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
         auth={"token": TOKEN},
         secrets={"dirs": str(tmp_path)},
     ))
-    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
+    calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
     monkeypatch.setattr(
         server.actions, "page",
@@ -912,7 +914,7 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
     """
     from kubed.selenium_flow.server import SeleniumMCP
 
-    from .conftest import NAMED, TOKEN
+    from .conftest import NAMED, TOKEN, calling_as
 
     monkeypatch.delenv("SECRETS_DIRS", raising=False)
     monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
@@ -925,7 +927,7 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
         auth={"token": TOKEN},
         secrets={"dirs": str(tmp_path)},
     ))
-    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
+    calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
     monkeypatch.setattr(
         server.actions, "page",
@@ -957,7 +959,7 @@ async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
     carries the reopen's report, which `touch` hands over."""
     from kubed.selenium_flow.server import SeleniumMCP
 
-    from .conftest import NAMED, TOKEN
+    from .conftest import NAMED, TOKEN, calling_as
 
     monkeypatch.delenv("SECRETS_DIRS", raising=False)
     monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
@@ -970,7 +972,7 @@ async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
         auth={"token": TOKEN},
         secrets={"dirs": str(tmp_path)},
     ))
-    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
+    calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
     monkeypatch.setattr(
         server.actions, "page",
@@ -1142,14 +1144,14 @@ async def test_the_http_catalogue_is_in_the_published_contract(secret_server):
     from kubed.selenium_flow.routes import ENDPOINTS
     from kubed.selenium_flow.spec import build_spec
 
-    from .conftest import TOKEN
+    from .conftest import NAMED, TOKEN
 
     spec = await build_spec(secret_server.mcp, ENDPOINTS, "", authenticated=True)
     operation = spec["paths"]["/secrets"]["get"]
     assert operation["x-mcp-resource"] == secrets.LIST_URI
 
     body = TestClient(secret_server.mcp.http_app()).get(
-        "/secrets", headers={"Authorization": f"Bearer {TOKEN}"}
+        "/secrets", headers={"Authorization": f"Bearer {TOKEN}", "X-Session-Key": NAMED}
     ).json()
     schemas = spec["components"]["schemas"]
     assert not set(body) - set(schemas["SecretList"]["properties"])

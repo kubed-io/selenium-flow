@@ -42,11 +42,10 @@ from starlette.responses import JSONResponse
 
 from ..core.browser import as_bool
 from ..http import answer as answer_module
-from ..mcp import progress
+from ..mcp import clients, progress
 from ..mcp.annotations import hints
 from ..mcp.tools import SecretRef
 from ..routes import ENDPOINTS
-from ..session import sessions as sessions_module
 from . import document as flowdoc
 from . import library as flows
 from . import run as flowrun
@@ -104,13 +103,6 @@ def _require(store):
     if store is None:
         raise ValueError(OFF)
     return store
-
-
-# Which library a call is about: the caller's own, or the shared one when it
-# named no session. `sessions.library` owns the rule so that this surface and
-# the HTTP one cannot answer it differently.
-def session_of(sessions) -> str:
-    return sessions.library()
 
 
 def _context():
@@ -329,7 +321,7 @@ def register(
         mime_type="application/json",
     )
     def flows_resource() -> dict:
-        return catalogue(store, session_of(sessions))
+        return catalogue(store, clients.caller().library)
 
     @mcp.resource(
         FLOW_URI,
@@ -341,7 +333,7 @@ def register(
         mime_type="application/json",
     )
     def flow_resource(name: str) -> dict:
-        return read_one(store, session_of(sessions), name)
+        return read_one(store, clients.caller().library, name)
 
     @mcp.resource(
         SCHEMA_URI,
@@ -389,7 +381,7 @@ def register(
         if timeout is not None:
             document[flowdoc.TIMEOUT] = timeout
         return save_one(
-            store, session_of(sessions), name, document, await schemas.get()
+            store, clients.caller().library, name, document, await schemas.get()
         )
 
     @mcp.tool(
@@ -411,10 +403,10 @@ def register(
     async def run_flow(
         name: str, params: dict | None = None, verbose: bool = False
     ) -> dict:
-        # `name()`, not `library()`: a run drives a browser, so this is one of
-        # the calls that has to know who is asking. Asked here, on the request,
+        # `name`, not `library`: a run drives a browser, so this is one of the
+        # calls that has to know who is asking. Asked here, on the request,
         # before the run moves to a thread.
-        session = sessions.name()
+        session = clients.caller().name
         watch = progress.Watch()
 
         def work():
@@ -449,7 +441,7 @@ def register(
         annotations=hints("Delete a flow", destructive=True, idempotent=True),
     )
     def delete_flow(name: str) -> dict:
-        return delete_one(store, session_of(sessions), name)
+        return delete_one(store, clients.caller().library, name)
 
     _routes(
         mcp, store, sessions, actions, schemas, token, prefix, secrets_catalogue,
@@ -635,10 +627,9 @@ def _routes(
     async def answer(request: Request, what: str, call) -> JSONResponse:
         """One request, answered the way every other tree answers one.
 
-        The calls below take the session name and ignore it: a flow resolves
-        which library it belongs to from the request itself (``library_from``,
-        not ``name_from``), and one signature is what lets one wrapper serve
-        every tree.
+        Unnamed is allowed here: a flow belongs to a library, and ``caller.library``
+        is the shared one when the request named no session. A run asks for
+        ``caller.name``, because it drives a browser.
         """
         return await answer_module.answer(
             request, token, f"flows/{what}", call, log, named=False
@@ -650,9 +641,7 @@ def _routes(
         return await answer(
             request,
             "list",
-            lambda _name, _body: catalogue(
-                store, sessions_module.library_from(request)
-            ),
+            lambda caller, _body: catalogue(store, caller.library),
         )
 
     @mcp.custom_route(f"{prefix}{SCHEMA_PATH}", methods=["GET"], name="flows_schema")
@@ -663,7 +652,7 @@ def _routes(
         of that name.
         """
         return await answer(
-            request, "schema", lambda _name, _body: _document_schema(schemas)
+            request, "schema", lambda _caller, _body: _document_schema(schemas)
         )
 
     @mcp.custom_route(flows_root + "/{name}", methods=["GET"], name="flows_get")
@@ -672,10 +661,8 @@ def _routes(
         return await answer(
             request,
             "get",
-            lambda _name, _body: read_one(
-                store,
-                sessions_module.library_from(request),
-                request.path_params["name"],
+            lambda caller, _body: read_one(
+                store, caller.library, request.path_params["name"]
             ),
         )
 
@@ -683,7 +670,7 @@ def _routes(
     async def save_flow(request: Request) -> JSONResponse:
         """Create or replace one flow. One verb for both, as §F1.5 has it."""
 
-        async def call(_name, body):
+        async def call(caller, body):
             document = {
                 key: body[key]
                 for key in ("description", "parameters", flowdoc.TIMEOUT, "steps")
@@ -691,7 +678,7 @@ def _routes(
             }
             return save_one(
                 store,
-                sessions_module.library_from(request),
+                caller.library,
                 request.path_params["name"],
                 document,
                 await schemas.get(),
@@ -705,10 +692,8 @@ def _routes(
         return await answer(
             request,
             "delete",
-            lambda _name, _body: delete_one(
-                store,
-                sessions_module.library_from(request),
-                request.path_params["name"],
+            lambda caller, _body: delete_one(
+                store, caller.library, request.path_params["name"]
             ),
         )
 
@@ -718,13 +703,13 @@ def _routes(
         return await answer(
             request,
             "run",
-            lambda _name, body: run_for(
+            lambda caller, body: run_for(
                 store,
                 actions,
                 sessions,
-                # `name_from`, not `library_from`: a run drives a browser, so
-                # this is one of the calls that has to know who is asking.
-                sessions_module.name_from(request),
+                # `name`, not `library`: a run drives a browser, so this is one
+                # of the calls that has to know who is asking.
+                caller.name,
                 request.path_params["name"],
                 params=body.get("params"),
                 # as_bool, not bool: over HTTP "false" arrives as a string, and
