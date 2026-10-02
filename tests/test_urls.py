@@ -42,3 +42,52 @@ def test_they_differ_on_a_default_port_and_on_an_ipv6_literal(url, permission, p
     """
     assert exact_origin(url) == permission
     assert urls.origin_of(url) == page
+
+
+# ---- what a caller may open (Ruling 4) ---------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/",
+        "http://localhost:3000/a?q#f",
+        "HTTPS://Example.COM",
+        "  https://example.com  ",
+        "about:blank",
+        "ABOUT:BLANK",
+    ],
+)
+def test_the_web_and_a_blank_page_can_be_opened(url):
+    assert urls.allowed_navigation(url) == url
+
+
+@pytest.mark.parametrize(
+    "url,scheme",
+    [
+        ("file:///etc/passwd", "file"),
+        ("chrome://settings", "chrome"),
+        ("view-source:https://example.com", "view-source"),
+        ("javascript:alert(1)", "javascript"),
+        ("data:text/html,<b>hi</b>", "data"),
+        ("about:config", "about"),
+        ("about:blank#x", "about"),
+        ("blob:https://example.com/1", "blob"),
+        ("FILE:///etc/passwd", "file"),
+        (" \tjava\nscript:alert(1)", "javascript"),
+    ],
+)
+def test_every_other_scheme_is_refused_by_name(url, scheme):
+    with pytest.raises(ValueError) as refused:
+        urls.allowed_navigation(url)
+    assert str(refused.value) == (
+        f"only http(s) URLs can be opened here; {scheme}: cannot"
+    )
+
+
+def test_a_url_with_no_scheme_is_refused_without_quoting_it():
+    with pytest.raises(ValueError) as refused:
+        urls.allowed_navigation("example.com/path")
+    assert str(refused.value) == (
+        "only http(s) URLs can be opened here; a URL with no scheme cannot"
+    )

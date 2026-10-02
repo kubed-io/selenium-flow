@@ -94,6 +94,18 @@ def test_a_caller_that_named_nothing_is_told_how_to():
     assert actions.opened == 0, "an unnamed caller must never open a browser"
 
 
+def test_opening_on_a_page_that_is_not_the_web_costs_the_held_browser_nothing():
+    """Ruling 4, and a rejected argument must cost nothing: refused before the
+    browser being held is ended, as a typo in `browser=` is."""
+    actions = RecordingActions()
+    sessions = manager(actions)
+    sessions.open_browser(Caller(NAMED))
+    with pytest.raises(ValueError) as refused:
+        sessions.open_browser(Caller(NAMED), url="file:///etc/passwd")
+    assert str(refused.value) == "only http(s) URLs can be opened here; file: cannot"
+    assert actions.opened == 1 and actions.closed == []
+
+
 def test_the_shared_library_is_the_one_thing_an_unnamed_caller_gets():
     """The other half of requiring a name, rather than an exception to it:
     `global` is read-only, so an unnamed caller can read the shared flows and can

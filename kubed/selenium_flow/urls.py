@@ -110,3 +110,35 @@ def scrub(text: str, url: str) -> str:
         if secret:
             text = text.replace(secret, "***")
     return text
+
+
+# What a caller may send the browser to (Ruling 4). `about:blank` reaches nothing
+# and is how an agent clears the page; everything else that is not the web names
+# the Grid node's disk (`file:`), the browser's own pages (`chrome:`,
+# `view-source:`) or runs in whatever page is open (`javascript:`, `data:`).
+WEB_SCHEMES = ("http", "https")
+BLANK = "about:blank"
+SCHEME = re.compile(r"([A-Za-z][A-Za-z0-9+.\-]*):")
+
+# What a browser drops before it reads a scheme: control characters and spaces
+# around the URL, and a tab or newline anywhere in it.
+_AROUND = "".join(chr(c) for c in range(0x21))
+_WITHIN = re.compile(r"[\t\n\r]")
+
+
+def allowed_navigation(url) -> str:
+    """``url``, when a caller may open it; otherwise a ValueError naming its scheme.
+
+    Read as the browser reads a URL, so ``java\\nscript:`` is ``javascript:``
+    here too. The refusal names the scheme and never the URL, which may carry
+    credentials.
+    """
+    text = _WITHIN.sub("", str(url)).strip(_AROUND)
+    if text.lower() == BLANK:
+        return url
+    found = SCHEME.match(text)
+    scheme = found.group(1).lower() if found else ""
+    if scheme in WEB_SCHEMES:
+        return url
+    refused = f"{scheme}:" if scheme else "a URL with no scheme"
+    raise ValueError(f"only http(s) URLs can be opened here; {refused} cannot")

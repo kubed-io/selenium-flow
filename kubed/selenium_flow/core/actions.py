@@ -27,6 +27,7 @@ from ..errors import GONE, UNAVAILABLE
 from ..names import FILES_DIR, SCREENSHOTS_DIR
 from ..site_data import snapshot as site_data_snapshot
 from ..site_data import transfer as site_data_transfer
+from ..urls import allowed_navigation
 from . import browser, pointer, probe
 from .assertion import Assertion, window
 from .browser import Grid
@@ -265,8 +266,10 @@ class Actions:
         """Go to a URL, unconditionally.
 
         The ``url`` is the body's, not the recipe's: the recipe skips a page the
-        browser is already on, and going there again is what this is for.
+        browser is already on, and going there again is what this is for. So it
+        is checked here, as the recipe checks its own.
         """
+        allowed_navigation(url)
 
         def go(at):
             at.driver.get(url)

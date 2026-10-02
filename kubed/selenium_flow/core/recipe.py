@@ -21,6 +21,7 @@ from typing import Any, NamedTuple
 
 from selenium.common.exceptions import StaleElementReferenceException
 
+from ..urls import allowed_navigation
 from . import browser
 from .coerce import as_int
 
@@ -97,10 +98,11 @@ class Recipe:
     ) -> dict:
         """The body's fields, then where the page ended up.
 
-        The selector is resolved before the browser is touched: a selector
-        naming both ``xpath`` and ``css``, or neither, is a mistake, and finding
-        that out after a reconnect and a navigation costs a page load to learn
-        nothing. A recipe that waits always needs one; one that does not resolves
+        The selector and the ``url`` are checked before the browser is touched:
+        a selector naming both ``xpath`` and ``css``, or neither, is a mistake,
+        and so is a URL that is not the web's (Ruling 4), and finding that out
+        after a reconnect and a navigation costs a page load to learn nothing.
+        A recipe that waits always needs a selector; one that does not resolves
         whatever selector it was given, for a body that waits on its own terms.
 
         The page state is read once. A body that has to know where the page is
@@ -112,6 +114,8 @@ class Recipe:
         """
         target = browser.locator(selector) if self.wait or selector else None
         timeout = as_int(wait_timeout, WAIT_TIMEOUT)
+        if url:
+            allowed_navigation(url)
 
         driver = self.reconnect(session_id, url)
 

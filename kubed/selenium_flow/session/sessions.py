@@ -55,6 +55,7 @@ from ..core.defaults import DEFAULT_BROWSER
 from ..mcp import guidance
 from ..names import GLOBAL_SESSION, valid_session_name
 from ..site_data import snapshot as site_data_module
+from ..urls import allowed_navigation
 from . import settings as settings_module
 from .store import MemoryStore, SessionRecord, SessionStore
 
@@ -547,6 +548,10 @@ class SessionManager:
             previous=previous.get("settings"),
             client=caller.defaults,
         )
+        # The caller's page, checked for the same reason. A remembered one is
+        # where the browser already was, so it is not the caller's to check.
+        if url:
+            allowed_navigation(url)
         # A session holds one browser. Opening a second without ending the first
         # leaves it on the Grid referenced by nothing, holding a slot until the
         # idle timeout — which switching browser did.

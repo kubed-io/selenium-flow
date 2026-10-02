@@ -151,6 +151,66 @@ def test_a_named_url_somewhere_else_is_navigated_to_before_the_act(actions, scri
     assert names.index("get") < names.index("find_element")
 
 
+# ---- Ruling 4: a caller opens the web, and nothing else ---------------------
+
+REFUSED_URLS = {
+    "file:///etc/passwd": "file",
+    "chrome://settings": "chrome",
+    "view-source:https://example.test/": "view-source",
+    "javascript:alert(1)": "javascript",
+    "data:text/html,<b>hi</b>": "data",
+}
+
+
+@pytest.fixture
+def untouched(actions, monkeypatch):
+    """A browser that fails the test if it is reached: a refused URL is a 400
+    about the input, and costs no reattach."""
+
+    def reached(*_):
+        raise AssertionError("the browser was reached")
+
+    monkeypatch.setattr(actions.grid, "reconnect", reached)
+
+
+@pytest.mark.parametrize("url", sorted(REFUSED_URLS))
+def test_navigate_refuses_every_scheme_but_the_webs(actions, untouched, url):
+    with pytest.raises(ValueError) as refused:
+        actions.navigate("abc", url)
+    assert str(refused.value) == (
+        f"only http(s) URLs can be opened here; {REFUSED_URLS[url]}: cannot"
+    )
+    assert status_for(refused.value) == 400
+
+
+@pytest.mark.parametrize("url", ["about:blank", "http://example.test/", PAGE])
+def test_navigate_opens_the_web_and_a_blank_page(actions, scripted, url):
+    driver = scripted()
+    actions.navigate("abc", url)
+    assert ("get", url) in driver.log
+
+
+URL_TAKERS = {
+    "extract": lambda a, url: a.extract("abc", selector={"css": "#x"}, url=url),
+    "interact": lambda a, url: a.interact(
+        "abc", "click", selector={"css": "#go"}, url=url
+    ),
+    "upload_file": lambda a, url: a.upload_file(
+        "abc", selector={"css": "input"}, text="hi", url=url
+    ),
+    "execute_script": lambda a, url: a.execute_script("abc", "return 1", url=url),
+}
+
+
+@pytest.mark.parametrize("url", sorted(REFUSED_URLS))
+@pytest.mark.parametrize("name", sorted(URL_TAKERS))
+def test_every_url_argument_refuses_the_same_schemes(actions, untouched, name, url):
+    with pytest.raises(ValueError) as refused:
+        URL_TAKERS[name](actions, url)
+    assert str(refused.value).startswith("only http(s) URLs can be opened here")
+    assert status_for(refused.value) == 400
+
+
 def test_extract_returns_html_text_and_page_state_and_nothing_else(actions, scripted):
     driver = scripted()
     driver.element.text, driver.element.html = "hello", "<i>hello</i>"

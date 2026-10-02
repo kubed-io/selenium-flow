@@ -99,6 +99,10 @@ address; clicking a path through a site is for destinations you cannot address.
 URLs compare with the fragment and any trailing slash ignored, so `/x`, `/x/`
 and `/x#top` are one page. Query strings count as different.
 
+Only `http`, `https` and `about:blank` can be opened, here and in `navigate`
+and `open_session`. `file:`, `chrome:`, `view-source:`, `javascript:` and
+`data:` are refused before the browser is touched.
+
 ## Typing
 
 `write` clears the field first by default and returns `value` read back off the
