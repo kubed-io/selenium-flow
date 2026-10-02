@@ -730,6 +730,8 @@ def perform_write(catalogue, actions, sessions, name: str, kwargs: dict) -> dict
     credential into the session record before anything had a chance to redact
     it. Everything else about a write is identical, which is exactly why this
     lives in one place: two copies of a redaction are one copy that is older.
+    It settles like any other action, through ``sessions.settle``, with the page
+    withheld when the value reached it.
     """
     from .flows import redact
 
@@ -760,11 +762,11 @@ def perform_write(catalogue, actions, sessions, name: str, kwargs: dict) -> dict
     # Touched either way. Withholding the page must not also stop the clock:
     # `touch` slides the TTL, and skipping it entirely let a session expire
     # *because* its URL was correctly kept out of the store.
+    #
+    # The first call after a silent reopen says what came back: `settle` puts
+    # that on `shown`.
     safe = None if redact.taints(result.get("url"), hidden) else shown.get("url")
-    told = sessions.touch(name, safe, browser=resolved)
-    if told:
-        # The first call after a silent reopen says what came back.
-        shown["site_data"] = told
+    sessions.settle(name, shown, url=safe, browser=resolved)
     return shown
 
 

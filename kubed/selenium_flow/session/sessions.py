@@ -60,6 +60,9 @@ from .store import MemoryStore, SessionRecord, SessionStore
 
 log = logging.getLogger(__name__)
 
+# `settle`'s default page: the one the result itself reports.
+FROM_RESULT = object()
+
 REPLACED_BEFORE_SAVE = (
     "another browser took this session before the save landed: nothing was saved"
 )
@@ -416,14 +419,21 @@ class SessionManager:
         browser: str | None = None,
         reshapes: bool = False,
         touch: bool = True,
+        url=FROM_RESULT,
     ) -> None:
         """What a finished action means for the record, in place on ``result``.
 
-        The one place a result is stripped of its private capture and the
-        capture stored, so a flow step reaches it the same way a single call
-        does. ``touch=False`` is for the flow runner, which touches before a
-        save step and at the end rather than after every step — and so carries
-        a reopen's report on the run, not on a step.
+        **Every record write after an action comes through here**: a single
+        call (`act`), a flow step and the run's pages (`flows/api.run_for`),
+        and a bound write (`secrets.perform_write`). So the capture is stripped
+        and stored, the page recorded and a reopen's report handed over in one
+        place, and a new consumer cannot forget to forward the report.
+
+        ``url`` is the page to record: the result's own by default, ``None``
+        to withhold it (§F1.24) — the TTL still slides — or the pages a run
+        reached, in order. ``touch=False`` is for a flow step: the runner
+        records its pages before a save step and at the end rather than after
+        every step, and so carries a reopen's report on the run, not on a step.
 
         ``browser`` is the one that produced ``result``: once the record names
         another, its page is not recorded and its save is not kept.
@@ -433,7 +443,12 @@ class SessionManager:
         # Popped before the store is asked anything, so a store that fails
         # cannot leave the capture — every value — in what the caller gets.
         captured = result.pop(site_data_module.CAPTURED, None)
-        told = self.touch(name, result.get("url"), browser=browser) if touch else None
+        told = None
+        if touch:
+            if url is FROM_RESULT:
+                url = result.get("url")
+            pages = url if isinstance(url, (list, tuple)) else (url,)
+            told = self.touch(name, *pages, browser=browser)
         if told:
             result["site_data"] = told
         try:
@@ -668,8 +683,8 @@ class SessionManager:
 
         Called after an action so a later reopen goes back to the right page —
         the top of the history — and so a session in active use does not
-        expire out of the store underneath the caller. A flow run passes every
-        page it reached, in order (`flows/api.run_for`).
+        expire out of the store underneath the caller. Reached through
+        :meth:`settle`; a flow run passes every page it reached, in order.
 
         **No URL still slides the TTL**, and records nothing. The two halves
         are separate facts: "the browser is somewhere I should not write down"

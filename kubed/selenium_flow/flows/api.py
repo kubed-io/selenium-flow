@@ -653,12 +653,13 @@ def run_for(
     # A save reads the localStorage of every site in the history, and the run
     # writes its pages once, at the end: so just before a save step the pages
     # reached so far go in, in one write, and the end writes only the rest.
-    flushed = {"pages": 0, "told": None}
+    # A reopen's report a flush is handed waits in `flushed` for the run's.
+    flushed: dict = {}
+    count = [0]
 
     def before_save(pages):
-        told = sessions.touch(session, *pages[flushed["pages"]:], browser=resolved)
-        flushed["pages"] = len(pages)
-        flushed["told"] = flushed["told"] or told
+        sessions.settle(session, flushed, url=pages[count[0]:], browser=resolved)
+        count[0] = len(pages)
 
     report = run_one(
         store,
@@ -692,14 +693,14 @@ def run_for(
     visited = [
         step["url"] for step in report.get("steps") or []
         if step.get("ok") and step.get("url")
-    ][flushed["pages"]:]
+    ][count[0]:]
     if report.get("url") and not report.get("url_redacted"):
         visited.append(report["url"])
-    # A flush may already have handed over a reopen's report.
-    told = sessions.touch(session, *visited, browser=resolved) or flushed["told"]
-    if told:
-        # The run's browser replaced a reaped one: what came back, once.
-        report["site_data"] = told
+    # The run's browser replaced a reaped one: what came back, once — on the
+    # run, whether this write or a flush before a save step was handed it.
+    sessions.settle(session, report, url=visited, browser=resolved)
+    if "site_data" in flushed and "site_data" not in report:
+        report["site_data"] = flushed["site_data"]
     return report
 
 

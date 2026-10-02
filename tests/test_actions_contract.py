@@ -191,6 +191,9 @@ REFUSED = {
         "abc", "x", selector=BOTH, url=PAGE
     ),
     "press_key: unknown key": lambda a: a.press_key("abc", "Hyperspace", url=PAGE),
+    "press_key: selector names both": lambda a: a.press_key(
+        "abc", "Tab", selector=BOTH, url=PAGE
+    ),
     "assert: hold leaves no room": lambda a: a.assert_(
         "abc", "return true", wait_timeout=5, stable_for=50, url=PAGE
     ),

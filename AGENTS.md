@@ -419,7 +419,8 @@ or the leak `caller_key` existed to prevent comes straight back.
   it expires with the record. httpOnly values are shown as `•••` on every surface; a secret a
   site keeps in its localStorage is saved and shown as it is.
 - An action returns the capture under `CAPTURED`; `SessionManager.settle` stores it and strips
-  it, so it is never returned. `act` and every flow step go through `settle`.
+  it, so it is never returned. Every record write after an action goes through `settle`:
+  `act`, every flow step and the run's pages, and a bound write (its URL withheld when tainted).
 - A silent reopen's report waits on `SessionRecord.reopened` until `touch` hands it to the first
   result from that browser — for a flow, to the run.
 - The admin tabs keep the two apart: History (the history joined by host with secrets and the
