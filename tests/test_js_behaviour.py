@@ -193,6 +193,8 @@ def test_every_outline_selector_matches_exactly_the_element_it_describes():
     )
     answer = outline(page)
     assert len(answer["elements"]) == 3
+    for entry in answer["elements"]:
+        assert ("css" in entry) != ("xpath" in entry)
     # Resolve each selector in the same document the way a later call would,
     # and name what it finds: the element must be the one the entry describes.
     resolve = """

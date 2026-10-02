@@ -18,7 +18,7 @@ returns ordinary structured data with absolute, signed URLs in it, and the
 - a client without it still gets the URLs, and can link or embed them,
 - a client that shows neither still gets the filenames and sizes as text.
 
-Which is the same shape as the resource/tool mirroring in ``resources.py``: one
+Which is the same shape as the resource/tool mirroring in ``mirror.py``: one
 server, and the client's declared capabilities decide the rendering.
 
 URLs handed out here are absolute. An app runs on a sandbox origin of the host's

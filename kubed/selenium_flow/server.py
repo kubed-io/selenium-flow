@@ -129,7 +129,7 @@ class SeleniumMCP:
 
         self.mcp = FastMCP(
             "Selenium",
-            instructions=tools.instructions(self.skill is not None),
+            instructions=tools.first_instructions(self.skill is not None),
             auth=auth,
         )
         tools.register(self.mcp, self.actions, self.sessions, self.secrets)

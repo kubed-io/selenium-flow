@@ -70,16 +70,6 @@ FrameAction = Annotated[Literal[FRAME_ACTIONS], BeforeValidator(_lowered)]
 PrintFormat = Annotated[Literal[PRINT_FORMATS], BeforeValidator(_lowered)]
 Browser = Annotated[Literal[BROWSERS] | None, BeforeValidator(_blank_is_unset)]
 
-# Said the same way everywhere, because the one new way to get a call wrong is
-# to pass both selectors or neither, and the fix has to be in front of the model
-# at the point it is choosing.
-SELECTOR = (
-    "Address the element with a selector: {\"xpath\": \"//button[@type='submit']\"} "
-    "or {\"css\": \"button[type=submit]\"} - exactly one of the two, never both "
-    "and never neither."
-)
-
-
 def _as_selector(value):
     """A selector sent as a JSON string, turned back into an object.
 
@@ -212,6 +202,17 @@ def instructions(skill_available: bool = True, reads_resources: bool = True) -> 
         how = "" if reads_resources else " with read_resource"
         text += SKILL_POINTER.format(how=how)
     return text
+
+
+def first_instructions(skill_available: bool = True) -> str:
+    """What the server object starts with, before any handshake has named a client.
+
+    The text `InstructionsFor` gives a client it cannot tell: the same function
+    and the same reading of "can it read resources", so the constructor and the
+    handshake cannot drift into two defaults.
+    """
+    unknown = clients.reads_resources(clients.Caller.stdio(client=""))
+    return instructions(skill_available, unknown)
 
 
 class InstructionsFor(Middleware):

@@ -23,14 +23,14 @@ from fastmcp import Client
 from fastmcp.utilities.skills import get_skill_manifest, list_skills
 
 from kubed.selenium_flow.mcp import skill as skill_module
-from kubed.selenium_flow.mcp.skill import (
-    ENTRY,
-    MANIFEST,
-    MANIFEST_URI,
-    RESOURCE_URI,
-    SKILL_NAME,
-)
+from kubed.selenium_flow.mcp.skill import ENTRY, SKILL_NAME
 from kubed.selenium_flow.server import SeleniumMCP
+
+# The URIs FastMCP's SkillProvider publishes, spelled out here as the
+# convention being checked rather than read back from the server's own code.
+RESOURCE_URI = f"skill://{SKILL_NAME}/{ENTRY}"
+MANIFEST = "_manifest"
+MANIFEST_URI = f"skill://{SKILL_NAME}/{MANIFEST}"
 
 # tomllib is 3.11+; on 3.10 the reader is tomli, which the `test` extra pulls in
 # under that marker. This used to fall back to None and skip the test below —
@@ -205,9 +205,11 @@ def test_load_returns_a_provider_for_the_packaged_skill():
     assert provider.skill_info.name == SKILL_NAME
 
 
-def test_the_served_text_keeps_its_frontmatter(server):
+async def test_the_served_text_keeps_its_frontmatter(server):
     """The metadata is part of what a reader uses to judge relevance."""
-    assert skill_module.read(server.skill, ENTRY).startswith("---")
+    async with Client(server.mcp) as client:
+        contents = await client.read_resource(RESOURCE_URI)
+    assert contents[0].text.startswith("---")
 
 
 # ---- how it is served ------------------------------------------------------

@@ -323,9 +323,9 @@ class Schemas:
     """The step schemas, built once from the registered tools.
 
     Built lazily because `get_tool` is async and registration is not, and from
-    `ENDPOINTS` rather than from a listing: a listing is rewritten per request
-    by `resources.ShapeSessionId` and filtered by `HideMirrorTools`, so what it
-    contains depends on who is asking. What a flow step may say must not.
+    `ENDPOINTS` rather than from a listing: a listing is filtered per request
+    by `mirror.HideMirrors`, so what it contains depends on who is asking. What a
+    flow step may say must not.
     """
 
     def __init__(self, mcp):

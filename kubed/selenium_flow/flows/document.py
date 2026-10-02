@@ -788,9 +788,8 @@ def step_schemas(tools: dict) -> dict:
     dropped entirely (§F1.9).
 
     Taken from the registered tools rather than from a listing, because a
-    listing is rewritten per request by ``resources.ShapeSessionId`` — so what
-    it contains depends on which session mode the caller happened to be in, and
-    a flow's shape must not.
+    listing is filtered per request by ``mirror.HideMirrors`` — so what it
+    contains depends on which client is asking, and a flow's shape must not.
     """
     schemas = {}
     for name, schema in tools.items():
