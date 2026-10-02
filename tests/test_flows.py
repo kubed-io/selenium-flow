@@ -725,3 +725,24 @@ def test_a_saved_document_reads_back_byte_equal(store, tmp_path):
     store.write_text("bot", "login", short)
     assert (tmp_path / "bot" / "flows" / "login.yaml").read_bytes() == short.encode()
     assert store.read_text("bot", "login") == short
+
+
+def test_a_write_cut_short_leaves_the_last_document_whole(store, tmp_path, monkeypatch):
+    """A crash, a full disk or an NFS hiccup part way through a write used to
+    leave a truncated document that reads as missing. The old one now stays
+    until the new one is complete, and nothing half-written is left beside it."""
+    store.save("bot", "login", {"description": "the good one", "steps": []})
+    path = tmp_path / "bot" / "flows" / "login.yaml"
+    before = path.read_bytes()
+
+    def interrupted(*_):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "replace", interrupted)
+    with pytest.raises(OSError):
+        store.save("bot", "login", {"description": "the new one", "steps": []})
+    with pytest.raises(OSError):
+        store.write_text("bot", "login", "steps: []\n")
+    monkeypatch.undo()
+    assert path.read_bytes() == before
+    assert [p.name for p in path.parent.iterdir()] == ["login.yaml"]

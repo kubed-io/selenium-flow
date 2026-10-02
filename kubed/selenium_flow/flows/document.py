@@ -87,6 +87,12 @@ ON_ERROR = ("abort", "continue")
 # the step already running is bounded by its own `wait_timeout`.
 TIMEOUT = "timeout"
 
+# What a caller may say in a flow document, beside the name it is saved under.
+# The HTTP save picks exactly these from its body and the published document
+# schema describes exactly these, so a new key is one edit here — and the MCP
+# save tool, whose signature FastMCP reads, is held to the same set by a test.
+DOCUMENT_KEYS = ("description", "parameters", TIMEOUT, "steps")
+
 
 def declared_timeout(document: dict) -> int | None:
     """The run budget ``document`` declares, or None when it declares none.

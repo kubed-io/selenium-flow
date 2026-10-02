@@ -248,11 +248,14 @@ async def test_the_published_save_request_takes_a_budget(slow_server):
     assert schema["properties"]["timeout"]["type"] == "integer"
 
 
-async def test_every_field_a_save_or_read_returns_is_published(slow_server):
+async def test_every_field_a_save_or_read_returns_is_published(
+    slow_server, monkeypatch
+):
     """The /flows schemas are written by hand, and this pull request forgot
     `timeout` in two of them before a reviewer noticed each (Copilot, #37).
     So the guard is the real responses, not a list: save a flow carrying every
-    document key over HTTP, read it back, and every key that comes out must be
+    document key over HTTP, read it back, run it once to the end and once to a
+    failure, and every key that comes out — of a run's steps too — must be
     declared by the schema that describes that response."""
     from starlette.testclient import TestClient
 
@@ -265,17 +268,44 @@ async def test_every_field_a_save_or_read_returns_is_published(slow_server):
         "description": "everything a flow may say",
         "parameters": {"type": "object", "properties": {"q": {"type": "string"}}},
         "timeout": 900,
-        "steps": [{"tool": "navigate", "args": {"url": "https://example.test/${q}"}}],
+        "steps": [
+            {
+                "tool": "navigate",
+                "args": {"url": "https://example.test/${q}"},
+                "id": "go",
+                "note": "every step key",
+                "return": True,
+            }
+        ],
     }
     saved = client.put("/flows/whole", json=document, headers=headers)
     read = client.get("/flows/whole", headers=headers)
     assert saved.status_code == 200 and read.status_code == 200, (saved.text, read.text)
+    slow_server.pause = 0
+    ran = client.post("/flows/whole/runs", json={"params": {"q": "x"}}, headers=headers)
+
+    def refuse(session_id, url=None, **_):
+        raise ValueError("no element matched")
+
+    monkeypatch.setattr(slow_server.actions, "navigate", refuse)
+    failed = client.post(
+        "/flows/whole/runs", json={"params": {"q": "x"}}, headers=headers
+    )
+    assert ran.json()["status"] == "ok", ran.text
+    assert failed.json()["status"] == "failed", failed.text
 
     spec = await build_spec(slow_server.mcp, ENDPOINTS, "", authenticated=True)
     schemas = spec["components"]["schemas"]
-    for response, schema in ((saved, "FlowSaved"), (read, "Flow")):
+    step = schemas["FlowRun"]["properties"]["steps"]["items"]["properties"]
+    for response, schema in (
+        (saved, "FlowSaved"), (read, "Flow"), (ran, "FlowRun"), (failed, "FlowRun")
+    ):
         undeclared = set(response.json()) - set(schemas[schema]["properties"])
         assert not undeclared, f"{schema} does not declare {sorted(undeclared)}"
+    for response in (ran, failed):
+        for line in response.json()["steps"]:
+            undeclared = set(line) - set(step)
+            assert not undeclared, f"a FlowRun step does not declare {sorted(undeclared)}"
 
 
 def test_a_null_budget_over_http_means_unset_and_is_not_stored(slow_server):

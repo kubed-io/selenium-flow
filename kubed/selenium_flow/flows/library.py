@@ -56,15 +56,39 @@ def _parsed(text: str) -> tuple[int, object]:
     return len(text.encode()) + ENTRY_BYTES, yaml.load(text, Loader=_LOADER)
 
 
-def parse(text: str):
-    """A YAML document, parsed once per distinct text (§F4.19).
+def view(text: str):
+    """A YAML document, parsed once per distinct text (§F4.19), and SHARED.
 
     Keyed on the text itself, not a TTL or an mtime: reading a file is cheap
     and parsing it is not, and a key that *is* the content cannot serve a stale
     flow after a save, a hand edit or a clock that ticks coarser than the disk.
-    A copy every time, because callers own what they get back.
+
+    The object is the cache's own, so it is read and never changed. A reader
+    that keeps or hands out any part of it takes a copy of that part: `parse`
+    copies the whole, `summary` only the small fields it returns.
     """
-    return copy.deepcopy(_parsed(text)[1])
+    return _parsed(text)[1]
+
+
+def parse(text: str):
+    """A YAML document, parsed once per distinct text: a copy every time,
+    because callers own what they get back. See `view`."""
+    return copy.deepcopy(view(text))
+
+
+# libyaml's emitter for the same reason as its parser: the pure-Python one took
+# 1.5ms of a 3KB save where libyaml takes 0.2ms. The two write the same YAML;
+# libyaml escapes a character outside the Basic Multilingual Plane (`😀` is
+# written `"\U0001F600"`) and may break a long quoted line elsewhere, and either
+# reads back as the same document.
+_DUMPER = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
+
+
+def dump(document: dict) -> str:
+    """``document`` as the YAML a save writes: keys in the order given."""
+    return yaml.dump(
+        document, Dumper=_DUMPER, sort_keys=False, width=100, allow_unicode=True
+    )
 
 
 def _step_count(document: dict) -> int:
@@ -80,14 +104,17 @@ def _step_count(document: dict) -> int:
     return len(steps) if isinstance(steps, list) else 0
 
 
-
 def summary(name: str, session: str, document: dict) -> dict:
-    """Name, description and parameters for one flow — never the steps."""
+    """Name, description and parameters for one flow — never the steps.
+
+    ``document`` may be the cache's own (`view`), so the two fields handed out
+    are copied and the steps, the bulk of a document, are only counted.
+    """
     return {
         "name": name,
         "session": session,
-        "description": document.get("description", ""),
-        "parameters": document.get("parameters", {}),
+        "description": copy.deepcopy(document.get("description", "")),
+        "parameters": copy.deepcopy(document.get("parameters", {})),
         # Named for what it is. Calling it `steps` would put an int where the
         # document itself carries a list, and E2 reads both — one consumer
         # doing summary["steps"][0] is the whole cost of the shorter name.

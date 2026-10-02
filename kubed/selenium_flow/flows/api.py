@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import logging
 
+import anyio
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -73,13 +74,6 @@ RUN_TOOL = "run_flow"
 SAVE_TOOL = "save_flow"
 DELETE_TOOL = "delete_flow"
 
-# Path -> the function behind it. Separate from routes.ENDPOINTS on purpose:
-# these are not browser actions and must not be counted as though they were.
-# The REST tree these serve (§F2.13). Kept as names rather than paths because
-# the spec and the wiki describe capabilities, and the path each one lives at is
-# the route table's business.
-FLOW_ENDPOINTS = ("list", "get", "save", "delete", "schema", "run")
-
 # Not under /flows: `schema` there would be indistinguishable from a flow of
 # that name.
 SCHEMA_PATH = "/schemas/flow"
@@ -96,6 +90,13 @@ FLOW_ROUTES = {
     # Its own tree beside /flows, and mounted like every other tree.
     "schema": ("get", SCHEMA_PATH),
 }
+
+# The endpoints by name, read off the route table rather than listed beside it.
+# Separate from routes.ENDPOINTS on purpose: these are not browser actions and
+# must not be counted as though they were. Kept as names rather than paths
+# because the spec and the wiki describe capabilities, and the path each one
+# lives at is the route table's business (§F2.13).
+FLOW_ENDPOINTS = tuple(FLOW_ROUTES)
 
 OFF = (
     "saved flows are not enabled on this server: it was started with no "
@@ -267,6 +268,8 @@ class Schemas:
     def __init__(self, mcp):
         self.mcp = mcp
         self._cache: dict | None = None
+        # The published document schema, built from the step schemas once.
+        self._document: dict | None = None
 
     async def get(self) -> dict:
         if self._cache is None:
@@ -388,13 +391,19 @@ def register(
         parameters: dict | None = None,
         timeout: int | None = None,
     ) -> dict:
+        # In this order, which is the order the saved YAML lists them in.
         document = {"description": description, "steps": steps}
         if parameters:
             document["parameters"] = parameters
         if timeout is not None:
             document[flowdoc.TIMEOUT] = timeout
-        return save_one(
-            store, clients.caller().library, name, document, await schemas.get()
+        library = clients.caller().library  # on the request, before the thread
+        steps_schemas = await schemas.get()
+        # Validating, dumping and writing in a worker thread, as every other
+        # save does: the data directory may be NFS, and a slow write on the
+        # loop stalls every other request.
+        return await anyio.to_thread.run_sync(
+            save_one, store, library, name, document, steps_schemas
         )
 
     @mcp.tool(
@@ -468,46 +477,60 @@ async def _document_schema(schemas: Schemas) -> dict:
     Published so a model writing a flow is given the shape rather than inferring
     it. It cannot describe a step that would not run, because it is built from
     the same schemas the validator checks against.
+
+    Built once per `Schemas` and kept beside the step schemas it is made of:
+    both are fixed for the life of the server, and this one costs a pydantic
+    schema generation to build.
     """
-    steps = await schemas.get()
-    return {
-        "type": "object",
-        "properties": {
-            "name": {"type": "string"},
-            "description": {"type": "string"},
-            "parameters": {
+    if schemas._document is None:
+        schemas._document = _build_document_schema(await schemas.get())
+    return schemas._document
+
+
+def _build_document_schema(steps: dict) -> dict:
+    keys = {
+        "description": {"type": "string"},
+        "parameters": {
+            "type": "object",
+            "description": "JSON Schema for the values run_flow accepts.",
+        },
+        flowdoc.TIMEOUT: {
+            "type": "integer",
+            "minimum": 1,
+            "description": (
+                "Seconds the whole run may take before no further step "
+                f"starts. Defaults to {flowrun.RUN_TIMEOUT}."
+            ),
+        },
+        "steps": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
                 "type": "object",
-                "description": "JSON Schema for the values run_flow accepts.",
-            },
-            flowdoc.TIMEOUT: {
-                "type": "integer",
-                "minimum": 1,
-                "description": (
-                    "Seconds the whole run may take before no further step "
-                    f"starts. Defaults to {flowrun.RUN_TIMEOUT}."
-                ),
-            },
-            "steps": {
-                "type": "array",
-                "minItems": 1,
-                "items": {
-                    "type": "object",
-                    "required": ["tool"],
-                    "properties": {
-                        "tool": {"type": "string", "enum": sorted(steps)},
-                        # No `secret` here: it is an argument of `write`, so
-                        # it lives in `args` and the per-action schemas below
-                        # describe it. A step key would be a second place to
-                        # say it, and a caller following this resource would
-                        # have built a document save_flow rejects.
-                        "args": {"type": "object"},
-                        "id": {"type": "string"},
-                        "note": {"type": "string"},
-                        "onError": {"type": "string", "enum": list(flowdoc.ON_ERROR)},
-                        "return": {"type": "boolean"},
-                    },
+                "required": ["tool"],
+                "properties": {
+                    "tool": {"type": "string", "enum": sorted(steps)},
+                    # No `secret` here: it is an argument of `write`, so it
+                    # lives in `args` and the per-action schemas below describe
+                    # it. A step key would be a second place to say it, and a
+                    # caller following this resource would have built a
+                    # document save_flow rejects.
+                    "args": {"type": "object"},
+                    "id": {"type": "string"},
+                    "note": {"type": "string"},
+                    "onError": {"type": "string", "enum": list(flowdoc.ON_ERROR)},
+                    "return": {"type": "boolean"},
                 },
             },
+        },
+    }
+    return {
+        "type": "object",
+        # A key in DOCUMENT_KEYS with nothing said about it here fails on the
+        # first read, rather than going unpublished.
+        "properties": {
+            "name": {"type": "string"},
+            **{key: keys[key] for key in flowdoc.DOCUMENT_KEYS},
         },
         "required": ["name", "steps"],
         "x-step-params": steps,
@@ -684,17 +707,17 @@ def _routes(
         """Create or replace one flow. One verb for both, as §F1.5 has it."""
 
         async def call(caller, body):
-            document = {
-                key: body[key]
-                for key in ("description", "parameters", flowdoc.TIMEOUT, "steps")
-                if key in body
-            }
-            return save_one(
+            document = {key: body[key] for key in flowdoc.DOCUMENT_KEYS if key in body}
+            library = caller.library
+            steps_schemas = await schemas.get()
+            # Off the loop, as the MCP save is: see `save_flow` above.
+            return await anyio.to_thread.run_sync(
+                save_one,
                 store,
-                caller.library,
+                library,
                 request.path_params["name"],
                 document,
-                await schemas.get(),
+                steps_schemas,
             )
 
         return await answer(request, "save", call)

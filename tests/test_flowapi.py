@@ -118,6 +118,19 @@ async def test_a_flow_saves_and_reads_back(flow_server, store):
     assert read["shared"] is False
 
 
+async def test_the_save_tool_takes_exactly_the_document_keys(flow_server):
+    """The HTTP save and the published schema read `DOCUMENT_KEYS`. The tool's
+    signature is what FastMCP publishes, so it is written out by hand and held
+    to the same keys here: a new document key is a red test on this surface,
+    not a key one surface silently cannot say."""
+    from kubed.selenium_flow.flows import document as flowdoc
+
+    tool = await flow_server.mcp.get_tool(flowapi.SAVE_TOOL)
+    assert set(tool.parameters["properties"]) == {"name", *flowdoc.DOCUMENT_KEYS}
+    schema = await flowapi._document_schema(flowapi.Schemas(flow_server.mcp))
+    assert set(schema["properties"]) == {"name", *flowdoc.DOCUMENT_KEYS}
+
+
 async def test_a_broken_flow_is_refused_at_save_with_every_reason(flow_server, store):
     with pytest.raises(ValueError) as caught:
         await call(

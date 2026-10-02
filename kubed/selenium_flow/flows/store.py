@@ -35,15 +35,17 @@ trace to a decision they never made.
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import yaml
 
 from ..names import FILES_DIR, FOLDERS, InvalidName, valid_file_name, valid_name
-from .library import parse, summary, yaml_complaint
+from .library import dump, summary, view, yaml_complaint
 
 if TYPE_CHECKING:
     from ..config import FlowSettings
@@ -121,6 +123,31 @@ def _listed(directory: Path, usable) -> list[tuple[str, os.stat_result]]:
             os.close(fd)
 
 
+def _replace(path: Path, text: str) -> None:
+    """Write ``text`` as ``path`` in one step: a reader sees the old document or
+    the new one, never part of either.
+
+    Writing in place let a crash or an NFS hiccup between the open and the last
+    write leave a truncated document, which reads as missing — the previous
+    good version gone, silently, and a `global` flow another agent was about to
+    run gone from every listing. So the text goes to a name beside the target
+    that no listing addresses (a leading dot, and not `.yaml`), and is renamed
+    over it: a rename within one directory is atomic, and the new inode is what
+    `revision` already expects of a replace.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    # An ordinary create, so the umask decides the mode as it did in place.
+    file = temporary.open("x", encoding="utf-8")
+    try:
+        with file:
+            file.write(text)
+        temporary.replace(path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
 def _shaped(name: str, info: os.stat_result) -> dict:
     """A file entry from its name and its stat — see `FileStore._entry`."""
     return {
@@ -128,7 +155,6 @@ def _shaped(name: str, info: os.stat_result) -> dict:
         "size": info.st_size,
         "creationTime": int(info.st_mtime * 1000),
     }
-
 
 
 class SessionLayout:
@@ -257,8 +283,11 @@ class FlowStore(SessionLayout):
         of a document. Keeping them out is what lets a listing stay affordable
         over a store that is not a local disk.
         """
+        # Read through the parse cache rather than `get`: a listing takes two
+        # small fields and a count, and copying every document whole to find
+        # them was most of what a warm listing cost.
         return [
-            summary(name, session, self.get(session, name) or {})
+            summary(name, session, self._loaded(session, name) or {})
             for name in self.names(session)
         ]
 
@@ -270,9 +299,25 @@ class FlowStore(SessionLayout):
         that flow missing, not every listing that walks past it fail.
         """
         flow = valid_name(name, "flow name")
-        path = self._path(session, flow)
+        loaded = self._loaded(session, name)
+        if loaded is None:
+            return None
+        # The name on disk wins over any name inside the document: the file is
+        # what `get` was asked for, and a document claiming to be something else
+        # would make save-then-get return a different flow. It is the *validated*
+        # name, so `get(" login ")` reports `login` — the same identifier a
+        # listing gives, rather than the caller's spelling of it.
+        return {**copy.deepcopy(loaded), "name": flow}
+
+    def _loaded(self, session: str, name: str) -> dict | None:
+        """The document stored as ``name``, as the parse cache holds it.
+
+        Shared with the cache (`library.view`): read it, never change it, and
+        copy any part that leaves. None for anything `get` reads as absent.
+        """
+        path = self._path(session, name)
         try:
-            loaded = parse(path.read_text(encoding="utf-8"))
+            loaded = view(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return None
         # UnicodeDecodeError is a ValueError, NOT an OSError, so it needs
@@ -292,12 +337,7 @@ class FlowStore(SessionLayout):
         if not isinstance(loaded, dict):
             log.warning("flow %s/%s is not a mapping", session, name)
             return None
-        # The name on disk wins over any name inside the document: the file is
-        # what `get` was asked for, and a document claiming to be something else
-        # would make save-then-get return a different flow. It is the *validated*
-        # name, so `get(" login ")` reports `login` — the same identifier a
-        # listing gives, rather than the caller's spelling of it.
-        return {**loaded, "name": flow}
+        return loaded
 
     # -- writes --------------------------------------------------------------
 
@@ -309,14 +349,10 @@ class FlowStore(SessionLayout):
         """
         flow = valid_name(name, "flow name")
         path = self._path(session, flow)
-        path.parent.mkdir(parents=True, exist_ok=True)
         # The validated name, not the caller's: writing `name: " login "` into
         # login.yaml would put an identifier in the file that no lookup returns.
         stored = {**document, "name": flow}
-        path.write_text(
-            yaml.safe_dump(stored, sort_keys=False, width=100, allow_unicode=True),
-            encoding="utf-8",
-        )
+        _replace(path, dump(stored))
         return stored
 
     def delete(self, session: str, name: str) -> bool:
@@ -350,9 +386,7 @@ class FlowStore(SessionLayout):
         it is handed, and an invalid document reaching disk is how a listing
         starts skipping a flow nobody can see is broken.
         """
-        path = self._path(session, name)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        _replace(self._path(session, name), text)
 
 
 class FileStore(SessionLayout):
