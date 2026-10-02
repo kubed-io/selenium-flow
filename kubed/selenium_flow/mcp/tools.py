@@ -1,8 +1,11 @@
 """The MCP tool surface.
 
-Thin wrappers over ``actions.py``. Type hints here are not decoration: FastMCP
-turns each signature into the tool's JSON schema, so the parameter names, types
-and defaults written below are exactly what a model sees and fills in.
+Thin wrappers over ``actions.py``. Each tool here is a declaration — a signature
+and a docstring — and its name, annotations and body come from its row in
+``core/capabilities.py``, the table the HTTP surface is mounted from too. Type
+hints here are not decoration: FastMCP turns each signature into the tool's JSON
+schema, so the parameter names, types and defaults written below are exactly
+what a model sees and fills in.
 
 Docstrings are prompt. They are written for a model deciding whether to call the
 tool, not for a developer reading the source.
@@ -15,6 +18,8 @@ holds. The Grid's own id is never a parameter and never a result (§F2.12).
 from __future__ import annotations
 
 import base64
+import functools
+import inspect
 import json
 from collections.abc import Callable
 from typing import Annotated, Literal
@@ -33,12 +38,12 @@ from ..core.actions import (
     PRINT_FORMATS,
     Actions,
 )
+from ..core.capabilities import CAPABILITIES, Capability, capability
 from ..core.defaults import BROWSERS
 from ..core.probe import DEFAULT_LIMIT as OUTLINE_LIMIT
 from ..core.recipe import DIALOG_TIMEOUT, WAIT_TIMEOUT
 from ..session.sessions import NAME_PARAM, SessionManager
 from . import clients
-from .annotations import hints
 
 
 def _lowered(value):
@@ -244,22 +249,98 @@ class InstructionsFor(Middleware):
         return result
 
 
+def _as_image(result: dict) -> Image | ToolResult:
+    """A screenshot as an MCP image block, which is what a tool caller can use.
+
+    The one sanctioned difference between the surfaces (AGENTS.md): an HTTP
+    caller gets the same capture as base64 JSON.
+    """
+    image = Image(data=base64.b64decode(result["image"]), format="png")
+    # Beside the image, each only when present:
+    # - `file`: a saved screenshot has a name the caller cannot derive (a
+    #   second `shot.png` is kept as `shot (1).png`);
+    # - `file_error`: the capture survived and the file did not, and an MCP
+    #   caller given only the image would look for a name never coming;
+    # - `site_data`: the first call after a silent reopen says what came
+    #   back (``sessions.settle``) — dropped here, it is never said at all.
+    told = {
+        k: result[k] for k in ("file", "file_error", "site_data")
+        if result.get(k) is not None
+    }
+    if not told:
+        return image
+    return ToolResult(content=[image.to_image_content()], structured_content=told)
+
 
 def register(
     mcp: FastMCP, actions: Actions, sessions: SessionManager, catalogue=None
 ) -> None:
-    """Register every action as an MCP tool on ``mcp``."""
+    """Register every capability as an MCP tool on ``mcp``.
 
-    def run(
-        call: Callable[[str], dict],
-        *,
-        reshapes: bool = False,
-    ) -> dict:
+    Each tool below is a declaration: its signature is the schema and its
+    docstring (or ``description=``) the prompt, both read by FastMCP and both
+    written out by hand. Its name, its annotations and what it does come from
+    its row in ``core.capabilities``: ``action`` gives a declaration the one
+    body every action shares, and ``own`` publishes the two whose body is their
+    own. A row left undeclared stops the server here.
+    """
+    declared: set[str] = set()
+
+    def publish(fn, name: str, description: str | None):
+        row = capability(name)
+        declared.add(row.name)
+        return mcp.tool(
+            name=row.name, description=description, annotations=row.annotations
+        )(fn)
+
+    def act(row: Capability, arguments: dict):
         """Whose browser this is, then act on it. See ``sessions.act``, which
         the HTTP surface calls too so the two cannot drift."""
-        return sessions.act(clients.caller(), call, reshapes=reshapes)
+        if "secret" in arguments:
+            # A capability that can type a secret (`write`) types one through
+            # the catalogue, and with neither a secret nor text has nothing to
+            # type at all.
+            if arguments["secret"] is None and arguments.get("text") is None:
+                raise ValueError(f"{row.name} needs text, or a secret to supply it")
+            if arguments["secret"] is not None:
+                return secrets_module.perform_write(
+                    catalogue, actions, sessions, clients.caller().name, arguments
+                )
+            del arguments["secret"]
+        return sessions.act(
+            clients.caller(),
+            lambda s: getattr(actions, row.method)(s, **arguments),
+            reshapes=row.reshapes,
+        )
 
-    @mcp.tool(annotations=hints("Open browser session", destructive=True))
+    def action(
+        name: str,
+        *,
+        description: str | None = None,
+        shape: Callable[[dict], object] | None = None,
+    ):
+        """Publish a declaration whose body is ``act``, shaped by ``shape``."""
+        row = capability(name)
+
+        def bind(declaration):
+            signature = inspect.signature(declaration)
+
+            @functools.wraps(declaration)
+            def tool(*args, **kwargs):
+                given = signature.bind(*args, **kwargs)
+                given.apply_defaults()
+                result = act(row, dict(given.arguments))
+                return shape(result) if shape else result
+
+            return publish(tool, name, description)
+
+        return bind
+
+    def own(name: str, *, description: str | None = None):
+        """Publish a declaration whose body is its own."""
+        return lambda fn: publish(fn, name, description)
+
+    @own("open_session")
     def open_session(
         url: str | None = None,
         browser: Browser = None,
@@ -300,9 +381,7 @@ def register(
             insecure=insecure,
         )
 
-    @mcp.tool(
-        annotations=hints("Save site data", destructive=False, idempotent=True)
-    )
+    @action("save_site_data")
     def save_site_data(url: str | None = None) -> dict:
         """Save this session's site data, so a new browser comes back signed in.
 
@@ -319,9 +398,8 @@ def register(
         open_session returns, the one that replaces a reaped browser included. Values
         are never returned; session://site-data lists what is saved.
         """
-        return run(lambda s: actions.save_site_data(s, url=url))
 
-    @mcp.tool(annotations=hints("End browser", destructive=True, idempotent=True))
+    @own("end_browser")
     def end_browser() -> dict:
         """Quit this session's browser and free its Grid slot.
 
@@ -334,18 +412,18 @@ def register(
         sessions.end_browser(caller)
         return {"success": True, "session": caller.name}
 
-    @mcp.tool(annotations=hints("Navigate to URL", idempotent=True))
+    @action("navigate")
     def navigate(url: str) -> dict:
         """Go to a URL. Returns the URL and title the browser ended on.
 
         Every other action also takes url, and navigates there first only if the
         browser is somewhere else, so you rarely need this as a separate call.
         """
-        return run(lambda s: actions.navigate(s, url))
 
     # The action list is interpolated so it cannot drift from the tuple the
     # action layer validates against.
-    @mcp.tool(
+    @action(
+        "interact",
         description=(
             f"A mouse action on an element: {', '.join(MOUSE_ACTIONS[:-1])} or "
             f"{MOUSE_ACTIONS[-1]}.\n\n"
@@ -359,7 +437,6 @@ def register(
             "Returns the URL and title after the action, so a navigation it "
             "caused shows."
         ),
-        annotations=hints("Mouse action on an element", destructive=True),
     )
     def interact(
         action: MouseAction,
@@ -367,19 +444,10 @@ def register(
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
         glide: bool = False,
-    ) -> dict:
-        return run(
-            lambda s: actions.interact(
-                s,
-                action,
-                selector=selector,
-                url=url,
-                wait_timeout=wait_timeout,
-                glide=glide,
-            ),
-        )
+    ) -> dict: ...
 
-    @mcp.tool(
+    @action(
+        "drag",
         description=(
             "Drag an element onto another element (to), or by an offset in "
             "pixels (by_x, by_y); give one or the other. A range slider is "
@@ -389,7 +457,6 @@ def register(
             "completes native HTML5 drag-and-drop; on Firefox it does not, so "
             "a draggable=true element there may need the page's own fallback."
         ),
-        annotations=hints("Drag an element", destructive=True),
     )
     def drag(
         selector: SelectorArg = None,
@@ -399,21 +466,10 @@ def register(
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
         glide: bool = True,
-    ) -> dict:
-        return run(
-            lambda s: actions.drag(
-                s,
-                selector=selector,
-                to=to,
-                by_x=by_x,
-                by_y=by_y,
-                url=url,
-                wait_timeout=wait_timeout,
-                glide=glide,
-            ),
-        )
+    ) -> dict: ...
 
-    @mcp.tool(
+    @action(
+        "frame",
         description=(
             "Move into an iframe (switch, with a selector or an index), up "
             "one level (parent), or back to the page (default).\n\n"
@@ -422,25 +478,15 @@ def register(
             "selector that should work keeps failing, read session://current: "
             "in_frame says where you are."
         ),
-        annotations=hints("Switch into or out of an iframe", idempotent=True),
     )
     def frame(
         action: FrameAction = "switch",
         selector: SelectorArg = None,
         index: int | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
-    ) -> dict:
-        return run(
-            lambda s: actions.frame(
-                s,
-                action=action,
-                selector=selector,
-                index=index,
-                wait_timeout=wait_timeout,
-            ),
-        )
+    ) -> dict: ...
 
-    @mcp.tool(annotations=hints("Resize window", idempotent=True))
+    @action("resize")
     def resize(
         width: int | None = None,
         height: int | None = None,
@@ -451,12 +497,9 @@ def register(
         varies between Grid nodes. The size sticks to the session, so a browser
         reopened after the Grid reaps it comes back at this size.
         """
-        return run(
-            lambda s: actions.resize(s, width=width, height=height),
-            reshapes=True,
-        )
 
-    @mcp.tool(
+    @action(
+        "dialog",
         description=(
             "Answer a native alert, confirm or prompt: accept, dismiss, read "
             "(see the message without answering), or send_text (fill a prompt "
@@ -464,20 +507,14 @@ def register(
             "An open dialog blocks every other command, so if a call fails on "
             "an unexpected alert, clear it here."
         ),
-        annotations=hints("Answer a native dialog", destructive=True),
     )
     def dialog(
         action: DialogAction = "accept",
         text: str | None = None,
         wait_timeout: int = DIALOG_TIMEOUT,
-    ) -> dict:
-        return run(
-            lambda s: actions.dialog(
-                s, action=action, text=text, wait_timeout=wait_timeout
-            ),
-        )
+    ) -> dict: ...
 
-    @mcp.tool(annotations=hints("Attach a file to a file input"))
+    @action("upload_file")
     def upload_file(
         selector: SelectorArg = None,
         text: str | None = None,
@@ -501,22 +538,8 @@ def register(
         The page reads the type from the filename's extension, so name it
         report.csv, not report; without one, mime_type picks it.
         """
-        return run(
-            lambda s: actions.upload_file(
-                s,
-                selector=selector,
-                text=text,
-                content=content,
-                filename=filename,
-                mime_type=mime_type,
-                path=path,
-                url=url,
-                wait_timeout=wait_timeout,
-                file=file,
-            ),
-        )
 
-    @mcp.tool(annotations=hints("Type text into a field"))
+    @action("write")
     def write(
         text: str | None = None,
         selector: SelectorArg = None,
@@ -535,41 +558,12 @@ def register(
         comes back null. A secret works only on the sites it allows, checked against
         the page you are on, so navigate there first.
         """
-        if secret is None and text is None:
-            raise ValueError("write needs text, or a secret to supply it")
-        if secret is None:
-            return run(
-                    lambda s: actions.write(
-                    s,
-                    text,
-                    selector=selector,
-                    url=url,
-                    clear=clear,
-                    submit=submit,
-                    wait_timeout=wait_timeout,
-                ),
-            )
-
-        return secrets_module.perform_write(
-            catalogue,
-            actions,
-            sessions,
-            clients.caller().name,
-            {
-                "text": text,
-                "url": url,
-                "secret": secret,
-                "selector": selector,
-                "clear": clear,
-                "submit": submit,
-                "wait_timeout": wait_timeout,
-            },
-        )
 
     # The key names are not listed here: a name that is not one is refused with
     # every name there is, generated from the mapping itself, which is where a
     # model that guessed wrong is looking anyway (§F3.5).
-    @mcp.tool(
+    @action(
+        "press_key",
         description=(
             "Press a key or a combination, at an element (selector) or "
             "wherever focus already is.\n\n"
@@ -581,21 +575,15 @@ def register(
             "focus is on the thing that scrolls. Use execute_script to "
             "scroll."
         ),
-        annotations=hints("Press a named key", destructive=True),
     )
     def press_key(
         key: str,
         selector: SelectorArg = None,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
-    ) -> dict:
-        return run(
-            lambda s: actions.press_key(
-                s, key, selector=selector, url=url, wait_timeout=wait_timeout
-            ),
-        )
+    ) -> dict: ...
 
-    @mcp.tool(annotations=hints("Read an element", read_only=True, idempotent=True))
+    @action("extract")
     def extract(
         selector: SelectorArg = None,
         url: str | None = None,
@@ -607,13 +595,9 @@ def register(
         everything, and a narrower selector keeps the result small. To find a
         selector, use outline.
         """
-        return run(
-            lambda s: actions.extract(
-                s, selector=selector, url=url, wait_timeout=wait_timeout
-            ),
-        )
 
-    @mcp.tool(
+    @action(
+        "outline",
         description=(
             "Map the page: the elements worth acting on, each with a selector "
             "checked to match exactly one element, and whether it can be used "
@@ -628,7 +612,6 @@ def register(
             "count means the list was cut: scope it with selector, filter by "
             "text, or raise limit. interactive=false lists every element."
         ),
-        annotations=hints("Map the page's elements", read_only=True, idempotent=True),
     )
     def outline(
         selector: SelectorArg = None,
@@ -637,20 +620,9 @@ def register(
         interactive: bool = True,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
-    ) -> dict:
-        return run(
-            lambda s: actions.outline(
-                s,
-                selector=selector,
-                text=text,
-                limit=limit,
-                interactive=interactive,
-                url=url,
-                wait_timeout=wait_timeout,
-            ),
-        )
+    ) -> dict: ...
 
-    @mcp.tool(annotations=hints("Run JavaScript in the page", destructive=True))
+    @action("execute_script")
     def execute_script(
         script: str, url: str | None = None
     ) -> dict:
@@ -662,12 +634,11 @@ def register(
         (window.scrollTo), computed styles, reading many values at once, direct DOM
         work. Not for drag and drop; drag uses real pointer input.
         """
-        return run(lambda s: actions.execute_script(s, script, url=url))
 
-    # Named through `name=` because `assert` is a Python keyword and cannot be a
-    # function name. `routes.METHOD_ALIASES` is the other half of that.
-    @mcp.tool(
-        name="assert",
+    # Declared as `assert_page` because `assert` is a Python keyword and cannot
+    # be a function name; the row's `method` is the other half of that.
+    @action(
+        "assert",
         description=(
             "Check the page with JavaScript that must return true; otherwise "
             "the call fails. Return a boolean, not the thing itself: return "
@@ -680,7 +651,6 @@ def register(
             "message is the sentence a failure shows, and in a flow it "
             "becomes the failing step's error."
         ),
-        annotations=hints("Assert the page is what you expect", destructive=True),
     )
     def assert_page(
         script: str,
@@ -688,19 +658,9 @@ def register(
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
         stable_for: float = 0,
-    ) -> dict:
-        return run(
-            lambda s: actions.assert_(
-                s,
-                script,
-                message=message,
-                url=url,
-                wait_timeout=wait_timeout,
-                stable_for=stable_for,
-            ),
-        )
+    ) -> dict: ...
 
-    @mcp.tool(annotations=hints("Capture a screenshot"))
+    @action("screenshot", shape=_as_image)
     def screenshot(
         url: str | None = None,
         selector: SelectorArg = None,
@@ -723,36 +683,8 @@ def register(
         save=false stores nothing; file_error says why a save failed, and the image
         still comes back.
         """
-        result = run(
-            lambda s: actions.screenshot(
-                s,
-                url=url,
-                selector=selector,
-                full_page=full_page,
-                width=width,
-                height=height,
-                wait_timeout=wait_timeout,
-                save=save,
-                filename=filename,
-            ),
-        )
-        image = Image(data=base64.b64decode(result["image"]), format="png")
-        # Beside the image, each only when present:
-        # - `file`: a saved screenshot has a name the caller cannot derive (a
-        #   second `shot.png` is kept as `shot (1).png`);
-        # - `file_error`: the capture survived and the file did not, and an MCP
-        #   caller given only the image would look for a name never coming;
-        # - `site_data`: the first call after a silent reopen says what came
-        #   back (``sessions.settle``) — dropped here, it is never said at all.
-        told = {
-            k: result[k] for k in ("file", "file_error", "site_data")
-            if result.get(k) is not None
-        }
-        if not told:
-            return image
-        return ToolResult(content=[image.to_image_content()], structured_content=told)
 
-    @mcp.tool(name="print", annotations=hints("Print the page"))
+    @action("print")
     def print_page(
         url: str | None = None,
         format: PrintFormat = "pdf",
@@ -771,13 +703,10 @@ def register(
         without a token. A server with no public address configured returns it
         relative instead.
         """
-        return run(
-            lambda s: actions.print_(
-                s,
-                url=url,
-                format=format,
-                filename=filename,
-                landscape=landscape,
-                background=background,
-            ),
+
+    undeclared = {row.name for row in CAPABILITIES} - declared
+    if undeclared:
+        raise RuntimeError(
+            "capabilities with no tool declared in mcp/tools.py: "
+            + ", ".join(sorted(undeclared))
         )

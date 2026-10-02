@@ -244,7 +244,7 @@ async def test_a_budget_given_as_text_is_stored_as_the_number_it_means(
 async def test_the_published_save_request_takes_a_budget(slow_server):
     """The HTTP save accepts it, so its published request body has to say so,
     or a generated client can never send one (Copilot, #37)."""
-    from kubed.selenium_flow.routes import ENDPOINTS
+    from kubed.selenium_flow.core.capabilities import ENDPOINTS
     from kubed.selenium_flow.spec import build_spec
 
     spec = await build_spec(slow_server.mcp, ENDPOINTS, "", authenticated=True)
@@ -265,7 +265,7 @@ async def test_every_field_a_save_or_read_returns_is_published(
     response."""
     from starlette.testclient import TestClient
 
-    from kubed.selenium_flow.routes import ENDPOINTS
+    from kubed.selenium_flow.core.capabilities import ENDPOINTS
     from kubed.selenium_flow.spec import build_spec
 
     client = TestClient(slow_server.mcp.http_app())

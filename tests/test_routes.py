@@ -405,7 +405,7 @@ def test_an_unsupported_browser_is_a_400_with_the_real_list(open_client):
 
 def test_every_endpoint_is_mounted(open_client):
     """A 404 here means the route table and the app disagree."""
-    from kubed.selenium_flow.routes import ACTION_IN_PATH, ENDPOINTS
+    from kubed.selenium_flow.core.capabilities import ACTION_IN_PATH, ENDPOINTS
 
     for path, action in ENDPOINTS.items():
         route = f"/browser/{path}" + ("/click" if action == ACTION_IN_PATH else "")
@@ -568,7 +568,7 @@ async def test_the_published_spec_describes_the_paths_actually_served():
     """A document that names a path nothing serves is worse than no document,
     and a prefix is exactly where the two drift apart."""
     from kubed.selenium_flow.config import Settings
-    from kubed.selenium_flow.routes import ENDPOINTS
+    from kubed.selenium_flow.core.capabilities import ENDPOINTS
     from kubed.selenium_flow.server import SeleniumMCP
     from kubed.selenium_flow.spec import build_spec
 

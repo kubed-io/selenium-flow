@@ -34,7 +34,7 @@ sys.path.insert(0, str(REPO))
 
 from kubed.selenium_flow import config
 from kubed.selenium_flow.config import Settings
-from kubed.selenium_flow.routes import ENDPOINTS
+from kubed.selenium_flow.core.capabilities import ENDPOINTS
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.spec import build_spec
 

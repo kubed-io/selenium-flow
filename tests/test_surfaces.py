@@ -7,10 +7,10 @@ other breaks that quietly, so it is asserted here rather than trusted.
 
 import pytest
 
+from kubed.selenium_flow.core.capabilities import ENDPOINTS, method_for
 from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.http import files as files_module
 from kubed.selenium_flow.mcp import clients as clients_module
-from kubed.selenium_flow.routes import ENDPOINTS, method_for
 
 pytestmark = pytest.mark.unit
 

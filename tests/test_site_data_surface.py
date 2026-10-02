@@ -6,8 +6,8 @@ import pytest
 from fastmcp import Client
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow import routes
 from kubed.selenium_flow.config import Settings
+from kubed.selenium_flow.core import capabilities
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.session.sessions import SessionManager
@@ -51,7 +51,7 @@ async def test_save_site_data_is_a_tool_and_an_endpoint(server):
     async with Client(server.mcp) as c:
         names = {t.name for t in await c.list_tools()}
     assert "save_site_data" in names
-    assert routes.ENDPOINTS["save-site-data"] == "save_site_data"
+    assert capabilities.ENDPOINTS["save-site-data"] == "save_site_data"
 
 
 async def test_open_session_takes_restore_site_data(server):

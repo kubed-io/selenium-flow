@@ -1219,7 +1219,7 @@ async def test_the_http_catalogue_is_in_the_published_contract(secret_server):
     real response: every field the catalogue returns is declared."""
     from starlette.testclient import TestClient
 
-    from kubed.selenium_flow.routes import ENDPOINTS
+    from kubed.selenium_flow.core.capabilities import ENDPOINTS
     from kubed.selenium_flow.spec import build_spec
 
     from .conftest import NAMED, TOKEN

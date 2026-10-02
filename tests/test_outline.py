@@ -10,8 +10,8 @@ be used. See saga §F2.8.
 import pytest
 
 from kubed.selenium_flow.core import probe
+from kubed.selenium_flow.core.capabilities import ENDPOINTS, method_for
 from kubed.selenium_flow.flows.document import InvalidFlow, step_schemas, validate
-from kubed.selenium_flow.routes import ENDPOINTS, method_for
 
 pytestmark = pytest.mark.unit
 

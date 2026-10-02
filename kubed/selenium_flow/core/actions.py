@@ -648,8 +648,9 @@ class Actions:
         """Attach a file to a file input.
 
         ``session`` names which library ``file`` is read from, for a **flow
-        run** only — ``flows/run.py`` injects it via ``routes.LIBRARY_ARG`` so
-        a step reads the library the flow itself belongs to. Neither the MCP
+        run** only — ``flows/run.py`` injects it via
+        ``capabilities.LIBRARY_ARG`` so a step reads the library the flow
+        itself belongs to. Neither the MCP
         tool nor the HTTP dispatcher exposes it as a field a caller can set:
         `routes._add` excludes it from the accepted body, so a request naming
         another session here is dropped like any other unknown field rather

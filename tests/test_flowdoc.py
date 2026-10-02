@@ -21,7 +21,7 @@ async def step_schema_map(server):
     as a valid step. `flowapi.RUNNABLE` refuses that at run time, so a looser
     map here would have let validation and execution disagree.
     """
-    from kubed.selenium_flow.routes import ENDPOINTS
+    from kubed.selenium_flow.core.capabilities import ENDPOINTS
 
     tools = {}
     for name in sorted(set(ENDPOINTS.values())):

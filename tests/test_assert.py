@@ -8,8 +8,8 @@ failure costs a turn and a confident green costs ten. See saga §F2.5.
 import pytest
 
 from kubed.selenium_flow.core import assertion as assertion
+from kubed.selenium_flow.core.capabilities import ENDPOINTS, method_for
 from kubed.selenium_flow.errors import status_for
-from kubed.selenium_flow.routes import ENDPOINTS, method_for
 
 pytestmark = pytest.mark.unit
 
@@ -204,8 +204,8 @@ def test_a_failing_assert_stops_the_run_and_carries_the_message():
 async def test_an_assert_cannot_be_continued_past(server):
     """`onError: continue` on an assertion is the confident green again: the run
     would carry on and report `ok` (Copilot, #26)."""
+    from kubed.selenium_flow.core.capabilities import ENDPOINTS as ROUTES
     from kubed.selenium_flow.flows.document import InvalidFlow, step_schemas, validate
-    from kubed.selenium_flow.routes import ENDPOINTS as ROUTES
 
     tools = {}
     for name in sorted(set(ROUTES.values())):
@@ -262,8 +262,8 @@ def test_a_hand_edited_flow_cannot_continue_past_one_either():
 
 async def test_a_flow_with_an_assert_step_saves(server):
     """Save-time validation knows the tool, so an author finds a typo now."""
+    from kubed.selenium_flow.core.capabilities import ENDPOINTS as ROUTES
     from kubed.selenium_flow.flows.document import step_schemas, validate
-    from kubed.selenium_flow.routes import ENDPOINTS as ROUTES
 
     tools = {}
     for name in sorted(set(ROUTES.values())):

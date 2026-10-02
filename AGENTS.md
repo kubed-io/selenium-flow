@@ -77,8 +77,11 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   This is what lets a caller choose its style: an n8n workflow can hand the whole job to
   an agent over MCP, or drive the same actions itself with HTTP Request nodes when it wants
   exact control. A tool with no endpoint would take that choice away, because the workflow
-  could not reproduce what the agent did. `tests/test_surfaces.py` asserts the two sets are
-  equal — if it fails, add the missing half rather than editing the assertion.
+  could not reproduce what the agent did. Both surfaces are mounted from one table,
+  `CAPABILITIES` in `core/capabilities.py`: every row is a route, and `mcp/tools.py` refuses
+  to start with a row it has no declaration for. `tests/test_surfaces.py` asserts the two
+  sets are equal against its own hand list — if it fails, add the missing half rather than
+  editing the assertion.
 
   Two clarifications on the rule. Operational routes — `/health`, `/openapi.yaml` — are
   HTTP-only on purpose; they describe or monitor the server rather than doing anything to a
@@ -481,8 +484,9 @@ because a name is guarded by nothing but the bearer token.
 
 ## The HTTP surface is REST, and the session is not in the path
 
-Paths and methods are **declared** per capability in a route table, never
-derived from tool names (§F2.13). What the two surfaces share is bodies and
+Paths and methods are **declared** per capability — the `route` and
+`http_method` columns of its row in `core/capabilities.py` — never derived from
+tool names (§F2.13). What the two surfaces share is bodies and
 results — a request body *is* the tool's schema, asserted by
 `test_request_schemas_are_the_tool_schemas` — not shape.
 

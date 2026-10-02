@@ -43,13 +43,13 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from ..core.capabilities import ENDPOINTS, LIBRARY_ARG, capability, method_for
 from ..core.coerce import as_bool
 from ..http import answer as answer_module
 from ..mcp import clients, guidance, progress
 from ..mcp.annotations import hints
 from ..mcp.tools import SecretRef
 from ..names import GLOBAL_SESSION, valid_name
-from ..routes import ENDPOINTS, LIBRARY_ARG, method_for
 from . import document as flowdoc
 from . import engine, template
 from . import library as flowlib
@@ -57,12 +57,13 @@ from . import run as flowrun
 
 log = logging.getLogger(__name__)
 
-# The only tools a step may dispatch to. ENDPOINTS is the canonical list of
-# browser actions and is already held to the tool surface by test_surfaces.py;
-# the lifecycle calls are not steps (`flowdoc.NOT_STEPS`).
+# The only tools a step may dispatch to: the browser actions' commands, read off
+# the capability table that both surfaces are mounted from and that
+# test_surfaces.py holds to its hand list. The lifecycle calls are not steps
+# (`flowdoc.NOT_STEPS`).
 RUNNABLE = frozenset(ENDPOINTS.values()) - flowdoc.NOT_STEPS.keys()
 
-# A run is handed what it must not import: the route table's tools and the
+# A run is handed what it must not import: the capability table's tools and the
 # skill's URIs. This module knows both, so it is where the two are joined.
 flowrun.wire(
     engine.Toolbox(runnable=RUNNABLE, method_for=method_for, library_arg=LIBRARY_ARG),
@@ -95,7 +96,7 @@ FLOW_ROUTES = {
 }
 
 # The endpoints by name, read off the route table rather than listed beside it.
-# Separate from routes.ENDPOINTS on purpose: these are not browser actions and
+# Separate from the capability table on purpose: these are not browser actions and
 # must not be counted as though they were. Kept as names rather than paths
 # because the spec and the wiki describe capabilities, and the path each one
 # lives at is the route table's business (§F2.13).
@@ -647,7 +648,11 @@ def run_for(
         # capture is stored as the snapshot and stripped from the result. The
         # touch is left to `before_save` and the one at the end of the run.
         sessions.settle(
-            session, result, browser=resolved, reshapes=tool == "resize", touch=False
+            session,
+            result,
+            browser=resolved,
+            reshapes=capability(tool).reshapes,
+            touch=False,
         )
 
     # A save reads the localStorage of every site in the history, and the run

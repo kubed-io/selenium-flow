@@ -28,7 +28,7 @@ def _spec() -> dict:
     import asyncio
 
     from kubed.selenium_flow.config import Settings
-    from kubed.selenium_flow.routes import ENDPOINTS
+    from kubed.selenium_flow.core.capabilities import ENDPOINTS
     from kubed.selenium_flow.server import SeleniumMCP
     from kubed.selenium_flow.spec import build_spec
 
@@ -114,9 +114,9 @@ def test_every_action_with_an_endpoint_has_a_page():
     the live spec rather than against the generator, so adding a surface with a
     route table of its own fails here rather than going undocumented.
     """
+    from kubed.selenium_flow.core.capabilities import ENDPOINTS
     from kubed.selenium_flow.flows import api as flowapi
     from kubed.selenium_flow.http import files as files_module
-    from kubed.selenium_flow.routes import ENDPOINTS
 
     spec = _spec()
     tagged = {}

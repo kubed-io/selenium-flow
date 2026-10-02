@@ -28,10 +28,10 @@ from starlette.testclient import TestClient
 from kubed.selenium_flow import errors, faults
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core.actions import Actions
+from kubed.selenium_flow.core.capabilities import ENDPOINTS
 from kubed.selenium_flow.flows import run as flowrun
 from kubed.selenium_flow.flows.run import run
 from kubed.selenium_flow.mcp import clients as clients_module
-from kubed.selenium_flow.routes import ENDPOINTS
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.session.store import MemoryStore, SessionRecord
 from kubed.selenium_flow.spec import build_spec
