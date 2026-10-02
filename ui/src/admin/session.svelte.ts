@@ -107,6 +107,10 @@ export class SessionModel {
         this.filesBlanked = true
         this.flowsBlanked = true
         this.loadingFiles = false
+        // Site data and History read the session store, not the Grid: a
+        // Files failure must not leave them on Loading… (Copilot, #51).
+        if (this.siteData === null && this.siteDataError === null) void this.loadSiteData()
+        if (this.history === null && this.historyError === null) void this.loadHistory()
       },
     )
   }

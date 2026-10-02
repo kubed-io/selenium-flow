@@ -193,3 +193,18 @@ test('both revs moving in one push is still one history load', async () => {
   push('2')
   expect([loads('site-data'), loads('history')]).toEqual([2, 2])
 })
+
+
+test('a Files failure still loads Site data and History: they read the store, not the Grid', async () => {
+  const { calls } = fakeFetch({
+    'GET /admin/sessions/k/files': { status: 503, body: { error: 'the Grid is unreachable' } },
+    'GET /admin/sessions/k/site-data': { body: { sites: [], details: {} } },
+    'GET /admin/sessions/k/history': { body: { key: 'k', sites: [], clears: [] } },
+  })
+  const m = new SessionModel('k', api)
+  await m.loadFiles()
+  await vi.waitFor(() => expect(m.history).not.toBeNull())
+  expect(m.siteData).not.toBeNull()
+  const loads = (tab: string) => calls.filter((c) => c.path === '/admin/sessions/k/' + tab).length
+  expect([loads('site-data'), loads('history')]).toEqual([1, 1])
+})
