@@ -6,9 +6,9 @@ already drifted: two of them logged an unreachable Grid at WARNING and one at
 ERROR, and the browser tree carried a dead ``except ValueError`` branch for a
 body reader that has not raised since it learned to tolerate an empty body.
 
-What stays separate is what genuinely differs. ``admin`` keeps its own
-decorator because its handlers answer with HTML and event streams, not JSON,
-so the only thing it shares is the credential check.
+What stays separate is what genuinely differs. ``admin`` has its handlers
+answer with HTML and event streams, not only JSON, so what it shares is the
+credential check (``guarded``) and the failure shaper (``refused``).
 
 ``errors`` is deliberately not imported by any framework: it decides what a
 failure *means*, for the MCP surface as much as this one. Turning that meaning
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from functools import wraps
 
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
@@ -83,6 +84,49 @@ def as_response(exc: Exception, what: str, log: logging.Logger) -> JSONResponse:
         # full traceback buried the real failures.
         log.info("%s refused (%s): %s", what, status, text)
     return JSONResponse({"error": text}, status_code=status)
+
+
+def refused(exc: Exception, what: str, log: logging.Logger) -> JSONResponse:
+    """A failed admin request, as the status and message ``errors`` gives it.
+
+    The log line keeps whatever ``errors.message`` says, path included — an
+    operator chasing an NFS outage needs to know which mount. A real
+    filesystem failure's ``str()`` quotes that same path, though, and the body
+    a caller reads is not the place for FLOW_DATA_DIR's layout — the same
+    reason ``naming._why_unsaved`` keeps a screenshot-save failure to a type
+    name rather than the OSError's own message (Copilot, PR #41).
+
+    Unlike ``as_response`` this is for the admin surface, where a refusal is
+    what the page shows beside the button that caused it, so every status
+    logs at INFO; ``what`` is the sentence's subject.
+    """
+    status = errors.status_for(exc)
+    text = errors.message(exc)
+    log.info("%s refused (%s): %s", what, status, text)
+    if isinstance(exc, OSError) and exc.filename:
+        text = f"{exc.strerror or type(exc).__name__} ({type(exc).__name__})"
+    return JSONResponse({"error": text}, status_code=status)
+
+
+def guarded(token: str | None) -> Callable:
+    """A decorator: refuse a request with no token before the handler sees it.
+
+    A decorator rather than two lines at the top of each route, and the
+    reason is not the fourteen lines: every one of these returns data only a
+    token-holder may see, so the check has to be impossible to leave out of the
+    next one. Written per-route it was seven chances to forget.
+    """
+
+    def decorate(handler):
+        @wraps(handler)
+        async def wrapper(request: Request):
+            if not auth.authorized(request, token):
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
+            return await handler(request)
+
+        return wrapper
+
+    return decorate
 
 
 async def answer(

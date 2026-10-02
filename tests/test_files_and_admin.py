@@ -592,7 +592,7 @@ async def test_every_connected_page_is_sent_the_same_events(server, monkeypatch)
     import asyncio
     import threading
 
-    from kubed.selenium_flow.http import admin
+    from kubed.selenium_flow.http.admin import sessions as admin
 
     monkeypatch.setattr(admin, "POLL_SECONDS", 0.05)
     gate = threading.Semaphore(0)

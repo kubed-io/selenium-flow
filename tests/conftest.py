@@ -17,7 +17,7 @@ import pytest
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.core.browser import Grid
-from kubed.selenium_flow.http import admin as _admin
+from kubed.selenium_flow.http.admin import page as _admin_page
 from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.session.sessions import SessionManager
@@ -174,7 +174,7 @@ def ui_dir(tmp_path_factory, monkeypatch):
     Its own directory, not one inside `tmp_path`: tests that list their
     `tmp_path` (a flow store, a secrets mount) must find only what they made."""
     folder = tmp_path_factory.mktemp("ui-static")
-    monkeypatch.setattr(_admin, "static_path", lambda: folder)
+    monkeypatch.setattr(_admin_page, "static_path", lambda: folder)
     return folder
 
 

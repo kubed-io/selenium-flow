@@ -16,6 +16,8 @@ from __future__ import annotations
 import pytest
 from starlette.testclient import TestClient
 
+from kubed.selenium_flow.http import answer
+
 from .conftest import TOKEN
 
 pytestmark = pytest.mark.unit
@@ -77,3 +79,15 @@ def test_a_failure_becomes_a_status_and_a_message_in_one_place():
     response = as_response(ValueError("no such flow"), "get", logging.getLogger("t"))
     assert response.status_code == 400
     assert bytes(response.body).decode() == '{"error":"no such flow"}'
+
+
+def test_refused_keeps_a_filesystem_path_out_of_the_body():
+    """The admin's one failure shaper scrubs an OSError's path, as the secrets
+    and flows routes always did; the files routes had their own copy that
+    did not."""
+    import logging
+
+    exc = PermissionError(13, "Permission denied", "/data/flows/secret-layout")
+    response = answer.refused(exc, "files for x", logging.getLogger("t"))
+    body = response.body.decode()
+    assert "secret-layout" not in body and "Permission denied" in body

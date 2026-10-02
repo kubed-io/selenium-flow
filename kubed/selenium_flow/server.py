@@ -21,6 +21,7 @@ from .core.browser import Grid
 from .flows import api as flowapi
 from .flows import store as flowstore
 from .http import admin, files
+from .http.admin import page as admin_page
 from .mcp import (
     apps,
     clients,
@@ -156,7 +157,7 @@ class SeleniumMCP:
         base = (settings.public_base_url or "").strip().rstrip("/")
         if self.prefix and base.endswith(self.prefix):
             base = base[: -len(self.prefix)]
-        if not admin.ui_built("admin"):
+        if not admin_page.ui_built("admin"):
             log.info(
                 "The admin UI is not built, so its URL shows a placeholder: "
                 "run `npm --prefix ui run build`."

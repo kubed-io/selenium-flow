@@ -9,7 +9,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow.config import Settings
-from kubed.selenium_flow.http import admin
+from kubed.selenium_flow.http.admin import page as admin
 from kubed.selenium_flow.mcp import apps
 from kubed.selenium_flow.server import SeleniumMCP
 

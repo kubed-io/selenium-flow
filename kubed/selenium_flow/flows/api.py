@@ -38,6 +38,8 @@ from __future__ import annotations
 import logging
 
 import anyio
+import yaml
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -46,10 +48,11 @@ from ..http import answer as answer_module
 from ..mcp import clients, guidance, progress
 from ..mcp.annotations import hints
 from ..mcp.tools import SecretRef
-from ..names import GLOBAL_SESSION
+from ..names import GLOBAL_SESSION, valid_name
 from ..routes import ENDPOINTS, LIBRARY_ARG, method_for
 from . import document as flowdoc
 from . import engine, template
+from . import library as flowlib
 from . import run as flowrun
 
 log = logging.getLogger(__name__)
@@ -254,6 +257,66 @@ def delete_one(store, session: str, name: str) -> dict:
     session = writable(session)
     removed = store.delete(session, name)
     return {"deleted": removed, "session": session, "name": name}
+
+
+async def save_text(
+    store, session: str, name: str, text, schemas: Schemas
+) -> dict:
+    """Rewrite one flow from the YAML a person typed — the **operator** path.
+
+    The admin editor's PUT. It stores the text **verbatim** (§F1.14): a person
+    wrote these, comments and ordering included, and a save that round-tripped
+    through a parsed dict (``save_one``) would quietly discard both. It is
+    validated against the live step schemas first, exactly as ``save_one`` is,
+    so the editor cannot store something that would not run.
+
+    It deliberately does not go through ``writable``: that gate keeps agents
+    out of the live shared library, and this is the surface where a person is
+    present and allowed in. A flow is written back where it already lives, so
+    editing a shared one edits the shared one; a new one is created in
+    ``session``.
+    """
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("yaml is required")
+    try:
+        document = flowlib.parse(text)
+    except yaml.YAMLError as exc:
+        raise ValueError(
+            f"that is not valid YAML: {flowlib.yaml_complaint(exc)}"
+        ) from None
+    if not isinstance(document, dict):
+        raise ValueError("a flow document must be a YAML mapping")
+    # The file name is the flow's identity — `LocalFlowStore.get` says
+    # so, and overwrites whatever the document claims. So an edited
+    # `name:` cannot rename anything: without this the save reports
+    # success, the flow keeps its old name, and the file is left saying
+    # otherwise. Refusing is not a smaller feature than renaming, it is
+    # an honest one; a rename is a move to a new name and belongs with
+    # the move verb whenever someone wants it.
+    claimed = document.get("name")
+    if claimed is not None and valid_name(
+        claimed, "flow name"
+    ) != valid_name(name, "flow name"):
+        raise ValueError(
+            f"this flow is called {name!r} and the file name is what "
+            "names it, so the document cannot rename it. Put "
+            f"{name!r} back, or delete this one and save a new flow "
+            "under the name you want."
+        )
+    flowdoc.validate(document, await schemas.get())
+    # Written back where it already lives, so editing a shared flow
+    # edits the shared one rather than silently forking a copy into
+    # this session. A flow that does not exist yet is created here.
+    existing = await run_in_threadpool(store.get, session, name)
+    where = session
+    if existing is None:
+        shared = await run_in_threadpool(
+            store.get, GLOBAL_SESSION, name
+        )
+        if shared is not None:
+            where = GLOBAL_SESSION
+    await run_in_threadpool(store.write_text, where, name, text)
+    return {"saved": True, "session": where, "name": name}
 
 
 class Schemas:
