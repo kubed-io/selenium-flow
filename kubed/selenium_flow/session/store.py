@@ -242,7 +242,9 @@ class SessionRecord:
 
 def _visits(raw) -> list[dict]:
     """The well-formed entries of a stored history. A record written before
-    there was one has none: it reads as a session that has been nowhere."""
+    there was one has none: it reads as a session that has been nowhere. A URL
+    that does not parse is no entry, or every later write would trip on it
+    (Copilot, #51)."""
     if not isinstance(raw, list):
         return []
     return [
@@ -250,7 +252,7 @@ def _visits(raw) -> list[dict]:
         for v in raw
         if isinstance(v, dict)
         and isinstance(v.get("origin"), str) and v["origin"]
-        and isinstance(v.get("url"), str) and v["url"]
+        and isinstance(v.get("url"), str) and origin_of(v["url"])
         and isinstance(v.get("at"), (int, float)) and not isinstance(v["at"], bool)
     ]
 

@@ -5,6 +5,7 @@ a page with an origin enters it, and a URL withheld after a secret write
 records nothing (§F1.24). Entries expire with the record's TTL, the top one
 excepted."""
 
+import json
 import time
 
 import pytest
@@ -106,6 +107,16 @@ def test_a_malformed_entry_is_dropped_not_fatal():
         {"origin": "https://a.test", "url": "https://a.test/", "at": 1.0}
     ]
     assert SessionRecord.from_json('{"session_id": "s", "history": {"a": 1}}').history == []
+
+
+def test_a_stored_url_that_does_not_parse_is_dropped_not_tripped_on():
+    raw = json.dumps({"history": [
+        {"origin": "https://a.test", "url": "https://a.test/", "at": 2.0},
+        {"origin": "https://b.test", "url": "https://[broken/path", "at": 1.0},
+    ]})
+    record = SessionRecord.from_json(raw)
+    assert origins(record) == ["https://a.test"]
+    assert origins(record.at("https://c.test/", now=3.0)) == ["https://c.test", "https://a.test"]
 
 
 def test_touch_bumps_the_history_and_a_withheld_url_still_slides_the_ttl():
