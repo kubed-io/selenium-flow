@@ -76,19 +76,15 @@ def parse(text: str):
     return copy.deepcopy(view(text))
 
 
-# libyaml's emitter for the same reason as its parser: the pure-Python one took
-# 1.5ms of a 3KB save where libyaml takes 0.2ms. The two write the same YAML;
-# libyaml escapes a character outside the Basic Multilingual Plane (`😀` is
-# written `"\U0001F600"`) and may break a long quoted line elsewhere, and either
-# reads back as the same document.
-_DUMPER = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
-
-
 def dump(document: dict) -> str:
-    """``document`` as the YAML a save writes: keys in the order given."""
-    return yaml.dump(
-        document, Dumper=_DUMPER, sort_keys=False, width=100, allow_unicode=True
-    )
+    """``document`` as the YAML a save writes: keys in the order given.
+
+    The pure-Python emitter, not libyaml's, though libyaml is seven times
+    faster: it escapes anything outside the Basic Multilingual Plane (`😀`
+    becomes `"\\U0001F600"`) and breaks long quoted lines elsewhere, and a
+    person reads this text in the admin editor (Dr K).
+    """
+    return yaml.safe_dump(document, sort_keys=False, width=100, allow_unicode=True)
 
 
 def _step_count(document: dict) -> int:

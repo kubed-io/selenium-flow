@@ -50,7 +50,8 @@ from .template import (
     with_defaults,
 )
 
-log = logging.getLogger(__name__)
+# The runner's old logger name, kept: operators filter Loki by it.
+log = logging.getLogger("kubed.selenium_flow.flows.run")
 
 # The step that reads every site in the session's history (`before_save`).
 SAVE_SITE_DATA = "save_site_data"

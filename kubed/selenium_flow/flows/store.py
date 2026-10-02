@@ -35,9 +35,11 @@ trace to a decision they never made.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import logging
 import os
+import stat
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -50,7 +52,8 @@ from .library import dump, summary, view, yaml_complaint
 if TYPE_CHECKING:
     from ..config import FlowSettings
 
-log = logging.getLogger(__name__)
+# The store's old logger name, kept: operators filter Loki by it.
+log = logging.getLogger("kubed.selenium_flow.flows.library")
 
 # Flows are YAML on disk and dicts in the API. YAML because a person edits these
 # by hand and in the admin UI, and because PyYAML is already a dependency for
@@ -134,14 +137,19 @@ def _replace(path: Path, text: str) -> None:
     that no listing addresses (a leading dot, and not `.yaml`), and is renamed
     over it: a rename within one directory is atomic, and the new inode is what
     `revision` already expects of a replace.
+
+    A file being replaced keeps its mode, as one rewritten in place did; a new
+    one gets the umask's, from an ordinary create.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    # An ordinary create, so the umask decides the mode as it did in place.
     file = temporary.open("x", encoding="utf-8")
     try:
         with file:
             file.write(text)
+        # Nothing to replace means the new file keeps the umask's mode.
+        with contextlib.suppress(FileNotFoundError):
+            temporary.chmod(stat.S_IMODE(path.stat().st_mode))
         temporary.replace(path)
     except BaseException:
         temporary.unlink(missing_ok=True)

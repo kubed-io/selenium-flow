@@ -37,6 +37,10 @@ def wire(toolbox: engine.Toolbox, pointer: Callable[[str], str]) -> None:
 
     Called once, by `flows.api` as it loads: it is the module that knows the
     route table and the skill, so the run itself never has to import either.
+
+    A module-level setting for now, because `run()` keeps its signature and is
+    called bare. The registry task (the `Capability` table) is where the tools
+    are passed per call instead, and this goes.
     """
     global _toolbox
     _toolbox = toolbox

@@ -746,3 +746,22 @@ def test_a_write_cut_short_leaves_the_last_document_whole(store, tmp_path, monke
     monkeypatch.undo()
     assert path.read_bytes() == before
     assert [p.name for p in path.parent.iterdir()] == ["login.yaml"]
+
+
+def test_a_saved_document_keeps_its_emoji_as_written(store):
+    """The admin editor shows the YAML text, so a save writes what the author
+    wrote: an emoji stays an emoji, not a `\\U0001F600` escape."""
+    store.save("bot", "smile", {"description": "ship it 😀", "steps": []})
+    assert "ship it 😀" in store.read_text("bot", "smile")
+
+
+def test_a_replaced_document_keeps_its_mode(store, tmp_path):
+    """Rewritten in place, a file kept whatever mode an operator gave it; a
+    rename over it must not quietly reset that."""
+    store.save("bot", "login", {"steps": []})
+    path = tmp_path / "bot" / "flows" / "login.yaml"
+    path.chmod(0o640)
+    store.save("bot", "login", {"description": "again", "steps": []})
+    assert path.stat().st_mode & 0o777 == 0o640
+    store.write_text("bot", "login", "steps: []\n")
+    assert path.stat().st_mode & 0o777 == 0o640
