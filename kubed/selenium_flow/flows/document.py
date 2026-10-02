@@ -53,6 +53,7 @@ import logging
 
 from .. import binding
 from ..binding import SECRET_ARG
+from .shape import NOT_A_STEP, Shape
 from .template import PARAM_REFERENCE, listed, references
 
 log = logging.getLogger(__name__)
@@ -412,7 +413,7 @@ def _check_params(
     # twice.
     routed = set()
 
-    for name, value in sorted(params.items()):
+    for name, value in sorted(params.items(), key=lambda item: str(item[0])):
         if name in RESERVED_PARAMS:
             problems.append(
                 f"{where}: {name} is supplied by the run, not by the flow — "
@@ -555,7 +556,7 @@ def _check_destination(where: str, params: dict) -> list[str]:
 def _check_step(index: int, step, declared: set[str], schemas: dict) -> list[str]:
     where = f"step {index}"
     if not isinstance(step, dict):
-        return [f"{where}: must be an object with a tool and its params"]
+        return [f"{where}: {NOT_A_STEP}"]
 
     if step.get("id"):
         where = f"step {index} ({step['id']})"
@@ -656,28 +657,19 @@ def validate(document, schemas: dict) -> dict:
     except ValueError as exc:
         problems.append(str(exc))
 
-    parameters = document.get("parameters") or {}
-    if not isinstance(parameters, dict):
-        problems.append("parameters must be a JSON Schema object")
-        parameters = {}
-    properties = parameters.get("properties") or {}
-    if not isinstance(properties, dict):
-        problems.append("parameters.properties must be an object")
-        properties = {}
-    declared = set(properties)
+    shape = Shape(document)
+    problems += shape.parameter_problems()
+    properties = shape.properties
+    declared = shape.declared
     # `writeOnly` is standard JSON Schema for "supplied but not returned", and
     # it used to mean exactly that here. Accepting it now that nothing redacts
     # it is the worst of both: an author marks a password `writeOnly`, believes
     # it is hidden, and reads it back out of the report. A familiar marker that
     # silently does nothing is a leak with a reassuring name on it, so it is
     # refused and the refusal says what to use instead (§F1.38).
-    # Sorted by the *string* of each key, and every value type-checked before
-    # it is read. A flow is YAML anyone may have written by hand: `properties:
-    # []` has no `.items()`, `1:` is an integer key so sorting it beside a
-    # string raises TypeError, and a scalar schema has no `.get`. Each of those
-    # turned a document this function exists to refuse into a 500 about our own
-    # code — the same trap `listed()` was written for.
-    for name in sorted(properties, key=str):
+    # Sorted by the string of each key: YAML makes `1:` an integer, and an
+    # integer beside a string does not sort. `Shape` has made every name one.
+    for name in sorted(properties):
         schema = properties[name]
         if isinstance(schema, dict) and schema.get("writeOnly"):
             problems.append(
@@ -686,21 +678,23 @@ def validate(document, schemas: dict) -> dict:
                 "A value nobody may see is a secret: give write an args.secret "
                 "instead"
             )
-    for name in parameters.get("required") or []:
+    for name in shape.required:
         if name not in declared:
             problems.append(
                 f"parameters: {name!r} is required but not declared in properties"
             )
 
-    steps = document.get("steps")
-    if not isinstance(steps, list) or not steps:
-        problems.append("steps must be a non-empty list")
+    problem = shape.steps_problem()
+    if problem:
+        problems.append(problem)
         raise InvalidFlow(problems)
 
     seen = set()
-    for index, step in enumerate(steps, start=1):
+    for index, step in enumerate(shape.steps, start=1):
         problems += _check_step(index, step, declared, schemas)
-        if isinstance(step, dict) and step.get("id"):
+        # Only a string id can repeat: a list is already refused by
+        # `_check_step`, and cannot be a member of a set.
+        if isinstance(step, dict) and step.get("id") and isinstance(step["id"], str):
             if step["id"] in seen:
                 problems.append(
                     f"step {index}: id {step['id']!r} is already used; "

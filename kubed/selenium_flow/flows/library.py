@@ -12,6 +12,8 @@ import threading
 import yaml
 from cachetools import LRUCache, cached
 
+from .shape import Shape
+
 
 def yaml_complaint(exc: Exception) -> str:
     """Say where a flow document broke, without quoting what was there.
@@ -87,19 +89,6 @@ def dump(document: dict) -> str:
     return yaml.safe_dump(document, sort_keys=False, width=100, allow_unicode=True)
 
 
-def _step_count(document: dict) -> int:
-    """How many steps a document has, for a listing.
-
-    Defensive about the type because a person edits these: ``steps: 1`` would
-    reach ``len()`` and raise, and ``steps: {}`` would quietly report a mapping's
-    size as a number of steps. Either one aborts a listing and hides every other
-    flow in the session, which is the failure the corruption handling in `get`
-    exists to prevent — so it must not come back in through the summary.
-    """
-    steps = document.get("steps")
-    return len(steps) if isinstance(steps, list) else 0
-
-
 def summary(name: str, session: str, document: dict) -> dict:
     """Name, description and parameters for one flow — never the steps.
 
@@ -114,5 +103,5 @@ def summary(name: str, session: str, document: dict) -> dict:
         # Named for what it is. Calling it `steps` would put an int where the
         # document itself carries a list, and E2 reads both — one consumer
         # doing summary["steps"][0] is the whole cost of the shorter name.
-        "step_count": _step_count(document),
+        "step_count": Shape(document).step_count,
     }

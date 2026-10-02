@@ -810,12 +810,6 @@ async def test_parameters_that_are_a_list_are_refused(step_schema_map):
     assert caught.value.problems == ["parameters must be a JSON Schema object"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="D19: `_check_params` sorts the args by key, and an int key beside a "
-    "string one raises TypeError. Task 16 sorts by str(key), which makes it the "
-    "same refusal an unknown string key gets.",
-)
 async def test_an_integer_key_in_args_is_a_problem_not_a_crash(step_schema_map):
     """`args: {1: x, url: ...}` — YAML reads the key as an int (D19)."""
     document = flow(steps=[{"tool": "navigate", "args": {1: "x", "url": "https://a.test/"}}])
@@ -826,12 +820,6 @@ async def test_an_integer_key_in_args_is_a_problem_not_a_crash(step_schema_map):
 GOOD_STEP = {"tool": "navigate", "args": {"url": "https://example.test/"}}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="D20: an unhashable id reaches `step['id'] in seen` and raises "
-    "TypeError, which the admin answers as 400 'unhashable type'. Task 16 "
-    "makes it a problem with a sentence.",
-)
 async def test_an_id_that_is_a_list_is_refused_with_a_sentence(step_schema_map):
     document = flow(steps=[{**GOOD_STEP, "id": ["a"]}])
     with pytest.raises(InvalidFlow) as caught:
@@ -840,11 +828,6 @@ async def test_an_id_that_is_a_list_is_refused_with_a_sentence(step_schema_map):
     assert problem.startswith("step 1") and problem.endswith("id must be a str")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="`required: email` is iterated as letters, so the author is told "
-    "five things about 'e', 'm', 'a', 'i' and 'l'. Task 16 says what is wrong.",
-)
 async def test_a_required_that_is_a_string_is_refused_with_a_sentence(step_schema_map):
     document = flow(
         parameters={"properties": {"email": {"type": "string"}}, "required": "email"}

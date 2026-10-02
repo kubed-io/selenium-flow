@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import re
 
+from .shape import Shape
+
 # A reference to one of the flow's own parameters, written in any string of any
 # argument. `${name}` and nothing cleverer: no expressions, no defaults, no
 # dotted paths — those are a language, and a language in a config file is a
@@ -87,28 +89,6 @@ class FlowError(ValueError):
     """
 
 
-def properties(document: dict) -> dict:
-    """A flow's declared parameters, or nothing if the document is malformed.
-
-    Defensive because this reads a stored file: `parameters: []` and a scalar
-    `properties` are both things a hand edit produces, and neither may become a
-    crash in a preflight whose job is to refuse documents cleanly.
-    """
-    parameters = document.get("parameters")
-    if not isinstance(parameters, dict):
-        return {}
-    found = parameters.get("properties")
-    return found if isinstance(found, dict) else {}
-
-
-def required_params(document: dict) -> list[str]:
-    parameters = document.get("parameters")
-    if not isinstance(parameters, dict):
-        return []
-    required = parameters.get("required")
-    return list(required) if isinstance(required, list) else []
-
-
 def with_defaults(document: dict, params: dict) -> dict:
     """``params``, plus the declared ``default`` of anything the caller omitted.
 
@@ -135,7 +115,7 @@ def with_defaults(document: dict, params: dict) -> dict:
     document rather than a case worth honouring.
     """
     filled = dict(params or {})
-    for name, spec in properties(document).items():
+    for name, spec in Shape(document).properties.items():
         if not isinstance(spec, dict) or name in filled:
             continue
         if "default" in spec:
@@ -145,13 +125,14 @@ def with_defaults(document: dict, params: dict) -> dict:
 
 def check_params(document: dict, params: dict) -> None:
     """Refuse before step one rather than at step two with half a form filled."""
-    missing = [name for name in required_params(document) if name not in (params or {})]
+    shape = Shape(document)
+    missing = [name for name in shape.required if name not in (params or {})]
     if missing:
         raise FlowError(
             f"{document.get('name', 'this flow')} needs "
             f"{listed(missing)}: pass them in params"
         )
-    declared = set(properties(document))
+    declared = shape.declared
     unknown = set(params or {}) - declared
     if unknown:
         known = listed(declared) or "it takes none"

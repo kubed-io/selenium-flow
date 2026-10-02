@@ -42,11 +42,11 @@ from ..core import cancel
 from .document import ARGS, ASSERTION, declared_timeout
 from .redact import scrub, scrub_values, taints
 from .report import OUT_OF_TIME, clean, refused, summarise, with_hint
+from .shape import Shape
 from .template import (
     FlowError,
     check_params,
     listed,
-    properties,
     substitute,
     with_defaults,
 )
@@ -371,10 +371,20 @@ def _preflight(document: dict, name: str, skill_available: bool) -> dict | None:
     # echoed back by any `return: true` step. Refusing the run is the same
     # answer saving gives, in the only other place a document can arrive
     # (§F1.38).
+    shape = Shape(document)
+    malformed = shape.problems()
+    if malformed:
+        return refused(
+            document,
+            name,
+            "this flow cannot be run as written: " + "; ".join(malformed) + ".",
+            skill_available,
+        )
+
     marked = sorted(
         (
             str(param)
-            for param, schema in properties(document).items()
+            for param, schema in shape.properties.items()
             if isinstance(schema, dict) and schema.get("writeOnly")
         ),
     )
@@ -391,7 +401,7 @@ def _preflight(document: dict, name: str, skill_available: bool) -> dict | None:
 
     stale = [
         number
-        for number, step in enumerate(document.get("steps") or [], start=1)
+        for number, step in enumerate(shape.steps, start=1)
         if isinstance(step, dict) and ("valueFrom" in step or "params" in step)
     ]
     if stale:
@@ -404,7 +414,7 @@ def _preflight(document: dict, name: str, skill_available: bool) -> dict | None:
                 "flow": name,
                 "status": "failed",
                 "steps_run": 0,
-                "steps_total": len(document.get("steps") or []),
+                "steps_total": shape.step_count,
                 "steps": [
                     {
                         "n": number,
@@ -471,6 +481,7 @@ def execute(
         # lets a `default` satisfy `required`, which would make `required` mean
         # nothing — and "needs term: pass them in params" is advice the caller
         # can act on, where a silently-defaulted required parameter is not.
+        shape = Shape(document)
         check_params(document, params or {})
         params = with_defaults(document, params)
         name = document.get("name", "flow")
@@ -487,7 +498,7 @@ def execute(
         budget = default_timeout if timeout is None else max(int(timeout), 0)
         run = Run(
             name=name,
-            total=len(document.get("steps") or []),
+            total=shape.step_count,
             budget=budget,
             deadline=clock() + budget,
             stop=stop,
@@ -508,7 +519,7 @@ def execute(
             hooks=hooks or Callbacks(),
             clock=clock,
         )
-        for number, step in enumerate(document.get("steps") or [], start=1):
+        for number, step in enumerate(shape.steps, start=1):
             if not _take(run, call, number, step):
                 break
         return run.report(skill_available)

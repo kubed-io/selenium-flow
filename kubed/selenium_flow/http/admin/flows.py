@@ -17,6 +17,7 @@ from starlette.responses import JSONResponse
 
 from ...flows import api as flowapi
 from ...flows import template
+from ...flows.shape import Shape
 from ...names import GLOBAL_SESSION, library_of, valid_name
 from .. import answer
 from .sessions import library, revision
@@ -39,24 +40,15 @@ def _uses(document: dict) -> dict[str, list[int]]:
     almost always a typo in a step, and the panel can only say so if it is
     told about the parameter at all.
 
-    Every shape is checked before it is walked. A stored flow is a file a
-    person edits (§F1.6) and `LocalFlowStore.get` hands back any YAML mapping,
-    so `parameters: []` or `properties: "term"` reaches here — and a `.get` on
-    a list is an AttributeError, which the route turns into a 500 on a flow the
-    operator opened it to go and fix.
+    Read through `Shape`, because a stored flow is a file a person edits
+    (§F1.6) and the panel is where an operator goes to fix one.
     """
-    parameters = document.get("parameters")
-    declared = parameters.get("properties") if isinstance(parameters, dict) else None
-    if not isinstance(declared, dict):
+    shape = Shape(document)
+    declared = shape.properties
+    if not declared:
         return {}
-    uses: dict[str, list[int]] = {str(name): [] for name in declared}
-    # `steps: 1` is not a list and `enumerate` raises on it — the same 500, one
-    # level down from `parameters`, and `_step_count` already keeps such a flow
-    # in the catalogue with a count of 0 rather than dropping it. The panel is
-    # where an operator goes to open the editor and fix exactly this, so it has
-    # to render.
-    steps = document.get("steps")
-    for index, step in enumerate(steps if isinstance(steps, list) else []):
+    uses: dict[str, list[int]] = {name: [] for name in declared}
+    for index, step in enumerate(shape.steps):
         if not isinstance(step, dict):
             continue
         for name in template.references(step.get("args")):

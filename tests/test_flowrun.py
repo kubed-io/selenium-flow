@@ -1327,13 +1327,6 @@ def test_a_file_named_after_a_secret_is_not_reported():
 # (test_flowdoc.py); the runner must not answer the same document with a crash.
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AttributeError,
-    reason="R9: the step loop calls `.get` on whatever it was handed, so a "
-    "hand-edited document is an AttributeError, which an HTTP run answers as "
-    "a 500. Task 16 refuses it as a failed run.",
-)
 @pytest.mark.parametrize(
     ("steps", "complaint"),
     [
