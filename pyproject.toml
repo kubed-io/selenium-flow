@@ -118,6 +118,7 @@ packages = [
   "kubed.selenium_flow.http",
   "kubed.selenium_flow.mcp",
   "kubed.selenium_flow.session",
+  "kubed.selenium_flow.site_data",
   "kubed.selenium_flow.spec",
   "kubed.selenium_flow.core.js",
   "kubed.selenium_flow.mcp.prompts",

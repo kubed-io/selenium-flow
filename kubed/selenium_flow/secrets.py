@@ -50,6 +50,7 @@ from urllib.parse import urlsplit
 
 from .config import FromEnv, FromFile, FromValue, SecretEntry, SecretsSettings
 from .names import InvalidName, valid_name
+from .urls import host_of
 
 log = logging.getLogger(__name__)
 
@@ -765,6 +766,23 @@ def perform_write(catalogue, actions, sessions, name: str, kwargs: dict) -> dict
         # The first call after a silent reopen says what came back.
         shown["site_data"] = told
     return shown
+
+
+def matching_secrets(secrets: list[dict] | None, host: str) -> list[dict]:
+    """The secrets allowed on ``host``, names and keys only. A secret with no
+    `allowed_urls` is usable anywhere and is not listed under every site; one
+    with `allowed_urls_rejected` is usable nowhere, its valid lines included
+    (`Catalogue.allows`), so it is not listed either."""
+    return [
+        {
+            "name": s["name"],
+            "description": s.get("description") or "",
+            "keys": list(s.get("keys") or []),
+        }
+        for s in secrets or []
+        if not s.get("allowed_urls_rejected")
+        and any(host_of(u) == host for u in s.get("allowed_urls") or [])
+    ]
 
 
 def prepare_write(

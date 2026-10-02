@@ -19,7 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from kubed.selenium_flow.core import probe, site_data
+from kubed.selenium_flow.core import probe
+from kubed.selenium_flow.site_data import transfer
 
 pytestmark = pytest.mark.unit
 
@@ -203,7 +204,7 @@ def test_the_site_data_fill_writes_the_given_keys_and_nothing_else():
     items = {"a": "1", "b": '{"nested": "x"}'}
     source = (
         "localStorage.setItem('keep', 'mine'); "
-        "const wrote = " + site_data.fill("localStorage", items) + "; "
+        "const wrote = " + transfer.fill("localStorage", items) + "; "
         "const all = {}; for (let i = 0; i < localStorage.length; i++) "
         "{ const k = localStorage.key(i); all[k] = localStorage.getItem(k); } "
         "return {wrote, all, session: sessionStorage.length};"

@@ -12,9 +12,9 @@ import pytest
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow.config import Settings
-from kubed.selenium_flow.core import site_data
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.session.store import SessionRecord
+from kubed.selenium_flow.site_data import snapshot as site_data
 
 from .conftest import TOKEN
 
@@ -38,8 +38,8 @@ DATA = {
 
 def visited():
     return (SessionRecord(session_id="")
-            .at("https://mail.example.org/", now=5.0)
-            .at("https://app.example.com/x", now=6.0))
+            .visited("https://mail.example.org/", now=5.0)
+            .visited("https://app.example.com/x", now=6.0))
 
 
 @pytest.fixture

@@ -212,27 +212,27 @@ def test_the_admin_session_listing_is_what_it_was(tmp_path):
     store = server.sessions.store
     store.set(
         "live",
-        SessionRecord(session_id="live-1", opened_at=NOW - 600).at(
+        SessionRecord(session_id="live-1", opened_at=NOW - 600).visited(
             "https://app.example.com/x", now=NOW - 60
         ),
     )
     store.set(
         "detached",
-        SessionRecord(session_id="", opened_at=NOW - 7200).at(
+        SessionRecord(session_id="", opened_at=NOW - 7200).visited(
             "https://mail.example.org/inbox", now=NOW - 3600
         ),
     )
     store.set(
         "sited",
         SessionRecord(session_id="", opened_at=NOW - 1800)
-        .at("https://app.example.com/x", now=NOW - 90)
+        .visited("https://app.example.com/x", now=NOW - 90)
         .with_site_data(site_data),
     )
     reopened = SessionRecord(
         session_id="live-1",
         opened_at=NOW - 300,
         reopened={"browser": "live-1", "report": {"restored": 1, "skipped": 0}},
-    ).at("https://app.example.com/y", now=NOW - 20)
+    ).visited("https://app.example.com/y", now=NOW - 20)
     store.set("reopened", reopened)
     body = TestClient(server.mcp.http_app(), headers=AUTH).get("/admin/sessions")
     assert body.status_code == 200

@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from fastmcp import FastMCP
 
-from ..core import site_data
 from ..session.sessions import SessionManager
+from ..site_data import snapshot as site_data
 from . import clients
 
 RESOURCE_URI = "session://current"

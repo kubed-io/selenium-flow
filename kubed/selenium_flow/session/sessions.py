@@ -48,12 +48,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 
 from .. import errors
-from ..core import site_data as site_data_module
 from ..core.actions import Actions
 from ..core.browser import DEFAULT_BROWSER, in_frame
 from ..core.coerce import as_bool
 from ..mcp import guidance
 from ..names import GLOBAL_SESSION, valid_session_name
+from ..site_data import snapshot as site_data_module
 from . import settings as settings_module
 from .store import MemoryStore, SessionRecord, SessionStore
 
@@ -628,15 +628,18 @@ class SessionManager:
             if current and current not in (session_id, replacing):
                 loser["id"], loser["kept"] = session_id, current
                 return None
-            return SessionRecord(
+            # Replaced, not rebuilt: a field the record gains later survives a
+            # bind. History (where the session has been) survives a new browser.
+            fresh = replace(
+                r if r is not None else SessionRecord(),
                 session_id=session_id,
                 opened_at=time.time(),
                 settings=dict(settings or {}),
-                # Where the session has been survives a new browser.
-                history=list(r.history) if r is not None else [],
                 site_data={} if forget_site_data or r is None else dict(r.site_data),
+                # Reset explicitly: any other bind drops an earlier reopen's report.
                 reopened={"browser": session_id, "report": report} if report else {},
-            ).at(url, ttl=ttl)
+            )
+            return fresh.visited(url, ttl=ttl)
 
         # One atomic create-or-update: a save landing while the browser
         # opened is kept, and two first opens on a new name cannot both write.
@@ -693,7 +696,7 @@ class SessionManager:
             note = r.reopened
             ours = note.get("browser") == r.session_id
             told["report"] = note.get("report") if ours else None
-            return r.at(*urls, ttl=ttl).delivered()
+            return r.visited(*urls, ttl=ttl).delivered()
 
         self.store.update(name, at)
         return told.get("report")
@@ -736,7 +739,7 @@ class SessionManager:
         record = self.store.get(name)
         if record is None:
             return []
-        return [v["origin"] for v in record.at(ttl=self.store.ttl).history]
+        return [v["origin"] for v in record.pruned(time.time(), self.store.ttl).history]
 
     def end_browser(self, caller: Caller) -> str | None:
         """End the browser a session holds, keeping the session itself.

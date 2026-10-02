@@ -40,7 +40,6 @@ from starlette.responses import (
 )
 
 from .. import errors
-from ..core import site_data
 from ..core.browser import DEFAULT_BROWSER, is_partial
 from ..flows import api as flowapi
 from ..flows import document as flowdoc
@@ -55,6 +54,7 @@ from ..names import (
 )
 from ..session.sessions import Caller
 from ..session.store import SessionRecord
+from ..site_data import snapshot as site_data
 from . import auth, files, links
 
 log = logging.getLogger(__name__)

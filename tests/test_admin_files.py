@@ -57,7 +57,7 @@ def client(kept_server):
 def live(kept_server):
     """A flow session holding a browser, which is what the admin API addresses."""
     kept_server.sessions.store.set(
-        KEY, SessionRecord(session_id="abc").at("https://x/")
+        KEY, SessionRecord(session_id="abc").visited("https://x/")
     )
     return kept_server
 
@@ -210,7 +210,7 @@ def test_the_admin_keep_refuses_a_key_that_owns_no_library(client, kept_server, 
     clear handlers do, so a stored key that cannot be a directory is refused
     with that reason rather than reaching the store as a raw name."""
     stale = "named:desktop"
-    kept_server.sessions.store.set(stale, SessionRecord(session_id="").at("https://x/"))
+    kept_server.sessions.store.set(stale, SessionRecord(session_id="").visited("https://x/"))
     response = client.post(
         f"/admin/sessions/{stale}/files/screenshots/shot.png/keep", headers=AUTH
     )

@@ -7,8 +7,9 @@ import json
 import pytest
 
 from kubed.selenium_flow import urls
-from kubed.selenium_flow.core import site_data as sd
 from kubed.selenium_flow.session.store import SessionRecord
+from kubed.selenium_flow.site_data import snapshot as sd
+from kubed.selenium_flow.site_data import transfer
 
 pytestmark = pytest.mark.unit
 
@@ -71,8 +72,8 @@ def test_every_browser_is_opened_with_bidi():
 
 
 def test_read_storage_reaches_each_store_inside_its_try():
-    assert "dump(() => localStorage)" in sd.READ_STORAGE
-    assert "dump(() => sessionStorage)" in sd.READ_STORAGE
+    assert "dump(() => localStorage)" in transfer.READ_STORAGE
+    assert "dump(() => sessionStorage)" in transfer.READ_STORAGE
 
 
 @pytest.mark.skipif(__import__("shutil").which("node") is None, reason="needs node")
@@ -84,7 +85,7 @@ def test_read_storage_on_a_page_with_no_storage_returns_the_empty_shape(tmp_path
         "const location = {origin: 'null'};\n"
         "Object.defineProperty(globalThis, 'localStorage', {get() { throw new Error('SecurityError') }});\n"
         "Object.defineProperty(globalThis, 'sessionStorage', {get() { throw new Error('SecurityError') }});\n"
-        "console.log(JSON.stringify((function () {" + sd.READ_STORAGE + "})()));\n",
+        "console.log(JSON.stringify((function () {" + transfer.READ_STORAGE + "})()));\n",
         encoding="utf-8",
     )
     out = subprocess.run(["node", str(path)], capture_output=True, text=True, check=False)

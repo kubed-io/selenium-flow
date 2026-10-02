@@ -112,9 +112,9 @@ class SessionRecord:
     # rather than a default one.
     settings: dict = field(default_factory=dict)
     # Where the session has been: one {"origin", "url", "at"} per origin,
-    # newest first. Written by `at`; the admin History tab reads it.
+    # newest first. Written by `visited`; the admin History tab reads it.
     history: list = field(default_factory=list)
-    # Cookies and storage the session saved (core/site_data.py). Kept with the
+    # Cookies and storage the session saved (site_data/). Kept with the
     # record so it expires with it; never on this server's disk (with Redis,
     # as durable as Redis).
     site_data: dict = field(default_factory=dict)
@@ -173,22 +173,17 @@ class SessionRecord:
             # A malformed entry is a cache miss, not an outage.
             return None
 
-    def at(
+    def visited(
         self,
         *urls: str | None,
         now: float | None = None,
         ttl: float = DEFAULT_TTL_SECONDS,
     ) -> SessionRecord:
-        """The same record, having landed on ``urls`` in order.
+        """The same record, having landed on ``urls`` in order, then pruned.
 
         Each one with an origin moves that origin to the top with its URL and
         the time. One without — None for a URL withheld after a secret write
-        (§F1.24), ``about:blank``, ``data:`` — records nothing. Entries older
-        than ``ttl`` go, except the top one: it is where a reopen goes back to.
-
-        Only the top entry keeps its whole URL. Below it a URL keeps its origin
-        and path: a query string or fragment carries OAuth codes and reset
-        tokens, and nothing but a reopen needs them (Copilot, #51).
+        (§F1.24), ``about:blank``, ``data:`` — records nothing.
         """
         now = time.time() if now is None else now
         history = list(self.history)
@@ -199,6 +194,17 @@ class SessionRecord:
                     {"origin": origin, "url": url, "at": now},
                     *(v for v in history if v["origin"] != origin),
                 ]
+        return replace(self, history=history).pruned(now, ttl)
+
+    def pruned(self, now: float, ttl: float) -> SessionRecord:
+        """The same record without the history entries older than ``ttl``,
+        except the top one: it is where a reopen goes back to.
+
+        Only the top entry keeps its whole URL. Below it a URL keeps its origin
+        and path: a query string or fragment carries OAuth codes and reset
+        tokens, and nothing but a reopen needs them (Copilot, #51).
+        """
+        history = self.history
         kept = history[:1] + [
             {**v, "url": page_of(v["url"])} for v in history[1:] if v["at"] >= now - ttl
         ]

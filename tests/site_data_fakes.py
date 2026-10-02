@@ -6,8 +6,8 @@ import json
 from contextlib import contextmanager
 from types import SimpleNamespace
 
-from kubed.selenium_flow.core import site_data as sd
-from kubed.selenium_flow.core.spare import ServiceWorkerAnswered
+from kubed.selenium_flow.site_data import transfer
+from kubed.selenium_flow.site_data.spare import ServiceWorkerAnswered
 
 NOW = 1_790_800_000.0
 
@@ -81,7 +81,7 @@ class FakeSpare:
                 raise ServiceWorkerAnswered(origin)
             if origin in self.refuse:
                 raise RuntimeError("the navigation failed")
-            if expression == sd.READ_LOCAL:
+            if expression == transfer.READ_LOCAL:
                 return dict(self.local.get(origin, {}))
             store, items = filled(expression)
             target = self.session if store == "sessionStorage" else self.local

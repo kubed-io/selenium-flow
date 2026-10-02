@@ -1034,7 +1034,7 @@ def test_a_session_in_use_is_kept_alive_even_when_its_page_is_withheld():
     clock = [1000.0]
     store = MemoryStore(ttl=60, clock=lambda: clock[0])
     store.set(
-        NAMED, SessionRecord(session_id="browser-1").at("https://nc.test/home")
+        NAMED, SessionRecord(session_id="browser-1").visited("https://nc.test/home")
     )
     sessions = manager(store=store)
 

@@ -6,9 +6,9 @@ from dataclasses import replace
 
 import pytest
 
-from kubed.selenium_flow.core import site_data
 from kubed.selenium_flow.session.sessions import Caller
 from kubed.selenium_flow.session.store import MemoryStore
+from kubed.selenium_flow.site_data import snapshot as site_data
 from tests.conftest import NAMED, RecordingActions, manager
 
 URL = "https://app.example.com/x"
@@ -344,7 +344,7 @@ def test_a_stale_result_does_not_move_the_newer_browsers_page_or_window(named_ca
     page or size over the newer browser's: a reap would reopen B at A's page
     (Copilot, #50). The TTL still slides."""
     m = opened_with_save()
-    m.store.update(NAMED, lambda r: r.at("https://b.test/"))
+    m.store.update(NAMED, lambda r: r.visited("https://b.test/"))
 
     def meanwhile(resolved):
         m.store.update(NAMED, lambda r: replace(r, session_id="newer"))

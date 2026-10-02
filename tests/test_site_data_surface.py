@@ -8,11 +8,11 @@ from starlette.testclient import TestClient
 
 from kubed.selenium_flow import routes
 from kubed.selenium_flow.config import Settings
-from kubed.selenium_flow.core import site_data
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.session.sessions import SessionManager
 from kubed.selenium_flow.session.store import SessionRecord
+from kubed.selenium_flow.site_data import snapshot as site_data
 
 from .conftest import NAMED, TOKEN, calling_as
 
@@ -32,7 +32,7 @@ def saved_record():
         "session": {"origin": f"https://{SITE}", "items": {}},
         "saved_at": 1000.0,
     }
-    return SessionRecord(site_data=data).at(f"https://{SITE}/x")
+    return SessionRecord(site_data=data).visited(f"https://{SITE}/x")
 
 
 @pytest.fixture
@@ -112,7 +112,7 @@ def test_the_capture_never_leaves_the_server(monkeypatch):
     # The record names the browser `resolve` hands back, as it does for real:
     # a save is kept only by the browser that captured it.
     server.sessions.store.set(
-        NAMED, SessionRecord(session_id="live-id").at(f"https://{SITE}/")
+        NAMED, SessionRecord(session_id="live-id").visited(f"https://{SITE}/")
     )
     client = TestClient(server.mcp.http_app())
     response = client.post(
@@ -177,7 +177,7 @@ def test_save_with_bidi_unreachable_is_a_scrubbed_503(monkeypatch):
     server = SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
     )
-    server.sessions.store.set(NAMED, SessionRecord().at(f"https://{SITE}/"))
+    server.sessions.store.set(NAMED, SessionRecord().visited(f"https://{SITE}/"))
     client = TestClient(server.mcp.http_app())
     response = client.post(
         "/browser/save-site-data", headers=AUTH, params={"session": NAMED}, json={}
@@ -213,7 +213,7 @@ def test_an_unexpected_cookie_read_failure_stays_a_500(monkeypatch):
     server = SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
     )
-    server.sessions.store.set(NAMED, SessionRecord().at(f"https://{SITE}/"))
+    server.sessions.store.set(NAMED, SessionRecord().visited(f"https://{SITE}/"))
     client = TestClient(server.mcp.http_app())
     response = client.post(
         "/browser/save-site-data", headers=AUTH, params={"session": NAMED}, json={}

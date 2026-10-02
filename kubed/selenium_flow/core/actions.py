@@ -28,8 +28,9 @@ from selenium.webdriver.common.print_page_options import PrintOptions
 
 from ..errors import GONE, UNAVAILABLE
 from ..names import FILES_DIR, SCREENSHOTS_DIR
+from ..site_data import snapshot as site_data_snapshot
+from ..site_data import transfer as site_data_transfer
 from . import browser, pointer, probe
-from . import site_data as site_data_module
 from .assertion import Assertion, window
 from .browser import Grid, normalize_browser
 from .coerce import as_bool, as_int
@@ -191,17 +192,17 @@ class Actions:
         self._moved(session_id, None)
 
         report = None
-        if site_data_module.restorable(site_data or {}):
+        if site_data_snapshot.restorable(site_data or {}):
             if insecure:
                 # It accepts any certificate, so anyone in the middle would get
                 # every saved cookie. Nothing is set, and nothing is deleted.
                 report = {
                     "restored": [], "skipped": [{"reason": INSECURE_SKIP}],
-                    "uri": site_data_module.LIST_URI,
+                    "uri": site_data_snapshot.LIST_URI,
                 }
             else:
                 with self.grid.bidi(session_id) as bidi:
-                    report = site_data_module.restore(bidi, site_data, time.time())
+                    report = site_data_transfer.restore(bidi, site_data, time.time())
 
         current_url, title = "about:blank", ""
         if url:
@@ -255,8 +256,8 @@ class Actions:
         driver = self._at(session_id, url)
         origins = self.visited() if self.visited is not None else []
         with self.grid.bidi(session_id) as bidi:
-            captured = site_data_module.capture(bidi, driver, origins)
-        return {**browser.page_state(driver), site_data_module.CAPTURED: captured}
+            captured = site_data_transfer.capture(bidi, driver, origins)
+        return {**browser.page_state(driver), site_data_snapshot.CAPTURED: captured}
 
     def end_browser(self, session_id: str) -> dict:
         """Quit the browser and free its Grid slot.
