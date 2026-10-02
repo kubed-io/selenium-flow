@@ -704,6 +704,12 @@ def register(
 
     def _item_resource(which: str):
         def read(name: str) -> bytes:
+            # The caller is named last: with Files off, or a URI that is not
+            # one, naming the session would not fix the call, so those say so
+            # first, as they did before the caller was read at the edge.
+            folder_of, _ = parse_uri(uri_of(which, name))
+            if folder_of != DOWNLOADS and store is None:
+                raise ValueError(OFF)
             return read_file(
                 actions, sessions, store, uri_of(which, name), clients.caller().name
             )[1]
@@ -753,6 +759,10 @@ def register(
         annotations=hints("Keep a file in Files", destructive=True, idempotent=False),
     )
     def keep_file(uri: str) -> dict:
+        # The caller is named last, for the reason `_item_resource` gives.
+        if store is None:
+            raise ValueError(OFF)
+        parse_uri(uri)
         return keep(actions, sessions, store, uri, clients.caller().name)
 
     _routes(mcp, actions, sessions, store, token, base, prefix, ttl)
