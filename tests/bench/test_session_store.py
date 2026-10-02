@@ -26,7 +26,7 @@ def store():
                 session_id=f"{index:032x}" if index % 4 else "",
                 opened_at=1_760_000_000.0 + index,
                 settings={"browser": "chrome", "width": 1440, "height": 900},
-            ).at(f"https://app.example.com/section/{index}?tab=overview"),
+            ).visited(f"https://app.example.com/section/{index}?tab=overview"),
         )
     return store
 
