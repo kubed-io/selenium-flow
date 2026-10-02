@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import time
 
 import yaml
 from fastmcp import FastMCP
@@ -47,6 +48,12 @@ from .session.sessions import Caller, SessionManager
 from .spec import build_spec
 
 log = logging.getLogger(__name__)
+
+# `/ready` remembers the Grid's answer this long: a kubelet, a load balancer
+# and anyone with curl all hit it unauthenticated, and each hit dialled the Grid
+# twice. Read at call time, so a test can swap the clock.
+READY_TTL = 2.0
+clock = time.monotonic
 
 def mount(value: str | None) -> str:
     """``ROUTE_PREFIX`` as a path segment every route hangs off, or "" for root.
@@ -130,6 +137,9 @@ def register(
         """
         return JSONResponse({"status": "started"})
 
+    # [when, body, status] of the last Grid answer, ok or failing alike.
+    answered: list = []
+
     @ops_route("/ready", "ready")
     async def ready(_request: Request) -> JSONResponse:
         """**Readiness**: can this process serve a request right now?
@@ -139,6 +149,9 @@ def register(
         pod out of the Service and leaves it running, which is what a Grid
         outage should cost.
         """
+        now = clock()
+        if answered and now - answered[0] < READY_TTL:
+            return JSONResponse(answered[1], status_code=answered[2])
         grid = urls.public_url(actions.grid.url)
         try:
             # In a thread: both are synchronous `requests` calls, and a Grid
@@ -149,24 +162,22 @@ def register(
             ready = bool(status["value"]["ready"])
             running = await run_in_threadpool(actions.grid.session_count)
         except Exception as exc:  # noqa: BLE001 - the probe must never raise
-            return JSONResponse(
-                {
-                    "status": "degraded",
-                    "grid": grid,
-                    "error": urls.scrub(faults.message(exc), actions.grid.url),
-                },
-                status_code=503,
-            )
-        return JSONResponse(
-            {
+            body, code = {
+                "status": "degraded",
+                "grid": grid,
+                "error": urls.scrub(faults.message(exc), actions.grid.url),
+            }, 503
+        else:
+            body, code = {
                 "status": "ok" if ready else "degraded",
                 "grid": grid,
                 "grid_ready": ready,
                 "browsers": running,
                 "sessions": sessions.kind,
-            },
-            status_code=200 if ready else 503,
-        )
+            }, (200 if ready else 503)
+        # Measured after the dial, so a slow Grid does not use up its own window.
+        answered[:] = [clock(), body, code]
+        return JSONResponse(body, status_code=code)
 
     @ops_route("/info", "info")
     async def info(_request: Request) -> JSONResponse:

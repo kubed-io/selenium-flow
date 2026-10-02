@@ -698,3 +698,38 @@ def test_the_browser_resource_says_the_name_came_from_the_request(open_client):
     body = open_client.get("/browser").json()
     assert body["session"] == SESSION
     assert body["named_by"] == "request"
+
+
+def test_readiness_remembers_the_grids_answer_for_two_seconds(server, monkeypatch):
+    """A probe is unauthenticated and frequent; each hit dialled the Grid twice.
+    Both the ok answer and the failing one are kept, then asked again."""
+    from kubed.selenium_flow import routes
+
+    now = [100.0]
+    monkeypatch.setattr(routes, "clock", lambda: now[0])
+    dialled = []
+    grid_up = [True]
+
+    def status():
+        dialled.append("status")
+        if not grid_up[0]:
+            raise ConnectionError("grid went away")
+        return {"value": {"ready": True}}
+
+    monkeypatch.setattr(server.actions.grid, "status", status)
+    monkeypatch.setattr(server.actions.grid, "session_count", lambda: 3)
+    client = TestClient(server.mcp.http_app())
+    assert client.get("/ready").status_code == 200
+    grid_up[0] = False
+    now[0] += 1.9
+    assert client.get("/ready").json()["browsers"] == 3
+    assert len(dialled) == 1, "a second hit inside the window dialled the Grid"
+    now[0] += 0.2
+    down = client.get("/ready")
+    assert down.status_code == GRID_DOWN and len(dialled) == 2
+    grid_up[0] = True
+    now[0] += 1.9
+    assert client.get("/ready").status_code == GRID_DOWN, "the failure is kept too"
+    assert len(dialled) == 2
+    now[0] += 0.2
+    assert client.get("/ready").status_code == 200 and len(dialled) == 3
