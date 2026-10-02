@@ -25,6 +25,7 @@ from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core import browser
 from kubed.selenium_flow.flows import library as flows
 from kubed.selenium_flow.http import admin, files, links
+from kubed.selenium_flow.names import FILES_DIR, GLOBAL_SESSION, InvalidName
 from kubed.selenium_flow.routes import ENDPOINTS
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.session.store import SessionRecord
@@ -174,7 +175,7 @@ def test_a_download_named_the_way_browsers_name_them_is_keepable(store, name):
     "name", ["../escape.pdf", "a/b.pdf", "a\\b.pdf", "..", ".", "", "   ", ".hidden"]
 )
 def test_a_file_name_that_is_not_one_segment_is_refused(store, name):
-    with pytest.raises(flows.InvalidName):
+    with pytest.raises(InvalidName):
         store.write_file(SESSION, name, b"x")
 
 
@@ -194,7 +195,7 @@ def test_a_file_name_is_not_trimmed(store):
 def test_a_kept_file_cannot_escape_the_data_directory(store, tmp_path):
     """The name arrives from a URL path parameter as well as from the Grid, so
     traversal is refused by the name rule and again by `_resolved`."""
-    with pytest.raises(flows.InvalidName):
+    with pytest.raises(InvalidName):
         store.write_file(SESSION, "../../etc/passwd", b"x")
     assert not (tmp_path.parent / "etc").exists()
 
@@ -203,7 +204,7 @@ def test_a_name_on_disk_that_could_not_be_addressed_is_skipped(store, tmp_path):
     """Every caller of the listing turns a name back into a path. An entry that
     cannot round-trip would be handed to `read_file`, raise, and take the whole
     listing down with it — hiding every other file in the session."""
-    directory = tmp_path / SESSION / flows.FILES_DIR
+    directory = tmp_path / SESSION / FILES_DIR
     directory.mkdir(parents=True)
     (directory / ".hidden").write_bytes(b"x")
     (directory / "real.pdf").write_bytes(b"x")
@@ -632,7 +633,7 @@ def test_a_session_whose_name_is_not_a_directory_keeps_nothing(client, kept_serv
     )
     assert response.status_code == 400
     assert "cannot keep files" in response.json()["error"]
-    assert kept_server.flows.files(flows.GLOBAL_SESSION) == [], "it leaked to global"
+    assert kept_server.flows.files(GLOBAL_SESSION) == [], "it leaked to global"
 
 
 def test_such_a_session_shows_unknown_counts_not_the_shared_librarys(
@@ -640,8 +641,8 @@ def test_such_a_session_shows_unknown_counts_not_the_shared_librarys(
 ):
     """Borrowing `global`'s numbers would tell an operator this session has a
     file and a flow it has no way to reach."""
-    kept_server.flows.write_file(flows.GLOBAL_SESSION, "shared.pdf", b"x")
-    kept_server.flows.save(flows.GLOBAL_SESSION, "shared", {"steps": []})
+    kept_server.flows.write_file(GLOBAL_SESSION, "shared.pdf", b"x")
+    kept_server.flows.save(GLOBAL_SESSION, "shared", {"steps": []})
     kept_server.sessions.store.set(BAD_KEY, SessionRecord(session_id=""))
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get("/admin/sessions", headers=AUTH).json()

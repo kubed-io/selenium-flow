@@ -16,11 +16,11 @@ import yaml
 
 from kubed.selenium_flow.config import FlowSettings
 from kubed.selenium_flow.flows import library as flows
-from kubed.selenium_flow.flows.library import (
+from kubed.selenium_flow.flows.library import LocalFlowStore
+from kubed.selenium_flow.names import (
     GLOBAL_SESSION,
     STDIO_SESSION,
     InvalidName,
-    LocalFlowStore,
     library_of,
     valid_name,
 )
@@ -107,7 +107,7 @@ def test_the_reserved_names_are_reserved_as_sessions_but_not_as_flow_names():
     `stdio` or `global` is nobody's business but its author's, and `valid_name`
     still takes it — which is why the session rule is a separate function rather
     than a line inside that one."""
-    from kubed.selenium_flow.flows.library import valid_session_name
+    from kubed.selenium_flow.names import valid_session_name
 
     for reserved in (STDIO_SESSION, GLOBAL_SESSION):
         with pytest.raises(InvalidName, match="reserved"):
@@ -401,7 +401,7 @@ def test_surrounding_whitespace_is_trimmed_rather_than_refused():
     """Not slugging: these arrive from URL query parameters and hand-written
     JSON, where a trailing space is a typo. A name that is only whitespace still
     names nothing and is still refused."""
-    from kubed.selenium_flow.flows.library import valid_session_name
+    from kubed.selenium_flow.names import valid_session_name
 
     assert valid_name(" bot ") == "bot"
     assert valid_session_name(" bot ") == "bot"

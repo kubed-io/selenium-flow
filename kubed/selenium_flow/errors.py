@@ -22,7 +22,6 @@ Only HTTP has status codes to get right.
 
 from __future__ import annotations
 
-import re
 import traceback
 
 import requests
@@ -43,6 +42,8 @@ from selenium.common.exceptions import (
     StaleElementReferenceException,
     TimeoutException,
 )
+
+from .urls import without_userinfo
 
 
 # The caller asked for something that cannot happen as asked. Retrying the
@@ -115,25 +116,6 @@ UNAVAILABLE = (
     requests.Timeout,
     urllib3.exceptions.HTTPError,
 )
-
-
-# The userinfo of a URL. `GRID_URL` may carry credentials, and an exception's
-# text is quoted into logs and into the error a caller reads — so it is stripped
-# from every message, not only from the one failure known to print a URL
-# (Copilot, #36). `core.browser` imports this rather than keeping a second copy.
-#
-# Anchored to a scheme, and blind to brackets. Unanchored, `//` then `@` is also
-# an XPath attribute test: `//input[@name='q']` came out as `//name='q']` in
-# every timeout that quoted one, which is most of them. A URL's userinfo can
-# contain neither `[` nor `]`, and an XPath has no `scheme:` before its `//`.
-USERINFO = re.compile(
-    r"(?P<scheme>[A-Za-z][A-Za-z0-9+.\-]*:)//(?P<userinfo>[^/@\s\[\]]*)@"
-)
-
-
-def without_userinfo(text: str) -> str:
-    """``text`` with the credentials of every URL in it removed."""
-    return USERINFO.sub(r"\g<scheme>//", text)
 
 
 def formatted(exc: BaseException) -> str:

@@ -30,7 +30,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.print_page_options import PrintOptions
 
 from ..errors import GONE, UNAVAILABLE, AssertionFailed
-from ..flows.library import FILES_DIR, SCREENSHOTS_DIR
+from ..names import FILES_DIR, SCREENSHOTS_DIR
 from . import browser, cancel, pointer, probe
 from . import site_data as site_data_module
 from .browser import Grid, as_bool, as_int, normalize_browser

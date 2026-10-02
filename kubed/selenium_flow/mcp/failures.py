@@ -38,6 +38,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from .. import errors
 from ..flows.document import argument_problems
+from ..urls import without_userinfo
 
 # Where FastMCP logs a failed call or read, and the words it opens each with.
 FASTMCP_LOGGER = "fastmcp.server.server"
@@ -101,14 +102,14 @@ class Explained(Middleware):
             return await call_next(context)
         except NotFoundError as exc:
             # "Unknown resource: '<uri>'" quotes the caller's URI too.
-            raise NotFoundError(errors.without_userinfo(str(exc))) from None
+            raise NotFoundError(without_userinfo(str(exc))) from None
         except ResourceError as exc:
             cause = exc.__cause__
             if cause is None or isinstance(cause, FastMCPError):
                 raise
             # The URI is the caller's, and a caller can put credentials in one;
             # it is scrubbed on the same terms as the exception (Copilot, #40).
-            uri = errors.without_userinfo(str(getattr(context.message, "uri", "")))
+            uri = without_userinfo(str(getattr(context.message, "uri", "")))
             said = errors.message(cause)
             raise ResourceError(f"{FAILED_READ} {uri!r}: {said}") from cause
 
@@ -126,7 +127,7 @@ class QuietCallerMistakes(logging.Filter):
             return True
         # FastMCP wrote this line before any middleware ran, so it quotes the
         # requested URI as sent — scrubbed here, whichever branch it takes.
-        said = errors.without_userinfo(record.getMessage())
+        said = without_userinfo(record.getMessage())
         if errors.status_for(exc) < 500:
             record.levelno, record.levelname = logging.WARNING, "WARNING"
             record.msg = f"{said}: {errors.message(exc)}"

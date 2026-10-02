@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 
 from . import config
-from .errors import without_userinfo
 from .server import SeleniumMCP
+from .urls import without_userinfo
 
 log = logging.getLogger(__name__)
 

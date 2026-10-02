@@ -3,6 +3,7 @@ Pure, over round 2's snapshot shape."""
 
 import pytest
 
+from kubed.selenium_flow import urls
 from kubed.selenium_flow.core import site_data as sd
 
 from .site_data_fakes import NOW, cookie, snapshot
@@ -13,7 +14,7 @@ APP = "https://app.example.com"
 
 
 def visit(url, at=NOW):
-    return {"origin": sd.origin_of(url), "url": url, "at": at}
+    return {"origin": urls.origin_of(url), "url": url, "at": at}
 
 
 def test_one_row_per_host_with_counts_and_both_storages_in_full():

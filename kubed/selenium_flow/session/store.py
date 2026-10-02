@@ -34,10 +34,9 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from typing import TYPE_CHECKING, Protocol
-from urllib.parse import urlsplit
 
 from .. import errors
-from ..core.site_data import origin_of
+from ..urls import origin_of, page_of, without_userinfo
 
 if TYPE_CHECKING:
     from ..config import RedisSettings, SessionSettings
@@ -90,11 +89,6 @@ class StoreUnavailable(RuntimeError):
 
 class StoreConflict(RuntimeError):
     """An update kept losing to other writers and gave up (Redis only)."""
-
-
-def _page(url: str) -> str:
-    """``url`` without its query, fragment or credentials: its origin and path."""
-    return origin_of(url) + urlsplit(url).path
 
 
 @dataclass(frozen=True)
@@ -206,7 +200,7 @@ class SessionRecord:
                     *(v for v in history if v["origin"] != origin),
                 ]
         kept = history[:1] + [
-            {**v, "url": _page(v["url"])} for v in history[1:] if v["at"] >= now - ttl
+            {**v, "url": page_of(v["url"])} for v in history[1:] if v["at"] >= now - ttl
         ]
         return replace(self, history=kept[:HISTORY_CAP])
 
@@ -537,7 +531,7 @@ def redis_client(conn: RedisSettings):
     """
     url = conn.url.get_secret_value() if conn.url else None
     where = (
-        errors.without_userinfo(url) if url else f"{conn.host}:{conn.port}/{conn.db}"
+        without_userinfo(url) if url else f"{conn.host}:{conn.port}/{conn.db}"
     )
     try:
         import redis  # imported here: an optional dependency must not be a hard import

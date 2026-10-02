@@ -49,7 +49,7 @@ from typing import Protocol
 from urllib.parse import urlsplit
 
 from .config import FromEnv, FromFile, FromValue, SecretEntry, SecretsSettings
-from .flows.library import InvalidName, valid_name
+from .names import InvalidName, valid_name
 
 log = logging.getLogger(__name__)
 

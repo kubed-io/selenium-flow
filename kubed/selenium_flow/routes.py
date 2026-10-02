@@ -34,9 +34,8 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from . import errors
+from . import errors, urls
 from . import secrets as secrets_module
-from .core import browser
 from .core.actions import Actions
 from .http import answer as answer_module
 from .mcp import resources
@@ -199,7 +198,7 @@ def register(
         pod out of the Service and leaves it running, which is what a Grid
         outage should cost.
         """
-        grid = browser.public_url(actions.grid.url)
+        grid = urls.public_url(actions.grid.url)
         try:
             # In a thread: both are synchronous `requests` calls, and a Grid
             # that has gone away blocks until it times out. On the event loop
@@ -213,7 +212,7 @@ def register(
                 {
                     "status": "degraded",
                     "grid": grid,
-                    "error": browser.scrub(errors.message(exc), actions.grid.url),
+                    "error": urls.scrub(errors.message(exc), actions.grid.url),
                 },
                 status_code=503,
             )
@@ -234,7 +233,7 @@ def register(
 
         Not a probe: the question an operator asks when a call went somewhere
         unexpected. The Grid is named without its credentials, which `GRID_URL`
-        may carry and which this answers to anyone (`browser.public_url`).
+        may carry and which this answers to anyone (`urls.public_url`).
         """
         from .spec.builder import _version
 
@@ -244,7 +243,7 @@ def register(
                 "version": _version(),
                 "mount": prefix or "/",
                 "mcp": f"{prefix}/mcp",
-                "grid": browser.public_url(actions.grid.url),
+                "grid": urls.public_url(actions.grid.url),
                 "sessions": sessions.kind,
             }
         )

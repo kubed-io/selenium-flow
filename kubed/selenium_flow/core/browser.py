@@ -31,7 +31,7 @@ from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-from ..errors import USERINFO, without_userinfo
+from ..urls import normalize_url
 from . import probe
 
 DEFAULT_GRID_URL = "http://selenium-grid-selenium-hub.flow.svc.cluster.local:4444"
@@ -118,54 +118,6 @@ def as_int(value, default: int) -> int:
         return int(str(value).strip())
     except (TypeError, ValueError):
         return default
-
-
-def normalize_url(url: str) -> str:
-    """Drop the fragment and any trailing slash so equivalent URLs compare equal."""
-    parts = urlsplit(url)
-    return urlunsplit(
-        (parts.scheme, parts.netloc, parts.path.rstrip("/"), parts.query, "")
-    )
-
-
-def public_url(url: str) -> str:
-    """``url`` with any credentials removed, for anything that leaves this process.
-
-    ``GRID_URL`` may carry userinfo — ``http://user:pass@grid:4444`` — and the
-    probes and the admin page both name the Grid. Printing it whole puts the
-    Grid's credential in an unauthenticated response and in whatever scrapes it.
-    """
-    try:
-        parts = urlsplit(url)
-        host = parts.hostname or ""
-        if ":" in host:  # IPv6 — `hostname` drops the brackets the authority wants
-            host = f"[{host}]"
-        if parts.port:  # parses, and raises when it is not a port
-            host = f"{host}:{parts.port}"
-        return urlunsplit((parts.scheme, host, parts.path.rstrip("/"), "", ""))
-    except ValueError:
-        # A malformed GRID_URL — a bad port, an unclosed IPv6 literal — reaches
-        # the probes like any other, and a probe answers rather than raises. The
-        # credentials still have to go, so they go by pattern (Copilot, #35).
-        return without_userinfo(url.split("?", 1)[0])
-
-
-def scrub(text: str, url: str) -> str:
-    """``text`` with ``url``'s credentials cut out, wherever it quoted them.
-
-    ``errors.message`` trims the one Grid failure known to print its URL, but a
-    proxy or parse error can quote it too, and ``/ready`` answers to anyone.
-    """
-    try:
-        parts = urlsplit(url)
-        secrets = (parts.netloc.rpartition("@")[0], parts.password)
-    except ValueError:  # same malformed URL, same credentials to remove
-        found = USERINFO.search(url)
-        secrets = (found.group("userinfo") if found else "",)
-    for secret in secrets:
-        if secret:
-            text = text.replace(secret, "***")
-    return text
 
 
 def is_partial(name: str) -> bool:

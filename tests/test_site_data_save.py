@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from kubed.selenium_flow import urls
 from kubed.selenium_flow.core import site_data as sd
 from kubed.selenium_flow.session.store import SessionRecord
 
@@ -264,7 +265,7 @@ class Tab:
         self.current_url = url
 
     def execute_script(self, script, *args):
-        here = sd.origin_of(self.current_url)
+        here = urls.origin_of(self.current_url)
         return {"origin": here, "local": {"page": here}, "session": {}}
 
 

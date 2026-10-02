@@ -45,9 +45,9 @@ from ..http import answer as answer_module
 from ..mcp import clients, progress
 from ..mcp.annotations import hints
 from ..mcp.tools import SecretRef
+from ..names import GLOBAL_SESSION
 from ..routes import ENDPOINTS
 from . import document as flowdoc
-from . import library as flows
 from . import run as flowrun
 
 log = logging.getLogger(__name__)
@@ -129,9 +129,9 @@ def catalogue(store, session: str) -> dict:
     # admin decides from this flag whether to show the globe and which way the
     # move button points, and "not shared" on a flow sitting in `global` offers
     # a move that would be a no-op.
-    own_are_shared = session == flows.GLOBAL_SESSION
+    own_are_shared = session == GLOBAL_SESSION
     if not own_are_shared:
-        for summary in store.summaries(flows.GLOBAL_SESSION):
+        for summary in store.summaries(GLOBAL_SESSION):
             entries[summary["name"]] = {**summary, "shared": True}
     for summary in store.summaries(session):
         entries[summary["name"]] = {**summary, "shared": own_are_shared}
@@ -148,9 +148,9 @@ def read_one(store, session: str, name: str) -> dict:
     flow = store.get(session, name)
     # A caller whose library is the shared one reads a shared flow. See
     # `catalogue`: the flag describes the directory, not the reader.
-    shared = session == flows.GLOBAL_SESSION
-    if flow is None and session != flows.GLOBAL_SESSION:
-        flow = store.get(flows.GLOBAL_SESSION, name)
+    shared = session == GLOBAL_SESSION
+    if flow is None and session != GLOBAL_SESSION:
+        flow = store.get(GLOBAL_SESSION, name)
         shared = flow is not None
     if flow is None:
         raise ValueError(
@@ -159,7 +159,7 @@ def read_one(store, session: str, name: str) -> dict:
         )
     return {
         **flow,
-        "session": flows.GLOBAL_SESSION if shared else session,
+        "session": GLOBAL_SESSION if shared else session,
         "shared": shared,
     }
 
@@ -182,7 +182,7 @@ def writable(session: str) -> str:
     `global` from the admin UI is a person doing it deliberately, on a surface
     that can show what a change affects. That writes to the store directly.
     """
-    if session == flows.GLOBAL_SESSION:
+    if session == GLOBAL_SESSION:
         raise ValueError(
             "the shared 'global' library is read-only: every session can list "
             "and run what is in it, so a flow you changed or deleted would "

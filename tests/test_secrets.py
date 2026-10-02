@@ -265,7 +265,7 @@ def test_origin_keeps_scheme_host_and_port_and_nothing_else(url, expected):
 
 
 def test_a_secret_name_cannot_escape_its_directory(source):
-    from kubed.selenium_flow.flows.library import InvalidName
+    from kubed.selenium_flow.names import InvalidName
 
     with pytest.raises(InvalidName):
         source._dir("../../etc")

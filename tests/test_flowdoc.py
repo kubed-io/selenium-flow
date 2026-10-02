@@ -616,7 +616,7 @@ async def test_every_flow_the_skill_teaches_would_save(step_schema_map, where, d
     exist. A skill is documentation an agent *acts on*, so its examples are
     tested rather than trusted.
     """
-    from kubed.selenium_flow.flows.library import valid_name
+    from kubed.selenium_flow.names import valid_name
 
     document = dict(document)
     name = document.pop("name", None)

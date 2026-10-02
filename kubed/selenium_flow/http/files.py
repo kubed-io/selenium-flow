@@ -74,9 +74,9 @@ from urllib.parse import quote, unquote
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from ..flows import library as flows
 from ..mcp import clients
 from ..mcp.annotations import hints, reads
+from ..names import valid_file_name
 from . import answer as answer_module
 from . import links
 
@@ -179,9 +179,9 @@ def parse_uri(uri) -> tuple[str, str]:
     prefix = ROOT_URI + "/"
     parts = text[len(prefix):].split("/") if text.startswith(prefix) else []
     if len(parts) == 1 and parts[0] and parts[0] not in RESERVED:
-        return FILES, flows.valid_file_name(unquote(parts[0]))
+        return FILES, valid_file_name(unquote(parts[0]))
     if len(parts) == 2 and parts[0] in RESERVED and parts[1]:
-        return parts[0], flows.valid_file_name(unquote(parts[1]))
+        return parts[0], valid_file_name(unquote(parts[1]))
     raise ValueError(f"{text!r} is not a file: use {SHAPES}")
 
 
@@ -568,7 +568,7 @@ def keep_made(
     if store is None:
         raise ValueError(OFF)
     session = owner(store, session)
-    wanted = flows.valid_file_name(name)
+    wanted = valid_file_name(name)
     entry = _claim(store, session, wanted, data, folder)
     url = url_for(folder, session, entry["name"], token, mount, ttl=ttl)
     return describe(folder, entry, url, base)
@@ -616,7 +616,7 @@ def delete_one(store, session: str, name: str) -> dict:
     """
     if store is None:
         raise ValueError(OFF)
-    removed = store.delete_file(session, flows.valid_file_name(name))
+    removed = store.delete_file(session, valid_file_name(name))
     return {"deleted": removed, "session": session, "name": name}
 
 

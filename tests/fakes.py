@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 from selenium.common.exceptions import UnexpectedAlertPresentException
 
-from kubed.selenium_flow.core.site_data import origin_of
+from kubed.selenium_flow.urls import origin_of
 
 MAIN = "main-1"
 

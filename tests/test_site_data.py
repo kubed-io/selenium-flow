@@ -6,6 +6,7 @@ import json
 
 import pytest
 
+from kubed.selenium_flow import urls
 from kubed.selenium_flow.core import site_data as sd
 from kubed.selenium_flow.session.store import SessionRecord
 
@@ -23,16 +24,16 @@ def cookie(name, domain, value="v", http_only=False, expiry=None, secure=True):
 
 
 def test_origin_of_matches_location_origin():
-    assert sd.origin_of("https://App.Example.com:443/x?y#z") == "https://app.example.com"
-    assert sd.origin_of("http://localhost:3000/a") == "http://localhost:3000"
-    assert sd.origin_of("http://x.test:80/") == "http://x.test"
-    assert sd.origin_of("about:blank") == ""
-    assert sd.origin_of("") == ""
+    assert urls.origin_of("https://App.Example.com:443/x?y#z") == "https://app.example.com"
+    assert urls.origin_of("http://localhost:3000/a") == "http://localhost:3000"
+    assert urls.origin_of("http://x.test:80/") == "http://x.test"
+    assert urls.origin_of("about:blank") == ""
+    assert urls.origin_of("") == ""
 
 
 def test_an_ipv6_origin_keeps_its_brackets():
-    assert sd.origin_of("http://[::1]:3000/") == "http://[::1]:3000"
-    assert sd.origin_of("https://[2001:db8::1]/x") == "https://[2001:db8::1]"
+    assert urls.origin_of("http://[::1]:3000/") == "http://[::1]:3000"
+    assert urls.origin_of("https://[2001:db8::1]/x") == "https://[2001:db8::1]"
 
 
 def test_expired_cookies_are_dropped_and_session_cookies_kept():

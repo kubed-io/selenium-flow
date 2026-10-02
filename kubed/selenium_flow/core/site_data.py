@@ -25,10 +25,10 @@ from __future__ import annotations
 
 import contextlib
 import json
-from urllib.parse import urlsplit
 
 from ..errors import BidiUnavailable
 from ..errors import message as failure_text
+from ..urls import host_of
 from .browser import ServiceWorkerAnswered, spare_tab
 
 # The private key an action hands its capture back under. `SessionManager.settle`
@@ -44,32 +44,6 @@ BIDI_DOWN = (
 # spare tab (spec round 2, *Service workers at save time*).
 SW_REASON = "a service worker answered: save while on this site"
 LIST_URI = "session://site-data"
-DEFAULT_PORTS = {"http": 80, "https": 443}
-
-
-def origin_of(url: str) -> str:
-    """``url``'s origin as ``location.origin`` spells it, or "" when it has none."""
-    try:
-        parts = urlsplit((url or "").strip())
-        host = (parts.hostname or "").lower()
-        port = parts.port
-    except ValueError:
-        return ""
-    if not parts.scheme or not host:
-        return ""
-    scheme = parts.scheme.lower()
-    # `hostname` drops an IPv6 literal's brackets; `location.origin` keeps them.
-    if ":" in host:
-        host = f"[{host}]"
-    shown = f":{port}" if port is not None and port != DEFAULT_PORTS.get(scheme) else ""
-    return f"{scheme}://{host}{shown}"
-
-
-def host_of(url: str) -> str:
-    try:
-        return (urlsplit((url or "").strip()).hostname or "").lower()
-    except ValueError:
-        return ""
 
 
 def site_uri(host: str) -> str:

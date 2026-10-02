@@ -45,6 +45,14 @@ from ..core.browser import DEFAULT_BROWSER, is_partial
 from ..flows import api as flowapi
 from ..flows import document as flowdoc
 from ..flows import library as flows
+from ..names import (
+    GLOBAL_SESSION,
+    SCREENSHOTS_DIR,
+    STDIO_SESSION,
+    InvalidName,
+    library_of,
+    valid_name,
+)
 from ..session.sessions import Caller
 from ..session.store import SessionRecord
 from . import auth, files, links
@@ -138,7 +146,7 @@ def owner_label(key: str) -> dict:
     admin page still wants to say where a session came from, and `stdio` is
     still a session nobody typed.
     """
-    if key == flows.STDIO_SESSION:
+    if key == STDIO_SESSION:
         return {"name": key, "owner": "stdio"}
     return {"name": key, "owner": "named"}
 
@@ -522,7 +530,7 @@ def register(
         # session, and inside the loop it made each heartbeat walk and stat the
         # whole shared library once per session — O(sessions x shared flows) on
         # a two-second poll.
-        shared_rev = revision(flows.GLOBAL_SESSION) if flow_store is not None else ""
+        shared_rev = revision(GLOBAL_SESSION) if flow_store is not None else ""
 
         rows = []
         for key, record in sorted(records.items(), key=_recency, reverse=True):
@@ -544,7 +552,7 @@ def register(
             # None when the session named itself something no directory can be
             # called. Such a session keeps nothing, and must not be shown the
             # shared library's counts as though they were its own.
-            session = flows.library_of(key)
+            session = library_of(key)
             stores = flow_store is not None and session is not None
             flow_names = named(flow_store.names, session) if stores else []
             # Screenshots and Files are the session's own — countable whenever
@@ -553,7 +561,7 @@ def register(
             # while one is live, which is why that count alone can be None for
             # a reason `stores` never causes.
             shots = (
-                named(lambda s: flow_store.files(s, flows.SCREENSHOTS_DIR), session)
+                named(lambda s: flow_store.files(s, SCREENSHOTS_DIR), session)
                 if stores
                 else []
             )
@@ -733,9 +741,9 @@ def register(
         does: that would put one session's file in the shared library. An
         ``InvalidName`` is a ValueError, so ``errors.py`` already answers 400.
         """
-        session = flows.library_of(key)
+        session = library_of(key)
         if session is None:
-            raise flows.InvalidName(
+            raise InvalidName(
                 f"session {key!r} cannot keep files: its name is not one it may "
                 "own a library under — either not a usable directory name, or "
                 "reserved. Use letters, digits, dots, dashes and underscores, "
@@ -944,7 +952,7 @@ def register(
         key = request.path_params["key"]
         # A session whose name cannot be a directory keeps nothing, so it has no
         # kept files to list — and must not be shown the shared library's.
-        session = flows.library_of(key) or ""
+        session = library_of(key) or ""
         try:
             # Whether there are downloads to list depends on whether the browser
             # is still on the Grid. The record can name one the Grid already
@@ -1146,7 +1154,7 @@ def register(
         it came from, which is what the UI marks with a globe.
         """
         key = request.path_params["key"]
-        session = flows.library_of(key)
+        session = library_of(key)
         # Flows off, or a session whose name cannot be a directory: an empty
         # list with a reason, rather than an error that blanks the whole panel.
         if flow_store is None or session is None:
@@ -1159,7 +1167,7 @@ def register(
         # showing what it was already showing. This order errs the other way: a
         # token older than the listing costs one redundant refresh.
         rev = await run_in_threadpool(
-            lambda: revision(session) + "+" + revision(flows.GLOBAL_SESSION)
+            lambda: revision(session) + "+" + revision(GLOBAL_SESSION)
         )
         try:
             payload = await run_in_threadpool(flowapi.catalogue, flow_store, session)
@@ -1239,9 +1247,9 @@ def register(
             # an honest one; a rename is a move to a new name and belongs with
             # the move verb whenever someone wants it.
             claimed = document.get("name")
-            if claimed is not None and flows.valid_name(
+            if claimed is not None and valid_name(
                 claimed, "flow name"
-            ) != flows.valid_name(name, "flow name"):
+            ) != valid_name(name, "flow name"):
                 raise ValueError(
                     f"this flow is called {name!r} and the file name is what "
                     "names it, so the document cannot rename it. Put "
@@ -1256,10 +1264,10 @@ def register(
             where = session
             if existing is None:
                 shared = await run_in_threadpool(
-                    flow_store.get, flows.GLOBAL_SESSION, name
+                    flow_store.get, GLOBAL_SESSION, name
                 )
                 if shared is not None:
-                    where = flows.GLOBAL_SESSION
+                    where = GLOBAL_SESSION
             await run_in_threadpool(flow_store.write_text, where, name, text)
             return JSONResponse({"saved": True, "session": where, "name": name})
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
@@ -1286,7 +1294,7 @@ def register(
         try:
             session = library(key)
             enabled()
-            target = flows.valid_name(
+            target = valid_name(
                 (await body_of(request)).get("to"), "session name"
             )
             found = await run_in_threadpool(
@@ -1360,7 +1368,7 @@ def register(
             return JSONResponse({"error": "not found"}, status_code=404)
         try:
             data = await run_in_threadpool(flow_store.read_file, session, name)
-        except (FileNotFoundError, flows.InvalidName):
+        except (FileNotFoundError, InvalidName):
             # Genuinely absent, or a name the store would never have written
             # (§F1.2's traversal guard) — both answer the same way this route
             # always has for a bad name. Anything else is a storage fault, not
@@ -1393,9 +1401,9 @@ def register(
             return JSONResponse({"error": "not found"}, status_code=404)
         try:
             data = await run_in_threadpool(
-                flow_store.read_file, session, name, flows.SCREENSHOTS_DIR
+                flow_store.read_file, session, name, SCREENSHOTS_DIR
             )
-        except (FileNotFoundError, flows.InvalidName):
+        except (FileNotFoundError, InvalidName):
             # Genuinely absent, or a name the store would never have written
             # (§F1.2's traversal guard) — both answer the same way this route
             # always has for a bad name. Anything else is a storage fault, not

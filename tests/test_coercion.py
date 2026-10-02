@@ -12,9 +12,9 @@ from kubed.selenium_flow.core.browser import (
     as_bool,
     as_int,
     locator,
-    normalize_url,
     png_size,
 )
+from kubed.selenium_flow.urls import normalize_url
 
 pytestmark = pytest.mark.unit
 

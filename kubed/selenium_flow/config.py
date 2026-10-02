@@ -31,7 +31,8 @@ from pydantic.fields import FieldInfo
 from pydantic_settings import EnvSettingsSource, NoDecode
 
 from .core.browser import DEFAULT_GRID_URL, normalize_browser
-from .errors import without_userinfo
+from .names import valid_name
+from .urls import without_userinfo
 
 # Marks a field that only the config file may set: structure, not a value.
 FILE_ONLY = "file_only"
@@ -199,8 +200,6 @@ class SecretsSettings(Section):
     @field_validator("entries")
     @classmethod
     def _names(cls, entries):
-        from .flows.library import valid_name
-
         for name in entries:
             valid_name(name, "secret name")
         return entries
@@ -643,7 +642,7 @@ def sources_for(settings: Settings) -> dict[str, str]:
 # for the ones that are shown in full, and so must have their credentials
 # stripped first.
 #
-# `without_userinfo`, not `browser.public_url`: the latter also rewrites the
+# `without_userinfo`, not `urls.public_url`: the latter also rewrites the
 # path (`rstrip("/")`), which turns `grid.console_url`'s default `/` into `""`
 # on the Settings tab even though the live server still serves it at `/`.
 URL_LEAVES = {"grid.url", "grid.console_url", "public_base_url"}
