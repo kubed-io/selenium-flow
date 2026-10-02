@@ -27,6 +27,10 @@ ROOT = Path(__file__).parent.parent
 RUNNER = Path(__file__).parent / "js" / "run.mjs"
 
 if shutil.which("node") is None or not (ROOT / "ui/node_modules/jsdom").is_dir():
+    # In CI a missing toolchain is a broken workflow, not a reason to pass: the
+    # tests would silently stop running there.
+    if os.environ.get("CI"):
+        pytest.fail("CI must install node and ui/node_modules", pytrace=False)
     pytest.skip("needs node and ui/node_modules/jsdom", allow_module_level=True)
 
 
