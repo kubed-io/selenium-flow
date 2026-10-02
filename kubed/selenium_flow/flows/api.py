@@ -286,6 +286,7 @@ def run_one(
     skill_available: bool = True,
     before_step=None,
     stop=None,
+    before_save=None,
 ) -> dict:
     """Run one flow against an already-resolved browser."""
     document = read_one(store, session, name)
@@ -298,6 +299,7 @@ def run_one(
         after_step=after_step,
         before_step=before_step,
         stop=stop,
+        before_save=before_save,
         catalogue=secrets_catalogue,
         skill_available=skill_available,
         # The CALLER's library, not `document["session"]`: a flow read from the
@@ -551,11 +553,21 @@ def run_for(
     def remember(tool, result):
         # The same post-action work a single call gets from `sessions.act`:
         # `resize` changes something the session RECORD stores, and a save's
-        # capture is merged into it and stripped from the result. The touch is
-        # left to the one at the end of the run.
+        # capture is stored as the snapshot and stripped from the result. The
+        # touch is left to `before_save` and the one at the end of the run.
         sessions.settle(
             session, result, browser=resolved, reshapes=tool == "resize", touch=False
         )
+
+    # A save reads the localStorage of every site in the history, and the run
+    # writes its pages once, at the end: so just before a save step the pages
+    # reached so far go in, in one write, and the end writes only the rest.
+    flushed = {"pages": 0, "told": None}
+
+    def before_save(pages):
+        told = sessions.touch(session, *pages[flushed["pages"]:], browser=resolved)
+        flushed["pages"] = len(pages)
+        flushed["told"] = flushed["told"] or told
 
     report = run_one(
         store,
@@ -567,25 +579,36 @@ def run_for(
         session_id=resolved,
         after_step=remember,
         before_step=before_step,
+        before_save=before_save,
         stop=stop,
         secrets_catalogue=secrets_catalogue,
         skill_available=skill_available,
     )
-    # One touch for the whole run, not one per step: the point of running
-    # server-side is that the bookkeeping happens once.
+    # A touch at the end, not one per step: the point of running server-side
+    # is that the bookkeeping happens once (a save step flushes the pages so
+    # far first, above). It carries every page the run reached since, in
+    # order, so the history has each step's site and not only the last.
     #
-    # But not a page the redaction had to touch. A submitting bound write lands
-    # on `?q=<what was typed>`, which comes back scrubbed — storing that would
-    # persist a URL which does not exist, and `sessions.resolve` would reopen
-    # the browser there after the Grid reaped it.
+    # Only pages the report itself shows. A step's `url` is there only when
+    # the step moved and the page was safe to show, so a failed step's — the
+    # scrubbed one, a URL that does not exist — is left out. And the run's own
+    # page is withheld when redaction had to touch it: a submitting bound
+    # write lands on `?q=<what was typed>`, and `sessions.resolve` would
+    # reopen the browser there after the Grid reaped it.
     #
-    # The touch happens regardless: it slides the TTL, and a run is the clearest
-    # evidence there is that a session is in use. Only the page is withheld.
-    sessions.touch(
-        session,
-        None if report.get("url_redacted") else report.get("url"),
-        browser=resolved,
-    )
+    # The touch happens regardless: it slides the TTL, and a run is the
+    # clearest evidence there is that a session is in use.
+    visited = [
+        step["url"] for step in report.get("steps") or []
+        if step.get("ok") and step.get("url")
+    ][flushed["pages"]:]
+    if report.get("url") and not report.get("url_redacted"):
+        visited.append(report["url"])
+    # A flush may already have handed over a reopen's report.
+    told = sessions.touch(session, *visited, browser=resolved) or flushed["told"]
+    if told:
+        # The run's browser replaced a reaped one: what came back, once.
+        report["site_data"] = told
     return report
 
 

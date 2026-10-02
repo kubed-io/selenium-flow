@@ -1,16 +1,21 @@
 """Site data: the cookies and storage a session keeps for the sites it uses.
 
 A session outlives its browser, and used to come back signed out: the page it
-was on survived a reap, the sign-in did not. An agent now saves a site's data
-when it knows it is worth keeping — after a sign-in is confirmed — and every
-browser opened for the session gets it back (spec 2026-09-30).
+was on survived a reap, the sign-in did not. An agent saves when it knows the
+browser is worth keeping — after a sign-in is confirmed — and every browser
+opened for the session gets it back (spec 2026-09-30, rounds 1 and 2).
 
 Saved, not captured: every call paying for a snapshot was rejected, and a reap
 gives no warning, so only an explicit save is dependable.
 
+**A save is a snapshot.** It replaces the last one whole: the jar, the
+localStorage of every origin the session has been to, and the sessionStorage
+of the page it is on. Other origins are reached through a spare tab
+(`browser.spare_tab`), which is also how a restore writes them back before the
+first page loads.
+
 **A site is a host.** Cookies carry a domain and no scheme or port, so the view
-groups by host. Storage is kept per origin, keyed by the page's own
-``location.origin`` because that is the string the preload script compares.
+groups by host. Storage is kept per origin, as ``location.origin`` spells it.
 
 Values are credentials. They live in the session store and nowhere else, are
 never logged, and an httpOnly cookie's value is never shown on any surface.
@@ -24,19 +29,20 @@ from urllib.parse import urlsplit
 
 from ..errors import BidiUnavailable
 from ..errors import message as failure_text
+from .browser import ServiceWorkerAnswered, spare_tab
 
-# The private key an action hands its capture back under. `SessionManager.act`
-# merges it into the record and removes it; no caller ever sees it.
+# The private key an action hands its capture back under. `SessionManager.settle`
+# removes it and stores it as the snapshot; no caller ever sees it.
 CAPTURED = "_site_data_captured"
-# Marks a tab whose storage was already filled, so a later page on the same
-# origin never overwrites what the app changed since. Never saved.
-MARKER = "selenium-flow:restored:"
 MAX_BYTES = 1_000_000
 MASK = "•••"
 BIDI_DOWN = (
     "the browser's BiDi channel is unavailable, so nothing was saved: retry, "
     "and if it persists the Grid's /se/bidi route is down"
 )
+# Why an origin's storage was not read: its own service worker answered the
+# spare tab (spec round 2, *Service workers at save time*).
+SW_REASON = "a service worker answered: save while on this site"
 LIST_URI = "session://site-data"
 DEFAULT_PORTS = {"http": 80, "https": 443}
 
@@ -70,55 +76,64 @@ def site_uri(host: str) -> str:
     return f"{LIST_URI}/{host}"
 
 
-def merge(existing: dict, captured: dict, now: float) -> tuple[dict, dict]:
-    """Fold one save into what the session already had.
+# Why an origin's storage was left out of a snapshot.
+LEFT_OUT = f"left out: the snapshot would pass {MAX_BYTES} bytes"
 
-    The cookies are the whole jar and replace the last save's; storage is the
-    one origin the page was on, added beside the others. A save that would
-    pass the cap keeps its cookies and leaves that origin's storage out,
-    saying so, rather than failing or truncating.
+
+def snapshot(previous: dict, captured: dict, history, now: float) -> tuple[dict, dict]:
+    """One save, replacing the last whole: nothing is merged, so a sign-out
+    saved after a sign-in is what comes back.
+
+    ``captured`` is what :func:`capture` read. ``origins`` keeps the
+    localStorage of every origin read that has any, newest first — the page,
+    then the history. ``session`` is the page's sessionStorage, for its
+    origin. An origin that could not be read keeps its storage from
+    ``previous``, so a blip does not sign the agent out. Over
+    :data:`MAX_BYTES` the origins visited longest ago go first and the page's
+    own storage last; a jar that alone passes it is a ValueError, and nothing
+    is saved.
+
+    Returns ``(data, receipt)``; the receipt names what was saved, never a
+    value.
     """
+    here = captured.get("origin") or ""
+    read = dict(captured.get("others") or {})
+    if here:
+        read[here] = captured.get("local") or {}
+    skipped = [dict(f) for f in captured.get("failed") or []]
+    last = (previous or {}).get("origins") or {}
+    kept = {
+        f["site"]: (last.get(f["site"]) or {}).get("local")
+        for f in skipped if f.get("site")
+    }
+    newest = (here, *(v["origin"] for v in history or ()), *read, *kept)
+    origins = {}
+    for o in dict.fromkeys(o for o in newest if o):
+        local = read.get(o) or kept.get(o)
+        if local:
+            origins[o] = {"local": dict(local)}
+    items = dict(captured.get("session") or {})
     data = {
         "cookies": list(captured.get("cookies") or []),
-        "origins": {},
+        "origins": origins,
+        "session": {"origin": here, "items": items} if here else {},
         "saved_at": now,
     }
-    if (existing or {}).get("pending"):
-        data["pending"] = existing["pending"]
-    cookies_only = data
-    data = {**data, "origins": dict((existing or {}).get("origins") or {})}
-    if _size(cookies_only) > MAX_BYTES:
-        # The jar is the one thing a save cannot leave out, and evicting other
-        # sites would not make it fit.
+    if _size({**data, "origins": {}, "session": {}}) > MAX_BYTES:
+        # The jar is the one thing a save cannot leave out.
         raise ValueError(
             f"the cookie jar is over {MAX_BYTES} bytes; nothing was saved"
         )
-    origin = captured.get("origin") or ""
-    sites, skipped, protect = [], [], None
-    if origin:
-        entry = {
-            "local": dict(captured.get("local") or {}),
-            "session": {
-                k: v for k, v in (captured.get("session") or {}).items()
-                if not k.startswith(MARKER)
-            },
-            "saved_at": now,
-        }
-        alone = {**cookies_only, "origins": {origin: entry}}
-        if _size(alone) > MAX_BYTES:
-            reason = f"storage over {MAX_BYTES} bytes"
-            skipped.append({"site": origin, "reason": reason})
-        else:
-            data = {**data, "origins": {**data["origins"], origin: entry}}
-            sites.append(origin)
-            protect = origin
-    # The cap is on what is stored, not on this one origin: the oldest other
-    # sites make room, each said so.
     while _size(data) > MAX_BYTES:
-        others = [o for o in data["origins"] if o != protect]
-        oldest = min(others, key=lambda o: data["origins"][o].get("saved_at") or 0)
-        data["origins"] = {o: e for o, e in data["origins"].items() if o != oldest}
-        skipped.append({"site": oldest, "reason": f"evicted: over {MAX_BYTES} bytes"})
+        if data["origins"]:
+            gone = list(data["origins"])[-1]
+            data["origins"] = {o: e for o, e in data["origins"].items() if o != gone}
+        else:
+            gone, data["session"] = data["session"]["origin"], {}
+        skipped.append({"site": gone, "reason": LEFT_OUT})
+    sites = [o for o in data["origins"] if o in read]
+    if data["session"].get("items") and here not in sites:
+        sites.insert(0, here)
     return data, {"cookies": len(data["cookies"]), "sites": sites, "skipped": skipped}
 
 
@@ -133,28 +148,37 @@ def live_cookies(cookies: list[dict], now: float) -> list[dict]:
     return [c for c in cookies if c.get("expiry") is None or c["expiry"] > now]
 
 
-def preload_source(origins: dict[str, dict]) -> str:
-    """The script that fills each origin's storage before the page's own
-    scripts run, once per tab. Every origin rides in one script because a
-    preload script cannot be scoped to a URL."""
-    payload = json.dumps(
-        {o: {"local": e.get("local") or {}, "session": e.get("session") or {}}
-         for o, e in origins.items()}
-    )
-    marker = json.dumps(MARKER)
+# Evaluated in a spare tab standing on an origin: its localStorage, whole.
+READ_LOCAL = (
+    "(() => { const out = {}; for (let i = 0; i < localStorage.length; i++) "
+    "{ const k = localStorage.key(i); out[k] = localStorage.getItem(k); } "
+    "return out; })()"
+)
+
+
+def fill(store: str, items: dict) -> str:
+    """An expression that sets every item in ``store`` (``localStorage`` or
+    ``sessionStorage``) and evaluates to how many it set."""
     return (
-        "() => { const all = " + payload + "; const o = location.origin; "
-        "const s = all[o]; if (!s) return; const m = " + marker + " + o; "
-        "try { if (sessionStorage.getItem(m)) return; "
-        "for (const [k, v] of Object.entries(s.local)) localStorage.setItem(k, v); "
-        "for (const [k, v] of Object.entries(s.session)) sessionStorage.setItem(k, v); "
-        "sessionStorage.setItem(m, '1'); } catch (e) {} }"
+        "(() => { const items = " + json.dumps(items) + "; "
+        "for (const [k, v] of Object.entries(items)) " + store + ".setItem(k, v); "
+        "return Object.keys(items).length; })()"
     )
 
 
-def _covers(domain: str, host: str) -> bool:
-    bare = domain.lstrip(".")
-    return host == bare or (domain.startswith(".") and host.endswith(domain))
+def restorable(data: dict) -> bool:
+    """Whether a snapshot holds anything a restore could put back."""
+    if not isinstance(data, dict):
+        return False
+    session = data.get("session")
+    return bool(
+        data.get("cookies") or data.get("origins")
+        or (isinstance(session, dict) and session.get("items"))
+    )
+
+
+def _why(exc: Exception) -> str:
+    return SW_REASON if isinstance(exc, ServiceWorkerAnswered) else failure_text(exc)
 
 
 def _own(domain: str, host: str) -> bool:
@@ -170,20 +194,43 @@ def _suffixes(host: str) -> list[str]:
     return [".".join(parts[i:]) for i in range(1, len(parts))]
 
 
+def _a(value, kind):
+    """``value`` when it is a ``kind``, else an empty one."""
+    return value if isinstance(value, kind) else kind()
+
+
 class _Jar:
     """One pass over the cookies and origins, so every host's slice is a few
     dict lookups instead of a scan of the whole jar per host."""
 
     def __init__(self, data: dict):
-        self.data = data or {}
-        self.cookies = self.data.get("cookies") or []
+        # Read as a stored record may be, not as a save writes it: a corrupt
+        # shape counts as nothing rather than failing a view, or the clean open
+        # that is the way out of it (Copilot, #51).
+        self.data = _a(data, dict)
+        self.cookies = [
+            c for c in _a(self.data.get("cookies"), list)
+            if isinstance(c, dict)
+            and all(isinstance(c.get(k), str) and c[k] for k in ("name", "domain"))
+        ]
         self.by_domain: dict[str, list[int]] = {}
         for i, c in enumerate(self.cookies):
             if c.get("domain"):
                 self.by_domain.setdefault(c["domain"], []).append(i)
+        # host -> origin -> its two storages. sessionStorage is one tab's, for
+        # the one origin the save was made on; empty, it makes no row.
         self.origins: dict[str, dict] = {}
-        for o, e in (self.data.get("origins") or {}).items():
-            self.origins.setdefault(host_of(o), {})[o] = e
+        for o, e in _a(self.data.get("origins"), dict).items():
+            self.origins.setdefault(host_of(o), {})[o] = {
+                "local": dict(_a(_a(e, dict).get("local"), dict)), "session": {},
+            }
+        session = _a(self.data.get("session"), dict)
+        items = _a(session.get("items"), dict)
+        if isinstance(session.get("origin"), str) and session["origin"] and items:
+            entry = self.origins.setdefault(host_of(session["origin"]), {}).setdefault(
+                session["origin"], {"local": {}, "session": {}}
+            )
+            entry["session"] = dict(items)
 
     def covering(self, host: str) -> list[dict]:
         """Cookies that reach ``host``, in the order the jar holds them."""
@@ -229,7 +276,9 @@ def _cookie_view(c: dict, host: str) -> dict:
 
 def matching_secrets(secrets: list[dict] | None, host: str) -> list[dict]:
     """The secrets allowed on ``host``, names and keys only. A secret with no
-    `allowed_urls` is usable anywhere and is not listed under every site."""
+    `allowed_urls` is usable anywhere and is not listed under every site; one
+    with `allowed_urls_rejected` is usable nowhere, its valid lines included
+    (`Catalogue.allows`), so it is not listed either."""
     return [
         {
             "name": s["name"],
@@ -237,36 +286,30 @@ def matching_secrets(secrets: list[dict] | None, host: str) -> list[dict]:
             "keys": list(s.get("keys") or []),
         }
         for s in secrets or []
-        if any(host_of(u) == host for u in s.get("allowed_urls") or [])
+        if not s.get("allowed_urls_rejected")
+        and any(host_of(u) == host for u in s.get("allowed_urls") or [])
     ]
 
 
-def _site(jar: _Jar, host: str, secrets) -> dict:
+def _site(jar: _Jar, host: str) -> dict:
     origins = jar.origins.get(host, {})
     cookies = jar.covering(host)
-    own = [c for c in cookies if _own(c.get("domain") or "", host)]
     # Per origin, never merged: the same host on two ports or schemes is two
     # origins, each restored with its own storage.
     storage = [
         {
             "origin": o,
-            "local_storage": dict(origins[o].get("local") or {}),
-            "session_storage": dict(origins[o].get("session") or {}),
+            "local_storage": origins[o]["local"],
+            "session_storage": origins[o]["session"],
         }
         for o in sorted(origins)
     ]
-    saved = [e.get("saved_at") for e in origins.values() if e.get("saved_at")]
     return {
         "site": host,
-        # Only what Forget would remove: a row that merely sits under a
-        # parent's shared cookie has nothing of its own to forget.
-        "saved": bool(origins or own),
-        "saved_at": max(saved) if saved else jar.data.get("saved_at") if own else None,
         "uri": site_uri(host),
         "_cookies": cookies,
-        "_own": own,
+        "_own": [c for c in cookies if _own(c.get("domain") or "", host)],
         "storage": storage,
-        "secrets": matching_secrets(secrets, host),
     }
 
 
@@ -285,20 +328,27 @@ def _identity(c: dict) -> dict:
     return {"name": c["name"], "domain": c.get("domain"), "path": c.get("path")}
 
 
-def _rows(data: dict, secrets: list[dict] | None):
-    """Every site once: ``(listing, details)`` from a single grouping of the
-    jar, so neither costs a scan per host."""
+def history_hosts(history) -> list[str]:
+    """The hosts of a history, most recent first, each once."""
+    hosts = (host_of(v["origin"]) for v in history or ())
+    return list(dict.fromkeys(h for h in hosts if h))
+
+
+def _rows(data: dict, history=()) -> tuple[dict, dict]:
+    """Every host the snapshot holds data for, once: ``(listing, details)``
+    from a single grouping of the jar. Hosts the session went to come first,
+    most recent first, then the rest alphabetically."""
     jar = _Jar(data)
-    hosts = set(jar.hosts())
-    for s in secrets or []:
-        hosts.update(host_of(u) for u in s.get("allowed_urls") or [])
+    hosts = jar.hosts()
+    stored = set(hosts)
+    visited = [h for h in history_hosts(history) if h in stored]
+    first = set(visited)
+    ordered = visited + [h for h in hosts if h not in first]
     rows, details = [], {}
-    for host in sorted(h for h in hosts if h):
-        site = _site(jar, host, secrets)
+    for host in ordered:
+        site = _site(jar, host)
         rows.append({
-            "site": site["site"], "saved": site["saved"],
-            "saved_at": site["saved_at"], "uri": site["uri"],
-            "cookies": len(site["_cookies"]),
+            "site": host, "uri": site["uri"], "cookies": len(site["_cookies"]),
             "storage": [
                 {
                     "origin": e["origin"],
@@ -307,48 +357,64 @@ def _rows(data: dict, secrets: list[dict] | None):
                 }
                 for e in site["storage"]
             ],
-            "secrets": site["secrets"],
         })
         details[host] = {
-            "site": host, "saved": site["saved"],
-            "saved_at": site["saved_at"], "uri": site["uri"],
+            "site": host, "uri": site["uri"],
             "cookies": [_cookie_view(c, host) for c in site["_cookies"]],
             "storage": site["storage"],
             # What Forget would do, by the rule Forget itself uses.
             "own_cookies": [c["name"] for c in site["_own"]],
             "kept_shared": [_identity(c) for c in _shared(site["_cookies"], host)],
-            "secrets": site["secrets"],
         }
-    unleashed = sum(1 for s in secrets or [] if not s.get("restricted"))
-    listing = {
-        "sites": rows,
-        "saved_sites": sum(1 for r in rows if r["saved"]),
-        "unleashed_secrets": unleashed,
-        "uri": LIST_URI,
-    }
+    listing = {"sites": rows, "saved_at": (data or {}).get("saved_at"), "uri": LIST_URI}
     return listing, details
 
 
-def view(data: dict, secrets: list[dict] | None = None) -> dict:
-    """The listing: one entry per site, counts only, never a value.
-
-    With ``secrets`` (the admin catalogue listing), a site a secret is allowed
-    on is listed even with nothing saved — secrets are not ephemeral, so their
-    rows are not either.
-    """
-    return _rows(data, secrets)[0]
+def view(data: dict, history=()) -> dict:
+    """The listing: one entry per host the snapshot holds data for, counts
+    only, never a value. Every row has something saved."""
+    return _rows(data, history)[0]
 
 
-def views(data: dict, secrets: list[dict] | None = None) -> tuple[dict, dict]:
-    """``(listing, details)``: the listing and every site in full, from one
+def views(data: dict, history=()) -> tuple[dict, dict]:
+    """``(listing, details)``: the listing and every host in full, from one
     pass over the jar."""
-    return _rows(data, secrets)
+    return _rows(data, history)
 
 
-def site_view(data: dict, site: str, secrets: list[dict] | None = None) -> dict | None:
-    """One site in full: cookies (httpOnly masked) and both storages, per
+def site_view(data: dict, site: str) -> dict | None:
+    """One host in full: cookies (httpOnly masked) and both storages, per
     origin."""
-    return _rows(data, secrets)[1].get((site or "").lower())
+    return _rows(data)[1].get((site or "").lower())
+
+
+def history_view(history, data: dict, secrets: list[dict] | None = None) -> dict:
+    """The History tab: one row per host the session landed on, the current
+    one first, each with its latest URL and when, what the snapshot holds for
+    it (None when nothing), and the secrets allowed there.
+
+    Secrets join a row and never make one: a host the session never reached
+    is not listed, whatever a secret allows.
+    """
+    saved = {r["site"]: r for r in view(data, history)["sites"]}
+    latest: dict[str, dict] = {}
+    for v in history or ():
+        latest.setdefault(host_of(v["origin"]), v)
+    rows = []
+    for host in history_hosts(history):
+        row = saved.get(host)
+        rows.append({
+            "site": host,
+            "url": latest[host]["url"],
+            "at": latest[host]["at"],
+            "saved": {
+                "cookies": row["cookies"],
+                "local": sum(e["local_storage"] for e in row["storage"]),
+                "session": sum(e["session_storage"] for e in row["storage"]),
+            } if row else None,
+            "secrets": matching_secrets(secrets, host),
+        })
+    return {"sites": rows}
 
 
 def summary(data: dict) -> dict | None:
@@ -357,24 +423,31 @@ def summary(data: dict) -> dict | None:
 
 
 def forget(data: dict, host: str) -> tuple[dict, dict]:
-    """Remove one site: its origins and the cookies named for it (``host`` or
-    ``.host``). A parent-domain cookie of another row stays — others use it."""
+    """Remove one host from the snapshot: its storage, sessionStorage
+    included, and the cookies named for it (``host`` or ``.host``). A
+    parent-domain cookie stays — other hosts use it — and so does
+    ``saved_at``: forgetting is not a save."""
     host = (host or "").lower()
     jar = _Jar(data)
     covering = jar.covering(host)
-    gone = [c for c in covering if _own(c.get("domain") or "", host)]
-    shared = _shared(covering, host)
-    gone_ids = {id(c) for c in gone}
+    gone_ids = {id(c) for c in covering if _own(c.get("domain") or "", host)}
     stored = data.get("origins") or {}
     origins = [o for o in stored if host_of(o) == host]
+    session = data.get("session") or {}
+    ours = host_of(session.get("origin") or "") == host
+    if ours and session.get("items") and session["origin"] not in origins:
+        origins.append(session["origin"])
     left = {
         **data,
         "cookies": [c for c in jar.cookies if id(c) not in gone_ids],
-        "origins": {o: e for o, e in stored.items() if o not in origins},
+        "origins": {o: e for o, e in stored.items() if host_of(o) != host},
+        **({"session": {}} if ours else {}),
     }
     return left, {
-        "site": host, "cookies": [c["name"] for c in gone], "origins": origins,
-        "kept_shared": [_identity(c) for c in shared],
+        "site": host,
+        "cookies": [c["name"] for c in covering if id(c) in gone_ids],
+        "origins": origins,
+        "kept_shared": [_identity(c) for c in _shared(covering, host)],
     }
 
 
@@ -390,11 +463,15 @@ READ_STORAGE = (
 )
 
 
-def capture(bidi, driver) -> dict:
-    """The whole cookie jar (BiDi sees httpOnly ones) and the page's storage.
+def capture(bidi, driver, origins=()) -> dict:
+    """The whole cookie jar (BiDi sees httpOnly ones), the page's own two
+    storages, and the localStorage of every other origin in ``origins`` — the
+    history's, newest first — read one at a time in a spare tab.
 
     The browser answered classic WebDriver to get here, so a jar that cannot
-    be read is the BiDi channel failing: :class:`BidiUnavailable`, a 503.
+    be read is the BiDi channel failing: :class:`BidiUnavailable`, a 503, and
+    nothing is saved. An origin that cannot be read is named in ``failed``;
+    the snapshot keeps its storage from the last save.
     """
     from selenium.common import WebDriverException
     from selenium.webdriver.common.bidi.storage import CookieFilter
@@ -416,17 +493,36 @@ def capture(bidi, driver) -> dict:
         for c in jar
     ]
     page = driver.execute_script(READ_STORAGE) or {}
+    here = page.get("origin") or ""
+    # Only http(s) can be stood on; the page's own origin is read in place.
+    wanted = [
+        o for o in dict.fromkeys(origins)
+        if o != here and o.startswith(("http://", "https://"))
+    ]
+    others: dict[str, dict] = {}
+    failed: list[dict] = []
+    if wanted:
+        try:
+            with spare_tab(bidi) as run:
+                for origin in wanted:
+                    try:
+                        found = run(origin, READ_LOCAL)
+                        others[origin] = found if isinstance(found, dict) else {}
+                    except Exception as e:  # noqa: BLE001 - one origin keeps its last storage
+                        failed.append({"site": origin, "reason": _why(e)})
+        except Exception as e:  # noqa: BLE001 - no tab: each origin not read keeps its last
+            done = set(others) | {f["site"] for f in failed}
+            failed.extend(
+                {"site": o, "reason": failure_text(e)} for o in wanted if o not in done
+            )
     return {
         "cookies": cookies,
-        "origin": page.get("origin") or "",
+        "origin": here,
         "local": page.get("local") or {},
         "session": page.get("session") or {},
+        "others": others,
+        "failed": failed,
     }
-
-
-def _add_preload(bidi, origins: dict) -> str:
-    added = bidi.script.add_preload_script(preload_source(origins))
-    return added.get("script", "") if isinstance(added, dict) else added
 
 
 def _same_site(c: dict):
@@ -489,116 +585,97 @@ def _malformed(c) -> dict:
     return entry
 
 
-def restore(bidi, data: dict, now: float) -> tuple[dict, dict]:
-    """Put a session's saved site data into a browser, before its first page.
-
-    Cookies go in for every host, even ones never visited. Storage cannot, so
-    one preload script fills each origin as it is first reached, and every
-    origin with storage starts out waiting: which one the first page reached is
-    :func:`arrive`'s to say, after it loaded. Nothing raises: a report says
-    what came back and what is waiting.
-    """
+def _restore_cookies(bidi, stored: list, now: float, skipped: list) -> list[dict]:
+    """Set every live, usable cookie; return the ones the browser kept. Each
+    one refused, dropped or unusable is added to ``skipped``."""
     from selenium.webdriver.common.bidi.storage import BytesValue, PartialCookie
 
-    report = {"restored": [], "waiting": [], "skipped": [], "uri": LIST_URI}
-    pending = {"origins": [], "script": ""}
+    cookies = live_cookies([c for c in stored if _usable(c)], now)
+    # One bad entry is skipped, not the whole restore.
+    skipped.extend(_malformed(c) for c in stored if not _usable(c))
+    sent = []
+    for c in cookies:
+        try:
+            bidi.storage.set_cookie(PartialCookie(
+                c["name"],
+                BytesValue(c.get("value_type") or "string", c.get("value")),
+                c["domain"], path=c.get("path"), http_only=c.get("http_only"),
+                secure=c.get("secure"), same_site=_same_site(c),
+                expiry=c.get("expiry"),
+            ))
+            sent.append(c)
+        except Exception as e:  # noqa: BLE001 - one refusal must not stop the rest
+            skipped.append({
+                "cookie": c.get("name"), "domain": c.get("domain"),
+                "reason": failure_text(e),
+            })
+    # A browser can refuse a cookie without an error; only the jar says.
+    kept = _kept(bidi, sent)
+    if kept is None:
+        kept = sent
+    skipped.extend(
+        {"cookie": c.get("name"), "domain": c.get("domain"),
+         "reason": "the browser did not keep it"}
+        for c in sent if c not in kept
+    )
+    return kept
+
+
+def restore(bidi, data: dict, now: float) -> dict:
+    """Put a snapshot into a browser before its first page: every live
+    cookie, then each origin's localStorage in a spare tab, then the saved
+    sessionStorage in the main tab, which is left on about:blank for the
+    landing. Everything is in place when this returns.
+
+    Best effort, and nothing raises: the report names each host that came
+    back and each item that did not, with why.
+    """
+    skipped: list[dict] = []
+    kept: list[dict] = []
+    filled: list[str] = []
     try:
-        stored = data.get("cookies") or []
-        cookies = live_cookies([c for c in stored if _usable(c)], now)
-        # One bad entry is skipped, not the whole restore.
-        report["skipped"] = [_malformed(c) for c in stored if not _usable(c)]
-        sent = []
-        for c in cookies:
+        kept = _restore_cookies(bidi, data.get("cookies") or [], now, skipped)
+        local = {
+            o: e["local"] for o, e in (data.get("origins") or {}).items()
+            if isinstance(e, dict) and e.get("local")
+        }
+        if local:
             try:
-                bidi.storage.set_cookie(PartialCookie(
-                    c["name"],
-                    BytesValue(c.get("value_type") or "string", c.get("value")),
-                    c["domain"], path=c.get("path"), http_only=c.get("http_only"),
-                    secure=c.get("secure"), same_site=_same_site(c),
-                    expiry=c.get("expiry"),
-                ))
-                sent.append(c)
-            except Exception as e:  # noqa: BLE001 - one refusal must not stop the rest
-                report["skipped"].append({
-                    "cookie": c.get("name"), "domain": c.get("domain"),
-                    "reason": failure_text(e),
-                })
-        # A browser can refuse a cookie without an error; only the jar says.
-        kept = _kept(bidi, sent)
-        if kept is None:
-            kept = sent
-        for c in sent:
-            if c not in kept:
-                report["skipped"].append({
-                    "cookie": c.get("name"), "domain": c.get("domain"),
-                    "reason": "the browser did not keep it",
-                })
-        origins = data.get("origins") or {}
-        stored_hosts = {host_of(o) for o in origins}
-        report["restored"] = sorted({
-            c["domain"].lstrip(".") for c in kept
-            if not any(_covers(c["domain"], h) for h in stored_hosts)
-        })
-        report["waiting"] = sorted(origins)
-        # Added last: nothing after it can fail and lose the id that retires it.
-        script = _add_preload(bidi, origins) if origins else ""
-        pending = {"origins": list(report["waiting"]), "script": script}
+                with spare_tab(bidi) as run:
+                    for origin, items in local.items():
+                        try:
+                            run(origin, fill("localStorage", items))
+                            filled.append(origin)
+                        except Exception as e:  # noqa: BLE001 - one origin, not the rest
+                            skipped.append({"site": origin, "reason": _why(e)})
+            except Exception as e:  # noqa: BLE001 - no tab: each origin not yet filled
+                done = {s.get("site") for s in skipped}
+                skipped.extend(
+                    {"site": o, "reason": failure_text(e)}
+                    for o in local if o not in filled and o not in done
+                )
+        session = data.get("session") or {}
+        if session.get("origin") and session.get("items"):
+            try:
+                main = bidi.current_window_handle
+                with spare_tab(bidi, context=main) as run:
+                    try:
+                        run(session["origin"], fill("sessionStorage", session["items"]))
+                    finally:
+                        # The stand-in page must never be what an open with no
+                        # url leaves on screen, filled or not; the tab keeps its
+                        # sessionStorage.
+                        with contextlib.suppress(Exception):
+                            bidi.browsing_context.navigate(
+                                context=main, url="about:blank", wait="complete"
+                            )
+                filled.append(session["origin"])
+            except Exception as e:  # noqa: BLE001 - the rest stands
+                skipped.append({"site": session["origin"], "reason": _why(e)})
     except Exception as e:  # noqa: BLE001 - BiDi failing is a report, not a crash
-        return (
-            {"restored": [], "waiting": [], "skipped": [{"reason": failure_text(e)}],
-             "uri": LIST_URI},
-            {"origins": [], "script": ""},
-        )
-    return report, pending
-
-
-def arrive(report: dict, pending: dict, url: str) -> tuple[dict, dict]:
-    """The first page loaded at ``url``: if that origin was waiting, it is
-    restored now — the preload script filled it.
-
-    Asked of where the browser *is*, not where it was sent: a redirect to
-    another origin never loads the requested one, so that one stays waiting.
-    """
-    landed = origin_of(url or "")
-    if landed not in (pending.get("origins") or []):
-        return report, pending
-    waiting = [o for o in pending["origins"] if o != landed]
-    report = {**report, "restored": [landed, *report["restored"]], "waiting": waiting}
-    pending = {**pending, "origins": list(waiting)}
-    if waiting:
-        # The script still carries the landing origin; it is swapped for one
-        # that does not once the browser settles (see ``replace``).
-        pending["arrived"] = [landed]
-    return report, pending
-
-
-def retire(bidi, script: str) -> None:
-    """Drop the preload script once every origin it waited on was filled.
-    Best effort: it dies with the browser anyway."""
-    with contextlib.suppress(Exception):
-        bidi.script.remove_preload_script(script=script)
-
-
-def replace(bidi, script: str, keep: dict | None) -> str:
-    """Swap the preload script for one carrying only ``keep``'s origins.
-
-    A preload script runs on every new document, and its once-per-tab marker
-    lives in one tab's sessionStorage: left in place, it would refill an
-    origin that already arrived the moment the app opened it in a new tab,
-    over whatever the app changed since.
-
-    Returns the id of the script now in the browser. A failed remove leaves the
-    old one running, so its id is returned and nothing else happens; "" means
-    none is left — nothing to keep, or the new one could not be added, in which
-    case those origins cannot fill and the caller must stop waiting for them.
-    """
-    try:
-        bidi.script.remove_preload_script(script=script)
-    except Exception:  # noqa: BLE001 - the old script is still live; keep its id
-        return script
-    if not keep:
-        return ""
-    try:
-        return _add_preload(bidi, keep)
-    except Exception:  # noqa: BLE001 - those origins then come back signed out
-        return ""
+        skipped.append({"reason": failure_text(e)})
+    return {
+        "restored": _hosts({"cookies": kept, "origins": {o: {} for o in filled}}),
+        "skipped": skipped,
+        "uri": LIST_URI,
+    }

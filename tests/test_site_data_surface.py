@@ -23,20 +23,16 @@ AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
 def saved_record():
-    data, _ = site_data.merge(
-        {},
-        {
-            "cookies": [
-                {"name": "sid", "value": "s3cret", "domain": SITE, "http_only": True},
-                {"name": "theme", "value": "dark", "domain": SITE},
-            ],
-            "origin": f"https://{SITE}",
-            "local": {"k": "v"},
-            "session": {},
-        },
-        1000.0,
-    )
-    return SessionRecord(url=f"https://{SITE}/x", site_data=data)
+    data = {
+        "cookies": [
+            {"name": "sid", "value": "s3cret", "domain": SITE, "http_only": True},
+            {"name": "theme", "value": "dark", "domain": SITE},
+        ],
+        "origins": {f"https://{SITE}": {"local": {"k": "v"}}},
+        "session": {"origin": f"https://{SITE}", "items": {}},
+        "saved_at": 1000.0,
+    }
+    return SessionRecord(site_data=data).at(f"https://{SITE}/x")
 
 
 @pytest.fixture
@@ -117,7 +113,7 @@ def test_the_capture_never_leaves_the_server(monkeypatch):
     # The record names the browser `resolve` hands back, as it does for real:
     # a save is kept only by the browser that captured it.
     server.sessions.store.set(
-        NAMED, SessionRecord(session_id="live-id", url=f"https://{SITE}/")
+        NAMED, SessionRecord(session_id="live-id").at(f"https://{SITE}/")
     )
     client = TestClient(server.mcp.http_app())
     response = client.post(
@@ -143,14 +139,13 @@ def test_the_published_kept_shared_is_the_shape_returned():
     items = SITE_DATA_SCHEMAS["SiteData"]["properties"]["kept_shared"]["items"]
     assert items["type"] == "object"
     assert set(items["required"]) == {"name", "domain", "path"}
-    data, _ = site_data.merge(
-        {},
-        {"cookies": [{"name": "ab", "value": "1", "domain": ".example.com",
-                      "path": "/", "http_only": False, "secure": True,
-                      "same_site": "lax", "expiry": None}],
-         "origin": "https://app.example.com", "local": {}, "session": {}},
-        0.0,
-    )
+    data = {
+        "cookies": [{"name": "ab", "value": "1", "domain": ".example.com", "path": "/",
+                     "http_only": False, "secure": True, "same_site": "lax", "expiry": None}],
+        "origins": {"https://app.example.com": {"local": {"k": "v"}}},
+        "session": {},
+        "saved_at": 0.0,
+    }
     shared = site_data.site_view(data, "app.example.com")["kept_shared"]
     assert shared and set(shared[0]) == set(items["required"])
 
@@ -183,7 +178,7 @@ def test_save_with_bidi_unreachable_is_a_scrubbed_503(monkeypatch):
     server = SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
     )
-    server.sessions.store.set(NAMED, SessionRecord(url=f"https://{SITE}/"))
+    server.sessions.store.set(NAMED, SessionRecord().at(f"https://{SITE}/"))
     client = TestClient(server.mcp.http_app())
     response = client.post(
         "/browser/save-site-data", headers=AUTH, params={"session": NAMED}, json={}
@@ -219,10 +214,26 @@ def test_an_unexpected_cookie_read_failure_stays_a_500(monkeypatch):
     server = SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
     )
-    server.sessions.store.set(NAMED, SessionRecord(url=f"https://{SITE}/"))
+    server.sessions.store.set(NAMED, SessionRecord().at(f"https://{SITE}/"))
     client = TestClient(server.mcp.http_app())
     response = client.post(
         "/browser/save-site-data", headers=AUTH, params={"session": NAMED}, json={}
     )
     assert response.status_code == 500, response.json()
 
+
+def test_the_listing_and_one_site_are_the_declared_shapes():
+    from kubed.selenium_flow.spec.schemas import SITE_DATA_SCHEMAS
+
+    data = {
+        "cookies": [{"name": "sid", "value": "1", "domain": SITE, "path": "/"}],
+        "origins": {f"https://{SITE}": {"local": {"k": "v"}}},
+        "session": {"origin": f"https://{SITE}", "items": {"s": "1"}},
+        "saved_at": 1.0,
+    }
+    declared = SITE_DATA_SCHEMAS["SiteList"]["properties"]
+    listing = site_data.view(data)
+    assert set(listing) == set(declared)
+    assert set(listing["sites"][0]) == set(declared["sites"]["items"]["properties"])
+    one = site_data.site_view(data, SITE)
+    assert set(one) == set(SITE_DATA_SCHEMAS["SiteData"]["properties"])

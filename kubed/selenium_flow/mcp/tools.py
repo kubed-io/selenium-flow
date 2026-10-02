@@ -304,15 +304,20 @@ def register(
         annotations=hints("Save site data", destructive=False, idempotent=True)
     )
     def save_site_data(url: str | None = None) -> dict:
-        """Save this session's site data: every cookie the browser holds, and the
-        localStorage and sessionStorage of the page it is on. Call it right after a
+        """Save this session's site data, so a new browser comes back signed in.
+
+        It keeps every cookie the browser holds, the localStorage of the sites it has
+        been to, and the sessionStorage of the page it is on. Call it right after a
         sign-in is confirmed, and after changing a setting you want kept; never before
         checking you landed, or you keep a failed sign-in.
 
-        Every browser opened for this session gets it back, the one that replaces a
-        reaped browser included, so you come back signed in. Saving replaces the
-        cookies and adds this page's storage beside other sites'. Values are never
-        returned; session://site-data lists what is saved.
+        One save covers every site a call ended on, while the session keeps its
+        history (a day by default, 100 sites): one passed through inside a call is not
+        read, and one last visited longer ago loses its storage at the next save, its
+        cookies staying. Each save replaces the last, so a save after signing out
+        saves you signed out. Every browser opened for this session has it back before
+        open_session returns, the one that replaces a reaped browser included. Values
+        are never returned; session://site-data lists what is saved.
         """
         return run(lambda s: actions.save_site_data(s, url=url))
 
@@ -737,8 +742,8 @@ def register(
         #   second `shot.png` is kept as `shot (1).png`);
         # - `file_error`: the capture survived and the file did not, and an MCP
         #   caller given only the image would look for a name never coming;
-        # - `site_data`: the call landed on a waiting origin, which says so
-        #   once (``sessions.act``) — dropped here, it is never said at all.
+        # - `site_data`: the first call after a silent reopen says what came
+        #   back (``sessions.settle``) — dropped here, it is never said at all.
         told = {
             k: result[k] for k in ("file", "file_error", "site_data")
             if result.get(k) is not None

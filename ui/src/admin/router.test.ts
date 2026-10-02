@@ -45,3 +45,11 @@ test('go routes through hashchange', async () => {
   expect(router.route).toEqual({ view: 'secrets' })
   window.removeEventListener('hashchange', sync)
 })
+
+test('History is a tab, and a Site data host rides in the hash', () => {
+  expect(parse('#/sessions/k/history')).toEqual({ view: 'session', key: 'k', tab: 'history', flow: undefined, site: undefined })
+  expect(parse('#/sessions/k/site-data/app.example.com')).toEqual({ view: 'session', key: 'k', tab: 'site-data', flow: undefined, site: 'app.example.com' })
+  expect(parse('#/sessions/k/files/x')).toEqual({ view: 'session', key: 'k', tab: 'files', flow: undefined, site: undefined })
+  expect(hashes.history('a b')).toBe('#/sessions/a%20b/history')
+  expect(parse(hashes.site('a b', 'h.example.com'))).toEqual({ view: 'session', key: 'a b', tab: 'site-data', flow: undefined, site: 'h.example.com' })
+})

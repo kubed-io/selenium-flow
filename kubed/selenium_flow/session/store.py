@@ -34,8 +34,10 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from typing import TYPE_CHECKING, Protocol
+from urllib.parse import urlsplit
 
 from .. import errors
+from ..core.site_data import origin_of
 
 if TYPE_CHECKING:
     from ..config import RedisSettings, SessionSettings
@@ -62,6 +64,8 @@ DEFAULT_TTL_SECONDS = 86400
 # Each retry is one round trip, and a key rewritten this often in the time one
 # takes is something wrong rather than something to wait out.
 UPDATE_RETRIES = 10
+# How many origins a session's history keeps; the oldest goes first.
+HISTORY_CAP = 100
 
 # What `update` applies: the record as it is now in, the record to store out,
 # or None to store nothing.
@@ -88,30 +92,46 @@ class StoreConflict(RuntimeError):
     """An update kept losing to other writers and gave up (Redis only)."""
 
 
+def _page(url: str) -> str:
+    """``url`` without its query, fragment or credentials: its origin and path."""
+    return origin_of(url) + urlsplit(url).path
+
+
 @dataclass(frozen=True)
 class SessionRecord:
     """One flow session: its context, and the browser it currently holds.
 
-    ``url`` and ``settings`` are the point of storing a record rather than a
-    bare id. They are what makes a browser replaceable: reopening and navigating
-    back to the last known page, in the browser it was using, makes a refresh
-    invisible — and makes ``open_session`` with no arguments do the obvious
-    thing after the browser has gone.
+    ``history`` and ``settings`` are the point of storing a record rather than
+    a bare id. They are what makes a browser replaceable: reopening and
+    navigating back to the last known page — the top of the history — in the
+    browser it was using makes a refresh invisible, and makes
+    ``open_session`` with no arguments do the obvious thing after the browser
+    has gone.
 
     ``session_id`` is empty when no browser is attached, which is an ordinary
     state rather than a broken one: the Grid reaped it, or an admin ended it.
     """
 
     session_id: str = ""
-    url: str = ""
     opened_at: float = 0.0
     # What the session was opened with, so a reopen uses the same browser
     # rather than a default one.
     settings: dict = field(default_factory=dict)
+    # Where the session has been: one {"origin", "url", "at"} per origin,
+    # newest first. Written by `at`; the admin History tab reads it.
+    history: list = field(default_factory=list)
     # Cookies and storage the session saved (core/site_data.py). Kept with the
     # record so it expires with it; never on this server's disk (with Redis,
     # as durable as Redis).
     site_data: dict = field(default_factory=dict)
+    # A silent reopen's site data report, held until the first result from
+    # that browser carries it: {"browser": id, "report": {...}}, or {}.
+    reopened: dict = field(default_factory=dict)
+
+    @property
+    def url(self) -> str:
+        """The page the session is on: the top of its history, or ""."""
+        return self.history[0]["url"] if self.history else ""
 
     @property
     def attached(self) -> bool:
@@ -146,20 +166,49 @@ class SessionRecord:
                 return None
             settings = data.get("settings")
             site_data = data.get("site_data")
+            reopened = data.get("reopened")
             return cls(
                 session_id=str(data.get("session_id") or ""),
-                url=str(data.get("url", "")),
                 opened_at=float(data.get("opened_at", 0.0)),
                 settings=settings if isinstance(settings, dict) else {},
+                history=_visits(data.get("history")),
                 site_data=site_data if isinstance(site_data, dict) else {},
+                reopened=reopened if isinstance(reopened, dict) else {},
             )
         except (ValueError, TypeError):
             # A malformed entry is a cache miss, not an outage.
             return None
 
-    def at(self, url: str) -> SessionRecord:
-        """The same record, remembering a newer page."""
-        return replace(self, url=url or self.url)
+    def at(
+        self,
+        *urls: str | None,
+        now: float | None = None,
+        ttl: float = DEFAULT_TTL_SECONDS,
+    ) -> SessionRecord:
+        """The same record, having landed on ``urls`` in order.
+
+        Each one with an origin moves that origin to the top with its URL and
+        the time. One without — None for a URL withheld after a secret write
+        (§F1.24), ``about:blank``, ``data:`` — records nothing. Entries older
+        than ``ttl`` go, except the top one: it is where a reopen goes back to.
+
+        Only the top entry keeps its whole URL. Below it a URL keeps its origin
+        and path: a query string or fragment carries OAuth codes and reset
+        tokens, and nothing but a reopen needs them (Copilot, #51).
+        """
+        now = time.time() if now is None else now
+        history = list(self.history)
+        for url in urls:
+            origin = origin_of(url or "")
+            if origin:
+                history = [
+                    {"origin": origin, "url": url, "at": now},
+                    *(v for v in history if v["origin"] != origin),
+                ]
+        kept = history[:1] + [
+            {**v, "url": _page(v["url"])} for v in history[1:] if v["at"] >= now - ttl
+        ]
+        return replace(self, history=kept[:HISTORY_CAP])
 
     def reshaped(self, settings: dict) -> SessionRecord:
         """The same record, with some of its settings replaced.
@@ -174,6 +223,14 @@ class SessionRecord:
         """The same record holding this site data."""
         return replace(self, site_data=dict(site_data or {}))
 
+    def history_cleared(self) -> SessionRecord:
+        """The same record with only its current page left in the history."""
+        return replace(self, history=self.history[:1])
+
+    def delivered(self) -> SessionRecord:
+        """The same record, its reopen report handed to a caller."""
+        return replace(self, reopened={})
+
     def detached(self) -> SessionRecord:
         """The same record with no browser, keeping the context it had.
 
@@ -181,6 +238,23 @@ class SessionRecord:
         open is meant to inherit, so ending a browser must not take them.
         """
         return replace(self, session_id="")
+
+
+def _visits(raw) -> list[dict]:
+    """The well-formed entries of a stored history. A record written before
+    there was one has none: it reads as a session that has been nowhere. A URL
+    that does not parse is no entry, or every later write would trip on it
+    (Copilot, #51)."""
+    if not isinstance(raw, list):
+        return []
+    return [
+        {"origin": v["origin"], "url": v["url"], "at": float(v["at"])}
+        for v in raw
+        if isinstance(v, dict)
+        and isinstance(v.get("origin"), str) and v["origin"]
+        and isinstance(v.get("url"), str) and origin_of(v["url"])
+        and isinstance(v.get("at"), (int, float)) and not isinstance(v["at"], bool)
+    ]
 
 
 class SessionStore(Protocol):

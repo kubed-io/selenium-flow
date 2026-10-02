@@ -163,7 +163,7 @@ def test_a_reaped_session_is_reopened_where_it_left_off():
     actions = RecordingActions()
     sessions = manager(actions)
     sessions.store.set(
-        NAMED, SessionRecord(session_id="dead", url="https://example.com/page")
+        NAMED, SessionRecord(session_id="dead").at("https://example.com/page")
     )
     assert sessions.resolve(NAMED) == "generated-1"
     assert actions.opened_urls == ["https://example.com/page"]
@@ -175,7 +175,7 @@ def test_a_refresh_reopens_with_the_same_settings():
     sessions = manager(actions)
     sessions.store.set(
         NAMED,
-        SessionRecord(session_id="dead", url="", settings={"width": 1400, "height": 900}),
+        SessionRecord(session_id="dead", settings={"width": 1400, "height": 900}),
     )
     sessions.resolve(NAMED)
     assert actions.opened_settings == [{"width": 1400, "height": 900}]
@@ -193,7 +193,7 @@ def test_a_refresh_reopens_on_the_same_browser():
     sessions = manager(actions)
     sessions.store.set(
         NAMED,
-        SessionRecord(session_id="dead", url="", settings={"browser": "firefox"}),
+        SessionRecord(session_id="dead", settings={"browser": "firefox"}),
     )
     sessions.resolve(NAMED)
     assert actions.opened_settings == [{"browser": "firefox"}]
@@ -226,7 +226,7 @@ def test_a_resize_is_remembered_so_a_refresh_replays_it():
 def test_the_refreshed_session_replaces_the_stored_one():
     actions = RecordingActions()
     sessions = manager(actions)
-    sessions.store.set(NAMED, SessionRecord(session_id="dead", url=""))
+    sessions.store.set(NAMED, SessionRecord(session_id="dead"))
     sessions.resolve(NAMED)
     assert sessions.store.get(NAMED).session_id == "generated-1"
     assert actions.opened == 1, "a second resolve must not open another"
@@ -345,7 +345,7 @@ def test_describe_reports_a_held_session_and_whether_it_is_still_there(named_cal
     actions.grid.alive.add("abc")
     sessions = manager(actions)
     sessions.store.set(
-        NAMED, SessionRecord(session_id="abc", url="https://example.com")
+        NAMED, SessionRecord(session_id="abc").at("https://example.com")
     )
     status = sessions.describe()
     assert status["url"] == "https://example.com"
@@ -510,7 +510,7 @@ class FakePipeline:
 def test_redis_store_round_trips_a_record_and_expires_it():
     fake = FakeRedis()
     store = RedisStore(fake, prefix="p:", ttl=99)
-    store.set("k", SessionRecord(session_id="abc", url="https://example.com"))
+    store.set("k", SessionRecord(session_id="abc").at("https://example.com"))
     record = store.get("k")
     assert (record.session_id, record.url) == ("abc", "https://example.com")
     assert "p:k" in fake.data, "the prefix must be applied"
@@ -595,7 +595,7 @@ def _stores():
 
 @pytest.mark.parametrize("store", _stores(), ids=lambda s: s.kind)
 def test_update_applies_the_change_to_the_stored_record(store):
-    store.set("k", SessionRecord(session_id="abc", url="https://a.test"))
+    store.set("k", SessionRecord(session_id="abc").at("https://a.test"))
     got = store.update("k", lambda r: r.with_site_data({"cookies": []}))
     assert got == store.get("k")
     assert (got.session_id, got.url, got.site_data) == ("abc", "https://a.test", {"cookies": []})
@@ -664,11 +664,11 @@ def test_redis_update_retries_when_another_writer_lands_first():
     the change is re-applied to its record rather than reverting it."""
     fake = FakeRedis()
     store = RedisStore(fake, prefix="p:")
-    store.set("k", SessionRecord(session_id="old", url="https://old.test"))
+    store.set("k", SessionRecord(session_id="old").at("https://old.test"))
 
     def open_elsewhere():
         fake.interfere = None
-        store.set("k", SessionRecord(session_id="new", url="https://new.test"))
+        store.set("k", SessionRecord(session_id="new").at("https://new.test"))
 
     fake.interfere = open_elsewhere
     got = store.update("k", lambda r: r.with_site_data({"a": 1}))
@@ -769,23 +769,19 @@ def test_a_losing_open_describes_the_browser_the_session_kept():
     assert actions.grid.alive == {kept.session_id}
     assert told["browser"] == "firefox"
     assert told["url"] == "https://won.test/"
-    assert "session_id" not in told and "_site_data_pending" not in told
+    assert "session_id" not in told
 
 
 def test_a_losing_clean_open_erases_nothing_from_the_winner():
     """Declining a restore erases the saved data only for the browser that
     binds; the winner was given that data and is still signed in (Copilot, #50)."""
-    from kubed.selenium_flow.core import site_data
-
     actions = InterleavedActions()
     sessions = manager(actions)
-    data, _ = site_data.merge(
-        {},
-        {"cookies": [{"name": "sid", "value": "1", "domain": "app.test"}],
-         "origin": "https://app.test", "local": {}, "session": {}},
-        1000.0,
-    )
-    sessions.store.set(NAMED, SessionRecord(url="https://app.test/", site_data=data))
+    data = {
+        "cookies": [{"name": "sid", "value": "1", "domain": "app.test"}],
+        "origins": {}, "session": {}, "saved_at": 1000.0,
+    }
+    sessions.store.set(NAMED, SessionRecord(site_data=data).at("https://app.test/"))
     actions.during_first = lambda: sessions.open_browser(NAMED)
     told = sessions.open_browser(NAMED, restore_site_data=False)
     assert "site_data" not in told, "the loser forgot nothing"
@@ -1081,7 +1077,7 @@ def test_context_is_what_a_reopen_should_inherit(monkeypatch):
     sessions = manager()
     sessions.store.set(
         NAMED,
-        SessionRecord(session_id="", url="https://x/", settings={"browser": "firefox"}),
+        SessionRecord(session_id="", settings={"browser": "firefox"}).at("https://x/"),
     )
     monkeypatch.setattr(
         sessions_module, "http_request", lambda: http({"session": "desktop"})
@@ -1133,7 +1129,7 @@ def test_replacing_keeps_the_session_and_its_context():
 def test_ending_a_session_with_no_browser_ends_nothing():
     actions = RecordingActions()
     sessions = manager(actions)
-    sessions.store.set(NAMED, SessionRecord(session_id="", url="https://x/"))
+    sessions.store.set(NAMED, SessionRecord(session_id="").at("https://x/"))
     assert sessions.end_browser(NAMED) is None
     assert actions.closed == []
 
@@ -1172,7 +1168,7 @@ async def test_open_session_comes_back_to_the_page_it_was_on(server, monkeypatch
     monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
     monkeypatch.setattr(server.actions, "open_session", fake_open)
     server.sessions.store.set(
-        NAMED, SessionRecord(session_id="", url="https://app.test/orders")
+        NAMED, SessionRecord(session_id="").at("https://app.test/orders")
     )
     async with Client(server.mcp) as client:
         await client.call_tool("open_session", {})
@@ -1203,9 +1199,8 @@ async def test_fresh_drops_the_remembered_page_and_keeps_the_browser(
         NAMED,
         SessionRecord(
             session_id="",
-            url="https://app.test/orders",
             settings={"browser": "firefox", "width": 1400, "height": 900},
-        ),
+        ).at("https://app.test/orders"),
     )
     async with Client(server.mcp) as client:
         await client.call_tool("open_session", {"fresh": True})
@@ -1234,7 +1229,7 @@ async def test_a_url_given_alongside_fresh_still_wins(server, monkeypatch):
         ),
     )
     server.sessions.store.set(
-        NAMED, SessionRecord(session_id="", url="https://app.test/orders")
+        NAMED, SessionRecord(session_id="").at("https://app.test/orders")
     )
     async with Client(server.mcp) as client:
         await client.call_tool(

@@ -26,23 +26,18 @@ PAGE_STATE = {
 SITE_DATA_HINT = {
     "type": "object",
     "description": (
-        "Present only when site data was restored, is waiting, or was forgotten "
-        "in this call."
+        "Present only when site data was restored, skipped or forgotten in "
+        "this call."
     ),
     "properties": {
         "restored": {
             "type": "array",
             "items": {"type": "string"},
             "description": (
-                "What is in the browser now: the landing page's origin "
-                "(https://app.example.com) when its storage was saved, and each "
-                "host that had cookies only (sso.example.com)."
+                "Each host whose saved cookies or storage are in the browser "
+                "now (app.example.com). All of it is in place before the call "
+                "returns."
             ),
-        },
-        "waiting": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "Origins restored when the page first arrives there.",
         },
         "forgotten": {
             "type": "integer",
@@ -55,7 +50,10 @@ SITE_DATA_HINT = {
                 "properties": {
                     "cookie": {"type": "string", "description": "A cookie's name."},
                     "domain": {"type": "string", "description": "Its domain."},
-                    "site": {"type": "string", "description": "An origin's storage."},
+                    "site": {
+                        "type": "string",
+                        "description": "An origin whose storage did not come back.",
+                    },
                     "reason": {"type": "string"},
                 },
                 "required": ["reason"],
@@ -160,16 +158,16 @@ RESPONSES = {
     "save_site_data": _page(
         saved={
             "type": "object",
-            "description": "What this save kept. Never a value.",
+            "description": "What this save kept, in place of the last. Never a value.",
             "properties": {
                 "cookies": {
                     "type": "integer",
-                    "description": "Cookies now saved, across every site.",
+                    "description": "Cookies saved, across every site.",
                 },
                 "sites": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Origins whose storage this save added.",
+                    "description": "Origins whose storage this save read and kept.",
                 },
                 "skipped": {
                     "type": "array",
@@ -179,8 +177,12 @@ RESPONSES = {
                             "site": {"type": "string"},
                             "reason": {"type": "string"},
                         },
+                        "required": ["reason"],
                     },
-                    "description": "Storage left out, each with why.",
+                    "description": (
+                        "Origins not read this time, each keeping its last saved "
+                        "storage, or left out over the size cap; each with why."
+                    ),
                 },
             },
         },
@@ -612,7 +614,6 @@ FLOW_SCHEMAS = {
                         "summary": {"type": "string"},
                         "note": {"type": "string"},
                         "error": {"type": "string"},
-                        "site_data": SITE_DATA_HINT,
                         "url": {
                             "type": "string",
                             "description": (
@@ -650,6 +651,8 @@ FLOW_SCHEMAS = {
             },
             "url": {"type": "string"},
             "title": {"type": "string"},
+            # Present only when the run's browser was reopened after a reap.
+            "site_data": SITE_DATA_HINT,
         },
     },
     "FlowDeleted": {
@@ -994,42 +997,60 @@ FILE_SCHEMAS = {
     },
 }
 
+
+def _storage(kind: str) -> dict:
+    """localStorage and sessionStorage per origin of one host: key counts
+    (``integer``) in a listing, the keys themselves (``object``) in full."""
+    return {
+        "type": "array",
+        "description": (
+            "Per origin: the same host on another port or scheme is another "
+            "origin. sessionStorage is the one tab's, for the page the save was "
+            "made on."
+        ),
+        "items": {
+            "type": "object",
+            "required": ["origin", "local_storage", "session_storage"],
+            "properties": {
+                "origin": {"type": "string"},
+                "local_storage": {"type": kind},
+                "session_storage": {"type": kind},
+            },
+        },
+    }
+
+
 SITE_DATA_SCHEMAS = {
     "SiteList": {
         "type": "object",
-        "description": "session://site-data: one entry per site, counts only.",
+        "description": (
+            "session://site-data: one entry per site the last save holds data "
+            "for, counts only, the sites the session went to first."
+        ),
         "properties": {
             "sites": {
                 "type": "array",
                 "items": {
                     "type": "object",
+                    "required": ["site", "uri", "cookies", "storage"],
                     "properties": {
-                        "site": {"type": "string"},
-                        "saved": {"type": "boolean"},
-                        "saved_at": {"type": ["number", "null"]},
+                        "site": {"type": "string", "description": "A host."},
                         "uri": {"type": "string"},
-                        "cookies": {"type": "integer"},
-                        "storage": {
-                            "type": "array",
-                            "description": "Key counts per origin of this host.",
-                            "items": {
-                                "type": "object",
-                                "required": [
-                                    "origin", "local_storage", "session_storage",
-                                ],
-                                "properties": {
-                                    "origin": {"type": "string"},
-                                    "local_storage": {"type": "integer"},
-                                    "session_storage": {"type": "integer"},
-                                },
-                            },
+                        "cookies": {
+                            "type": "integer",
+                            "description": (
+                                "Its own cookies and the parent-domain ones "
+                                "that reach it."
+                            ),
                         },
-                        "secrets": {"type": "array", "items": {"type": "object"}},
+                        "storage": _storage("integer"),
                     },
                 },
             },
-            "saved_sites": {"type": "integer"},
-            "unleashed_secrets": {"type": "integer"},
+            "saved_at": {
+                "type": ["number", "null"],
+                "description": "When the snapshot was saved, in epoch seconds.",
+            },
             "uri": {"type": "string"},
         },
     },
@@ -1041,8 +1062,6 @@ SITE_DATA_SCHEMAS = {
         ),
         "properties": {
             "site": {"type": "string"},
-            "saved": {"type": "boolean"},
-            "saved_at": {"type": ["number", "null"]},
             "uri": {"type": "string"},
             "cookies": {
                 "type": "array",
@@ -1061,22 +1080,7 @@ SITE_DATA_SCHEMAS = {
                     },
                 },
             },
-            "storage": {
-                "type": "array",
-                "description": (
-                    "localStorage and sessionStorage per origin: the same host "
-                    "on another port or scheme is another origin."
-                ),
-                "items": {
-                    "type": "object",
-                    "required": ["origin", "local_storage", "session_storage"],
-                    "properties": {
-                        "origin": {"type": "string"},
-                        "local_storage": {"type": "object"},
-                        "session_storage": {"type": "object"},
-                    },
-                },
-            },
+            "storage": _storage("object"),
             "own_cookies": {
                 "type": "array",
                 "items": {"type": "string"},
@@ -1099,7 +1103,6 @@ SITE_DATA_SCHEMAS = {
                     "Parent-domain cookies it only sits under: Forget keeps them."
                 ),
             },
-            "secrets": {"type": "array", "items": {"type": "object"}},
         },
     },
 }

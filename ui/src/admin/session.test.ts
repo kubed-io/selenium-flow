@@ -64,7 +64,7 @@ test('filesSettled sees the newest data even when the poll overtook the caller (
 })
 
 test('a pushed row refetches files only when the stamp moves (F8)', async () => {
-  const { calls } = fakeFetch({ 'GET /admin/sessions/k/site-data': { body: { sites: [], details: {} } }, 'GET /admin/sessions/k/files': { body: files() }, 'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [], rev: 1 } } })
+  const { calls } = fakeFetch({ 'GET /admin/sessions/k/site-data': { body: { sites: [], details: {} } }, 'GET /admin/sessions/k/history': { body: { key: 'k', sites: [] } }, 'GET /admin/sessions/k/files': { body: files() }, 'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [], rev: 1 } } })
   const m = new SessionModel('k', api)
   await m.loadFiles(); await m.loadFlows(() => null, () => {})
   const before = calls.length
@@ -75,7 +75,7 @@ test('a pushed row refetches files only when the stamp moves (F8)', async () => 
 })
 
 test('a pushed row refetches flows only when flows_rev moves (F8, W7)', async () => {
-  const { calls } = fakeFetch({ 'GET /admin/sessions/k/site-data': { body: { sites: [], details: {} } }, 'GET /admin/sessions/k/files': { body: files() }, 'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [], rev: 1 } } })
+  const { calls } = fakeFetch({ 'GET /admin/sessions/k/site-data': { body: { sites: [], details: {} } }, 'GET /admin/sessions/k/history': { body: { key: 'k', sites: [] } }, 'GET /admin/sessions/k/files': { body: files() }, 'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [], rev: 1 } } })
   const m = new SessionModel('k', api)
   await m.loadFiles(); await m.loadFlows(() => null, () => {})
   const flowLoads = () => calls.filter((c) => c.path === '/admin/sessions/k/flows').length
@@ -127,4 +127,84 @@ test('a still-listed open flow reloads its document (W7)', async () => {
   const m = new SessionModel('k', api)
   await m.loadFlows(() => 'a', () => {})
   await vi.waitFor(() => expect(m.flowDoc?.name).toBe('a'))
+})
+
+test('a pushed row refetches the history only when history_rev moves', async () => {
+  const { calls } = fakeFetch({
+    'GET /admin/sessions/k/history': { body: { key: 'k', sites: [] } },
+    'GET /admin/sessions/k/files': { body: files() },
+    'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [], rev: 1 } },
+  })
+  const m = new SessionModel('k', api)
+  const loads = () => calls.filter((c) => c.path === '/admin/sessions/k/history').length
+  const push = (rev: string) => m.onPushed({ sessions: [{ key: 'k', live: true, session_id: 'b1', files_rev: 1, flows_rev: 1, history_rev: rev }] }, () => null, () => {}, () => {})
+  push('h1')
+  expect(loads()).toBe(1)
+  push('h1')
+  expect(loads()).toBe(1)
+  push('h2')
+  expect(loads()).toBe(2)
+})
+
+test('a pushed save loads the history once too: its saved pills are snapshot data', async () => {
+  const { calls } = fakeFetch({
+    'GET /admin/sessions/k/site-data': { body: { sites: [], details: {} } },
+    'GET /admin/sessions/k/history': { body: { key: 'k', sites: [] } },
+    'GET /admin/sessions/k/files': { body: files() },
+    'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [], rev: 1 } },
+  })
+  const m = new SessionModel('k', api)
+  const loads = (tab: string) => calls.filter((c) => c.path === '/admin/sessions/k/' + tab).length
+  const push = (site_data_rev: string) => m.onPushed({ sessions: [{ key: 'k', live: true, session_id: 'b1', files_rev: 1, flows_rev: 1, history_rev: 'h1', site_data_rev }] }, () => null, () => {}, () => {})
+  push('s1')
+  expect([loads('site-data'), loads('history')]).toEqual([1, 1])
+  push('s2')                                       // a save on the current page: no new origin, no new top URL
+  expect([loads('site-data'), loads('history')]).toEqual([2, 2])
+  push('s2')
+  expect([loads('site-data'), loads('history')]).toEqual([2, 2])
+})
+
+test('a pushed navigation reloads Site data too: its rows are in history order', async () => {
+  const { calls } = fakeFetch({
+    'GET /admin/sessions/k/site-data': { body: { sites: [], details: {} } },
+    'GET /admin/sessions/k/history': { body: { key: 'k', sites: [] } },
+    'GET /admin/sessions/k/files': { body: files() },
+    'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [], rev: 1 } },
+  })
+  const m = new SessionModel('k', api)
+  const loads = (tab: string) => calls.filter((c) => c.path === '/admin/sessions/k/' + tab).length
+  const push = (history_rev: string) => m.onPushed({ sessions: [{ key: 'k', live: true, session_id: 'b1', files_rev: 1, flows_rev: 1, history_rev, site_data_rev: 's1' }] }, () => null, () => {}, () => {})
+  push('h1')
+  push('h2')                                       // another site on top: no save, no Forget
+  expect([loads('site-data'), loads('history')]).toEqual([2, 2])
+})
+
+test('both revs moving in one push is still one history load', async () => {
+  const { calls } = fakeFetch({
+    'GET /admin/sessions/k/site-data': { body: { sites: [], details: {} } },
+    'GET /admin/sessions/k/history': { body: { key: 'k', sites: [] } },
+    'GET /admin/sessions/k/files': { body: files() },
+    'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [], rev: 1 } },
+  })
+  const m = new SessionModel('k', api)
+  const loads = (tab: string) => calls.filter((c) => c.path === '/admin/sessions/k/' + tab).length
+  const push = (rev: string) => m.onPushed({ sessions: [{ key: 'k', live: true, session_id: 'b1', files_rev: 1, flows_rev: 1, history_rev: rev, site_data_rev: rev }] }, () => null, () => {}, () => {})
+  push('1')
+  push('2')
+  expect([loads('site-data'), loads('history')]).toEqual([2, 2])
+})
+
+
+test('a Files failure still loads Site data and History: they read the store, not the Grid', async () => {
+  const { calls } = fakeFetch({
+    'GET /admin/sessions/k/files': { status: 503, body: { error: 'the Grid is unreachable' } },
+    'GET /admin/sessions/k/site-data': { body: { sites: [], details: {} } },
+    'GET /admin/sessions/k/history': { body: { key: 'k', sites: [], clears: [] } },
+  })
+  const m = new SessionModel('k', api)
+  await m.loadFiles()
+  await vi.waitFor(() => expect(m.history).not.toBeNull())
+  expect(m.siteData).not.toBeNull()
+  const loads = (tab: string) => calls.filter((c) => c.path === '/admin/sessions/k/' + tab).length
+  expect([loads('site-data'), loads('history')]).toEqual([1, 1])
 })

@@ -73,7 +73,7 @@ def client(kept_server):
 def live(kept_server):
     """A flow session holding a browser, which is what the admin API addresses."""
     kept_server.sessions.store.set(
-        KEY, SessionRecord(session_id="abc", url="https://x/")
+        KEY, SessionRecord(session_id="abc").at("https://x/")
     )
     return kept_server
 

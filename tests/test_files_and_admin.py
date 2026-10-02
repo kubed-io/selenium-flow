@@ -45,7 +45,7 @@ def flow_session(server):
     The admin surface lists *our* sessions, not the Grid's, so a test that does
     not put one in the store is asking about an empty server.
     """
-    server.sessions.store.set(KEY, SessionRecord(session_id="abc", url="https://x/"))
+    server.sessions.store.set(KEY, SessionRecord(session_id="abc").at("https://x/"))
     return server
 
 
@@ -371,7 +371,7 @@ def test_the_listing_shows_flow_sessions_not_grid_sessions(client, server):
     and handing whoever holds the admin token a browser id they never opened."""
     server.sessions.store.set(
         "mine",
-        SessionRecord(session_id="mine", url="https://x/", settings={"browser": "firefox"}),
+        SessionRecord(session_id="mine", settings={"browser": "firefox"}).at("https://x/"),
     )
     grid_rows = [
         {"session_id": "mine", "browser": "firefox", "version": "155", "node": "n1"},
@@ -393,7 +393,7 @@ def test_a_detached_session_is_listed_as_idle_with_its_context(client, server):
     """The point of the split: no browser, but still a session worth seeing."""
     server.sessions.store.set(
         "idle",
-        SessionRecord(session_id="", url="https://x/", settings={"browser": "firefox"}),
+        SessionRecord(session_id="", settings={"browser": "firefox"}).at("https://x/"),
     )
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get(

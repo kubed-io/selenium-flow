@@ -28,10 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A YAML config file (`--config-file` / `CONFIG_FILE`): every setting can be set there, in env or as a flag, and a later one wins.
 - Secrets can be defined in the config file, merged over the ones in `secrets.dirs`, with keys read from a file or an env var.
 - The admin UI has a Settings tab showing every setting and where its value came from.
-- `save_site_data` keeps a session's cookies and storage, so a reopened browser comes back signed in.
+- `save_site_data` keeps the cookies and storage of the sites a session has been to, so a reopened browser comes back signed in to all of them.
 - `open_session(restore_site_data=false)` starts without that data and deletes it.
 - The admin UI has a Site data tab.
-- Site data a save evicts over the size cap no longer comes back in a browser already open.
+- The admin UI has a History tab: where a session has been, with the secrets allowed and what is saved there.
 - Two `open_session` calls at once on one session no longer leave a browser running on the Grid.
 - The Site data views show storage per origin, so one host on two ports no longer merges.
 - A browser opened with `insecure=true` gets no saved site data.

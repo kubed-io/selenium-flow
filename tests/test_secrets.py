@@ -950,6 +950,49 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
     assert touched == [("https://nc.example.com/home", "browser-1")]
 
 
+async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
+    tmp_path, monkeypatch
+):
+    """A bound write is a call like any other: the first one after a reopen
+    carries the reopen's report, which `touch` hands over."""
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    from .conftest import NAMED, TOKEN
+
+    monkeypatch.delenv("SECRETS_DIRS", raising=False)
+    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    make_secret(
+        tmp_path, "nextcloud", password="hunter2",
+        **{ALLOWED_URLS: "https://nc.example.com"},
+    )
+    server = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"},
+        auth={"token": TOKEN},
+        secrets={"dirs": str(tmp_path)},
+    ))
+    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
+    monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(
+        server.actions, "page",
+        lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
+    )
+    monkeypatch.setattr(
+        server.actions, "write",
+        lambda sid, text, **kw: {
+            "value": None, "url": "https://nc.example.com/home", "title": "Home",
+        },
+    )
+    report = {"restored": ["nc.example.com"], "skipped": [], "uri": "session://site-data"}
+    monkeypatch.setattr(server.sessions, "touch", lambda name, url, browser=None: report)
+
+    write = await server.mcp.get_tool("write")
+    result = write.fn(
+        selector={"css": "#password"},
+        secret={"name": "nextcloud", "key": "password"},
+    )
+    assert result["site_data"] == report
+
+
 def test_an_http_binding_naming_two_sources_is_refused(bound_http, monkeypatch):
     """`bind` reads `secret` and ignores whatever else is there, so the shape
     check has to happen before it. A body saying two things is malformed, not a
@@ -989,7 +1032,7 @@ def test_a_session_in_use_is_kept_alive_even_when_its_page_is_withheld():
     clock = [1000.0]
     store = MemoryStore(ttl=60, clock=lambda: clock[0])
     store.set(
-        NAMED, SessionRecord(session_id="browser-1", url="https://nc.test/home")
+        NAMED, SessionRecord(session_id="browser-1").at("https://nc.test/home")
     )
     sessions = manager(store=store)
 

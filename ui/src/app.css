@@ -287,6 +287,9 @@ iframe.console { width: 100%; height: 72vh; border: 1px solid var(--line); borde
   cursor: pointer; user-select: none;
 }
 .section > .head .title:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+/* A head with nothing to open is a span, not a button: the same look without
+   the hand cursor and the no-select (the extra element wins on specificity). */
+.section > .head span.title { cursor: default; user-select: text; }
 .section > .head .title .caret { display: inline-block; width: 12px; margin-right: 6px; color: var(--muted); }
 .section > .body, section.row > .body { padding: 0 14px 14px; }
 .section[data-open=false] > .body { display: none; }

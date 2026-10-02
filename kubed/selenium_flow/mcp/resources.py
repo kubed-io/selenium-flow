@@ -57,9 +57,9 @@ def register(mcp: FastMCP, sessions: SessionManager) -> None:
 
 
 SITE_DESCRIPTION = (
-    "The sites this session has saved cookies or storage for: one entry per "
-    "site with counts, never a value. Saved by save_site_data, and handed back "
-    "to every browser this session opens.\n\n"
+    "What this session's last save_site_data holds: one entry per site with "
+    "counts, never a value; the sites the session went to come first. Every "
+    "browser this session opens has it back before open_session returns.\n\n"
     "session://site-data/{site} shows one site in full. Reading this never "
     "opens a browser."
 )
@@ -72,19 +72,18 @@ ONE_SITE_DESCRIPTION = (
 )
 
 
-def _saved(sessions: SessionManager, name: str) -> dict:
-    record = sessions.store.get(name)
-    return record.site_data if record else {}
-
-
 def site_listing(sessions: SessionManager, name: str) -> dict:
     """``session://site-data``. Reads the record; never opens a browser."""
-    return site_data.view(_saved(sessions, name))
+    record = sessions.store.get(name)
+    if record is None:
+        return site_data.view({})
+    return site_data.view(record.site_data, record.history)
 
 
 def one_site(sessions: SessionManager, name: str, site: str) -> dict:
     """``session://site-data/{site}``, or a ValueError that says where to look."""
-    found = site_data.site_view(_saved(sessions, name), site)
+    record = sessions.store.get(name)
+    found = site_data.site_view(record.site_data if record else {}, site)
     if found is None:
         raise ValueError(f"no saved data for {site!r}: {site_data.LIST_URI} lists them")
     return found
