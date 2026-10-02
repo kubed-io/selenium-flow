@@ -190,11 +190,14 @@ test('Clear confirms what goes and what stays, then DELETEs the history and relo
     'goeshttps://grafana.example.com · https://example.com · https://admin.example.com',
     'staysthe-internet.herokuapp.com, the current site',
   ])
-  const gets = () => calls.filter((c) => c.method === 'GET' && c.path.endsWith('/history')).length
-  const before = gets()
+  const gets = (tail: string) => calls.filter((c) => c.method === 'GET' && c.path.endsWith(tail)).length
+  const before = gets('/history')
+  // Site data is ordered by the history, so a Clear reloads it too.
+  const siteBefore = gets('/site-data')
   await fireEvent.click(within(modal()).getByRole('button', { name: 'Clear' }))
   await vi.waitFor(() => expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.path)).toEqual(['/admin/sessions/k/history']))
-  await vi.waitFor(() => expect(gets()).toBe(before + 1))
+  await vi.waitFor(() => expect(gets('/history')).toBe(before + 1))
+  await vi.waitFor(() => expect(gets('/site-data')).toBe(siteBefore + 1))
 })
 
 test('a pushed history_rev change reloads; the same rev does not', async () => {

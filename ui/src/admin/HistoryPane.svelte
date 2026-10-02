@@ -51,7 +51,8 @@
       onconfirm: async () => {
         refuseIfGone()
         await api(sessionPath(m.key, '/history'), 'DELETE')
-        if (!isGone()) void m.loadHistory()
+        // Site data is ordered by the history, so it moves too.
+        if (!isGone()) { void m.loadHistory(); void m.loadSiteData() }
       },
     })
   }

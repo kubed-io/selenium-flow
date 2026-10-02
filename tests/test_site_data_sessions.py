@@ -381,3 +381,20 @@ def test_a_report_survives_a_result_that_fails_after_it_was_handed_over(named_ca
     monkeypatch.setattr(m, "_save_site_data", real)
     assert m.act(NAMED, lambda s: {"url": URL})["site_data"] == REPORT
     assert "site_data" not in m.act(NAMED, lambda s: {"url": URL})
+
+
+@pytest.mark.parametrize("corrupt", [
+    {"cookies": 5},
+    {"cookies": ["x"], "origins": {"https://app.example.com": "y"}},
+    {"origins": [1], "session": {"origin": "https://app.example.com", "items": "z"}},
+])
+def test_a_corrupt_record_never_fails_the_clean_open_that_throws_it_away(named_caller, corrupt):
+    # restore_site_data=false is the way out of a broken record, so counting
+    # what it forgets must not be the thing that breaks.
+    m = manager(SiteActions())
+    m.open_browser(NAMED)
+    m.store.update(NAMED, lambda r: r.with_site_data(corrupt))
+    m.end_browser(NAMED)
+    told = m.open_browser(NAMED, restore_site_data=False)
+    assert told["session"] == NAMED
+    assert m.store.get(NAMED).site_data == {}

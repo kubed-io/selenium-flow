@@ -194,13 +194,22 @@ def _suffixes(host: str) -> list[str]:
     return [".".join(parts[i:]) for i in range(1, len(parts))]
 
 
+def _a(value, kind):
+    """``value`` when it is a ``kind``, else an empty one."""
+    return value if isinstance(value, kind) else kind()
+
+
 class _Jar:
     """One pass over the cookies and origins, so every host's slice is a few
     dict lookups instead of a scan of the whole jar per host."""
 
     def __init__(self, data: dict):
-        self.data = data or {}
-        self.cookies = self.data.get("cookies") or []
+        # Read as a stored record may be, not as a save writes it: a corrupt
+        # shape counts as nothing rather than failing a view, or the clean open
+        # that is the way out of it (Copilot, #51).
+        self.data = _a(data, dict)
+        cookies = _a(self.data.get("cookies"), list)
+        self.cookies = [c for c in cookies if isinstance(c, dict)]
         self.by_domain: dict[str, list[int]] = {}
         for i, c in enumerate(self.cookies):
             if c.get("domain"):
@@ -208,16 +217,17 @@ class _Jar:
         # host -> origin -> its two storages. sessionStorage is one tab's, for
         # the one origin the save was made on; empty, it makes no row.
         self.origins: dict[str, dict] = {}
-        for o, e in (self.data.get("origins") or {}).items():
+        for o, e in _a(self.data.get("origins"), dict).items():
             self.origins.setdefault(host_of(o), {})[o] = {
-                "local": dict((e or {}).get("local") or {}), "session": {},
+                "local": dict(_a(_a(e, dict).get("local"), dict)), "session": {},
             }
-        session = self.data.get("session") or {}
-        if session.get("origin") and session.get("items"):
+        session = _a(self.data.get("session"), dict)
+        items = _a(session.get("items"), dict)
+        if session.get("origin") and items:
             entry = self.origins.setdefault(host_of(session["origin"]), {}).setdefault(
                 session["origin"], {"local": {}, "session": {}}
             )
-            entry["session"] = dict(session["items"])
+            entry["session"] = dict(items)
 
     def covering(self, host: str) -> list[dict]:
         """Cookies that reach ``host``, in the order the jar holds them."""
