@@ -22,9 +22,12 @@ log = logging.getLogger(__name__)
 
 def mount(
     mcp, actions, sessions, flow_store, token, prefix, link_ttl, sessions_payload,
-    guarded,
+    guarded, changes,
 ) -> None:
-    """Mount the files listing, keep, and clear/delete."""
+    """Mount the files listing, keep, and clear/delete.
+
+    ``changes`` marks the routes that change what the session list shows.
+    """
 
     @mcp.custom_route(
         f"{prefix}/admin/sessions/{{key}}/files", methods=["GET"], name="admin_files"
@@ -105,6 +108,7 @@ def mount(
         name="admin_keep_file",
     )
     @guarded
+    @changes
     async def admin_keep_file(request: Request) -> JSONResponse:
         """Move a screenshot, or copy a download, into the session's own Files
         — so it outlives the browser. There is no matching unkeep: see
@@ -139,6 +143,7 @@ def mount(
         name="admin_delete_file",
     )
     @guarded
+    @changes
     async def admin_delete_file(request: Request) -> JSONResponse:
         """Clear a whole section, or delete one file from Files — the name in
         the path decides which, since ``downloads`` and ``screenshots`` are

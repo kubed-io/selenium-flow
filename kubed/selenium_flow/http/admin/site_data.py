@@ -26,8 +26,11 @@ async def secret_rows(catalogue) -> list[dict]:
     return (await run_in_threadpool(catalogue.listing))["secrets"]
 
 
-def mount(mcp, sessions, catalogue, prefix, guarded) -> None:
-    """Mount history and site data: read, clear, and forget one site."""
+def mount(mcp, sessions, catalogue, prefix, guarded, changes) -> None:
+    """Mount history and site data: read, clear, and forget one site.
+
+    ``changes`` marks the routes that change what the session list shows.
+    """
 
     @mcp.custom_route(
         f"{prefix}/admin/sessions/{{key}}/history",
@@ -60,6 +63,7 @@ def mount(mcp, sessions, catalogue, prefix, guarded) -> None:
         name="admin_history_clear",
     )
     @guarded
+    @changes
     async def admin_history_clear(request: Request) -> JSONResponse:
         """Clear: the history down to the current site. Site data and the live
         browser are untouched, and the history expires on its own anyway."""
@@ -100,6 +104,7 @@ def mount(mcp, sessions, catalogue, prefix, guarded) -> None:
         name="admin_site_data_clear",
     )
     @guarded
+    @changes
     async def admin_site_data_clear(request: Request) -> JSONResponse:
         """Clear: delete the snapshot. The history and the live browser are
         untouched; only the next browser opened comes back signed out."""
@@ -121,6 +126,7 @@ def mount(mcp, sessions, catalogue, prefix, guarded) -> None:
         name="admin_site_data_forget",
     )
     @guarded
+    @changes
     async def admin_site_data_forget(request: Request) -> JSONResponse:
         """Forget one site. Parent-domain cookies stay: other sites use them.
 

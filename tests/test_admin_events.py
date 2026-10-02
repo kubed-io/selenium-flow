@@ -241,3 +241,76 @@ async def test_a_failed_tick_sends_nothing_and_the_stream_carries_on(
         assert [r["key"] for r in json.loads(sink[0])["sessions"]] == ["one"]
     finally:
         await _close(stop, [task])
+
+
+async def test_a_page_that_drops_mid_send_leaves_at_once(server, counted, monkeypatch):
+    """A client gone while its event is being written leaves a paused generator
+    that only the garbage collector would close. The page must not wait for it:
+    with the collector off, the polling stops when the response returns."""
+    import gc
+
+    monkeypatch.setattr(admin, "POLL_SECONDS", 0.02)
+    app = server.mcp.http_app()
+    gone = asyncio.Event()
+    never = asyncio.Event()
+
+    async def receive():
+        await gone.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        if message.get("body", b"").startswith(b"data"):
+            gone.set()  # the tab closes while its event is on the wire
+            await never.wait()
+
+    scope = {
+        "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+        "method": "GET", "scheme": "http", "path": "/admin/events",
+        "raw_path": b"/admin/events", "root_path": "", "query_string": b"",
+        "headers": [(b"authorization", f"Bearer {TOKEN}".encode())],
+        "client": ("127.0.0.1", 1), "server": ("test", 80),
+    }
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        await asyncio.wait_for(app(scope, receive, send), 5)
+        await asyncio.sleep(0.05)  # a tick already under way may finish
+        settled = len(counted)
+        await asyncio.sleep(0.2)  # ten ticks' worth
+        assert len(counted) == settled, "the Grid is still polled for a closed page"
+    finally:
+        if enabled:
+            gc.enable()
+
+
+async def test_a_forget_with_a_page_open_is_in_the_next_listing(
+    server, counted, monkeypatch
+):
+    """The admin's own changes are never answered with the list from before
+    them, however fresh: Forget here, and End, Clear, keep and delete alike."""
+    monkeypatch.setattr(admin, "POLL_SECONDS", 60.0)
+    monkeypatch.setattr(admin, "FRESH_SECONDS", 60.0)
+    jar = {
+        "cookies": [{"name": "a", "value": "1", "domain": "app.example.com",
+                     "path": "/"}],
+        "origins": {}, "session": {}, "saved_at": 1.0,
+    }
+    server.sessions.store.set(
+        "one",
+        SessionRecord(session_id="").visited("https://app.example.com/").with_site_data(jar),
+    )
+    app = server.mcp.http_app()
+    stop = asyncio.Event()
+    sink = []
+    task = asyncio.create_task(_listen(app, sink, stop))
+    try:
+        await _until(lambda: len(sink) == 1, "the first event")
+        before = (await _request(app, "GET", "/admin/sessions"))["sessions"][0]
+        assert before["site_data_count"] == 1
+
+        await _request(app, "DELETE", "/admin/sessions/one/site-data/app.example.com")
+        after = (await _request(app, "GET", "/admin/sessions"))["sessions"][0]
+        assert after["site_data_count"] == 0
+        assert after["site_data_rev"] != before["site_data_rev"]
+    finally:
+        await _close(stop, [task])

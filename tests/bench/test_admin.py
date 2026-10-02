@@ -100,7 +100,7 @@ def sessions_payload(tmp_path_factory):
                             "args": {"url": f"https://site{n}.example.com"}}]})
         for n in range(SCREENSHOTS):
             flow_store.write_file(key, f"shot-{n:02d}.png", bytes(1024), SCREENSHOTS_DIR)
-    return session_list.mount(
+    broadcast = session_list.mount(
         Routes(),
         SimpleNamespace(grid=Grid(live)),
         SimpleNamespace(store=store),
@@ -109,6 +109,7 @@ def sessions_payload(tmp_path_factory):
         "",
         lambda handler: handler,
     )
+    return broadcast.compute
 
 
 def test_the_fixture_is_the_size_it_claims():

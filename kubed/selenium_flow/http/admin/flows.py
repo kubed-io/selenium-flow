@@ -60,8 +60,11 @@ def _uses(document: dict) -> dict[str, list[int]]:
     return uses
 
 
-def mount(mcp, flow_store, schemas, prefix, guarded) -> None:
-    """Mount the flow catalogue, the editor's read/write/delete, and move."""
+def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
+    """Mount the flow catalogue, the editor's read/write/delete, and move.
+
+    ``changes`` marks the routes that change what the session list shows.
+    """
 
     def enabled() -> None:
         if flow_store is None:
@@ -119,6 +122,7 @@ def mount(mcp, flow_store, schemas, prefix, guarded) -> None:
         name="admin_flow",
     )
     @guarded
+    @changes
     async def admin_flow(request: Request) -> JSONResponse:
         """Read, rewrite or remove one flow.
 
@@ -169,6 +173,7 @@ def mount(mcp, flow_store, schemas, prefix, guarded) -> None:
         name="admin_move_flow",
     )
     @guarded
+    @changes
     async def admin_move_flow(request: Request) -> JSONResponse:
         """Move one flow into another library.
 

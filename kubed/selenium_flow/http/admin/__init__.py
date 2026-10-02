@@ -93,13 +93,13 @@ def register(
             return JSONResponse({"sections": []})
         return JSONResponse(settings_payload())
 
-    sessions_payload = session_list.mount(
+    broadcast = session_list.mount(
         mcp, actions, sessions, flow_store, token, prefix, guarded
     )
-    site_data.mount(mcp, sessions, catalogue, prefix, guarded)
+    site_data.mount(mcp, sessions, catalogue, prefix, guarded, broadcast.changes)
     files.mount(
         mcp, actions, sessions, flow_store, token, prefix, link_ttl,
-        sessions_payload, guarded,
+        broadcast.compute, guarded, broadcast.changes,
     )
-    flows.mount(mcp, flow_store, schemas, prefix, guarded)
+    flows.mount(mcp, flow_store, schemas, prefix, guarded, broadcast.changes)
     signed.mount(mcp, actions, flow_store, token, prefix)

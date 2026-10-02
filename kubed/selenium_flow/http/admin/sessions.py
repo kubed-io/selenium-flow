@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import time
+from functools import wraps
 
 import anyio
 from sse_starlette import EventSourceResponse
@@ -206,7 +207,8 @@ class Broadcast:
     """
 
     def __init__(self, compute):
-        self._compute = compute
+        # `sessions_payload`, for a caller that wants the list computed now.
+        self.compute = compute
         self._pages: set[_Page] = set()
         self._task: asyncio.Task | None = None
         self._nudge = anyio.Event()
@@ -231,6 +233,21 @@ class Broadcast:
         just changed what it would say."""
         self._latest = None
         self._floor = time.monotonic()
+
+    def changes(self, handler):
+        """For a route that changes what the list shows — End, Forget, Clear,
+        keep, delete: once it has run, however it ended, the listing after it
+        is computed rather than a tick old. A GET through it changes nothing."""
+
+        @wraps(handler)
+        async def wrapper(request: Request):
+            try:
+                return await handler(request)
+            finally:
+                if request.method != "GET":
+                    self.invalidate()
+
+        return wrapper
 
     def join(self, page: _Page) -> None:
         self._pages.add(page)
@@ -257,7 +274,7 @@ class Broadcast:
         while True:
             started = time.monotonic()
             try:
-                payload = await run_in_threadpool(self._compute)
+                payload = await run_in_threadpool(self.compute)
                 text = json.dumps(payload, sort_keys=True)
             except Exception as exc:  # noqa: BLE001 - the Grid can blip
                 # Every page keeps what it has, exactly as a failed poll of its
@@ -279,12 +296,37 @@ class Broadcast:
             self._task = None
 
 
+class _Stream(EventSourceResponse):
+    """The event stream, joined to the broadcast for exactly as long as the
+    response runs.
+
+    Around the ASGI call rather than inside the generator: a client that goes
+    away mid-send cancels the send and leaves the generator paused at its
+    `yield`, which nothing closes until the garbage collector gets to it — and
+    until then the page stayed joined and the Grid was polled for nobody. The
+    call returns however the response ends, so leaving here is immediate.
+    """
+
+    def __init__(self, broadcast: Broadcast, page: _Page, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._broadcast = broadcast
+        self._page = page
+
+    async def __call__(self, scope, receive, send) -> None:
+        self._broadcast.join(self._page)
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self._broadcast.leave(self._page)
+
+
 def mount(
     mcp, actions, sessions, flow_store, token, prefix, guarded
 ):
     """Mount the session list, its event stream and the end-a-browser route.
 
-    Returns ``sessions_payload``, which the files tab reads its header from.
+    Returns the :class:`Broadcast`: the files tab reads its header from its
+    ``compute``, and every route that changes the list wears its ``changes``.
     """
 
     # Whether the last read of the store failed, so an outage warns once rather
@@ -516,19 +558,12 @@ def mount(
         page = _Page()
 
         async def stream():
-            # Joined here rather than above, so joining and leaving are the two
-            # ends of one generator: a response that never starts it never
-            # joined, and one that does always leaves.
-            broadcast.join(page)
             last = None
-            try:
-                while not page.is_set():
-                    payload = await page.next()
-                    if payload is not None and payload != last:
-                        last = payload
-                        yield {"data": payload}
-            finally:
-                broadcast.leave(page)
+            while not page.is_set():
+                payload = await page.next()
+                if payload is not None and payload != last:
+                    last = payload
+                    yield {"data": payload}
 
         # sse-starlette rather than a StreamingResponse, for shutdown: uvicorn
         # waits for open connections before it runs the lifespan, so a stream
@@ -538,7 +573,9 @@ def mount(
         # so the response finishes the way any other does (§F4.19). The grace
         # is under FastMCP's 2s. It also sends the heartbeat comment, which
         # keeps proxies from closing an idle stream, and `X-Accel-Buffering: no`.
-        return EventSourceResponse(
+        return _Stream(
+            broadcast,
+            page,
             stream(),
             ping=HEARTBEAT,
             headers={"Cache-Control": "no-cache, no-transform"},
@@ -552,6 +589,7 @@ def mount(
         name="admin_end_session",
     )
     @guarded
+    @broadcast.changes
     async def admin_end_session(request: Request) -> JSONResponse:
         """End the browser a flow session holds, keeping the session itself.
 
@@ -576,9 +614,6 @@ def mount(
         # key. Blocking HTTP to the Grid, so off the event loop — a slow Grid
         # would stall every connected dashboard.
         await run_in_threadpool(sessions.end_browser, Caller(key, "admin"))
-        # So the page's reload after this sees the browser gone, not the list a
-        # tick ago still holding it.
-        broadcast.invalidate()
         return JSONResponse({"success": True, "key": key, "session_id": session_id})
 
-    return sessions_payload
+    return broadcast
