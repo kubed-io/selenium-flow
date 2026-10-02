@@ -7,6 +7,9 @@ directory of symlinks through a timestamped `..data` directory rather than the
 plain tree it looks like from outside.
 """
 
+import json
+from urllib.parse import quote_plus
+
 import pytest
 
 from kubed.selenium_flow import secrets
@@ -950,6 +953,81 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
         secret={"name": "nextcloud", "key": "password"},
     )
     assert touched == [("https://nc.example.com/home", "browser-1")]
+
+
+VALUE = "p@ss word/1"  # has a quoting form distinct from itself
+
+
+def _direct(tmp_path, monkeypatch, write):
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    from .conftest import NAMED, TOKEN, calling_as
+
+    monkeypatch.delenv("SECRETS_DIRS", raising=False)
+    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    make_secret(
+        tmp_path, "nextcloud", password=VALUE,
+        **{ALLOWED_URLS: "https://nc.example.com"},
+    )
+    server = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"},
+        auth={"token": TOKEN},
+        secrets={"dirs": str(tmp_path)},
+    ))
+    calling_as(monkeypatch, NAMED)
+    monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(
+        server.actions, "page",
+        lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
+    )
+    monkeypatch.setattr(server.actions, "write", write)
+    touched = []
+    monkeypatch.setattr(
+        server.sessions, "touch",
+        lambda name, url, browser=None: touched.append((url, browser)),
+    )
+    return server, touched
+
+
+async def test_a_direct_bound_write_scrubs_every_spelling_it_comes_back_in(
+    tmp_path, monkeypatch
+):
+    """The result scrub of the third surface, with a value that is not the
+    marker: a page that echoes what was typed, in its title and encoded in
+    its URL, hands back neither."""
+    def write(sid, text, **kw):
+        return {
+            "value": None,
+            "url": f"https://nc.example.com/?q={quote_plus(text)}",
+            "title": f"Welcome back, {text}",
+        }
+
+    server, touched = _direct(tmp_path, monkeypatch, write)
+    tool = await server.mcp.get_tool("write")
+    result = tool.fn(
+        selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"}
+    )
+    shown = json.dumps(result)
+    assert VALUE not in shown and quote_plus(VALUE) not in shown, shown
+    assert result["title"] == "Welcome back, <hidden>"
+    assert result["url"] == "https://nc.example.com/?q=<hidden>"
+    assert touched == [(None, "browser-1")]
+
+
+async def test_a_direct_bound_writes_failure_never_quotes_the_value(
+    tmp_path, monkeypatch
+):
+    def write(sid, text, **kw):
+        raise ValueError(f"could not type {text!r} into #p")
+
+    server, _ = _direct(tmp_path, monkeypatch, write)
+    tool = await server.mcp.get_tool("write")
+    with pytest.raises(ValueError) as caught:
+        tool.fn(
+            selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"}
+        )
+    assert VALUE not in str(caught.value)
+    assert caught.value.__suppress_context__, "the raw error must not ride along"
 
 
 async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
