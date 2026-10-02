@@ -526,3 +526,101 @@ def test_the_event_stream_signature_is_bound_to_its_own_path(client):
     query = url.split("?", 1)[1]
     assert client.get(f"/files/abc/shot.png?{query}").status_code == 403
 
+
+
+# --- what every connected page is sent (G2) --------------------------------
+
+
+async def _listen(app, sink, stop):
+    """One `/admin/events` client, speaking raw ASGI.
+
+    Not a TestClient: its portal buffers a response until the app finishes, and
+    this one never does. ``sink`` collects each event's data as it is sent;
+    setting ``stop`` is the browser closing the tab.
+    """
+
+    async def receive():
+        await stop.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        if message["type"] == "http.response.body":
+            for line in message.get("body", b"").decode().splitlines():
+                if line.startswith("data: "):
+                    sink.append(line[len("data: "):])
+
+    await app(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/admin/events",
+            "raw_path": b"/admin/events",
+            "root_path": "",
+            "query_string": b"",
+            "headers": [(b"authorization", f"Bearer {TOKEN}".encode())],
+            "client": ("127.0.0.1", 1),
+            "server": ("test", 80),
+        },
+        receive,
+        send,
+    )
+
+
+async def _until(condition, what, seconds=5.0):
+    import asyncio
+
+    deadline = time.monotonic() + seconds
+    while not condition():
+        assert time.monotonic() < deadline, f"timed out waiting for {what}"
+        await asyncio.sleep(0.01)
+
+
+async def test_every_connected_page_is_sent_the_same_events(server, monkeypatch):
+    """Today each connection polls on its own, so three open pages ask the Grid
+    three times a tick. The number below is that fact, not a goal: Task 18 puts
+    one broadcaster behind them and edits it. What must survive is the rest — one
+    payload when something changed, none when nothing did, and a late joiner's
+    first event is the state as it is now."""
+    import asyncio
+
+    from kubed.selenium_flow.http import admin
+
+    monkeypatch.setattr(admin, "POLL_SECONDS", 0.2)
+    status_calls = []
+
+    def status():
+        status_calls.append(time.monotonic())
+        return {"value": {"nodes": []}}
+
+    monkeypatch.setattr(server.actions.grid, "status", status)
+    server.sessions.store.set("one", SessionRecord(session_id=""))
+
+    app = server.mcp.http_app()
+    stop = asyncio.Event()
+    sinks = [[], [], []]
+    tasks = [asyncio.create_task(_listen(app, sink, stop)) for sink in sinks]
+    try:
+        await _until(lambda: all(len(s) == 1 for s in sinks), "the first events")
+        assert len(status_calls) == 3, "one Grid listing per connection, per tick"
+        assert sinks[0] == sinks[1] == sinks[2]
+
+        server.sessions.store.set("two", SessionRecord(session_id=""))
+        await _until(lambda: all(len(s) == 2 for s in sinks), "the change")
+        assert len(status_calls) == 6, "three connections, two ticks"
+        assert sinks[0] == sinks[1] == sinks[2]
+        assert sinks[0][0] != sinks[0][1]
+        assert [r["key"] for r in json.loads(sinks[0][1])["sessions"]] != []
+        # An unchanged tick sends nothing: a page is not re-sent what it has.
+        await asyncio.sleep(0.5)
+        assert all(len(s) == 2 for s in sinks), "a tick that found no change spoke"
+
+        late = []
+        tasks.append(asyncio.create_task(_listen(app, late, stop)))
+        await _until(lambda: len(late) == 1, "the late joiner's first event")
+        assert late[0] == sinks[0][1], "its first event is the state now"
+    finally:
+        stop.set()
+        await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), 5)

@@ -1210,3 +1210,204 @@ def test_a_failed_quit_never_logs_the_grids_credentials(caplog):
         sessions.end_browser(NAMED)
     assert "could not end browser" in caplog.text
     assert "hunter2" not in caplog.text
+
+
+# ---- how a request names itself, edge by edge (N8-N12) ----------------------
+
+
+def request_with(query: str = "", headers: dict | None = None):
+    """A real Starlette request, because the HTTP routes resolve a name from one
+    and the rule must read the same off it as off the ambient request."""
+    from starlette.requests import Request
+
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/browser",
+            "query_string": query.encode(),
+            "headers": [(k.encode(), v.encode()) for k, v in (headers or {}).items()],
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "query",
+    ["session=%20desk%20", "session=desk", "session=%09desk%0A"],
+    ids=["spaces", "plain", "tab and newline"],
+)
+def test_surrounding_whitespace_is_not_part_of_a_name(query):
+    assert sessions_module.name_from(request_with(query)) == "desk"
+
+
+def test_a_blank_name_is_no_name_at_all():
+    """Blank after stripping counts as absent: there is nothing to refuse for
+    being malformed, so the caller is told to name itself."""
+    with pytest.raises(ValueError, match="name your session"):
+        sessions_module.name_from(request_with("session=%20%20"))
+    assert sessions_module.library_from(request_with("session=%20%20")) == "global"
+
+
+def test_a_blank_header_does_not_make_two_names_of_a_query():
+    request = request_with("session=desk", {"X-Session-Key": "   "})
+    assert sessions_module.name_from(request) == "desk"
+
+
+def test_the_header_name_is_matched_whatever_its_case():
+    for header in ("X-Session-Key", "x-session-key", "X-SESSION-KEY"):
+        assert sessions_module.name_from(request_with(headers={header: "desk"})) == "desk"
+
+
+def test_a_name_keeps_its_case_so_two_cases_are_two_sessions():
+    assert sessions_module.name_from(request_with("session=Desk")) == "Desk"
+    assert sessions_module.name_from(request_with("session=desk")) == "desk"
+
+
+def test_a_header_and_a_query_are_two_names_even_over_http_requests():
+    request = request_with("session=a", {"x-session-key": "b"})
+    with pytest.raises(ValueError, match="name your session once"):
+        sessions_module.name_from(request)
+    with pytest.raises(ValueError, match="name your session once"):
+        sessions_module.library_from(request)
+
+
+def test_library_from_a_request_is_the_callers_or_the_shared_one():
+    assert sessions_module.library_from(request_with("session=desk")) == "desk"
+    assert sessions_module.library_from(request_with()) == "global"
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="N8: `dict(request.query_params)` keeps the LAST of a repeated key, "
+    "so ?session=a&session=b is quietly the session `b`. Task 7 refuses it, "
+    "and the sentence below is the one it says.",
+)
+def test_a_query_that_names_two_sessions_is_refused():
+    try:
+        named = sessions_module.name_from(request_with("session=a&session=b"))
+    except ValueError as exc:
+        assert str(exc) == "the request names two sessions: a, b"
+        return
+    raise AssertionError(f"resolved to {named!r} without a word")
+
+
+def test_off_the_request_object_the_headers_still_name_a_caller(monkeypatch):
+    """N12: when the request object is out of reach, FastMCP's header helper is
+    the fallback — lowercased, with no query parameters to offer."""
+    import fastmcp.server.dependencies as dependencies
+
+    def no_request():
+        raise RuntimeError("no active HTTP request")
+
+    monkeypatch.setattr(dependencies, "get_http_request", no_request)
+    monkeypatch.setattr(
+        dependencies, "get_http_headers", lambda: {"X-Session-Key": " desk "}
+    )
+    assert sessions_module.http_request() == ({}, {"x-session-key": " desk "})
+    assert requested() == sessions_module.Caller("desk", "header")
+
+    monkeypatch.setattr(dependencies, "get_http_headers", dict)
+    assert sessions_module.http_request() is None, "no headers is not HTTP at all"
+
+
+# ---- how each surface says who named the session (M36) ----------------------
+
+
+def test_describe_says_header_when_the_header_named_it(monkeypatch):
+    monkeypatch.setattr(
+        sessions_module, "http_request", lambda: http(headers={"x-session-key": "desk"})
+    )
+    assert manager().describe()["named_by"] == "header"
+
+
+def test_describe_says_request_when_a_route_names_it():
+    """The HTTP routes read the name off their own request and hand it in, so
+    this surface reports `request` where MCP reports `query` or `header` — a
+    divergence between the two that Task 7 settles."""
+    status = manager().describe("desk")
+    assert status["session"] == "desk"
+    assert status["named_by"] == "request"
+
+
+# ---- the browser a session holds, without opening one (M31) -----------------
+
+
+def test_browser_is_the_grid_id_only_while_it_is_attached_and_alive():
+    actions = RecordingActions()
+    sessions = manager(actions)
+    assert sessions.browser(NAMED) == "", "no record"
+
+    sessions.store.set(NAMED, SessionRecord(session_id=""))
+    assert sessions.browser(NAMED) == "", "a record with nothing attached"
+
+    sessions.store.set(NAMED, SessionRecord(session_id="abc"))
+    assert sessions.browser(NAMED) == "", "attached, but the Grid has reaped it"
+
+    actions.grid.alive.add("abc")
+    assert sessions.browser(NAMED) == "abc"
+    assert actions.opened == 0, "asking never opens a browser"
+    assert sessions.browser(OTHER) == "", "another name is another session"
+
+
+# ---- a record that cannot be read is a miss (S5) ----------------------------
+
+
+@pytest.mark.parametrize("opened_at", ["yesterday", [1], {"a": 1}])
+def test_a_record_with_a_non_numeric_opened_at_reads_as_absent(opened_at):
+    import json
+
+    raw = json.dumps({"session_id": "abc", "opened_at": opened_at})
+    assert SessionRecord.from_json(raw) is None
+
+
+def test_a_stored_record_with_a_non_numeric_opened_at_is_no_session():
+    fake = FakeRedis()
+    store = RedisStore(fake, prefix="p:")
+    fake.set("p:desk", '{"session_id": "abc", "opened_at": "yesterday"}')
+    assert store.get("desk") is None
+    assert store.records() == {}
+
+
+# ---- two calls on one session at once (G2) ----------------------------------
+
+
+def test_two_concurrent_calls_on_one_session_both_run_and_both_are_recorded():
+    """Today nothing serialises a session's calls: both are inside their action
+    at the same moment. Pinned so the change that orders them (Task 23) is a
+    visible edit to this one test, and so that what must stay true — both
+    complete, the record is whole — is stated."""
+    import threading
+
+    actions = RecordingActions()
+    actions.grid.alive.add("abc")
+    sessions = manager(actions)
+    sessions.store.set(NAMED, SessionRecord(session_id="abc"))
+    together = threading.Barrier(2, timeout=5)
+    results, errors = [], []
+
+    def call(url):
+        def act(browser):
+            together.wait()  # BrokenBarrierError unless the other is in here too
+            return {"url": url}
+
+        try:
+            results.append(sessions.act(NAMED, act))
+        except Exception as exc:  # noqa: BLE001 - reported below, in the main thread
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=call, args=(url,))
+        for url in ("https://a.test/", "https://b.test/")
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(10)
+
+    assert errors == []
+    assert sorted(r["url"] for r in results) == ["https://a.test/", "https://b.test/"]
+    record = sessions.store.get(NAMED)
+    assert record.session_id == "abc", "the browser the record holds is unchanged"
+    assert actions.opened == 0 and actions.closed == []
+    assert record.url in {"https://a.test/", "https://b.test/"}

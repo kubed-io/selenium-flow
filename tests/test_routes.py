@@ -578,3 +578,118 @@ async def test_the_published_spec_describes_the_paths_actually_served():
     spec = await build_spec(server.mcp, ENDPOINTS, "/flow", authenticated=True)
     served = {r.path for r in server.mcp.http_app().routes if hasattr(r, "path")}
     assert set(spec["paths"]) <= served, set(spec["paths"]) - served
+
+
+# ---- every failure class, as a caller sees it --------------------------------
+#
+# `errors.status_for` is unit-tested above. What a caller receives is the status
+# line and the JSON body that `http.answer` builds from it, so each class in
+# `errors.py` is raised from inside a real request and read at the other end.
+
+
+def _grid_says(status: int):
+    response = requests.Response()
+    response.status_code = status
+    return requests.HTTPError("refused", response=response)
+
+
+def _raised(cls):
+    return cls("it said no")
+
+
+STATUS_TABLE = (
+    [(_raised(errors.AssertionFailed), 400), (_raised(errors.NotFound), 404)]
+    + [(_raised(errors.BidiUnavailable), 503)]
+    + [(_raised(cls), 400) for cls in errors.CALLER if cls is not errors.AssertionFailed]
+    + [(_raised(cls), 404) for cls in errors.GONE]
+    + [(_raised(cls), 503) for cls in errors.UNAVAILABLE if cls is not errors.BidiUnavailable]
+    + [
+        (_grid_says(404), 404),
+        (_grid_says(403), 400),
+        (_grid_says(500), 503),
+        (requests.HTTPError("no response at all"), 503),
+        (TypeError("missing 'url'"), 400),
+        (ValueError("not a thing"), 400),
+        (RuntimeError("ours"), 500),
+        (KeyError("also ours"), 500),
+    ]
+)
+
+
+@pytest.mark.parametrize(
+    "exc,expected", STATUS_TABLE, ids=[type(e).__name__ + str(s) for e, s in STATUS_TABLE]
+)
+def test_every_failure_class_is_the_status_it_means_over_http(
+    open_server, open_client, monkeypatch, exc, expected
+):
+    def fails(*_args, **_kwargs):
+        raise exc
+
+    monkeypatch.setattr(open_server.sessions, "act", fails)
+    response = open_client.post("/browser/navigate", json={"url": "https://a.test/"})
+    assert response.status_code == expected
+    assert response.json() == {"error": errors.message(exc)}
+
+
+def test_the_status_table_names_every_class_errors_py_classifies():
+    """A class added to `errors.py` without a row above is a status nobody
+    looked at."""
+    covered = {type(e) for e, _ in STATUS_TABLE}
+    classified = {
+        *errors.CALLER, *errors.GONE, *errors.UNAVAILABLE, errors.NotFound,
+        errors.AssertionFailed, errors.BidiUnavailable,
+    }
+    assert classified <= covered
+
+
+def test_a_store_that_kept_losing_to_other_writers_is_a_500(open_server, open_client, monkeypatch):
+    """S12: `StoreConflict` is a RuntimeError nothing classifies, so the caller
+    is told it is our fault and to retry — which is true. Pinned so that moving
+    the classification is a visible choice."""
+    from kubed.selenium_flow.session.store import RedisStore, SessionRecord
+
+    from .fakes import FakeRedis
+
+    fake = FakeRedis()
+    store = RedisStore(fake, prefix="p:")
+    store.set(SESSION, SessionRecord(session_id="abc"))
+    n = [0]
+
+    def always():
+        n[0] += 1
+        # Still this browser, so the detach has work to do, but never the same
+        # bytes, so the transaction never lands.
+        record = SessionRecord(session_id="abc", opened_at=float(n[0]))
+        fake.set(f"p:{SESSION}", record.to_json())
+
+    fake.interfere = always
+    monkeypatch.setattr(open_server.sessions, "store", store)
+    monkeypatch.setattr(open_server.actions, "end_browser", lambda sid: {})
+    response = open_client.delete("/browser")
+    assert response.status_code == 500
+    assert "kept changing" in response.json()["error"]
+
+
+def test_a_record_with_a_non_numeric_opened_at_is_a_session_with_no_history(
+    open_server, open_client, monkeypatch
+):
+    """S5: the whole record is a miss, so the caller is told it holds nothing —
+    a 200, not a 500 from `float()`."""
+    from kubed.selenium_flow.session.store import RedisStore
+
+    from .fakes import FakeRedis
+
+    fake = FakeRedis()
+    fake.set(f"p:{SESSION}", '{"session_id": "abc", "opened_at": "yesterday"}')
+    monkeypatch.setattr(open_server.sessions, "store", RedisStore(fake, prefix="p:"))
+    response = open_client.get("/browser")
+    assert response.status_code == 200
+    body = response.json()
+    assert (body["browser"], body["live"], body["url"]) == (None, False, None)
+
+
+def test_the_browser_resource_says_the_name_came_from_the_request(open_client):
+    """M36 over HTTP: MCP says `query` or `header`, this surface says `request`."""
+    body = open_client.get("/browser").json()
+    assert body["session"] == SESSION
+    assert body["named_by"] == "request"

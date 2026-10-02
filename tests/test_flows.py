@@ -708,3 +708,19 @@ def test_a_drag_to_where_it_already_is_is_refused_at_save():
 )
 def test_a_drag_that_says_both_ends_saves(args):
     assert _drag_problems(args) == ""
+
+
+# ---- what a save leaves on disk (S21) -----------------------------------------
+
+
+def test_a_saved_document_reads_back_byte_equal(store, tmp_path):
+    """Comments, key order and non-ASCII text are what a person wrote, and a
+    shorter rewrite leaves nothing of the longer one behind — whichever way the
+    write is done."""
+    long = "# the one that logs us in\nname: login\nnote: 'é — ünïcode'\nsteps: []\n" * 3
+    short = "# short\nsteps: []"  # and no trailing newline
+    store.write_text("bot", "login", long)
+    assert (tmp_path / "bot" / "flows" / "login.yaml").read_bytes() == long.encode()
+    store.write_text("bot", "login", short)
+    assert (tmp_path / "bot" / "flows" / "login.yaml").read_bytes() == short.encode()
+    assert store.read_text("bot", "login") == short

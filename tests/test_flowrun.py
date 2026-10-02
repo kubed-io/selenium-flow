@@ -1317,3 +1317,100 @@ def test_a_file_named_after_a_secret_is_not_reported():
     ]
     report = guarded(steps, actions=ShootsASecret())
     assert "hunter2" not in str(report)
+
+
+# ---- a document somebody wrote by hand (R9) ----------------------------------
+#
+# A flow read from disk never passed through saving. Saving refuses all of these
+# (test_flowdoc.py); the runner must not answer the same document with a crash.
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=AttributeError,
+    reason="R9: the step loop calls `.get` on whatever it was handed, so a "
+    "hand-edited document is an AttributeError, which an HTTP run answers as "
+    "a 500. Task 16 refuses it as a failed run.",
+)
+@pytest.mark.parametrize(
+    ("steps", "complaint"),
+    [
+        (["oops"], "must be an object with a tool and its params"),
+        ("navigate", "steps must be a non-empty list"),
+        ({"a": "b"}, "steps must be a non-empty list"),
+    ],
+    ids=["a step that is a string", "steps as a string", "steps as a mapping"],
+)
+def test_a_document_the_validator_would_refuse_is_a_failed_run(steps, complaint):
+    report = run(FakeActions(), {"name": "login", "steps": steps}, "b")
+    assert report["status"] == "failed"
+    assert complaint in str(report)
+
+
+# ---- the secret is lifted out before anything is substituted (X1) -----------
+
+
+class Watching(FakeActions):
+    """Records where the browser was asked about, in order with the steps."""
+
+    def __init__(self):
+        super().__init__()
+        self.order = []
+
+    def page(self, session_id):
+        self.order.append("page")
+        return {"url": "https://example.test/login", "title": "t"}
+
+    def _record(self, tool, session_id, **kwargs):
+        self.order.append(tool)
+        return super()._record(tool, session_id, **kwargs)
+
+
+class Asked(Vault):
+    """A catalogue that remembers which name it was asked for."""
+
+    def __init__(self):
+        super().__init__()
+        self.names = []
+
+    def entry(self, name):
+        self.names.append(name)
+        return super().entry(name)
+
+
+def test_a_parameter_can_never_reach_the_name_of_a_secret():
+    """The secret is popped before substitution, so a caller's parameter cannot
+    choose which secret is typed (X1)."""
+    vault = Asked()
+    document = {
+        "name": "login",
+        "parameters": {"properties": {"who": {"type": "string"}}},
+        "steps": [
+            {
+                "tool": "write",
+                "args": {
+                    "selector": {"css": "#p"},
+                    "secret": {"name": "${who}", "key": "password"},
+                },
+            }
+        ],
+    }
+    run(Watching(), document, "b", params={"who": "root-password"}, catalogue=vault)
+    assert vault.names == ["${who}"], "the reference was substituted"
+
+
+def test_the_page_is_read_only_for_a_step_that_binds_a_secret():
+    """Reading it costs a WebDriver round trip, and only a secret has a leash to
+    check against it (X1)."""
+    plain = Watching()
+    run(plain, flow(SIMPLE), "b")
+    assert "page" not in plain.order
+
+    bound = Watching()
+    steps = [
+        {"tool": "navigate", "args": {"url": "https://example.test/login"}},
+        {"tool": "write", "args": {"selector": {"css": "#p"}, "secret": SECRET_STEP}},
+    ]
+    report = run(bound, flow(steps), "b", catalogue=Vault())
+    assert report["status"] == "ok"
+    assert bound.order == ["navigate", "page", "write"], "read once, before the keystroke"
