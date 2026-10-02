@@ -110,29 +110,34 @@ SCRIPT = textwrap.dedent(
 
     sys.path.insert(0, {repo!r})
 
+    class BlockedImport(ImportError):
+        pass
+
     class _Blocked:
         \"\"\"Raises the instant anything below imports a blocked library.\"\"\"
 
         def find_spec(self, name, path=None, target=None):
             if name.split(".")[0] in {blocked!r}:
-                raise ImportError(f"{{name}} import blocked")
+                raise BlockedImport(f"{{name}} import blocked")
             return None
 
     sys.meta_path.insert(0, _Blocked())
 
-    failures = {{}}
+    blocked, broken = {{}}, {{}}
     for name in {modules!r}:
         try:
             importlib.import_module(name)
+        except BlockedImport as exc:
+            blocked[name] = str(exc)
         except ImportError as exc:
-            failures[name] = str(exc)
-    print(json.dumps(failures))
+            broken[name] = str(exc)
+    print(json.dumps({{"blocked": blocked, "broken": broken}}))
     """
 )
 
 
 def import_failures(modules, blocked) -> dict[str, str]:
-    """Module -> the forbidden import that stopped it, for each that failed."""
+    """Module -> the blocked import that stopped it, for each that was stopped."""
     script = SCRIPT.format(repo=str(REPO), modules=tuple(modules), blocked=blocked)
     # Inherit the parent's `-S`: where site-packages carries another `kubed`
     # package it would shadow this namespace and every import would 404.
@@ -141,7 +146,12 @@ def import_failures(modules, blocked) -> dict[str, str]:
         [sys.executable, *flags, "-c", script], capture_output=True, text=True
     )
     assert result.returncode == 0, result.stderr
-    return json.loads(result.stdout.strip().splitlines()[-1])
+    answer = json.loads(result.stdout.strip().splitlines()[-1])
+    # An ImportError that is not the blocker's is the test environment (a
+    # dependency missing in the subprocess), not a boundary: say so loudly rather
+    # than let it pass for a violation.
+    assert not answer["broken"], f"test environment error: {answer['broken']}"
+    return answer["blocked"]
 
 
 def describe(failures: dict[str, str]) -> str:

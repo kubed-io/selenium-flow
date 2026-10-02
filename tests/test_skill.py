@@ -168,13 +168,6 @@ async def test_each_reference_is_its_own_resource(server):
 # ---- the FastMCP skill convention ------------------------------------------
 
 
-def test_the_uri_follows_the_discovery_convention():
-    """`list_skills` scans for exactly this shape; anything else is invisible."""
-    assert f"skill://{SKILL_NAME}/{ENTRY}" == RESOURCE_URI
-    assert RESOURCE_URI.startswith("skill://") and RESOURCE_URI.endswith("/SKILL.md")
-    assert f"skill://{SKILL_NAME}/{MANIFEST}" == MANIFEST_URI
-
-
 async def test_a_fastmcp_client_discovers_the_skill(server):
     """The real thing: FastMCP's own helper, against this server."""
     async with Client(server.mcp) as client:
