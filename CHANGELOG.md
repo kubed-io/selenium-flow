@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING:** `MCP_AUTH_TOKEN` is `AUTH_TOKEN`; `DEFAULT_BROWSER`, `WINDOW_WIDTH`, `WINDOW_HEIGHT`, `PAGE_LOAD_TIMEOUT` and `SCRIPT_TIMEOUT` are `SESSION_*`; `--no-skill`/`--no-apps` are `--mcp-skill false`/`--mcp-apps false`; `SKILL_ENABLED`/`APPS_ENABLED` are `MCP_SKILL`/`MCP_APPS`.
 - **BREAKING:** upload_file no longer takes path; send content with a filename, or a kept file's URI.
 - navigate and every url refuse non-web schemes (file:, chrome:, data:, …).
+- A secret is never typed into a frame from another origin.
 
 ## [0.3.0] - 2026-09-26
 

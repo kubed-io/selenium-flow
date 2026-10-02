@@ -118,6 +118,18 @@ def check_pair(args: dict, say: Wording = AT_RUN) -> list[str]:
     return problems
 
 
+def receiving(page: dict) -> str:
+    """Where a keystroke on ``page`` lands, as the leash checks it.
+
+    The top page's url, unless the session is in a frame: then the frame's
+    origin, because that is the document receiving the value. An allowed page
+    can frame anyone, and checking the page alone typed into the frame (§F2).
+    """
+    if "frame_origin" in page:
+        return page["frame_origin"] or ""
+    return page.get("url") or ""
+
+
 def bind_into(
     kwargs: dict,
     catalogue,
@@ -127,9 +139,10 @@ def bind_into(
 ) -> tuple[dict, set]:
     """``kwargs`` with their secret typed into `text`, and which of them are guarded.
 
-    ``page`` is where the browser is, or how to ask: a callable is read only
-    once the pair has been checked, so a refused call costs no WebDriver round
-    trip. Raises `secrets.Refused`, which each surface re-raises as its own.
+    ``page`` is where the keystroke lands (`receiving`), or how to ask: a
+    callable is read only once the pair has been checked, so a refused call
+    costs no WebDriver round trip. Raises `secrets.Refused`, which each surface
+    re-raises as its own.
     """
     kwargs = dict(kwargs)
     reference = kwargs.pop(SECRET_ARG, None)

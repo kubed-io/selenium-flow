@@ -90,6 +90,10 @@ A restricted secret is typed only when the browser is on one of its
 `http://`. A refusal names the page it was on and the sites it would accept, so
 if you see one, check where the browser actually is before anything else.
 
+**Inside a frame, the frame is the page.** After `frame`, the check reads the
+frame's origin, not the page around it: an allowed site's page framing another
+site does not let the secret into that frame.
+
 ## A parameter or a secret?
 
 **A parameter is for what varies between runs. A secret is for what must not be

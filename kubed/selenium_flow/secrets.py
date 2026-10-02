@@ -740,7 +740,7 @@ def perform_write(catalogue, actions, sessions, name: str, kwargs: dict) -> dict
     given, guarded = binding.bind_into(
         kwargs,
         catalogue,
-        lambda: actions.page(resolved).get("url", ""),
+        lambda: binding.receiving(actions.page(resolved)),
         "write",
         binding.DIRECT,
     )

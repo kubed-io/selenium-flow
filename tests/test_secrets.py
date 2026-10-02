@@ -1235,3 +1235,92 @@ async def test_the_http_catalogue_is_in_the_published_contract(secret_server):
     for entry in body["secrets"]:
         undeclared = set(entry) - set(schemas["SecretEntry"]["properties"])
         assert not undeclared, undeclared
+
+
+# ---- the leash sees the frame (F2) -------------------------------------------
+
+ALLOWED = "https://nc.example.com"
+ELSEWHERE = "https://evil.test"
+
+
+@pytest.fixture
+def framed(tmp_path):
+    """A real `Actions` on a scripted browser whose top page is allowed, and a
+    write that records what reached it instead of typing."""
+    from types import SimpleNamespace
+
+    from kubed.selenium_flow.core.actions import Actions
+
+    from .fakes import ScriptedDriver
+
+    make_secret(tmp_path, "nextcloud", password="hunter2", **{ALLOWED_URLS: ALLOWED})
+    catalogue = Catalogue([FilesystemSource(tmp_path)])
+    typed = []
+
+    def build(frame_origin=None):
+        scripts = {"location.origin": frame_origin} if frame_origin else {}
+        driver = ScriptedDriver(url=f"{ALLOWED}/login", title="Log in", scripts=scripts)
+        actions = Actions(SimpleNamespace(reconnect=lambda session_id: driver))
+        actions.write = lambda session_id, text, **_: typed.append(text) or {
+            "value": None, "url": f"{ALLOWED}/login", "title": "Log in",
+        }
+        return actions
+
+    held = SimpleNamespace(resolve=lambda name: "b1", settle=lambda *a, **k: None)
+
+    def write(frame_origin=None):
+        return secrets.perform_write(
+            catalogue, build(frame_origin), held, "desktop",
+            {"selector": {"css": "#p"}, "secret": {"name": "nextcloud", "key": "password"}},
+        )
+
+    return write, typed
+
+
+def test_a_secret_is_never_typed_into_a_frame_from_another_origin(framed):
+    """The top page is allowed; the field is in a frame the session switched
+    into, and the frame is someone else's. The keystroke lands in the frame, so
+    the frame's origin is what the leash checks."""
+    write, typed = framed
+    with pytest.raises(secrets.Refused) as refused:
+        write(frame_origin=ELSEWHERE)
+    assert f"may not be used on {ELSEWHERE}" in str(refused.value)
+    assert typed == []
+
+
+def test_a_frame_of_an_allowed_origin_takes_the_secret(framed):
+    write, typed = framed
+    write(frame_origin=ALLOWED)
+    assert typed == ["hunter2"]
+
+
+def test_the_top_page_is_checked_when_no_frame_is_selected(framed):
+    write, typed = framed
+    write()
+    assert typed == ["hunter2"]
+
+
+def test_a_flow_step_is_held_to_the_frames_origin_too(tmp_path):
+    """The other place a secret is bound reads the page the same way."""
+    from kubed.selenium_flow.flows.run import run
+
+    from .fakes import FakeActions
+
+    make_secret(tmp_path, "nextcloud", password="hunter2", **{ALLOWED_URLS: ALLOWED})
+
+    class InAFrame(FakeActions):
+        def page(self, session_id):
+            return {"url": f"{ALLOWED}/login", "title": "Log in",
+                    "frame_origin": ELSEWHERE}
+
+    actions = InAFrame()
+    step = {"tool": "write", "args": {
+        "selector": {"css": "#p"}, "secret": {"name": "nextcloud", "key": "password"},
+    }}
+    report = run(
+        actions, {"name": "login", "steps": [step]}, "b",
+        catalogue=Catalogue([FilesystemSource(tmp_path)]),
+    )
+    assert report["status"] == "failed"
+    assert f"may not be used on {ELSEWHERE}" in report["steps"][0]["error"]
+    assert actions.calls == []

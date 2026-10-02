@@ -1117,8 +1117,16 @@ class Actions:
         this for a caller. It exists because a secret's leash is checked against
         the page about to receive the keystroke, and that check has to read the
         page rather than trust what the caller said about it.
+
+        In a frame, the keystroke reaches the frame, so its origin is reported
+        as ``frame_origin`` beside the top page's url (§F2).
         """
-        return browser.page_state(self.grid.reconnect(session_id))
+        driver = self.grid.reconnect(session_id)
+        state = browser.page_state(driver)
+        framed = browser.frame_origin(driver)
+        if framed is not None:
+            state["frame_origin"] = framed
+        return state
 
     def _recipe(self, wait=None, retry_stale=False) -> Recipe:
         """The road for an action that takes ``url``: through `_at`.

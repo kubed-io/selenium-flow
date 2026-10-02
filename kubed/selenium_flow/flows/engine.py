@@ -559,7 +559,7 @@ def _take(run: Run, call: _Call, number: int, step: dict) -> bool:
             step,
             call.params,
             call.catalogue,
-            lambda: page_state(call.actions, call.session_id).get("url", ""),
+            lambda: binding.receiving(page_state(call.actions, call.session_id)),
         )
     except FlowError as exc:
         return run.stops(outcome, str(exc))

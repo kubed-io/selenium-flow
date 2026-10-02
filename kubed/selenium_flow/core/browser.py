@@ -656,6 +656,27 @@ def in_frame(driver) -> bool:
         return False
 
 
+def frame_origin(driver) -> str | None:
+    """The selected frame's origin, or None when the session is on the top page.
+
+    A script runs in the selected frame, so ``document.location.origin`` is the
+    frame's own: the origin a keystroke into it reaches. ``page_state`` cannot
+    say this, because WebDriver's url is always the top page's. A frame with no
+    origin of its own (sandboxed, or ``data:``) answers ``"null"``.
+
+    Unlike `in_frame`, a failure is not "no frame": this feeds a secret's leash,
+    and an answer of None there would check the top page instead. Not knowing is
+    reported as an origin that matches nothing.
+    """
+    try:
+        found = driver.execute_script(
+            "return window.self !== window.top ? document.location.origin : null"
+        )
+    except Exception:  # noqa: BLE001 - not knowing is an answer the leash refuses
+        return ""
+    return None if found is None else str(found)
+
+
 def page_state(driver) -> dict:
     """Where the browser ended up, tolerating an open dialog.
 
