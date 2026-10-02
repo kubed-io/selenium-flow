@@ -51,6 +51,8 @@ from __future__ import annotations
 import json
 import logging
 
+from .. import binding
+from ..binding import SECRET_ARG
 from .template import PARAM_REFERENCE, listed, references
 
 log = logging.getLogger(__name__)
@@ -139,12 +141,6 @@ NOT_STEPS = {
 # The runner supplies this. A step naming it would be addressing someone else's
 # browser, which is the one thing a caller must never be able to do.
 RESERVED_PARAMS = {"session_id"}
-
-# The argument through which a secret reaches the page. Not a table of tools:
-# `write` is the only action with a `secret` parameter, so the tool schemas
-# refuse it everywhere else without this module holding a second list that
-# could disagree with them (§F1.38).
-SECRET_ARG = "secret"
 
 # `write` accepts its value as `text` or as a `secret`, so the tool schema
 # marks neither required and this says what it actually needs. A secret
@@ -386,7 +382,7 @@ def argument_problems(tool: str, arguments: dict, schema: dict) -> list[str]:
     # What a secret supplies, exactly as for a step: a call carrying one has
     # its text, and saying "needs text" beside another mistake sent the caller
     # to fix the one thing that was right (#38).
-    bound = {"text"} if arguments.get(SECRET_ARG) is not None else set()
+    bound = {binding.SUPPLIES} if binding.binds(arguments) else set()
     return [
         problem.removeprefix(": ")
         for problem in _check_params(
@@ -470,12 +466,8 @@ def _check_params(
             )
 
     # `bound` is what a secret supplies: `write.text`, and nothing else has one.
-    for name in bound:
-        if name in params:
-            problems.append(
-                f"{where}: {name} is given literally and by a secret — one "
-                "value, one place. Give the text or the secret, not both"
-            )
+    if bound and binding.gives_twice(params, as_written=True):
+        problems.append(f"{where}: {binding.AT_SAVE.twice}")
 
     # Arguments a tool needs but its JSON schema cannot demand, because they
     # may arrive by more than one route. `write` takes `text` OR a binding, so
@@ -621,19 +613,15 @@ def _check_step(index: int, step, declared: set[str], schemas: dict) -> list[str
 
     secret = args.get(SECRET_ARG)
     bound = set()
-    if secret is not None:
-        bound = {"text"}
+    if binding.binds(args):
+        bound = {binding.SUPPLIES}
         problems += _check_secret(where, secret)
-        if args.get("url"):
-            # The leash is checked against the page the browser is on. A step
-            # that navigates first would be checked against the page it is
-            # leaving, and a redirect would defeat even that. Navigate as its
-            # own step.
-            problems.append(
-                f"{where}: a step that types a secret may not also navigate — "
-                "put the url in its own navigate step, so the secret's allowed "
-                "sites are checked against the page that receives it"
-            )
+        # The pair is `binding`'s rule. Its two halves are placed apart here
+        # only so the problems keep the order a saved flow has always listed
+        # them in: the url beside the reference, the text beside the other
+        # arguments (`_check_params`).
+        if binding.navigates(args):
+            problems.append(f"{where}: {binding.AT_SAVE.navigates}")
         # A secret is the one value that may not be assembled from text, so it
         # is the one argument a reference may not reach. Nothing about `${}`
         # resolution would leak here — the reference names a *parameter* — but

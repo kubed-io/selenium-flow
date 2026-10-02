@@ -16,8 +16,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from ..binding import after
 from .document import ASSERTION
-from .redact import redacted_fields, scrub_values
 
 # Where to read about a failure, and which prompt repairs it. The reference is
 # for the agent, which reads resources when it decides to; the prompt is for a
@@ -161,7 +161,4 @@ def clean(result, guarded: set, hidden=()) -> dict:
     if not isinstance(result, dict):
         result = {"result": result}
     cleaned = {k: v for k, v in result.items() if k not in HEAVY_FIELDS}
-    for field in redacted_fields(guarded):
-        if field in cleaned:
-            cleaned[field] = None
-    return scrub_values(cleaned, hidden) if hidden else cleaned
+    return after(cleaned, guarded, hidden)

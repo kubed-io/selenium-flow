@@ -36,10 +36,11 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from .. import secrets
+from .. import binding, secrets
+from ..binding import SECRET_ARG
 from ..core import cancel
-from .document import ARGS, ASSERTION, SECRET_ARG, declared_timeout
-from .redact import hidden_forms, scrub, scrub_values, taints
+from .document import ARGS, ASSERTION, declared_timeout
+from .redact import scrub, scrub_values, taints
 from .report import OUT_OF_TIME, clean, refused, summarise, with_hint
 from .template import (
     FlowError,
@@ -55,9 +56,6 @@ log = logging.getLogger("kubed.selenium_flow.flows.run")
 
 # The step that reads every site in the session's history (`before_save`).
 SAVE_SITE_DATA = "save_site_data"
-
-# Actions that can be told not to read their value back off the page.
-READ_BACK_OFF = {"write"}
 
 
 @dataclass(frozen=True)
@@ -297,7 +295,7 @@ def resolve_step(
     step: dict,
     params: dict,
     catalogue=None,
-    page: str = "",
+    page: str | Callable[[], str] = "",
 ) -> tuple[dict, set]:
     """A step's keyword arguments, and **which of them** must not be echoed.
 
@@ -316,44 +314,27 @@ def resolve_step(
     off argument names, and a second guarded argument should not require
     rewriting it.
     """
-    kwargs = dict(step.get(ARGS) or {})
-    guarded: set[str] = set()
+    args = dict(step.get(ARGS) or {})
     # Substituted first, and the secret lifted out before it — so a parameter
     # can never reach the secret's name or key. Saving refuses that too; this
     # is the same rule applied to a document that may never have been saved.
-    reference = kwargs.pop(SECRET_ARG, None)
-    kwargs = substitute(kwargs, params)
+    reference = args.pop(SECRET_ARG, None)
+    kwargs = substitute(args, params)
     if reference is None:
-        return kwargs, guarded
+        return kwargs, set()
 
     tool = step.get("tool", "")
     label = step.get("id") or tool
-    # Saving refuses this, and saving is not the only way a document gets here:
-    # the store reads YAML somebody may have written by hand. Without the check
-    # the literal was silently discarded and the credential typed in its place
-    # — a step saying two things quietly becoming a step saying one, which is
-    # the shape every other surface refuses by name.
-    if kwargs.get("text") is not None:
-        raise FlowError(
-            f"step {label}: text is given literally and by a secret — one "
-            "value, one place"
-        )
-    if kwargs.get("url"):
-        raise FlowError(
-            f"step {label}: a step that types a secret may not also navigate — "
-            "the secret's allowed sites are checked against the page the "
-            "browser is on, and this would type it on a page that was never "
-            "checked"
-        )
-    # The one place a run reads a credential. `page` is where the browser
-    # actually is, so the secret's leash is checked against the page about to
-    # receive the keystroke rather than wherever the flow started.
+    # Saving refuses a literal or a url beside the secret, and saving is not
+    # the only way a document gets here: the store reads YAML somebody may have
+    # written by hand. `page` is where the browser actually is, so the leash is
+    # checked against the page about to receive the keystroke.
     try:
-        kwargs["text"] = secrets.bind(catalogue, reference, page, tool=tool)
+        return binding.bind_into(
+            {**kwargs, SECRET_ARG: reference}, catalogue, page, tool, binding.AT_RUN
+        )
     except secrets.Refused as exc:
         raise FlowError(f"step {label}: {exc}") from exc
-    guarded.add("text")
-    return kwargs, guarded
 
 
 def page_state(actions, session_id: str) -> dict:
@@ -561,12 +542,14 @@ def _take(run: Run, call: _Call, number: int, step: dict) -> bool:
         return run.stops(outcome, f"there is no action called {tool!r}")
 
     try:
-        # Only read the page when a step actually binds a secret: it costs a
+        # The page is read only when a step actually binds a secret: it costs a
         # WebDriver round trip, and every other step has no leash to check.
-        page = ""
-        if (step.get(ARGS) or {}).get(SECRET_ARG) is not None:
-            page = page_state(call.actions, call.session_id).get("url", "")
-        kwargs, guarded = resolve_step(step, call.params, call.catalogue, page)
+        kwargs, guarded = resolve_step(
+            step,
+            call.params,
+            call.catalogue,
+            lambda: page_state(call.actions, call.session_id).get("url", ""),
+        )
     except FlowError as exc:
         return run.stops(outcome, str(exc))
 
@@ -585,14 +568,8 @@ def _take(run: Run, call: _Call, number: int, step: dict) -> bool:
         kwargs[holder] = call.library
 
     outcome.summary = summarise(tool, kwargs, guarded)
-    run.seen |= hidden_forms(kwargs.get(name) for name in guarded)
+    run.seen |= binding.forms_of(kwargs, guarded)
     try:
-        if guarded and tool in READ_BACK_OFF:
-            # The read must not HAPPEN for a bound value, not merely be
-            # redacted afterwards. The direct tool and the HTTP endpoint
-            # both did this; the flow path — the main one — did not, and
-            # the end-to-end test missed it because its action is a double.
-            kwargs = {**kwargs, "read_back": False}
         call.hooks.before_step(outcome.entry(), run.total)
         if tool == SAVE_SITE_DATA:
             call.hooks.before_save(list(run.pages))

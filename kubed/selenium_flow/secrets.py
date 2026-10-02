@@ -733,39 +733,33 @@ def perform_write(catalogue, actions, sessions, name: str, kwargs: dict) -> dict
     It settles like any other action, through ``sessions.settle``, with the page
     withheld when the value reached it.
     """
+    from . import binding
     from .flows import redact
 
     resolved = sessions.resolve(name)
-    given, _guarded = prepare_write(catalogue, actions, resolved, kwargs)
-    hidden = redact.hidden_forms([given["text"]])
+    given, guarded = binding.bind_into(
+        kwargs,
+        catalogue,
+        lambda: actions.page(resolved).get("url", ""),
+        "write",
+        binding.DIRECT,
+    )
+    hidden = binding.forms_of(given, guarded)
     rest = {k: v for k, v in given.items() if k not in ("text", "url")}
     try:
-        result = actions.write(
-            resolved,
-            given["text"],
-            # Not read back at all, rather than read and then hidden.
-            read_back=False,
-            **rest,
-        )
+        result = actions.write(resolved, given["text"], **rest)
     except Exception as exc:  # noqa: BLE001 - rewrapped, never swallowed
         # An action puts its arguments in its error text.
         raise ValueError(redact.scrub(str(exc), hidden)) from None
-    shown = redact.scrub_values({**result, "text_from": "secret"}, hidden)
-    # Only remember a page the value never reached. A submitting write can land
-    # on `?q=<what was typed>`; storing the scrubbed form would persist a URL
-    # that does not exist, and a later reattach would navigate to it.
-    #
-    # Asked of the URL rather than by comparing it with its scrubbed form: a
-    # secret whose value is the marker scrubs to itself, so equality would have
-    # called the credential URL safe and stored it.
-    #
-    # Touched either way. Withholding the page must not also stop the clock:
-    # `touch` slides the TTL, and skipping it entirely let a session expire
-    # *because* its URL was correctly kept out of the store.
+    shown = binding.after({**result, "text_from": "secret"}, guarded, hidden)
+    # Only remember a page the value never reached; a later reattach would
+    # navigate to it. Touched either way. Withholding the page must not also
+    # stop the clock: `touch` slides the TTL, and skipping it entirely let a
+    # session expire *because* its URL was correctly kept out of the store.
     #
     # The first call after a silent reopen says what came back: `settle` puts
     # that on `shown`.
-    safe = None if redact.taints(result.get("url"), hidden) else shown.get("url")
+    safe = binding.safe_url(result, hidden)
     sessions.settle(name, shown, url=safe, browser=resolved)
     return shown
 
@@ -785,36 +779,3 @@ def matching_secrets(secrets: list[dict] | None, host: str) -> list[dict]:
         if not s.get("allowed_urls_rejected")
         and any(host_of(u) == host for u in s.get("allowed_urls") or [])
     ]
-
-
-def prepare_write(
-    catalogue, actions, session_id: str, kwargs: dict
-) -> tuple[dict, set]:
-    """Turn a `secret` on a write into the text it stands for.
-
-    Shared by the MCP tool and the HTTP endpoint, because the alternative is two
-    implementations of a security check and one of them being the older.
-
-    Refuses `url` alongside it, for the reason the flow validator refuses the
-    same pair: `actions.write` navigates *before* it types, so a leash checked
-    beforehand would be checked against the page being left — and a redirect
-    would defeat even checking the URL that was asked for. Navigation is its own
-    call.
-    """
-    kwargs = dict(kwargs)
-    reference = kwargs.pop("secret", None)
-    if reference is None:
-        return kwargs, set()
-    if hasattr(reference, "model_dump"):
-        reference = reference.model_dump(exclude_none=True)
-    if kwargs.get("text") is not None:
-        raise Refused("pass text or secret, not both")
-    if kwargs.get("url"):
-        raise Refused(
-            "a write that takes its value from a secret may not also navigate: "
-            "go to the page first, so the secret's allowed sites are checked "
-            "against the page that receives it"
-        )
-    here = actions.page(session_id).get("url", "")
-    kwargs["text"] = bind(catalogue, reference, here, tool="write")
-    return kwargs, {"text"}
