@@ -164,6 +164,21 @@ test('a pushed save loads the history once too: its saved pills are snapshot dat
   expect([loads('site-data'), loads('history')]).toEqual([2, 2])
 })
 
+test('a pushed navigation reloads Site data too: its rows are in history order', async () => {
+  const { calls } = fakeFetch({
+    'GET /admin/sessions/k/site-data': { body: { sites: [], details: {} } },
+    'GET /admin/sessions/k/history': { body: { key: 'k', sites: [] } },
+    'GET /admin/sessions/k/files': { body: files() },
+    'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [], rev: 1 } },
+  })
+  const m = new SessionModel('k', api)
+  const loads = (tab: string) => calls.filter((c) => c.path === '/admin/sessions/k/' + tab).length
+  const push = (history_rev: string) => m.onPushed({ sessions: [{ key: 'k', live: true, session_id: 'b1', files_rev: 1, flows_rev: 1, history_rev, site_data_rev: 's1' }] }, () => null, () => {}, () => {})
+  push('h1')
+  push('h2')                                       // another site on top: no save, no Forget
+  expect([loads('site-data'), loads('history')]).toEqual([2, 2])
+})
+
 test('both revs moving in one push is still one history load', async () => {
   const { calls } = fakeFetch({
     'GET /admin/sessions/k/site-data': { body: { sites: [], details: {} } },

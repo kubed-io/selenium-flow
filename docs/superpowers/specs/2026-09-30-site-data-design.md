@@ -414,6 +414,11 @@ Chromium-only call can be added later without undoing anything.
   changed" rule, in `run.py` and `run_for` alike, so the save flush stays
   aligned (Copilot, #51).
 
+- History's secrets are joined per request, but its revision carries no
+  catalogue state: a secret added, removed or re-leashed while the tab is
+  open shows on the next navigation or reload. Next: a catalogue revision in
+  the session row (Copilot, #51).
+
 ## Rulings
 
 Round 1:

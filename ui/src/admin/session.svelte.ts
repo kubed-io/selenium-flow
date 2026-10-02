@@ -209,10 +209,12 @@ export class SessionModel {
     const historyMoved = (row.history_rev ?? null) !== this.#shownHistory
     this.#shownSiteData = row.site_data_rev ?? null
     this.#shownHistory = row.history_rev ?? null
-    if (siteMoved) void this.loadSiteData()
-    // History's saved pills are site data: a save, a Forget or a Clear moves
-    // them without moving the origins or the top URL.
-    if (siteMoved || historyMoved) void this.loadHistory()
+    // Each tab shows some of the other: History's saved pills are site data,
+    // and Site data's rows are in history order (Copilot, #51).
+    if (siteMoved || historyMoved) {
+      void this.loadSiteData()
+      void this.loadHistory()
+    }
     this.filesBlanked = false
   }
 
