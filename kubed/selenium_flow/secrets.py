@@ -563,7 +563,7 @@ def register(mcp, catalogue, token: str | None, prefix: str = "") -> None:
     """Serve the catalogue as a resource and one endpoint."""
     from starlette.responses import JSONResponse
 
-    from . import errors
+    from . import errors, faults
     from .http import auth
     from .mcp import clients
     from .session.sessions import Caller, values_of
@@ -590,7 +590,7 @@ def register(mcp, catalogue, token: str | None, prefix: str = "") -> None:
             return JSONResponse(listing(Caller.from_request(*values_of(request))))
         except Exception as exc:  # noqa: BLE001 - errors.py decides what it means
             return JSONResponse(
-                {"error": errors.message(exc)}, status_code=errors.status_for(exc)
+                {"error": faults.message(exc)}, status_code=errors.status_for(exc)
             )
 
 

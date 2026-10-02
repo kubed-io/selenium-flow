@@ -20,7 +20,7 @@ import pytest
 import requests
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow import errors
+from kubed.selenium_flow import errors, faults
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core import browser
 from kubed.selenium_flow.flows import store as flows
@@ -439,7 +439,7 @@ def test_a_grid_refusal_does_not_echo_the_grid_url():
     exc = requests.HTTPError(
         f"404 Client Error: Not Found for url: {response.url}", response=response
     )
-    text = errors.message(exc)
+    text = faults.message(exc)
     assert "hunter2" not in text and "grid.internal" not in text
     assert "404" in text, "the useful half survived"
 
@@ -597,7 +597,7 @@ def test_a_grid_refusal_over_the_admin_surface_does_not_echo_the_grid_url(
     client, live
 ):
     """The same leak `test_a_grid_refusal_does_not_echo_the_grid_url` proves for
-    `errors.message` in isolation, proven end to end over the one route that
+    `faults.message` in isolation, proven end to end over the one route that
     used to bypass `errors.py` entirely and return ``str(exc)`` — a Grid
     refusal's ``str()`` quotes the whole request URL, userinfo included."""
     gone = requests.Response()

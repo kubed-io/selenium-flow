@@ -35,7 +35,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Protocol
 
-from .. import errors
+from .. import faults
 from ..urls import origin_of, page_of, without_userinfo
 
 if TYPE_CHECKING:
@@ -567,7 +567,7 @@ def redis_client(conn: RedisSettings):
     for Redis that gets nothing back must not quietly keep going on a mapping
     that resolves locally. ``where`` never carries the connection's password —
     neither in this message nor in the underlying exception's, which is routed
-    through ``errors.message`` for the same scrubbing HTTP errors get. Both
+    through ``faults.message`` for the same scrubbing HTTP errors get. Both
     raises are ``from None``: chaining the raw driver exception would put its
     unscrubbed ``str()`` — URL, userinfo included — back into any traceback
     printed for this one.
@@ -600,7 +600,7 @@ def redis_client(conn: RedisSettings):
     except Exception as exc:  # noqa: BLE001 - any failure here is Redis's, not this package's
         raise StoreUnavailable(
             f"Redis is configured but unreachable at {where} "
-            f"({type(exc).__name__}: {errors.message(exc)}); "
+            f"({type(exc).__name__}: {faults.message(exc)}); "
             "refusing to start on in-memory sessions"
         ) from None
     return client

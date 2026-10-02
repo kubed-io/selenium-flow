@@ -12,7 +12,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from ... import errors
+from ... import faults
 from ...session.store import SessionRecord
 from ...site_data import snapshot as site_data
 from .. import answer
@@ -137,14 +137,14 @@ def mount(mcp, sessions, catalogue, prefix, guarded) -> None:
         def forget(record: SessionRecord) -> tuple[SessionRecord, dict]:
             left, removed = site_data.forget(record.site_data, host)
             if not (removed["cookies"] or removed["origins"]):
-                raise errors.NotFound(missing)
+                raise faults.NotFound(missing)
             return record.with_site_data(left), removed
 
         try:
             write = sessions.store.change
             stored, removed = await run_in_threadpool(write, key, forget)
             if stored is None:
-                raise errors.NotFound(missing)
+                raise faults.NotFound(missing)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"forgetting {host} for {key}", log)
         return JSONResponse({"forgotten": removed})

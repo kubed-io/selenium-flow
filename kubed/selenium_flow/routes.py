@@ -34,7 +34,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from . import errors, urls
+from . import faults, urls
 from . import secrets as secrets_module
 from .core.actions import Actions
 from .http import answer as answer_module
@@ -212,7 +212,7 @@ def register(
                 {
                     "status": "degraded",
                     "grid": grid,
-                    "error": urls.scrub(errors.message(exc), actions.grid.url),
+                    "error": urls.scrub(faults.message(exc), actions.grid.url),
                 },
                 status_code=503,
             )

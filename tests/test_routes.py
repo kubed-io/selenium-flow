@@ -15,7 +15,7 @@ from selenium.common.exceptions import (
 )
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow import errors
+from kubed.selenium_flow import errors, faults
 
 from .conftest import TOKEN
 
@@ -480,17 +480,17 @@ def test_the_message_drops_the_driver_internals():
     raw = TimeoutException(
         "no element matched '//nope' within 3s"
     )
-    assert errors.message(raw) == "no element matched '//nope' within 3s"
+    assert faults.message(raw) == "no element matched '//nope' within 3s"
 
     noisy = WebDriverException(
         "Message: Error: boom\nStacktrace:\nRemoteError@chrome://remote/x.mjs:8:8"
     )
-    assert errors.message(noisy) == "Error: boom"
+    assert faults.message(noisy) == "Error: boom"
 
 
 def test_an_error_with_nothing_to_say_still_says_something():
     """Empty is worse than a class name, which at least names the kind."""
-    assert errors.message(TimeoutException("")) == "TimeoutException"
+    assert faults.message(TimeoutException("")) == "TimeoutException"
 
 
 # ---- where the whole server hangs ------------------------------------------
@@ -583,8 +583,8 @@ async def test_the_published_spec_describes_the_paths_actually_served():
 # ---- every failure class, as a caller sees it --------------------------------
 #
 # `errors.status_for` is unit-tested above. What a caller receives is the status
-# line and the JSON body that `http.answer` builds from it, so each class in
-# `errors.py` is raised from inside a real request and read at the other end.
+# line and the JSON body that `http.answer` builds from it, so each class
+# `errors.py` classifies is raised from inside a real request and read at the other end.
 
 
 def _grid_says(status: int):
@@ -598,11 +598,11 @@ def _raised(cls):
 
 
 STATUS_TABLE = (
-    [(_raised(errors.AssertionFailed), 400), (_raised(errors.NotFound), 404)]
-    + [(_raised(errors.BidiUnavailable), 503)]
-    + [(_raised(cls), 400) for cls in errors.CALLER if cls is not errors.AssertionFailed]
+    [(_raised(faults.AssertionFailed), 400), (_raised(faults.NotFound), 404)]
+    + [(_raised(faults.BidiUnavailable), 503)]
+    + [(_raised(cls), 400) for cls in errors.CALLER if cls is not faults.AssertionFailed]
     + [(_raised(cls), 404) for cls in errors.GONE]
-    + [(_raised(cls), 503) for cls in errors.UNAVAILABLE if cls is not errors.BidiUnavailable]
+    + [(_raised(cls), 503) for cls in errors.UNAVAILABLE if cls is not faults.BidiUnavailable]
     + [
         (_grid_says(404), 404),
         (_grid_says(403), 400),
@@ -628,20 +628,20 @@ def test_every_failure_class_is_the_status_it_means_over_http(
     monkeypatch.setattr(open_server.sessions, "act", fails)
     response = open_client.post("/browser/navigate", json={"url": "https://a.test/"})
     assert response.status_code == expected
-    assert response.json() == {"error": errors.message(exc)}
+    assert response.json() == {"error": faults.message(exc)}
 
 
 def test_the_status_table_names_every_class_errors_py_classifies():
-    """A class added to `errors.py` — defined there, or listed in one of its
-    tuples — without a row above is a status nobody looked at."""
+    """A class defined in `faults.py`, or listed in one of `errors.py`'s
+    tuples, without a row above is a status nobody looked at."""
     import inspect
 
     defined = {
         cls
-        for _, cls in inspect.getmembers(errors, inspect.isclass)
-        if cls.__module__ == errors.__name__ and issubclass(cls, Exception)
+        for _, cls in inspect.getmembers(faults, inspect.isclass)
+        if cls.__module__ == faults.__name__ and issubclass(cls, Exception)
     }
-    assert defined, "errors.py defines no exception classes: the enumeration broke"
+    assert defined, "faults.py defines no exception classes: the enumeration broke"
     covered = {type(e) for e, _ in STATUS_TABLE}
     assert defined <= covered, f"no row for {sorted(c.__name__ for c in defined - covered)}"
     assert {*errors.CALLER, *errors.GONE, *errors.UNAVAILABLE} <= covered

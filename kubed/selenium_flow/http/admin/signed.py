@@ -23,7 +23,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, Response
 
-from ... import errors
+from ... import errors, faults
 from ...core.browser import is_partial
 from ...names import SCREENSHOTS_DIR, InvalidName
 from .. import files, links
@@ -173,14 +173,14 @@ def signed_refused(exc: Exception, what: str) -> JSONResponse:
     is asking already holds the one credential this server has. These
     three routes (``file``, ``kept_file``, ``screenshot_file``) are not
     that: a signed URL is a shareable link with no further auth check, so
-    anything `errors.message` might say — a Grid outage's
+    anything `faults.message` might say — a Grid outage's
     `requests.ConnectionError` names `GRID_URL`'s own host:port, a storage
     fault can name a path under `FLOW_DATA_DIR` — must never reach it. Only
     the status class survives to the body; the real detail still goes to
     the log, same as `refused` (Copilot, PR #41).
     """
     status = errors.status_for(exc)
-    log.info("%s refused (%s): %s", what, status, errors.message(exc))
+    log.info("%s refused (%s): %s", what, status, faults.message(exc))
     if status == 404:
         text = "not found"
     elif status < 500:

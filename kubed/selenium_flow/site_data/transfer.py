@@ -10,8 +10,8 @@ from __future__ import annotations
 import contextlib
 import json
 
-from ..errors import BidiUnavailable
-from ..errors import message as failure_text
+from ..faults import BidiUnavailable
+from ..faults import message as failure_text
 from .snapshot import LIST_URI, SW_REASON, hosts, live_cookies
 from .spare import ServiceWorkerAnswered, spare_tab
 

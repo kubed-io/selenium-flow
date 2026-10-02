@@ -61,7 +61,9 @@ NO_PROTOCOL = (
     *walk("site_data"),
     *(
         f"kubed.selenium_flow.{name}"
-        for name in ("names", "urls", "errors", "secrets", "config")
+        for name in (
+            "names", "urls", "errors", "faults", "binding", "secrets", "config"
+        )
     ),
 )
 
@@ -72,6 +74,8 @@ NO_SELENIUM = tuple(
         "core.defaults",
         "core.naming",
         "core.coerce",
+        "core.assertion",
+        "session.store",
         "site_data.snapshot",
         "flows.template",
         "flows.redact",
@@ -79,6 +83,8 @@ NO_SELENIUM = tuple(
         "flows.report",
         "names",
         "urls",
+        "faults",
+        "binding",
         "config",
         "secrets",
     )
@@ -92,14 +98,10 @@ SELENIUM_EXCEPTIONS = {
     # installed Selenium. A literal table would freeze today's keys; the one
     # import is the point of the module.
     "kubed.selenium_flow.core.keys": "table derived from selenium Keys",
-    # Imports the Selenium exception classes to say which are transient, which
-    # are the caller's fault and which mean the session is gone. `assertion` and
-    # `session/store` reach it for one class or a helper each. Task 15 splits
-    # the Selenium-dependent classification from the plain exceptions and
-    # `message`/`formatted` so these three drop their edge.
+    # Classifies the Selenium exception classes: which are transient, which
+    # are the caller's fault and which mean the session is gone. The plain
+    # exceptions and `message`/`formatted` are in `faults`, which is clean.
     "kubed.selenium_flow.errors": "classification tuples are selenium exceptions",
-    "kubed.selenium_flow.core.assertion": "imports errors.AssertionFailed",
-    "kubed.selenium_flow.session.store": "imports errors",
 }
 
 SCRIPT = textwrap.dedent(

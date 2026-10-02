@@ -97,7 +97,7 @@ def public_url(url: str) -> str:
 def scrub(text: str, url: str) -> str:
     """``text`` with ``url``'s credentials cut out, wherever it quoted them.
 
-    ``errors.message`` trims the one Grid failure known to print its URL, but a
+    ``faults.message`` trims the one Grid failure known to print its URL, but a
     proxy or parse error can quote it too, and ``/ready`` answers to anyone.
     """
     try:

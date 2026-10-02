@@ -25,7 +25,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from .. import errors
+from .. import errors, faults
 from ..session.sessions import Caller, values_of
 from . import auth
 
@@ -70,13 +70,13 @@ def as_response(exc: Exception, what: str, log: logging.Logger) -> JSONResponse:
     answer reads the same, not that the log stops saying where it came from.
     """
     status = errors.status_for(exc)
-    text = errors.message(exc)
+    text = faults.message(exc)
     if status == 500:
         # Only the status we do not understand earns a traceback — and it is
-        # written through `errors.formatted`, not `log.exception`, because the
+        # written through `faults.formatted`, not `log.exception`, because the
         # frames quote the Grid URL with its credentials and nothing sanitises
         # what the logger writes otherwise (Copilot, #36).
-        log.error("%s failed\n%s", what, errors.formatted(exc))
+        log.error("%s failed\n%s", what, faults.formatted(exc))
     elif status > 500:
         log.warning("%s unavailable (%s): %s", what, status, text)
     else:
@@ -89,7 +89,7 @@ def as_response(exc: Exception, what: str, log: logging.Logger) -> JSONResponse:
 def refused(exc: Exception, what: str, log: logging.Logger) -> JSONResponse:
     """A failed admin request, as the status and message ``errors`` gives it.
 
-    The log line keeps whatever ``errors.message`` says, path included — an
+    The log line keeps whatever ``faults.message`` says, path included — an
     operator chasing an NFS outage needs to know which mount. A real
     filesystem failure's ``str()`` quotes that same path, though, and the body
     a caller reads is not the place for FLOW_DATA_DIR's layout — the same
@@ -101,7 +101,7 @@ def refused(exc: Exception, what: str, log: logging.Logger) -> JSONResponse:
     logs at INFO; ``what`` is the sentence's subject.
     """
     status = errors.status_for(exc)
-    text = errors.message(exc)
+    text = faults.message(exc)
     log.info("%s refused (%s): %s", what, status, text)
     if isinstance(exc, OSError) and exc.filename:
         text = f"{exc.strerror or type(exc).__name__} ({type(exc).__name__})"

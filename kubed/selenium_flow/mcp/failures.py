@@ -36,7 +36,7 @@ from fastmcp.exceptions import (
 from fastmcp.server.middleware import Middleware
 from pydantic import ValidationError as PydanticValidationError
 
-from .. import errors
+from .. import errors, faults
 from ..flows.document import argument_problems
 from ..urls import without_userinfo
 
@@ -87,7 +87,7 @@ class Explained(Middleware):
             cause = exc.__cause__
             if cause is None or isinstance(cause, FastMCPError):
                 raise
-            said = errors.message(cause)
+            said = faults.message(cause)
             raise ToolError(f"{FAILED_CALL} {name!r}: {said}") from cause
 
     async def on_read_resource(self, context, call_next):
@@ -110,7 +110,7 @@ class Explained(Middleware):
             # The URI is the caller's, and a caller can put credentials in one;
             # it is scrubbed on the same terms as the exception (Copilot, #40).
             uri = without_userinfo(str(getattr(context.message, "uri", "")))
-            said = errors.message(cause)
+            said = faults.message(cause)
             raise ResourceError(f"{FAILED_READ} {uri!r}: {said}") from cause
 
 
@@ -130,9 +130,9 @@ class QuietCallerMistakes(logging.Filter):
         said = without_userinfo(record.getMessage())
         if errors.status_for(exc) < 500:
             record.levelno, record.levelname = logging.WARNING, "WARNING"
-            record.msg = f"{said}: {errors.message(exc)}"
+            record.msg = f"{said}: {faults.message(exc)}"
         else:
-            record.msg = f"{said}\n{errors.formatted(exc)}"
+            record.msg = f"{said}\n{faults.formatted(exc)}"
         record.args = ()
         record.exc_info = None
         record.exc_text = None

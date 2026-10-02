@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 
-from ..errors import AssertionFailed
+from ..faults import AssertionFailed
 from . import cancel
 from .coerce import as_int, seconds
 

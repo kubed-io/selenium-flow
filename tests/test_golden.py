@@ -25,7 +25,7 @@ from selenium.common.exceptions import (
 )
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow import errors
+from kubed.selenium_flow import errors, faults
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.flows import run as flowrun
@@ -269,7 +269,7 @@ def raised():
             out["requests.Timeout"] = cls("slow")
         else:
             out[cls.__name__] = cls("it went wrong")
-    out["NotFound"] = errors.NotFound("no such thing")
+    out["NotFound"] = faults.NotFound("no such thing")
     out["requests.HTTPError(no response)"] = http
     out["requests.HTTPError(404)"] = http_404
     out["requests.HTTPError(403)"] = http_403

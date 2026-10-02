@@ -47,7 +47,7 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 
-from .. import errors
+from .. import faults
 from ..core.actions import Actions
 from ..core.browser import in_frame
 from ..core.coerce import as_bool
@@ -664,9 +664,9 @@ class SessionManager:
         try:
             self.actions.end_browser(session_id)
         except Exception as exc:  # noqa: BLE001 - it may be gone already
-            # errors.message strips the Grid URL's credentials, which a
+            # faults.message strips the Grid URL's credentials, which a
             # requests HTTPError quotes whole (Copilot, #50).
-            log.info("could not end browser %s: %s", session_id, errors.message(exc))
+            log.info("could not end browser %s: %s", session_id, faults.message(exc))
         return kept
 
     def touch(
@@ -772,7 +772,7 @@ class SessionManager:
             # Already gone, or the Grid is unreachable. Detach regardless: a
             # record naming a browser that cannot be ended is worse than one
             # naming nothing, because the next call would try to use it.
-            log.info("could not end browser %s: %s", target, errors.message(exc))
+            log.info("could not end browser %s: %s", target, faults.message(exc))
         # Ending took a Grid round trip: detach the record as it is now, and
         # only if it still names this browser — one opened meanwhile stays.
         self.store.update(

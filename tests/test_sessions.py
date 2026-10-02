@@ -867,7 +867,7 @@ def test_a_missing_redis_package_stops_the_boot(monkeypatch):
 
 def test_an_unreachable_redis_never_chains_the_raw_password(monkeypatch):
     """Copilot review, PR #41: ``StoreUnavailable``'s own message is scrubbed
-    through ``errors.message``, but chaining the raw driver exception with
+    through ``faults.message``, but chaining the raw driver exception with
     ``from exc`` put its unscrubbed ``str()`` back into any traceback printed
     for the boot failure — including the password `where` is built to hide.
     Both the unreachable and missing-package raises must be ``from None``."""
@@ -1265,7 +1265,7 @@ def test_two_reopens_after_a_reap_leave_exactly_one_browser():
 
 def test_a_failed_quit_never_logs_the_grids_credentials(caplog):
     """requests' HTTPError quotes the whole request URL, userinfo included;
-    the cleanup log goes through errors.message like every caller-facing line
+    the cleanup log goes through faults.message like every caller-facing line
     (Copilot, #50)."""
     import logging
 

@@ -165,9 +165,9 @@ def test_a_parent_only_row_can_be_forgotten_and_a_covered_host_cannot(server):
 
 
 def test_forget_answers_404_through_the_central_policy(client):
-    from kubed.selenium_flow import errors
+    from kubed.selenium_flow import errors, faults
 
-    assert errors.status_for(errors.NotFound("x")) == 404
+    assert errors.status_for(faults.NotFound("x")) == 404
     body = client.delete(url("/nothing.example.net"))
     assert body.status_code == 404
     assert body.json() == {"error": "no saved site data for nothing.example.net"}
