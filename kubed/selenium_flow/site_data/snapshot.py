@@ -92,12 +92,23 @@ def snapshot(previous: dict, captured: dict, history, now: float) -> tuple[dict,
         raise ValueError(
             f"the cookie jar is over {MAX_BYTES} bytes; nothing was saved"
         )
-    while _size(data) > MAX_BYTES:
+    # Sized once, then evicted by subtracting: re-serialising the whole payload
+    # per eviction was quadratic (1.2 s at 400 origins of 20 KB). Every piece is
+    # sized with the same ``json.dumps`` the payload is, and the separators
+    # ("key": value joined by ", ") are counted, so the running total is the
+    # serialised length exactly — and so never below it.
+    entries = {o: len(json.dumps(o)) + 2 + _size(e) for o, e in origins.items()}
+    total = _size({**data, "origins": {}, "session": {}})
+    total += _joined(entries.values()) - 2
+    total += _size(data["session"]) - 2
+    while total > MAX_BYTES:
         if data["origins"]:
-            gone = list(data["origins"])[-1]
-            data["origins"] = {o: e for o, e in data["origins"].items() if o != gone}
+            gone, _ = data["origins"].popitem()
+            total -= entries.pop(gone) + (2 if entries else 0)
         else:
-            gone, data["session"] = data["session"]["origin"], {}
+            gone = data["session"]["origin"]
+            total -= _size(data["session"]) - 2
+            data["session"] = {}
         skipped.append({"site": gone, "reason": LEFT_OUT})
     sites = [o for o in data["origins"] if o in read]
     if data["session"].get("items") and here not in sites:
@@ -107,6 +118,13 @@ def snapshot(previous: dict, captured: dict, history, now: float) -> tuple[dict,
 
 def _size(data: dict) -> int:
     return len(json.dumps(data))
+
+
+def _joined(entry_sizes) -> int:
+    """The length of a JSON object whose entries serialise to ``entry_sizes``:
+    the braces and a ", " between each pair."""
+    sizes = list(entry_sizes)
+    return 2 + sum(sizes) + 2 * max(len(sizes) - 1, 0)
 
 
 def live_cookies(cookies: list[dict], now: float) -> list[dict]:

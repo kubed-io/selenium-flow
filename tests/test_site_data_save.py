@@ -115,6 +115,50 @@ def test_a_cookie_jar_over_the_cap_raises_and_saves_nothing():
     assert errors.status_for(ValueError("x")) == 400
 
 
+def _old_cap(data):
+    """The cap as it was: re-serialise the whole payload after every eviction.
+    Kept as the reference the O(n) cap must agree with."""
+    data = {**data, "origins": dict(data["origins"])}
+    gone_sites = []
+    while len(json.dumps(data)) > sd.MAX_BYTES:
+        if data["origins"]:
+            gone = list(data["origins"])[-1]
+            data["origins"] = {o: e for o, e in data["origins"].items() if o != gone}
+        else:
+            gone, data["session"] = data["session"]["origin"], {}
+        gone_sites.append(gone)
+    return data, gone_sites
+
+
+def test_the_cap_evicts_what_the_re_serialising_loop_did(monkeypatch):
+    import random
+
+    rng = random.Random(20)
+    monkeypatch.setattr(sd, "MAX_BYTES", 6_000)
+    for _ in range(300):
+        n = rng.randint(0, 12)
+        origins = [f"https://s{i}.example{rng.choice(['.com', '.é'])}" for i in range(n)]
+        pick = lambda: "".join(rng.choice('ab"\\é\n') * rng.randint(0, 900) for _ in range(2))  # noqa: E731
+        others = {o: {"k": pick()} for o in origins[1:]}
+        here = origins[0] if origins else ""
+        cap = captured(origin=here, local={"k": pick()} if here else {},
+                       session={"s": pick()} if here and rng.random() < 0.7 else {},
+                       others=others, cookies=[cookie("sid", "a.com", pick()[:300])])
+        history = [visit(o) for o in origins]
+        try:
+            data, receipt = sd.snapshot({}, cap, history, NOW)
+        except ValueError:
+            continue
+        # The same payload, uncapped, through the old loop.
+        monkeypatch.setattr(sd, "MAX_BYTES", 10**9)
+        full, _ = sd.snapshot({}, cap, history, NOW)
+        monkeypatch.setattr(sd, "MAX_BYTES", 6_000)
+        want, gone = _old_cap(full)
+        assert data == want
+        assert [s["site"] for s in receipt["skipped"]] == gone
+        assert len(json.dumps(data)) <= sd.MAX_BYTES
+
+
 def test_the_record_round_trips_its_snapshot():
     data, _ = sd.snapshot({}, captured(local={"a": "1"}, session={"t": "1"}), [visit(APP)], NOW)
     record = SessionRecord(session_id="s").visited(APP + "/x").with_site_data(data)
