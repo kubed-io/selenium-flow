@@ -33,7 +33,7 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from .. import errors
 from ..urls import origin_of, page_of, without_userinfo
@@ -71,6 +71,8 @@ HISTORY_CAP = 100
 Change = Callable[["SessionRecord"], "SessionRecord | None"]
 # For `upsert`: the record as it is, or None when the key is absent.
 Create = Callable[["SessionRecord | None"], "SessionRecord | None"]
+# For `change`: the same, and a note on what the write found, handed back.
+Noted = Callable[["SessionRecord | None"], "tuple[SessionRecord | None, Any]"]
 
 
 class StoreUnavailable(RuntimeError):
@@ -283,6 +285,15 @@ class SessionStore(Protocol):
     # never land between a read and a fallback `set` (Copilot, #50).
     def upsert(self, key: str, fn: Create) -> SessionRecord | None: ...
 
+    # A write that answers: `fn` returns the record to store and a note on
+    # what it found there, and the note comes back beside what is stored.
+    # Only the last run's note: a run thrown away by a retry saw a record that
+    # was never written. `create` is `upsert`; without it an absent key is
+    # `(None, None)` and `fn` never runs.
+    def change(
+        self, key: str, fn: Noted, *, create: bool = False
+    ) -> tuple[SessionRecord | None, Any]: ...
+
     def delete(self, key: str) -> None: ...
 
     # Optional, and only the admin view needs it: the MCP surface never lists
@@ -294,7 +305,39 @@ class SessionStore(Protocol):
     def owners(self) -> dict[str, str]: ...
 
 
-class MemoryStore:
+class _Writes:
+    """`update` and `change`, built on the `upsert` each store implements.
+
+    Layered rather than side by side, so every write runs through the one a
+    store implements, retries included: `update` is `upsert` that never
+    creates, and `change` is either of them with a note handed back.
+    """
+
+    def upsert(self, key: str, fn: Create) -> SessionRecord | None:
+        raise NotImplementedError
+
+    def update(self, key: str, fn: Change) -> SessionRecord | None:
+        return self.upsert(key, lambda r: fn(r) if r is not None else None)
+
+    def change(
+        self, key: str, fn: Noted, *, create: bool = False
+    ) -> tuple[SessionRecord | None, Any]:
+        note: list = [None]
+
+        def run(r: SessionRecord | None) -> SessionRecord | None:
+            # Every run overwrites the note, so a retry answers with its last.
+            changed, note[0] = fn(r)
+            return changed
+
+        stored = (self.upsert if create else self.update)(key, run)
+        if stored is None and not create:
+            # Absent when the write landed: `update` skipped the last run, so
+            # any note is from a run that met a record since gone.
+            return None, None
+        return stored, note[0]
+
+
+class MemoryStore(_Writes):
     """Process-local mapping. Correct for a single replica, lost on restart.
 
     Expiry is enforced here as well as in Redis so that ``SESSION_TTL`` means
@@ -349,9 +392,6 @@ class MemoryStore:
         with self._locked(key):
             self._data[key] = (self._clock() + self._ttl, record)
 
-    def update(self, key: str, fn: Change) -> SessionRecord | None:
-        return self.upsert(key, lambda r: fn(r) if r is not None else None)
-
     def upsert(self, key: str, fn: Create) -> SessionRecord | None:
         with self._locked(key):
             current = self.get(key)
@@ -390,7 +430,7 @@ class MemoryStore:
         return {r.session_id: k for k, r in self.records().items() if r.attached}
 
 
-class RedisStore:
+class RedisStore(_Writes):
     """Shared mapping, so any replica resolves the same key.
 
     Entries expire natively: a mapping that outlives the browser it names is
@@ -435,9 +475,6 @@ class RedisStore:
 
     def set(self, key: str, record: SessionRecord) -> None:
         self._redis.set(self._k(key), record.to_json(), ex=self._ttl)
-
-    def update(self, key: str, fn: Change) -> SessionRecord | None:
-        return self.upsert(key, lambda r: fn(r) if r is not None else None)
 
     def upsert(self, key: str, fn: Create) -> SessionRecord | None:
         """WATCH, read, MULTI, write: EXEC refuses if another replica wrote the

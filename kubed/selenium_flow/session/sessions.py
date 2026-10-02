@@ -488,29 +488,26 @@ class SessionManager:
         """
         if not captured:
             return
-        receipt: dict = {}
 
-        def save(r: SessionRecord) -> SessionRecord | None:
-            # The store may run this again on a newer record; only the last run counts.
-            receipt.clear()
+        def save(r: SessionRecord) -> tuple[SessionRecord | None, dict]:
             if producer is not None and r.session_id != producer:
                 # Another browser holds the session now — perhaps one opened
                 # with restore_site_data=false. What this one captured is not
                 # its to keep (Copilot, #50).
-                receipt["saved"] = {
+                return None, {
                     "cookies": 0, "sites": [],
                     "skipped": [{"reason": REPLACED_BEFORE_SAVE}],
                 }
-                return None
-            data, receipt["saved"] = site_data_module.snapshot(
+            data, receipt = site_data_module.snapshot(
                 r.site_data, captured, r.history, time.time()
             )
-            return r.with_site_data(data)
+            return r.with_site_data(data), receipt
 
-        if self.store.update(name, save) is None:
+        stored, receipt = self.store.change(name, save)
+        if stored is None:
             # The record expired before `save` ever ran, or between its runs.
             return
-        result["saved"] = receipt["saved"]
+        result["saved"] = receipt
         result["uri"] = site_data_module.LIST_URI
 
     @staticmethod
@@ -637,13 +634,12 @@ class SessionManager:
         bind drops whatever an earlier reopen still held.
         """
         ttl = self.store.ttl
-        loser: dict = {}
 
-        def bound(r: SessionRecord | None) -> SessionRecord | None:
+        def bound(r: SessionRecord | None) -> tuple[SessionRecord | None, str | None]:
             current = r.session_id if r is not None else ""
             if current and current not in (session_id, replacing):
-                loser["id"], loser["kept"] = session_id, current
-                return None
+                # Bound first by another open: that browser is the one kept.
+                return None, current
             # Replaced, not rebuilt: a field the record gains later survives a
             # bind. History (where the session has been) survives a new browser.
             fresh = replace(
@@ -655,26 +651,23 @@ class SessionManager:
                 # Reset explicitly: any other bind drops an earlier reopen's report.
                 reopened={"browser": session_id, "report": report} if report else {},
             )
-            return fresh.visited(url, ttl=ttl)
+            return fresh.visited(url, ttl=ttl), None
 
         # One atomic create-or-update: a save landing while the browser
         # opened is kept, and two first opens on a new name cannot both write.
-        self.store.upsert(name, bound)
-        if not loser:
+        _, kept = self.store.change(name, bound, create=True)
+        if not kept:
             return session_id
-        if loser.get("id"):
-            log.info(
-                "two opens raced for session %s: quitting browser %s", name, loser["id"]
-            )
-            try:
-                self.actions.end_browser(loser["id"])
-            except Exception as exc:  # noqa: BLE001 - it may be gone already
-                # errors.message strips the Grid URL's credentials, which a
-                # requests HTTPError quotes whole (Copilot, #50).
-                log.info(
-                    "could not end browser %s: %s", loser["id"], errors.message(exc)
-                )
-        return loser["kept"]
+        log.info(
+            "two opens raced for session %s: quitting browser %s", name, session_id
+        )
+        try:
+            self.actions.end_browser(session_id)
+        except Exception as exc:  # noqa: BLE001 - it may be gone already
+            # errors.message strips the Grid URL's credentials, which a
+            # requests HTTPError quotes whole (Copilot, #50).
+            log.info("could not end browser %s: %s", session_id, errors.message(exc))
+        return kept
 
     def touch(
         self, name: str, *urls: str | None, browser: str | None = None
@@ -702,20 +695,15 @@ class SessionManager:
         after it, and never again.
         """
         ttl = self.store.ttl
-        told: dict = {}
 
-        def at(r: SessionRecord) -> SessionRecord:
-            # The store may run this again on a newer record; only the last run counts.
-            told.clear()
+        def at(r: SessionRecord) -> tuple[SessionRecord, dict | None]:
             if browser and r.session_id != browser:
-                return r
-            note = r.reopened
-            ours = note.get("browser") == r.session_id
-            told["report"] = note.get("report") if ours else None
-            return r.visited(*urls, ttl=ttl).delivered()
+                return r, None
+            held = r.reopened
+            report = held.get("report") if held.get("browser") == r.session_id else None
+            return r.visited(*urls, ttl=ttl).delivered(), report
 
-        self.store.update(name, at)
-        return told.get("report")
+        return self.store.change(name, at)[1]
 
     def reshape(self, name: str, result: dict, browser: str | None = None) -> None:
         """Record the window size an action just gave the browser.

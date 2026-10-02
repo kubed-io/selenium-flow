@@ -616,6 +616,94 @@ def test_redis_upsert_on_an_absent_key_retries_when_another_first_write_lands():
     assert store.get("k").session_id == "mine"
 
 
+# ---- change: a write that answers ---------------------------------------------
+
+
+@pytest.mark.parametrize("store", _stores(), ids=lambda s: s.kind)
+def test_change_returns_what_it_stored_and_what_it_found(store):
+    store.set("k", SessionRecord(session_id="abc"))
+    got, note = store.change("k", lambda r: (r.with_site_data({"a": 1}), r.session_id))
+    assert (got, note) == (store.get("k"), "abc")
+    assert got.site_data == {"a": 1}
+
+
+@pytest.mark.parametrize("store", _stores(), ids=lambda s: s.kind)
+def test_a_change_that_stores_nothing_still_answers(store):
+    store.set("k", SessionRecord(session_id="abc"))
+    got, note = store.change("k", lambda r: (None, "kept"))
+    assert (got.session_id, note) == ("abc", "kept")
+
+
+@pytest.mark.parametrize("store", _stores(), ids=lambda s: s.kind)
+def test_a_change_to_an_absent_session_runs_nothing_and_answers_nothing(store):
+    called = []
+    assert store.change("k", lambda r: called.append(r) or (r, "x")) == (None, None)
+    assert called == [] and store.get("k") is None
+
+
+@pytest.mark.parametrize("store", _stores(), ids=lambda s: s.kind)
+def test_a_creating_change_writes_the_first_record_and_answers(store):
+    got, note = store.change(
+        "k", lambda r: (SessionRecord(session_id="new"), r is None), create=True
+    )
+    assert (got, note) == (store.get("k"), True)
+    assert got.session_id == "new"
+
+
+def _retried_once(store, stale, landed):
+    """The store's first run of `fn` sees `stale`, then `landed` is written by
+    another writer (None: the record expires) and `fn` runs again: Redis by a
+    refused EXEC, memory by the same sequence played through `upsert` (the
+    RetryingStore pattern)."""
+
+    def land():
+        store.set("k", landed) if landed else store.delete("k")
+
+    if store.kind == "redis":
+        def elsewhere():
+            store.client.interfere = None
+            land()
+
+        store.client.interfere = elsewhere
+        return
+    real = store.upsert
+
+    def once(key, fn):
+        store.upsert = real
+        fn(stale)
+        land()
+        return real(key, fn)
+
+    store.upsert = once
+
+
+@pytest.mark.parametrize("store", _stores(), ids=lambda s: s.kind)
+def test_a_retried_change_answers_with_its_last_run_only(store):
+    """The run a retry threw away saw a record that was never written: its
+    note must not come back."""
+    stale = SessionRecord(session_id="old")
+    store.set("k", stale)
+    _retried_once(store, stale, SessionRecord(session_id="new"))
+    runs = []
+
+    def fn(r):
+        runs.append(r.session_id)
+        return r.with_site_data({"a": 1}), ("saw old" if r.session_id == "old" else None)
+
+    got, note = store.change("k", fn)
+    assert runs == ["old", "new"], "the change was retried"
+    assert note is None
+    assert got.session_id == "new" and got == store.get("k")
+
+
+@pytest.mark.parametrize("store", _stores(), ids=lambda s: s.kind)
+def test_a_change_into_a_record_that_expired_before_its_retry_answers_nothing(store):
+    stale = SessionRecord(session_id="old")
+    store.set("k", stale)
+    _retried_once(store, stale, None)
+    assert store.change("k", lambda r: (r, "saw old")) == (None, None)
+
+
 def test_two_first_opens_on_a_new_name_leave_exactly_one_browser():
     """Both opens of a never-seen name read no record. The one that writes
     second must still see the first's browser and quit the loser."""

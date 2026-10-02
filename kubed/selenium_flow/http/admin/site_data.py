@@ -64,17 +64,16 @@ def mount(mcp, sessions, catalogue, prefix, guarded) -> None:
         """Clear: the history down to the current site. Site data and the live
         browser are untouched, and the history expires on its own anyway."""
         key = request.path_params["key"]
-        cleared: dict = {}
 
-        def clear(record: SessionRecord) -> SessionRecord:
-            cleared["hosts"] = site_data.history_hosts(record.history)[1:]
-            return record.history_cleared()
+        def clear(record: SessionRecord) -> tuple[SessionRecord, list]:
+            hosts = site_data.history_hosts(record.history)[1:]
+            return record.history_cleared(), hosts
 
         try:
-            await run_in_threadpool(sessions.store.update, key, clear)
+            _, cleared = await run_in_threadpool(sessions.store.change, key, clear)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"clearing the history of {key}", log)
-        return JSONResponse({"cleared": cleared.get("hosts", [])})
+        return JSONResponse({"cleared": cleared or []})
 
     @mcp.custom_route(
         f"{prefix}/admin/sessions/{{key}}/site-data",
@@ -105,18 +104,16 @@ def mount(mcp, sessions, catalogue, prefix, guarded) -> None:
         """Clear: delete the snapshot. The history and the live browser are
         untouched; only the next browser opened comes back signed out."""
         key = request.path_params["key"]
-        cleared: dict = {}
 
-        def clear(record: SessionRecord) -> SessionRecord:
+        def clear(record: SessionRecord) -> tuple[SessionRecord, list]:
             listed = site_data.view(record.site_data, record.history)
-            cleared["hosts"] = [s["site"] for s in listed["sites"]]
-            return record.with_site_data({})
+            return record.with_site_data({}), [s["site"] for s in listed["sites"]]
 
         try:
-            await run_in_threadpool(sessions.store.update, key, clear)
+            _, cleared = await run_in_threadpool(sessions.store.change, key, clear)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"clearing site data for {key}", log)
-        return JSONResponse({"cleared": cleared.get("hosts", [])})
+        return JSONResponse({"cleared": cleared or []})
 
     @mcp.custom_route(
         f"{prefix}/admin/sessions/{{key}}/site-data/{{site}}",
@@ -134,19 +131,20 @@ def mount(mcp, sessions, catalogue, prefix, guarded) -> None:
         key = request.path_params["key"]
         host = request.path_params["site"].lower()
         missing = f"no saved site data for {host}"
-        removed: dict = {}
 
         # Applied to the record as it is when written, so a save or an open
         # landing while this runs is kept rather than set back.
-        def forget(record: SessionRecord) -> SessionRecord:
-            left, removed["what"] = site_data.forget(record.site_data, host)
-            if not (removed["what"]["cookies"] or removed["what"]["origins"]):
+        def forget(record: SessionRecord) -> tuple[SessionRecord, dict]:
+            left, removed = site_data.forget(record.site_data, host)
+            if not (removed["cookies"] or removed["origins"]):
                 raise errors.NotFound(missing)
-            return record.with_site_data(left)
+            return record.with_site_data(left), removed
 
         try:
-            if await run_in_threadpool(sessions.store.update, key, forget) is None:
+            write = sessions.store.change
+            stored, removed = await run_in_threadpool(write, key, forget)
+            if stored is None:
                 raise errors.NotFound(missing)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"forgetting {host} for {key}", log)
-        return JSONResponse({"forgotten": removed["what"]})
+        return JSONResponse({"forgotten": removed})

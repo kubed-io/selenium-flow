@@ -430,7 +430,8 @@ or the leak `caller_key` existed to prevent comes straight back.
   it is at write time (memory: a per-key lock; Redis: `WATCH`/`MULTI`/`EXEC`, retried, then
   `StoreConflict`). A whole record read before slow work and `set` after reverts a browser
   opened or a save made meanwhile. Do slow work outside `fn`; `fn` only computes, and may run
-  twice.
+  twice. What a write found comes back through `store.change`: `fn` returns the record and
+  a note, and only the last run's note is returned — never a dict `fn` fills on the side.
 
 ### Refresh, not cleanup
 
