@@ -28,15 +28,14 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_valida
 from .. import secrets as secrets_module
 from ..core.actions import (
     DIALOG_ACTIONS,
-    DIALOG_TIMEOUT,
     FRAME_ACTIONS,
     MOUSE_ACTIONS,
     PRINT_FORMATS,
-    WAIT_TIMEOUT,
     Actions,
 )
 from ..core.defaults import BROWSERS
 from ..core.probe import DEFAULT_LIMIT as OUTLINE_LIMIT
+from ..core.recipe import DIALOG_TIMEOUT, WAIT_TIMEOUT
 from ..session.sessions import NAME_PARAM, SessionManager
 from . import clients
 from .annotations import hints

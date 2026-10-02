@@ -176,10 +176,6 @@ def test_execute_script_with_no_answer_reports_none_not_a_missing_key(actions, s
 
 # ---- I2: a refused argument costs the browser nothing ------------------------
 
-_AFTER_RECONNECT = pytest.mark.xfail(
-    strict=True, raises=AssertionError, reason="validated after reconnect"
-)
-
 REFUSED = {
     "interact: unknown gesture": lambda a: a.interact(
         "abc", "bogus", selector={"css": "a"}, url=PAGE
@@ -206,23 +202,17 @@ REFUSED = {
     "extract: selector names both": lambda a: a.extract(
         "abc", selector=BOTH, url=PAGE
     ),
-    # Task 13 moves these four to validate first; today the locator is resolved
-    # after `_at` has reconnected and maybe navigated.
-    "frame: selector names both": pytest.param(
-        lambda a: a.frame("abc", "switch", selector=BOTH),
-        marks=_AFTER_RECONNECT,
+    "frame: selector names both": lambda a: a.frame(
+        "abc", "switch", selector=BOTH
     ),
-    "screenshot: selector names both": pytest.param(
-        lambda a: a.screenshot("abc", selector=BOTH, url=PAGE),
-        marks=_AFTER_RECONNECT,
+    "screenshot: selector names both": lambda a: a.screenshot(
+        "abc", selector=BOTH, url=PAGE
     ),
-    "outline: selector names both": pytest.param(
-        lambda a: a.outline("abc", selector=BOTH, url=PAGE),
-        marks=_AFTER_RECONNECT,
+    "outline: selector names both": lambda a: a.outline(
+        "abc", selector=BOTH, url=PAGE
     ),
-    "upload_file: selector names both": pytest.param(
-        lambda a: a.upload_file("abc", selector=BOTH, text="x", url=PAGE),
-        marks=_AFTER_RECONNECT,
+    "upload_file: selector names both": lambda a: a.upload_file(
+        "abc", selector=BOTH, text="x", url=PAGE
     ),
 }
 
