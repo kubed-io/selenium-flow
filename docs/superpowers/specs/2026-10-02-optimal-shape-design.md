@@ -234,9 +234,9 @@ byte-equal against the golden tool schemas.
   `sessions_payload` case);
 - a pooled `requests.Session` in `Grid` and a reusable connection for
   `ReattachDriver` (count connections in a fake Grid);
-- `page_state` as one script returning `[href, title]`, `viewport` folded
-  into `center.js`, `wait_for_*` polling at 0.2 s (a `CountingDriver` asserts
-  round trips per action);
+- `viewport` folded into `center.js`, `wait_for_*` polling at 0.2 s (a
+  `CountingDriver` asserts round trips per action); `page_state` keeps its
+  WebDriver reads, which report the top-level page from inside a frame;
 - snapshot size cap in O(n) (bench the 400 × 20 KB case; property test against
   the old loop);
 - views that count without building details for the admin poll;
@@ -327,3 +327,8 @@ round; the TTL doc fixed to the code.
 - Claude, 2026-10-02: the user-visible consequences of the security fixes take
   changelog lines (a removed argument, a refused scheme, a new setting, serialised
   calls); the refactor itself takes none.
+- Claude, 2026-10-02, from Copilot's review of the plan: the per-session lock
+  covers a bound write from the origin check through the keystrokes, for a direct
+  write and a flow step alike; callers may open `http`, `https` and `about:blank`
+  only (`data:` is refused too); `page_state` keeps its WebDriver reads because a
+  script would report the selected frame's page; the two origin rules stay two.
