@@ -100,6 +100,7 @@ test('rows fold like Site data: the top one opens to its secrets, the rest stay 
 test('the saved pill opens that host in Site data, unfolded', async () => {
   const { container, rerender } = setup()
   await loaded(container)
+  expect(screen.getByRole('button', { name: 'grafana.example.com in Site data: 5 cookies · 12 local' })).toBeInTheDocument()
   await fireEvent.click(visits(container)[1].querySelector('.head .pill')!)
   expect(location.hash).toBe('#/sessions/k/site-data/grafana.example.com')
   await rerender({ tab: 'site-data', site: 'grafana.example.com' })

@@ -70,7 +70,8 @@
   {@const saved = r.saved ? savedText(r.saved) : ''}
   <span class="small muted">{when(r)}</span>
   {#if saved}
-    <button class="pill link" onclick={() => go(hashes.site(m.key, r.site))}>{saved}</button>
+    <!-- The counts alone read the same on every row to a screen reader. -->
+    <button class="pill link" aria-label="{r.site} in Site data: {saved}" onclick={() => go(hashes.site(m.key, r.site))}>{saved}</button>
   {/if}
 {/snippet}
 

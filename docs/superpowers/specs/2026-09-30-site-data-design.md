@@ -407,9 +407,12 @@ Chromium-only call can be added later without undoing anything.
   site data under its own store key.
 
 - A flow step that fails and is continued past (`onError: continue`) can
-  land on a safe page, but only successful steps enter the history, so a
-  later save in that run does not read that origin. Next: let `run.py` mark a
-  failed step's page as safe (not scrubbed) and count it (Copilot, #51).
+  land on a safe page, but only successful steps that moved the page enter
+  the history: that origin is missed, and so is a successful step that stays
+  on it, since the page did not change. A later save in that run does not
+  read it. Next: track the run's safe pages apart from the report's "page
+  changed" rule, in `run.py` and `run_for` alike, so the save flush stays
+  aligned (Copilot, #51).
 
 ## Rulings
 
