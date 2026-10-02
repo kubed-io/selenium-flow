@@ -50,7 +50,8 @@ from __future__ import annotations
 
 import json
 import logging
-import re
+
+from .template import PARAM_REFERENCE, listed, references
 
 log = logging.getLogger(__name__)
 
@@ -133,20 +134,6 @@ NOT_STEPS = {
 # browser, which is the one thing a caller must never be able to do.
 RESERVED_PARAMS = {"session_id"}
 
-# A reference to one of the flow's own parameters, written in any string of any
-# argument. `${name}` and nothing cleverer: no expressions, no defaults, no
-# dotted paths — those are a language, and a language in a config file is a
-# thing nobody can validate at save time.
-# One token: either an escaped sigil or a reference. Matched together and in
-# one left-to-right pass, so an escape can never be read as a reference and a
-# substituted value is never rescanned — `re.sub` does not revisit what it
-# wrote. That is what keeps a caller's value from resolving anything.
-PARAM_REFERENCE = re.compile(r"\$\$\{|\$\{([^{}]*)\}")
-# `$${` is a literal `${`. Written as a doubled sigil rather than a backslash
-# because YAML already eats backslashes and an author should not have to know
-# how many to write.
-ESCAPED = "$${"
-
 # The argument through which a secret reaches the page. Not a table of tools:
 # `write` is the only action with a `secret` parameter, so the tool schemas
 # refuse it everywhere else without this module holding a second list that
@@ -190,18 +177,6 @@ def _needs_an_element(tool: str, params: dict) -> bool:
         action = str(params.get("action", "switch")).strip().lower()
         return action == "switch" and params.get("index") is None
     return tool not in OPTIONAL_ELEMENT
-
-
-def listed(keys) -> str:
-    """Keys from a document, as a sorted, comma-separated line for a message.
-
-    Every key is made a string first. A flow is YAML that anyone may have
-    written by hand, and YAML happily makes `1:` an integer key — so sorting a
-    mix of `1` and `"name"` raised TypeError, and so did joining even a lone
-    `1`. The message whose job was to refuse a malformed document became a 500
-    about our own code instead.
-    """
-    return ", ".join(sorted(str(key) for key in keys))
 
 
 REFERENCE_FIELDS = ("name", "key")
@@ -317,30 +292,6 @@ def _type_fits(value, accepted: set[str]) -> bool:
         if isinstance(value, expected):
             return True
     return False
-
-
-def references(value) -> list[str]:
-    """Every ``${name}`` in ``value``, however deeply nested.
-
-    Walks the whole argument rather than only top-level strings: a selector
-    inside a list, or a header inside a mapping, is exactly as much a place an
-    author will put a parameter, and one that validated nowhere would fail at
-    run time — which is the split save-time checking exists to close.
-
-    Escaped sigils are removed before scanning, so ``$${name}`` contributes no
-    reference and cannot be reported as an undeclared one.
-    """
-    if isinstance(value, str):
-        return [
-            match.group(1)
-            for match in PARAM_REFERENCE.finditer(value)
-            if match.group(1) is not None
-        ]
-    if isinstance(value, dict):
-        return [name for item in value.values() for name in references(item)]
-    if isinstance(value, list):
-        return [name for item in value for name in references(item)]
-    return []
 
 
 def _check_references(where: str, args: dict, declared: set[str]) -> list[str]:

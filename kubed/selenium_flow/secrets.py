@@ -731,11 +731,11 @@ def perform_write(catalogue, actions, sessions, name: str, kwargs: dict) -> dict
     it. Everything else about a write is identical, which is exactly why this
     lives in one place: two copies of a redaction are one copy that is older.
     """
-    from .flows import run as flowrun
+    from .flows import redact
 
     resolved = sessions.resolve(name)
     given, _guarded = prepare_write(catalogue, actions, resolved, kwargs)
-    hidden = flowrun.hidden_forms([given["text"]])
+    hidden = redact.hidden_forms([given["text"]])
     rest = {k: v for k, v in given.items() if k not in ("text", "url")}
     try:
         result = actions.write(
@@ -747,8 +747,8 @@ def perform_write(catalogue, actions, sessions, name: str, kwargs: dict) -> dict
         )
     except Exception as exc:  # noqa: BLE001 - rewrapped, never swallowed
         # An action puts its arguments in its error text.
-        raise ValueError(flowrun.scrub(str(exc), hidden)) from None
-    shown = flowrun.scrub_values({**result, "text_from": "secret"}, hidden)
+        raise ValueError(redact.scrub(str(exc), hidden)) from None
+    shown = redact.scrub_values({**result, "text_from": "secret"}, hidden)
     # Only remember a page the value never reached. A submitting write can land
     # on `?q=<what was typed>`; storing the scrubbed form would persist a URL
     # that does not exist, and a later reattach would navigate to it.
@@ -760,7 +760,7 @@ def perform_write(catalogue, actions, sessions, name: str, kwargs: dict) -> dict
     # Touched either way. Withholding the page must not also stop the clock:
     # `touch` slides the TTL, and skipping it entirely let a session expire
     # *because* its URL was correctly kept out of the store.
-    safe = None if flowrun.taints(result.get("url"), hidden) else shown.get("url")
+    safe = None if redact.taints(result.get("url"), hidden) else shown.get("url")
     told = sessions.touch(name, safe, browser=resolved)
     if told:
         # The first call after a silent reopen says what came back.

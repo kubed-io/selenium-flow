@@ -142,7 +142,7 @@ def test_every_runnable_action_has_a_glyph_and_no_glyph_is_stale():
     step with no identity; the unknown glyph is reserved for a flow naming an
     action that does not exist. And a glyph for an action the runner no longer
     knows is a rename that only half happened."""
-    from kubed.selenium_flow.flows.run import RUNNABLE
+    from kubed.selenium_flow.flows.api import RUNNABLE
 
     body = re.search(r"export const TOOL_ICON[^=]*=\s*\{(.*?)\n\}", FLOW_TS.read_text(), re.S)
     assert body, "TOOL_ICON is no longer an object literal in flow.ts"

@@ -44,6 +44,7 @@ from ..core.browser import DEFAULT_BROWSER, is_partial
 from ..flows import api as flowapi
 from ..flows import document as flowdoc
 from ..flows import library as flows
+from ..flows import template
 from ..names import (
     GLOBAL_SESSION,
     SCREENSHOTS_DIR,
@@ -170,7 +171,7 @@ def _uses(document: dict) -> dict[str, list[int]]:
     the steps a `${name}` lands in, and that question has to be answered the
     same way the validator answers it — an escaped `$${name}` is not a
     reference, and a reference can be nested arbitrarily deep in an argument.
-    So it is `flowdoc.references` rather than a regex in the page, which is how
+    So it is `template.references` rather than a regex in the page, which is how
     the two would come to disagree about what counts (§F1.40).
 
     Declared-but-unused parameters are present with an empty list. That is a
@@ -198,7 +199,7 @@ def _uses(document: dict) -> dict[str, list[int]]:
     for index, step in enumerate(steps if isinstance(steps, list) else []):
         if not isinstance(step, dict):
             continue
-        for name in flowdoc.references(step.get("args")):
+        for name in template.references(step.get("args")):
             # Only the declared ones. An undeclared `${name}` cannot be saved
             # through any surface, but these documents are hand-editable files
             # (§F1.6) and the panel must render whatever is on disk.

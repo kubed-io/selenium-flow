@@ -42,15 +42,28 @@ from starlette.responses import JSONResponse
 
 from ..core.coerce import as_bool
 from ..http import answer as answer_module
-from ..mcp import clients, progress
+from ..mcp import clients, guidance, progress
 from ..mcp.annotations import hints
 from ..mcp.tools import SecretRef
 from ..names import GLOBAL_SESSION
-from ..routes import ENDPOINTS
+from ..routes import ENDPOINTS, LIBRARY_ARG, method_for
 from . import document as flowdoc
+from . import engine, template
 from . import run as flowrun
 
 log = logging.getLogger(__name__)
+
+# The only tools a step may dispatch to. ENDPOINTS is the canonical list of
+# browser actions and is already held to the tool surface by test_surfaces.py;
+# the lifecycle calls are not steps (`flowdoc.NOT_STEPS`).
+RUNNABLE = frozenset(ENDPOINTS.values()) - flowdoc.NOT_STEPS.keys()
+
+# A run is handed what it must not import: the route table's tools and the
+# skill's URIs. This module knows both, so it is where the two are joined.
+flowrun.wire(
+    engine.Toolbox(runnable=RUNNABLE, method_for=method_for, library_arg=LIBRARY_ARG),
+    guidance.pointer,
+)
 
 LIST_URI = "flow://flows"
 FLOW_URI = "flow://flows/{name}"
@@ -508,7 +521,7 @@ async def _document_schema(schemas: Schemas) -> dict:
                 "in the string. Substitution is single-pass, so a value "
                 "containing ${...} resolves nothing. Write $${ for a literal."
             ),
-            "pattern": flowdoc.PARAM_REFERENCE.pattern,
+            "pattern": template.PARAM_REFERENCE.pattern,
         },
         # The secret reference is the MCP tool's own model rather than a copy of
         # it — a hand-written one is how this repo keeps finding its bugs. It is

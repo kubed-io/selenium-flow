@@ -149,7 +149,7 @@ async def test_the_step_schema_does_not_offer_it(server):
 
 
 def test_the_runner_would_refuse_it_too():
-    from kubed.selenium_flow.flows.run import RUNNABLE
+    from kubed.selenium_flow.flows.api import RUNNABLE
 
     assert "outline" not in RUNNABLE
     assert "extract" in RUNNABLE, "and the ordinary reads are still steps"

@@ -7,8 +7,10 @@ calls to find out why, which loses more than the flow ever saved.
 
 import pytest
 
+from kubed.selenium_flow.flows import redact, template
 from kubed.selenium_flow.flows import run as flowrun
-from kubed.selenium_flow.flows.run import FlowError, run
+from kubed.selenium_flow.flows.run import run
+from kubed.selenium_flow.flows.template import FlowError
 
 from .fakes import FakeActions, FakeClock
 
@@ -930,11 +932,11 @@ def test_a_step_that_fails_after_typing_reports_a_redacted_page():
 
 
 def test_taints_asks_whether_the_value_is_there():
-    assert flowrun.taints("https://x.test/?q=hunter2", {"hunter2"}) is True
-    assert flowrun.taints("https://x.test/", {"hunter2"}) is False
+    assert redact.taints("https://x.test/?q=hunter2", {"hunter2"}) is True
+    assert redact.taints("https://x.test/", {"hunter2"}) is False
     # The marker is not evidence either way.
-    assert flowrun.taints(f"https://x.test/?q={flowrun.HIDDEN}", {flowrun.HIDDEN}) is True
-    assert flowrun.taints(None, {"hunter2"}) is False
+    assert redact.taints(f"https://x.test/?q={flowrun.HIDDEN}", {flowrun.HIDDEN}) is True
+    assert redact.taints(None, {"hunter2"}) is False
 
 
 def test_a_run_that_navigates_away_reports_the_clean_page_it_ended_on():
@@ -1047,26 +1049,26 @@ def test_a_declared_default_is_supplied_when_the_caller_omits_it():
         "name": "wiki",
         "parameters": {"properties": {"lang": {"type": "string", "default": "en"}}},
     }
-    assert flowrun.with_defaults(document, {}) == {"lang": "en"}
+    assert template.with_defaults(document, {}) == {"lang": "en"}
 
 
 def test_a_value_the_caller_passed_beats_the_default():
     document = {"parameters": {"properties": {"lang": {"default": "en"}}}}
-    assert flowrun.with_defaults(document, {"lang": "de"}) == {"lang": "de"}
+    assert template.with_defaults(document, {"lang": "de"}) == {"lang": "de"}
 
 
 def test_an_explicit_none_is_a_value_the_caller_chose():
     """Overriding it would make `lang: null` mean something different from
     every other value the caller can pass."""
     document = {"parameters": {"properties": {"lang": {"default": "en"}}}}
-    assert flowrun.with_defaults(document, {"lang": None}) == {"lang": None}
+    assert template.with_defaults(document, {"lang": None}) == {"lang": None}
 
 
 def test_a_parameter_with_no_default_is_left_absent():
     """Absent and `None` are different answers, and `substitute` leaves an
     unsupplied reference as written on purpose."""
     document = {"parameters": {"properties": {"term": {"type": "string"}}}}
-    assert flowrun.with_defaults(document, {}) == {}
+    assert template.with_defaults(document, {}) == {}
 
 
 def test_a_required_parameter_is_not_satisfied_by_its_own_default():
@@ -1080,15 +1082,15 @@ def test_a_required_parameter_is_not_satisfied_by_its_own_default():
             "required": ["term"],
         },
     }
-    with pytest.raises(flowrun.FlowError) as raised:
-        flowrun.check_params(document, {})
+    with pytest.raises(template.FlowError) as raised:
+        template.check_params(document, {})
     assert "needs term" in str(raised.value)
 
 
 @pytest.mark.parametrize("parameters", [[], "term", {"properties": "term"}, {}])
 def test_a_malformed_parameters_block_defaults_nothing(parameters):
     """It reads a stored file, so every shape a hand edit produces arrives."""
-    assert flowrun.with_defaults({"parameters": parameters}, {"a": 1}) == {"a": 1}
+    assert template.with_defaults({"parameters": parameters}, {"a": 1}) == {"a": 1}
 
 
 # The three above test the helper. These test the PROPERTY, through `run`, and

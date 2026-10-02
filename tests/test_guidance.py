@@ -92,7 +92,7 @@ def test_the_emitted_shapes_are_exactly_what_they_were():
     """The contract does not move: a run's hint is an object with `read`, the
     session status's guidance is a bare string. Sharing the construction must
     not change either, and this is the test that says so."""
-    from kubed.selenium_flow.flows.run import hint_for
+    from kubed.selenium_flow.flows.report import hint_for
 
     hint = hint_for({"tool": "assert", "error": "", "n": 1}, "demo")
     assert hint["read"] == "skill://selenium-flow/references/FLOWS.md"
@@ -105,7 +105,7 @@ def test_every_section_a_hint_names_is_a_heading_on_its_page():
     the page for nothing, and nothing else checks the anchors."""
     import re
 
-    from kubed.selenium_flow.flows.run import hint_for
+    from kubed.selenium_flow.flows.report import hint_for
     from kubed.selenium_flow.mcp import skill
 
     failures = [
