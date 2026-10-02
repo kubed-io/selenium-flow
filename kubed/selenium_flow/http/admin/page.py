@@ -72,13 +72,17 @@ def page_with_etag(name: str, **substitutions: str) -> tuple[str, str]:
     """:func:`page`'s answer and a strong ETag for it, built once per
     (name, substitutions) and per version of the built files."""
     key = (name, tuple(sorted(substitutions.items())), _stamp(name))
-    if key not in _pages:
+    built = _pages.get(key)
+    if built is None:
         if len(_pages) >= 16:
             _pages.clear()
         html = _build(name, **substitutions)
         digest = hashlib.sha256(html.encode()).hexdigest()[:32]
-        _pages[key] = (html, f'"{digest}"')
-    return _pages[key]
+        # Held in a local: a concurrent clear() may empty the cache between the
+        # store and the return, and re-reading `_pages[key]` would raise.
+        built = (html, f'"{digest}"')
+        _pages[key] = built
+    return built
 
 
 def page(name: str, **substitutions: str) -> str:
