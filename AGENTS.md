@@ -96,7 +96,7 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   wrappers over it. Adding a capability to one surface and not the other is the failure
   this design exists to prevent, and `tests/test_surfaces.py` asserts they match — if that
   test fails, add the missing half rather than editing the assertion.
-- **Every tool declares its MCP annotations, and they must be honest.** `mcp/annotations.py` builds
+- **Every tool declares its MCP annotations, and they must be honest.** `core/annotations.py` builds
   them, and has no intra-package imports so every surface that registers a tool can use it
   without closing a cycle. A client reads `readOnlyHint` / `destructiveHint` to decide
   whether to ask the user before running a tool — ChatGPT skips the confirmation prompt

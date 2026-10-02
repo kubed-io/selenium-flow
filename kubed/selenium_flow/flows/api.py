@@ -43,11 +43,11 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from ..core.annotations import hints
 from ..core.capabilities import ENDPOINTS, LIBRARY_ARG, capability, method_for
 from ..core.coerce import as_bool
 from ..http import answer as answer_module
 from ..mcp import clients, guidance, progress
-from ..mcp.annotations import hints
 from ..mcp.tools import SecretRef
 from ..names import GLOBAL_SESSION, valid_name
 from . import document as flowdoc

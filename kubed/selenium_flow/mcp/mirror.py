@@ -32,8 +32,8 @@ from fastmcp.utilities.types import Image
 from mcp.types import TextContent
 from pydantic import BaseModel
 
+from ..core.annotations import reads
 from . import apps, clients
-from .annotations import reads
 
 LIST_TOOL = "list_resources"
 READ_TOOL = "read_resource"

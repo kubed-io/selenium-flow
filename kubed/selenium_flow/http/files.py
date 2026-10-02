@@ -74,8 +74,8 @@ from urllib.parse import quote, unquote
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from ..core.annotations import hints, reads
 from ..mcp import clients
-from ..mcp.annotations import hints, reads
 from ..names import valid_file_name
 from . import answer as answer_module
 from . import links

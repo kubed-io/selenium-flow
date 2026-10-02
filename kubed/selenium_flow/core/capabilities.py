@@ -13,7 +13,7 @@ flow runner and the wiki need to know about one is a column of its row here:
   resource itself, which ``open_session`` and ``end_browser`` are methods on;
 * ``http_method`` is declared beside it, for the same reason;
 * ``annotations`` are the MCP hints a client reads before calling it, built by
-  ``mcp/annotations.py`` and held honest by ``tests/test_surfaces.py``;
+  ``core/annotations.py`` and held honest by ``tests/test_surfaces.py``;
 * ``response`` is what it answers, as JSON Schema. The actions return plain
   dicts, so there is nothing to introspect: this is the hand-written half of the
   published document, and a row cannot be written without it;
@@ -29,15 +29,15 @@ where FastMCP reads them — that file declares a signature per row and the body
 comes from this table.
 
 No protocol import, on purpose: the flow engine reads this table, and it sits
-below the protocol layers (``tests/test_boundaries.py``). ``mcp.annotations``
-has no imports at all, which is why it is safe here.
+below the protocol layers (``tests/test_boundaries.py``), and the annotations
+it carries are built by ``core.annotations`` beside it, which imports nothing.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..mcp.annotations import hints
+from .annotations import hints
 
 
 @dataclass(frozen=True)
