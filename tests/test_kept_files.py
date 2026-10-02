@@ -23,7 +23,7 @@ from starlette.testclient import TestClient
 from kubed.selenium_flow import errors
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core import browser
-from kubed.selenium_flow.flows import library as flows
+from kubed.selenium_flow.flows import store as flows
 from kubed.selenium_flow.http import admin, files, links
 from kubed.selenium_flow.names import FILES_DIR, GLOBAL_SESSION, InvalidName
 from kubed.selenium_flow.routes import ENDPOINTS

@@ -13,6 +13,7 @@ import os
 import pytest
 
 from kubed.selenium_flow.flows import library as flows
+from kubed.selenium_flow.flows.store import LocalFlowStore
 from kubed.selenium_flow.names import SCREENSHOTS_DIR
 
 pytestmark = pytest.mark.bench
@@ -87,7 +88,7 @@ def flow(index: int) -> dict:
 @pytest.fixture(scope="module")
 def store(tmp_path_factory):
     root = tmp_path_factory.mktemp("flows")
-    store = flows.LocalFlowStore(root)
+    store = LocalFlowStore(root)
     for index in range(FLOWS):
         store.save(SESSION, f"flow-{index:02d}", flow(index))
     for index in range(SCREENSHOTS):

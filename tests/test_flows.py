@@ -16,7 +16,8 @@ import yaml
 
 from kubed.selenium_flow.config import FlowSettings
 from kubed.selenium_flow.flows import library as flows
-from kubed.selenium_flow.flows.library import LocalFlowStore
+from kubed.selenium_flow.flows import store as flowstore
+from kubed.selenium_flow.flows.store import LocalFlowStore
 from kubed.selenium_flow.names import (
     GLOBAL_SESSION,
     STDIO_SESSION,
@@ -337,12 +338,12 @@ def test_flows_are_parsed_by_libyaml_when_the_wheel_has_it():
 
 def test_flows_are_off_unless_a_directory_is_named():
     """Not a temp-directory fallback: the operator chooses where this lives."""
-    assert flows.from_settings(FlowSettings()) is None
-    assert flows.from_settings(FlowSettings(data_dir="   ")) is None
+    assert flowstore.from_settings(FlowSettings()) is None
+    assert flowstore.from_settings(FlowSettings(data_dir="   ")) is None
 
 
 def test_naming_a_directory_turns_them_on(tmp_path):
-    store = flows.from_settings(FlowSettings(data_dir=str(tmp_path)))
+    store = flowstore.from_settings(FlowSettings(data_dir=str(tmp_path)))
     assert store is not None
     assert store.kind == "local"
 

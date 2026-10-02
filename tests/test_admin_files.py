@@ -20,7 +20,7 @@ from starlette.testclient import TestClient
 
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core import browser
-from kubed.selenium_flow.flows import library as flows
+from kubed.selenium_flow.flows import store as flows
 from kubed.selenium_flow.http import links
 from kubed.selenium_flow.names import SCREENSHOTS_DIR
 from kubed.selenium_flow.server import SeleniumMCP

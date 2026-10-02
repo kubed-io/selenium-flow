@@ -7,7 +7,7 @@ one bulk operation the store offers refuses the folder a person curated.
 
 import pytest
 
-from kubed.selenium_flow.flows import library as flows
+from kubed.selenium_flow.flows import store as flows
 from kubed.selenium_flow.names import FILES_DIR, FOLDERS, SCREENSHOTS_DIR, InvalidName
 
 pytestmark = pytest.mark.unit

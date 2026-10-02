@@ -19,7 +19,7 @@ from .core import pointer
 from .core.actions import Actions
 from .core.browser import Grid
 from .flows import api as flowapi
-from .flows import library as flows
+from .flows import store as flowstore
 from .http import admin, files
 from .mcp import (
     apps,
@@ -111,7 +111,7 @@ class SeleniumMCP:
 
         # Saved flows, or None when no data directory was named — which is the
         # default, and is the feature being off rather than a degraded mode.
-        self.flows = flows.from_settings(settings.flow)
+        self.flows = flowstore.from_settings(settings.flow)
 
         # The secrets an agent may bind, or None when none were configured.
         # Read-only and value-free: this holds a catalogue, never a credential.
