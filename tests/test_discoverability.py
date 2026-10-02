@@ -18,13 +18,11 @@ from kubed.selenium_flow.core import actions as actions_module
 from kubed.selenium_flow.core.actions import (
     DIALOG_ACTIONS,
     FRAME_ACTIONS,
-    KEY_NAMES,
-    KEYS,
     MOUSE_ACTIONS,
     PRINT_FORMATS,
-    resolve_key,
 )
 from kubed.selenium_flow.core.browser import BROWSERS
+from kubed.selenium_flow.core.keys import KEY_NAMES, KEYS, resolve_key
 
 pytestmark = pytest.mark.unit
 

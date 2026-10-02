@@ -222,7 +222,7 @@ def test_a_key_name_that_is_not_one_is_refused_with_every_name(actions, monkeypa
     """The names used to be listed in press_key's description — sixty of them,
     read on every call by a model that needed none. They are in the refusal
     instead, which is where a model that guessed wrong is looking (§F3.5)."""
-    from kubed.selenium_flow.core.actions import KEY_NAMES
+    from kubed.selenium_flow.core.keys import KEY_NAMES
 
     monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
     with pytest.raises(ValueError) as refused:

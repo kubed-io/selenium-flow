@@ -11,7 +11,7 @@ gives no warning, so only an explicit save is dependable.
 **A save is a snapshot.** It replaces the last one whole: the jar, the
 localStorage of every origin the session has been to, and the sessionStorage
 of the page it is on. Other origins are reached through a spare tab
-(`browser.spare_tab`), which is also how a restore writes them back before the
+(`spare.spare_tab`), which is also how a restore writes them back before the
 first page loads.
 
 **A site is a host.** Cookies carry a domain and no scheme or port, so the view
@@ -29,7 +29,7 @@ import json
 from ..errors import BidiUnavailable
 from ..errors import message as failure_text
 from ..urls import host_of
-from .browser import ServiceWorkerAnswered, spare_tab
+from .spare import ServiceWorkerAnswered, spare_tab
 
 # The private key an action hands its capture back under. `SessionManager.settle`
 # removes it and stores it as the snapshot; no caller ever sees it.

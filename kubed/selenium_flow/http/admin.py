@@ -211,7 +211,7 @@ def _basename(name: str) -> str:
     """The last path segment of ``name``, whichever separator was used.
 
     ``name`` arrives as a URL path parameter, so it is the caller's string.
-    Kept in step with ``actions._safe_name``, which narrows the same thing on
+    Kept in step with ``naming.safe_name``, which narrows the same thing on
     the way in.
     """
     return PurePosixPath(str(name).replace("\\", "/")).name
@@ -1101,7 +1101,7 @@ def register(
         # mount. A real filesystem failure's `str()` quotes that same path,
         # though, and the body a caller reads is not the place for
         # FLOW_DATA_DIR's layout — the same reason `core/actions.py`'s
-        # `_why_unsaved` keeps a screenshot-save failure to a type name
+        # `naming._why_unsaved` keeps a screenshot-save failure to a type name
         # rather than the OSError's own message (Copilot, PR #41).
         log.info("%s refused (%s): %s", what, status, text)
         if isinstance(exc, OSError) and exc.filename:

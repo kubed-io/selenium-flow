@@ -172,13 +172,8 @@ def outline(driver, scope=None, text="", limit=DEFAULT_LIMIT, interactive=True):
     found = driver.execute_script(
         OUTLINE_JS, scope, text or "", int(limit), bool(interactive), INTERACTIVE
     )
-    if isinstance(found, dict):
-        elements = found.get("elements") or []
-        return elements, int(found.get("total") or len(elements))
-    # A list is what the script answered before it counted; a driver double
-    # that still returns one is answered the same way.
-    elements = found or []
-    return elements, len(elements)
+    elements = found.get("elements") or []
+    return elements, int(found.get("total") or len(elements))
 
 
 def explain(driver, target) -> str:

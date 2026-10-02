@@ -7,12 +7,11 @@ import re
 
 import pytest
 
-from kubed.selenium_flow.core.browser import (
-    BIDI_INTERVAL,
+from kubed.selenium_flow.core.browser import BIDI_INTERVAL, Grid
+from kubed.selenium_flow.core.spare import (
     SPARE_MARKER,
     SPARE_PAGE,
     SPARE_PATH,
-    Grid,
     ServiceWorkerAnswered,
     spare_tab,
 )

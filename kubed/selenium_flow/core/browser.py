@@ -45,6 +45,9 @@ FIREFOX = "firefox"
 BROWSERS = (CHROME, FIREFOX)
 DEFAULT_BROWSER = CHROME
 
+# Seconds any one request to the Grid's own HTTP endpoints may take.
+GRID_TIMEOUT = 30
+
 # How long to give a keystroke-triggered navigation to commit before concluding
 # there was not one. See `settled`. Short on purpose: every Enter that navigates
 # nowhere waits this out, so it trades a small delay on those for a correct
@@ -55,14 +58,6 @@ BIDI_TIMEOUT = 5.0
 # How often Selenium looks for a BiDi reply. Its 100 ms default is a floor
 # under every BiDi command; at 5 ms a spare tab costs 30-140 ms per origin.
 BIDI_INTERVAL = 0.005
-# What a spare tab is answered with. The marker tells it from a site's own
-# page, which a service worker serves before any intercept sees the request.
-SPARE_MARKER = "selenium-flow-spare"
-SPARE_PAGE = f'<!doctype html><meta name="{SPARE_MARKER}">'
-# The only URL the intercept matches, on any origin: an intercept that outlived
-# its tab (a teardown that failed) can then never hold up a real page load,
-# which would wait out the page-load timeout (CI, #51).
-SPARE_PATH = "/__selenium-flow-spare__"
 
 
 def normalize_browser(value=None) -> str:
@@ -95,31 +90,6 @@ class ReattachDriver(RemoteWebDriver):
         self._web_element_identifier = None
 
 
-def as_bool(value, default: bool = False) -> bool:
-    """Coerce a JSON or form value to bool.
-
-    Callers that send everything as strings would otherwise make ``"false"``
-    true, because every non-empty string is truthy in Python.
-    """
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    return str(value).strip().lower() in ("1", "true", "yes", "on")
-
-
-def as_int(value, default: int) -> int:
-    """Coerce to int, falling back on anything unusable.
-
-    An omitted optional parameter often arrives as an empty string, and
-    ``int("")`` raises.
-    """
-    try:
-        return int(str(value).strip())
-    except (TypeError, ValueError):
-        return default
-
-
 def is_partial(name: str) -> bool:
     """Whether a download-directory entry is a scratch copy, not a finished file.
 
@@ -141,13 +111,8 @@ def png_size(b64: str) -> tuple[int, int]:
 class Grid:
     """A Selenium Grid endpoint, and the operations this server needs from it."""
 
-    def __init__(
-        self,
-        url: str = DEFAULT_GRID_URL,
-        timeout: int = 30,
-    ):
+    def __init__(self, url: str = DEFAULT_GRID_URL):
         self.url = url.rstrip("/")
-        self.timeout = timeout
 
     def _options(self, browser: str | None = None, insecure: bool = False):
         """Capabilities for a new session of ``browser``.
@@ -298,7 +263,7 @@ class Grid:
         """
         try:
             response = requests.get(
-                f"{self.url}/session/{session_id}/url", timeout=self.timeout
+                f"{self.url}/session/{session_id}/url", timeout=GRID_TIMEOUT
             )
         except requests.RequestException:
             return True
@@ -325,7 +290,7 @@ class Grid:
         told us the browser is gone, and reporting success would be a guess.
         """
         response = requests.delete(
-            f"{self.url}/session/{session_id}", timeout=self.timeout
+            f"{self.url}/session/{session_id}", timeout=GRID_TIMEOUT
         )
         if response.status_code == 404:
             return
@@ -371,7 +336,7 @@ class Grid:
         that is half-written and about to be called something else.
         """
         response = requests.get(
-            f"{self.url}/session/{session_id}/se/files", timeout=self.timeout
+            f"{self.url}/session/{session_id}/se/files", timeout=GRID_TIMEOUT
         )
         response.raise_for_status()
         files = [
@@ -390,7 +355,7 @@ class Grid:
         response = requests.post(
             f"{self.url}/session/{session_id}/se/files",
             json={"name": name},
-            timeout=self.timeout,
+            timeout=GRID_TIMEOUT,
         )
         response.raise_for_status()
         archive = base64.b64decode(response.json()["value"]["contents"])
@@ -408,7 +373,7 @@ class Grid:
         response used to report.
         """
         response = requests.delete(
-            f"{self.url}/session/{session_id}/se/files", timeout=self.timeout
+            f"{self.url}/session/{session_id}/se/files", timeout=GRID_TIMEOUT
         )
         if response.status_code == 404:
             return
@@ -416,7 +381,7 @@ class Grid:
 
     def status(self) -> dict:
         """The Grid's own readiness payload."""
-        response = requests.get(f"{self.url}/status", timeout=self.timeout)
+        response = requests.get(f"{self.url}/status", timeout=GRID_TIMEOUT)
         response.raise_for_status()
         return response.json()
 
@@ -425,108 +390,10 @@ class Grid:
         response = requests.post(
             f"{self.url}/graphql",
             json={"query": "{ grid { sessionCount } }"},
-            timeout=self.timeout,
+            timeout=GRID_TIMEOUT,
         )
         response.raise_for_status()
         return response.json()["data"]["grid"]["sessionCount"]
-
-
-class ServiceWorkerAnswered(RuntimeError):
-    """A spare tab got the site's own page: its service worker answered before
-    the intercept could. Nothing is read or written there."""
-
-
-@contextlib.contextmanager
-def spare_tab(bidi, context: str | None = None):
-    """A tab whose every request is answered with :data:`SPARE_PAGE`, so it
-    can stand on any origin without that site loading — Playwright's way to
-    reach another origin's storage.
-
-    Yields ``run(origin, expression)``: stand on ``origin`` and return what
-    ``expression`` evaluates to there, JSON-safe. A page without the marker is
-    a service worker's (:class:`ServiceWorkerAnswered`) and is never touched.
-
-    With ``context``, that existing tab is intercepted instead and left open:
-    the main tab, for its sessionStorage. Selenium subscribes once per event,
-    with the first handler's contexts, so the handler is removed on the way
-    out and the next tab subscribes afresh.
-    """
-    tab = context or bidi.browsing_context.create(type="tab", background=True)
-    intercept = handler = None
-    try:
-        intercept = bidi.network.add_intercept(
-            phases=["beforeRequestSent"],
-            contexts=[tab],
-            url_patterns=[{"type": "pattern", "pathname": SPARE_PATH}],
-        )["intercept"]
-
-        def answer(event):
-            # On Selenium's own thread, one per event: a refused response is
-            # not an error here, it leaves the request blocked and the
-            # navigate times out (BIDI_TIMEOUT).
-            if not isinstance(event, dict) or not event.get("isBlocked"):
-                return
-            with contextlib.suppress(Exception):
-                bidi.network.provide_response(
-                    request=event["request"]["request"],
-                    status_code=200,
-                    headers=[{
-                        "name": "content-type",
-                        "value": {"type": "string", "value": "text/html"},
-                    }],
-                    body={"type": "string", "value": SPARE_PAGE},
-                )
-
-        # `before_request`, not `before_request_sent`: the other name hands
-        # the callback an event without the request's fields.
-        handler = bidi.network.add_event_handler(
-            "before_request", answer, contexts=[tab]
-        )
-
-        def run(origin: str, expression: str):
-            bidi.browsing_context.navigate(
-                context=tab, url=origin + SPARE_PATH, wait="complete"
-            )
-            reply = bidi.script.evaluate(
-                expression=_on_spare(expression),
-                target={"context": tab},
-                await_promise=True,
-            )
-            if reply.get("type") != "success":
-                details = reply.get("exceptionDetails") or {}
-                raise RuntimeError(details.get("text") or "the script failed")
-            got = json.loads(reply["result"]["value"])
-            if not got["spare"]:
-                raise ServiceWorkerAnswered(origin)
-            if got["origin"] != origin:
-                # A navigation that did not land must never be read as this
-                # origin: the tab still holds the last one's page.
-                raise RuntimeError(f"the spare tab is on {got['origin']}, not {origin}")
-            return got["value"]
-
-        yield run
-    finally:
-        # The intercept before its handler: the other way round, a request
-        # caught in between has nobody to answer it and stays blocked.
-        if intercept is not None:
-            with contextlib.suppress(Exception):
-                bidi.network.remove_intercept(intercept=intercept)
-        if handler is not None:
-            with contextlib.suppress(Exception):
-                bidi.network.remove_event_handler("before_request", handler)
-        if context is None:
-            with contextlib.suppress(Exception):
-                bidi.browsing_context.close(context=tab)
-
-
-def _on_spare(expression: str) -> str:
-    """``expression``, run only on our page, as a JSON string that also says
-    whose page it was and where."""
-    return (
-        "JSON.stringify(document.querySelector('meta[name=\"" + SPARE_MARKER + "\"]')"
-        " ? {spare: true, origin: location.origin, value: (" + expression + ")}"
-        " : {spare: false, origin: location.origin})"
-    )
 
 
 # Selenium raises TimeoutException with an EMPTY message, which surfaces to a

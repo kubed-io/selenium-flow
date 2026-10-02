@@ -58,8 +58,8 @@ from .document import (
 )
 
 # The only attributes a step may dispatch to. `getattr(actions, tool)` alone
-# accepts any callable on the object — `clear_files` would wipe the session's
-# downloads and `__init__` would re-point it at another Grid — and saving
+# accepts any callable on the object — `_at` would navigate the browser
+# and `__init__` would re-point it at another Grid — and saving
 # validates the name but a file edited on disk never passed through saving.
 # ENDPOINTS is the canonical list of browser actions and is already held to the
 # tool surface by test_surfaces.py.
@@ -718,7 +718,7 @@ def _run(
             # Saving validates the name, so reaching this means the document was
             # written before a tool was renamed — or edited on disk, which never
             # passed through saving at all. Hence the allowlist rather than a
-            # callable check: `clear_files` and `_at` are both callable.
+            # callable check: `__init__` and `_at` are both callable.
             entry.update(ok=False, error=f"there is no action called {tool!r}")
             reports.append(entry)
             status = "failed"

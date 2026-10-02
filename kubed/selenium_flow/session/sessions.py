@@ -50,7 +50,8 @@ from dataclasses import dataclass, field, replace
 from .. import errors
 from ..core import site_data as site_data_module
 from ..core.actions import Actions
-from ..core.browser import DEFAULT_BROWSER, as_bool, in_frame
+from ..core.browser import DEFAULT_BROWSER, in_frame
+from ..core.coerce import as_bool
 from ..mcp import guidance
 from ..names import GLOBAL_SESSION, valid_session_name
 from . import settings as settings_module

@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 
 from kubed.selenium_flow.core import site_data as sd
-from kubed.selenium_flow.core.browser import ServiceWorkerAnswered
+from kubed.selenium_flow.core.spare import ServiceWorkerAnswered
 
 NOW = 1_790_800_000.0
 

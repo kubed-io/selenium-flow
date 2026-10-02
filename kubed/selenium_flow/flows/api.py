@@ -40,7 +40,7 @@ import logging
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from ..core.browser import as_bool
+from ..core.coerce import as_bool
 from ..http import answer as answer_module
 from ..mcp import clients, progress
 from ..mcp.annotations import hints

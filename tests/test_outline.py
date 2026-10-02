@@ -38,7 +38,7 @@ class _Page:
 
     def execute_script(self, script, *args):
         self.args = args
-        return self.found
+        return {"elements": self.found, "total": len(self.found)}
 
     def find_element(self, *_):
         return "<scope>"
