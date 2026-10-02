@@ -1,6 +1,6 @@
 # The optimal shape: a refactor and optimisation round
 
-**Status: DRAFT for Dr K's review (2026-10-02). Research done; six questions open.** Dr K reads this
+**Status: APPROVED in chat 2026-10-02; the six questions are ruled (see Rulings). Plan: `docs/superpowers/plans/2026-10-02-optimal-shape.md`.** Dr K reads this
 as it grows and drops rulings in chat; every ruling is recorded under *Rulings*.
 
 ## Brief
@@ -315,3 +315,15 @@ round; the TTL doc fixed to the code.
 - Claude, 2026-10-02: goldens are committed JSON, no snapshot library; new
   test dependencies only in the `test` extra; the flat `tests/` layout stays;
   `AGENTS.md`'s TTL follows the code (86400 s).
+- Dr K, 2026-10-02, on the six questions: (1) site data stays on the record this
+  round; (2) serialise one session's browser-driving calls, `end_browser` exempt
+  and cancelling; (3) `upload_file(path=)` goes — a file comes from the session's
+  file store or as content with a filename; (4) refuse every scheme but the web's
+  — a later round may let `navigate` show a kept file, served by the server, since
+  a `file:` URL in the Grid's browser would name the Grid node's disk, not ours;
+  (5) `/ready` and `/info` stay tokenless and unchanged, so Kubernetes can probe
+  them; (6) the admin page should be frameable by Nextcloud or Grafana when an
+  operator lists them: a `security` config section with `frame_ancestors`.
+- Claude, 2026-10-02: the user-visible consequences of the security fixes take
+  changelog lines (a removed argument, a refused scheme, a new setting, serialised
+  calls); the refactor itself takes none.
