@@ -642,6 +642,17 @@ def settled(driver, anchor, timeout: float = NAVIGATION_SETTLE) -> None:
         return
 
 
+# Whether the selected browsing context is a frame. `window` and `top` are both
+# unforgeable; `window.self` is not - a page can run `self = top` and a check
+# reading it says "not in a frame" from inside one.
+IN_FRAME = "return window !== window.top"
+
+# The selected browsing context's origin: the frame's when the session is in
+# one, the top page's otherwise. Never gated on a frame check, which a hostile
+# frame could forge.
+ORIGIN_HERE = "return document.location.origin"
+
+
 def in_frame(driver) -> bool:
     """Whether the session is currently switched into an iframe.
 
@@ -651,30 +662,29 @@ def in_frame(driver) -> bool:
     for a reason that looks nothing like the cause.
     """
     try:
-        return bool(driver.execute_script("return window.self !== window.top"))
+        return bool(driver.execute_script(IN_FRAME))
     except Exception:  # noqa: BLE001 - a dialog or a dead session must not raise here
         return False
 
 
-def frame_origin(driver) -> str | None:
-    """The selected frame's origin, or None when the session is on the top page.
+def frame_origin(driver) -> str:
+    """The origin of the document a keystroke would reach.
 
-    A script runs in the selected frame, so ``document.location.origin`` is the
-    frame's own: the origin a keystroke into it reaches. ``page_state`` cannot
-    say this, because WebDriver's url is always the top page's. A frame with no
-    origin of its own (sandboxed, or ``data:``) answers ``"null"``.
+    A script runs in the selected browsing context, so ``document.location
+    .origin`` is the frame's own when the session is in one and the top page's
+    when it is not. ``page_state`` cannot say this, because WebDriver's url is
+    always the top page's. Read every time, never only "when in a frame": the
+    frame check is the page's to answer, and a hostile frame can forge it.
 
-    Unlike `in_frame`, a failure is not "no frame": this feeds a secret's leash,
-    and an answer of None there would check the top page instead. Not knowing is
-    reported as an origin that matches nothing.
+    A document with no origin of its own (sandboxed, ``data:``) answers
+    ``"null"``, and a failure or a non-string answer is ``""``: both match no
+    allowed origin, so not knowing is refused rather than read as the top page.
     """
     try:
-        found = driver.execute_script(
-            "return window.self !== window.top ? document.location.origin : null"
-        )
+        found = driver.execute_script(ORIGIN_HERE)
     except Exception:  # noqa: BLE001 - not knowing is an answer the leash refuses
         return ""
-    return None if found is None else str(found)
+    return found if isinstance(found, str) else ""
 
 
 def page_state(driver) -> dict:

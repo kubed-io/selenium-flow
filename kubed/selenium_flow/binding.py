@@ -121,10 +121,12 @@ def check_pair(args: dict, say: Wording = AT_RUN) -> list[str]:
 def receiving(page: dict) -> tuple[str, ...]:
     """What the leash checks for a keystroke on ``page``, each one in turn.
 
-    The top page's url, and in a frame the frame's origin too, because that is
-    the document receiving the value: an allowed page can frame anyone, and
+    The top page's url, and the origin of the document the keystroke reaches,
+    which in a frame is the frame's: an allowed page can frame anyone, and
     checking the page alone typed into the frame (§F2). Both, never the frame
-    instead: a tightening, so nothing the top-page check refused can pass.
+    instead: a tightening, so nothing the top-page check refused can pass. Out
+    of a frame the two are the same origin, so the common case refuses nothing
+    new. A page with no ``frame_origin`` (a double) is checked by its url.
     """
     top = page.get("url") or ""
     if "frame_origin" in page:

@@ -1118,15 +1118,16 @@ class Actions:
         the page about to receive the keystroke, and that check has to read the
         page rather than trust what the caller said about it.
 
-        In a frame, the keystroke reaches the frame, so its origin is reported
-        as ``frame_origin`` beside the top page's url (§F2).
+        The origin of the document a keystroke would reach is reported as
+        ``frame_origin`` beside the top page's url: in a frame it is the
+        frame's, and it is read every time rather than when a frame check says
+        so, because a frame can forge that check (§F2).
         """
         driver = self.grid.reconnect(session_id)
-        state = browser.page_state(driver)
-        framed = browser.frame_origin(driver)
-        if framed is not None:
-            state["frame_origin"] = framed
-        return state
+        return {
+            **browser.page_state(driver),
+            "frame_origin": browser.frame_origin(driver),
+        }
 
     def _recipe(self, wait=None, retry_stale=False) -> Recipe:
         """The road for an action that takes ``url``: through `_at`.

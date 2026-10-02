@@ -1257,8 +1257,13 @@ def framed(tmp_path):
     catalogue = Catalogue([FilesystemSource(tmp_path)])
     typed = []
 
-    def build(frame_origin=None, top=ALLOWED):
-        scripts = {"location.origin": frame_origin} if frame_origin else {}
+    def build(frame_origin=None, top=ALLOWED, forged=False):
+        # The selected context's origin is the top page's unless a frame is
+        # selected; `forged` is a frame that ran `self = top`, so a check that
+        # reads `window.self` says it is not one.
+        scripts = {"location.origin": frame_origin or top}
+        if forged:
+            scripts = {"window.self": False, **scripts}
         driver = ScriptedDriver(url=f"{top}/login", title="Log in", scripts=scripts)
         actions = Actions(SimpleNamespace(reconnect=lambda session_id: driver))
         actions.write = lambda session_id, text, **_: typed.append(text) or {
@@ -1268,9 +1273,9 @@ def framed(tmp_path):
 
     held = SimpleNamespace(resolve=lambda name: "b1", settle=lambda *a, **k: None)
 
-    def write(frame_origin=None, top=ALLOWED):
+    def write(frame_origin=None, top=ALLOWED, forged=False):
         return secrets.perform_write(
-            catalogue, build(frame_origin, top), held, "desktop",
+            catalogue, build(frame_origin, top, forged), held, "desktop",
             {"selector": {"css": "#p"}, "secret": {"name": "nextcloud", "key": "password"}},
         )
 
@@ -1297,6 +1302,17 @@ def test_an_allowed_frame_inside_a_page_that_is_not_allowed_is_refused(framed):
     assert str(refused.value) == (
         f"the secret 'nextcloud' may not be used on {ELSEWHERE}. It allows: {ALLOWED}"
     )
+    assert typed == []
+
+
+@pytest.mark.parametrize("frame_origin,named", [(ELSEWHERE, ELSEWHERE), ("null", "this page")])
+def test_a_frame_that_forges_self_is_still_checked(framed, frame_origin, named):
+    """A hostile frame runs `self = top`. The origin is read whatever any frame
+    check says, so the frame is still refused, and an opaque one too."""
+    write, typed = framed
+    with pytest.raises(secrets.Refused) as refused:
+        write(frame_origin=frame_origin, forged=True)
+    assert f"may not be used on {named}." in str(refused.value)
     assert typed == []
 
 

@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from kubed.selenium_flow.core import probe
+from kubed.selenium_flow.core import browser, probe
 from kubed.selenium_flow.site_data import transfer
 
 pytestmark = pytest.mark.unit
@@ -242,3 +242,25 @@ def test_the_site_data_fill_writes_the_given_keys_and_nothing_else():
     assert answer["wrote"] == 2
     assert answer["all"] == {"keep": "mine", **items}
     assert answer["session"] == 0
+
+
+def test_a_frame_that_forges_self_is_still_a_frame_and_its_origin_is_still_read():
+    """`window.self` is writable: a frame that runs `self = top` made the old
+    `window.self !== window.top` say "not in a frame", and the leash then checked
+    only the top page. The frame check and the origin read are the production
+    scripts, run inside that frame. jsdom gives an about:blank frame an opaque
+    origin, "null", which the leash matches to nothing (test_secrets)."""
+    as_in_frame = (
+        "const frame = document.createElement('iframe'); "
+        "document.body.appendChild(frame); "
+        "const w = frame.contentWindow; "
+        "w.eval('self = top'); "
+        "const run = (body) => w.eval('(function () {\\n' + body + '\\n})')(); "
+        "return {forged: run('return window.self !== window.top'), "
+        f"in_frame: run({json.dumps(browser.IN_FRAME)}), "
+        f"origin: run({json.dumps(browser.ORIGIN_HERE)})}};"
+    )
+    answer = run("-", "<p></p>", source=as_in_frame)
+    assert answer["forged"] is False, "the old check is fooled"
+    assert answer["in_frame"] is True
+    assert answer["origin"] == "null"
