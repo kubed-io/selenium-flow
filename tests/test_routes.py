@@ -632,14 +632,19 @@ def test_every_failure_class_is_the_status_it_means_over_http(
 
 
 def test_the_status_table_names_every_class_errors_py_classifies():
-    """A class added to `errors.py` without a row above is a status nobody
-    looked at."""
-    covered = {type(e) for e, _ in STATUS_TABLE}
-    classified = {
-        *errors.CALLER, *errors.GONE, *errors.UNAVAILABLE, errors.NotFound,
-        errors.AssertionFailed, errors.BidiUnavailable,
+    """A class added to `errors.py` — defined there, or listed in one of its
+    tuples — without a row above is a status nobody looked at."""
+    import inspect
+
+    defined = {
+        cls
+        for _, cls in inspect.getmembers(errors, inspect.isclass)
+        if cls.__module__ == errors.__name__ and issubclass(cls, Exception)
     }
-    assert classified <= covered
+    assert defined, "errors.py defines no exception classes: the enumeration broke"
+    covered = {type(e) for e, _ in STATUS_TABLE}
+    assert defined <= covered, f"no row for {sorted(c.__name__ for c in defined - covered)}"
+    assert {*errors.CALLER, *errors.GONE, *errors.UNAVAILABLE} <= covered
 
 
 def test_a_store_that_kept_losing_to_other_writers_is_a_500(open_server, open_client, monkeypatch):
