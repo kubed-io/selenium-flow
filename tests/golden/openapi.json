@@ -2835,17 +2835,6 @@
             ],
             "default": null
           },
-          "path": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null
-          },
           "selector": {
             "anyOf": [
               {
@@ -4794,7 +4783,7 @@
     },
     "/browser/upload": {
       "post": {
-        "description": "Attach a file to a file input (selector). Give exactly one source:\n\n- text, for anything you wrote (JSON, CSV, markdown), with a filename;\n- file, any file this session has, by its uri from session://files — a\n  screenshot, a download or a file in Files — without its bytes passing\n  through you;\n- content, base64, for other binary;\n- path, a file already on the server.\n\nThe page reads the type from the filename's extension, so name it\nreport.csv, not report; without one, mime_type picks it.",
+        "description": "Attach a file to a file input (selector). Give exactly one source:\n\n- text, for anything you wrote (JSON, CSV, markdown), with a filename;\n- file, any file this session has, by its uri from session://files — a\n  screenshot, a download or a file in Files — without its bytes passing\n  through you;\n- content, base64, for other binary.\n\nThe page reads the type from the filename's extension, so name it\nreport.csv, not report; without one, mime_type picks it.",
         "operationId": "upload_file",
         "parameters": [
           {

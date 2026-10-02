@@ -319,13 +319,14 @@ async def test_the_upload_form_offers_every_source_the_action_takes(spec, server
     the two drift in exactly one direction: a new source appears in JSON and
     not in the form."""
     upload = await server.mcp.get_tool("upload_file")
-    sources = {"text", "content", "file", "path"} & set(upload.parameters["properties"])
+    sources = {"text", "content", "file"} & set(upload.parameters["properties"])
     form = spec["paths"]["/browser/upload"]["post"]["requestBody"]["content"][
         "multipart/form-data"
     ]["schema"]["properties"]
-    # `path` is a server-side filesystem path and has no place in a form, so it
-    # is the one source deliberately absent; everything else must be offered.
-    assert (sources - {"path"}) <= set(form)
+    assert sources <= set(form)
+    # Ruling 3: a file on the server's own disk is no source on either surface.
+    assert "path" not in upload.parameters["properties"]
+    assert "path" not in spec["components"]["schemas"]["UploadFileRequest"]["properties"]
 
 
 async def test_uploading_a_kept_file_needs_no_library_field_on_either_surface(

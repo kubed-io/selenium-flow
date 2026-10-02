@@ -753,7 +753,7 @@ def test_a_full_page_screenshot_that_fails_still_restores_the_window(actions, sc
     assert driver.window == {"width": 1000, "height": 700}
 
 
-# ---- U5, U6: uploading from the server's disk --------------------------------
+# ---- U5, U6: staging an upload --------------------------------------------
 
 
 @pytest.fixture
@@ -767,25 +767,12 @@ def _staged(folder: Path):
     return list(folder.glob("selenium-flow-*"))
 
 
-def test_an_upload_naming_a_file_that_is_not_there_is_a_400_saying_so(actions, scripted):
-    scripted()
-    missing = "/nonexistent/report.csv"
-    with pytest.raises(ValueError) as caught:
-        actions.upload_file("abc", selector={"css": "input"}, path=missing)
-    assert str(caught.value) == f"no file at {missing}"
-    assert status_for(caught.value) == 400
-
-
-def test_an_upload_from_a_path_reports_the_name_and_size_and_stages_nothing(
-    actions, scripted, staging, tmp_path
-):
-    source = tmp_path / "data.txt"
-    source.write_text("12345")
-    driver = scripted()
-    result = actions.upload_file("abc", selector={"css": "input"}, path=str(source))
-    assert result["filename"] == "data.txt" and result["bytes"] == 5
-    assert ("element", "send_keys", str(source)) in driver.log
-    assert _staged(staging) == []
+def test_an_upload_takes_no_file_from_the_servers_disk(actions, untouched):
+    """Ruling 3: `path` read any file the server user could, its config and
+    mounted secrets included. A file comes as content or from the session's
+    store; a server path is not an argument at all."""
+    with pytest.raises(TypeError, match="path"):
+        actions.upload_file("abc", selector={"css": "input"}, path="/etc/passwd")
 
 
 def test_the_staging_directory_is_removed_once_the_upload_is_sent(

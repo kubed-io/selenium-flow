@@ -645,7 +645,6 @@ class Actions:
         content=None,
         filename=None,
         mime_type=None,
-        path=None,
         url=None,
         wait_timeout=WAIT_TIMEOUT,
         file=None,
@@ -663,7 +662,7 @@ class Actions:
         than honoured (Copilot, #41). Passed as anything but that internal
         injection, it is ignored and the calling session answers instead.
 
-        The file arrives one of four ways, and exactly one is required:
+        The file arrives one of three ways, and exactly one is required:
 
         - ``text`` — the file's content as plain text. This is the one to use
           for anything an agent produced itself: JSON, CSV, YAML, markdown.
@@ -677,7 +676,9 @@ class Actions:
           way to give it back to a page. Now a flow can download an export and
           upload it somewhere else, without the bytes ever passing through a
           model's context (§F1.41, §F4.7).
-        - ``path`` — a file already on this server's filesystem.
+
+        Never a path on this server: one let any caller upload whatever the
+        server could read, its config and mounted secrets included (Ruling 3).
 
         Whichever it is, the bytes are written to a temporary file here and
         shipped to the Grid node by Selenium, because the browser runs in
@@ -694,19 +695,18 @@ class Actions:
                 ("text", text),
                 ("content", content),
                 ("file", file),
-                ("path", path),
             )
             if v
         ]
         if not sources:
             raise ValueError(
                 "the file is required: pass text for a text file, content for "
-                "base64 bytes, file for any file this session has, by its "
-                "session://files uri, or path for a file on the server"
+                "base64 bytes, or file for any file this session has, by its "
+                "session://files uri"
             )
         if len(sources) > 1:
             raise ValueError(
-                f"pass only one of text, content, file or path; "
+                f"pass only one of text, content or file; "
                 f"got {', '.join(sources)}"
             )
 
@@ -724,7 +724,7 @@ class Actions:
                 raise ValueError(
                     "file is not available on this server: the flow store is "
                     "off, so there is nowhere for keep_file to have kept one. "
-                    "Pass text, content or path instead"
+                    "Pass text or content instead"
                 )
             # `session` names WHICH library, and is not `session_id`, which
             # names the browser. Both appear on `/files/list` for the same
@@ -748,25 +748,20 @@ class Actions:
         def attach(at):
             temp_dir = None
             try:
-                if raw is not None:
-                    try:
-                        temp_dir = tempfile.mkdtemp(prefix="selenium-flow-")
-                    except OSError as exc:
-                        # The image runs read-only as an unprivileged user, so
-                        # this is a deployment problem rather than a caller's:
-                        # there has to be one writable directory to stage a
-                        # file in before Selenium can ship it to the Grid node.
-                        raise RuntimeError(
-                            "cannot stage the upload: no writable temporary "
-                            f"directory ({exc}). Mount one at /tmp (an emptyDir "
-                            "volume) or set TMPDIR to a writable path."
-                        ) from exc
-                    staged = Path(temp_dir) / name
-                    staged.write_bytes(raw)
-                else:
-                    staged = Path(str(path))
-                    if not staged.is_file():
-                        raise ValueError(f"no file at {staged}")
+                try:
+                    temp_dir = tempfile.mkdtemp(prefix="selenium-flow-")
+                except OSError as exc:
+                    # The image runs read-only as an unprivileged user, so this
+                    # is a deployment problem rather than a caller's: there has
+                    # to be one writable directory to stage a file in before
+                    # Selenium can ship it to the Grid node.
+                    raise RuntimeError(
+                        "cannot stage the upload: no writable temporary "
+                        f"directory ({exc}). Mount one at /tmp (an emptyDir "
+                        "volume) or set TMPDIR to a writable path."
+                    ) from exc
+                staged = Path(temp_dir) / name
+                staged.write_bytes(raw)
 
                 # send_keys wants a string path, and Selenium's
                 # LocalFileDetector reads it off the filesystem to ship the

@@ -87,8 +87,8 @@ def scrub(text: str, values) -> str:
     """``text`` with every guarded value replaced.
 
     It is needed because an action puts its arguments in its error text:
-    ``upload_file`` bound to a guarded path raises ``no file at <path>``, and a
-    bad URL comes back from Selenium with the URL in it.
+    ``upload_file`` naming a kept file that is not there raises ``no file at
+    <uri>``, and a bad URL comes back from Selenium with the URL in it.
 
     A very short guarded value makes the message noisy, which is the right way
     round: a mangled error beats a leaked credential, and a two-character secret

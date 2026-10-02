@@ -282,12 +282,25 @@ def test_upload_refuses_more_than_one_source(open_client):
     """Two sources for one file is a caller mistake worth naming precisely."""
     response = open_client.post(
         "/browser/upload",
-        json={"selector": {"xpath": "//input"}, "content": "eA==", "path": "/tmp/x"},
+        json={"selector": {"xpath": "//input"}, "content": "eA==", "text": "x"},
     )
     assert response.status_code == 400
     error = response.json()["error"]
     assert "only one" in error
-    assert "content" in error and "path" in error
+    assert "content" in error and "text" in error
+
+
+def test_upload_drops_a_server_path_like_any_unknown_field(open_client):
+    """Ruling 3. Over HTTP an unknown key is dropped rather than refused, and
+    `path` is one now: it reads nothing, and the upload still needs a file."""
+    response = open_client.post(
+        "/browser/upload",
+        json={"selector": {"xpath": "//input"}, "path": "/etc/passwd"},
+    )
+    assert response.status_code == 400
+    error = response.json()["error"]
+    assert error.startswith("the file is required")
+    assert "path" not in error and "passwd" not in error
 
 
 def test_upload_takes_plain_text_as_the_file(open_client):
@@ -313,7 +326,8 @@ def test_upload_needs_some_kind_of_file(open_client):
     )
     assert response.status_code == 400
     error = response.json()["error"]
-    assert "text" in error and "content" in error and "path" in error
+    assert "text" in error and "content" in error and "file" in error
+    assert "path" not in error
 
 
 def test_upload_rejects_content_that_is_not_base64(open_client):

@@ -55,6 +55,15 @@ async def test_a_selector_given_as_text_is_shown_the_object_it_should_be(server)
     assert '{"css": "button.go"}' in said and "xpath" in said
 
 
+async def test_an_upload_names_no_file_on_the_servers_disk(server):
+    """Ruling 3: `path` is gone from the tool, so naming one is an unknown
+    argument rather than a read of whatever the server can see."""
+    said = await refused(
+        server, "upload_file", {"selector": {"css": "input"}, "path": "/etc/passwd"}
+    )
+    assert "no parameter 'path'" in said
+
+
 async def test_a_word_outside_a_closed_set_is_given_the_set(server):
     said = await refused(server, "interact", {"action": "tap", "selector": {"css": "a"}})
     assert "click, double_click, right_click, hover, scroll_to" in said

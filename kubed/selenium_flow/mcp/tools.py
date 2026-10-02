@@ -521,7 +521,6 @@ def register(
         filename: str | None = None,
         mime_type: str | None = None,
         content: str | None = None,
-        path: str | None = None,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
         file: str | None = None,
@@ -532,8 +531,7 @@ def register(
         - file, any file this session has, by its uri from session://files — a
           screenshot, a download or a file in Files — without its bytes passing
           through you;
-        - content, base64, for other binary;
-        - path, a file already on the server.
+        - content, base64, for other binary.
 
         The page reads the type from the filename's extension, so name it
         report.csv, not report; without one, mime_type picks it.
