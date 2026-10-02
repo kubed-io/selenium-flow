@@ -9,6 +9,8 @@ bench times; a module split now has one file to repoint.
 import json
 from types import SimpleNamespace
 
+from selenium.common.exceptions import UnexpectedAlertPresentException
+
 from kubed.selenium_flow.core.site_data import origin_of
 
 MAIN = "main-1"
@@ -334,3 +336,178 @@ class FakeBidi:
             stuck=stuck,
             fail=fail,
         )
+
+
+class ScriptedElement:
+    """What a locator finds: it records what it is asked to do on the driver's
+    log, so the order of a gesture is assertable alongside the driver's own
+    calls. ``text`` and ``html`` are what a read returns."""
+
+    def __init__(self, log, text="the text", html="<b>the text</b>", value=""):
+        self.log, self.text, self.html, self.value = log, text, html, value
+        self.screenshot_as_base64 = ""
+        self.fail_on = {}
+
+    def _do(self, name, *args):
+        self.log.append(("element", name, *args))
+        if name in self.fail_on:
+            raise self.fail_on[name]
+
+    def is_displayed(self):
+        self._do("is_displayed")
+        return True
+
+    def is_enabled(self):
+        self._do("is_enabled")
+        return True
+
+    def click(self):
+        self._do("click")
+
+    def clear(self):
+        self._do("clear")
+
+    def send_keys(self, *keys):
+        self._do("send_keys", *keys)
+
+    def get_attribute(self, name):
+        self._do("get_attribute", name)
+        return self.html if name == "innerHTML" else self.value
+
+
+class _ScriptedAlert:
+    def __init__(self, driver):
+        self._driver = driver
+
+    @property
+    def text(self):
+        self._driver.log.append(("alert", "text"))
+        return self._driver.dialog
+
+    def accept(self):
+        self._driver.log.append(("alert", "accept"))
+        self._driver.__dict__["dialog"] = None
+
+    def dismiss(self):
+        self._driver.log.append(("alert", "dismiss"))
+        self._driver.__dict__["dialog"] = None
+
+    def send_keys(self, keys):
+        self._driver.log.append(("alert", "send_keys", keys))
+
+
+class _ScriptedSwitch:
+    def __init__(self, driver):
+        self._driver = driver
+
+    @property
+    def alert(self):
+        self._driver.log.append(("switch_to", "alert"))
+        return _ScriptedAlert(self._driver)
+
+    def frame(self, target):
+        self._driver.log.append(("switch_to", "frame", target))
+
+    def default_content(self):
+        self._driver.log.append(("switch_to", "default_content"))
+
+    def parent_frame(self):
+        self._driver.log.append(("switch_to", "parent_frame"))
+
+
+class ScriptedDriver:
+    """A driver that does nothing and remembers everything.
+
+    ``log`` holds every call and every attribute read or write, in order, as
+    tuples: ``("get", url)``, ``("current_url",)``, ``("set_window_size", w, h)``,
+    ``("element", "click")`` for what a found element was asked. A test asserts
+    on the log's order, or on whether an entry is there at all.
+
+    ``dialog`` is the text of an open native dialog, or None: while it is open,
+    reading ``current_url`` or ``title`` raises ``UnexpectedAlertPresentException``
+    as a real driver does. ``scripts`` maps a substring of a script to what
+    ``execute_script`` returns for it, first match winning, else None. ``element``
+    is what every locator finds.
+    """
+
+    PNG = (
+        "iVBORw0KGgoAAAANSUhEUgAAAAMAAAAEAQMAAACTPww9AAAAA1BMVEUAAACnej3aAAAAAXRSTlMA"
+        "QObYZgAAAApJREFUCNdjYAAAAAIAAeIhvDMAAAAASUVORK5CYII="
+    )
+
+    def __init__(
+        self, url="https://example.test/", title="Example", scripts=None,
+        dialog=None, window=(1280, 800), session_id="abc",
+    ):
+        d = self.__dict__
+        d["log"] = []
+        d["_url"], d["_title"], d["dialog"] = url, title, dialog
+        d["scripts"] = dict(scripts or {})
+        d["window"] = {"width": window[0], "height": window[1]}
+        d["session_id"] = session_id
+        d["element"] = ScriptedElement(d["log"])
+        d["switch_to"] = _ScriptedSwitch(self)
+        d["screenshot_data"] = self.PNG
+
+    def __setattr__(self, name, value):
+        self.log.append(("set", name))
+        self.__dict__[name] = value
+
+    @property
+    def current_url(self):
+        self.log.append(("current_url",))
+        if self.dialog is not None:
+            raise UnexpectedAlertPresentException("dialog open")
+        return self._url
+
+    @property
+    def title(self):
+        self.log.append(("title",))
+        if self.dialog is not None:
+            raise UnexpectedAlertPresentException("dialog open")
+        return self._title
+
+    def get(self, url):
+        self.log.append(("get", url))
+        self.__dict__["_url"] = url
+
+    def execute_script(self, script, *args):
+        self.log.append(("execute_script", script))
+        for needle, value in self.scripts.items():
+            if needle in script:
+                return value
+        return None
+
+    def execute(self, *args, **kwargs):
+        self.log.append(("execute", *args))
+        return {"value": None}
+
+    def find_element(self, by=None, value=None):
+        self.log.append(("find_element", by, value))
+        return self.element
+
+    def find_elements(self, by=None, value=None):
+        self.log.append(("find_elements", by, value))
+        return [self.element]
+
+    def get_window_size(self):
+        self.log.append(("get_window_size",))
+        return dict(self.window)
+
+    def set_window_size(self, width, height):
+        self.log.append(("set_window_size", width, height))
+        self.window.update(width=width, height=height)
+
+    def set_page_load_timeout(self, seconds):
+        self.log.append(("set_page_load_timeout", seconds))
+
+    def set_script_timeout(self, seconds):
+        self.log.append(("set_script_timeout", seconds))
+
+    def get_screenshot_as_base64(self):
+        self.log.append(("get_screenshot_as_base64",))
+        return self.screenshot_data
+
+    def names(self):
+        """Just the names in the log, for an order assertion."""
+        return [entry[0] for entry in self.log]

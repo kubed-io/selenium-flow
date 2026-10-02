@@ -23,7 +23,7 @@ from kubed.selenium_flow.session import sessions as sessions_module
 from kubed.selenium_flow.session.sessions import SessionManager
 from kubed.selenium_flow.session.store import MemoryStore
 
-from .fakes import FakeGrid
+from .fakes import FakeGrid, ScriptedDriver
 
 TOKEN = "test-token-abc123"
 
@@ -103,6 +103,21 @@ def http(params=None, headers=None):
 def manager(actions=None, store=None):
     """A SessionManager over doubles, which is how nearly every test wants one."""
     return SessionManager(actions or RecordingActions(), store or MemoryStore())
+
+
+@pytest.fixture
+def scripted(actions, monkeypatch):
+    """Make `actions` drive a `ScriptedDriver`: ``scripted(**settings)`` builds
+    one, reattaches every session to it, and returns it. ``driver.log`` is the
+    record of what was asked."""
+
+    def use(**settings):
+        driver = ScriptedDriver(**settings)
+        monkeypatch.setattr(actions.grid, "reconnect", lambda session_id: driver)
+        monkeypatch.setattr(actions.grid, "open", lambda *a, **k: driver)
+        return driver
+
+    return use
 
 
 # ---- who is calling --------------------------------------------------------
