@@ -430,6 +430,11 @@ class Actions:
         if url:
             driver.get(url)
             current_url, title = driver.current_url, driver.title
+        elif report is not None and driver.current_url != "about:blank":
+            # The restore sends the tab back from its stand-in page over BiDi,
+            # and swallows a failure; the classic driver makes the reported
+            # about:blank true (Copilot, #51).
+            driver.get("about:blank")
 
         size = driver.get_window_size()
         # Reported back so a caller can see what the cascade actually resolved

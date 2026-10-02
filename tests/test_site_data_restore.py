@@ -291,3 +291,24 @@ def test_a_restore_with_nothing_to_say_carries_no_hint(actions, monkeypatch, spa
     data = snapshot(cookies=[cookie("old", "app.example.com", expiry=int(NOW) - 1)])
     result, order = opened(actions, monkeypatch, spare, data)
     assert order == ["get"] and "site_data" not in result
+
+
+def test_an_open_with_no_url_is_on_about_blank_even_when_the_restore_could_not_say_so(
+    actions, monkeypatch, spare
+):
+    # The BiDi trip back from the stand-in page failed and was swallowed: the
+    # tab still sits on the saved origin, while the open reports about:blank.
+    went = []
+
+    class LeftOnTheStandIn(OpenedDriver):
+        def get(self, url):
+            went.append(url)
+            self.current_url = url
+
+    order = []
+    spare.order = order
+    monkeypatch.setattr(actions.grid, "open", lambda name, insecure=False: LeftOnTheStandIn(order))
+    monkeypatch.setattr(actions.grid, "bidi", bidi_cm(FakeBidi(order=order)))
+    result = actions.open_session(site_data=FULL)
+    assert went == ["about:blank"]
+    assert result["url"] == "about:blank"
