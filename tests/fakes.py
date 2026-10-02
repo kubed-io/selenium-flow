@@ -7,6 +7,8 @@ bench times; a module split now has one file to repoint.
 """
 
 import json
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 
 from selenium.common.exceptions import UnexpectedAlertPresentException
@@ -42,6 +44,84 @@ class FakeGrid:
     def read_file(self, session_id, name):
         self.reads.append((session_id, name))
         return self.data
+
+
+class CountingGridServer:
+    """A Grid on a real localhost socket that counts the TCP connections it
+    accepts, so a test can prove two calls shared one.
+
+    Answers what `Grid` and a reattached driver ask: a session's URL, its file
+    listing, ``/status``; anything else is ``{"value": null}``. ``drop`` is how
+    many of the next requests are read and then answered by closing the
+    connection - a pooled connection meeting a Grid that restarted under it.
+    ``requests`` is every (method, path) received, answered or dropped.
+    ``cookie`` is a ``Set-Cookie`` every answer carries, and ``cookies`` the
+    ``Cookie`` header each request arrived with.
+    """
+
+    def __init__(self):
+        self.connections = 0
+        self.requests = []
+        self.drop = 0
+        self.cookie = None
+        self.cookies = []
+        fake = self
+
+        class Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def log_message(self, *_args):
+                pass
+
+            def _answer(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                if length:
+                    self.rfile.read(length)
+                fake.requests.append((self.command, self.path))
+                fake.cookies.append(self.headers.get("Cookie"))
+                if fake.drop:
+                    fake.drop -= 1
+                    self.close_connection = True
+                    return
+                body = json.dumps(fake.reply(self.path)).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                if fake.cookie:
+                    self.send_header("Set-Cookie", fake.cookie)
+                self.end_headers()
+                self.wfile.write(body)
+
+            do_GET = do_POST = do_DELETE = _answer
+
+        class Server(ThreadingHTTPServer):
+            daemon_threads = True
+
+            def get_request(self):
+                accepted = super().get_request()
+                fake.connections += 1
+                return accepted
+
+        self.server = Server(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
+
+    @staticmethod
+    def reply(path):
+        if path.endswith("/url"):
+            return {"value": "https://example.test/"}
+        if path.endswith("/se/files"):
+            return {"value": {"files": []}}
+        if path == "/status":
+            return {"value": {"ready": True}}
+        return {"value": None}
+
+    def __enter__(self):
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        return self
+
+    def __exit__(self, *exc):
+        self.server.shutdown()
+        self.server.server_close()
 
 
 class FakeActions:

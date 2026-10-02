@@ -9,19 +9,21 @@ report) is provable rather than hoped for.
 """
 
 import tempfile
+from itertools import pairwise
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 import requests
 from selenium.common.exceptions import StaleElementReferenceException
+from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import wait as selenium_wait
 
 from kubed.selenium_flow.core import browser, pointer
 from kubed.selenium_flow.core.browser import NAVIGATION_SETTLE
 from kubed.selenium_flow.errors import status_for
 
-from .fakes import CountingDriver
+from .fakes import CountingDriver, ScriptedElement
 
 pytestmark = pytest.mark.unit
 
@@ -39,6 +41,8 @@ def pointer_lands(monkeypatch):
         lambda *a, **k: {
             "at": (10.0, 10.0), "glided": False, "nudged": False,
             "unknown_start": False,
+            # A move reports the window's size it read on landing (Task 19).
+            "viewport": (1000, 800),
         },
     )
 
@@ -273,8 +277,11 @@ ROADS = {
     "drag": (
         {"scripts": {"innerWidth": [1000, 800]}},
         lambda a: a.drag("abc", selector=AT, by_x=5, url=OTHER),
+        # Task 19: no `execute_script` between the wait and the drop. The
+        # window's size comes back with the approach's landing (center.js),
+        # so the separate viewport read is gone.
         ["reconnect", "current_url", "get", "find_element", "element.is_displayed",
-         "element.is_enabled", "execute_script", "execute", "current_url", "title"],
+         "element.is_enabled", "execute", "current_url", "title"],
     ),
     "frame switch": (
         {}, lambda a: a.frame("abc", "switch", selector=AT),
@@ -383,6 +390,78 @@ def test_print_reads_the_page_once_it_is_kept(actions, monkeypatch):
     assert _road(driver.log) == kept[0] + ["current_url", "title"]
 
 
+# ---- Task 19: a pointer move asks the page once per question -----------------
+
+# The same roads with the pointer code running for real, so the scripts a move
+# sends are on the record. Each move reads where it landed with center.js, which
+# also answers the window's size: there is no separate viewport read.
+CENTER = {"at": [10, 10], "scrolled": False, "outside": False, "viewport": [1000, 800]}
+MOVES = {
+    "interact click": (
+        lambda a: a.interact("abc", "click", selector=AT),
+        ["reconnect", "find_element", "element.is_displayed", "element.is_enabled",
+         "execute_script", "execute", "execute_script", "element.click",
+         "current_url", "title"],
+    ),
+    "interact hover glide": (
+        lambda a: a.interact("abc", "hover", selector=AT, glide=True),
+        ["reconnect", "find_element", "execute_script", "execute_script", "execute",
+         "execute_script", "current_url", "title"],
+    ),
+    "drag by an offset": (
+        lambda a: a.drag("abc", selector=AT, by_x=5),
+        ["reconnect", "find_element", "element.is_displayed", "element.is_enabled",
+         "execute_script", "execute", "execute_script", "execute", "current_url",
+         "title"],
+    ),
+    "drag to an element": (
+        lambda a: a.drag("abc", selector=AT, to={"css": "#y"}),
+        ["reconnect", "find_element", "element.is_displayed", "element.is_enabled",
+         "execute_script", "execute", "execute_script", "find_element",
+         "execute_script", "execute", "current_url", "title"],
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(MOVES))
+def test_a_pointer_move_reads_the_window_with_where_it_landed(
+    actions, monkeypatch, name
+):
+    call, road = MOVES[name]
+    driver = CountingDriver(scripts={"atX": {"inside": False}, "bringIntoView": CENTER})
+
+    class _Pointable(ScriptedElement):
+        """`ActionBuilder.move_to` refuses anything that is not a WebElement."""
+
+        id = "element-1"
+
+    WebElement.register(_Pointable)
+    driver.__dict__["element"] = _Pointable(driver.log)
+    monkeypatch.setattr(actions.grid, "reconnect", driver.reconnect)
+    actions.pointers.set("abc", 1, 1)
+    call(actions)
+    assert _road(driver.log) == road
+
+
+def test_a_wait_asks_again_every_fifth_of_a_second_and_names_what_it_waited_for(
+    scripted, clock
+):
+    """Selenium's own default is half a second. The timeout, and the sentence a
+    wait that expires is re-raised with, are what they were."""
+    from selenium.common.exceptions import TimeoutException
+
+    driver = scripted()
+    asked = []
+    with pytest.raises(TimeoutException) as expired:
+        browser._waited(driver, lambda d: asked.append(clock[0]), 2, "no element x")
+    gaps = {round(b - a, 6) for a, b in pairwise(asked)}
+    assert gaps == {browser.WAIT_POLL} == {0.2}
+    assert 2 <= clock[0] < 2 + browser.WAIT_POLL + 1e-9
+    assert str(expired.value.msg).startswith(
+        f"no element x within 2s. The browser is at {PAGE!r}"
+    )
+
+
 # ---- I8, I9 live in test_pointer.py -----------------------------------------
 
 
@@ -458,7 +537,9 @@ class _Reply:
 def test_ending_a_browser_forgets_where_its_pointer_was(actions, monkeypatch):
     sent = []
     monkeypatch.setattr(
-        requests, "delete", lambda url, timeout=None: sent.append(url) or _Reply(200)
+        actions.grid.http,
+        "delete",
+        lambda url, timeout=None: sent.append(url) or _Reply(200),
     )
     actions.pointers.set("abc", 40, 50)
     result = actions.end_browser("abc")
@@ -470,7 +551,7 @@ def test_ending_a_browser_forgets_where_its_pointer_was(actions, monkeypatch):
 def test_a_grid_that_refuses_to_end_a_browser_is_an_error_and_keeps_the_pointer(
     actions, monkeypatch
 ):
-    monkeypatch.setattr(requests, "delete", lambda *a, **k: _Reply(500))
+    monkeypatch.setattr(actions.grid.http, "delete", lambda *a, **k: _Reply(500))
     actions.pointers.set("abc", 40, 50)
     with pytest.raises(requests.HTTPError):
         actions.end_browser("abc")

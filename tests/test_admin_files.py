@@ -143,7 +143,7 @@ def test_a_grid_500_on_clear_is_not_reported_as_success(client, live):
     with (
         patch.object(browser.Grid, "is_alive", return_value=True),
         patch(
-            "kubed.selenium_flow.core.browser.requests.delete",
+            "kubed.selenium_flow.core.browser.requests.Session.delete",
             return_value=_FakeGridResponse(500),
         ),
     ):
@@ -160,7 +160,7 @@ def test_a_grid_404_on_clear_is_success(client, live):
     with (
         patch.object(browser.Grid, "is_alive", return_value=True),
         patch(
-            "kubed.selenium_flow.core.browser.requests.delete",
+            "kubed.selenium_flow.core.browser.requests.Session.delete",
             return_value=_FakeGridResponse(404),
         ),
     ):

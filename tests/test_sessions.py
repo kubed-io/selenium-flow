@@ -1032,7 +1032,7 @@ def test_only_an_invalid_session_id_counts_as_gone(monkeypatch, response, alive,
     from kubed.selenium_flow.core import browser as browser_module
 
     monkeypatch.setattr(
-        browser_module.requests, "get", lambda *a, **k: response
+        browser_module.requests.Session, "get", lambda *a, **k: response
     )
     grid = browser_module.Grid("http://grid.invalid:4444")
     assert grid.is_alive("abc") is alive, why
@@ -1044,7 +1044,7 @@ def test_an_unreachable_grid_does_not_strand_the_session(monkeypatch):
     def boom(*a, **k):
         raise browser_module.requests.RequestException("down")
 
-    monkeypatch.setattr(browser_module.requests, "get", boom)
+    monkeypatch.setattr(browser_module.requests.Session, "get", boom)
     grid = browser_module.Grid("http://grid.invalid:4444")
     assert grid.is_alive("abc") is True
 

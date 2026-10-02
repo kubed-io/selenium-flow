@@ -489,12 +489,15 @@ class Actions:
                 # Read now rather than when the step was written: the approach
                 # may have scrolled, and every rect on the page moved with it
                 # (§F2.3).
-                end = pointer.center(
+                aimed = pointer.aim(
                     driver, browser.wait_for_element(driver, to_target, at.timeout)
                 )
+                end, size = aimed["at"], aimed["viewport"]
             else:
+                # The window's size came back with the approach's landing.
                 end = (start[0] + offset[0], start[1] + offset[1])
-            inside = pointer.clamped(end, pointer.viewport(driver))
+                size = moved["viewport"]
+            inside = pointer.clamped(end, size)
 
             pointer.drag_to(driver, start, inside, glide=wanted)
             self._moved(session_id, inside)

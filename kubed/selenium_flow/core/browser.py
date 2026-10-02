@@ -17,19 +17,23 @@ import contextlib
 import io
 import json
 import zipfile
+from http.cookiejar import DefaultCookiePolicy
 from urllib.parse import urlsplit, urlunsplit
 
 import requests
+from requests.adapters import HTTPAdapter
 from selenium import webdriver
 from selenium.common.exceptions import (
     TimeoutException,
     UnexpectedAlertPresentException,
 )
 from selenium.webdriver.common.by import By
+from selenium.webdriver.remote.client_config import ClientConfig
 from selenium.webdriver.remote.file_detector import LocalFileDetector
 from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
+from urllib3.exceptions import ProtocolError
 
 from ..urls import normalize_url
 from . import probe
@@ -41,6 +45,14 @@ from .defaults import (
 
 # Seconds any one request to the Grid's own HTTP endpoints may take.
 GRID_TIMEOUT = 30
+# Connections each pool keeps open to the Grid: one per call that can be in
+# flight at once, which is anyio's 40 worker threads. Fewer and a busy moment
+# opens, uses and drops the overflow, logging a warning for each.
+GRID_CONNECTIONS = 40
+# How often a wait for an element or a dialog asks again. Selenium's 0.5 s
+# default makes an element that renders just after a miss cost up to half a
+# second; each ask is one to three round trips, so this is not a busy loop.
+WAIT_POLL = 0.2
 
 # How long to give a keystroke-triggered navigation to commit before concluding
 # there was not one. See `settled`. Short on purpose: every Enter that navigates
@@ -84,11 +96,52 @@ def png_size(b64: str) -> tuple[int, int]:
     return int.from_bytes(raw[16:20], "big"), int.from_bytes(raw[20:24], "big")
 
 
+def _dropped(exc: requests.ConnectionError) -> bool:
+    """Whether a request died on a connection the Grid had already let go.
+
+    A pooled connection outlives a Grid restart, and the first request sent on
+    it is answered with a reset rather than a response: urllib3's "Connection
+    aborted". A refused or unresolvable Grid is a different failure and raises
+    as it always did; asking again would only ask the same dead address twice.
+    """
+    return bool(exc.args) and isinstance(exc.args[0], ProtocolError)
+
+
 class Grid:
-    """A Selenium Grid endpoint, and the operations this server needs from it."""
+    """A Selenium Grid endpoint, and the operations this server needs from it.
+
+    It holds two connection pools, one per client library, so the calls each
+    action makes reuse connections instead of opening one apiece: ``http`` for
+    the Grid's own endpoints, and the WebDriver connection every reattached
+    driver shares (see `reconnect`).
+    """
 
     def __init__(self, url: str = DEFAULT_GRID_URL):
         self.url = url.rstrip("/")
+        self.http = requests.Session()
+        adapter = HTTPAdapter(pool_maxsize=GRID_CONNECTIONS)
+        self.http.mount("http://", adapter)
+        self.http.mount("https://", adapter)
+        # Each call used to be its own session and kept no cookies; a pool
+        # must not start pinning the Grid's calls to whatever an ingress set.
+        self.http.cookies.set_policy(DefaultCookiePolicy(allowed_domains=()))
+        self._webdriver = None
+
+    def _send(self, method: str, path: str, **kwargs) -> requests.Response:
+        """One request to the Grid, sent again once if the pool's connection
+        turns out to be one the Grid dropped (`_dropped`).
+
+        Once: the retry runs on a fresh connection, so a second failure is the
+        Grid's real answer and raises exactly as a single request would.
+        """
+        send = getattr(self.http, method)
+        url = f"{self.url}{path}"
+        try:
+            return send(url, timeout=GRID_TIMEOUT, **kwargs)
+        except requests.ConnectionError as exc:
+            if not _dropped(exc):
+                raise
+        return send(url, timeout=GRID_TIMEOUT, **kwargs)
 
     def _options(self, browser: str | None = None, insecure: bool = False):
         """Capabilities for a new session of ``browser``.
@@ -187,8 +240,35 @@ class Grid:
         thing that would ever send them. Reattaching to a Firefox session with
         Chrome's options works for exactly that reason, and asking the caller
         to know the browser to reconnect would be a lie about what is needed.
+
+        A reattached driver lives for one call, its connection does not: every
+        driver this Grid hands out shares one ``RemoteConnection``, so a call
+        reuses the keep-alive connections the last one opened rather than
+        building a new pool and a new TCP connection. The first driver builds
+        it through Selenium's own constructor, which picks the connection class
+        it always did; urllib3 reopens a pooled connection the Grid closed.
         """
-        driver = ReattachDriver(command_executor=self.url, options=self._options())
+        if self._webdriver is None:
+            driver = ReattachDriver(
+                command_executor=self.url,
+                options=self._options(),
+                client_config=ClientConfig(
+                    remote_server_addr=self.url,
+                    init_args_for_pool_manager={
+                        "init_args_for_pool_manager": {"maxsize": GRID_CONNECTIONS}
+                    },
+                    # Selenium waits 30 s for a BiDi socket that never answers;
+                    # `bidi` would stall that long on a Grid whose BiDi route is
+                    # down. Nothing but `bidi` opens a socket.
+                    websocket_timeout=BIDI_TIMEOUT,
+                    websocket_interval=BIDI_INTERVAL,
+                ),
+            )
+            self._webdriver = driver.command_executor
+        else:
+            driver = ReattachDriver(
+                command_executor=self._webdriver, options=self._options()
+            )
         driver.session_id = session_id
         return driver
 
@@ -204,11 +284,9 @@ class Grid:
         scheme = "wss" if parts.scheme == "https" else "ws"
         socket = urlunsplit((scheme, parts.netloc, parts.path.rstrip("/"), "", ""))
         driver = self.reconnect(session_id)
+        # The socket's timeout and polling are on the shared connection's
+        # config, set once by `reconnect`.
         driver.caps = {"webSocketUrl": f"{socket}/session/{session_id}/se/bidi"}
-        # Selenium waits 30 s for a socket that never answers; an open would
-        # stall that long on a Grid whose BiDi route is down.
-        driver.command_executor.client_config.websocket_timeout = BIDI_TIMEOUT
-        driver.command_executor.client_config.websocket_interval = BIDI_INTERVAL
         try:
             yield driver
         finally:
@@ -238,9 +316,7 @@ class Grid:
         "dead" silently strands a browser.
         """
         try:
-            response = requests.get(
-                f"{self.url}/session/{session_id}/url", timeout=GRID_TIMEOUT
-            )
+            response = self._send("get", f"/session/{session_id}/url")
         except requests.RequestException:
             return True
         if response.status_code == 200:
@@ -265,9 +341,7 @@ class Grid:
         least. Anything else still raises: a Grid that cannot be reached has not
         told us the browser is gone, and reporting success would be a guess.
         """
-        response = requests.delete(
-            f"{self.url}/session/{session_id}", timeout=GRID_TIMEOUT
-        )
+        response = self._send("delete", f"/session/{session_id}")
         if response.status_code == 404:
             return
         response.raise_for_status()
@@ -311,9 +385,7 @@ class Grid:
         and renames on completion, so listing them would offer the caller a file
         that is half-written and about to be called something else.
         """
-        response = requests.get(
-            f"{self.url}/session/{session_id}/se/files", timeout=GRID_TIMEOUT
-        )
+        response = self._send("get", f"/session/{session_id}/se/files")
         response.raise_for_status()
         files = [
             f
@@ -328,10 +400,8 @@ class Grid:
         The Grid always answers with a zip, even for a single file, so the
         archive is unwrapped here — callers want the file, not the envelope.
         """
-        response = requests.post(
-            f"{self.url}/session/{session_id}/se/files",
-            json={"name": name},
-            timeout=GRID_TIMEOUT,
+        response = self._send(
+            "post", f"/session/{session_id}/se/files", json={"name": name}
         )
         response.raise_for_status()
         archive = base64.b64decode(response.json()["value"]["contents"])
@@ -348,25 +418,21 @@ class Grid:
         surfaces as a Grid refusal instead of the silent 200 an unchecked
         response used to report.
         """
-        response = requests.delete(
-            f"{self.url}/session/{session_id}/se/files", timeout=GRID_TIMEOUT
-        )
+        response = self._send("delete", f"/session/{session_id}/se/files")
         if response.status_code == 404:
             return
         response.raise_for_status()
 
     def status(self) -> dict:
         """The Grid's own readiness payload."""
-        response = requests.get(f"{self.url}/status", timeout=GRID_TIMEOUT)
+        response = self._send("get", "/status")
         response.raise_for_status()
         return response.json()
 
     def session_count(self) -> int:
         """How many sessions are currently held across the Grid."""
-        response = requests.post(
-            f"{self.url}/graphql",
-            json={"query": "{ grid { sessionCount } }"},
-            timeout=GRID_TIMEOUT,
+        response = self._send(
+            "post", "/graphql", json={"query": "{ grid { sessionCount } }"}
         )
         response.raise_for_status()
         return response.json()["data"]["grid"]["sessionCount"]
@@ -378,7 +444,9 @@ class Grid:
 # diagnosis and the bare timeout is none of it.
 def _waited(driver, condition, timeout: int, description: str, target=None):
     try:
-        return WebDriverWait(driver, timeout).until(condition)
+        return WebDriverWait(driver, timeout, poll_frequency=WAIT_POLL).until(
+            condition
+        )
     except TimeoutException as exc:
         # When the element is there and simply cannot be used, the page knows
         # why and a bare timeout does not. Only the clickability waits pass a

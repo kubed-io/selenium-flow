@@ -104,7 +104,11 @@ def test_the_centre_is_that_of_the_part_of_the_element_in_view():
     answer = run(
         "center.js", '<div id="box"></div>', [{"$css": "#box"}, False], setup
     )
-    assert answer == {"at": [25, 50], "scrolled": False, "outside": False}
+    # jsdom's window is 1024x768, and the size comes back with the centre so a
+    # pointer move asks the page once, not twice.
+    assert answer == {
+        "at": [25, 50], "scrolled": False, "outside": False, "viewport": [1024, 768],
+    }
 
 
 def test_an_element_wholly_outside_the_viewport_reports_outside_and_its_own_centre():
@@ -115,7 +119,9 @@ def test_an_element_wholly_outside_the_viewport_reports_outside_and_its_own_cent
     answer = run(
         "center.js", '<div id="box"></div>', [{"$css": "#box"}, False], setup
     )
-    assert answer == {"at": [2050, 50], "scrolled": False, "outside": True}
+    assert answer == {
+        "at": [2050, 50], "scrolled": False, "outside": True, "viewport": [1024, 768],
+    }
 
 
 COVERED = (
