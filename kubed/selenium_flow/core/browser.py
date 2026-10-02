@@ -59,6 +59,10 @@ BIDI_INTERVAL = 0.005
 # page, which a service worker serves before any intercept sees the request.
 SPARE_MARKER = "selenium-flow-spare"
 SPARE_PAGE = f'<!doctype html><meta name="{SPARE_MARKER}">'
+# The only URL the intercept matches, on any origin: an intercept that outlived
+# its tab (a teardown that failed) can then never hold up a real page load,
+# which would wait out the page-load timeout (CI, #51).
+SPARE_PATH = "/__selenium-flow-spare__"
 
 
 def normalize_browser(value=None) -> str:
@@ -499,7 +503,9 @@ def spare_tab(bidi, context: str | None = None):
     intercept = handler = None
     try:
         intercept = bidi.network.add_intercept(
-            phases=["beforeRequestSent"], contexts=[tab]
+            phases=["beforeRequestSent"],
+            contexts=[tab],
+            url_patterns=[{"type": "pattern", "pathname": SPARE_PATH}],
         )["intercept"]
 
         def answer(event):
@@ -527,7 +533,7 @@ def spare_tab(bidi, context: str | None = None):
 
         def run(origin: str, expression: str):
             bidi.browsing_context.navigate(
-                context=tab, url=origin + "/", wait="complete"
+                context=tab, url=origin + SPARE_PATH, wait="complete"
             )
             reply = bidi.script.evaluate(
                 expression=_on_spare(expression),
@@ -548,12 +554,14 @@ def spare_tab(bidi, context: str | None = None):
 
         yield run
     finally:
-        if handler is not None:
-            with contextlib.suppress(Exception):
-                bidi.network.remove_event_handler("before_request", handler)
+        # The intercept before its handler: the other way round, a request
+        # caught in between has nobody to answer it and stays blocked.
         if intercept is not None:
             with contextlib.suppress(Exception):
                 bidi.network.remove_intercept(intercept=intercept)
+        if handler is not None:
+            with contextlib.suppress(Exception):
+                bidi.network.remove_event_handler("before_request", handler)
         if context is None:
             with contextlib.suppress(Exception):
                 bidi.browsing_context.close(context=tab)

@@ -12,10 +12,12 @@ from kubed.selenium_flow.core.browser import (
     BIDI_INTERVAL,
     SPARE_MARKER,
     SPARE_PAGE,
+    SPARE_PATH,
     Grid,
     ServiceWorkerAnswered,
     spare_tab,
 )
+from kubed.selenium_flow.core.site_data import origin_of
 
 pytestmark = pytest.mark.unit
 
@@ -30,7 +32,7 @@ class FakeTabs:
 
     def navigate(self, context=None, url=None, wait=None):
         self.log.append(("navigate", context, url, wait))
-        self.at[context] = url.rstrip("/")
+        self.at[context] = origin_of(url)
 
     def close(self, context=None):
         self.log.append(("close", context))
@@ -40,8 +42,8 @@ class FakeNetwork:
     def __init__(self, log):
         self.log, self.handlers, self.responses = log, {}, []
 
-    def add_intercept(self, phases=None, contexts=None, **_):
-        self.log.append(("intercept", phases, contexts))
+    def add_intercept(self, phases=None, contexts=None, url_patterns=None):
+        self.log.append(("intercept", phases, contexts, url_patterns))
         return {"intercept": "i-1"}
 
     def remove_intercept(self, intercept=None):
@@ -94,12 +96,12 @@ def test_a_spare_tab_stands_on_an_origin_runs_there_and_closes():
         assert run("https://app.test", "localStorage.length") == {"theme": "dark"}
     assert bidi.log == [
         ("create", "tab", True),
-        ("intercept", ["beforeRequestSent"], ["spare-1"]),
+        ("intercept", ["beforeRequestSent"], ["spare-1"], [{"type": "pattern", "pathname": SPARE_PATH}]),
         ("handler", "before_request", ["spare-1"]),
-        ("navigate", "spare-1", "https://app.test/", "complete"),
+        ("navigate", "spare-1", "https://app.test" + SPARE_PATH, "complete"),
         ("evaluate", {"context": "spare-1"}, True),
-        ("unhandler", "before_request", 7),
         ("unintercept", "i-1"),
+        ("unhandler", "before_request", 7),
         ("close", "spare-1"),
     ]
     assert SPARE_MARKER in bidi.script.expression
@@ -158,12 +160,12 @@ def test_an_existing_tab_is_intercepted_and_left_open():
     with spare_tab(bidi, context="main-1") as run:
         run("https://app.test", "1")
     assert bidi.log == [
-        ("intercept", ["beforeRequestSent"], ["main-1"]),
+        ("intercept", ["beforeRequestSent"], ["main-1"], [{"type": "pattern", "pathname": SPARE_PATH}]),
         ("handler", "before_request", ["main-1"]),
-        ("navigate", "main-1", "https://app.test/", "complete"),
+        ("navigate", "main-1", "https://app.test" + SPARE_PATH, "complete"),
         ("evaluate", {"context": "main-1"}, True),
-        ("unhandler", "before_request", 7),
         ("unintercept", "i-1"),
+        ("unhandler", "before_request", 7),
     ], "no create, no close; the intercept is gone from the user's own tab"
 
 

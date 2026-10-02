@@ -386,14 +386,13 @@ Chromium-only call can be added later without undoing anything.
 
 ## Known, for the next round
 
-- A failed spare-tab teardown on the main tab (both removals are `suppress`ed)
-  can leave a blocking intercept on the user's tab: `driver.get` then hangs to
-  the page-load timeout and later navigations block until the browser is
-  replaced. Next: retry the main tab's `remove_intercept` once, report it if it
-  still fails, and have `open_session` replace a browser whose main tab may
-  still be intercepted; reorder teardown (intercept before handler) and test
-  never-raises / navigate-raises; a failed unsubscribe leaves Selenium's
-  subscription entry.
+- **Found in CI, fixed (#51):** an intercept that outlived its tab blocked the
+  next real page load until the page-load timeout. The integration flow after
+  `save-site-data` hung five minutes on its reopen. The intercept now matches
+  only `SPARE_PATH` (`/__selenium-flow-spare__`, on any origin), so a leaked one
+  can never hold up a real page, and teardown removes the intercept before its
+  handler. Still next: report a failed removal, and test never-raises /
+  navigate-raises; a failed unsubscribe leaves Selenium's subscription entry.
 - No overall time budget on the spare-tab loops: each origin is bounded only
   by `BIDI_TIMEOUT` (5 s), so a systematic failure costs 5 s per origin (up to
   ~8 min for 100). Next: stop at the first timeout-class failure, or a total
