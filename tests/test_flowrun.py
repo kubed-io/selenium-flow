@@ -5,6 +5,8 @@ nine and says only "failed" sends the agent straight back to twelve individual
 calls to find out why, which loses more than the flow ever saved.
 """
 
+import json
+
 import pytest
 
 from kubed.selenium_flow.flows import redact, template
@@ -823,6 +825,24 @@ def test_a_value_typed_early_is_still_hidden_from_a_later_step():
     assert "zzz-secret" not in str(report)
 
 
+@pytest.mark.parametrize("return_,verbose", [(True, False), (False, True)])
+def test_a_value_a_later_script_returns_as_a_key_is_hidden_too(return_, verbose):
+    """A dictionary key is page data like any value: a script after a bound
+    write can return an object keyed by what was typed (Copilot, #52)."""
+    steps = [
+        {"tool": "write", "args": {"selector": {"css": "#p"}, "secret": SECRET_STEP}},
+        {"tool": "execute_script", "args": {"script": "return {[v]: v}"}, "return": return_},
+    ]
+
+    class Keyed(FakeActions):
+        def execute_script(self, session_id, script, **kwargs):
+            return {"result": {"hunter2": "hunter2"}, "url": "https://x.test/", "title": "t"}
+
+    report = run(Keyed(), flow(steps), "b", verbose=verbose, catalogue=Vault())
+    assert report["steps"][1]["result"]["result"] == {"<hidden>": "<hidden>"}
+    assert "hunter2" not in json.dumps(report)
+
+
 def test_an_empty_binding_is_malformed_rather_than_absent():
     """Save-time validation rejects `secret: {}`, and the store reads YAML
     that never passed through it — treating it as absent let a literal `text`
@@ -937,6 +957,25 @@ def test_taints_asks_whether_the_value_is_there():
     # The marker is not evidence either way.
     assert redact.taints(f"https://x.test/?q={flowrun.HIDDEN}", {flowrun.HIDDEN}) is True
     assert redact.taints(None, {"hunter2"}) is False
+
+
+def test_a_key_is_scrubbed_like_a_value_and_a_collision_keeps_the_later():
+    hidden = redact.hidden_forms(["s3cr3t"])
+    page = {"a s3cr3t": 1, "s3cr3t": 2, "kept": {"x s3cr3t": [{"s3cr3t": 3}]}}
+    assert redact.scrub_values({"result": page}, hidden) == {
+        "result": {"a <hidden>": 1, "<hidden>": 2, "kept": {"x <hidden>": [{"<hidden>": 3}]}}
+    }
+    # Two spellings of one value are two keys that scrub to one: the later wins.
+    hidden = redact.hidden_forms(["a/b"])
+    collided = redact.scrub_values({"result": {"a/b": "first", "a%2Fb": "later"}}, hidden)
+    assert collided == {"result": {"<hidden>": "later"}}
+
+
+def test_the_responses_own_fields_are_never_scrubbed():
+    """A secret that spells `url` must not rename the field a caller reads."""
+    assert redact.scrub_values({"url": "https://x.test/", "title": "t"}, {"url"}) == {
+        "url": "https://x.test/", "title": "t",
+    }
 
 
 def test_a_run_that_navigates_away_reports_the_clean_page_it_ended_on():

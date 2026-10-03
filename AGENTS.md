@@ -611,7 +611,9 @@ and forge it. A secret's leash does not ask whether it is in a frame at all: it
 always reads `document.location.origin` of the selected context, because a
 keystroke reaches the frame and WebDriver's url is always the top page's, and
 **both** the top page and that origin must be allowed. Out of a frame they are
-the same origin; in one, the frame only tightens the leash.
+the same origin; in one, the frame only tightens the leash. A bound write also
+refuses an `<iframe>` or `<frame>` element as its target: keys sent to one land in
+the frame's document whatever context is selected, an origin the leash never read.
 
 ## Dialogs, and why the browser must never answer one
 

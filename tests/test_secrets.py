@@ -8,6 +8,7 @@ plain tree it looks like from outside.
 """
 
 import json
+from types import SimpleNamespace
 from urllib.parse import quote_plus
 
 import pytest
@@ -1355,3 +1356,90 @@ def test_a_flow_step_is_held_to_the_page_and_the_frame(tmp_path, top, frame, nam
     assert report["status"] == "failed"
     assert f"may not be used on {named}" in report["steps"][0]["error"]
     assert actions.calls == []
+
+
+# ---- the leash sees the frame element too (final review C1) ------------------
+
+FRAME_REFUSAL = "a secret cannot be typed into a frame element; switch into the frame first"
+
+
+@pytest.fixture
+def targeting(tmp_path):
+    """A real `Actions` on a scripted browser on an allowed page with nothing
+    framed selected, whose selector finds an element of the tag a test sets.
+    Keys sent to an `<iframe>` land in its document whatever context is
+    selected, so the leash's two origins say nothing about where they go."""
+    from types import SimpleNamespace
+
+    from kubed.selenium_flow.core.actions import Actions
+
+    from .fakes import ScriptedDriver
+
+    make_secret(tmp_path, "nextcloud", password="hunter2", **{ALLOWED_URLS: ALLOWED})
+    catalogue = Catalogue([FilesystemSource(tmp_path)])
+    driver = ScriptedDriver(
+        url=f"{ALLOWED}/login", title="Log in", scripts={"location.origin": ALLOWED}
+    )
+    actions = Actions(SimpleNamespace(reconnect=lambda session_id: driver))
+    return catalogue, driver, actions
+
+
+def typed_into(driver):
+    return [entry[2:] for entry in driver.log if entry[:2] == ("element", "send_keys")]
+
+
+@pytest.mark.parametrize("tag", ["iframe", "frame", "IFRAME"])
+def test_a_direct_bound_write_never_types_into_a_frame_element(targeting, tag):
+    from kubed.selenium_flow.errors import status_for
+
+    catalogue, driver, actions = targeting
+    driver.element.tag = tag
+    held = SimpleNamespace(resolve=lambda name: "b1", settle=lambda *a, **k: None)
+    with pytest.raises(ValueError) as refused:
+        secrets.perform_write(
+            catalogue, actions, held, "desktop",
+            {
+                "selector": {"css": "iframe#xo"}, "clear": False,
+                "secret": {"name": "nextcloud", "key": "password"},
+            },
+        )
+    assert str(refused.value) == FRAME_REFUSAL
+    assert status_for(refused.value) == 400
+    assert typed_into(driver) == []
+    assert ("element", "clear") not in driver.log
+
+
+def test_a_flow_step_never_types_a_secret_into_a_frame_element(targeting):
+    from kubed.selenium_flow.flows.run import run
+
+    catalogue, driver, actions = targeting
+    driver.element.tag = "iframe"
+    step = {"tool": "write", "args": {
+        "selector": {"css": "iframe#xo"}, "secret": {"name": "nextcloud", "key": "password"},
+    }}
+    report = run(actions, {"name": "login", "steps": [step]}, "b", catalogue=catalogue)
+    assert report["status"] == "failed"
+    assert report["steps"][0]["error"] == FRAME_REFUSAL
+    assert typed_into(driver) == []
+
+
+@pytest.mark.parametrize("tag", ["input", "div", "textarea"])
+def test_a_bound_write_into_a_field_still_types(targeting, tag):
+    catalogue, driver, actions = targeting
+    driver.element.tag = tag
+    held = SimpleNamespace(resolve=lambda name: "b1", settle=lambda *a, **k: None)
+    shown = secrets.perform_write(
+        catalogue, actions, held, "desktop",
+        {"selector": {"css": "#p"}, "secret": {"name": "nextcloud", "key": "password"}},
+    )
+    assert typed_into(driver) == [("hunter2",)]
+    assert "hunter2" not in json.dumps(shown)
+
+
+def test_an_unbound_write_into_a_frame_element_still_types(targeting):
+    """A rich-text editor is an iframe, and typing literal text into one is
+    legal: only a bound value has a leash to escape."""
+    _, driver, actions = targeting
+    driver.element.tag = "iframe"
+    actions.write("b1", "hello", selector={"css": "iframe.editor"})
+    assert typed_into(driver) == [("hello",)]

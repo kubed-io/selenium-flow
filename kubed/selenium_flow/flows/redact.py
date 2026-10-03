@@ -47,15 +47,32 @@ def scrub_values(obj, values):
     map handles the fields we know and this handles the ones we do not: for a
     guarded step, and only a guarded step, every string in the result is swept.
 
+    Keys too, below the top: a script can return an object keyed by what was
+    typed (Copilot, #52). The top level's keys are the response's own fields,
+    named by this code and never a secret, so they are left as they are. Two
+    keys that scrub to the same one keep one, holding the later key's value.
+
     Only reached when a step actually bound something, so the cost lands on the
     rare call rather than on `extract` returning a page of HTML.
     """
+    if isinstance(obj, dict):
+        return {key: _scrub_deep(value, values) for key, value in obj.items()}
+    return _scrub_deep(obj, values)
+
+
+def _scrub_deep(obj, values):
+    """`scrub_values` for page data, whose keys are swept with its strings."""
     if isinstance(obj, str):
         return scrub(obj, values)
     if isinstance(obj, dict):
-        return {key: scrub_values(value, values) for key, value in obj.items()}
+        return {
+            scrub(key, values) if isinstance(key, str) else key: _scrub_deep(
+                value, values
+            )
+            for key, value in obj.items()
+        }
     if isinstance(obj, list):
-        return [scrub_values(value, values) for value in obj]
+        return [_scrub_deep(value, values) for value in obj]
     return obj
 
 

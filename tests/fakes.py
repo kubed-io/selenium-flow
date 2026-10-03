@@ -421,12 +421,19 @@ class FakeBidi:
 class ScriptedElement:
     """What a locator finds: it records what it is asked to do on the driver's
     log, so the order of a gesture is assertable alongside the driver's own
-    calls. ``text`` and ``html`` are what a read returns."""
+    calls. ``text`` and ``html`` are what a read returns; ``tag`` is what
+    ``tag_name`` answers."""
 
     def __init__(self, log, text="the text", html="<b>the text</b>", value=""):
         self.log, self.text, self.html, self.value = log, text, html, value
+        self.tag = "input"
         self.screenshot_as_base64 = ""
         self.fail_on = {}
+
+    @property
+    def tag_name(self):
+        self._do("tag_name")
+        return self.tag
 
     def _do(self, name, *args):
         self.log.append(("element", name, *args))

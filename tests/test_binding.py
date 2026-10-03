@@ -74,3 +74,17 @@ async def test_every_entry_point_refuses_the_same_arguments_with_the_rules_words
     refused = entry(dict(BAD[rule]), step_schema_map)
     assert getattr(wording, rule) in str(refused)
     assert errors.status_for(refused) == 400
+
+
+def test_a_direct_writes_result_sweeps_keys_with_the_runs_scrub():
+    """`after` is what a single bound write shows, and it sweeps a key the way
+    a run's report does: one scrub, so the two cannot disagree."""
+    hidden = binding.forms_of({"text": "hunter2"}, {"text"})
+    shown = binding.after(
+        {"value": None, "url": "https://x.test/", "seen": {"hunter2": "hunter2"}},
+        {"text"},
+        hidden,
+    )
+    assert shown == {
+        "value": None, "url": "https://x.test/", "seen": {"<hidden>": "<hidden>"},
+    }

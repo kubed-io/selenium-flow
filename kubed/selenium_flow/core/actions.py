@@ -44,6 +44,13 @@ log = logging.getLogger(__name__)
 
 INSECURE_SKIP = "an insecure browser gets no saved site data"
 
+# Elements whose keystrokes go to another document. A bound write's leash checks
+# the selected context, which is not the one inside these.
+FRAME_ELEMENTS = frozenset({"iframe", "frame"})
+FRAME_REFUSAL = (
+    "a secret cannot be typed into a frame element; switch into the frame first"
+)
+
 # Mouse gestures ``interact`` understands. hover and scroll_to are here rather
 # than in their own tools because they take the same arguments as a click.
 MOUSE_ACTIONS = ("click", "double_click", "right_click", "hover", "scroll_to")
@@ -800,14 +807,22 @@ class Actions:
         anything wrapped it.
         """
 
+        bound = not as_bool(read_back, True)
+
         def typing(at):
             driver, element = at.driver, at.element
+            # Keys sent to a frame element land in the frame's document, whatever
+            # context is selected, so the leash checked an origin they never
+            # reach (final review, C1). Only a bound value has a leash: literal
+            # text into a rich-text editor's iframe stays legal.
+            if bound and element.tag_name.lower() in FRAME_ELEMENTS:
+                raise ValueError(FRAME_REFUSAL)
             if as_bool(clear, True):
                 element.clear()
             element.send_keys(str(text))
             # Read the value back before any submit: submitting navigates, which
             # makes the element reference stale.
-            read = element.get_attribute("value") if as_bool(read_back, True) else None
+            read = None if bound else element.get_attribute("value")
             if as_bool(submit, False):
                 element.send_keys(Keys.RETURN)
                 # And then wait for the navigation it may have caused, or the
