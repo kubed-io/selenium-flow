@@ -1092,6 +1092,25 @@ def test_a_stored_flow_whose_steps_are_not_a_list_is_refused_not_a_crash(steps):
     )
     assert actions.calls == []
 
+
+@pytest.mark.parametrize("tool", [["navigate"], {"name": "navigate"}])
+def test_a_stored_step_whose_tool_is_not_a_name_is_refused_not_a_crash(tool):
+    """Copilot, review 3: the preflight let it through, and the step looked the
+    tool up in a set outside its own error handling, so an unhashable one was
+    a TypeError. Saving says the step names no tool; so does the run."""
+    actions = FakeActions()
+    steps = [
+        {"tool": "navigate", "args": {"url": "https://example.test/"}},
+        {"tool": tool, "args": {"url": "https://example.test/"}},
+    ]
+    report = run(actions, flow(steps), "b")
+    assert report["status"] == "failed"
+    assert report["steps_run"] == 0
+    assert report["steps"][0]["error"] == (
+        "this flow cannot be run as written: step 2: names no tool."
+    )
+    assert actions.calls == []
+
 # ---- declared defaults -------------------------------------------------------
 
 

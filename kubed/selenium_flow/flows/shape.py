@@ -19,6 +19,7 @@ from __future__ import annotations
 # Said by the validator for a step and by the run for the same step, so the two
 # surfaces refuse it in the same words.
 NOT_A_STEP = "must be an object with a tool and its params"
+NAMES_NO_TOOL = "names no tool"
 NOT_STEPS = "steps must be a non-empty list"
 NOT_PARAMETERS = "parameters must be a JSON Schema object"
 NOT_PROPERTIES = "parameters.properties must be an object"
@@ -107,12 +108,25 @@ class Shape:
         return None if empty_ok and not steps else NOT_STEPS
 
     def step_problems(self) -> list[str]:
-        """Steps that are not objects, numbered from 1."""
-        return [
-            f"step {number}: {NOT_A_STEP}"
-            for number, step in enumerate(self.steps, start=1)
-            if not isinstance(step, dict)
-        ]
+        """Steps that are not objects, or name no tool, numbered from 1.
+
+        A `tool` that is not a name is refused here because the run looks it up
+        in a set before any step's error handling: `tool: [navigate]` was a
+        TypeError there, and a number a lookup that could only miss.
+        """
+        problems = []
+        for number, step in enumerate(self.steps, start=1):
+            if not isinstance(step, dict):
+                problems.append(f"step {number}: {NOT_A_STEP}")
+                continue
+            tool = step.get("tool")
+            if not tool or not isinstance(tool, str):
+                # Named as the validator names it, so both say the same thing.
+                where = f"step {number}"
+                if step.get("id"):
+                    where = f"step {number} ({step['id']})"
+                problems.append(f"{where}: {NAMES_NO_TOOL}")
+        return problems
 
     def problems(self) -> list[str]:
         """Everything about the document's *form* a run cannot read past."""

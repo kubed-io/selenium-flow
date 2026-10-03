@@ -53,7 +53,7 @@ import logging
 
 from .. import binding
 from ..binding import SECRET_ARG
-from .shape import NOT_A_STEP, Shape
+from .shape import NAMES_NO_TOOL, NOT_A_STEP, Shape
 from .template import PARAM_REFERENCE, listed, references
 
 log = logging.getLogger(__name__)
@@ -571,7 +571,7 @@ def _check_step(index: int, step, declared: set[str], schemas: dict) -> list[str
 
     tool = step.get("tool")
     if not tool or not isinstance(tool, str):
-        return [*problems, f"{where}: names no tool"]
+        return [*problems, f"{where}: {NAMES_NO_TOOL}"]
     if tool in NOT_STEPS:
         return [*problems, f"{where}: {tool} is not a step. {NOT_STEPS[tool]}"]
     if tool not in schemas:

@@ -37,3 +37,13 @@ def test_a_step_that_is_not_an_object_is_numbered():
     assert Shape({"steps": [{"tool": "x"}, "oops"]}).step_problems() == [
         "step 2: must be an object with a tool and its params"
     ]
+
+
+@pytest.mark.parametrize("tool", [["navigate"], {"a": 1}, 3, None, ""])
+def test_a_step_whose_tool_is_not_a_name_names_no_tool(tool):
+    """In the validator's words, the id included when the step has one."""
+    steps = [{"tool": "navigate"}, {"tool": tool}, {"id": "go", "tool": tool}]
+    assert Shape({"steps": steps}).step_problems() == [
+        "step 2: names no tool",
+        "step 3 (go): names no tool",
+    ]
