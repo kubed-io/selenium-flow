@@ -84,6 +84,18 @@ jobs:
         cache: pip
         cache-dependency-path: pyproject.toml
 
+    # The page scripts run under jsdom (tests/test_js_behaviour.py), which lives
+    # in ui/node_modules. Without these two steps that module skips itself.
+    - name: Setup Node
+      uses: actions/setup-node@v7
+      with:
+        node-version: 26
+        cache: npm
+        cache-dependency-path: ui/package-lock.json
+
+    - name: Install UI Dependencies
+      run: npm --prefix ui ci --no-audit --no-fund
+
     - name: Install
       run: pip install .[test]
 
@@ -98,6 +110,8 @@ jobs:
     - name: Test
       run: >-
         pytest
+        -n 2
+        --dist loadfile
         --junit-xml=dist/test-results.xml
         --cov=kubed.selenium_flow
         --cov-report=xml:dist/coverage.xml

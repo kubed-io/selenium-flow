@@ -10,8 +10,8 @@ be used. See saga §F2.8.
 import pytest
 
 from kubed.selenium_flow.core import probe
+from kubed.selenium_flow.core.capabilities import ENDPOINTS, method_for
 from kubed.selenium_flow.flows.document import InvalidFlow, step_schemas, validate
-from kubed.selenium_flow.routes import ENDPOINTS, method_for
 
 pytestmark = pytest.mark.unit
 
@@ -38,7 +38,7 @@ class _Page:
 
     def execute_script(self, script, *args):
         self.args = args
-        return self.found
+        return {"elements": self.found, "total": len(self.found)}
 
     def find_element(self, *_):
         return "<scope>"
@@ -149,7 +149,7 @@ async def test_the_step_schema_does_not_offer_it(server):
 
 
 def test_the_runner_would_refuse_it_too():
-    from kubed.selenium_flow.flows.run import RUNNABLE
+    from kubed.selenium_flow.flows.api import RUNNABLE
 
     assert "outline" not in RUNNABLE
     assert "extract" in RUNNABLE, "and the ordinary reads are still steps"

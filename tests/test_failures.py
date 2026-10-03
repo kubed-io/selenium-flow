@@ -19,18 +19,19 @@ from fastmcp.exceptions import ToolError
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.server import SeleniumMCP
 
+from .conftest import calling_as
+
 pytestmark = pytest.mark.unit
 
 
 @pytest.fixture
-def server(tmp_path):
+def server(tmp_path, monkeypatch):
     server = SeleniumMCP(
         Settings(
             grid={"url": "http://grid.invalid:4444"}, flow={"data_dir": str(tmp_path)}
         )
     )
-    server.sessions.name = lambda: "refusals"
-    server.sessions.library = lambda: "refusals"
+    calling_as(monkeypatch, "refusals")
     return server
 
 
@@ -52,6 +53,15 @@ async def test_the_old_flat_selector_is_told_where_it_went(server):
 async def test_a_selector_given_as_text_is_shown_the_object_it_should_be(server):
     said = await refused(server, "interact", {"action": "click", "selector": "button.go"})
     assert '{"css": "button.go"}' in said and "xpath" in said
+
+
+async def test_an_upload_names_no_file_on_the_servers_disk(server):
+    """Ruling 3: `path` is gone from the tool, so naming one is an unknown
+    argument rather than a read of whatever the server can see."""
+    said = await refused(
+        server, "upload_file", {"selector": {"css": "input"}, "path": "/etc/passwd"}
+    )
+    assert "no parameter 'path'" in said
 
 
 async def test_a_word_outside_a_closed_set_is_given_the_set(server):
@@ -201,7 +211,9 @@ async def test_a_call_that_carries_a_secret_is_not_told_it_needs_text(server):
 # ---- reading a resource fails the same way -------------------------------------
 
 
-async def test_a_failed_read_says_it_in_errors_words_to_either_reader(server, log):
+async def test_a_failed_read_says_it_in_errors_words_to_either_reader(
+    server, log, monkeypatch
+):
     """FastMCP quotes a resource's exception verbatim, and a Grid failure names
     the Grid's URL — which reached a caller in #39's live check. A client's own
     resource reader and read_resource must both get the scrubbed sentence."""
@@ -211,7 +223,7 @@ async def test_a_failed_read_says_it_in_errors_words_to_either_reader(server, lo
     def boom() -> str:
         raise ConnectionError("could not reach http://user:hunter2@grid:4444/session/x/se/files")
 
-    server.sessions.name = lambda: "reader"
+    calling_as(monkeypatch, "reader")
     server.mcp.resource("test://boom")(boom)
     async with Client(server.mcp) as client:
         with pytest.raises(Exception) as direct:
@@ -224,11 +236,12 @@ async def test_a_failed_read_says_it_in_errors_words_to_either_reader(server, lo
     assert not any("hunter2" in text for _, text in log)
 
 
-async def test_a_read_the_caller_got_wrong_is_one_warning_line(server, log):
+async def test_a_read_the_caller_got_wrong_is_one_warning_line(
+    server, log, monkeypatch
+):
     from fastmcp import Client
 
-    server.sessions.name = lambda: "reader"
-    server.sessions.library = lambda: "reader"
+    calling_as(monkeypatch, "reader")
     from mcp.shared.exceptions import MCPError
 
     async with Client(server.mcp) as client:
@@ -241,7 +254,9 @@ async def test_a_read_the_caller_got_wrong_is_one_warning_line(server, log):
 
 
 
-async def test_a_credential_in_the_requested_uri_is_scrubbed_from_the_refusal(server, log):
+async def test_a_credential_in_the_requested_uri_is_scrubbed_from_the_refusal(
+    server, log, monkeypatch
+):
     """The URI is the caller's, and it was quoted verbatim into the error and
     into FastMCP's log line (Copilot, #40).
 
@@ -256,7 +271,7 @@ async def test_a_credential_in_the_requested_uri_is_scrubbed_from_the_refusal(se
     def broken(name: str) -> str:
         raise ConnectionError("upstream refused")
 
-    server.sessions.name = lambda: "reader"
+    calling_as(monkeypatch, "reader")
     server.mcp.resource("test://{name}")(broken)
     async with Client(server.mcp) as client:
         with pytest.raises(MCPError) as found:

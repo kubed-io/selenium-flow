@@ -16,34 +16,84 @@ import base64
 import contextlib
 import io
 import json
+import socket
 import zipfile
+from http.cookiejar import DefaultCookiePolicy
 from urllib.parse import urlsplit, urlunsplit
 
 import requests
+from requests.adapters import HTTPAdapter
 from selenium import webdriver
 from selenium.common.exceptions import (
     TimeoutException,
     UnexpectedAlertPresentException,
 )
 from selenium.webdriver.common.by import By
+from selenium.webdriver.remote.client_config import ClientConfig
 from selenium.webdriver.remote.file_detector import LocalFileDetector
 from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
+from urllib3.connection import HTTPConnection
+from urllib3.exceptions import ProtocolError
 
-from ..errors import USERINFO, without_userinfo
+from ..urls import normalize_url
 from . import probe
+from .defaults import (
+    DEFAULT_GRID_URL,
+    FIREFOX,
+    normalize_browser,
+)
 
-DEFAULT_GRID_URL = "http://selenium-grid-selenium-hub.flow.svc.cluster.local:4444"
+# Seconds any one request to the Grid's own HTTP endpoints may take.
+GRID_TIMEOUT = 30
+# Connections each pool keeps open to the Grid: one per call that can be in
+# flight at once, which is anyio's 40 worker threads. Fewer and a busy moment
+# opens, uses and drops the overflow, logging a warning for each.
+GRID_CONNECTIONS = 40
+# How often a wait for an element or a dialog asks again. Selenium's 0.5 s
+# default makes an element that renders just after a miss cost up to half a
+# second; each ask is one to three round trips, so this is not a busy loop.
+WAIT_POLL = 0.2
 
-# The browsers this server can open. Both are plain W3C WebDriver, which is the
-# whole reason a second one costs so little: every action already speaks the
-# standard protocol, so only session creation differs. Edge would be a third
-# entry plus a stereotype on the Grid, not a new code path.
-CHROME = "chrome"
-FIREFOX = "firefox"
-BROWSERS = (CHROME, FIREFOX)
-DEFAULT_BROWSER = CHROME
+
+def _socket_options() -> list[tuple[int, int, int]]:
+    """urllib3's defaults, plus what makes a pooled connection notice a dead hub.
+
+    The Grid sits behind a Service: a connection kept from the last call is
+    tied to one hub pod, and when that pod dies with its node nothing closes
+    the socket. A request sent on it is retransmitted until the kernel gives up,
+    about 924 s (tcp_retries2), where a fresh connection gave up in about
+    127 s. Keepalive probes after 30 s idle, 10 s apart, three missed, and
+    unacknowledged data abandoned after 60 s, bound that. A long command - a
+    300 s page load, an assert - is not cut short: the hub's kernel answers
+    the probes while the browser works.
+
+    Each option only where the platform has it, so a macOS or Windows install
+    still imports.
+    """
+    options = list(HTTPConnection.default_socket_options)
+    options.append((socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1))
+    for name, value in (
+        ("TCP_KEEPIDLE", 30),
+        ("TCP_KEEPINTVL", 10),
+        ("TCP_KEEPCNT", 3),
+        ("TCP_USER_TIMEOUT", 60_000),
+    ):
+        if hasattr(socket, name):
+            options.append((socket.IPPROTO_TCP, getattr(socket, name), value))
+    return options
+
+
+SOCKET_OPTIONS = _socket_options()
+
+
+class _GridAdapter(HTTPAdapter):
+    """requests' adapter with `SOCKET_OPTIONS` on every connection it opens."""
+
+    def init_poolmanager(self, *args, **kwargs):
+        kwargs["socket_options"] = SOCKET_OPTIONS
+        super().init_poolmanager(*args, **kwargs)
 
 # How long to give a keystroke-triggered navigation to commit before concluding
 # there was not one. See `settled`. Short on purpose: every Enter that navigates
@@ -55,32 +105,6 @@ BIDI_TIMEOUT = 5.0
 # How often Selenium looks for a BiDi reply. Its 100 ms default is a floor
 # under every BiDi command; at 5 ms a spare tab costs 30-140 ms per origin.
 BIDI_INTERVAL = 0.005
-# What a spare tab is answered with. The marker tells it from a site's own
-# page, which a service worker serves before any intercept sees the request.
-SPARE_MARKER = "selenium-flow-spare"
-SPARE_PAGE = f'<!doctype html><meta name="{SPARE_MARKER}">'
-# The only URL the intercept matches, on any origin: an intercept that outlived
-# its tab (a teardown that failed) can then never hold up a real page load,
-# which would wait out the page-load timeout (CI, #51).
-SPARE_PATH = "/__selenium-flow-spare__"
-
-
-def normalize_browser(value=None) -> str:
-    """A supported browser name, or the default when nothing was asked for.
-
-    Unlike the numeric settings, an unrecognised value is fatal rather than
-    ignored. Falling back would hand the caller a *different browser* than the
-    one it named and let it keep going — and the whole reason to name one is
-    that the choice matters.
-    """
-    if value is None or not str(value).strip():
-        return DEFAULT_BROWSER
-    name = str(value).strip().lower()
-    if name not in BROWSERS:
-        raise ValueError(
-            f"unknown browser {value!r}; known browsers: {', '.join(BROWSERS)}"
-        )
-    return name
 
 
 class ReattachDriver(RemoteWebDriver):
@@ -93,79 +117,6 @@ class ReattachDriver(RemoteWebDriver):
 
     def start_session(self, capabilities):
         self._web_element_identifier = None
-
-
-def as_bool(value, default: bool = False) -> bool:
-    """Coerce a JSON or form value to bool.
-
-    Callers that send everything as strings would otherwise make ``"false"``
-    true, because every non-empty string is truthy in Python.
-    """
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    return str(value).strip().lower() in ("1", "true", "yes", "on")
-
-
-def as_int(value, default: int) -> int:
-    """Coerce to int, falling back on anything unusable.
-
-    An omitted optional parameter often arrives as an empty string, and
-    ``int("")`` raises.
-    """
-    try:
-        return int(str(value).strip())
-    except (TypeError, ValueError):
-        return default
-
-
-def normalize_url(url: str) -> str:
-    """Drop the fragment and any trailing slash so equivalent URLs compare equal."""
-    parts = urlsplit(url)
-    return urlunsplit(
-        (parts.scheme, parts.netloc, parts.path.rstrip("/"), parts.query, "")
-    )
-
-
-def public_url(url: str) -> str:
-    """``url`` with any credentials removed, for anything that leaves this process.
-
-    ``GRID_URL`` may carry userinfo — ``http://user:pass@grid:4444`` — and the
-    probes and the admin page both name the Grid. Printing it whole puts the
-    Grid's credential in an unauthenticated response and in whatever scrapes it.
-    """
-    try:
-        parts = urlsplit(url)
-        host = parts.hostname or ""
-        if ":" in host:  # IPv6 — `hostname` drops the brackets the authority wants
-            host = f"[{host}]"
-        if parts.port:  # parses, and raises when it is not a port
-            host = f"{host}:{parts.port}"
-        return urlunsplit((parts.scheme, host, parts.path.rstrip("/"), "", ""))
-    except ValueError:
-        # A malformed GRID_URL — a bad port, an unclosed IPv6 literal — reaches
-        # the probes like any other, and a probe answers rather than raises. The
-        # credentials still have to go, so they go by pattern (Copilot, #35).
-        return without_userinfo(url.split("?", 1)[0])
-
-
-def scrub(text: str, url: str) -> str:
-    """``text`` with ``url``'s credentials cut out, wherever it quoted them.
-
-    ``errors.message`` trims the one Grid failure known to print its URL, but a
-    proxy or parse error can quote it too, and ``/ready`` answers to anyone.
-    """
-    try:
-        parts = urlsplit(url)
-        secrets = (parts.netloc.rpartition("@")[0], parts.password)
-    except ValueError:  # same malformed URL, same credentials to remove
-        found = USERINFO.search(url)
-        secrets = (found.group("userinfo") if found else "",)
-    for secret in secrets:
-        if secret:
-            text = text.replace(secret, "***")
-    return text
 
 
 def is_partial(name: str) -> bool:
@@ -186,16 +137,52 @@ def png_size(b64: str) -> tuple[int, int]:
     return int.from_bytes(raw[16:20], "big"), int.from_bytes(raw[20:24], "big")
 
 
-class Grid:
-    """A Selenium Grid endpoint, and the operations this server needs from it."""
+def _dropped(exc: requests.ConnectionError) -> bool:
+    """Whether a request died on a connection the Grid had already let go.
 
-    def __init__(
-        self,
-        url: str = DEFAULT_GRID_URL,
-        timeout: int = 30,
-    ):
+    A pooled connection outlives a Grid restart, and the first request sent on
+    it is answered with a reset rather than a response: urllib3's "Connection
+    aborted". A refused or unresolvable Grid is a different failure and raises
+    as it always did; asking again would only ask the same dead address twice.
+    """
+    return bool(exc.args) and isinstance(exc.args[0], ProtocolError)
+
+
+class Grid:
+    """A Selenium Grid endpoint, and the operations this server needs from it.
+
+    It holds two connection pools, one per client library, so the calls each
+    action makes reuse connections instead of opening one apiece: ``http`` for
+    the Grid's own endpoints, and the WebDriver connection every reattached
+    driver shares (see `reconnect`).
+    """
+
+    def __init__(self, url: str = DEFAULT_GRID_URL):
         self.url = url.rstrip("/")
-        self.timeout = timeout
+        self.http = requests.Session()
+        adapter = _GridAdapter(pool_maxsize=GRID_CONNECTIONS)
+        self.http.mount("http://", adapter)
+        self.http.mount("https://", adapter)
+        # Each call used to be its own session and kept no cookies; a pool
+        # must not start pinning the Grid's calls to whatever an ingress set.
+        self.http.cookies.set_policy(DefaultCookiePolicy(allowed_domains=()))
+        self._webdriver = None
+
+    def _send(self, method: str, path: str, **kwargs) -> requests.Response:
+        """One request to the Grid, sent again once if the pool's connection
+        turns out to be one the Grid dropped (`_dropped`).
+
+        Once: the retry runs on a fresh connection, so a second failure is the
+        Grid's real answer and raises exactly as a single request would.
+        """
+        send = getattr(self.http, method)
+        url = f"{self.url}{path}"
+        try:
+            return send(url, timeout=GRID_TIMEOUT, **kwargs)
+        except requests.ConnectionError as exc:
+            if not _dropped(exc):
+                raise
+        return send(url, timeout=GRID_TIMEOUT, **kwargs)
 
     def _options(self, browser: str | None = None, insecure: bool = False):
         """Capabilities for a new session of ``browser``.
@@ -294,8 +281,38 @@ class Grid:
         thing that would ever send them. Reattaching to a Firefox session with
         Chrome's options works for exactly that reason, and asking the caller
         to know the browser to reconnect would be a lie about what is needed.
+
+        A reattached driver lives for one call, its connection does not: every
+        driver this Grid hands out shares one ``RemoteConnection``, so a call
+        reuses the keep-alive connections the last one opened rather than
+        building a new pool and a new TCP connection. The first driver builds
+        it through Selenium's own constructor, which picks the connection class
+        it always did; urllib3 reopens a pooled connection the Grid closed.
         """
-        driver = ReattachDriver(command_executor=self.url, options=self._options())
+        if self._webdriver is None:
+            driver = ReattachDriver(
+                command_executor=self.url,
+                options=self._options(),
+                client_config=ClientConfig(
+                    remote_server_addr=self.url,
+                    init_args_for_pool_manager={
+                        "init_args_for_pool_manager": {
+                            "maxsize": GRID_CONNECTIONS,
+                            "socket_options": SOCKET_OPTIONS,
+                        }
+                    },
+                    # Selenium waits 30 s for a BiDi socket that never answers;
+                    # `bidi` would stall that long on a Grid whose BiDi route is
+                    # down. Nothing but `bidi` opens a socket.
+                    websocket_timeout=BIDI_TIMEOUT,
+                    websocket_interval=BIDI_INTERVAL,
+                ),
+            )
+            self._webdriver = driver.command_executor
+        else:
+            driver = ReattachDriver(
+                command_executor=self._webdriver, options=self._options()
+            )
         driver.session_id = session_id
         return driver
 
@@ -311,11 +328,9 @@ class Grid:
         scheme = "wss" if parts.scheme == "https" else "ws"
         socket = urlunsplit((scheme, parts.netloc, parts.path.rstrip("/"), "", ""))
         driver = self.reconnect(session_id)
+        # The socket's timeout and polling are on the shared connection's
+        # config, set once by `reconnect`.
         driver.caps = {"webSocketUrl": f"{socket}/session/{session_id}/se/bidi"}
-        # Selenium waits 30 s for a socket that never answers; an open would
-        # stall that long on a Grid whose BiDi route is down.
-        driver.command_executor.client_config.websocket_timeout = BIDI_TIMEOUT
-        driver.command_executor.client_config.websocket_interval = BIDI_INTERVAL
         try:
             yield driver
         finally:
@@ -345,9 +360,7 @@ class Grid:
         "dead" silently strands a browser.
         """
         try:
-            response = requests.get(
-                f"{self.url}/session/{session_id}/url", timeout=self.timeout
-            )
+            response = self._send("get", f"/session/{session_id}/url")
         except requests.RequestException:
             return True
         if response.status_code == 200:
@@ -372,9 +385,7 @@ class Grid:
         least. Anything else still raises: a Grid that cannot be reached has not
         told us the browser is gone, and reporting success would be a guess.
         """
-        response = requests.delete(
-            f"{self.url}/session/{session_id}", timeout=self.timeout
-        )
+        response = self._send("delete", f"/session/{session_id}")
         if response.status_code == 404:
             return
         response.raise_for_status()
@@ -418,9 +429,7 @@ class Grid:
         and renames on completion, so listing them would offer the caller a file
         that is half-written and about to be called something else.
         """
-        response = requests.get(
-            f"{self.url}/session/{session_id}/se/files", timeout=self.timeout
-        )
+        response = self._send("get", f"/session/{session_id}/se/files")
         response.raise_for_status()
         files = [
             f
@@ -435,10 +444,8 @@ class Grid:
         The Grid always answers with a zip, even for a single file, so the
         archive is unwrapped here — callers want the file, not the envelope.
         """
-        response = requests.post(
-            f"{self.url}/session/{session_id}/se/files",
-            json={"name": name},
-            timeout=self.timeout,
+        response = self._send(
+            "post", f"/session/{session_id}/se/files", json={"name": name}
         )
         response.raise_for_status()
         archive = base64.b64decode(response.json()["value"]["contents"])
@@ -455,126 +462,24 @@ class Grid:
         surfaces as a Grid refusal instead of the silent 200 an unchecked
         response used to report.
         """
-        response = requests.delete(
-            f"{self.url}/session/{session_id}/se/files", timeout=self.timeout
-        )
+        response = self._send("delete", f"/session/{session_id}/se/files")
         if response.status_code == 404:
             return
         response.raise_for_status()
 
     def status(self) -> dict:
         """The Grid's own readiness payload."""
-        response = requests.get(f"{self.url}/status", timeout=self.timeout)
+        response = self._send("get", "/status")
         response.raise_for_status()
         return response.json()
 
     def session_count(self) -> int:
         """How many sessions are currently held across the Grid."""
-        response = requests.post(
-            f"{self.url}/graphql",
-            json={"query": "{ grid { sessionCount } }"},
-            timeout=self.timeout,
+        response = self._send(
+            "post", "/graphql", json={"query": "{ grid { sessionCount } }"}
         )
         response.raise_for_status()
         return response.json()["data"]["grid"]["sessionCount"]
-
-
-class ServiceWorkerAnswered(RuntimeError):
-    """A spare tab got the site's own page: its service worker answered before
-    the intercept could. Nothing is read or written there."""
-
-
-@contextlib.contextmanager
-def spare_tab(bidi, context: str | None = None):
-    """A tab whose every request is answered with :data:`SPARE_PAGE`, so it
-    can stand on any origin without that site loading — Playwright's way to
-    reach another origin's storage.
-
-    Yields ``run(origin, expression)``: stand on ``origin`` and return what
-    ``expression`` evaluates to there, JSON-safe. A page without the marker is
-    a service worker's (:class:`ServiceWorkerAnswered`) and is never touched.
-
-    With ``context``, that existing tab is intercepted instead and left open:
-    the main tab, for its sessionStorage. Selenium subscribes once per event,
-    with the first handler's contexts, so the handler is removed on the way
-    out and the next tab subscribes afresh.
-    """
-    tab = context or bidi.browsing_context.create(type="tab", background=True)
-    intercept = handler = None
-    try:
-        intercept = bidi.network.add_intercept(
-            phases=["beforeRequestSent"],
-            contexts=[tab],
-            url_patterns=[{"type": "pattern", "pathname": SPARE_PATH}],
-        )["intercept"]
-
-        def answer(event):
-            # On Selenium's own thread, one per event: a refused response is
-            # not an error here, it leaves the request blocked and the
-            # navigate times out (BIDI_TIMEOUT).
-            if not isinstance(event, dict) or not event.get("isBlocked"):
-                return
-            with contextlib.suppress(Exception):
-                bidi.network.provide_response(
-                    request=event["request"]["request"],
-                    status_code=200,
-                    headers=[{
-                        "name": "content-type",
-                        "value": {"type": "string", "value": "text/html"},
-                    }],
-                    body={"type": "string", "value": SPARE_PAGE},
-                )
-
-        # `before_request`, not `before_request_sent`: the other name hands
-        # the callback an event without the request's fields.
-        handler = bidi.network.add_event_handler(
-            "before_request", answer, contexts=[tab]
-        )
-
-        def run(origin: str, expression: str):
-            bidi.browsing_context.navigate(
-                context=tab, url=origin + SPARE_PATH, wait="complete"
-            )
-            reply = bidi.script.evaluate(
-                expression=_on_spare(expression),
-                target={"context": tab},
-                await_promise=True,
-            )
-            if reply.get("type") != "success":
-                details = reply.get("exceptionDetails") or {}
-                raise RuntimeError(details.get("text") or "the script failed")
-            got = json.loads(reply["result"]["value"])
-            if not got["spare"]:
-                raise ServiceWorkerAnswered(origin)
-            if got["origin"] != origin:
-                # A navigation that did not land must never be read as this
-                # origin: the tab still holds the last one's page.
-                raise RuntimeError(f"the spare tab is on {got['origin']}, not {origin}")
-            return got["value"]
-
-        yield run
-    finally:
-        # The intercept before its handler: the other way round, a request
-        # caught in between has nobody to answer it and stays blocked.
-        if intercept is not None:
-            with contextlib.suppress(Exception):
-                bidi.network.remove_intercept(intercept=intercept)
-        if handler is not None:
-            with contextlib.suppress(Exception):
-                bidi.network.remove_event_handler("before_request", handler)
-        if context is None:
-            with contextlib.suppress(Exception):
-                bidi.browsing_context.close(context=tab)
-
-
-def _on_spare(expression: str) -> str:
-    """``expression``, run only on our page, as a JSON string that also says
-    whose page it was and where."""
-    return (
-        "JSON.stringify(document.querySelector('meta[name=\"" + SPARE_MARKER + "\"]')"
-        " ? {spare: true, origin: location.origin, value: (" + expression + ")}"
-        " : {spare: false, origin: location.origin})"
-    )
 
 
 # Selenium raises TimeoutException with an EMPTY message, which surfaces to a
@@ -583,7 +488,9 @@ def _on_spare(expression: str) -> str:
 # diagnosis and the bare timeout is none of it.
 def _waited(driver, condition, timeout: int, description: str, target=None):
     try:
-        return WebDriverWait(driver, timeout).until(condition)
+        return WebDriverWait(driver, timeout, poll_frequency=WAIT_POLL).until(
+            condition
+        )
     except TimeoutException as exc:
         # When the element is there and simply cannot be used, the page knows
         # why and a bare timeout does not. Only the clickability waits pass a
@@ -735,6 +642,17 @@ def settled(driver, anchor, timeout: float = NAVIGATION_SETTLE) -> None:
         return
 
 
+# Whether the selected browsing context is a frame. `window` and `top` are both
+# unforgeable; `window.self` is not - a page can run `self = top` and a check
+# reading it says "not in a frame" from inside one.
+IN_FRAME = "return window !== window.top"
+
+# The selected browsing context's origin: the frame's when the session is in
+# one, the top page's otherwise. Never gated on a frame check, which a hostile
+# frame could forge.
+ORIGIN_HERE = "return document.location.origin"
+
+
 def in_frame(driver) -> bool:
     """Whether the session is currently switched into an iframe.
 
@@ -744,9 +662,31 @@ def in_frame(driver) -> bool:
     for a reason that looks nothing like the cause.
     """
     try:
-        return bool(driver.execute_script("return window.self !== window.top"))
+        return bool(driver.execute_script(IN_FRAME))
     except Exception:  # noqa: BLE001 - a dialog or a dead session must not raise here
         return False
+
+
+def frame_origin(driver) -> str:
+    """The origin of the document a keystroke would reach.
+
+    A script runs in the selected browsing context, so ``document.location
+    .origin`` is the frame's own when the session is in one and the top page's
+    when it is not. ``page_state`` cannot say this, because WebDriver's url is
+    always the top page's. Read every time, never only "when in a frame": the
+    frame check is the page's to answer, and a hostile frame can forge it.
+
+    ``location.origin`` is computed from the context's URL, so a ``data:``,
+    ``about:blank`` or ``srcdoc`` frame answers ``"null"`` whatever origin its
+    document inherited, and a frame with a ``sandbox`` attribute answers its
+    URL's origin. A failure or a non-string answer is ``""``. Neither ``"null"``
+    nor ``""`` matches an allowed origin, so the leash refuses both.
+    """
+    try:
+        found = driver.execute_script(ORIGIN_HERE)
+    except Exception:  # noqa: BLE001 - not knowing is an answer the leash refuses
+        return ""
+    return found if isinstance(found, str) else ""
 
 
 def page_state(driver) -> dict:

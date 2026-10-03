@@ -11,7 +11,7 @@ import yaml
 from fastmcp import Client
 from fastmcp.exceptions import PromptError
 
-from kubed.selenium_flow.flows.run import hint_for
+from kubed.selenium_flow.flows.report import hint_for
 from kubed.selenium_flow.mcp import prompts as prompts_module
 
 pytestmark = pytest.mark.unit

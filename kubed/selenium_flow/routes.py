@@ -9,12 +9,14 @@ an operation does *or* about whose browser it does it to.
 **Paths and methods are declared, not derived** (§F2.13). Generating this
 surface from the tool list produced RPC wearing URLs — ``POST /flows/get`` for
 what is plainly ``GET /flows/{name}`` — because a tool is a verb with arguments
-while a resource is a path plus a method. What the two surfaces still share is
-what matters: the bodies and the results come from the same action signatures,
-so neither can accept something the other refuses.
+while a resource is a path plus a method. Each browser action's path and method
+are columns of its row in ``core/capabilities.py``, and every row is mounted
+here. What the two surfaces still share is what matters: the bodies and the
+results come from the same action signatures, so neither can accept something
+the other refuses.
 
 **The session is who is calling, never a body field and never a path segment**
-— ``X-Session-Key`` or ``?session=``, resolved by ``sessions.name_from``. A
+— ``X-Session-Key`` or ``?session=``, read by ``Caller.from_request``. A
 browser is addressed by naming yourself, which is why there is one browser
 resource here rather than one per id: ``POST /browser`` opens *yours*.
 
@@ -27,6 +29,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import time
 
 import yaml
 from fastmcp import FastMCP
@@ -34,74 +37,23 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from . import errors
+from . import faults, urls
 from . import secrets as secrets_module
-from .core import browser
 from .core.actions import Actions
+from .core.capabilities import CAPABILITIES, ENDPOINTS, Capability
 from .http import answer as answer_module
 from .mcp import resources
 from .session import settings
-from .session.sessions import SessionManager
+from .session.sessions import Caller, SessionManager
 from .spec import build_spec
 
 log = logging.getLogger(__name__)
 
-# One row per capability: the path under the browser root, and the action it
-# calls. The signature of each method is what determines the accepted body, so
-# this table plus `actions.py` is the whole definition of an endpoint.
-#
-# Every one is a POST, reads included. A body is then the same object as a
-# tool's arguments and a flow step's `args` — one shape in three places — and a
-# GET that waits thirty seconds for an element surprises caches and proxies
-# besides (§F2.13, Dr K).
-ENDPOINTS = {
-    "navigate": "navigate",
-    "interact": "interact",
-    "drag": "drag",
-    "write": "write",
-    "press-key": "press_key",
-    "extract": "extract",
-    "script": "execute_script",
-    "assert": "assert",
-    "outline": "outline",
-    "screenshot": "screenshot",
-    "frame": "frame",
-    "resize": "resize",
-    "dialog": "dialog",
-    "upload": "upload_file",
-    "print": "print",
-    "save-site-data": "save_site_data",
-}
-
-# `interact` is the one action whose choice is a path segment rather than a body
-# field: /browser/interact/click reads as the thing it does, and the enum is
-# already closed (§F2.1). The action layer still validates it.
-ACTION_IN_PATH = "interact"
-
-# `assert` is a Python keyword and `print` a builtin, so the two actions whose
-# tool name cannot also be their method name. The tool, the route and a flow
-# step all say `assert` and `print`; the methods are `assert_` and `print_`. One
-# table, in one place, read by everything that dispatches — `flowrun` and
-# `tests/test_surfaces.py` included — because two places that map a name to a
-# method is how the two surfaces drift apart.
-METHOD_ALIASES = {"assert": "assert_", "print": "print_"}
-
-# What `resize` changes outlives the page, so the record has to hear about it.
-RESHAPES = "resize"
-
-# Arguments an action accepts that are never a request field on either surface,
-# because they name the caller rather than describe what to do. `flows/run.py`
-# injects `session` into `upload_file` so a step reads from the library the
-# *run* belongs to, not from whatever the ambient caller resolves to (Copilot,
-# #31) — and that only works as a guard if an HTTP body can never set it too.
-# It used to be reachable there because `_add` derived its accepted fields from
-# `Actions.upload_file`'s raw signature, which cannot tell a runner-only
-# parameter from an ordinary one: a caller could POST `session=<other>` and
-# read another session's kept file straight through it (Copilot, #41). Defined
-# here, once, because `flows/run.py` already imports from this module and the
-# two must never define this mapping separately and drift.
-LIBRARY_ARG = {"upload_file": "session"}
-
+# `/ready` remembers the Grid's answer this long: a kubelet, a load balancer
+# and anyone with curl all hit it unauthenticated, and each hit dialled the Grid
+# twice. Read at call time, so a test can swap the clock.
+READY_TTL = 2.0
+clock = time.monotonic
 
 def mount(value: str | None) -> str:
     """``ROUTE_PREFIX`` as a path segment every route hangs off, or "" for root.
@@ -116,11 +68,6 @@ def mount(value: str | None) -> str:
     """
     text = str(value or "").strip().strip("/")
     return f"/{text}" if text else ""
-
-
-def method_for(tool: str) -> str:
-    """The ``Actions`` method that serves ``tool``."""
-    return METHOD_ALIASES.get(tool, tool)
 
 
 def register(
@@ -190,6 +137,9 @@ def register(
         """
         return JSONResponse({"status": "started"})
 
+    # [when, body, status] of the last Grid answer, ok or failing alike.
+    answered: list = []
+
     @ops_route("/ready", "ready")
     async def ready(_request: Request) -> JSONResponse:
         """**Readiness**: can this process serve a request right now?
@@ -199,7 +149,10 @@ def register(
         pod out of the Service and leaves it running, which is what a Grid
         outage should cost.
         """
-        grid = browser.public_url(actions.grid.url)
+        now = clock()
+        if answered and now - answered[0] < READY_TTL:
+            return JSONResponse(answered[1], status_code=answered[2])
+        grid = urls.public_url(actions.grid.url)
         try:
             # In a thread: both are synchronous `requests` calls, and a Grid
             # that has gone away blocks until it times out. On the event loop
@@ -209,24 +162,22 @@ def register(
             ready = bool(status["value"]["ready"])
             running = await run_in_threadpool(actions.grid.session_count)
         except Exception as exc:  # noqa: BLE001 - the probe must never raise
-            return JSONResponse(
-                {
-                    "status": "degraded",
-                    "grid": grid,
-                    "error": browser.scrub(errors.message(exc), actions.grid.url),
-                },
-                status_code=503,
-            )
-        return JSONResponse(
-            {
+            body, code = {
+                "status": "degraded",
+                "grid": grid,
+                "error": urls.scrub(faults.message(exc), actions.grid.url),
+            }, 503
+        else:
+            body, code = {
                 "status": "ok" if ready else "degraded",
                 "grid": grid,
                 "grid_ready": ready,
                 "browsers": running,
                 "sessions": sessions.kind,
-            },
-            status_code=200 if ready else 503,
-        )
+            }, (200 if ready else 503)
+        # Measured after the dial, so a slow Grid does not use up its own window.
+        answered[:] = [clock(), body, code]
+        return JSONResponse(body, status_code=code)
 
     @ops_route("/info", "info")
     async def info(_request: Request) -> JSONResponse:
@@ -234,7 +185,7 @@ def register(
 
         Not a probe: the question an operator asks when a call went somewhere
         unexpected. The Grid is named without its credentials, which `GRID_URL`
-        may carry and which this answers to anyone (`browser.public_url`).
+        may carry and which this answers to anyone (`urls.public_url`).
         """
         from .spec.builder import _version
 
@@ -244,7 +195,7 @@ def register(
                 "version": _version(),
                 "mount": prefix or "/",
                 "mcp": f"{prefix}/mcp",
-                "grid": browser.public_url(actions.grid.url),
+                "grid": urls.public_url(actions.grid.url),
                 "sessions": sessions.kind,
             }
         )
@@ -281,37 +232,43 @@ def register(
     #
     # One resource, not one per browser id. Which browser is a question about
     # who is asking, and the answer is in the header or the query string.
+    #
+    # Opening and ending it are the two capabilities with no path of their own.
+    # The session manager serves them rather than `sessions.act`, because it is
+    # where a browser is made and let go, so their calls are written here; they
+    # are mounted with every other row, at the method the row declares.
 
-    @mcp.custom_route(browser_root, methods=["POST"], name="browser_open")
-    async def open_browser(request: Request) -> JSONResponse:
+    def opened(caller, body):
         """Open this session's browser, or pick up the one it was using."""
-        return await _answer(request, token, "open", lambda name, body: (
-            sessions.open_browser(
-                name,
-                url=body.get("url"),
-                fresh=body.get("fresh", False),
-                restore_site_data=body.get("restore_site_data", True),
-                **{k: v for k, v in body.items() if k in settings.SETTINGS},
-            )
-        ))
+        return sessions.open_browser(
+            caller,
+            url=body.get("url"),
+            fresh=body.get("fresh", False),
+            restore_site_data=body.get("restore_site_data", True),
+            **{k: v for k, v in body.items() if k in settings.SETTINGS},
+        )
 
-    @mcp.custom_route(browser_root, methods=["DELETE"], name="browser_end")
-    async def end_browser(request: Request) -> JSONResponse:
+    def ended(caller, _body):
         """Quit the browser, keeping the session and what it was doing."""
-        def ended(name, _body):
-            # The browser that was ended is deliberately NOT reported: the Grid's
-            # id is how a browser is reached, not part of what a caller is told
-            # (E18). Returning it here was the one place that leaked (Copilot, #34).
-            sessions.end_browser(name)
-            return {"success": True, "session": name}
+        # The browser that was ended is deliberately NOT reported: the Grid's
+        # id is how a browser is reached, not part of what a caller is told
+        # (E18). Returning it here was the one place that leaked (Copilot, #34).
+        sessions.end_browser(caller)
+        return {"success": True, "session": caller.name}
 
-        return await _answer(request, token, "end", ended)
+    on_the_resource = {
+        "open_session": ("open", "browser_open", opened),
+        "end_browser": ("end", "browser_end", ended),
+    }
 
     @mcp.custom_route(browser_root, methods=["GET"], name="browser_status")
     async def browser_status(request: Request) -> JSONResponse:
         """What this session is and whether it holds a browser. Opens nothing."""
-        return await _answer(request, token, "status", lambda name, _body: (
-            sessions.describe(name)
+        # Reported as named by `request` on this surface, as it always has been,
+        # where MCP says `query` or `header` (M36): a divergence to settle on
+        # its own, not inside a refactor.
+        return await _answer(request, token, "status", lambda caller, _body: (
+            sessions.describe(Caller(caller.name, "request"))
         ))
 
     # The same two reads the resources make, beside them the way `/files` is
@@ -321,7 +278,7 @@ def register(
         """The sites this session has saved data for. Never a value."""
         return await answer_module.answer(
             request, token, "site-data/list",
-            lambda name, _body: resources.site_listing(sessions, name), log,
+            lambda caller, _body: resources.site_listing(sessions, caller.name), log,
         )
 
     @mcp.custom_route(
@@ -332,13 +289,18 @@ def register(
         site = request.path_params["site"]
         return await answer_module.answer(
             request, token, "site-data/get",
-            lambda name, _body: resources.one_site(sessions, name, site), log,
+            lambda caller, _body: resources.one_site(sessions, caller.name, site),
+            log,
         )
 
-    for path, method_name in ENDPOINTS.items():
-        _add(
-            mcp, actions, sessions, token, browser_root, path, method_name, catalogue
-        )
+    # Every row of the table, at the path and method it declares. A row the
+    # resource has no call for is a KeyError at startup, not a missing route.
+    for row in CAPABILITIES:
+        if row.route:
+            _add(mcp, actions, sessions, token, browser_root, row, catalogue)
+            continue
+        what, name, call = on_the_resource[row.name]
+        _bind(mcp, token, browser_root, row.http_method, name, what, call)
 
 
 async def _answer(request, token, what, call) -> JSONResponse:
@@ -351,13 +313,21 @@ async def _answer(request, token, what, call) -> JSONResponse:
     return await answer_module.answer(request, token, what, call, log)
 
 
-def _add(mcp, actions, sessions, token, prefix, path, method_name, catalogue) -> None:
-    """Bind one action to ``<prefix>/<path>``."""
-    method = getattr(actions, method_for(method_name))
+def _bind(mcp, token, route, http_method, name, what, call) -> None:
+    """Mount ``call`` at ``route`` for one method, through ``_answer``."""
+
+    @mcp.custom_route(route, methods=[http_method], name=name)
+    async def handler(request: Request) -> JSONResponse:
+        return await _answer(request, token, what, call)
+
+
+def _add(mcp, actions, sessions, token, prefix, row: Capability, catalogue) -> None:
+    """Bind one action to ``<prefix>/<route>``, at the method its row declares."""
+    method = getattr(actions, row.method)
     # `session_id` is the Grid's, supplied by the session manager. It was never
     # a field a caller filled in and now it is not one it could.
     #
-    # `LIBRARY_ARG` is the same story for a different reason: it names the
+    # `library_arg` is the same story for a different reason: it names the
     # *caller*, not the action, and only a flow run is allowed to supply it
     # (Copilot, #41). Dropped the same way an unknown field is — silently,
     # below — rather than refused, so a request naming another session's
@@ -365,7 +335,7 @@ def _add(mcp, actions, sessions, token, prefix, path, method_name, catalogue) ->
     # all always has.
     accepted = set(inspect.signature(method).parameters) - {
         "session_id",
-        LIBRARY_ARG.get(method_name),
+        row.library_arg,
     }
     # `secret` is not an argument of the action — resolving it needs the secret
     # catalogue, which the behaviour layer deliberately cannot see. It is still
@@ -374,37 +344,34 @@ def _add(mcp, actions, sessions, token, prefix, path, method_name, catalogue) ->
     # package does not allow. It is dropped from `accepted` by that same
     # signature check, so without this an HTTP caller's binding vanished
     # silently while the published spec advertised it.
-    binds = method_name == "write"
+    binds = row.name == "write"
     if binds:
         # `read_back` is an internal switch for a bound write, not a request
         # field: accepting it would let a caller ask for `value: null` with no
         # binding, which neither MCP nor the published spec offers.
         accepted = (accepted | {"secret"}) - {"read_back"}
-    in_path = method_name == ACTION_IN_PATH
-    route = f"{prefix}/{path}" + ("/{action}" if in_path else "")
+    path = row.route
+    route = f"{prefix}/{path}" + ("/{action}" if row.in_path else "")
 
-    @mcp.custom_route(route, methods=["POST"], name=f"browser_{path}")
+    @mcp.custom_route(route, methods=[row.http_method], name=f"browser_{path}")
     async def handler(request: Request) -> JSONResponse:
-        def call(name, body):
+        def call(caller, body):
             # Unknown keys are dropped rather than refused: a caller sending a
             # field a newer version accepts should not be a hard failure.
             kwargs = {k: v for k, v in body.items() if k in accepted}
-            if in_path:
+            if row.in_path:
                 kwargs["action"] = request.path_params["action"]
             if binds and kwargs.get("secret") is not None:
                 # Its own path, because a bound write must not let the shared
                 # wrapper store the page it landed on. See secrets.perform_write.
                 return secrets_module.perform_write(
-                    catalogue, actions, sessions, name, kwargs
+                    catalogue, actions, sessions, caller.name, kwargs
                 )
             kwargs.pop("secret", None)
             return sessions.act(
-                name,
+                caller,
                 lambda s: method(s, **kwargs),
-                reshapes=method_name == RESHAPES,
+                reshapes=row.reshapes,
             )
 
         return await _answer(request, token, path, call)
-
-    return handler
-

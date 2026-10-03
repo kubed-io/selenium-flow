@@ -27,7 +27,6 @@ A client that cannot read resources reads the same URIs through
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 
@@ -38,10 +37,6 @@ log = logging.getLogger(__name__)
 SKILLS_DIR = "skills"
 SKILL_NAME = "selenium-flow"
 ENTRY = "SKILL.md"
-MANIFEST = "_manifest"
-
-RESOURCE_URI = f"skill://{SKILL_NAME}/{ENTRY}"
-MANIFEST_URI = f"skill://{SKILL_NAME}/{MANIFEST}"
 
 
 def skill_path() -> Path:
@@ -78,34 +73,6 @@ def load() -> SkillProvider | None:
     except Exception as exc:  # noqa: BLE001 - bad package data must not stop the boot
         log.warning("packaged skill at %s could not be loaded: %s", path, exc)
         return None
-
-
-def read(provider: SkillProvider, file: str) -> str | None:
-    """One of the skill's files, by the path the manifest names.
-
-    Traversal is refused by name rather than by resolved path: the manifest is
-    the list of what exists, so anything not on it is simply not a file here.
-    """
-    if file == MANIFEST:
-        return manifest_json(provider)
-    known = {f.path for f in provider.skill_info.files}
-    if file not in known:
-        return None
-    return (skill_path() / file).read_text(encoding="utf-8")
-
-
-def manifest_json(provider: SkillProvider) -> str:
-    """The file listing, in the shape the resource serves it."""
-    info = provider.skill_info
-    return json.dumps(
-        {
-            "skill": info.name,
-            "files": [
-                {"path": f.path, "size": f.size, "hash": f.hash} for f in info.files
-            ],
-        },
-        indent=2,
-    )
 
 
 def register(mcp, provider: SkillProvider) -> None:

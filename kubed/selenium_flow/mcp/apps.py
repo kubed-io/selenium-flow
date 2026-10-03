@@ -18,7 +18,7 @@ returns ordinary structured data with absolute, signed URLs in it, and the
 - a client without it still gets the URLs, and can link or embed them,
 - a client that shows neither still gets the filenames and sizes as text.
 
-Which is the same shape as the resource/tool mirroring in ``resources.py``: one
+Which is the same shape as the resource/tool mirroring in ``mirror.py``: one
 server, and the client's declared capabilities decide the rendering.
 
 URLs handed out here are absolute. An app runs on a sandbox origin of the host's
@@ -36,7 +36,7 @@ from urllib.parse import urlsplit
 from fastmcp.apps import UI_EXTENSION_ID, AppConfig, ResourceCSP
 from fastmcp.server.dependencies import get_context
 
-from ..http import admin
+from ..http.admin import page as admin_page
 
 log = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ def available() -> bool:
     """Whether the app shell was built. Without it there is nothing to render,
     so the tools behave as with `mcp.apps` off (`MCP_APPS=false`) and still
     return their data (§F4.17)."""
-    return admin.ui_built("app")
+    return admin_page.ui_built("app")
 
 
 def register(mcp, actions, token: str | None, base: str) -> set[str]:
@@ -99,6 +99,6 @@ def register(mcp, actions, token: str | None, base: str) -> set[str]:
         app=AppConfig(csp=csp),
     )
     def component_app() -> str:
-        return admin.page("app")
+        return admin_page.page("app")
 
     return set()

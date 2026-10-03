@@ -2,7 +2,7 @@ name: 📸 Image Builder
 
 # Context-driven image build:
 #   push: main          push :main + :latest          → test :latest in-cluster
-#   workflow_dispatch   manual build (push toggle)
+#   workflow_dispatch   manual build (push toggle); off main, :<branch> + :<sha> only
 #   workflow_call       called by publish.yml with a version tag — checks out
 #                       that tag and pushes :vX.Y.Z (stable, pin this to deploy)
 #
@@ -127,18 +127,59 @@ jobs:
         # be readable by the build context this step is about to hand to Docker.
         persist-credentials: false
 
-    # GIT_TAG is the semantic bake tag: the version on a release (workflow_call),
-    # else :latest on a main build.
+    # Every tag docker-compose.yaml bakes comes from here, plus GIT_SHA from
+    # the build-image action (its GIT_REF is unused: it keeps a branch's last
+    # path segment verbatim). Bake drops a repeated tag, so the sets are:
+    #   main      :latest :main :<sha>
+    #   release   :latest :main :<sha> :vX.Y.Z   (workflow_call from main)
+    #   branch    :<branch> :<sha>               never :latest or :main
+    # A branch name becomes a valid tag that cannot be mistaken for one a main
+    # build or a release owns; the expect lines pin that rule and fail the step
+    # if it drifts.
     - name: Resolve image tag
       shell: bash
       env:
         CALL_TAG: ${{ inputs.tag }}
+        REF_NAME: ${{ github.ref_name }}
       run: |
-        if [ -n "$CALL_TAG" ]; then
-          echo "GIT_TAG=$CALL_TAG" >> "$GITHUB_ENV"
+        sanitize() {
+          local t
+          t=$(printf '%s' "$1" | LC_ALL=C tr '[:upper:]' '[:lower:]' \
+            | LC_ALL=C sed -e 's/[^a-z0-9._-]/-/g' -e 's/^[.-]*//')
+          case "$t" in
+            '' | latest | main | v[0-9]*) t="ref-$t" ;;
+          esac
+          printf '%s' "${t:0:128}"
+        }
+        expect() {
+          local got
+          got=$(sanitize "$1")
+          if [ "$got" != "$2" ]; then
+            echo "::error::tag for '$1' is '$got', expected '$2'"
+            exit 1
+          fi
+        }
+        expect feature/locks feature-locks
+        expect Optimal_Shape optimal_shape
+        expect '-.fix:a b' fix-a-b
+        expect latest ref-latest
+        expect Main ref-main
+        expect v1.2 ref-v1.2
+        expect vision vision
+        expect "$(printf 'x%.0s' {1..200})" "$(printf 'x%.0s' {1..128})"
+
+        if [ "$REF_NAME" = main ]; then
+          ref=main
+          latest=latest
         else
-          echo "GIT_TAG=latest" >> "$GITHUB_ENV"
+          ref=$(sanitize "$REF_NAME")
+          latest=$ref
         fi
+        {
+          echo "IMAGE_TAG=${CALL_TAG:-$ref}"
+          echo "IMAGE_REF=$ref"
+          echo "IMAGE_LATEST=$latest"
+        } >> "$GITHUB_ENV"
 
     - name: Build and Push
       uses: kubed-io/actions/build-image@main

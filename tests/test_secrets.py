@@ -7,6 +7,10 @@ directory of symlinks through a timestamped `..data` directory rather than the
 plain tree it looks like from outside.
 """
 
+import json
+from types import SimpleNamespace
+from urllib.parse import quote_plus
+
 import pytest
 
 from kubed.selenium_flow import secrets
@@ -265,7 +269,7 @@ def test_origin_keeps_scheme_host_and_port_and_nothing_else(url, expected):
 
 
 def test_a_secret_name_cannot_escape_its_directory(source):
-    from kubed.selenium_flow.flows.library import InvalidName
+    from kubed.selenium_flow.names import InvalidName
 
     with pytest.raises(InvalidName):
         source._dir("../../etc")
@@ -273,9 +277,8 @@ def test_a_secret_name_cannot_escape_its_directory(source):
     assert source.value("../../etc", "passwd") is None
 
 
-def test_a_symlinked_secret_directory_is_refused(tmp_path):
-    outside = tmp_path.parent / "elsewhere"
-    outside.mkdir(exist_ok=True)
+def test_a_symlinked_secret_directory_is_refused(tmp_path, tmp_path_factory):
+    outside = tmp_path_factory.mktemp("elsewhere")
     (outside / "token").write_text("leaked")
     root = tmp_path / "secrets"
     root.mkdir()
@@ -307,7 +310,7 @@ def secret_server(tmp_path, monkeypatch):
     from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
-    from .conftest import NAMED, TOKEN
+    from .conftest import NAMED, TOKEN, calling_as
 
     make_secret(
         tmp_path / "secrets-src", "nextcloud-admin", username="admin",
@@ -320,7 +323,7 @@ def secret_server(tmp_path, monkeypatch):
         secrets={"dirs": str(tmp_path / "secrets-src")},
         flow={"data_dir": str(tmp_path / "flows")},
     ))
-    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
+    calling_as(monkeypatch, NAMED)
     return server
 
 
@@ -390,11 +393,13 @@ async def test_with_no_directories_the_catalogue_says_so():
 def test_the_endpoint_serves_the_catalogue_and_needs_the_token(secret_server):
     from starlette.testclient import TestClient
 
-    from .conftest import TOKEN
+    from .conftest import NAMED, TOKEN
 
     client = TestClient(secret_server.mcp.http_app())
     assert client.get("/secrets").status_code == 401
-    response = client.get("/secrets", headers={"Authorization": f"Bearer {TOKEN}"})
+    response = client.get(
+        "/secrets", headers={"Authorization": f"Bearer {TOKEN}", "X-Session-Key": NAMED}
+    )
     assert response.status_code == 200
     assert response.json()["secrets"][0]["name"] == "nextcloud-admin"
     assert "hunter2" not in response.text
@@ -858,7 +863,7 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
     from kubed.selenium_flow.flows import run as flowrun
     from kubed.selenium_flow.server import SeleniumMCP
 
-    from .conftest import NAMED, TOKEN
+    from .conftest import NAMED, TOKEN, calling_as
 
     monkeypatch.delenv("SECRETS_DIRS", raising=False)
     monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
@@ -871,7 +876,7 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
         auth={"token": TOKEN},
         secrets={"dirs": str(tmp_path)},
     ))
-    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
+    calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
     monkeypatch.setattr(
         server.actions, "page",
@@ -912,7 +917,7 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
     """
     from kubed.selenium_flow.server import SeleniumMCP
 
-    from .conftest import NAMED, TOKEN
+    from .conftest import NAMED, TOKEN, calling_as
 
     monkeypatch.delenv("SECRETS_DIRS", raising=False)
     monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
@@ -925,7 +930,7 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
         auth={"token": TOKEN},
         secrets={"dirs": str(tmp_path)},
     ))
-    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
+    calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
     monkeypatch.setattr(
         server.actions, "page",
@@ -950,6 +955,81 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
     assert touched == [("https://nc.example.com/home", "browser-1")]
 
 
+VALUE = "p@ss word/1"  # has a quoting form distinct from itself
+
+
+def _direct(tmp_path, monkeypatch, write):
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    from .conftest import NAMED, TOKEN, calling_as
+
+    monkeypatch.delenv("SECRETS_DIRS", raising=False)
+    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    make_secret(
+        tmp_path, "nextcloud", password=VALUE,
+        **{ALLOWED_URLS: "https://nc.example.com"},
+    )
+    server = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"},
+        auth={"token": TOKEN},
+        secrets={"dirs": str(tmp_path)},
+    ))
+    calling_as(monkeypatch, NAMED)
+    monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(
+        server.actions, "page",
+        lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
+    )
+    monkeypatch.setattr(server.actions, "write", write)
+    touched = []
+    monkeypatch.setattr(
+        server.sessions, "touch",
+        lambda name, url, browser=None: touched.append((url, browser)),
+    )
+    return server, touched
+
+
+async def test_a_direct_bound_write_scrubs_every_spelling_it_comes_back_in(
+    tmp_path, monkeypatch
+):
+    """The result scrub of the third surface, with a value that is not the
+    marker: a page that echoes what was typed, in its title and encoded in
+    its URL, hands back neither."""
+    def write(sid, text, **kw):
+        return {
+            "value": None,
+            "url": f"https://nc.example.com/?q={quote_plus(text)}",
+            "title": f"Welcome back, {text}",
+        }
+
+    server, touched = _direct(tmp_path, monkeypatch, write)
+    tool = await server.mcp.get_tool("write")
+    result = tool.fn(
+        selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"}
+    )
+    shown = json.dumps(result)
+    assert VALUE not in shown and quote_plus(VALUE) not in shown, shown
+    assert result["title"] == "Welcome back, <hidden>"
+    assert result["url"] == "https://nc.example.com/?q=<hidden>"
+    assert touched == [(None, "browser-1")]
+
+
+async def test_a_direct_bound_writes_failure_never_quotes_the_value(
+    tmp_path, monkeypatch
+):
+    def write(sid, text, **kw):
+        raise ValueError(f"could not type {text!r} into #p")
+
+    server, _ = _direct(tmp_path, monkeypatch, write)
+    tool = await server.mcp.get_tool("write")
+    with pytest.raises(ValueError) as caught:
+        tool.fn(
+            selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"}
+        )
+    assert VALUE not in str(caught.value)
+    assert caught.value.__suppress_context__, "the raw error must not ride along"
+
+
 async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
     tmp_path, monkeypatch
 ):
@@ -957,7 +1037,7 @@ async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
     carries the reopen's report, which `touch` hands over."""
     from kubed.selenium_flow.server import SeleniumMCP
 
-    from .conftest import NAMED, TOKEN
+    from .conftest import NAMED, TOKEN, calling_as
 
     monkeypatch.delenv("SECRETS_DIRS", raising=False)
     monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
@@ -970,7 +1050,7 @@ async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
         auth={"token": TOKEN},
         secrets={"dirs": str(tmp_path)},
     ))
-    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
+    calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
     monkeypatch.setattr(
         server.actions, "page",
@@ -1032,7 +1112,7 @@ def test_a_session_in_use_is_kept_alive_even_when_its_page_is_withheld():
     clock = [1000.0]
     store = MemoryStore(ttl=60, clock=lambda: clock[0])
     store.set(
-        NAMED, SessionRecord(session_id="browser-1").at("https://nc.test/home")
+        NAMED, SessionRecord(session_id="browser-1").visited("https://nc.test/home")
     )
     sessions = manager(store=store)
 
@@ -1139,20 +1219,232 @@ async def test_the_http_catalogue_is_in_the_published_contract(secret_server):
     real response: every field the catalogue returns is declared."""
     from starlette.testclient import TestClient
 
-    from kubed.selenium_flow.routes import ENDPOINTS
+    from kubed.selenium_flow.core.capabilities import ENDPOINTS
     from kubed.selenium_flow.spec import build_spec
 
-    from .conftest import TOKEN
+    from .conftest import NAMED, TOKEN
 
     spec = await build_spec(secret_server.mcp, ENDPOINTS, "", authenticated=True)
     operation = spec["paths"]["/secrets"]["get"]
     assert operation["x-mcp-resource"] == secrets.LIST_URI
 
     body = TestClient(secret_server.mcp.http_app()).get(
-        "/secrets", headers={"Authorization": f"Bearer {TOKEN}"}
+        "/secrets", headers={"Authorization": f"Bearer {TOKEN}", "X-Session-Key": NAMED}
     ).json()
     schemas = spec["components"]["schemas"]
     assert not set(body) - set(schemas["SecretList"]["properties"])
     for entry in body["secrets"]:
         undeclared = set(entry) - set(schemas["SecretEntry"]["properties"])
         assert not undeclared, undeclared
+
+
+# ---- the leash sees the frame (F2) -------------------------------------------
+
+ALLOWED = "https://nc.example.com"
+ELSEWHERE = "https://evil.test"
+
+
+@pytest.fixture
+def framed(tmp_path):
+    """A real `Actions` on a scripted browser whose top page is allowed, and a
+    write that records what reached it instead of typing."""
+    from types import SimpleNamespace
+
+    from kubed.selenium_flow.core.actions import Actions
+
+    from .fakes import ScriptedDriver
+
+    make_secret(tmp_path, "nextcloud", password="hunter2", **{ALLOWED_URLS: ALLOWED})
+    catalogue = Catalogue([FilesystemSource(tmp_path)])
+    typed = []
+
+    def build(frame_origin=None, top=ALLOWED, forged=False):
+        # The selected context's origin is the top page's unless a frame is
+        # selected; `forged` is a frame that ran `self = top`, so a check that
+        # reads `window.self` says it is not one.
+        scripts = {"location.origin": frame_origin or top}
+        if forged:
+            scripts = {"window.self": False, **scripts}
+        driver = ScriptedDriver(url=f"{top}/login", title="Log in", scripts=scripts)
+        actions = Actions(SimpleNamespace(reconnect=lambda session_id: driver))
+        actions.write = lambda session_id, text, **_: typed.append(text) or {
+            "value": None, "url": f"{ALLOWED}/login", "title": "Log in",
+        }
+        return actions
+
+    held = SimpleNamespace(resolve=lambda name: "b1", settle=lambda *a, **k: None)
+
+    def write(frame_origin=None, top=ALLOWED, forged=False):
+        return secrets.perform_write(
+            catalogue, build(frame_origin, top, forged), held, "desktop",
+            {"selector": {"css": "#p"}, "secret": {"name": "nextcloud", "key": "password"}},
+        )
+
+    return write, typed
+
+
+def test_a_secret_is_never_typed_into_a_frame_from_another_origin(framed):
+    """The top page is allowed; the field is in a frame the session switched
+    into, and the frame is someone else's. The keystroke lands in the frame, so
+    the frame's origin is checked too, and the refusal names it."""
+    write, typed = framed
+    with pytest.raises(secrets.Refused) as refused:
+        write(frame_origin=ELSEWHERE)
+    assert f"may not be used on {ELSEWHERE}" in str(refused.value)
+    assert typed == []
+
+
+def test_an_allowed_frame_inside_a_page_that_is_not_allowed_is_refused(framed):
+    """The frame tightens the leash and never loosens it: what the top-page
+    check refused is still refused, in the words it always used."""
+    write, typed = framed
+    with pytest.raises(secrets.Refused) as refused:
+        write(frame_origin=ALLOWED, top=ELSEWHERE)
+    assert str(refused.value) == (
+        f"the secret 'nextcloud' may not be used on {ELSEWHERE}. It allows: {ALLOWED}"
+    )
+    assert typed == []
+
+
+@pytest.mark.parametrize("frame_origin,named", [(ELSEWHERE, ELSEWHERE), ("null", "this page")])
+def test_a_frame_that_forges_self_is_still_checked(framed, frame_origin, named):
+    """A hostile frame runs `self = top`. The origin is read whatever any frame
+    check says, so the frame is still refused, and an opaque one too."""
+    write, typed = framed
+    with pytest.raises(secrets.Refused) as refused:
+        write(frame_origin=frame_origin, forged=True)
+    assert f"may not be used on {named}." in str(refused.value)
+    assert typed == []
+
+
+def test_a_frame_of_an_allowed_origin_takes_the_secret(framed):
+    write, typed = framed
+    write(frame_origin=ALLOWED)
+    assert typed == ["hunter2"]
+
+
+def test_the_top_page_is_checked_when_no_frame_is_selected(framed):
+    write, typed = framed
+    write()
+    assert typed == ["hunter2"]
+
+
+@pytest.mark.parametrize(
+    "top,frame,named", [(ALLOWED, ELSEWHERE, ELSEWHERE), (ELSEWHERE, ALLOWED, ELSEWHERE)]
+)
+def test_a_flow_step_is_held_to_the_page_and_the_frame(tmp_path, top, frame, named):
+    """The other place a secret is bound reads the page the same way, and needs
+    both allowed too."""
+    from kubed.selenium_flow.flows.run import run
+
+    from .fakes import FakeActions
+
+    make_secret(tmp_path, "nextcloud", password="hunter2", **{ALLOWED_URLS: ALLOWED})
+
+    class InAFrame(FakeActions):
+        def page(self, session_id):
+            return {"url": f"{top}/login", "title": "Log in", "frame_origin": frame}
+
+    actions = InAFrame()
+    step = {"tool": "write", "args": {
+        "selector": {"css": "#p"}, "secret": {"name": "nextcloud", "key": "password"},
+    }}
+    report = run(
+        actions, {"name": "login", "steps": [step]}, "b",
+        catalogue=Catalogue([FilesystemSource(tmp_path)]),
+    )
+    assert report["status"] == "failed"
+    assert f"may not be used on {named}" in report["steps"][0]["error"]
+    assert actions.calls == []
+
+
+# ---- the leash sees the frame element too (final review C1) ------------------
+
+FRAME_REFUSAL = (
+    "a secret cannot be typed into an element that hosts another document; "
+    "switch into the frame first"
+)
+
+
+@pytest.fixture
+def targeting(tmp_path):
+    """A real `Actions` on a scripted browser on an allowed page with nothing
+    framed selected, whose selector finds an element of the tag a test sets.
+    Keys sent to an `<iframe>` land in its document whatever context is
+    selected, so the leash's two origins say nothing about where they go."""
+    from types import SimpleNamespace
+
+    from kubed.selenium_flow.core.actions import Actions
+
+    from .fakes import ScriptedDriver
+
+    make_secret(tmp_path, "nextcloud", password="hunter2", **{ALLOWED_URLS: ALLOWED})
+    catalogue = Catalogue([FilesystemSource(tmp_path)])
+    driver = ScriptedDriver(
+        url=f"{ALLOWED}/login", title="Log in", scripts={"location.origin": ALLOWED}
+    )
+    actions = Actions(SimpleNamespace(reconnect=lambda session_id: driver))
+    return catalogue, driver, actions
+
+
+def typed_into(driver):
+    return [entry[2:] for entry in driver.log if entry[:2] == ("element", "send_keys")]
+
+
+@pytest.mark.parametrize(
+    "tag", ["iframe", "frame", "object", "embed", "fencedframe", "portal", "IFRAME"]
+)
+def test_a_direct_bound_write_never_types_into_a_frame_element(targeting, tag):
+    from kubed.selenium_flow.errors import status_for
+
+    catalogue, driver, actions = targeting
+    driver.element.tag = tag
+    held = SimpleNamespace(resolve=lambda name: "b1", settle=lambda *a, **k: None)
+    with pytest.raises(ValueError) as refused:
+        secrets.perform_write(
+            catalogue, actions, held, "desktop",
+            {
+                "selector": {"css": "iframe#xo"}, "clear": False,
+                "secret": {"name": "nextcloud", "key": "password"},
+            },
+        )
+    assert str(refused.value) == FRAME_REFUSAL
+    assert status_for(refused.value) == 400
+    assert typed_into(driver) == []
+    assert ("element", "clear") not in driver.log
+
+
+def test_a_flow_step_never_types_a_secret_into_a_frame_element(targeting):
+    from kubed.selenium_flow.flows.run import run
+
+    catalogue, driver, actions = targeting
+    driver.element.tag = "iframe"
+    step = {"tool": "write", "args": {
+        "selector": {"css": "iframe#xo"}, "secret": {"name": "nextcloud", "key": "password"},
+    }}
+    report = run(actions, {"name": "login", "steps": [step]}, "b", catalogue=catalogue)
+    assert report["status"] == "failed"
+    assert report["steps"][0]["error"] == FRAME_REFUSAL
+    assert typed_into(driver) == []
+
+
+@pytest.mark.parametrize("tag", ["input", "div", "textarea"])
+def test_a_bound_write_into_a_field_still_types(targeting, tag):
+    catalogue, driver, actions = targeting
+    driver.element.tag = tag
+    held = SimpleNamespace(resolve=lambda name: "b1", settle=lambda *a, **k: None)
+    shown = secrets.perform_write(
+        catalogue, actions, held, "desktop",
+        {"selector": {"css": "#p"}, "secret": {"name": "nextcloud", "key": "password"}},
+    )
+    assert typed_into(driver) == [("hunter2",)]
+    assert "hunter2" not in json.dumps(shown)
+
+
+def test_an_unbound_write_into_a_frame_element_still_types(targeting):
+    """A rich-text editor is an iframe, and typing literal text into one is
+    legal: only a bound value has a leash to escape."""
+    _, driver, actions = targeting
+    driver.element.tag = "iframe"
+    actions.write("b1", "hello", selector={"css": "iframe.editor"})
+    assert typed_into(driver) == [("hello",)]

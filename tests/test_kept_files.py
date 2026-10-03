@@ -20,17 +20,20 @@ import pytest
 import requests
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow import errors
+from kubed.selenium_flow import errors, faults
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core import browser
-from kubed.selenium_flow.flows import library as flows
-from kubed.selenium_flow.http import admin, files, links
-from kubed.selenium_flow.routes import ENDPOINTS
+from kubed.selenium_flow.core.capabilities import ENDPOINTS
+from kubed.selenium_flow.flows import store as flows
+from kubed.selenium_flow.http import files, links
+from kubed.selenium_flow.http.admin import signed as admin
+from kubed.selenium_flow.names import FILES_DIR, GLOBAL_SESSION, InvalidName
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.session.store import SessionRecord
 from kubed.selenium_flow.spec import build_spec
 
 from .conftest import NAMED, TOKEN
+from .fakes import FakeActions, FakeGrid
 
 pytestmark = pytest.mark.unit
 
@@ -73,30 +76,9 @@ def client(kept_server):
 def live(kept_server):
     """A flow session holding a browser, which is what the admin API addresses."""
     kept_server.sessions.store.set(
-        KEY, SessionRecord(session_id="abc").at("https://x/")
+        KEY, SessionRecord(session_id="abc").visited("https://x/")
     )
     return kept_server
-
-
-class FakeGrid:
-    """Just enough Grid to hand out a listing and some bytes."""
-
-    def __init__(self, entries=(), data=b"bytes"):
-        self.entries = list(entries)
-        self.data = data
-        self.reads = []
-
-    def files(self, session_id):
-        return list(self.entries)
-
-    def read_file(self, session_id, name):
-        self.reads.append((session_id, name))
-        return self.data
-
-
-class FakeActions:
-    def __init__(self, grid):
-        self.grid = grid
 
 
 class Sessions:
@@ -194,7 +176,7 @@ def test_a_download_named_the_way_browsers_name_them_is_keepable(store, name):
     "name", ["../escape.pdf", "a/b.pdf", "a\\b.pdf", "..", ".", "", "   ", ".hidden"]
 )
 def test_a_file_name_that_is_not_one_segment_is_refused(store, name):
-    with pytest.raises(flows.InvalidName):
+    with pytest.raises(InvalidName):
         store.write_file(SESSION, name, b"x")
 
 
@@ -214,7 +196,7 @@ def test_a_file_name_is_not_trimmed(store):
 def test_a_kept_file_cannot_escape_the_data_directory(store, tmp_path):
     """The name arrives from a URL path parameter as well as from the Grid, so
     traversal is refused by the name rule and again by `_resolved`."""
-    with pytest.raises(flows.InvalidName):
+    with pytest.raises(InvalidName):
         store.write_file(SESSION, "../../etc/passwd", b"x")
     assert not (tmp_path.parent / "etc").exists()
 
@@ -223,7 +205,7 @@ def test_a_name_on_disk_that_could_not_be_addressed_is_skipped(store, tmp_path):
     """Every caller of the listing turns a name back into a path. An entry that
     cannot round-trip would be handed to `read_file`, raise, and take the whole
     listing down with it — hiding every other file in the session."""
-    directory = tmp_path / SESSION / flows.FILES_DIR
+    directory = tmp_path / SESSION / FILES_DIR
     directory.mkdir(parents=True)
     (directory / ".hidden").write_bytes(b"x")
     (directory / "real.pdf").write_bytes(b"x")
@@ -457,7 +439,7 @@ def test_a_grid_refusal_does_not_echo_the_grid_url():
     exc = requests.HTTPError(
         f"404 Client Error: Not Found for url: {response.url}", response=response
     )
-    text = errors.message(exc)
+    text = faults.message(exc)
     assert "hunter2" not in text and "grid.internal" not in text
     assert "404" in text, "the useful half survived"
 
@@ -615,7 +597,7 @@ def test_a_grid_refusal_over_the_admin_surface_does_not_echo_the_grid_url(
     client, live
 ):
     """The same leak `test_a_grid_refusal_does_not_echo_the_grid_url` proves for
-    `errors.message` in isolation, proven end to end over the one route that
+    `faults.message` in isolation, proven end to end over the one route that
     used to bypass `errors.py` entirely and return ``str(exc)`` — a Grid
     refusal's ``str()`` quotes the whole request URL, userinfo included."""
     gone = requests.Response()
@@ -652,7 +634,7 @@ def test_a_session_whose_name_is_not_a_directory_keeps_nothing(client, kept_serv
     )
     assert response.status_code == 400
     assert "cannot keep files" in response.json()["error"]
-    assert kept_server.flows.files(flows.GLOBAL_SESSION) == [], "it leaked to global"
+    assert kept_server.flows.files(GLOBAL_SESSION) == [], "it leaked to global"
 
 
 def test_such_a_session_shows_unknown_counts_not_the_shared_librarys(
@@ -660,8 +642,8 @@ def test_such_a_session_shows_unknown_counts_not_the_shared_librarys(
 ):
     """Borrowing `global`'s numbers would tell an operator this session has a
     file and a flow it has no way to reach."""
-    kept_server.flows.write_file(flows.GLOBAL_SESSION, "shared.pdf", b"x")
-    kept_server.flows.save(flows.GLOBAL_SESSION, "shared", {"steps": []})
+    kept_server.flows.write_file(GLOBAL_SESSION, "shared.pdf", b"x")
+    kept_server.flows.save(GLOBAL_SESSION, "shared", {"steps": []})
     kept_server.sessions.store.set(BAD_KEY, SessionRecord(session_id=""))
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get("/admin/sessions", headers=AUTH).json()
@@ -812,7 +794,10 @@ async def test_every_file_operation_declares_the_grids_failure_modes(spec):
     reaped browser it will certainly meet."""
     for method, template in files.FILE_ROUTES.values():
         responses = spec["paths"][f"/files{template}"][method]["responses"]
-        assert set(responses) == {"200", "400", "401", "404", "500", "503"}, template
+        expected = {"200", "400", "401", "404", "500", "503"}
+        if method in ("post", "put"):
+            expected.add("413")  # a body can be over its cap
+        assert set(responses) == expected, template
 
 
 # ---- giving a kept file back to a page ---------------------------------------

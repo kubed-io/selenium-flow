@@ -3,17 +3,21 @@
 # x-bake settings here are the release configuration, not just local convenience.
 services:
   selenium-flow:
-    image: &image kubed/selenium-flow:latest
+    image: kubed/selenium-flow:latest
     build:
       context: .
       target: runner
       args:
         PY_VERSION: ${PY_VERSION:-3.14}
+      # No literal tag: image.yml's "Resolve image tag" step sets IMAGE_LATEST,
+      # IMAGE_REF and IMAGE_TAG, and the build-image action sets GIT_SHA. A
+      # branch build sets the first three to its branch, so it never moves
+      # :latest. Unset, as in a local bake, every one is :latest.
       tags:
-      - *image
+      - kubed/selenium-flow:${IMAGE_LATEST:-latest}
+      - kubed/selenium-flow:${IMAGE_REF:-latest}
+      - kubed/selenium-flow:${IMAGE_TAG:-latest}
       - kubed/selenium-flow:${GIT_SHA:-latest}
-      - kubed/selenium-flow:${GIT_REF:-latest}
-      - kubed/selenium-flow:${GIT_TAG:-latest}
       x-bake:
         platforms:
         - linux/amd64

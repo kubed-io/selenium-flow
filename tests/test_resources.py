@@ -21,20 +21,19 @@ from kubed.selenium_flow.mcp import mirror
 from kubed.selenium_flow.mcp.resources import RESOURCE_URI
 from kubed.selenium_flow.server import SeleniumMCP
 
-from .conftest import NAMED, TOKEN, http
+from .conftest import NAMED, TOKEN, calling_as, http
 
 pytestmark = pytest.mark.unit
 
 
 @pytest.fixture
-def reader(tmp_path):
+def reader(tmp_path, monkeypatch):
     server = SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
         flow={"data_dir": str(tmp_path)},
     ))
-    server.sessions.name = lambda: NAMED
-    server.sessions.library = lambda: NAMED
+    calling_as(monkeypatch, NAMED)
     return server
 
 
@@ -53,27 +52,27 @@ async def read(server, uri):
 
 def test_resources_are_assumed_supported(monkeypatch):
     """A spec-complete client is the default assumption."""
-    monkeypatch.setattr(clients_module, "_http", lambda: http())
-    assert clients_module.reads_resources() is True
+    monkeypatch.setattr(clients_module, "request_values", lambda: http())
+    assert clients_module.reads_resources(clients_module.caller()) is True
 
 
 @pytest.mark.parametrize("value", ["off", "false", "0", "no", "none", "OFF"])
 def test_a_client_can_declare_it_cannot_read_resources(monkeypatch, value):
-    monkeypatch.setattr(clients_module, "_http", lambda: http({"resources": value}))
-    assert clients_module.reads_resources() is False
+    monkeypatch.setattr(clients_module, "request_values", lambda: http({"resources": value}))
+    assert clients_module.reads_resources(clients_module.caller()) is False
 
 
 def test_the_header_wins_here_too(monkeypatch):
     """Same precedence rule as session names, for the same reason."""
     monkeypatch.setattr(
-        clients_module, "_http", lambda: http({"resources": "on"}, {"x-mcp-resources": "off"})
+        clients_module, "request_values", lambda: http({"resources": "on"}, {"x-mcp-resources": "off"})
     )
-    assert clients_module.reads_resources() is False
+    assert clients_module.reads_resources(clients_module.caller()) is False
 
 
 def test_stdio_clients_are_assumed_to_read_resources(monkeypatch):
-    monkeypatch.setattr(clients_module, "_http", lambda: None)
-    assert clients_module.reads_resources() is True
+    monkeypatch.setattr(clients_module, "request_values", lambda: None)
+    assert clients_module.reads_resources(clients_module.caller()) is True
 
 
 async def test_vs_code_is_given_the_reading_tools_without_asking(reader):
@@ -90,13 +89,13 @@ async def test_a_client_that_reads_resources_is_not_shown_them(reader):
 async def test_saying_so_beats_being_recognised(reader, monkeypatch):
     """VS Code with resources=on is taken at its word — the day it can read
     them, nobody should have to wait for a release to say so."""
-    monkeypatch.setattr(clients_module, "_http", lambda: http({"resources": "on"}))
+    monkeypatch.setattr(clients_module, "request_values", lambda: http({"resources": "on"}))
     assert not mirror.MIRROR_TOOLS & await listed(reader, "Visual Studio Code")
 
 
 async def test_the_old_per_resource_tools_are_gone(reader, monkeypatch):
     """Seven tools, one per resource, became two that take a URI (§F3.6)."""
-    monkeypatch.setattr(clients_module, "_http", lambda: http({"resources": "off"}))
+    monkeypatch.setattr(clients_module, "request_values", lambda: http({"resources": "off"}))
     names = await listed(reader)
     for gone in (
         "current_session", "selenium_flow_skill", "list_flows", "get_flow",
@@ -167,7 +166,7 @@ async def test_any_other_binary_is_described_not_dumped(reader):
 
 
 async def test_both_tools_only_read(reader, monkeypatch):
-    monkeypatch.setattr(clients_module, "_http", lambda: http({"resources": "off"}))
+    monkeypatch.setattr(clients_module, "request_values", lambda: http({"resources": "off"}))
     async with Client(reader.mcp) as c:
         tools = {t.name: t for t in await c.list_tools()}
     for name in mirror.MIRROR_TOOLS:
@@ -184,12 +183,12 @@ async def test_the_status_resource_is_always_offered(server):
 
 def named(monkeypatch):
     monkeypatch.setattr(
-        "kubed.selenium_flow.session.sessions.http_request", lambda: http({"session": "d"})
+        "kubed.selenium_flow.mcp.clients.request_values", lambda: http({"session": "d"})
     )
 
 
 def unnamed(monkeypatch):
-    monkeypatch.setattr("kubed.selenium_flow.session.sessions.http_request", lambda: http())
+    monkeypatch.setattr("kubed.selenium_flow.mcp.clients.request_values", lambda: http())
 
 
 async def test_no_tool_advertises_a_session_id(server, monkeypatch):

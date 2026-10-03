@@ -15,7 +15,7 @@ from starlette.testclient import TestClient
 
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.flows import api as flowapi
-from kubed.selenium_flow.flows.library import GLOBAL_SESSION, STDIO_SESSION
+from kubed.selenium_flow.names import GLOBAL_SESSION, STDIO_SESSION
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import NAMED, TOKEN
@@ -70,16 +70,16 @@ def acting_as(monkeypatch, server, session):
     `None` is the caller that named no session: it gets the shared library, and
     anything touching a browser refuses it.
     """
-    from kubed.selenium_flow.flows.library import GLOBAL_SESSION
-    from kubed.selenium_flow.session.sessions import UNNAMED
+    from kubed.selenium_flow.mcp import clients as clients_module
+    from kubed.selenium_flow.names import STDIO_SESSION
 
-    def named():
-        if session is None:
-            raise ValueError(UNNAMED)
-        return session
+    from .conftest import calling_as
 
-    monkeypatch.setattr(server.sessions, "name", named)
-    monkeypatch.setattr(server.sessions, "library", lambda: session or GLOBAL_SESSION)
+    if session == STDIO_SESSION:
+        # The stdio caller is the one off HTTP: there is no request to read.
+        monkeypatch.setattr(clients_module, "request_values", lambda: None)
+    else:
+        calling_as(monkeypatch, session)
 
 
 # ---- the surface itself -----------------------------------------------------
@@ -116,6 +116,19 @@ async def test_a_flow_saves_and_reads_back(flow_server, store):
     assert read["description"] == "Log in"
     assert read["steps"] == GOOD
     assert read["shared"] is False
+
+
+async def test_the_save_tool_takes_exactly_the_document_keys(flow_server):
+    """The HTTP save and the published schema read `DOCUMENT_KEYS`. The tool's
+    signature is what FastMCP publishes, so it is written out by hand and held
+    to the same keys here: a new document key is a red test on this surface,
+    not a key one surface silently cannot say."""
+    from kubed.selenium_flow.flows import document as flowdoc
+
+    tool = await flow_server.mcp.get_tool(flowapi.SAVE_TOOL)
+    assert set(tool.parameters["properties"]) == {"name", *flowdoc.DOCUMENT_KEYS}
+    schema = await flowapi._document_schema(flowapi.Schemas(flow_server.mcp))
+    assert set(schema["properties"]) == {"name", *flowdoc.DOCUMENT_KEYS}
 
 
 async def test_a_broken_flow_is_refused_at_save_with_every_reason(flow_server, store):

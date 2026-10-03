@@ -44,9 +44,9 @@ DATA = {
 
 def visited():
     return (SessionRecord(session_id="")
-            .at("https://mail.example.org/inbox", now=NOW - 3600)
-            .at("http://app.example.com:8080/dev", now=NOW - 120)
-            .at("https://app.example.com/x", now=NOW - 60))
+            .visited("https://mail.example.org/inbox", now=NOW - 3600)
+            .visited("http://app.example.com:8080/dev", now=NOW - 120)
+            .visited("https://app.example.com/x", now=NOW - 60))
 
 
 @pytest.fixture
@@ -132,7 +132,7 @@ def test_the_row_counts_hosts_and_its_rev_follows_the_origins_and_the_top_page(c
         ["http://app.example.com:8080", "http://app.example.com:8080/dev"],
         ["https://mail.example.org", "https://mail.example.org/inbox"],
     ]
-    server.sessions.store.update(KEY, lambda r: r.at("https://mail.example.org/sent", now=NOW))
+    server.sessions.store.update(KEY, lambda r: r.visited("https://mail.example.org/sent", now=NOW))
     moved = row(client)
     assert moved["history_rev"] != before["history_rev"], "another site on top"
     client.delete(URL)
@@ -143,10 +143,10 @@ def test_a_page_within_the_top_site_moves_the_rev_and_the_clock_alone_does_not(c
     """History's top row is the session card's last page: a navigation within
     the top site must repaint it, and a call that stays put must not."""
     before = row(client)["history_rev"]
-    server.sessions.store.update(KEY, lambda r: r.at("https://app.example.com/y", now=NOW))
+    server.sessions.store.update(KEY, lambda r: r.visited("https://app.example.com/y", now=NOW))
     within = row(client)["history_rev"]
     assert within != before, "a page within the top site"
-    server.sessions.store.update(KEY, lambda r: r.at("https://app.example.com/y", now=NOW + 5))
+    server.sessions.store.update(KEY, lambda r: r.visited("https://app.example.com/y", now=NOW + 5))
     assert row(client)["history_rev"] == within, "only the clock moved"
 
 
@@ -159,7 +159,7 @@ def test_a_row_below_the_top_that_changed_its_page_moves_the_rev(client, server)
         "http://app.example.com:8080/dev",
         "https://app.example.com/x",
     )):
-        server.sessions.store.update(KEY, lambda r, page=page, i=i: r.at(page, now=NOW + i))
+        server.sessions.store.update(KEY, lambda r, page=page, i=i: r.visited(page, now=NOW + i))
     after = json.loads(row(client)["history_rev"])
     assert [o for o, _ in after] == [o for o, _ in json.loads(before)], "the same order"
     assert after != json.loads(before), "the mail row shows /sent now"

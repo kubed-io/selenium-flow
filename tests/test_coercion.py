@@ -7,14 +7,10 @@ through LLM tool calls. Each of the cases below has actually reached a handler.
 import pytest
 from selenium.webdriver.common.by import By
 
-from kubed.selenium_flow.core.actions import _safe_name
-from kubed.selenium_flow.core.browser import (
-    as_bool,
-    as_int,
-    locator,
-    normalize_url,
-    png_size,
-)
+from kubed.selenium_flow.core.browser import locator, png_size
+from kubed.selenium_flow.core.coerce import as_bool, as_int
+from kubed.selenium_flow.core.naming import safe_name
+from kubed.selenium_flow.urls import normalize_url
 
 pytestmark = pytest.mark.unit
 
@@ -113,18 +109,18 @@ def test_png_size_reads_the_ihdr_header():
     ],
 )
 def test_safe_name_narrows_whatever_the_caller_sent(given, expected):
-    assert _safe_name(given) == expected
+    assert safe_name(given) == expected
 
 
 def test_safe_name_adds_the_extension_the_page_reads_the_type_from():
     """The browser reports File.type from the EXTENSION, not the bytes, so a
     name without one arrives as an empty type and no sniffing happens."""
-    assert _safe_name("data", mime_type="application/json") == "data.json"
-    assert _safe_name("data", mime_type="text/yaml") == "data.yaml"
+    assert safe_name("data", mime_type="application/json") == "data.json"
+    assert safe_name("data", mime_type="text/yaml") == "data.yaml"
     # An extension already present is never second-guessed.
-    assert _safe_name("data.csv", mime_type="application/json") == "data.csv"
+    assert safe_name("data.csv", mime_type="application/json") == "data.csv"
     # Nothing to go on falls back to whatever the caller's surface defaults to.
-    assert _safe_name("data", default_extension=".txt") == "data.txt"
+    assert safe_name("data", default_extension=".txt") == "data.txt"
 
 
 def test_locator_resolves_each_strategy_to_the_pair_selenium_wants():

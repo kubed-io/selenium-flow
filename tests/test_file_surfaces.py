@@ -7,7 +7,7 @@ from fastmcp import Client
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow.config import Settings
-from kubed.selenium_flow.flows import library as flows
+from kubed.selenium_flow.names import SCREENSHOTS_DIR
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import TOKEN
@@ -65,7 +65,7 @@ def test_keep_file_takes_a_uri_and_is_not_idempotent(srv):
 
 
 def test_the_rest_tree_mirrors_the_folders(http, srv, tmp_path):
-    srv.flows.create_file(S, "shot.png", b"p", flows.SCREENSHOTS_DIR)
+    srv.flows.create_file(S, "shot.png", b"p", SCREENSHOTS_DIR)
     got = http.get("/files/screenshots").json()
     assert got["folder"] == "screenshots"
     assert [f["uri"] for f in got["files"]] == ["session://files/screenshots/shot.png"]
@@ -73,11 +73,11 @@ def test_the_rest_tree_mirrors_the_folders(http, srv, tmp_path):
 
 
 def test_keeping_over_http_moves_a_screenshot(http, srv):
-    srv.flows.create_file(S, "shot.png", b"p", flows.SCREENSHOTS_DIR)
+    srv.flows.create_file(S, "shot.png", b"p", SCREENSHOTS_DIR)
     got = http.put("/files/screenshots/shot.png/kept")
     assert got.status_code == 200, got.text
     assert got.json()["uri"] == "session://files/shot.png"
-    assert srv.flows.files(S, flows.SCREENSHOTS_DIR) == []
+    assert srv.flows.files(S, SCREENSHOTS_DIR) == []
 
 
 @pytest.mark.parametrize("folder", ["files", "flows", "kept"])
@@ -87,7 +87,7 @@ def test_keeping_over_http_names_only_the_two_keepable_folders(http, folder):
 
 def test_reading_a_screenshot_resource_returns_its_bytes(srv):
     from kubed.selenium_flow.session.sessions import STDIO_NAME
-    srv.flows.create_file(STDIO_NAME, "shot.png", b"\x89PNG", flows.SCREENSHOTS_DIR)
+    srv.flows.create_file(STDIO_NAME, "shot.png", b"\x89PNG", SCREENSHOTS_DIR)
 
     async def go():
         async with Client(srv.mcp) as c:  # stdio-like: the session is `stdio`

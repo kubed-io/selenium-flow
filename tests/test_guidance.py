@@ -22,7 +22,8 @@ def test_every_page_guidance_can_name_is_one_the_skill_ships():
     """A `skill://` URI that cannot be read is worse than no URI at all: it
     teaches an agent that the manual is broken, and it costs a round trip to
     find that out. The pages are a closed set for exactly this reason."""
-    from kubed.selenium_flow.mcp import guidance, skill
+    from kubed.selenium_flow.core import guidance
+    from kubed.selenium_flow.mcp import skill
 
     references = skill.skill_path() / "references"
     for page in guidance.PAGES:
@@ -33,7 +34,7 @@ def test_a_pointer_is_a_resource_uri_and_nothing_else():
     """Everything after `skill://selenium-flow/` is a file path, so an anchor
     glued on the end names a file that does not exist. The section travels
     beside the URI, never inside it."""
-    from kubed.selenium_flow.mcp.guidance import pointer
+    from kubed.selenium_flow.core.guidance import pointer
 
     assert pointer("FLOWS.md") == "skill://selenium-flow/references/FLOWS.md"
     assert "#" not in pointer("FLOWS.md")
@@ -43,7 +44,7 @@ def test_a_page_it_does_not_ship_is_refused_at_the_source():
     """Caught where the typo is, not where the agent reads it."""
     import re
 
-    from kubed.selenium_flow.mcp.guidance import pointer
+    from kubed.selenium_flow.core.guidance import pointer
 
     # Escaped: `match` is a regex, and an unescaped dot matches any character —
     # so the pattern would pass against a message that never said "INVENTED.md".
@@ -79,20 +80,20 @@ def test_the_session_status_omits_guidance_when_no_skill_is_served():
     """Same rule, the other emitter."""
     from kubed.selenium_flow.core.actions import Actions
     from kubed.selenium_flow.core.browser import Grid
-    from kubed.selenium_flow.session.sessions import SessionManager
+    from kubed.selenium_flow.session.sessions import Caller, SessionManager
 
     actions = Actions(Grid("http://grid.invalid:4444"))
     served = SessionManager(actions, skill_available=True)
     silent = SessionManager(actions, skill_available=False)
-    assert "SESSIONS.md" in served.describe("someone")["guidance"]
-    assert "guidance" not in silent.describe("someone")
+    assert "SESSIONS.md" in served.describe(Caller("someone"))["guidance"]
+    assert "guidance" not in silent.describe(Caller("someone"))
 
 
 def test_the_emitted_shapes_are_exactly_what_they_were():
     """The contract does not move: a run's hint is an object with `read`, the
     session status's guidance is a bare string. Sharing the construction must
     not change either, and this is the test that says so."""
-    from kubed.selenium_flow.flows.run import hint_for
+    from kubed.selenium_flow.flows.report import hint_for
 
     hint = hint_for({"tool": "assert", "error": "", "n": 1}, "demo")
     assert hint["read"] == "skill://selenium-flow/references/FLOWS.md"
@@ -105,7 +106,7 @@ def test_every_section_a_hint_names_is_a_heading_on_its_page():
     the page for nothing, and nothing else checks the anchors."""
     import re
 
-    from kubed.selenium_flow.flows.run import hint_for
+    from kubed.selenium_flow.flows.report import hint_for
     from kubed.selenium_flow.mcp import skill
 
     failures = [

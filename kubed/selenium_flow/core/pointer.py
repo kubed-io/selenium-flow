@@ -178,20 +178,14 @@ def matching(store):
 CENTER_JS = js.read("center.js")
 
 
-def center(driver, element, bring_into_view: bool = False) -> tuple[float, float]:
-    """Where ``element`` is *now*, in viewport coordinates.
-
-    Read at the moment of the move and never cached: scrolling moves every
-    element under a pointer that stays put, so a destination worked out one call
-    ago is a destination somewhere else (saga §F2.3).
-    """
-    return aim(driver, element, bring_into_view)["at"]
-
-
 def aim(driver, element, bring_into_view: bool = False) -> dict:
-    """Where a pointer move onto ``element`` lands, and whether one can.
+    """Where a pointer move onto ``element`` lands, whether one can, and the
+    window's size to keep the move inside.
 
-    The **in-view center**, not the rectangle's: see `CENTER_JS`.
+    The **in-view center**, not the rectangle's: see `CENTER_JS`. In viewport
+    coordinates, read at the moment of the move and never cached: scrolling
+    moves every element under a pointer that stays put, so a destination worked
+    out one call ago is a destination somewhere else (saga §F2.3).
 
     ``bring_into_view`` scrolls it to the middle of the window first if none of
     it is in there. That is only needed for a **glide**, and it is needed
@@ -204,10 +198,14 @@ def aim(driver, element, bring_into_view: bool = False) -> dict:
     """
     answer = driver.execute_script(CENTER_JS, element, bool(bring_into_view))
     at = answer.get("at") or [0, 0]
+    # Strict, as the separate read it replaced was: a guessed size would clamp
+    # a drop to the wrong place without a word.
+    size = answer["viewport"]
     return {
         "at": (float(at[0]), float(at[1])),
         "scrolled": bool(answer.get("scrolled")),
         "outside": bool(answer.get("outside")),
+        "viewport": (int(size[0]), int(size[1])),
     }
 
 
@@ -266,7 +264,8 @@ def _nudge_point(driver, element, start) -> tuple[bool, tuple[int, int] | None]:
 
 
 def move(driver, element, start=None, glide=False) -> dict:
-    """Put the pointer on ``element``, and say how it got there.
+    """Put the pointer on ``element``, say how it got there, and the window's
+    size as it was read on landing.
 
     The last move is always WebDriver's element-origin move — the one this
     package has always sent, which scrolls the element into view for us. A
@@ -295,7 +294,7 @@ def move(driver, element, start=None, glide=False) -> dict:
             # pointer, but the window may have been resized since — and a path
             # between two points inside the viewport stays inside it, so this is
             # the only end that can put one out of bounds.
-            begin = clamped(start, viewport(driver))
+            begin = clamped(start, aimed["viewport"])
             for x, y in path(begin, aimed["at"])[:-1]:
                 builder.pointer_action.move_to_location(x, y)
             glided = True
@@ -304,9 +303,10 @@ def move(driver, element, start=None, glide=False) -> dict:
 
     # Read after the move, not before: the element-origin move may have
     # scrolled the page, which moves every rect including this one.
-    landed = center(driver, element)
+    landed = aim(driver, element)
     return {
-        "at": landed,
+        "at": landed["at"],
+        "viewport": landed["viewport"],
         "glided": glided,
         "nudged": inside and away is not None,
         "unknown_start": glide and start is None,
@@ -330,12 +330,6 @@ def drag_to(driver, start, end, glide=True) -> None:
     builder.pointer_action.pause(HOLD_MS / 1000)
     builder.pointer_action.pointer_up(MouseButton.LEFT)
     builder.perform()
-
-
-def viewport(driver) -> tuple[int, int]:
-    """The visible area, so a destination can be kept inside it."""
-    size = driver.execute_script("return [window.innerWidth, window.innerHeight];")
-    return int(size[0]), int(size[1])
 
 
 def clamped(point: tuple[float, float], size: tuple[int, int]) -> tuple[float, float]:

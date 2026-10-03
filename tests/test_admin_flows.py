@@ -17,8 +17,8 @@ import pytest
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow.config import Settings
-from kubed.selenium_flow.flows import library as flows
-from kubed.selenium_flow.flows.library import GLOBAL_SESSION
+from kubed.selenium_flow.flows import store as flows
+from kubed.selenium_flow.names import GLOBAL_SESSION
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.session.store import SessionRecord
 
@@ -219,7 +219,7 @@ def test_a_malformed_parameters_block_still_opens(client, server, parameters):
 @pytest.mark.parametrize("steps", ["1", "{}", "a string"])
 def test_a_steps_block_that_is_not_a_list_still_opens(client, server, steps):
     """`enumerate` raises on a non-list, which is the same 500 as the
-    `parameters` case one level down. `_step_count` already keeps such a flow in
+    `parameters` case one level down. `Shape.step_count` already keeps such a flow in
     the catalogue with a count of 0 rather than dropping it, so the listing
     offers a flow the detail route could not open."""
     server.flows.write_text(

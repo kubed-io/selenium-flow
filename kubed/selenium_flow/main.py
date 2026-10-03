@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 
 from . import config
-from .errors import without_userinfo
 from .server import SeleniumMCP
+from .urls import without_userinfo
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +39,10 @@ def quiet_the_wire() -> None:
         logging.getLogger(name).setLevel(level)
 
 
+def _loopback(host: str) -> bool:
+    return host in ("localhost", "::1", "127.0.0.1")
+
+
 def main(argv: list[str] | None = None) -> None:
     """Entry point for the ``selenium-flow`` console script."""
     try:
@@ -61,6 +65,16 @@ def main(argv: list[str] | None = None) -> None:
         server.flows.kind if server.flows else "off",
         _secrets_summary(server.secrets),
     )
+    if (
+        not server.auth_token
+        and settings.transport == "http"
+        and not _loopback(settings.host)
+    ):
+        log.warning(
+            "AUTH_TOKEN is not set: anyone who can reach %s:%s can drive every browser",
+            settings.host,
+            settings.port,
+        )
     server.run(transport=settings.transport, host=settings.host, port=settings.port)
 
 

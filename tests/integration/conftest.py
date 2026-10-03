@@ -90,9 +90,14 @@ def _signal_group(process: subprocess.Popen, sig: int) -> None:
 def _profiled(command: list[str]) -> list[str]:
     """``command`` under ``py-spy record`` when PROFILE_DIR asks for it.
 
-    Its own child, so no ptrace privilege is needed. Blocking, the default: a
-    pause of microseconds per sample is nothing against test_responsive's one
-    second budget, and ``--nonblocking`` lost 74 of 187 samples to torn reads.
+    Its own child, so no ptrace privilege is needed. Non-blocking: py-spy's
+    default pauses the process for every sample, and on a loaded 2-core runner
+    it fell hundreds of seconds behind ("behind in sampling") and kept stopping
+    the server to catch up, so a POST /mcp was answered every ~200 s and the
+    responsiveness test and four flow fixtures failed to connect (run
+    37088887775). A profiler that can pause the server cannot sit under a
+    responsiveness assertion; torn reads cost flamegraph fidelity, not the
+    measurement.
     """
     directory = os.environ.get("PROFILE_DIR")
     spy = shutil.which("py-spy") if directory else None
@@ -100,8 +105,8 @@ def _profiled(command: list[str]) -> list[str]:
         return command
     Path(directory).mkdir(parents=True, exist_ok=True)
     svg = str(Path(directory, "server.svg"))
-    # 20 Hz is plenty for a flamegraph; 100 Hz starved a 2-core runner's server.
-    return [spy, "record", "--threads", "--rate", "20",
+    # 10 Hz is plenty for a flamegraph on a 2-core runner.
+    return [spy, "record", "--threads", "--nonblocking", "--rate", "10",
             "--format", "flamegraph", "-o", svg, "--", *command]
 
 

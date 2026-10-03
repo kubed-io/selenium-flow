@@ -12,9 +12,9 @@ import pytest
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow.config import Settings
-from kubed.selenium_flow.core import site_data
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.session.store import SessionRecord
+from kubed.selenium_flow.site_data import snapshot as site_data
 
 from .conftest import TOKEN
 
@@ -38,8 +38,8 @@ DATA = {
 
 def visited():
     return (SessionRecord(session_id="")
-            .at("https://mail.example.org/", now=5.0)
-            .at("https://app.example.com/x", now=6.0))
+            .visited("https://mail.example.org/", now=5.0)
+            .visited("https://app.example.com/x", now=6.0))
 
 
 @pytest.fixture
@@ -165,9 +165,9 @@ def test_a_parent_only_row_can_be_forgotten_and_a_covered_host_cannot(server):
 
 
 def test_forget_answers_404_through_the_central_policy(client):
-    from kubed.selenium_flow import errors
+    from kubed.selenium_flow import errors, faults
 
-    assert errors.status_for(errors.NotFound("x")) == 404
+    assert errors.status_for(faults.NotFound("x")) == 404
     body = client.delete(url("/nothing.example.net"))
     assert body.status_code == 404
     assert body.json() == {"error": "no saved site data for nothing.example.net"}

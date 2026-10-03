@@ -19,9 +19,20 @@ from .core import pointer
 from .core.actions import Actions
 from .core.browser import Grid
 from .flows import api as flowapi
-from .flows import library as flows
-from .http import admin, files
-from .mcp import apps, completions, failures, mirror, prompts, resources, skill, tools
+from .flows import store as flowstore
+from .http import access_log, admin, files
+from .http.admin import page as admin_page
+from .mcp import (
+    apps,
+    clients,
+    completions,
+    failures,
+    mirror,
+    prompts,
+    resources,
+    skill,
+    tools,
+)
 from .session import settings as session_settings
 from .session import store as store_module
 from .session.sessions import SessionManager
@@ -101,7 +112,7 @@ class SeleniumMCP:
 
         # Saved flows, or None when no data directory was named — which is the
         # default, and is the feature being off rather than a degraded mode.
-        self.flows = flows.from_settings(settings.flow)
+        self.flows = flowstore.from_settings(settings.flow)
 
         # The secrets an agent may bind, or None when none were configured.
         # Read-only and value-free: this holds a catalogue, never a credential.
@@ -118,7 +129,7 @@ class SeleniumMCP:
 
         self.mcp = FastMCP(
             "Selenium",
-            instructions=tools.instructions(self.skill is not None),
+            instructions=tools.first_instructions(self.skill is not None),
             auth=auth,
         )
         tools.register(self.mcp, self.actions, self.sessions, self.secrets)
@@ -146,7 +157,7 @@ class SeleniumMCP:
         base = (settings.public_base_url or "").strip().rstrip("/")
         if self.prefix and base.endswith(self.prefix):
             base = base[: -len(self.prefix)]
-        if not admin.ui_built("admin"):
+        if not admin_page.ui_built("admin"):
             log.info(
                 "The admin UI is not built, so its URL shows a placeholder: "
                 "run `npm --prefix ui run build`."
@@ -165,6 +176,9 @@ class SeleniumMCP:
             prefix=self.prefix,
             ttl=settings.link_ttl,
         )
+        # These three are called from inside an action, below every edge, so
+        # they ask the edge's own reader who is calling (`clients.caller`).
+        #
         # How an action keeps a file it made. Wired here because this is where
         # the store, the token and the public base all exist; the behaviour
         # layer takes the function and never the key (§F2.9). No default for
@@ -172,19 +186,20 @@ class SeleniumMCP:
         # a default here would let some future two-argument call silently land
         # in Files.
         self.actions.keep = lambda name, data, folder: files.keep_made(
-            self.sessions, self.flows, name, data, auth_token, base, self.prefix,
-            folder, ttl=settings.link_ttl,
+            clients.caller().name, self.flows, name, data, auth_token, base,
+            self.prefix, folder, ttl=settings.link_ttl,
         )
         # And how it reads one back, for `upload_file(file=...)`. Wired here for
         # the same reason: which flow session owns a file is a question about
         # the caller, which the behaviour layer deliberately cannot see.
         self.actions.read_file = lambda uri, session=None: files.read_file(
-            self.actions, self.sessions, self.flows, uri, session
+            self.actions, self.sessions, self.flows, uri,
+            session or clients.caller().name,
         )
         # And where the caller's session has been, so one save reads every
         # site's storage. Wired here for the same reason: which session is
         # calling is a question about the caller.
-        self.actions.visited = lambda: self.sessions.visited(self.sessions.name())
+        self.actions.visited = lambda: self.sessions.visited(clients.caller().name)
         self.apps = (
             apps.register(self.mcp, self.actions, auth_token, base)
             if apps_enabled
@@ -212,9 +227,7 @@ class SeleniumMCP:
             # there is nothing registered to point at.
             skill_available=self.skill is not None,
         )
-        secrets.register(
-            self.mcp, self.secrets, self.sessions, auth_token, prefix=self.prefix
-        )
+        secrets.register(self.mcp, self.secrets, auth_token, prefix=self.prefix)
         self.mcp.add_middleware(mirror.HideMirrors(app_tools, apps_enabled))
         self.mcp.add_middleware(tools.InstructionsFor(self.skill is not None))
         failures.install(self.mcp)
@@ -244,6 +257,7 @@ class SeleniumMCP:
             catalogue=self.secrets,
             settings_payload=lambda: config.describe(self.settings, self.sources),
             link_ttl=settings.link_ttl,
+            frame_ancestors=settings.security.frame_ancestors,
         )
 
     def run(
@@ -256,6 +270,9 @@ class SeleniumMCP:
         if transport == "stdio":
             self.mcp.run(transport="stdio", show_banner=False)
         else:
+            # Built from the same routes the app it serves is, so the access
+            # log names each request by its template, never by its path.
+            access_log.quiet(self.mcp.http_app(path=self.mcp_path))
             self.mcp.run(
                 transport="http",
                 host=host,

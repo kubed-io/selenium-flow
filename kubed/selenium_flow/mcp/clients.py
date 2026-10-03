@@ -16,12 +16,11 @@ this order:
 
 from __future__ import annotations
 
+from fastmcp.server import dependencies
 from fastmcp.server.dependencies import get_context
 
-from ..session.sessions import http_request as _http
+from ..session.sessions import Caller, values_of
 
-RESOURCES_PARAM = "resources"
-RESOURCES_HEADER = "x-mcp-resources"
 _OFF = ("off", "false", "0", "no", "none")
 
 # `clientInfo.name` prefixes of clients whose model cannot read resources. Each
@@ -33,16 +32,42 @@ NO_RESOURCES = ("Visual Studio Code",)
 CLIENT_INFO_META = "io.modelcontextprotocol/clientInfo"
 
 
-def declared() -> bool | None:
-    """What the caller said about resources, or None if it said nothing."""
-    http = _http()
-    if http is None:
+def request_values() -> tuple[dict[str, list[str]], dict[str, list[str]]] | None:
+    """(query params, headers) for the current request, or None off HTTP.
+
+    Read through FastMCP's dependency helpers, which find the request in a
+    context variable the ASGI stack sets. That is a different path from the one
+    ``Context.session_id`` uses, and it keeps working where that one gives up.
+    Every value is a list, because a repeated name is two names.
+    """
+    try:
+        request = dependencies.get_http_request()
+    except Exception:  # noqa: BLE001 - outside an HTTP request this raises
+        request = None
+    if request is not None:
+        return values_of(request)
+    # Headers may still be reachable when the request object is not: a
+    # background task carries its originating request's.
+    try:
+        headers = dependencies.get_http_headers()
+    except Exception:  # noqa: BLE001 - no request is no request
         return None
-    params, headers = http
-    said = headers.get(RESOURCES_HEADER) or params.get(RESOURCES_PARAM)
-    if said is None:
+    if not headers:
         return None
-    return str(said).strip().lower() not in _OFF
+    return {}, {k.lower(): [v] for k, v in headers.items()}
+
+
+def caller(client: str | None = None) -> Caller:
+    """Who is calling this MCP request: read once, here, and handed in.
+
+    Off HTTP it is the stdio caller. ``client`` is the client's name when the
+    caller already knows it — a handshake does — and is otherwise looked up.
+    """
+    client = name() if client is None else client
+    values = request_values()
+    if values is None:
+        return Caller.stdio(client=client)
+    return Caller.from_request(*values, client=client)
 
 
 def name() -> str:
@@ -94,13 +119,9 @@ def named_in(message) -> str:
     return ""
 
 
-def reads_resources(client: str | None = None) -> bool:
-    """Whether this caller's model can be expected to read MCP resources.
-
-    ``client`` is the calling client's name when the caller already knows it —
-    a handshake does — and is otherwise looked up.
-    """
-    said = declared()
+def reads_resources(caller: Caller) -> bool:
+    """Whether this caller's model can be expected to read MCP resources."""
+    said = caller.flags.get("resources")
     if said is not None:
-        return said
-    return not (name() if client is None else client).startswith(NO_RESOURCES)
+        return str(said).strip().lower() not in _OFF
+    return not caller.client.startswith(NO_RESOURCES)

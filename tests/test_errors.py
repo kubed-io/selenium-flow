@@ -1,8 +1,8 @@
 """What a failure says, and what it must never say.
 
-`errors` decides what a failure means for both surfaces — the status an HTTP
-caller gets and the text an agent reads — so a credential that reaches this
-module reaches a log, a tool result and whatever scrapes either.
+`errors` and `faults` decide what a failure means for both surfaces — the
+status an HTTP caller gets and the text an agent reads — so a credential that
+reaches them reaches a log, a tool result and whatever scrapes either.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 import requests
 
-from kubed.selenium_flow import errors
+from kubed.selenium_flow import faults
 
 pytestmark = pytest.mark.unit
 
@@ -23,7 +23,7 @@ def test_a_refused_grid_request_does_not_quote_the_url():
     response.status_code = 404
     response.url = f"{GRID}/session/abc"
     exc = requests.HTTPError("404 Client Error: Not Found for url: " + response.url)
-    said = errors.message(exc)
+    said = faults.message(exc)
     assert "hunter2" not in said
     assert "404" in said, "the useful half has to survive"
 
@@ -37,19 +37,19 @@ def test_a_connection_failure_does_not_quote_the_url_either():
         f"HTTPConnectionPool(host='grid.internal', port=4444): "
         f"Max retries exceeded with url: {GRID}/status"
     )
-    said = errors.message(exc)
+    said = faults.message(exc)
     assert "hunter2" not in said, "a credential reached the log"
     assert "Max retries" in said, "the diagnosis has to survive the scrub"
 
 
 def test_the_scrub_keeps_a_message_that_carries_no_url():
     """Nothing to strip, nothing changed."""
-    assert errors.message(ValueError("no such flow")) == "no such flow"
+    assert faults.message(ValueError("no such flow")) == "no such flow"
 
 
 def test_an_error_with_no_text_still_says_something():
     """An empty message is worse than a class name."""
-    assert errors.message(ValueError("")) == "ValueError"
+    assert faults.message(ValueError("")) == "ValueError"
 
 
 @pytest.mark.parametrize(
@@ -65,12 +65,12 @@ def test_an_xpath_in_a_message_survives_the_credential_scrub(xpath):
     """`//` then `@` is an XPath attribute test as well as a URL's userinfo, and
     the scrub read it as the second: every timeout quoting one reached the
     caller with its `tag[@` cut out, naming a selector nobody wrote."""
-    said = errors.message(ValueError(f"no element matched {xpath!r}"))
+    said = faults.message(ValueError(f"no element matched {xpath!r}"))
     assert xpath in said
 
 
 def test_a_url_and_an_xpath_in_one_message_lose_only_the_credential():
-    said = errors.message(
+    said = faults.message(
         ValueError(f"{GRID}/session failed looking for //input[@name='q']")
     )
     assert "hunter2" not in said and "user:" not in said

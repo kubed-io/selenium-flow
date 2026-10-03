@@ -20,8 +20,9 @@ from starlette.testclient import TestClient
 
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core import browser
-from kubed.selenium_flow.flows import library as flows
+from kubed.selenium_flow.flows import store as flows
 from kubed.selenium_flow.http import links
+from kubed.selenium_flow.names import SCREENSHOTS_DIR
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.session.store import SessionRecord
 
@@ -56,7 +57,7 @@ def client(kept_server):
 def live(kept_server):
     """A flow session holding a browser, which is what the admin API addresses."""
     kept_server.sessions.store.set(
-        KEY, SessionRecord(session_id="abc").at("https://x/")
+        KEY, SessionRecord(session_id="abc").visited("https://x/")
     )
     return kept_server
 
@@ -65,7 +66,7 @@ def live(kept_server):
 
 
 def test_the_listing_is_three_sections(client, live, tmp_path):
-    live.flows.write_file(SESSION, "shot.png", b"\x89PNG", flows.SCREENSHOTS_DIR)
+    live.flows.write_file(SESSION, "shot.png", b"\x89PNG", SCREENSHOTS_DIR)
     live.flows.write_file(SESSION, "report.pdf", b"PDF")
     with (
         patch.object(browser.Grid, "is_alive", return_value=True),
@@ -83,17 +84,17 @@ def test_the_listing_is_three_sections(client, live, tmp_path):
 
 
 def test_clearing_screenshots_leaves_files(client, live):
-    live.flows.write_file(SESSION, "shot.png", b"x", flows.SCREENSHOTS_DIR)
+    live.flows.write_file(SESSION, "shot.png", b"x", SCREENSHOTS_DIR)
     live.flows.write_file(SESSION, "report.pdf", b"x")
     response = client.delete(f"/admin/sessions/{KEY}/files/screenshots", headers=AUTH)
     assert response.status_code == 200, response.text
     assert response.json()["cleared"] == 1
-    assert live.flows.files(SESSION, flows.SCREENSHOTS_DIR) == []
+    assert live.flows.files(SESSION, SCREENSHOTS_DIR) == []
     assert [f["name"] for f in live.flows.files(SESSION)] == ["report.pdf"]
 
 
 def test_clearing_downloads_empties_the_grid_store(client, live):
-    live.flows.write_file(SESSION, "shot.png", b"x", flows.SCREENSHOTS_DIR)
+    live.flows.write_file(SESSION, "shot.png", b"x", SCREENSHOTS_DIR)
     with (
         patch.object(browser.Grid, "is_alive", return_value=True),
         patch.object(browser.Grid, "clear_files") as clear,
@@ -103,7 +104,7 @@ def test_clearing_downloads_empties_the_grid_store(client, live):
     clear.assert_called_once_with("abc")
     # Screenshots are ours and elsewhere, so clearing the Grid's store leaves
     # them exactly where they were (§F1.10).
-    assert [f["name"] for f in live.flows.files(SESSION, flows.SCREENSHOTS_DIR)] == [
+    assert [f["name"] for f in live.flows.files(SESSION, SCREENSHOTS_DIR)] == [
         "shot.png"
     ]
 
@@ -142,7 +143,7 @@ def test_a_grid_500_on_clear_is_not_reported_as_success(client, live):
     with (
         patch.object(browser.Grid, "is_alive", return_value=True),
         patch(
-            "kubed.selenium_flow.core.browser.requests.delete",
+            "kubed.selenium_flow.core.browser.requests.Session.delete",
             return_value=_FakeGridResponse(500),
         ),
     ):
@@ -159,7 +160,7 @@ def test_a_grid_404_on_clear_is_success(client, live):
     with (
         patch.object(browser.Grid, "is_alive", return_value=True),
         patch(
-            "kubed.selenium_flow.core.browser.requests.delete",
+            "kubed.selenium_flow.core.browser.requests.Session.delete",
             return_value=_FakeGridResponse(404),
         ),
     ):
@@ -176,23 +177,23 @@ def test_deleting_one_file_in_files(client, live):
 
 
 def test_there_is_no_delete_for_one_screenshot(client, live):
-    live.flows.write_file(SESSION, "shot.png", b"x", flows.SCREENSHOTS_DIR)
+    live.flows.write_file(SESSION, "shot.png", b"x", SCREENSHOTS_DIR)
     response = client.delete(
         f"/admin/sessions/{KEY}/files/screenshots/shot.png", headers=AUTH
     )
     assert response.status_code in (404, 405)
-    assert [f["name"] for f in live.flows.files(SESSION, flows.SCREENSHOTS_DIR)] == [
+    assert [f["name"] for f in live.flows.files(SESSION, SCREENSHOTS_DIR)] == [
         "shot.png"
     ]
 
 
 def test_keeping_from_the_admin_moves_a_screenshot(client, live):
-    live.flows.write_file(SESSION, "shot.png", b"x", flows.SCREENSHOTS_DIR)
+    live.flows.write_file(SESSION, "shot.png", b"x", SCREENSHOTS_DIR)
     response = client.post(
         f"/admin/sessions/{KEY}/files/screenshots/shot.png/keep", headers=AUTH
     )
     assert response.status_code == 200, response.text
-    assert live.flows.files(SESSION, flows.SCREENSHOTS_DIR) == []
+    assert live.flows.files(SESSION, SCREENSHOTS_DIR) == []
     assert [f["name"] for f in live.flows.files(SESSION)] == ["shot.png"]
 
 
@@ -209,7 +210,7 @@ def test_the_admin_keep_refuses_a_key_that_owns_no_library(client, kept_server, 
     clear handlers do, so a stored key that cannot be a directory is refused
     with that reason rather than reaching the store as a raw name."""
     stale = "named:desktop"
-    kept_server.sessions.store.set(stale, SessionRecord(session_id="").at("https://x/"))
+    kept_server.sessions.store.set(stale, SessionRecord(session_id="").visited("https://x/"))
     response = client.post(
         f"/admin/sessions/{stale}/files/screenshots/shot.png/keep", headers=AUTH
     )
@@ -220,7 +221,7 @@ def test_the_admin_keep_refuses_a_key_that_owns_no_library(client, kept_server, 
 
 def test_the_screenshot_route_serves_a_signed_file(client, live):
     live.flows.write_file(
-        SESSION, "shot.png", b"\x89PNG\r\n\x1a\n", flows.SCREENSHOTS_DIR
+        SESSION, "shot.png", b"\x89PNG\r\n\x1a\n", SCREENSHOTS_DIR
     )
     with (
         patch.object(browser.Grid, "is_alive", return_value=True),
@@ -265,7 +266,7 @@ def test_a_broken_screenshot_store_is_a_5xx_not_a_404(client, live):
 
 
 def test_the_session_row_counts_each_section(client, live):
-    live.flows.write_file(SESSION, "shot.png", b"x", flows.SCREENSHOTS_DIR)
+    live.flows.write_file(SESSION, "shot.png", b"x", SCREENSHOTS_DIR)
     live.flows.write_file(SESSION, "report.pdf", b"x")
     with (
         patch.object(browser.Grid, "sessions", return_value=[{"session_id": "abc"}]),
@@ -281,7 +282,7 @@ def test_the_session_row_counts_each_section(client, live):
 
 
 def test_the_file_stamp_changes_when_a_screenshot_is_kept(client, live):
-    live.flows.write_file(SESSION, "shot.png", b"x", flows.SCREENSHOTS_DIR)
+    live.flows.write_file(SESSION, "shot.png", b"x", SCREENSHOTS_DIR)
     with patch.object(browser.Grid, "sessions", return_value=[]):
         before = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
     client.post(

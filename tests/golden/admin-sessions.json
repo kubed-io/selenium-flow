@@ -1,0 +1,113 @@
+{
+  "events_url": "/admin/events?<signed>",
+  "sessions": [
+    {
+      "attached": true,
+      "browser": "chrome",
+      "counts": {
+        "downloads": 0,
+        "files": 0,
+        "screenshots": 0
+      },
+      "files_count": 0,
+      "files_rev": "[]",
+      "flows_count": 0,
+      "flows_rev": "0+0",
+      "history_count": 1,
+      "history_rev": "[[\"https://app.example.com\", \"https://app.example.com/y\"]]",
+      "key": "reopened",
+      "live": true,
+      "name": "reopened",
+      "node": null,
+      "owner": "named",
+      "session_id": "live-1",
+      "site_data_count": 0,
+      "site_data_rev": "[null, []]",
+      "started": 1790799700.0,
+      "url": "https://app.example.com/y",
+      "version": null,
+      "window": null
+    },
+    {
+      "attached": true,
+      "browser": "chrome",
+      "counts": {
+        "downloads": 0,
+        "files": 0,
+        "screenshots": 0
+      },
+      "files_count": 0,
+      "files_rev": "[]",
+      "flows_count": 0,
+      "flows_rev": "0+0",
+      "history_count": 1,
+      "history_rev": "[[\"https://app.example.com\", \"https://app.example.com/x\"]]",
+      "key": "live",
+      "live": true,
+      "name": "live",
+      "node": null,
+      "owner": "named",
+      "session_id": "live-1",
+      "site_data_count": 0,
+      "site_data_rev": "[null, []]",
+      "started": 1790799400.0,
+      "url": "https://app.example.com/x",
+      "version": null,
+      "window": null
+    },
+    {
+      "attached": false,
+      "browser": "chrome",
+      "counts": {
+        "downloads": null,
+        "files": 0,
+        "screenshots": 0
+      },
+      "files_count": 0,
+      "files_rev": "[]",
+      "flows_count": 0,
+      "flows_rev": "0+0",
+      "history_count": 1,
+      "history_rev": "[[\"https://app.example.com\", \"https://app.example.com/x\"]]",
+      "key": "sited",
+      "live": false,
+      "name": "sited",
+      "node": null,
+      "owner": "named",
+      "session_id": null,
+      "site_data_count": 1,
+      "site_data_rev": "[1790799970.0, [\"app.example.com\"]]",
+      "started": 1790798200.0,
+      "url": "https://app.example.com/x",
+      "version": null,
+      "window": null
+    },
+    {
+      "attached": false,
+      "browser": "chrome",
+      "counts": {
+        "downloads": null,
+        "files": 0,
+        "screenshots": 0
+      },
+      "files_count": 0,
+      "files_rev": "[]",
+      "flows_count": 0,
+      "flows_rev": "0+0",
+      "history_count": 1,
+      "history_rev": "[[\"https://mail.example.org\", \"https://mail.example.org/inbox\"]]",
+      "key": "detached",
+      "live": false,
+      "name": "detached",
+      "node": null,
+      "owner": "named",
+      "session_id": null,
+      "site_data_count": 0,
+      "site_data_rev": "[null, []]",
+      "started": 1790792800.0,
+      "url": "https://mail.example.org/inbox",
+      "version": null,
+      "window": null
+    }
+  ]
+}

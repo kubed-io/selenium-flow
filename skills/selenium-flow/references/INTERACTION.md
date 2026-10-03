@@ -99,6 +99,10 @@ address; clicking a path through a site is for destinations you cannot address.
 URLs compare with the fragment and any trailing slash ignored, so `/x`, `/x/`
 and `/x#top` are one page. Query strings count as different.
 
+Only `http`, `https` and `about:blank` can be opened, here and in `navigate`
+and `open_session`. `file:`, `chrome:`, `view-source:`, `javascript:` and
+`data:` are refused before the browser is touched.
+
 ## Typing
 
 `write` clears the field first by default and returns `value` read back off the
@@ -160,13 +164,15 @@ That is the normal case: JSON, CSV, YAML, markdown, a log excerpt — anything y
 produced. The server writes the real file and ships it to the browser, which
 runs on another machine.
 
-The other two sources, one of which is required:
+Exactly one source is required:
 
 | Pass | For |
 |---|---|
 | `text` | content you have as text |
 | `content` | base64, for binary — the only shape a tool argument can carry |
-| `path` | a file already on the *server's* filesystem |
+| `file` | any file this session has, by its `session://files` uri |
+
+There is no way to upload a file from the server's own disk.
 
 **Name it with an extension.** The page reads a file's type from the filename,
 not from anything sent with it: `data.json` arrives as `application/json`, while

@@ -10,12 +10,8 @@ import pytest
 from selenium import webdriver
 
 from kubed.selenium_flow.config import SessionSettings
-from kubed.selenium_flow.core.browser import (
-    BROWSERS,
-    Grid,
-    is_partial,
-    normalize_browser,
-)
+from kubed.selenium_flow.core.browser import Grid, is_partial
+from kubed.selenium_flow.core.defaults import BROWSERS, normalize_browser
 from kubed.selenium_flow.session import settings as settings_module
 
 pytestmark = pytest.mark.unit
@@ -245,7 +241,9 @@ def test_ending_a_browser_the_grid_no_longer_has_is_success():
     from unittest.mock import Mock, patch
 
     gone = Mock(status_code=404)
-    with patch("kubed.selenium_flow.core.browser.requests.delete", return_value=gone):
+    with patch(
+        "kubed.selenium_flow.core.browser.requests.Session.delete", return_value=gone
+    ):
         Grid("http://grid.invalid:4444").quit("already-gone")
     gone.raise_for_status.assert_not_called()
 
@@ -260,11 +258,11 @@ async def test_a_rejected_browser_does_not_cost_you_the_one_you_have(
     then failed — the caller lost its page, its cookies and the form it had
     filled in, for a misspelling. A rejected argument must cost nothing.
     """
-    from .conftest import NAMED
+    from .conftest import NAMED, calling_as
 
     open_session = (await server.mcp.get_tool("open_session")).fn
     ended = []
-    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
+    calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.sessions, "end_browser", lambda *a: ended.append(a))
 
     with pytest.raises(ValueError, match="safari"):

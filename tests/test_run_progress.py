@@ -25,7 +25,8 @@ from kubed.selenium_flow.flows import run as flowrun
 from kubed.selenium_flow.mcp import progress
 from kubed.selenium_flow.server import SeleniumMCP
 
-from .conftest import NAMED, TOKEN
+from .conftest import NAMED, TOKEN, calling_as
+from .fakes import FakeClock
 
 pytestmark = pytest.mark.unit
 
@@ -37,17 +38,22 @@ STEPS = [
 
 
 @pytest.fixture
-def slow_server(tmp_path, monkeypatch):
-    """A server whose `navigate` takes a moment, and records that it ran."""
+def slow_server(tmp_path, tmp_path_factory, monkeypatch):
+    """A server whose `navigate` takes a moment, and records that it ran. It
+    holds one secret, `demo`, usable anywhere."""
     monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    secrets_dir = tmp_path_factory.mktemp("secrets")
+    (secrets_dir / "demo").mkdir()
+    (secrets_dir / "demo" / "password").write_text("hunter2")
     server = SeleniumMCP(
         Settings(
             grid={"url": "http://grid.invalid:4444"},
             auth={"token": TOKEN},
             flow={"data_dir": str(tmp_path)},
+            secrets={"dirs": str(secrets_dir)},
         )
     )
-    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
+    calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
     server.ran = []
 
@@ -145,15 +151,6 @@ def test_a_cancelled_assert_lets_go_at_its_next_poll(monkeypatch):
 # ---- the budget belongs to the flow ------------------------------------------
 
 
-class FakeClock:
-    def __init__(self):
-        self.now = 0.0
-
-    def monotonic(self):
-        self.now += 1.0
-        return self.now
-
-
 class Recording:
     def __init__(self):
         self.calls = []
@@ -185,7 +182,9 @@ def test_a_flow_that_declares_a_shorter_budget_is_held_to_it(monkeypatch):
 
 
 @pytest.mark.parametrize("given", ["soon", 0, -5, True, 1.5])
-async def test_a_budget_that_is_not_seconds_is_refused_at_save(tmp_path, given):
+async def test_a_budget_that_is_not_seconds_is_refused_at_save(
+    tmp_path, given, monkeypatch
+):
     server = SeleniumMCP(
         Settings(
             grid={"url": "http://grid.invalid:4444"},
@@ -193,8 +192,7 @@ async def test_a_budget_that_is_not_seconds_is_refused_at_save(tmp_path, given):
             flow={"data_dir": str(tmp_path)},
         )
     )
-    server.sessions.name = lambda: NAMED
-    server.sessions.library = lambda: NAMED
+    calling_as(monkeypatch, NAMED)
     tool = await server.mcp.get_tool(flowapi.SAVE_TOOL)
     with pytest.raises(ValueError, match="timeout must be a whole number of seconds"):
         await tool.fn(name="bad", steps=STEPS[:1], timeout=given)
@@ -208,9 +206,9 @@ def test_a_hand_edited_bad_budget_is_refused_before_step_one():
     assert actions.calls == []
 
 
-async def test_a_saved_budget_survives_the_round_trip(slow_server):
+async def test_a_saved_budget_survives_the_round_trip(slow_server, monkeypatch):
     tool = await slow_server.mcp.get_tool(flowapi.SAVE_TOOL)
-    slow_server.sessions.library = lambda: NAMED
+    calling_as(monkeypatch, NAMED)
     await tool.fn(name="patient", steps=STEPS[:1], timeout=900)
     assert slow_server.flows.get(NAMED, "patient")["timeout"] == 900
 
@@ -230,12 +228,14 @@ def test_a_budget_saved_over_http_is_kept_too(slow_server):
     assert slow_server.flows.get(NAMED, "patient")["timeout"] == 900
 
 
-async def test_a_budget_given_as_text_is_stored_as_the_number_it_means(slow_server):
+async def test_a_budget_given_as_text_is_stored_as_the_number_it_means(
+    slow_server, monkeypatch
+):
     """Coerced on the way in, so it must be kept as what it was coerced to — a
     read would otherwise hand back a string where the schema promises an
     integer (Copilot, #37)."""
     tool = await slow_server.mcp.get_tool(flowapi.SAVE_TOOL)
-    slow_server.sessions.library = lambda: NAMED
+    calling_as(monkeypatch, NAMED)
     saved = await tool.fn(name="patient", steps=STEPS[:1], timeout="900")
     assert saved["timeout"] == 900
     assert slow_server.flows.get(NAMED, "patient")["timeout"] == 900
@@ -244,7 +244,7 @@ async def test_a_budget_given_as_text_is_stored_as_the_number_it_means(slow_serv
 async def test_the_published_save_request_takes_a_budget(slow_server):
     """The HTTP save accepts it, so its published request body has to say so,
     or a generated client can never send one (Copilot, #37)."""
-    from kubed.selenium_flow.routes import ENDPOINTS
+    from kubed.selenium_flow.core.capabilities import ENDPOINTS
     from kubed.selenium_flow.spec import build_spec
 
     spec = await build_spec(slow_server.mcp, ENDPOINTS, "", authenticated=True)
@@ -253,15 +253,19 @@ async def test_the_published_save_request_takes_a_budget(slow_server):
     assert schema["properties"]["timeout"]["type"] == "integer"
 
 
-async def test_every_field_a_save_or_read_returns_is_published(slow_server):
+async def test_every_field_a_save_or_read_returns_is_published(
+    slow_server, monkeypatch
+):
     """The /flows schemas are written by hand, and this pull request forgot
     `timeout` in two of them before a reviewer noticed each (Copilot, #37).
     So the guard is the real responses, not a list: save a flow carrying every
-    document key over HTTP, read it back, and every key that comes out must be
-    declared by the schema that describes that response."""
+    document key over HTTP, read it back, run it to the end, to a failure and
+    to a page that carries a typed secret, and every key that comes out — of a
+    run's steps too — must be declared by the schema that describes that
+    response."""
     from starlette.testclient import TestClient
 
-    from kubed.selenium_flow.routes import ENDPOINTS
+    from kubed.selenium_flow.core.capabilities import ENDPOINTS
     from kubed.selenium_flow.spec import build_spec
 
     client = TestClient(slow_server.mcp.http_app())
@@ -270,17 +274,70 @@ async def test_every_field_a_save_or_read_returns_is_published(slow_server):
         "description": "everything a flow may say",
         "parameters": {"type": "object", "properties": {"q": {"type": "string"}}},
         "timeout": 900,
-        "steps": [{"tool": "navigate", "args": {"url": "https://example.test/${q}"}}],
+        "steps": [
+            {
+                "tool": "navigate",
+                "args": {"url": "https://example.test/${q}"},
+                "id": "go",
+                "note": "every step key",
+                "return": True,
+            }
+        ],
     }
     saved = client.put("/flows/whole", json=document, headers=headers)
     read = client.get("/flows/whole", headers=headers)
     assert saved.status_code == 200 and read.status_code == 200, (saved.text, read.text)
+    slow_server.pause = 0
+    ran = client.post("/flows/whole/runs", json={"params": {"q": "x"}}, headers=headers)
+
+    def refuse(session_id, url=None, **_):
+        raise ValueError("no element matched")
+
+    monkeypatch.setattr(slow_server.actions, "navigate", refuse)
+    failed = client.post(
+        "/flows/whole/runs", json={"params": {"q": "x"}}, headers=headers
+    )
+    assert ran.json()["status"] == "ok", ran.text
+    assert failed.json()["status"] == "failed", failed.text
+
+    def submitting(session_id, text=None, **_):
+        return {"url": f"https://example.test/?q={text}", "title": "t"}
+
+    monkeypatch.setattr(slow_server.actions, "write", submitting)
+    monkeypatch.setattr(
+        slow_server.actions, "page", lambda _id: {"url": "https://example.test/"}
+    )
+    typed = {
+        "steps": [
+            {
+                "tool": "write",
+                "args": {
+                    "selector": {"css": "#q"},
+                    "secret": {"name": "demo", "key": "password"},
+                },
+            }
+        ]
+    }
+    assert client.put("/flows/typed", json=typed, headers=headers).status_code == 200
+    redacted = client.post("/flows/typed/runs", json={}, headers=headers)
+    assert redacted.json().get("url_redacted") is True, redacted.text
 
     spec = await build_spec(slow_server.mcp, ENDPOINTS, "", authenticated=True)
     schemas = spec["components"]["schemas"]
-    for response, schema in ((saved, "FlowSaved"), (read, "Flow")):
+    step = schemas["FlowRun"]["properties"]["steps"]["items"]["properties"]
+    for response, schema in (
+        (saved, "FlowSaved"),
+        (read, "Flow"),
+        (ran, "FlowRun"),
+        (failed, "FlowRun"),
+        (redacted, "FlowRun"),
+    ):
         undeclared = set(response.json()) - set(schemas[schema]["properties"])
         assert not undeclared, f"{schema} does not declare {sorted(undeclared)}"
+    for response in (ran, failed, redacted):
+        for line in response.json()["steps"]:
+            undeclared = set(line) - set(step)
+            assert not undeclared, f"a FlowRun step does not declare {sorted(undeclared)}"
 
 
 def test_a_null_budget_over_http_means_unset_and_is_not_stored(slow_server):

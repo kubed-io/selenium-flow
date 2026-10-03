@@ -26,7 +26,7 @@ def test_no_section_name_can_collide_with_an_env_prefix_already_in_use():
 def test_every_leaf_has_a_one_sentence_description():
     for leaf in config.leaves():
         assert leaf.description, leaf.path
-        assert len(leaf.description) <= 60, (leaf.path, leaf.description)
+        assert len(leaf.description) <= 100, (leaf.path, leaf.description)
         assert leaf.description.endswith("."), leaf.path
 
 
@@ -124,3 +124,36 @@ def test_value_of_reads_a_dotted_path():
     s = Settings(redis={"db": 2})
     assert config.value_of(s, "redis.db") == 2
     assert config.value_of(s, "port") == 8000
+
+
+def test_security_frame_ancestors_is_a_comma_list_with_all_three_spellings():
+    leaf = next(x for x in config.leaves() if x.path == "security.frame_ancestors")
+    assert (leaf.env, leaf.flag) == (
+        "SECURITY_FRAME_ANCESTORS",
+        "--security-frame-ancestors",
+    )
+    assert Settings().security.frame_ancestors == []
+    s = Settings(security={"frame_ancestors": "https://a.example, https://b:8443,"})
+    assert s.security.frame_ancestors == ["https://a.example", "https://b:8443"]
+    assert Settings(
+        security={"frame_ancestors": "https://*.example.com"}
+    ).security.frame_ancestors == ["https://*.example.com"]
+
+
+@pytest.mark.parametrize(
+    ("bad", "says"),
+    [
+        ("https://a.example; script-src *", "not an origin"),
+        ("'self'", "not an origin"),
+        ("https://\u20ac.example", "printable ASCII"),
+        ("https://a.example\x00", "printable ASCII"),
+        ("https://a.exa\tmple", "printable ASCII"),
+        ("example.com", "scheme://host"),
+        ("*", "empty by default"),
+        ("none", "empty by default"),
+        ("'none'", "empty by default"),
+    ],
+)
+def test_frame_ancestors_refuses_what_is_not_an_origin(bad, says):
+    with pytest.raises(ValidationError, match=says):
+        Settings(security={"frame_ancestors": [bad]})

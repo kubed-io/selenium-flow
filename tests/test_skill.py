@@ -23,14 +23,14 @@ from fastmcp import Client
 from fastmcp.utilities.skills import get_skill_manifest, list_skills
 
 from kubed.selenium_flow.mcp import skill as skill_module
-from kubed.selenium_flow.mcp.skill import (
-    ENTRY,
-    MANIFEST,
-    MANIFEST_URI,
-    RESOURCE_URI,
-    SKILL_NAME,
-)
+from kubed.selenium_flow.mcp.skill import ENTRY, SKILL_NAME
 from kubed.selenium_flow.server import SeleniumMCP
+
+# The URIs FastMCP's SkillProvider publishes, spelled out here as the
+# convention being checked rather than read back from the server's own code.
+RESOURCE_URI = f"skill://{SKILL_NAME}/{ENTRY}"
+MANIFEST = "_manifest"
+MANIFEST_URI = f"skill://{SKILL_NAME}/{MANIFEST}"
 
 # tomllib is 3.11+; on 3.10 the reader is tomli, which the `test` extra pulls in
 # under that marker. This used to fall back to None and skip the test below —
@@ -45,10 +45,6 @@ pytestmark = pytest.mark.unit
 
 SKILL_DIR = skill_module.skill_path()
 PYPROJECT = pathlib.Path(__file__).parent.parent / "pyproject.toml"
-
-
-def http(params=None, headers=None):
-    return dict(params or {}), dict(headers or {})
 
 
 def frontmatter() -> dict:
@@ -172,13 +168,6 @@ async def test_each_reference_is_its_own_resource(server):
 # ---- the FastMCP skill convention ------------------------------------------
 
 
-def test_the_uri_follows_the_discovery_convention():
-    """`list_skills` scans for exactly this shape; anything else is invisible."""
-    assert f"skill://{SKILL_NAME}/{ENTRY}" == RESOURCE_URI
-    assert RESOURCE_URI.startswith("skill://") and RESOURCE_URI.endswith("/SKILL.md")
-    assert f"skill://{SKILL_NAME}/{MANIFEST}" == MANIFEST_URI
-
-
 async def test_a_fastmcp_client_discovers_the_skill(server):
     """The real thing: FastMCP's own helper, against this server."""
     async with Client(server.mcp) as client:
@@ -209,9 +198,11 @@ def test_load_returns_a_provider_for_the_packaged_skill():
     assert provider.skill_info.name == SKILL_NAME
 
 
-def test_the_served_text_keeps_its_frontmatter(server):
+async def test_the_served_text_keeps_its_frontmatter(server):
     """The metadata is part of what a reader uses to judge relevance."""
-    assert skill_module.read(server.skill, ENTRY).startswith("---")
+    async with Client(server.mcp) as client:
+        contents = await client.read_resource(RESOURCE_URI)
+    assert contents[0].text.startswith("---")
 
 
 # ---- how it is served ------------------------------------------------------
