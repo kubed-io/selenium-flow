@@ -1076,6 +1076,22 @@ def test_a_malformed_parameters_block_does_not_crash_the_preflight(parameters):
     assert report["status"] in {"ok", "failed"}
 
 
+
+@pytest.mark.parametrize("steps", [1, {"tool": "navigate"}, "go"])
+def test_a_stored_flow_whose_steps_are_not_a_list_is_refused_not_a_crash(steps):
+    """Copilot, review 2: the preflight found it, then the refusal counted the
+    steps with `len()` and raised — a 500 about our code instead of the verdict
+    on the document. Saving refuses it; a hand-written file never saw saving."""
+    actions = FakeActions()
+    report = run(actions, flow(steps), "b")
+    assert report["status"] == "failed"
+    assert report["steps_run"] == 0
+    assert report["steps_total"] == 0
+    assert report["steps"][0]["error"] == (
+        "this flow cannot be run as written: steps must be a non-empty list."
+    )
+    assert actions.calls == []
+
 # ---- declared defaults -------------------------------------------------------
 
 

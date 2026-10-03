@@ -13,6 +13,7 @@ import pytest
 import uvicorn
 
 from kubed.selenium_flow import main as main_module
+from kubed.selenium_flow.http import access_log
 from kubed.selenium_flow.main import WIRE_LOGGERS
 
 pytestmark = pytest.mark.unit
@@ -126,21 +127,61 @@ def test_a_token_silences_the_warning(tmp_path, listened, caplog):
     assert not [r for r in caplog.records if r.levelno == logging.WARNING]
 
 
-def test_the_access_log_drops_the_query_string_and_keeps_the_rest(tmp_path, listened):
-    main_module.main(config(tmp_path))
-    main_module.main(config(tmp_path))  # once, however often it boots
+def access_line(path):
+    """What uvicorn's access log says for a GET of ``path``, once filtered."""
     access = logging.getLogger("uvicorn.access")
-    assert sum(isinstance(f, main_module.DropQuery) for f in access.filters) == 1
     record = logging.LogRecord(
         "uvicorn.access",
         logging.INFO,
         __file__,
         1,
         '%s - "%s %s HTTP/%s" %d',
-        ("1.2.3.4:5", "GET", "/files/x?session=s3cr3t&exp=1&sig=abc", "1.1", 200),
+        ("1.2.3.4:5", "GET", path, "1.1", 200),
         None,
     )
     assert all(f.filter(record) for f in access.filters)
-    line = record.getMessage()
-    assert line == '1.2.3.4:5 - "GET /files/x HTTP/1.1" 200'
+    return record.getMessage()
+
+
+def test_the_access_log_drops_the_query_string_and_keeps_the_rest(tmp_path, listened):
+    main_module.main(config(tmp_path))
+    main_module.main(config(tmp_path))  # once, however often it boots
+    access = logging.getLogger("uvicorn.access")
+    assert sum(isinstance(f, access_log.RouteTemplates) for f in access.filters) == 1
+    line = access_line("/files/abc/x.png?session=s3cr3t&exp=1&sig=abc")
+    assert line == '1.2.3.4:5 - "GET /files/{session_id}/{name} HTTP/1.1" 200'
     assert "session=" not in line and "sig=" not in line
+
+
+SESSION_PATHS = [
+    ("/admin/sessions/s3cr3t/history", "/admin/sessions/{key}/history"),
+    ("/kept/s3cr3t/x.pdf", "/kept/{session}/{name}"),
+    ("/screenshots/s3cr3t/shot.png", "/screenshots/{session}/{name}"),
+    ("/files/s3cr3t/report.pdf", "/files/{session_id}/{name}"),
+]
+
+
+@pytest.mark.parametrize("prefix", ["", "/flow"])
+@pytest.mark.parametrize(("path", "template"), SESSION_PATHS)
+def test_the_access_log_names_the_route_never_the_session(
+    tmp_path, listened, prefix, path, template
+):
+    """Copilot, review 2: a session name is the credential past the token, and
+    dropping the query still left it in the path. The line names the route."""
+    main_module.main(config(tmp_path, f"route_prefix: {prefix or '/'}\n"))
+    line = access_line(f"{prefix}{path}")
+    assert line == f'1.2.3.4:5 - "GET {prefix}{template} HTTP/1.1" 200'
+    assert "s3cr3t" not in line
+
+
+@pytest.mark.parametrize("prefix", ["", "/flow"])
+def test_the_probes_log_as_themselves(tmp_path, listened, prefix):
+    main_module.main(config(tmp_path, f"route_prefix: {prefix or '/'}\n"))
+    assert access_line("/health") == '1.2.3.4:5 - "GET /health HTTP/1.1" 200'
+
+
+def test_a_path_no_route_serves_keeps_only_its_first_segment(tmp_path, listened):
+    main_module.main(config(tmp_path))
+    line = access_line("/kept/s3cr3t?x=1")
+    assert line == '1.2.3.4:5 - "GET /kept/… HTTP/1.1" 200'
+    assert access_line("/") == '1.2.3.4:5 - "GET / HTTP/1.1" 200'

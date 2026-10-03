@@ -14,6 +14,7 @@ import time
 from types import SimpleNamespace
 
 import pytest
+from selenium.common.exceptions import InvalidSessionIdException
 
 from kubed.selenium_flow import secrets
 from kubed.selenium_flow.core import cancel
@@ -430,3 +431,102 @@ def test_a_call_queued_during_a_flow_step_runs_before_the_next_step():
     assert not isinstance(outcome[0], Exception), outcome
     visited = [entry[1] for entry in driver.log if entry[0] == "get"]
     assert visited[:3] == ["https://1.test/", "https://queued.test/", "https://2.test/"]
+
+
+def test_a_call_queued_when_end_browser_cuts_in_never_drives_the_browser():
+    """Copilot, review 2: `end_browser` interrupts while a call waits its turn.
+    The holder lets go while the Grid DELETE is still pending, and the waiter
+    takes the lock — it must say its browser was ended, not reconnect and drive
+    the browser being ended."""
+    holding, release, deleted = threading.Event(), threading.Event(), threading.Event()
+
+    def hold_until_released(url):
+        if url == "https://holder.test/":
+            holding.set()
+            assert release.wait(5), "never released"
+
+    driver = Driver(on_get=hold_until_released)
+    actions, sessions = wired(**{NAMED: ("queued", driver)})
+    reconnects = []
+    grid = actions.grid
+    reattach, quit_ = grid.reconnect, grid.quit
+
+    def counted(session_id):
+        reconnects.append(session_id)
+        return reattach(session_id)
+
+    def pending_delete(session_id):
+        assert deleted.wait(5), "the DELETE was never let through"
+        quit_(session_id)
+
+    grid.reconnect, grid.quit = counted, pending_delete
+
+    def navigate(url):
+        return lambda: sessions.act(Caller(NAMED), lambda s: actions.navigate(s, url))
+
+    holder, _ = in_thread(navigate("https://holder.test/"))
+    assert holding.wait(5), "the holder never started"
+    waiter, outcome = in_thread(navigate("https://waiter.test/"))
+    turns = locks._holds["queued"].lock
+    deadline = time.monotonic() + 5
+    while turns._next - turns._serving < 2:
+        assert time.monotonic() < deadline, "the call never queued"
+        time.sleep(0.001)
+
+    ender, _ = in_thread(lambda: sessions.end_browser(Caller(NAMED)))
+    deadline = time.monotonic() + 5
+    while not locks._holds["queued"].ending.is_set():
+        assert time.monotonic() < deadline, "end_browser never interrupted"
+        time.sleep(0.001)
+    reconnected = len(reconnects)
+    release.set()
+    holder.join(5)
+    waiter.join(5)
+    deleted.set()
+    ender.join(5)
+
+    (error,) = outcome
+    assert isinstance(error, cancel.Ended), error
+    assert str(error) == ENDED
+    assert ("get", "https://waiter.test/") not in [e[:2] for e in driver.log]
+    assert len(reconnects) == reconnected, "the waiter reconnected to the browser"
+
+
+@pytest.mark.parametrize("when", ["between looks", "during the last look", "mid-look"])
+def test_an_assert_with_a_message_says_its_browser_was_ended_not_its_message(when):
+    """Found on the live server: an `assert` given a `message` and then ended
+    reported the message — a sentence about a page condition, on a page that is
+    gone. Whenever the end lands — between two looks, during the look that
+    turns out to be the last, or while a look is still on the Grid and fails
+    with it — the ending wins."""
+    ended = threading.Event()
+
+    def look(script):
+        if when == "between looks" or ended.is_set():
+            return
+        ended.set()
+        sessions.end_browser(Caller(NAMED))
+        if when == "mid-look":
+            raise InvalidSessionIdException("session deleted as the browser closed")
+
+    driver = Driver(scripts={"return false": False}, on_script=look)
+    # A browser of its own: an ended hold another test's traceback still keeps
+    # alive would end this one before its first look.
+    actions, sessions = wired(**{NAMED: (f"message {when}", driver)})
+    polling = threading.Event()
+    if when == "between looks":
+        driver.__dict__["on_script"] = lambda script: polling.set()
+        ender = end_once_polling(sessions, polling)
+    with pytest.raises(cancel.Ended, match=ENDED):
+        sessions.act(
+            Caller(NAMED),
+            lambda s: actions.assert_(
+                s,
+                "return false",
+                message="the order shipped",
+                wait_timeout=0 if when == "during the last look" else 10,
+            ),
+        )
+    if when == "between looks":
+        ender.join(5)
+    assert ended.is_set() or polling.is_set(), "ended before it ever looked"

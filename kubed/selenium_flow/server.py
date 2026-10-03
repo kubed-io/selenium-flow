@@ -20,7 +20,7 @@ from .core.actions import Actions
 from .core.browser import Grid
 from .flows import api as flowapi
 from .flows import store as flowstore
-from .http import admin, files
+from .http import access_log, admin, files
 from .http.admin import page as admin_page
 from .mcp import (
     apps,
@@ -270,6 +270,9 @@ class SeleniumMCP:
         if transport == "stdio":
             self.mcp.run(transport="stdio", show_banner=False)
         else:
+            # Built from the same routes the app it serves is, so the access
+            # log names each request by its template, never by its path.
+            access_log.quiet(self.mcp.http_app(path=self.mcp_path))
             self.mcp.run(
                 transport="http",
                 host=host,

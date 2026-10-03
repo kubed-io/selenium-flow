@@ -18,6 +18,7 @@ from collections.abc import Callable
 
 from ..binding import after
 from .document import ASSERTION
+from .shape import Shape
 
 # Where to read about a failure, and which prompt repairs it. The reference is
 # for the agent, which reads resources when it decides to; the prompt is for a
@@ -111,15 +112,19 @@ def refused(document: dict, name: str, why: str, skill_available: bool = True) -
     would otherwise have run the first eight and then reported `steps_run: 0`,
     which both half-runs a flow the message says was refused and misstates what
     happened.
+
+    The document is the one being refused, so its steps are counted by `Shape`:
+    `steps: 1` is a reason to refuse, not a TypeError on the way to saying so.
+    And the reason is reported even when there are no steps to count, or the
+    refusal would say nothing at all.
     """
-    total = len(document.get("steps") or [])
     return with_hint(
         {
             "flow": name,
             "status": "failed",
             "steps_run": 0,
-            "steps_total": total,
-            "steps": [{"n": 1, "ok": False, "error": why}] if total else [],
+            "steps_total": Shape(document).step_count,
+            "steps": [{"n": 1, "ok": False, "error": why}],
         },
         skill_available,
     )

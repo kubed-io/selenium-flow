@@ -129,9 +129,15 @@ def hold(browser: str) -> Hold:
 
 @contextmanager
 def driving(browser: str):
-    """Drive ``browser`` alone for the block, ready to be told it is ending."""
+    """Drive ``browser`` alone for the block, ready to be told it is ending.
+
+    The flag is checked once the turn comes, before the block: a call that
+    queued and was ended while it waited must not reconnect to a browser whose
+    Grid DELETE may still be in flight, and only a long `assert` polls on its own.
+    """
     turn = hold(browser)
     with turn.lock, cancel.watching(turn.ending, raises=cancel.Ended):
+        cancel.check()
         yield turn
 
 

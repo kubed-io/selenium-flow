@@ -80,6 +80,15 @@ class Assertion:
         self.message = message
         self.clock = clock
 
+    def _look(self):
+        """One evaluation. A look that fails because the browser was ended under
+        it says so, rather than with whatever the Grid said about the quit."""
+        try:
+            return self.evaluate()
+        except Exception:
+            cancel.check()
+            raise
+
     def run(self) -> dict:
         """The page's state at the moment it held, or `AssertionFailed`."""
         timeout, hold, message = self.timeout, self.hold, self.message
@@ -88,7 +97,7 @@ class Assertion:
         ever_true = False
         first = True
         while True:
-            answer = self.evaluate()
+            answer = self._look()
             if not isinstance(answer, bool):
                 raise ValueError(
                     f"assert must return true or false; this returned "
@@ -135,6 +144,9 @@ class Assertion:
                 # wait_timeout=0 still asks exactly once.
                 break
 
+        # The ending wins over the author's sentence: `message` describes a
+        # page condition, and a browser ended during the last look has no page.
+        cancel.check()
         state = self.state()
         if hold and ever_true:
             # A different failure and worth saying so: the page DID answer true,
