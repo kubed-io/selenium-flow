@@ -563,8 +563,18 @@ def _take(run: Run, call: _Call, number: int, step: dict) -> bool:
         # callable check: `__init__` and `_at` are both callable.
         return run.stops(outcome, f"there is no action called {tool!r}")
 
-    with locks.driving(call.session_id):
-        return _drive(run, call, number, step, outcome, method)
+    # Cancelled while waiting its turn (`end_browser`, or the caller gone): the
+    # step never started, so it stops the run like the check above, with its
+    # report. Only the entering is caught; `_drive` answers for the step itself.
+    entered = False
+    try:
+        with locks.driving(call.session_id):
+            entered = True
+            return _drive(run, call, number, step, outcome, method)
+    except cancel.Cancelled:
+        if entered:
+            raise
+        return run.stops(outcome, "the run was cancelled before this step")
 
 
 def _drive(

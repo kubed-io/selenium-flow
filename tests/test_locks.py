@@ -530,3 +530,45 @@ def test_an_assert_with_a_message_says_its_browser_was_ended_not_its_message(whe
     if when == "between looks":
         ender.join(5)
     assert ended.is_set() or polling.is_set(), "ended before it ever looked"
+
+
+def test_a_flow_step_queued_when_end_browser_cuts_in_ends_the_run_with_its_report():
+    """Review, I2: the turn's own check raised out of `flowrun.run` — a 500 with
+    no report — for a step still waiting behind another call when its browser
+    was ended. The run stops there and says so, like a step cancelled before
+    it started."""
+    holding, release = threading.Event(), threading.Event()
+
+    def hold_until_released(url):
+        if url == "https://holder.test/":
+            holding.set()
+            assert release.wait(5), "never released"
+
+    driver = Driver(on_get=hold_until_released)
+    actions, sessions = wired(**{NAMED: ("queued flow", driver)})
+    holder, _ = in_thread(
+        lambda: sessions.act(
+            Caller(NAMED), lambda s: actions.navigate(s, "https://holder.test/")
+        )
+    )
+    assert holding.wait(5), "the holder never started"
+    steps = [{"tool": "navigate", "args": {"url": "https://step.test/"}}]
+    flow, outcome = in_thread(
+        lambda: flowrun.run(actions, {"name": "f", "steps": steps}, "queued flow")
+    )
+    turns = locks._holds["queued flow"].lock
+    deadline = time.monotonic() + 5
+    while turns._next - turns._serving < 2:
+        assert time.monotonic() < deadline, "the step never queued"
+        time.sleep(0.001)
+
+    sessions.end_browser(Caller(NAMED))
+    release.set()
+    holder.join(5)
+    flow.join(5)
+
+    (report,) = outcome
+    assert isinstance(report, dict), report
+    assert report["status"] == "failed"
+    assert report["steps"][-1]["error"] == "the run was cancelled before this step"
+    assert ("get", "https://step.test/") not in [e[:2] for e in driver.log]
