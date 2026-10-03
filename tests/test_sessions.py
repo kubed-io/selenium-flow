@@ -1537,27 +1537,43 @@ def test_a_stored_record_with_a_non_numeric_opened_at_is_no_session():
 # ---- two calls on one session at once (G2) ----------------------------------
 
 
-def test_two_concurrent_calls_on_one_session_both_run_and_both_are_recorded():
-    """Today nothing serialises a session's calls: both are inside their action
-    at the same moment. Pinned so the change that orders them (Task 23) is a
-    visible edit to this one test, and so that what must stay true — both
-    complete, the record is whole — is stated."""
+def test_two_concurrent_calls_on_one_session_run_one_after_the_other():
+    """One browser-driving call at a time per session (Ruling 2): two navigates
+    released together do not interleave on the browser — the second's begins
+    only once the first's has ended. What stayed true from before the lock:
+    both complete, and the record is whole."""
     import threading
+    import time
+    from types import SimpleNamespace
 
-    actions = RecordingActions()
-    actions.grid.alive.add("abc")
+    from kubed.selenium_flow.core.actions import Actions
+
+    from .fakes import ScriptedDriver
+
+    order = []
+
+    class Slow(ScriptedDriver):
+        def get(self, url):
+            order.append(("in", url))
+            time.sleep(0.2)  # long enough for the other to land inside, unlocked
+            order.append(("out", url))
+            super().get(url)
+
+    driver = Slow()
+    actions = Actions(
+        SimpleNamespace(reconnect=lambda session_id: driver, is_alive=lambda _: True)
+    )
     sessions = manager(actions)
     sessions.store.set(NAMED, SessionRecord(session_id="abc"))
     together = threading.Barrier(2, timeout=5)
     results, errors = [], []
 
     def call(url):
-        def act(browser):
-            together.wait()  # BrokenBarrierError unless the other is in here too
-            return {"url": url}
-
         try:
-            results.append(sessions.act(Caller(NAMED), act))
+            together.wait()
+            results.append(
+                sessions.act(Caller(NAMED), lambda s: actions.navigate(s, url))
+            )
         except Exception as exc:  # noqa: BLE001 - reported below, in the main thread
             errors.append(exc)
 
@@ -1572,7 +1588,8 @@ def test_two_concurrent_calls_on_one_session_both_run_and_both_are_recorded():
 
     assert errors == []
     assert sorted(r["url"] for r in results) == ["https://a.test/", "https://b.test/"]
+    first, second = order[0][1], order[2][1]
+    assert order == [("in", first), ("out", first), ("in", second), ("out", second)]
     record = sessions.store.get(NAMED)
     assert record.session_id == "abc", "the browser the record holds is unchanged"
-    assert actions.opened == 0 and actions.closed == []
     assert record.url in {"https://a.test/", "https://b.test/"}

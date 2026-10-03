@@ -56,6 +56,7 @@ from ..mcp import guidance
 from ..names import GLOBAL_SESSION, valid_session_name
 from ..site_data import snapshot as site_data_module
 from ..urls import allowed_navigation
+from . import locks
 from . import settings as settings_module
 from .store import MemoryStore, SessionRecord, SessionStore
 
@@ -405,6 +406,10 @@ class SessionManager:
 
         ``reshapes`` is for the one action that changes a setting the record
         *stores* rather than just the page it is on. See :meth:`reshape`.
+
+        The action takes the session's turn on the browser itself, in
+        `Recipe.run` (`session.locks`). Resolving and settling do not need it:
+        every record write is a compare-and-set.
         """
         name = caller.name
         resolved = self.resolve(name)
@@ -531,6 +536,9 @@ class SessionManager:
         The only place a browser is created, and the only place its settings can
         be chosen, which is why it is never done implicitly. Shared by both
         surfaces for the same reason :meth:`act` is.
+
+        It takes no turn on the browser (`session.locks`): it makes one rather
+        than driving it, and the one it replaces goes through `end_browser`.
         """
         name = caller.name
         # What this session was last using. It sits between the client's
@@ -764,6 +772,12 @@ class SessionManager:
         the next call, because the name comes from the caller's own URL or
         header rather than from anything stored.
 
+        **It never waits its turn** (`session.locks`): a call driving the
+        browser is told it is ending - a long `assert` raises its cancellation
+        at its next poll - and the browser is quit without waiting for it.
+        Queued behind a 900 s `assert`, the call that exists to interrupt one
+        could not.
+
         Returns the browser that was ended, or None if there was none.
         """
         name = caller.name
@@ -771,6 +785,7 @@ class SessionManager:
         if record is None or not record.attached:
             return None
         target = record.session_id
+        locks.interrupt(target)
         try:
             self.actions.end_browser(target)
         except Exception as exc:  # noqa: BLE001 - it is going either way

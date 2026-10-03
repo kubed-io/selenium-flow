@@ -50,6 +50,7 @@ from urllib.parse import urlsplit
 
 from .config import FromEnv, FromFile, FromValue, SecretEntry, SecretsSettings
 from .names import InvalidName, valid_name
+from .session import locks
 from .urls import host_of
 
 log = logging.getLogger(__name__)
@@ -741,25 +742,31 @@ def perform_write(catalogue, actions, sessions, name: str, kwargs: dict) -> dict
     lives in one place: two copies of a redaction are one copy that is older.
     It settles like any other action, through ``sessions.settle``, with the page
     withheld when the value reached it.
+
+    The page read, the leash check and the keystrokes are ONE turn on the
+    browser (`session.locks`): another call navigating or switching frames
+    between the check and the typing would type the value somewhere the leash
+    never saw (Copilot, #52).
     """
     from . import binding
     from .flows import redact
 
     resolved = sessions.resolve(name)
-    given, guarded = binding.bind_into(
-        kwargs,
-        catalogue,
-        lambda: binding.receiving(actions.page(resolved)),
-        "write",
-        binding.DIRECT,
-    )
-    hidden = binding.forms_of(given, guarded)
-    rest = {k: v for k, v in given.items() if k not in ("text", "url")}
-    try:
-        result = actions.write(resolved, given["text"], **rest)
-    except Exception as exc:  # noqa: BLE001 - rewrapped, never swallowed
-        # An action puts its arguments in its error text.
-        raise ValueError(redact.scrub(str(exc), hidden)) from None
+    with locks.driving(resolved):
+        given, guarded = binding.bind_into(
+            kwargs,
+            catalogue,
+            lambda: binding.receiving(actions.page(resolved)),
+            "write",
+            binding.DIRECT,
+        )
+        hidden = binding.forms_of(given, guarded)
+        rest = {k: v for k, v in given.items() if k not in ("text", "url")}
+        try:
+            result = actions.write(resolved, given["text"], **rest)
+        except Exception as exc:  # noqa: BLE001 - rewrapped, never swallowed
+            # An action puts its arguments in its error text.
+            raise ValueError(redact.scrub(str(exc), hidden)) from None
     shown = binding.after({**result, "text_from": "secret"}, guarded, hidden)
     # Only remember a page the value never reached; a later reattach would
     # navigate to it. Touched either way. Withholding the page must not also

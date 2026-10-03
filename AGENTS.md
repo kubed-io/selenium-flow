@@ -333,6 +333,19 @@ admin list, slides its TTL, and is reopened after a reap exactly like one opened
 over MCP. That was not true before §F2.13 and the difference was invisible until
 a workflow's session expired underneath it.
 
+**One browser-driving call at a time per session** (`session/locks.py`). The
+record was always safe — every write is a compare-and-set — but two action
+sequences interleaved on one browser are not, so `Recipe.run` holds the
+session's lock from the reconnect to the page state and a second call waits its
+turn: no 409, no timeout of its own. A bound write holds it from the page read
+through the keystrokes, so nothing navigates or switches frames between the
+leash check and the typing; a flow holds it per step, never for the run.
+`end_browser` and `open_session` take no lock, and nothing that only reads does:
+`end_browser` sets the cancel the holder watches (`core/cancel.py`), so a long
+`assert` ends with its cancellation instead of making the call that exists to
+stop it wait. Keyed by the browser's Grid id, reentrant, weak, and
+process-local — one replica (see "Scaling").
+
 ## Sessions: what is stateful and what is not
 
 Three different "sessions" are in play, and conflating them is the trap.
@@ -673,6 +686,9 @@ removed rather than kept for a scaling nobody runs.
 The browser is unaffected: its session lives on the Grid, and the record naming
 it lives in the session store. Use Redis for that record if the pod should come
 back from a restart holding its callers' browsers.
+
+The per-session lock (`session/locks.py`) is process memory too, with Redis or
+without: a second replica would let two calls drive one browser at once.
 
 ## Gotchas
 

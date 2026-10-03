@@ -12,8 +12,11 @@ wait that matters is inside `Actions.assert_`, several calls below the run, and
 threading a flag through every action's signature would put it into every tool
 schema derived from them.
 
-Nothing but a flow run ever sets one. An action called directly, over either
-surface, sees no flag and behaves exactly as it always has.
+Two things set one. A flow run carries its stop flag for the whole run, and a
+browser-driving call carries its browser's (`session.locks`), which
+`end_browser` sets so a direct `assert` lets go instead of making the call that
+exists to interrupt it wait. Flags stack rather than replace each other, so a
+step inside a run answers to both.
 """
 
 from __future__ import annotations
@@ -22,7 +25,9 @@ import threading
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-_FLAG: ContextVar[threading.Event | None] = ContextVar("cancel_flag", default=None)
+_FLAGS: ContextVar[tuple[threading.Event, ...]] = ContextVar(
+    "cancel_flags", default=()
+)
 
 
 class Cancelled(Exception):
@@ -31,21 +36,21 @@ class Cancelled(Exception):
 
 @contextmanager
 def watching(flag: threading.Event | None):
-    """Make ``flag`` the one `check` consults, for the duration of the block.
+    """Add ``flag`` to the ones `check` consults, for the duration of the block.
 
     Set inside the thread doing the work, so it does not depend on whether a
-    context variable was copied into that thread on the way.
+    context variable was copied into that thread on the way. None adds nothing.
     """
-    token = _FLAG.set(flag)
+    flags = _FLAGS.get()
+    token = _FLAGS.set(flags if flag is None else (*flags, flag))
     try:
         yield
     finally:
-        _FLAG.reset(token)
+        _FLAGS.reset(token)
 
 
 def cancelled() -> bool:
-    flag = _FLAG.get()
-    return flag is not None and flag.is_set()
+    return any(flag.is_set() for flag in _FLAGS.get())
 
 
 def check() -> None:

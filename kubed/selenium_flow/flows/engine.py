@@ -39,6 +39,7 @@ from typing import Protocol
 from .. import binding, secrets
 from ..binding import SECRET_ARG
 from ..core import cancel
+from ..session import locks
 from .document import ARGS, ASSERTION, declared_timeout
 from .redact import scrub, scrub_values, taints
 from .report import OUT_OF_TIME, clean, refused, summarise, with_hint
@@ -471,12 +472,20 @@ def execute(
 
     ``stop`` is a `threading.Event`. Once it is set no further step starts, and
     a step that is waiting gives up at its next poll (see `core.cancel`).
+    Ending the browser does the same (`session.locks`).
+
+    Each step has the browser to itself, from reading the page a secret is
+    checked against to the action's last page read; the run as a whole does
+    not, so another call on the session waits one step, not the whole run.
 
     ``timeout`` overrides the budget the document declares, which overrides
     ``default_timeout``. ``clock`` is read once for the deadline and once
     before each step.
     """
-    with cancel.watching(stop):
+    # Kept for the whole run so an `end_browser` between two steps is still
+    # seen when the next one is about to start: unheld, it would be gone.
+    turn = locks.hold(session_id)
+    with cancel.watching(stop), cancel.watching(turn.ending):
         # Checked against what the CALLER passed, then filled. The other order
         # lets a `default` satisfy `required`, which would make `required` mean
         # nothing — and "needs term: pass them in params" is advice the caller
@@ -528,7 +537,6 @@ def execute(
 def _take(run: Run, call: _Call, number: int, step: dict) -> bool:
     """One step, start to finish. True to go on to the next, False to stop."""
     tool = step.get("tool")
-    label = step.get("id") or tool
     outcome = StepOutcome(
         n=number, tool=tool, id=step.get("id") or None, note=step.get("note") or None
     )
@@ -552,6 +560,17 @@ def _take(run: Run, call: _Call, number: int, step: dict) -> bool:
         # callable check: `__init__` and `_at` are both callable.
         return run.stops(outcome, f"there is no action called {tool!r}")
 
+    with locks.driving(call.session_id):
+        return _drive(run, call, number, step, outcome, method)
+
+
+def _drive(
+    run: Run, call: _Call, number: int, step: dict, outcome: StepOutcome, method
+) -> bool:
+    """A step's page read, action and report, on the browser alone (`_take`)."""
+    tool = step.get("tool")
+    label = step.get("id") or tool
+    toolbox = call.toolbox
     try:
         # The page is read only when a step actually binds a secret: it costs a
         # WebDriver round trip, and every other step has no leash to check.

@@ -9,8 +9,8 @@ reattached and moved, so a selector naming both ``xpath`` and ``css`` cost a
 page load before it was refused.
 
 `Recipe.run` is the one copy. An action is its own argument checks plus a body,
-and anything that must hold for every action - one call at a time per session,
-a deadline per call - has one place to attach.
+and anything that must hold for every action - one call at a time per session
+(`session.locks`), a deadline per call - has one place to attach.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from typing import Any, NamedTuple
 
 from selenium.common.exceptions import StaleElementReferenceException
 
+from ..session import locks
 from ..urls import allowed_navigation
 from . import browser
 from .coerce import as_int
@@ -111,30 +112,38 @@ class Recipe:
         reported; otherwise the recipe reads it after the body. Either way it is
         `browser.page_state`, which reports an open dialog as state rather than
         failing an action that succeeded (AGENTS.md "Dialogs").
+
+        From the reconnect to that page state the session's browser is this
+        call's alone (`session.locks`): another waits its turn, and the checks
+        above are made before it does, so a refused call never waits.
         """
         target = browser.locator(selector) if self.wait or selector else None
         timeout = as_int(wait_timeout, WAIT_TIMEOUT)
         if url:
             allowed_navigation(url)
 
-        driver = self.reconnect(session_id, url)
+        with locks.driving(session_id):
+            driver = self.reconnect(session_id, url)
 
-        read: list[dict] = []
+            read: list[dict] = []
 
-        def state() -> dict:
-            read.append(browser.page_state(driver))
-            return read[-1]
+            def state() -> dict:
+                read.append(browser.page_state(driver))
+                return read[-1]
 
-        def attempt() -> dict:
-            element = None
-            if self.wait == CLICKABLE:
-                element = browser.wait_for_clickable(driver, target, timeout)
-            elif self.wait == PRESENCE:
-                element = browser.wait_for_element(driver, target, timeout)
-            return body(At(driver, element, target, timeout, state))
+            def attempt() -> dict:
+                element = None
+                if self.wait == CLICKABLE:
+                    element = browser.wait_for_clickable(driver, target, timeout)
+                elif self.wait == PRESENCE:
+                    element = browser.wait_for_element(driver, target, timeout)
+                return body(At(driver, element, target, timeout, state))
 
-        fields = self._once_more_if_stale(attempt) if self.retry_stale else attempt()
-        return {**fields, **(read[-1] if read else browser.page_state(driver))}
+            if self.retry_stale:
+                fields = self._once_more_if_stale(attempt)
+            else:
+                fields = attempt()
+            return {**fields, **(read[-1] if read else browser.page_state(driver))}
 
     @staticmethod
     def _once_more_if_stale(attempt):
