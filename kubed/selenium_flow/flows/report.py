@@ -7,7 +7,7 @@ the heavy fields and every guarded value; a failed run says where to read about
 the failure.
 
 **Where to read is handed in.** A hint names a reference page by its URI, and
-which URIs exist is the MCP layer's business (`mcp.guidance.pointer`) rather
+which URIs exist is the MCP layer's business (`core.guidance.pointer`) rather
 than this module's: `flows.api` hands the function in through `refer_with`, so
 a run imports nothing that knows how the skill is served.
 """

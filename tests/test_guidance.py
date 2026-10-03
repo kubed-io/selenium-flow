@@ -22,7 +22,8 @@ def test_every_page_guidance_can_name_is_one_the_skill_ships():
     """A `skill://` URI that cannot be read is worse than no URI at all: it
     teaches an agent that the manual is broken, and it costs a round trip to
     find that out. The pages are a closed set for exactly this reason."""
-    from kubed.selenium_flow.mcp import guidance, skill
+    from kubed.selenium_flow.core import guidance
+    from kubed.selenium_flow.mcp import skill
 
     references = skill.skill_path() / "references"
     for page in guidance.PAGES:
@@ -33,7 +34,7 @@ def test_a_pointer_is_a_resource_uri_and_nothing_else():
     """Everything after `skill://selenium-flow/` is a file path, so an anchor
     glued on the end names a file that does not exist. The section travels
     beside the URI, never inside it."""
-    from kubed.selenium_flow.mcp.guidance import pointer
+    from kubed.selenium_flow.core.guidance import pointer
 
     assert pointer("FLOWS.md") == "skill://selenium-flow/references/FLOWS.md"
     assert "#" not in pointer("FLOWS.md")
@@ -43,7 +44,7 @@ def test_a_page_it_does_not_ship_is_refused_at_the_source():
     """Caught where the typo is, not where the agent reads it."""
     import re
 
-    from kubed.selenium_flow.mcp.guidance import pointer
+    from kubed.selenium_flow.core.guidance import pointer
 
     # Escaped: `match` is a regex, and an unescaped dot matches any character —
     # so the pattern would pass against a message that never said "INVENTED.md".

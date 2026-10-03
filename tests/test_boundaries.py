@@ -225,12 +225,7 @@ KERNEL_SKIP = {"flows/api.py"}
 # Upward imports that exist today, each with the reason. Keyed by file and the
 # module it reaches; `test_every_upward_exception_still_exists` fails once one
 # is gone, so the entry has to go with the fix.
-UPWARD_EXCEPTIONS = {
-    # A status names the skill page that explains sessions. `mcp.guidance`
-    # imports nothing, so this closes no cycle, but it is the protocol's
-    # vocabulary and belongs below it.
-    ("session/sessions.py", f"{PACKAGE_NAME}.mcp.guidance"): "skill pointer",
-}
+UPWARD_EXCEPTIONS: dict[tuple[str, str], str] = {}
 
 
 def _upward(name: str) -> bool:

@@ -48,11 +48,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 
 from .. import faults
+from ..core import guidance
 from ..core.actions import Actions
 from ..core.browser import in_frame
 from ..core.coerce import as_bool
 from ..core.defaults import DEFAULT_BROWSER
-from ..mcp import guidance
 from ..names import GLOBAL_SESSION, valid_session_name
 from ..site_data import snapshot as site_data_module
 from ..urls import allowed_navigation
