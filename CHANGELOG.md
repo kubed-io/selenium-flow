@@ -47,6 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING:** upload_file no longer takes path; send content with a filename, or a kept file's URI.
 - navigate and every url refuse non-web schemes (file:, chrome:, data:, …).
 - A secret is typed into a frame only when the page and the frame are both allowed, and never into an `<iframe>` or `<frame>` element.
+- Request bodies are capped: 1 MiB JSON, 64 MiB upload, 1 MiB flow YAML; over the cap is a 413.
+- Naming two different sessions in one request (?session=a&session=b) is refused.
 
 ## [0.3.0] - 2026-09-26
 

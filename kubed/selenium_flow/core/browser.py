@@ -676,11 +676,11 @@ def frame_origin(driver) -> str:
     always the top page's. Read every time, never only "when in a frame": the
     frame check is the page's to answer, and a hostile frame can forge it.
 
-    A document with no origin of its own (``data:``, ``about:blank`` and
-    ``srcdoc`` frames) answers ``"null"``; a frame with the ``sandbox`` attribute
-    still reports its URL's origin. A failure or a non-string answer is ``""``;
-    both match no allowed origin, so not knowing is refused rather than read as
-    the top page.
+    ``location.origin`` is computed from the context's URL, so a ``data:``,
+    ``about:blank`` or ``srcdoc`` frame answers ``"null"`` whatever origin its
+    document inherited, and a frame with a ``sandbox`` attribute answers its
+    URL's origin. A failure or a non-string answer is ``""``. Neither ``"null"``
+    nor ``""`` matches an allowed origin, so the leash refuses both.
     """
     try:
         found = driver.execute_script(ORIGIN_HERE)
