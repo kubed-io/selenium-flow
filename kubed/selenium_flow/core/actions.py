@@ -44,11 +44,14 @@ log = logging.getLogger(__name__)
 
 INSECURE_SKIP = "an insecure browser gets no saved site data"
 
-# Elements whose keystrokes go to another document. A bound write's leash checks
-# the selected context, which is not the one inside these.
-FRAME_ELEMENTS = frozenset({"iframe", "frame"})
+# Elements that can host a nested document. Keys sent to one may land in that
+# document, whose origin the leash never read: it checks the selected context.
+# Fail closed: WebDriver can switch into only iframe and frame, so a secret meant
+# for the rest has no checkable road in at all.
+FRAME_ELEMENTS = ("iframe", "frame", "object", "embed", "fencedframe", "portal")
 FRAME_REFUSAL = (
-    "a secret cannot be typed into a frame element; switch into the frame first"
+    "a secret cannot be typed into an element that hosts another document; "
+    "switch into the frame first"
 )
 
 # Mouse gestures ``interact`` understands. hover and scroll_to are here rather

@@ -1360,7 +1360,10 @@ def test_a_flow_step_is_held_to_the_page_and_the_frame(tmp_path, top, frame, nam
 
 # ---- the leash sees the frame element too (final review C1) ------------------
 
-FRAME_REFUSAL = "a secret cannot be typed into a frame element; switch into the frame first"
+FRAME_REFUSAL = (
+    "a secret cannot be typed into an element that hosts another document; "
+    "switch into the frame first"
+)
 
 
 @pytest.fixture
@@ -1388,7 +1391,9 @@ def typed_into(driver):
     return [entry[2:] for entry in driver.log if entry[:2] == ("element", "send_keys")]
 
 
-@pytest.mark.parametrize("tag", ["iframe", "frame", "IFRAME"])
+@pytest.mark.parametrize(
+    "tag", ["iframe", "frame", "object", "embed", "fencedframe", "portal", "IFRAME"]
+)
 def test_a_direct_bound_write_never_types_into_a_frame_element(targeting, tag):
     from kubed.selenium_flow.errors import status_for
 
