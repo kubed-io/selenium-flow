@@ -240,6 +240,7 @@ def save_one(store, session: str, name: str, document: dict, schemas: dict) -> d
     # document that does not match its own schema (Copilot, #37).
     if document.get(flowdoc.TIMEOUT) is not None:
         document[flowdoc.TIMEOUT] = flowdoc.declared_timeout(document)
+    flowlib.check_size(flowlib.dump(document))
     stored = store.save(session, name, document)
     steps = len(stored.get("steps") or [])
     log.info("flow %s/%s saved (%s steps)", session, name, steps)
@@ -279,6 +280,7 @@ async def save_text(
     """
     if not isinstance(text, str) or not text.strip():
         raise ValueError("yaml is required")
+    flowlib.check_size(text)
     try:
         document = flowlib.parse(text)
     except yaml.YAMLError as exc:

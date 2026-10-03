@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -210,6 +211,41 @@ class McpSettings(Section):
     apps: bool = Field(True, description="Offer MCP Apps views.")
 
 
+class SecuritySettings(Section):
+    # NoDecode for the same reason as `secrets.dirs`: a list read from env is
+    # comma-separated, not JSON.
+    frame_ancestors: Annotated[list[str], NoDecode] = Field(
+        default_factory=list,
+        description=(
+            "Origins allowed to frame the admin page, e.g. a Nextcloud or "
+            "Grafana host; empty forbids framing."
+        ),
+    )
+
+    @field_validator("frame_ancestors", mode="before")
+    @classmethod
+    def _split(cls, value):
+        if isinstance(value, str):
+            value = value.split(",")
+        if not isinstance(value, list):
+            return value
+        return [
+            part.strip() if isinstance(part, str) else part
+            for part in value
+            if not (isinstance(part, str) and not part.strip())
+        ]
+
+    @field_validator("frame_ancestors")
+    @classmethod
+    def _origins(cls, origins):
+        # Each entry is pasted into a Content-Security-Policy header, so one
+        # that carries a `;` or a space would add a directive of its own.
+        for origin in origins:
+            if re.search(r"[\s;,'\"]", origin):
+                raise ValueError(f"{origin!r} is not an origin")
+        return origins
+
+
 class Settings(Section):
     config_file: str | None = Field(None, description="The YAML file read at start.")
     transport: Literal["http", "stdio"] = Field(
@@ -266,6 +302,10 @@ class Settings(Section):
     mcp: McpSettings = Field(
         default_factory=McpSettings,
         description="What MCP clients are offered beyond tools.",
+    )
+    security: SecuritySettings = Field(
+        default_factory=SecuritySettings,
+        description="Who may frame the admin page.",
     )
 
 

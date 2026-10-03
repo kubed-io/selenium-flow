@@ -178,3 +178,39 @@ def test_the_page_says_to_revalidate_and_answers_304_to_its_etag(built_ui):
     assert client.get("/", headers={"If-None-Match": '"stale"'}).text == res.text
     (built_ui / "admin.css").write_text("/* a rebuilt admin css */")
     assert client.get("/", headers={"If-None-Match": etag}).status_code == 200
+
+
+def _framed(server):
+    return TestClient(server.mcp.http_app()).get("/").headers
+
+
+def test_the_page_forbids_framing_and_sniffing_with_and_without_a_build(built_ui):
+    for headers in (_framed(_server()),):
+        assert headers["content-security-policy"] == "frame-ancestors 'none'"
+        assert headers["x-content-type-options"] == "nosniff"
+        assert headers["referrer-policy"] == "same-origin"
+
+
+def test_the_placeholder_carries_the_same_headers():
+    headers = _framed(_server())
+    assert headers["content-security-policy"] == "frame-ancestors 'none'"
+    assert headers["x-content-type-options"] == "nosniff"
+
+
+def test_listed_frame_ancestors_are_the_only_framers_and_a_304_says_so(built_ui):
+    server = SeleniumMCP(
+        Settings(
+            grid={"url": "http://grid.invalid:4444"},
+            auth={"token": TOKEN},
+            security={"frame_ancestors": ["https://cloud.example", "https://g.example"]},
+        )
+    )
+    client = TestClient(server.mcp.http_app())
+    res = client.get("/")
+    assert (
+        res.headers["content-security-policy"]
+        == "frame-ancestors https://cloud.example https://g.example"
+    )
+    again = client.get("/", headers={"If-None-Match": res.headers["etag"]})
+    assert again.status_code == 304
+    assert "frame-ancestors" in again.headers["content-security-policy"]

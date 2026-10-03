@@ -257,6 +257,7 @@ class SeleniumMCP:
             catalogue=self.secrets,
             settings_payload=lambda: config.describe(self.settings, self.sources),
             link_ttl=settings.link_ttl,
+            frame_ancestors=settings.security.frame_ancestors,
         )
 
     def run(

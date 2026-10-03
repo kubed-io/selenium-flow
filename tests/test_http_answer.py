@@ -91,3 +91,42 @@ def test_refused_keeps_a_filesystem_path_out_of_the_body():
     response = answer.refused(exc, "files for x", logging.getLogger("t"))
     body = response.body.decode()
     assert "secret-layout" not in body and "Permission denied" in body
+
+
+@pytest.mark.parametrize(("method", "path"), TREES)
+def test_a_json_body_over_1_mib_is_413_naming_the_cap_on_every_tree(
+    client, method, path
+):
+    big = b'{"x": "' + b"a" * (2**20) + b'"}'
+    headers = {**AUTH, "Content-Type": "application/json"}
+    response = getattr(client, method)(path, content=big, headers=headers)
+    assert response.status_code == 413
+    assert response.json() == {"error": "a JSON body is limited to 1 MiB"}
+
+
+def test_a_json_body_just_under_the_cap_is_read(client):
+    body = b'{"x": "' + b"a" * (2**20 - 20) + b'"}'
+    headers = {**AUTH, "Content-Type": "application/json"}
+    assert client.post("/browser", content=body, headers=headers).status_code != 413
+
+
+def test_an_upload_has_its_own_larger_cap(client, monkeypatch):
+    monkeypatch.setattr(answer, "UPLOAD_CAP", 2**20)
+    files = {"file": ("big.bin", b"a" * (2**20 + 1))}
+    response = client.post("/browser", files=files, headers=AUTH)
+    assert response.status_code == 413
+    assert response.json() == {"error": "an upload is limited to 1 MiB"}
+
+
+def test_a_flow_over_1_mib_is_a_413_over_http_and_a_refusal_over_mcp():
+    import asyncio
+
+    from kubed.selenium_flow import errors
+    from kubed.selenium_flow.faults import TooLarge
+    from kubed.selenium_flow.flows import api as flowapi
+
+    text = "name: big\nsteps: []\n# " + "a" * 2**20
+    with pytest.raises(TooLarge, match="1 MiB") as caught:
+        asyncio.run(flowapi.save_text(None, "s", "big", text, None))
+    assert errors.status_for(caught.value) == 413
+    assert isinstance(caught.value, ValueError), "MCP reads it as any refusal"

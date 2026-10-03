@@ -199,6 +199,7 @@ async def build_spec(
                         "unchanged."
                     ),
                     "401": _error("Missing or wrong bearer token."),
+                    "413": _error(TOO_LARGE),
                     "404": _error(
                         "No such browser session. It ended, the Grid reaped it, "
                         "or the id was never real. Open a new one and retry."
@@ -257,6 +258,7 @@ async def build_spec(
                     "names given, or a setting that was rejected."
                 ),
                 "401": _error("Missing or wrong bearer token."),
+                "413": _error(TOO_LARGE),
                 "503": _error(
                     "The Grid could not serve this — unreachable, or no free "
                     "slot for a new browser. Worth retrying after a wait."
@@ -560,6 +562,13 @@ def _without(schema: dict, *names: str) -> dict:
     return schema
 
 
+# What a body over its cap answers: 1 MiB of JSON, 64 MiB of upload.
+TOO_LARGE = (
+    "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of "
+    "flow YAML. Send less; retrying it unchanged will fail again."
+)
+
+
 def _error(description: str) -> dict:
     return {
         "description": description,
@@ -679,6 +688,7 @@ def _flow_paths(prefix: str = "") -> dict:
             },
         }
         if has_body:
+            operation["responses"]["413"] = _error(TOO_LARGE)
             operation["requestBody"] = {
                 "required": method == "put",
                 "content": {"application/json": {"schema": request}},
@@ -742,6 +752,7 @@ def _file_paths(prefix: str = "") -> dict:
             "responses": responses,
         }
         if method in ("post", "put"):
+            responses["413"] = _error(TOO_LARGE)
             operation["requestBody"] = {
                 "required": False,
                 "content": {

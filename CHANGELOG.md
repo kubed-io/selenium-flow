@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `security.frame_ancestors` lets Nextcloud or Grafana frame the admin page.
+- The admin page and server logs no longer expose session names or signed links.
 - A YAML config file (`--config-file` / `CONFIG_FILE`): every setting can be set there, in env or as a flag, and a later one wins.
 - Secrets can be defined in the config file, merged over the ones in `secrets.dirs`, with keys read from a file or an env var.
 - The admin UI has a Settings tab showing every setting and where its value came from.

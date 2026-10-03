@@ -27,6 +27,18 @@ PLACEHOLDER = (
     "<h1>Selenium Flow</h1>\n"
 )
 
+# Sent with the page, placeholder included. A page that can drive every browser
+# is not one to let any site frame (clickjacking), so framing is off unless an
+# origin is listed in `security.frame_ancestors`.
+def security_headers(frame_ancestors: list[str] | None = None) -> dict[str, str]:
+    allowed = " ".join(frame_ancestors or []) or "'none'"
+    return {
+        "Content-Security-Policy": f"frame-ancestors {allowed}",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "same-origin",
+    }
+
+
 # What the Grid console is reachable at *from a browser*. Behind the shared
 # ingress both halves sit on one host, so the console is simply the root; the
 # default says so, and an env var covers any other arrangement.
@@ -131,10 +143,16 @@ def _matches(header: str | None, etag: str) -> bool:
     return "*" in tags or etag in tags
 
 
-def mount(mcp, prefix: str, console_url: str | None) -> None:
+def mount(
+    mcp,
+    prefix: str,
+    console_url: str | None,
+    frame_ancestors: list[str] | None = None,
+) -> None:
     """The page at the root of wherever this server is mounted, and the old
     ``/admin`` URL that now redirects to it."""
     console = console_url or DEFAULT_CONSOLE_URL
+    secure = security_headers(frame_ancestors)
 
     @mcp.custom_route(f"{prefix}/", methods=["GET"], name="admin_ui")
     async def admin_ui(request: Request) -> Response:
@@ -149,11 +167,11 @@ def mount(mcp, prefix: str, console_url: str | None) -> None:
         is the placeholder (§F4.17).
         """
         if not ui_built("admin"):
-            return HTMLResponse(PLACEHOLDER)
+            return HTMLResponse(PLACEHOLDER, headers=secure)
         html, etag = page_with_etag("admin", CONSOLE=console, MOUNT=prefix)
         # no-cache is "ask every time", and the ETag makes the ask cheap: a
         # rebuilt UI is picked up on the next load, an unchanged one is a 304.
-        headers = {"Cache-Control": "no-cache", "ETag": etag}
+        headers = {"Cache-Control": "no-cache", "ETag": etag, **secure}
         if _matches(request.headers.get("if-none-match"), etag):
             return Response(status_code=304, headers=headers)
         return HTMLResponse(html, headers=headers)

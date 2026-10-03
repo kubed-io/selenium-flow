@@ -12,6 +12,7 @@ import threading
 import yaml
 from cachetools import LRUCache, cached
 
+from ..faults import TooLarge
 from .shape import Shape
 
 
@@ -70,6 +71,16 @@ def view(text: str):
     copies the whole, `summary` only the small fields it returns.
     """
     return _parsed(text)[1]
+
+
+FLOW_CAP = 2**20
+
+
+def check_size(text: str) -> None:
+    """Refuse a flow document over 1 MiB: they run to a few KB, and parsing is
+    the work an oversized one would make a token-holder's save cost."""
+    if len(text.encode()) > FLOW_CAP:
+        raise TooLarge(f"a flow is limited to {FLOW_CAP // 2**20} MiB of YAML")
 
 
 def parse(text: str):

@@ -46,7 +46,7 @@ from selenium.common.exceptions import (
 )
 
 from .core.cancel import Ended
-from .faults import AssertionFailed, BidiUnavailable, NotFound
+from .faults import AssertionFailed, BidiUnavailable, NotFound, TooLarge
 
 # The caller asked for something that cannot happen as asked. Retrying the
 # identical request is guaranteed to fail again, so say 400 and let a workflow
@@ -106,6 +106,8 @@ def status_for(exc: BaseException) -> int:
     """The HTTP status that tells the truth about ``exc``."""
     if isinstance(exc, (GONE, NotFound)):
         return 404
+    if isinstance(exc, TooLarge):
+        return 413
     if isinstance(exc, requests.HTTPError):
         # The Grid answered, and its answer was no. Every plain HTTP call to it
         # — `files`, `read_file`, `status` — reports that through

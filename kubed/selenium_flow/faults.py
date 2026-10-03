@@ -30,6 +30,11 @@ class NotFound(LookupError):
     """The thing the caller named is not there: a 404, with its own words."""
 
 
+class TooLarge(ValueError):
+    """A body or a document over its cap: a 413 over HTTP, and over MCP a
+    refusal that says which cap, as every ValueError does."""
+
+
 class BidiUnavailable(ConnectionError):
     """The browser answers WebDriver but its BiDi socket does not: a 503.
 

@@ -3163,6 +3163,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
+          },
           "503": {
             "content": {
               "application/json": {
@@ -3305,6 +3315,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
+          },
           "503": {
             "content": {
               "application/json": {
@@ -3397,6 +3417,16 @@
               }
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
           },
           "500": {
             "content": {
@@ -3501,6 +3531,16 @@
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
+          },
           "500": {
             "content": {
               "application/json": {
@@ -3603,6 +3643,16 @@
               }
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
           },
           "500": {
             "content": {
@@ -3707,6 +3757,16 @@
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
+          },
           "500": {
             "content": {
               "application/json": {
@@ -3809,6 +3869,16 @@
               }
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
           },
           "500": {
             "content": {
@@ -3929,6 +3999,16 @@
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
+          },
           "500": {
             "content": {
               "application/json": {
@@ -4031,6 +4111,16 @@
               }
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
           },
           "500": {
             "content": {
@@ -4135,6 +4225,16 @@
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
+          },
           "500": {
             "content": {
               "application/json": {
@@ -4237,6 +4337,16 @@
               }
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
           },
           "500": {
             "content": {
@@ -4341,6 +4451,16 @@
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
+          },
           "500": {
             "content": {
               "application/json": {
@@ -4443,6 +4563,16 @@
               }
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
           },
           "500": {
             "content": {
@@ -4547,6 +4677,16 @@
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
+          },
           "500": {
             "content": {
               "application/json": {
@@ -4650,6 +4790,16 @@
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
+          },
           "500": {
             "content": {
               "application/json": {
@@ -4752,6 +4902,16 @@
               }
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
           },
           "500": {
             "content": {
@@ -4894,6 +5054,16 @@
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
+          },
           "500": {
             "content": {
               "application/json": {
@@ -4996,6 +5166,16 @@
               }
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
           },
           "500": {
             "content": {
@@ -5400,6 +5580,16 @@
             },
             "description": "No such browser session, or no such file in it. It ended, the Grid reaped it, or the id was never real."
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
+          },
           "500": {
             "content": {
               "application/json": {
@@ -5755,6 +5945,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
+          },
           "500": {
             "content": {
               "application/json": {
@@ -5855,6 +6055,16 @@
               }
             },
             "description": "Missing or wrong bearer token."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
           },
           "500": {
             "content": {

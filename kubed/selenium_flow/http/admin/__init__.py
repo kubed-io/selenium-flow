@@ -47,6 +47,7 @@ def register(
     prefix: str = "",
     settings_payload=None,
     link_ttl: int = links.DEFAULT_TTL,
+    frame_ancestors: list[str] | None = None,
 ) -> None:
     """Mount the admin pages, their JSON API, and the signed file routes.
 
@@ -58,7 +59,7 @@ def register(
     """
     guarded = answer.guarded(token)
 
-    page.mount(mcp, prefix, console_url)
+    page.mount(mcp, prefix, console_url, frame_ancestors)
 
     @mcp.custom_route(f"{prefix}/admin/secrets", methods=["GET"], name="admin_secrets")
     @guarded

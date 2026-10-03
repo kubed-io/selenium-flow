@@ -342,3 +342,13 @@ def test_describe_keeps_the_default_console_urls_path():
     body = config.describe(loaded.settings, loaded.sources)
     rows = {r["key"]: r for s in body["sections"] for r in s["settings"]}
     assert rows["grid.console_url"]["value"] == "/"
+
+
+def test_security_frame_ancestors_from_env_and_args():
+    env = {"SECURITY_FRAME_ANCESTORS": "https://a.example,https://b.example"}
+    assert load([], env).settings.security.frame_ancestors == [
+        "https://a.example",
+        "https://b.example",
+    ]
+    args = ["--security-frame-ancestors", "https://c.example"]
+    assert load(args, {}).settings.security.frame_ancestors == ["https://c.example"]

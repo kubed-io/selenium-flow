@@ -26,8 +26,32 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from .. import errors, faults
+from ..faults import TooLarge
 from ..session.sessions import Caller, values_of
 from . import auth
+
+JSON_CAP = 2**20
+UPLOAD_CAP = 64 * 2**20
+
+
+async def _within(request: Request, cap: int, what: str) -> None:
+    """Read the body, refusing as soon as it passes ``cap``.
+
+    Counted as it arrives rather than from ``Content-Length`` alone, which a
+    chunked request does not send. The bytes are left on the request, where
+    ``json()`` and ``form()`` find them.
+    """
+    refusal = TooLarge(f"{what} is limited to {cap // 2**20} MiB")
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > cap:
+        raise refusal
+    chunks, total = [], 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > cap:
+            raise refusal
+        chunks.append(chunk)
+    request._body = b"".join(chunks)
 
 
 async def read_body(request: Request) -> dict:
@@ -44,6 +68,7 @@ async def read_body(request: Request) -> dict:
     """
     content_type = request.headers.get("content-type", "")
     if content_type.startswith("multipart/form-data"):
+        await _within(request, UPLOAD_CAP, "an upload")
         form = await request.form()
         body: dict = {}
         for key, value in form.multi_items():
@@ -56,6 +81,7 @@ async def read_body(request: Request) -> dict:
                 body[key] = value
         return body
 
+    await _within(request, JSON_CAP, "a JSON body")
     try:
         return await request.json()
     except Exception:  # noqa: BLE001 - an empty body is legitimate for an open
@@ -156,7 +182,10 @@ async def answer(
     """
     if not auth.authorized(request, token):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    body = await read_body(request)
+    try:
+        body = await read_body(request)
+    except TooLarge as exc:
+        return as_response(exc, what, log)
     if not isinstance(body, dict):
         return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
     try:

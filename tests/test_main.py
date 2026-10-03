@@ -92,3 +92,48 @@ def test_a_server_booted_with_a_token_says_auth_is_on(tmp_path, listened, caplog
 def test_the_server_listens_where_the_config_says(tmp_path, listened):
     main_module.main(config(tmp_path, "host: 127.0.0.1\nport: 8123\n"))
     assert listened == [("127.0.0.1", 8123)]
+
+
+def test_a_tokenless_server_on_a_reachable_address_warns_loudly(
+    tmp_path, listened, caplog
+):
+    with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.main"):
+        main_module.main(config(tmp_path, "host: 10.1.2.3\nport: 8123\n"))
+    warned = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert [r.getMessage() for r in warned] == [
+        "AUTH_TOKEN is not set: anyone who can reach 10.1.2.3:8123 can drive every browser"
+    ]
+    assert "auth=off" in caplog.text
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "::1"])
+def test_a_tokenless_loopback_server_does_not_warn(tmp_path, listened, caplog, host):
+    with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.main"):
+        main_module.main(config(tmp_path, f"host: '{host}'\n"))
+    assert not [r for r in caplog.records if r.levelno == logging.WARNING]
+
+
+def test_a_token_silences_the_warning(tmp_path, listened, caplog):
+    with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.main"):
+        main_module.main(config(tmp_path, "auth:\n  token: s3cret\n"))
+    assert not [r for r in caplog.records if r.levelno == logging.WARNING]
+
+
+def test_the_access_log_drops_the_query_string_and_keeps_the_rest(tmp_path, listened):
+    main_module.main(config(tmp_path))
+    main_module.main(config(tmp_path))  # once, however often it boots
+    access = logging.getLogger("uvicorn.access")
+    assert sum(isinstance(f, main_module.DropQuery) for f in access.filters) == 1
+    record = logging.LogRecord(
+        "uvicorn.access",
+        logging.INFO,
+        __file__,
+        1,
+        '%s - "%s %s HTTP/%s" %d',
+        ("1.2.3.4:5", "GET", "/files/x?session=s3cr3t&exp=1&sig=abc", "1.1", 200),
+        None,
+    )
+    assert all(f.filter(record) for f in access.filters)
+    line = record.getMessage()
+    assert line == '1.2.3.4:5 - "GET /files/x HTTP/1.1" 200'
+    assert "session=" not in line and "sig=" not in line

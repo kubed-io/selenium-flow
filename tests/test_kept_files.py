@@ -794,7 +794,10 @@ async def test_every_file_operation_declares_the_grids_failure_modes(spec):
     reaped browser it will certainly meet."""
     for method, template in files.FILE_ROUTES.values():
         responses = spec["paths"][f"/files{template}"][method]["responses"]
-        assert set(responses) == {"200", "400", "401", "404", "500", "503"}, template
+        expected = {"200", "400", "401", "404", "500", "503"}
+        if method in ("post", "put"):
+            expected.add("413")  # a body can be over its cap
+        assert set(responses) == expected, template
 
 
 # ---- giving a kept file back to a page ---------------------------------------
