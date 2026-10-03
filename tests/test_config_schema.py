@@ -135,6 +135,25 @@ def test_security_frame_ancestors_is_a_comma_list_with_all_three_spellings():
     assert Settings().security.frame_ancestors == []
     s = Settings(security={"frame_ancestors": "https://a.example, https://b:8443,"})
     assert s.security.frame_ancestors == ["https://a.example", "https://b:8443"]
-    for bad in ("https://a.example; script-src *", "'self'"):
-        with pytest.raises(ValidationError):
-            Settings(security={"frame_ancestors": bad})
+    assert Settings(
+        security={"frame_ancestors": "https://*.example.com"}
+    ).security.frame_ancestors == ["https://*.example.com"]
+
+
+@pytest.mark.parametrize(
+    ("bad", "says"),
+    [
+        ("https://a.example; script-src *", "not an origin"),
+        ("'self'", "not an origin"),
+        ("https://\u20ac.example", "printable ASCII"),
+        ("https://a.example\x00", "printable ASCII"),
+        ("https://a.exa\tmple", "printable ASCII"),
+        ("example.com", "scheme://host"),
+        ("*", "empty by default"),
+        ("none", "empty by default"),
+        ("'none'", "empty by default"),
+    ],
+)
+def test_frame_ancestors_refuses_what_is_not_an_origin(bad, says):
+    with pytest.raises(ValidationError, match=says):
+        Settings(security={"frame_ancestors": [bad]})

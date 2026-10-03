@@ -184,11 +184,11 @@ def _framed(server):
     return TestClient(server.mcp.http_app()).get("/").headers
 
 
-def test_the_page_forbids_framing_and_sniffing_with_and_without_a_build(built_ui):
-    for headers in (_framed(_server()),):
-        assert headers["content-security-policy"] == "frame-ancestors 'none'"
-        assert headers["x-content-type-options"] == "nosniff"
-        assert headers["referrer-policy"] == "same-origin"
+def test_the_built_page_forbids_framing_and_sniffing(built_ui):
+    headers = _framed(_server())
+    assert headers["content-security-policy"] == "frame-ancestors 'none'"
+    assert headers["x-content-type-options"] == "nosniff"
+    assert headers["referrer-policy"] == "same-origin"
 
 
 def test_the_placeholder_carries_the_same_headers():

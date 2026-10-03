@@ -239,11 +239,27 @@ class SecuritySettings(Section):
     @classmethod
     def _origins(cls, origins):
         # Each entry is pasted into a Content-Security-Policy header, so one
-        # that carries a `;` or a space would add a directive of its own.
+        # that carries a `;`, a space or a non-ASCII character would add a
+        # directive or crash the response, and `*` or `none` would defeat it.
         for origin in origins:
-            if re.search(r"[\s;,'\"]", origin):
-                raise ValueError(f"{origin!r} is not an origin")
+            if origin in ("*", "none", "'none'"):
+                raise ValueError(
+                    f"{origin!r} is not an origin: list the hosts that may "
+                    "frame the page; the list is empty by default, which "
+                    "forbids framing"
+                )
+            if not _ORIGIN.fullmatch(origin):
+                raise ValueError(
+                    f"{origin!r} is not an origin: write scheme://host[:port], "
+                    "or scheme://*.host for every subdomain, in printable ASCII"
+                )
         return origins
+
+
+_ORIGIN = re.compile(
+    r"[A-Za-z][A-Za-z0-9+.-]*://(\*\.)?[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?"
+    r"(:[0-9]{1,5})?"
+)
 
 
 class Settings(Section):

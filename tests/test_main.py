@@ -106,6 +106,13 @@ def test_a_tokenless_server_on_a_reachable_address_warns_loudly(
     assert "auth=off" in caplog.text
 
 
+@pytest.mark.parametrize("host", ["127.example.com", "127.0.0.2.nip.io"])
+def test_a_host_that_only_starts_with_127_is_not_loopback(tmp_path, listened, caplog, host):
+    with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.main"):
+        main_module.main(config(tmp_path, f"host: {host}\n"))
+    assert [r for r in caplog.records if r.levelno == logging.WARNING]
+
+
 @pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "::1"])
 def test_a_tokenless_loopback_server_does_not_warn(tmp_path, listened, caplog, host):
     with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.main"):

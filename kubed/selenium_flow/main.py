@@ -63,7 +63,7 @@ def quiet_the_access_log() -> None:
 
 
 def _loopback(host: str) -> bool:
-    return host in ("localhost", "::1") or host.startswith("127.")
+    return host in ("localhost", "::1", "127.0.0.1")
 
 
 def main(argv: list[str] | None = None) -> None:
