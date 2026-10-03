@@ -103,7 +103,9 @@ jobs:
       run: pip install .[test,redis,profile]
 
     - name: Integration Tests
-      run: pytest tests/integration -s --junit-xml=dist/integration-results.xml
+      # Order is meaningful: flows warm the server before the responsiveness
+      # test, and shuffling would only add noise.
+      run: pytest tests/integration -p no:randomly -s --junit-xml=dist/integration-results.xml
       # py-spy records the server for the whole run, MCP and the admin page at
       # once, and test_responsive leaves its timings beside the flamegraph.
       env:
