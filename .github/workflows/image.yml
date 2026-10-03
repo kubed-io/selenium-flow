@@ -128,16 +128,21 @@ jobs:
         persist-credentials: false
 
     # GIT_TAG is the semantic bake tag: the version on a release (workflow_call),
-    # else :latest on a main build.
+    # :latest on a main build, and the branch name on a dispatch from anywhere
+    # else — a branch build must never move :latest, which the cluster and the
+    # README's quick start pull.
     - name: Resolve image tag
       shell: bash
       env:
         CALL_TAG: ${{ inputs.tag }}
+        REF_NAME: ${{ github.ref_name }}
       run: |
         if [ -n "$CALL_TAG" ]; then
           echo "GIT_TAG=$CALL_TAG" >> "$GITHUB_ENV"
-        else
+        elif [ "$REF_NAME" = "main" ]; then
           echo "GIT_TAG=latest" >> "$GITHUB_ENV"
+        else
+          echo "GIT_TAG=$REF_NAME" >> "$GITHUB_ENV"
         fi
 
     - name: Build and Push
