@@ -92,8 +92,9 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   MCP image block to a tool caller and base64 JSON to an HTTP caller, because that is what
   each can actually use. That is the only sanctioned kind of divergence.
 
-- **`core/actions.py` is the only place behaviour lives.** `mcp/tools.py` and `routes.py` are thin
-  wrappers over it. Adding a capability to one surface and not the other is the failure
+- **`core/actions.py` is the only place behaviour lives** — with `core/recipe.py` (the road
+  every action takes) and `core/capabilities.py` (the table both surfaces are mounted from)
+  beside it. `mcp/tools.py` and `routes.py` are thin wrappers over them. Adding a capability to one surface and not the other is the failure
   this design exists to prevent, and `tests/test_surfaces.py` asserts they match — if that
   test fails, add the missing half rather than editing the assertion.
 - **Every tool declares its MCP annotations, and they must be honest.** `core/annotations.py` builds
@@ -152,6 +153,27 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   better full-page image, and `Emulation.setDeviceMetricsOverride` adds JPEG and a 2x
   retina render — both tested working against this Grid. If that capability is wanted, add
   it as a **separate** tool so the portable path keeps working when CDP goes away.
+
+## The five stages every call takes
+
+Every capability is one call that takes the same road, and each stage has one
+owner. A host — the MCP surface, the HTTP surface, a flow run — drives the
+stages; none of them writes its own copy.
+
+| Stage | What it is | Where it lives |
+|---|---|---|
+| **Caller** | who is asking: name, library, client, declared flags, read once at the edge and handed in | `Caller` in `session/sessions.py`; the readers in `mcp/clients.py` and `http/` |
+| **Capability** | what is being asked: name, arguments, route, annotations, the action | the `CAPABILITIES` table in `core/capabilities.py`, the actions in `core/actions.py`, annotations in `core/annotations.py` |
+| **Recipe** | how the browser does it: check, reattach, navigate, wait, act, report the page, under the session lock | `Recipe.run` in `core/recipe.py` |
+| **Settle** | what it leaves behind: one record write (history, capture, the reopen report) | `SessionManager.settle` in `session/sessions.py` |
+| **Surface** | how it is answered: an MCP result, an HTTP response, a flow step's entry | `mcp/tools.py`, `routes.py` with `http/answer.py`, `flows/engine.py` |
+
+The layering is enforced, not remembered: `tests/test_boundaries.py` fails when
+`core/`, `session/`, `flows/` or `site_data/` imports the protocol layers
+(`mcp/`, `http/`, `routes`, `server`, `spec`), and when the modules that are
+meant to be plain import `selenium`. Shared pure rules live in their own small
+modules — `names.py`, `urls.py`, `binding.py`, `faults.py`, `core/coerce.py` —
+so a layer that needs one does not import a layer above it.
 
 ## Integration tests: less is more
 
@@ -500,7 +522,7 @@ There used to be two modes — **saved**, where the server held your browser, an
 **stateless**, where you passed an id — with a middleware rewriting every tool
 schema per request so a caller could see which rules applied. All of it is gone
 (§F2.12). There is no `session_id` on any tool, in any body, or in any result;
-`SAVED_SESSIONS` is gone; `resources.ShapeSessionId` is gone. **Sharing is by
+`SAVED_SESSIONS` is gone. **Sharing is by
 session name**, which is then the single way to do it — and worth writing down,
 because a name is guarded by nothing but the bearer token.
 
@@ -746,7 +768,7 @@ never committed, whether it exists or not.
 | | Who owns it | Default here |
 |---|---|---|
 | **How long a browser lives** | the Grid — `SE_NODE_SESSION_TIMEOUT` on the node | `300s` idle, in the cluster repo |
-| **How long we remember a caller** | `SESSION_TTL` | `3600s`, slid forward on every call |
+| **How long we remember a caller** | `SESSION_TTL` | `86400s` (a day), slid forward on every call |
 | **Where we remember it** | `SESSION_STORE` | `memory` (or `redis` to share it) |
 
 **Nothing runs a cleanup loop, and nothing should** — the Grid expires idle browsers, the store expires its own keys. If the Grid reaped one we remembered, the next call notices and reopens it at the page it was last on. 🪄
