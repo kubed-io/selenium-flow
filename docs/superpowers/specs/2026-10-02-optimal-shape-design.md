@@ -1,6 +1,6 @@
 # The optimal shape: a refactor and optimisation round
 
-**Status: APPROVED in chat 2026-10-02; the six questions are ruled (see Rulings). Plan: `docs/superpowers/plans/2026-10-02-optimal-shape.md`.** Dr K reads this
+**Status: BUILT on branch `optimal-shape` (PR #52), 2026-10-03; Tasks 1–25 done and reviewed, Task 26 (the PR loop and the live test) in progress. Plan: `docs/superpowers/plans/2026-10-02-optimal-shape.md`.** Dr K reads this
 as it grows and drops rulings in chat; every ruling is recorded under *Rulings*.
 
 ## Brief
@@ -332,3 +332,17 @@ round; the TTL doc fixed to the code.
   write and a flow step alike; callers may open `http`, `https` and `about:blank`
   only (`data:` is refused too); `page_state` keeps its WebDriver reads because a
   script would report the selected frame's page; the two origin rules stay two.
+- Claude, 2026-10-03, from the task reviews: the frame-aware leash is a tightening
+  only (both the top page and the frame must be allowed); the frame origin is read
+  from `document.location.origin`, never inferred from the forgeable `window.self`;
+  a secret is never typed into an element that hosts another document (`iframe`,
+  `frame`, `object`, `embed`, `fencedframe`, `portal`); a secret that comes back as
+  a dictionary key is hidden like a value; a call ended by `end_browser` is a 404;
+  the per-session lock is first-come-first-served; pooled Grid sockets carry TCP
+  keepalive so a dead hub is noticed within a minute; the test doubles, goldens and
+  the JS harness are the regression contract from here on.
+- Known, for the next round (from `review-final.md`): ~40 calls queued behind one
+  long `assert` exhaust the shared worker pool and starve `end_browser`; the files
+  tab's header still builds the whole list per request; `perform_write` answers 400
+  for a dead browser; `core/recipe.py` imports `session.locks` (pass the lock in);
+  site data under its own store key (Q1) remains open.
