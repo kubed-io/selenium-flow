@@ -45,6 +45,7 @@ from selenium.common.exceptions import (
     TimeoutException,
 )
 
+from .core.cancel import Ended
 from .faults import AssertionFailed, BidiUnavailable, NotFound
 
 # The caller asked for something that cannot happen as asked. Retrying the
@@ -76,7 +77,11 @@ CALLER = (
 # real. Its own status because the fix is specific and a workflow can automate
 # it: call /browser/open and carry on. Lumped into 400 it is indistinguishable
 # from a bad XPath, which needs a human.
-GONE = (InvalidSessionIdException, NoSuchDriverException)
+#
+# `Ended` is the same browser seen a moment earlier: `end_browser` ran while
+# this call was driving it, and the call let go rather than wait for the quit
+# to fail its next command. Which of the two it hits is timing, so both are 404.
+GONE = (InvalidSessionIdException, NoSuchDriverException, Ended)
 
 # The Grid cannot serve this right now: unreachable, or out of free slots. Both
 # are worth retrying after a wait, which is exactly what 503 means, and neither

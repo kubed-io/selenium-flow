@@ -476,7 +476,10 @@ def execute(
 
     Each step has the browser to itself, from reading the page a secret is
     checked against to the action's last page read; the run as a whole does
-    not, so another call on the session waits one step, not the whole run.
+    not. The lock is first come, first served, so a call on the session that
+    asks during a step runs before the next one, not after the whole run.
+    Ending the browser raises the run's own `Cancelled`, never `Ended`: the
+    run-level flags are outermost, and the first set one decides.
 
     ``timeout`` overrides the budget the document declares, which overrides
     ``default_timeout``. ``clock`` is read once for the deadline and once

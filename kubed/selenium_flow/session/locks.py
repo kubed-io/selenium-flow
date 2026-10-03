@@ -24,7 +24,9 @@ reads (`session://current`) does.
 
 **Reentrant**, because the units nest: a flow step and a bound write each hold
 it around the page read *and* the action, and the action's own `Recipe.run`
-takes it again in the same thread.
+takes it again in the same thread. **Fair**: first come, first served (`Turns`),
+so a flow, which lets go between steps, cannot barge back ahead of a call that
+queued during one.
 
 **Weak**: a hold lives only while a call holds or waits for it, or a flow run
 is under way on its browser, so a browser nobody is driving costs nothing and
@@ -44,13 +46,71 @@ from weakref import WeakValueDictionary
 from ..core import cancel
 
 
+class Turns:
+    """A reentrant lock that is taken in the order it was asked for.
+
+    `threading.RLock` hands off to nobody: a flow releasing between two steps
+    re-acquires microseconds later, and a call queued during step one could
+    wait the whole run (measured: up to step 39 of 40). Here each acquire takes
+    a ticket and waits for its number, so a call queued during a step runs
+    before the next one. The thread that holds it may take it again freely.
+    """
+
+    __slots__ = ("_abandoned", "_changed", "_depth", "_next", "_owner", "_serving")
+
+    def __init__(self):
+        self._changed = threading.Condition(threading.Lock())
+        self._owner: int | None = None
+        self._depth = 0
+        self._next = 0  # the next ticket handed out
+        self._serving = 0  # the ticket whose turn it is
+        self._abandoned: set[int] = set()
+
+    def __enter__(self):
+        me = threading.get_ident()
+        with self._changed:
+            if self._owner == me:
+                self._depth += 1
+                return self
+            ticket = self._next
+            self._next += 1
+            try:
+                while self._serving != ticket:
+                    self._changed.wait()
+            except BaseException:
+                # Gone without its turn (an interrupt in the main thread): a
+                # ticket nobody will release must not stop the queue.
+                self._abandoned.add(ticket)
+                self._skip_abandoned()
+                raise
+            self._owner, self._depth = me, 1
+            return self
+
+    def __exit__(self, *exc):
+        with self._changed:
+            if self._owner != threading.get_ident():
+                raise RuntimeError("released by a thread that does not hold it")
+            self._depth -= 1
+            if self._depth:
+                return
+            self._owner = None
+            self._serving += 1
+            self._skip_abandoned()
+
+    def _skip_abandoned(self) -> None:
+        while self._serving in self._abandoned:
+            self._abandoned.discard(self._serving)
+            self._serving += 1
+        self._changed.notify_all()
+
+
 class Hold:
-    """One browser's turn: a reentrant lock, and the flag that ends it early."""
+    """One browser's turn: a fair reentrant lock, and the flag that ends it early."""
 
     __slots__ = ("__weakref__", "ending", "lock")
 
     def __init__(self):
-        self.lock = threading.RLock()
+        self.lock = Turns()
         self.ending = threading.Event()
 
 
@@ -71,7 +131,7 @@ def hold(browser: str) -> Hold:
 def driving(browser: str):
     """Drive ``browser`` alone for the block, ready to be told it is ending."""
     turn = hold(browser)
-    with turn.lock, cancel.watching(turn.ending):
+    with turn.lock, cancel.watching(turn.ending, raises=cancel.Ended):
         yield turn
 
 

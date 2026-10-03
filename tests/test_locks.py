@@ -31,6 +31,7 @@ pytestmark = pytest.mark.unit
 
 SITE = "https://nc.example.com"
 SECRET = {"name": "nextcloud", "key": "password"}
+ENDED = "the browser was ended while this call was waiting"
 
 
 class Driver(ScriptedDriver):
@@ -121,7 +122,7 @@ def test_two_sessions_drive_their_browsers_at_the_same_time():
 
 def test_end_browser_does_not_wait_for_an_assert_and_the_assert_lets_go():
     """A ten-second `assert` holds the session's browser. `end_browser` returns
-    at once, and the assert ends with its existing cancellation rather than
+    at once, and the assert lets go, saying its browser was ended, rather than
     polling a browser that is gone."""
     polling = threading.Event()
     driver = Driver(
@@ -138,18 +139,16 @@ def test_end_browser_does_not_wait_for_an_assert_and_the_assert_lets_go():
     )
     assert polling.wait(5), "the assert never started"
 
-    asked = time.monotonic()
     ended, _ = in_thread(lambda: sessions.end_browser(Caller(NAMED)))
     ended.join(1)
     assert not ended.is_alive(), "end_browser waited for the assert"
-    assert time.monotonic() - asked < 1
 
     thread.join(5)
     assert not thread.is_alive()
     assert time.monotonic() - started < 5, "the assert ran on after its browser"
     (error,) = outcome
-    assert isinstance(error, cancel.Cancelled)
-    assert str(error) == "the run was cancelled: its caller stopped waiting"
+    assert isinstance(error, cancel.Ended)
+    assert str(error) == ENDED
     assert actions.grid.quit_ == ["abc"]
     assert not sessions.store.get(NAMED).attached
 
@@ -279,3 +278,155 @@ def test_a_session_nobody_is_driving_holds_nothing():
     assert "idle" not in locks._holds
     locks.interrupt("idle")  # nothing to tell, and nothing is created
     assert "idle" not in locks._holds
+
+
+# ---- what an ended call says ------------------------------------------------
+
+
+def polling_driver():
+    """A driver whose `assert` never comes true, and the event its first poll sets."""
+    polling = threading.Event()
+    driver = Driver(
+        scripts={"return false": False}, on_script=lambda script: polling.set()
+    )
+    return driver, polling
+
+
+def end_once_polling(sessions, polling):
+    """End ``NAMED``'s browser from another thread once its assert is polling."""
+
+    def end():
+        assert polling.wait(5), "the assert never started"
+        sessions.end_browser(Caller(NAMED))
+
+    thread = threading.Thread(target=end)
+    thread.start()
+    return thread
+
+
+@pytest.fixture
+def ended_server(monkeypatch):
+    """A real server whose session `NAMED` holds a browser that never says true."""
+    from kubed.selenium_flow.config import Settings
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    from .conftest import TOKEN, calling_as
+
+    server = SeleniumMCP(
+        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
+    )
+    driver, polling = polling_driver()
+    server.actions.grid = Grid(abc=driver)
+    server.sessions.store.set(NAMED, SessionRecord(session_id="abc"))
+    calling_as(monkeypatch, NAMED)
+    return server, polling, TOKEN
+
+
+def test_an_ended_call_is_a_dead_browser_to_status_for():
+    from kubed.selenium_flow import errors
+
+    assert errors.status_for(cancel.Ended(ENDED)) == 404
+
+
+def test_over_http_an_assert_whose_browser_was_ended_is_a_404(ended_server):
+    """The fix is the dead browser's — open another — so is the status; an
+    admin's End click is not a server failure."""
+    from starlette.testclient import TestClient
+
+    server, polling, token = ended_server
+    client = TestClient(server.mcp.http_app(), headers={"X-Session-Key": NAMED})
+    ender = end_once_polling(server.sessions, polling)
+    response = client.post(
+        "/browser/assert",
+        json={"script": "return false", "wait_timeout": 10},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    ender.join(5)
+    assert response.status_code == 404, response.text
+    assert response.json()["error"] == ENDED
+
+
+async def test_over_mcp_an_assert_whose_browser_was_ended_says_so(ended_server):
+    from fastmcp import Client
+    from fastmcp.exceptions import ToolError
+
+    server, polling, _ = ended_server
+    ender = end_once_polling(server.sessions, polling)
+    async with Client(server.mcp) as client:
+        with pytest.raises(ToolError, match=ENDED):
+            await client.call_tool(
+                "assert", {"script": "return false", "wait_timeout": 10}
+            )
+    ender.join(5)
+
+
+@pytest.mark.parametrize("how", ["stop", "end_browser"])
+def test_a_flow_keeps_its_own_cancellation(how):
+    """The run's flags are outermost, so a flow stopped mid-assert — by its
+    caller or by its browser being ended — says what a cancelled run always
+    has, and the step after never starts."""
+    driver, polling = polling_driver()
+    actions, sessions = wired(**{NAMED: ("abc", driver)})
+    stop = threading.Event()
+
+    def cancel_it():
+        assert polling.wait(5), "the assert never started"
+        if how == "stop":
+            stop.set()
+        else:
+            sessions.end_browser(Caller(NAMED))
+
+    canceller = threading.Thread(target=cancel_it)
+    canceller.start()
+    steps = [
+        {"tool": "assert", "args": {"script": "return false", "wait_timeout": 10}},
+        {"tool": "navigate", "args": {"url": "https://after.test/"}},
+    ]
+    report = flowrun.run(actions, {"name": "f", "steps": steps}, "abc", stop=stop)
+    canceller.join(5)
+
+    assert report["status"] == "failed"
+    assert report["steps"][-1]["error"] == cancel.Cancelled.SAYS
+    assert len(report["steps"]) == 1
+    assert ("get", "https://after.test/") not in [e[:2] for e in driver.log]
+
+
+# ---- first come, first served -------------------------------------------------
+
+
+def test_a_call_queued_during_a_flow_step_runs_before_the_next_step():
+    """A flow lets go between steps and asks again at once; an unfair lock lets
+    it barge back in ahead of a call that queued during the step, which then
+    waits the whole run. The queued call goes next."""
+    steps = [{"tool": "navigate", "args": {"url": f"https://{n}.test/"}}
+             for n in range(1, 11)]
+    queued = []
+
+    def during_step_one(url):
+        if url != "https://1.test/" or queued:
+            return
+        queued.append(
+            in_thread(
+                lambda: sessions.act(
+                    Caller(NAMED), lambda s: actions.navigate(s, "https://queued.test/")
+                )
+            )
+        )
+        # Until the queued call holds a ticket behind this step's (internals:
+        # the one deterministic sign that it is waiting on the lock).
+        turns = locks._holds["abc"].lock
+        deadline = time.monotonic() + 5
+        while turns._next - turns._serving < 2:
+            assert time.monotonic() < deadline, "the call never queued"
+            time.sleep(0.001)
+
+    driver = Driver(on_get=during_step_one)
+    actions, sessions = wired(**{NAMED: ("abc", driver)})
+    report = flowrun.run(actions, {"name": "ten", "steps": steps}, "abc")
+    ((thread, outcome),) = queued
+    thread.join(5)
+
+    assert report["status"] == "ok", report
+    assert not isinstance(outcome[0], Exception), outcome
+    visited = [entry[1] for entry in driver.log if entry[0] == "get"]
+    assert visited[:3] == ["https://1.test/", "https://queued.test/", "https://2.test/"]

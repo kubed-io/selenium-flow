@@ -339,12 +339,21 @@ sequences interleaved on one browser are not, so `Recipe.run` holds the
 session's lock from the reconnect to the page state and a second call waits its
 turn: no 409, no timeout of its own. A bound write holds it from the page read
 through the keystrokes, so nothing navigates or switches frames between the
-leash check and the typing; a flow holds it per step, never for the run.
-`end_browser` and `open_session` take no lock, and nothing that only reads does:
-`end_browser` sets the cancel the holder watches (`core/cancel.py`), so a long
-`assert` ends with its cancellation instead of making the call that exists to
-stop it wait. Keyed by the browser's Grid id, reentrant, weak, and
-process-local — one replica (see "Scaling").
+leash check and the typing; a flow holds it per step, never for the run, and
+the lock is first come, first served, so a call that asks during a step runs
+before the next one. `end_browser` and `open_session` take no lock, and nothing
+that only reads does: `end_browser` sets the cancel the holder watches
+(`core/cancel.py`), so a long `assert` lets go instead of making the call that
+exists to stop it wait — a direct call with `cancel.Ended` ("the browser was
+ended while this call was waiting", a 404 like any dead browser), a flow with
+its own cancellation. Keyed by the browser's Grid id, reentrant, fair, weak,
+and process-local — one replica (see "Scaling").
+
+A waiting call holds one of the 40 worker threads that FastMCP's sync tools and
+Starlette's routes share (anyio's default limiter), and it does not notice its
+client giving up: about 40 calls queued on one session would stall every other
+session, `end_browser` and `/ready`. A limiter of its own for `end_browser` is
+the fix when that becomes real.
 
 ## Sessions: what is stateful and what is not
 

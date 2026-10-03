@@ -23,6 +23,12 @@
     },
     "status": 400
   },
+  "Ended": {
+    "body": {
+      "error": "it went wrong"
+    },
+    "status": 404
+  },
   "InvalidArgumentException": {
     "body": {
       "error": "it went wrong"
