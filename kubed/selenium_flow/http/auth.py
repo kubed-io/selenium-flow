@@ -64,7 +64,8 @@ def authorized(request: Request, token: str | None) -> bool:
     """
     if not token:
         return True
-    return hmac.compare_digest(presented(request), token)
+    # Bytes: a str compare_digest raises on non-ASCII, and headers arrive latin-1.
+    return hmac.compare_digest(presented(request).encode(), token.encode())
 
 
 # ---- the MCP door: verifiers FastMCP runs on /mcp ----

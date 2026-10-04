@@ -63,6 +63,11 @@ def test_everything_else_is_rejected(headers):
     assert not auth.authorized(_request(headers), TOKEN)
 
 
+def test_a_non_ascii_bearer_is_refused_not_raised():
+    """Starlette decodes headers as latin-1; a str compare_digest raises on that."""
+    assert auth.authorized(_request({"Authorization": "Bearer tökén"}), TOKEN) is False
+
+
 def test_no_token_configured_means_the_server_is_open():
     """A tokenless deployment is supported — a private network, or a sidecar.
 
