@@ -78,10 +78,20 @@ def message(exc: BaseException) -> str:
     if isinstance(exc, requests.HTTPError):
         text = str(exc).split(" for url:", 1)[0].strip()
         return without_userinfo(text) or "the grid refused the request"
-    text = str(getattr(exc, "msg", None) or exc)
+    driver_said = getattr(exc, "msg", None)
+    text = str(driver_said or exc)
     text = text.split("Stacktrace:", 1)[0].strip()
     if text.lower().startswith("message:"):
         text = text[len("message:") :].strip()
+    if driver_said:
+        # A driver's message is one line plus its own furniture: Chrome adds
+        # "(Session info: chrome=…)" on a line of its own. Only the driver's -
+        # our own messages may be lists, like a flow that cannot be saved.
+        text = " ".join(
+            line.strip()
+            for line in text.splitlines()
+            if line.strip() and not line.strip().startswith("(Session info:")
+        )
     # A connection failure quotes the whole URL — `status_for` calls those 503
     # and nothing truncated them, so the credential travelled with the message.
     return without_userinfo(text) or type(exc).__name__

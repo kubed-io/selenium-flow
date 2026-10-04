@@ -138,7 +138,17 @@ def driving(browser: str):
     turn = hold(browser)
     with turn.lock, cancel.watching(turn.ending, raises=cancel.Ended):
         cancel.check()
-        yield turn
+        try:
+            yield turn
+        except cancel.Cancelled:
+            raise
+        except Exception:
+            # Ended under a call that was not polling - an element wait, say:
+            # the Grid's failure ("Failed to execute request (POST http://<the
+            # node>/...)") is what ending looks like from inside, so it is
+            # answered as the ending, a 404 like any dead browser.
+            cancel.check()
+            raise
 
 
 def interrupt(browser: str) -> None:

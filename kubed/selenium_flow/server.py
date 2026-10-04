@@ -12,6 +12,7 @@ import logging
 
 from fastmcp import FastMCP
 from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
+from starlette.middleware import Middleware
 
 from . import config, routes, secrets
 from .config import Settings
@@ -22,6 +23,7 @@ from .flows import api as flowapi
 from .flows import store as flowstore
 from .http import access_log, admin, files
 from .http.admin import page as admin_page
+from .http.slashes import RelativeSlashRedirects
 from .mcp import (
     apps,
     clients,
@@ -281,4 +283,10 @@ class SeleniumMCP:
                 # included. Only the four probes also answer at the root.
                 path=self.mcp_path,
                 show_banner=False,
+                middleware=http_middleware(),
             )
+
+
+def http_middleware() -> list[Middleware]:
+    """The ASGI middleware the HTTP app is served with (`RelativeSlashRedirects`)."""
+    return [Middleware(RelativeSlashRedirects)]

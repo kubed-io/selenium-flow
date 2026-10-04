@@ -572,3 +572,56 @@ def test_a_flow_step_queued_when_end_browser_cuts_in_ends_the_run_with_its_repor
     assert report["status"] == "failed"
     assert report["steps"][-1]["error"] == "the run was cancelled before this step"
     assert ("get", "https://step.test/") not in [e[:2] for e in driver.log]
+
+
+def test_a_call_waiting_on_an_element_when_its_browser_ends_says_so():
+    """Found live: an `extract` waiting for an element that never came was
+    holding the browser when `end_browser` ran. Only `assert` polls for the
+    ending, so the wait carried on into the Grid's failure for the deleted
+    session and answered 500 with the node's own URL in it. The ending is the
+    answer: `Ended`, a 404 like any dead browser."""
+    from selenium.common.exceptions import WebDriverException
+
+    waiting = threading.Event()
+    gone = threading.Event()
+
+    class Waiting(Driver):
+        def find_element(self, by=None, value=None):
+            if not gone.is_set():
+                waiting.set()
+                assert gone.wait(5)
+            raise WebDriverException(
+                "Failed to execute request (POST http://localhost:26538/session/w/element)"
+            )
+
+    actions, sessions = wired(**{NAMED: ("waits for an element", Waiting())})
+    thread, outcome = in_thread(
+        lambda: sessions.act(
+            Caller(NAMED),
+            lambda s: actions.extract(s, selector={"css": "h1"}, wait_timeout=10),
+        )
+    )
+    assert waiting.wait(5), "the extract never started waiting"
+    sessions.end_browser(Caller(NAMED))
+    gone.set()
+    thread.join(5)
+
+    (error,) = outcome
+    assert isinstance(error, cancel.Ended), error
+    assert str(error) == ENDED
+
+
+def test_a_failure_with_no_ending_is_still_itself():
+    """The rewrite is for an ending only: the same failure on a browser
+    nobody ended is reported as what it is."""
+    from selenium.common.exceptions import WebDriverException
+
+    class Broken(Driver):
+        def find_element(self, by=None, value=None):
+            raise WebDriverException("the node went away")
+
+    actions, sessions = wired(**{NAMED: ("broken", Broken())})
+    with pytest.raises(WebDriverException, match="the node went away"):
+        sessions.act(
+            Caller(NAMED), lambda s: actions.extract(s, selector={"css": "h1"})
+        )

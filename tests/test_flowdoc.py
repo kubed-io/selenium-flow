@@ -835,3 +835,76 @@ async def test_a_required_that_is_a_string_is_refused_with_a_sentence(step_schem
     with pytest.raises(InvalidFlow) as caught:
         validate(document, step_schema_map)
     assert caught.value.problems == ["parameters.required must be a list of names"]
+
+
+async def test_parameters_written_without_properties_say_where_they_go(
+    step_schema_map,
+):
+    """Found live: `parameters: {"pie": {...}}` passed as "no parameters", and
+    `${pie}` was refused with "this flow declares none" - true, and no help."""
+    with pytest.raises(InvalidFlow) as caught:
+        validate(
+            flow(
+                parameters={"pie": {"type": "string"}},
+                steps=[{"tool": "navigate", "args": {"url": "https://x.test/${pie}"}}],
+            ),
+            step_schema_map,
+        )
+    problems = caught.value.problems
+    assert any(
+        "pie sits where only JSON Schema keywords go" in p
+        and '"properties": {"pie": {"type": "string"}}' in p
+        for p in problems
+    ), problems
+
+
+async def test_a_schema_with_no_properties_is_still_no_parameters(step_schema_map):
+    validate(
+        flow(
+            parameters={"type": "object", "description": "none needed"},
+            steps=[{"tool": "navigate", "args": {"url": "https://x.test/"}}],
+        ),
+        step_schema_map,
+    )
+
+
+async def test_a_valid_schema_using_any_keyword_is_not_misread(step_schema_map):
+    """The hint keys on names the steps use, not on a list of keywords that
+    would refuse a valid schema using one it did not know (Copilot, #53)."""
+    validate(
+        flow(
+            parameters={"$defs": {"name": {"type": "string"}}, "allOf": [], "x-ui": {}},
+            steps=[{"tool": "navigate", "args": {"url": "https://x.test/"}}],
+        ),
+        step_schema_map,
+    )
+
+
+async def test_a_note_naming_a_schema_key_is_not_a_reference(step_schema_map):
+    """Only `args` are substituted, so only `args` are evidence (Copilot, #53)."""
+    validate(
+        flow(
+            parameters={"x-ui": {"order": []}},
+            steps=[
+                {
+                    "tool": "navigate",
+                    "note": "documents $${x-ui} and ${x-ui}",
+                    "args": {"url": "https://x.test/"},
+                }
+            ],
+        ),
+        step_schema_map,
+    )
+
+
+async def test_an_integer_yaml_key_gets_the_hint_too(step_schema_map):
+    """YAML makes `1:` an integer, which `${1}` names as text (Copilot, #53)."""
+    with pytest.raises(InvalidFlow) as caught:
+        validate(
+            flow(
+                parameters={1: {"type": "string"}},
+                steps=[{"tool": "navigate", "args": {"url": "https://x.test/${1}"}}],
+            ),
+            step_schema_map,
+        )
+    assert any("where only JSON Schema keywords go" in p for p in caught.value.problems)

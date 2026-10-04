@@ -324,6 +324,36 @@ def _check_references(where: str, args: dict, declared: set[str]) -> list[str]:
     return problems
 
 
+def _undeclared_shape(parameters, steps) -> list[str]:
+    """`parameters` written as ``{"email": {...}}`` rather than as a schema.
+
+    It used to pass as "no parameters", so each ``${email}`` was refused with
+    "this flow declares none" - true, and no help. The evidence is a top-level
+    key the steps name as ``${key}``: never a guess from a keyword list, which
+    would refuse a valid schema using one it did not know (Copilot, #53). Only
+    at save: a stored flow still runs as it did.
+    """
+    if not isinstance(parameters, dict) or "properties" in parameters:
+        return []
+    # Each step's args only, where a parameter is substituted: a `note` that
+    # mentions `${x-ui}` names nothing (Copilot, #53).
+    named = {
+        name
+        for step in (steps if isinstance(steps, list) else [])
+        if isinstance(step, dict)
+        for name in references(step.get(ARGS))
+    }
+    # `str`: YAML makes `1:` an integer, and `${1}` names it as text.
+    stray = sorted(str(key) for key in parameters if str(key) in named)
+    if not stray:
+        return []
+    example = {"type": "object", "properties": {stray[0]: {"type": "string"}}}
+    return [
+        f"parameters: {listed(stray)} sits where only JSON Schema keywords go. "
+        f"Declare each parameter under properties: {json.dumps(example)}"
+    ]
+
+
 def _check_secret(where: str, reference) -> list[str]:
     """``args.secret``: which secret, and which key inside it."""
     return [f"{where}: {problem}" for problem in reference_problems(reference)]
@@ -659,6 +689,7 @@ def validate(document, schemas: dict) -> dict:
 
     shape = Shape(document)
     problems += shape.parameter_problems()
+    problems += _undeclared_shape(document.get("parameters"), document.get("steps"))
     properties = shape.properties
     declared = shape.declared
     # `writeOnly` is standard JSON Schema for "supplied but not returned", and

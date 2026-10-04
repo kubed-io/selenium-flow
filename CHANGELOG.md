@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A failed flow step says one line, without the driver's stack trace.
+- A call whose browser is ended mid-wait answers 404, like the `assert` it queued behind.
+- A trailing-slash URL behind the ingress redirects to the right page, not `http://host/admin`.
+- Flow `parameters` written without `properties` say where each one goes.
 - `security.frame_ancestors` lets Nextcloud or Grafana frame the admin page.
 - The admin page and server logs no longer expose session names or signed links.
 - A YAML config file (`--config-file` / `CONFIG_FILE`): every setting can be set there, in env or as a flag, and a later one wins.

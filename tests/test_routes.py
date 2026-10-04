@@ -762,3 +762,49 @@ def test_readiness_remembers_the_grids_answer_for_two_seconds(server, monkeypatc
     assert len(dialled) == 2
     now[0] += 0.2
     assert client.get("/ready").status_code == 200 and len(dialled) == 3
+
+
+@pytest.mark.parametrize(
+    ("path", "location"),
+    [
+        ("/admin/", "../admin"),
+        ("/flows/", "../flows"),
+        ("/flows/?tab=x", "../flows?tab=x"),
+        # Decoded in the scope, encoded in Starlette's Location (Copilot, #53).
+        ("/flows/Q3 summary/", "../Q3%20summary"),
+    ],
+)
+def test_a_slash_redirect_is_relative_as_the_server_is_run(path, location):
+    """Found live: `https://host/flow/admin/` was sent to `http://host/admin`.
+    Starlette writes its slash redirect absolute, from the request as this
+    server sees it - after the ingress stripped `/flow` and ended TLS. Relative,
+    it resolves against what the browser asked for. Built with the middleware
+    `run` actually serves with, read off the call to FastMCP."""
+    from kubed.selenium_flow.config import Settings
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    server = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN},
+    ))
+    served = {}
+    server.mcp.run = lambda **kwargs: served.update(kwargs)
+    server.run()
+
+    client = TestClient(server.mcp.http_app(middleware=served["middleware"]))
+    moved = client.get(path, follow_redirects=False)
+    assert moved.status_code == 307
+    assert moved.headers["location"] == location
+
+
+def test_only_the_slash_redirect_is_rewritten():
+    from kubed.selenium_flow.http.slashes import relative
+
+    assert relative("/admin/", "http://testserver/admin") == "../admin"
+    assert relative("/a/b", "http://testserver/a/b/") == "./b/"
+    assert relative("/a:b", "http://testserver/a:b/") == "./a:b/"
+    assert relative("/f/Q3 summary.csv/", "http://testserver/f/Q3%20summary.csv") == (
+        "../Q3%20summary.csv"
+    )
+    # Any other redirect, and a path Starlette strips more than one slash off.
+    assert relative("/admin/", "https://elsewhere.example/login") is None
+    assert relative("/admin//", "http://testserver/admin") is None

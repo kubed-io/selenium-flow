@@ -1483,3 +1483,28 @@ def test_the_page_is_read_only_for_a_step_that_binds_a_secret():
     report = run(bound, flow(steps), "b", catalogue=Vault())
     assert report["status"] == "ok"
     assert bound.order == ["navigate", "page", "write"], "read once, before the keystroke"
+
+
+def test_a_failed_step_says_one_line_not_the_driver_s_stack_trace():
+    """Found live: a step's error was the exception's whole text - Selenium's
+    `Message:` prefix and twenty `#0 0x5c3c... <unknown>` frames - where a
+    single call answers one line (`faults.message`)."""
+    from selenium.common.exceptions import WebDriverException
+
+    class Renderer(FakeActions):
+        def navigate(self, session_id, **kwargs):
+            raise WebDriverException(
+                "timeout: Timed out receiving message from renderer: 10.000\n"
+                "  (Session info: chrome=152.0.7977.82)",
+                stacktrace=["#0 0x5c3ce3ab803a <unknown>", "#1 0x5c3ce34204c9 <unknown>"],
+            )
+
+    report = run(Renderer(), flow([{"tool": "navigate", "args": {"url": "x"}}]), "b")
+    error = report["steps"][0]["error"]
+    assert error.startswith("timeout: Timed out receiving message from renderer")
+    assert "Stacktrace" not in error
+    assert "0x5c3c" not in error
+    assert not error.startswith("Message:")
+    # One line: Chrome's "(Session info: …)" line goes too (Copilot, #53).
+    assert "\n" not in error
+    assert "Session info" not in error
