@@ -54,10 +54,13 @@ token to every later policy.
 specifically for them as the intended audience"*. Once the gateway forwards the
 token, selenium-flow is the server that accepts it, so it validates it.
 
-**The in-cluster Service bypasses the gateway.** Pods reach selenium-flow
-directly. That is why the identity is a forwarded JWT the server verifies, not a
-`x-user: jwt.sub` header the gateway injects: a header is forgeable by any pod,
-a signature is not. It is also why the gateway's role check is repeated here.
+**Two doors bypass the gateway.** Pods reach selenium-flow through the
+in-cluster Service, and the ingress routes `selenium.<domain>/flow/*` here with
+the prefix stripped, so `/flow/mcp` is a second external MCP door without the
+gateway's rate limits or audit. That is why the identity is a forwarded JWT the
+server verifies, not a `x-user: jwt.sub` header the gateway injects: a header is
+forgeable by any pod, a signature is not. It is also why the gateway's role
+check is repeated here. The server's own checks are the same on every door.
 
 **What crosses the gateway** (agentgateway `crates/agentgateway/src/mcp/upstream/
 mod.rs`, `IncomingRequestContext::apply`, read 2026-10-04): every client header is
@@ -127,10 +130,10 @@ gateway with OAuth, and Claude Code signs in to it the way it signs in to kb.
 - Every rule in `AGENTS.md` stays. In particular: one place decides whether a
   request is authorised (`http/auth.py`), and the token comparison is
   `hmac.compare_digest`.
-- No setting, unset, changes behaviour: a server with no `oidc` settings is
-  byte-for-byte today's server.
+- No `oidc` settings means the same auth behaviour as before; the one published
+  change is `principal`, in `session://current` and `GET /browser`.
 - No backwards compatibility to preserve (one user), but nothing here breaks a
-  shape anyway: the only published change is one new key in `session://current`.
+  shape anyway: the only published change is one new key, `principal`.
 - The repo names no real host: examples use `example.com` and the realm
   `example`.
 
@@ -200,12 +203,14 @@ RS256) plus the role check: after the parent accepts a token, it reads
 **Every refusal is a 401**, the role included. A verifier that returns `None` is
 FastMCP's `invalid_token`. A 403 `insufficient_scope` would be the more precise
 answer for a missing role, but FastMCP's 403 path is for scopes, and the gateway
-already refuses that token before it gets here; only an in-cluster caller with a
-roleless token sees this, and a 401 is a truthful answer to it.
+already refuses that token before it gets here; only a caller on a door that
+bypasses the gateway (the in-cluster Service, the ingress) with a roleless token
+sees this, and a 401 is a truthful answer to it.
 
 The **JWKS** is fetched on the first JWT and cached by the verifier (an hour,
-FastMCP's default; a token with an unknown `kid` refetches). A JWKS that cannot
-be fetched refuses that request, and the server keeps running.
+FastMCP's default; a token with an unknown `kid` refetches, at most once a
+minute, since FastMCP's bearer middleware runs on every path). A JWKS that
+cannot be fetched refuses that request, and the server keeps running.
 
 The MCP transport still needs the `Bearer ` scheme (the MCP SDK's
 `BearerAuthBackend`); the bare-token form stays an HTTP-routes convenience, as
@@ -358,6 +363,8 @@ is no Keycloak in CI; the live test below is where the real issuer is proven.
 - The principal in logs and in the admin live list.
 - A per-server audience, if the shared one ever lets a token for one server open
   another that should be stricter.
+- Whether the ingress should stop routing `/mcp`, so the gateway is the only
+  external MCP door.
 
 ## Settled while planning
 
