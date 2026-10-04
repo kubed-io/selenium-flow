@@ -143,20 +143,29 @@ class OidcVerifier(JWTVerifier):
         # token that never expires, or is not yet valid, is refused here.
         exp, nbf = claims.get("exp"), claims.get("nbf")
         if isinstance(exp, bool) or not isinstance(exp, (int, float)):
+            _log_refusal("no numeric exp", claims)
             return None
         if nbf is not None and (
             isinstance(nbf, bool)
             or not isinstance(nbf, (int, float))
             or nbf > time.time() + NBF_LEEWAY
         ):
+            _log_refusal("nbf not numeric or in the future", claims)
             return None
         held = roles_in(claims, self._roles_claim)
         if self._roles and not self._roles.intersection(held):
+            _log_refusal("no allowed role", claims)
             return None
         return PrincipalToken(
             **verified.model_dump(),
             principal=Principal.from_claims(claims, self._roles_claim),
         )
+
+
+def _log_refusal(reason: str, claims: dict) -> None:
+    # The subject only: FastMCP logs its own iss/aud refusals, and claims and
+    # the token itself stay out of the log.
+    log.info("JWT refused for sub %r: %s", claims.get("sub"), reason)
 
 
 def provider(settings: config.Settings, *, http_client=None) -> AuthProvider | None:

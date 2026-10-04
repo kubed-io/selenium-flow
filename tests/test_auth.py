@@ -9,6 +9,7 @@ question there is whether the route is guarded, not how the comparison works.
 """
 
 import asyncio
+import logging
 import secrets
 import time
 
@@ -143,6 +144,27 @@ async def test_a_jwt_valid_since_a_moment_ago_is_accepted(issuer):
     now = int(time.time())
     token = _raw(issuer, exp=now + 300, nbf=now - 5)
     assert await verifier.verify_token(token) is not None
+
+
+@pytest.mark.parametrize(
+    ("claims", "reason"),
+    [
+        ({}, "exp"),
+        ({"exp": 2**40, "nbf": 2**40}, "nbf"),
+        ({"exp": 2**40, "roles": ["viewer"]}, "role"),
+    ],
+    ids=["no-exp", "not-yet-valid", "no-role"],
+)
+async def test_our_refusals_are_logged_with_the_subject(issuer, caplog, claims, reason):
+    """FastMCP logs its own iss/aud refusals; ours would otherwise be silent."""
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
+    token = _raw(issuer, **claims)
+    with caplog.at_level(logging.INFO, logger=auth.__name__):
+        assert await verifier.verify_token(token) is None
+    [record] = [r for r in caplog.records if r.name == auth.__name__]
+    assert record.levelno == logging.INFO
+    assert reason in record.getMessage() and "6b0f" in record.getMessage()
+    assert token not in caplog.text and issuer.issuer not in caplog.text
 
 
 async def test_an_unreachable_jwks_refuses_without_raising(issuer):
