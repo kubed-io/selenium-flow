@@ -105,6 +105,47 @@ class AuthSettings(Section):
     )
 
 
+class OidcSettings(Section):
+    # Every cross-field rule lives in oidc_problem(), not a model validator:
+    # load() validates the config file on its own before env and args merge in,
+    # and the cluster sets `oidc` in the file with the token in env.
+    issuer: str | None = Field(
+        None, description="The issuer a JWT must name; setting it turns OIDC on."
+    )
+    audience: str | None = Field(None, description="The audience a JWT must include.")
+    jwks_uri: str | None = Field(
+        None, description="Where the issuer publishes its signing keys."
+    )
+    # NoDecode, like security.frame_ancestors: comma-separated in env.
+    roles: Annotated[list[str], NoDecode] = Field(
+        default_factory=list,
+        description="A JWT must hold one of these roles; empty checks none.",
+    )
+    roles_claim: str = Field(
+        "roles", description="The claim holding the roles; dots walk into objects."
+    )
+
+    @field_validator("roles", mode="before")
+    @classmethod
+    def _split(cls, value):
+        if isinstance(value, str):
+            value = value.split(",")
+        if not isinstance(value, list):
+            return value
+        return [
+            part.strip() if isinstance(part, str) else part
+            for part in value
+            if not (isinstance(part, str) and not part.strip())
+        ]
+
+    @field_validator("issuer", "jwks_uri")
+    @classmethod
+    def _http(cls, value):
+        if value is not None and not value.startswith(("https://", "http://")):
+            raise ValueError("must be an http(s) URL")
+        return value
+
+
 class GridSettings(Section):
     url: str = Field(DEFAULT_GRID_URL, description="The Selenium Grid hub.")
     console_url: str = Field(
@@ -297,6 +338,10 @@ class Settings(Section):
     auth: AuthSettings = Field(
         default_factory=AuthSettings,
         description="The bearer token every request needs.",
+    )
+    oidc: OidcSettings = Field(
+        default_factory=OidcSettings,
+        description="Accept a JWT from an OIDC issuer beside the token.",
     )
     grid: GridSettings = Field(
         default_factory=GridSettings, description="The Selenium Grid it drives."
@@ -619,6 +664,25 @@ def _explain(exc: ValidationError, sources: dict[str, str], path: str | None) ->
     return "; ".join(lines)
 
 
+def oidc_problem(settings: Settings) -> str | None:
+    """Why this server's OIDC cannot run, or None. Checked after every layer merges."""
+    oidc = settings.oidc
+    named = [oidc.issuer, oidc.audience, oidc.jwks_uri]
+    if not any(named):
+        return None
+    if not all(named):
+        # An issuer without an audience accepts any token that issuer ever minted.
+        return (
+            "oidc.issuer, oidc.audience and oidc.jwks_uri "
+            "are set together or not at all"
+        )
+    if not (settings.auth.token and settings.auth.token.get_secret_value()):
+        # The token is the admin login and the signing key; without it the REST
+        # and admin routes are open, and OIDC must not be a way to get there.
+        return "oidc needs auth.token: the token stays the admin login"
+    return None
+
+
 def load(
     argv: list[str] | None = None, environ: Mapping[str, str] | None = None
 ) -> Loaded:
@@ -675,6 +739,9 @@ def load(
         settings = Settings.model_validate(merged)
     except ValidationError as exc:
         raise ConfigError(_explain(exc, sources, path)) from None
+    problem = oidc_problem(settings)
+    if problem:
+        raise ConfigError(problem)
     return Loaded(settings, sources)
 
 
@@ -701,7 +768,13 @@ def sources_for(settings: Settings) -> dict[str, str]:
 # `without_userinfo`, not `urls.public_url`: the latter also rewrites the
 # path (`rstrip("/")`), which turns `grid.console_url`'s default `/` into `""`
 # on the Settings tab even though the live server still serves it at `/`.
-URL_LEAVES = {"grid.url", "grid.console_url", "public_base_url"}
+URL_LEAVES = {
+    "grid.url",
+    "grid.console_url",
+    "public_base_url",
+    "oidc.issuer",
+    "oidc.jwks_uri",
+}
 
 
 def describe(settings: Settings, sources: Mapping[str, str]) -> dict:
