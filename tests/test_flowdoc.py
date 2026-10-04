@@ -866,3 +866,15 @@ async def test_a_schema_with_no_properties_is_still_no_parameters(step_schema_ma
         ),
         step_schema_map,
     )
+
+
+async def test_a_valid_schema_using_any_keyword_is_not_misread(step_schema_map):
+    """The hint keys on names the steps use, not on a list of keywords that
+    would refuse a valid schema using one it did not know (Copilot, #53)."""
+    validate(
+        flow(
+            parameters={"$defs": {"name": {"type": "string"}}, "allOf": [], "x-ui": {}},
+            steps=[{"tool": "navigate", "args": {"url": "https://x.test/"}}],
+        ),
+        step_schema_map,
+    )

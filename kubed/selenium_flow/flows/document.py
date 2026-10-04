@@ -324,23 +324,19 @@ def _check_references(where: str, args: dict, declared: set[str]) -> list[str]:
     return problems
 
 
-# What a `parameters` schema may say at its top level besides `properties`.
-_SCHEMA_KEYWORDS = frozenset({
-    "$schema", "$id", "$comment", "type", "title", "description", "properties",
-    "required", "additionalProperties", "default", "examples",
-})
-
-
-def _undeclared_shape(parameters) -> list[str]:
+def _undeclared_shape(parameters, steps) -> list[str]:
     """`parameters` written as ``{"email": {...}}`` rather than as a schema.
 
-    It used to pass as "no parameters", so the first ``${email}`` was refused
-    with "this flow declares none" - true, and no help. Only at save: a stored
-    flow that never named one of them still runs.
+    It used to pass as "no parameters", so each ``${email}`` was refused with
+    "this flow declares none" - true, and no help. The evidence is a top-level
+    key the steps name as ``${key}``: never a guess from a keyword list, which
+    would refuse a valid schema using one it did not know (Copilot, #53). Only
+    at save: a stored flow still runs as it did.
     """
     if not isinstance(parameters, dict) or "properties" in parameters:
         return []
-    stray = sorted(str(key) for key in parameters if key not in _SCHEMA_KEYWORDS)
+    named = set(references(steps))
+    stray = sorted(str(key) for key in parameters if key in named)
     if not stray:
         return []
     example = {"type": "object", "properties": {stray[0]: {"type": "string"}}}
@@ -685,7 +681,7 @@ def validate(document, schemas: dict) -> dict:
 
     shape = Shape(document)
     problems += shape.parameter_problems()
-    problems += _undeclared_shape(document.get("parameters"))
+    problems += _undeclared_shape(document.get("parameters"), document.get("steps"))
     properties = shape.properties
     declared = shape.declared
     # `writeOnly` is standard JSON Schema for "supplied but not returned", and

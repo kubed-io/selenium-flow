@@ -15,7 +15,7 @@ with one slash added or taken away. Every other redirect passes untouched.
 
 from __future__ import annotations
 
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -31,7 +31,9 @@ def relative(path: str, location: str) -> str | None:
         return None
     toggled = path[:-1] if path.endswith("/") else path + "/"
     found = urlsplit(location)
-    if found.path != toggled:
+    # The scope's path is decoded and the Location is not: `Q3 summary.csv`
+    # against `Q3%20summary.csv` (Copilot, #53).
+    if unquote(found.path) != toggled:
         return None
     query = found.query
     segment = quote(toggled.rstrip("/").rsplit("/", 1)[-1], safe=_SEGMENT_SAFE)

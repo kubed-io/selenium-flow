@@ -1505,3 +1505,6 @@ def test_a_failed_step_says_one_line_not_the_driver_s_stack_trace():
     assert "Stacktrace" not in error
     assert "0x5c3c" not in error
     assert not error.startswith("Message:")
+    # One line: Chrome's "(Session info: …)" line goes too (Copilot, #53).
+    assert "\n" not in error
+    assert "Session info" not in error

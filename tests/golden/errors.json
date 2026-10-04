@@ -127,7 +127,7 @@
   },
   "WebDriverException": {
     "body": {
-      "error": "the driver died\nStack"
+      "error": "the driver died Stack"
     },
     "status": 500
   },

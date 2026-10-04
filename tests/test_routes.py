@@ -770,6 +770,8 @@ def test_readiness_remembers_the_grids_answer_for_two_seconds(server, monkeypatc
         ("/admin/", "../admin"),
         ("/flows/", "../flows"),
         ("/flows/?tab=x", "../flows?tab=x"),
+        # Decoded in the scope, encoded in Starlette's Location (Copilot, #53).
+        ("/flows/Q3 summary/", "../Q3%20summary"),
     ],
 )
 def test_a_slash_redirect_is_relative_as_the_server_is_run(path, location):
@@ -800,6 +802,9 @@ def test_only_the_slash_redirect_is_rewritten():
     assert relative("/admin/", "http://testserver/admin") == "../admin"
     assert relative("/a/b", "http://testserver/a/b/") == "./b/"
     assert relative("/a:b", "http://testserver/a:b/") == "./a:b/"
+    assert relative("/f/Q3 summary.csv/", "http://testserver/f/Q3%20summary.csv") == (
+        "../Q3%20summary.csv"
+    )
     # Any other redirect, and a path Starlette strips more than one slash off.
     assert relative("/admin/", "https://elsewhere.example/login") is None
     assert relative("/admin//", "http://testserver/admin") is None
