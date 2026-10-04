@@ -16,9 +16,10 @@ results come from the same action signatures, so neither can accept something
 the other refuses.
 
 **The session is who is calling, never a body field and never a path segment**
-— ``X-Session-Key`` or ``?session=``, read by ``Caller.from_request``. A
-browser is addressed by naming yourself, which is why there is one browser
-resource here rather than one per id: ``POST /browser`` opens *yours*.
+— ``X-Session-Key`` (or ``X-Workspace``) or ``?session=``, read by
+``Caller.from_request``. A browser is addressed by naming yourself, which is why
+there is one browser resource here rather than one per id: ``POST /browser``
+opens *yours*.
 
 The one place a session appears in a path is ``/admin``, which is the same rule
 from the other side: the token holder looking across sessions is the only role

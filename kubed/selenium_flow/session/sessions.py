@@ -8,8 +8,9 @@ of how a browser is reached, held in the record beside the name.
 
 A name arrives one of two ways, and they are the two things any client can set:
 
-1. **``X-Session-Key``**, a header. What an admin pins inside a credential when
-   one credential should mean one session.
+1. **``X-Session-Key``**, a header, or **``X-Workspace``**, the same header by
+   the name Claude.ai custom connectors accept. What an admin pins inside a
+   credential when one credential should mean one session.
 2. **``?session=<name>``**, on the URL. The ergonomic path: one shared bearer
    credential, each caller naming itself in its own URL.
 
@@ -74,6 +75,9 @@ REPLACED_BEFORE_SAVE = (
 # one most clients can set, since an MCP server is usually configured by URL.
 NAME_PARAM = "session"
 NAME_HEADER = "x-session-key"
+# The same name by the header Claude.ai custom connectors accept without review.
+# Either header, or both with one value, names the session.
+WORKSPACE_HEADER = "x-workspace"
 
 # The name a stdio caller has. One process, one client, so a constant is
 # exactly right and there is nothing to tell apart.
@@ -81,14 +85,16 @@ STDIO_NAME = "stdio"
 
 UNNAMED = (
     "name your session: add ?session=<name> to the URL, or send an "
-    "X-Session-Key header. Every session here is named by whoever calls, and "
-    "the server does not invent one. The name is yours to choose and to reuse "
-    "— calling again with the same name is how you get the same browser back."
+    "X-Session-Key (or X-Workspace) header. Every session here is named by "
+    "whoever calls, and the server does not invent one. The name is yours to "
+    "choose and to reuse — calling again with the same name is how you get the "
+    "same browser back."
 )
 
 BOTH = (
-    "name your session once: this request carries both an X-Session-Key header "
-    "and ?session=, and they are two answers to one question. Send whichever "
+    "name your session once: this request carries both a session header "
+    "(X-Session-Key or X-Workspace) and ?session=, and they are two answers to "
+    "one question. Send whichever "
     "one you control and drop the other."
 )
 
@@ -152,7 +158,9 @@ class Caller:
         Every value is kept, because a repeated ``?session=`` is two names, and
         a reader that kept only the last would quietly pick one of them.
         """
-        header = _names(headers.get(NAME_HEADER))
+        header = _names(
+            [*(headers.get(NAME_HEADER) or ()), *(headers.get(WORKSPACE_HEADER) or ())]
+        )
         param = _names(params.get(NAME_PARAM))
         named, named_by, refusal = "", "", None
         if header and param:

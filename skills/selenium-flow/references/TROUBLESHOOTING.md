@@ -43,7 +43,7 @@ If the URL is right and the element still is not found, in order of likelihood:
 ## "name your session"
 
 You called without naming one. Add `?session=<name>` to the server URL, or send
-an `X-Session-Key` header — whichever your client can set. Any name of letters,
+an `X-Session-Key` (or `X-Workspace`) header — whichever your client can set. Any name of letters,
 digits, dots, dashes and underscores is fine except `stdio` and `global`, which
 are reserved. The same name always comes back to the same browser.
 

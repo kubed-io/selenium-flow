@@ -730,6 +730,22 @@ def test_the_browser_resource_says_the_name_came_from_the_request(open_client):
     assert body["principal"] is None, "an open server has no principal"
 
 
+def test_x_workspace_names_the_session_over_http(open_server, monkeypatch):
+    """A Claude.ai custom connector can send X-Workspace but not X-Session-Key."""
+    monkeypatch.setattr(open_server.sessions, "resolve", lambda name: "browser-1")
+    bare = TestClient(open_server.mcp.http_app())
+    body = bare.get("/browser", headers={"X-Workspace": "claude-web"}).json()
+    assert body["session"] == "claude-web"
+
+
+def test_x_workspace_and_a_query_name_is_a_400(open_server, monkeypatch):
+    monkeypatch.setattr(open_server.sessions, "resolve", lambda name: "browser-1")
+    bare = TestClient(open_server.mcp.http_app())
+    response = bare.get("/browser?session=b", headers={"X-Workspace": "a"})
+    assert response.status_code == 400
+    assert "X-Workspace" in response.json()["error"]
+
+
 def test_the_browser_resource_says_admin_to_the_token(client):
     body = client.get("/browser", headers={"Authorization": f"Bearer {TOKEN}"}).json()
     assert body["principal"] == {"kind": "admin"}

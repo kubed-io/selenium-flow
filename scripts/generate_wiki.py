@@ -427,8 +427,8 @@ def render(spec: dict, tool: str, method: str, path: str, op: dict) -> str:
 
 {parameters(spec, request)}
 
-Every call names its session: an `X-Session-Key` header, or `?session=<name>`.
-Sending both is refused. See [Sessions](Sessions).
+Every call names its session: an `X-Session-Key` header (or `X-Workspace`), or
+`?session=<name>`. Sending both is refused. See [Sessions](Sessions).
 
 ## Returns
 
@@ -560,8 +560,8 @@ the same URIs with `read_resource`.
 
 {body}
 
-Every call names its session — an `X-Session-Key` header or `?session=` on the
-URL. There is no session id anywhere; see [Sessions](Sessions).
+Every call names its session — an `X-Session-Key` (or `X-Workspace`) header or
+`?session=` on the URL. There is no session id anywhere; see [Sessions](Sessions).
 
 ---
 

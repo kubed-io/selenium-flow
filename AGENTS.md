@@ -145,7 +145,7 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   routes `/mcp`.
 - **`oidc` without `auth.token` is a `ConfigError`**, checked after the layers merge
   (`config.oidc_problem`).
-- **Behind agentgateway, `X-Session-Key` crosses and `?session=` does not.**
+- **Behind agentgateway, `X-Session-Key` / `X-Workspace` cross and `?session=` does not.**
 - **A JWT with an unknown `kid` makes `JWTVerifier` fetch the JWKS**, and FastMCP's bearer
   middleware runs on every path, so any request on a door that bypasses the gateway (the
   in-cluster Service, the ingress) can cause one. `OidcVerifier._fetch_jwks` floors that at one
@@ -432,13 +432,16 @@ silent new identity.
 **The caller names itself, and nothing is ever invented** (§F2.12):
 
 1. **`X-Session-Key`**, a header — what an admin pins inside a credential when
-   one credential should mean one session.
+   one credential should mean one session. **`X-Workspace`** is the same header
+   by another name, for clients that may only send approved headers (Claude.ai
+   custom connectors): both with one value are one name, two values are refused
+   like a repeated `X-Session-Key`, and either reports `named_by: header`.
 2. **`?session=<name>`** on the URL — the ergonomic path: one shared bearer
    credential, each caller naming itself in its own URL.
 3. **stdio**, where one process serves one client, so the constant `stdio` is
    correct and needs no configuration.
 
-**Both at once is a 400.** It used to be a precedence — the header won, on the
+**A header and `?session=` at once is a 400.** It used to be a precedence — the header won, on the
 reasoning that an admin's credential outranks a caller's URL — and Dr K replaced
 that with a refusal: a request carrying two names has two ideas about who is
 calling, and quietly picking one hides that from whoever wired it up.

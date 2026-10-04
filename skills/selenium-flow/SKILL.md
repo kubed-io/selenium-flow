@@ -26,7 +26,8 @@ Three consequences drive everything else:
 ## Step 0: name your session
 
 Every session is named by whoever calls, and the name is the whole contract:
-add `?session=<name>` to the server URL, or send an `X-Session-Key` header.
+add `?session=<name>` to the server URL, or send an `X-Session-Key` header
+(`X-Workspace` is the same header, for clients that may only send approved ones).
 Sending both is an error. Over stdio you are named `stdio` already.
 
 There is **no session id anywhere** — no tool takes one, no result carries one.
