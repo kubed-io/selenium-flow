@@ -32,6 +32,7 @@ PAGES = (
     "READING_PAGES.md",
     "SECRETS.md",
     "SESSIONS.md",
+    "SITE_DATA.md",
     "TROUBLESHOOTING.md",
 )
 

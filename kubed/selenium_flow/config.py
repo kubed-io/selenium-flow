@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,8 +31,9 @@ from pydantic import (
 from pydantic.fields import FieldInfo
 from pydantic_settings import EnvSettingsSource, NoDecode
 
-from .core.browser import DEFAULT_GRID_URL, normalize_browser
-from .errors import without_userinfo
+from .core.defaults import DEFAULT_GRID_URL, normalize_browser
+from .names import valid_name
+from .urls import without_userinfo
 
 # Marks a field that only the config file may set: structure, not a value.
 FILE_ONLY = "file_only"
@@ -199,8 +201,6 @@ class SecretsSettings(Section):
     @field_validator("entries")
     @classmethod
     def _names(cls, entries):
-        from .flows.library import valid_name
-
         for name in entries:
             valid_name(name, "secret name")
         return entries
@@ -209,6 +209,57 @@ class SecretsSettings(Section):
 class McpSettings(Section):
     skill: bool = Field(True, description="Serve the agent skill as resources.")
     apps: bool = Field(True, description="Offer MCP Apps views.")
+
+
+class SecuritySettings(Section):
+    # NoDecode for the same reason as `secrets.dirs`: a list read from env is
+    # comma-separated, not JSON.
+    frame_ancestors: Annotated[list[str], NoDecode] = Field(
+        default_factory=list,
+        description=(
+            "Origins allowed to frame the admin page, e.g. a Nextcloud or "
+            "Grafana host; empty forbids framing."
+        ),
+    )
+
+    @field_validator("frame_ancestors", mode="before")
+    @classmethod
+    def _split(cls, value):
+        if isinstance(value, str):
+            value = value.split(",")
+        if not isinstance(value, list):
+            return value
+        return [
+            part.strip() if isinstance(part, str) else part
+            for part in value
+            if not (isinstance(part, str) and not part.strip())
+        ]
+
+    @field_validator("frame_ancestors")
+    @classmethod
+    def _origins(cls, origins):
+        # Each entry is pasted into a Content-Security-Policy header, so one
+        # that carries a `;`, a space or a non-ASCII character would add a
+        # directive or crash the response, and `*` or `none` would defeat it.
+        for origin in origins:
+            if origin in ("*", "none", "'none'"):
+                raise ValueError(
+                    f"{origin!r} is not an origin: list the hosts that may "
+                    "frame the page; the list is empty by default, which "
+                    "forbids framing"
+                )
+            if not _ORIGIN.fullmatch(origin):
+                raise ValueError(
+                    f"{origin!r} is not an origin: write scheme://host[:port], "
+                    "or scheme://*.host for every subdomain, in printable ASCII"
+                )
+        return origins
+
+
+_ORIGIN = re.compile(
+    r"[A-Za-z][A-Za-z0-9+.-]*://(\*\.)?[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?"
+    r"(:[0-9]{1,5})?"
+)
 
 
 class Settings(Section):
@@ -267,6 +318,10 @@ class Settings(Section):
     mcp: McpSettings = Field(
         default_factory=McpSettings,
         description="What MCP clients are offered beyond tools.",
+    )
+    security: SecuritySettings = Field(
+        default_factory=SecuritySettings,
+        description="Who may frame the admin page.",
     )
 
 
@@ -643,7 +698,7 @@ def sources_for(settings: Settings) -> dict[str, str]:
 # for the ones that are shown in full, and so must have their credentials
 # stripped first.
 #
-# `without_userinfo`, not `browser.public_url`: the latter also rewrites the
+# `without_userinfo`, not `urls.public_url`: the latter also rewrites the
 # path (`rstrip("/")`), which turns `grid.console_url`'s default `/` into `""`
 # on the Settings tab even though the live server still serves it at `/`.
 URL_LEAVES = {"grid.url", "grid.console_url", "public_base_url"}

@@ -50,7 +50,11 @@ from __future__ import annotations
 
 import json
 import logging
-import re
+
+from .. import binding
+from ..binding import SECRET_ARG
+from .shape import NAMES_NO_TOOL, NOT_A_STEP, Shape
+from .template import PARAM_REFERENCE, listed, references
 
 log = logging.getLogger(__name__)
 
@@ -85,6 +89,12 @@ ON_ERROR = ("abort", "continue")
 # default it replaces, it bounds *starting* a step: a Selenium call blocks, so
 # the step already running is bounded by its own `wait_timeout`.
 TIMEOUT = "timeout"
+
+# What a caller may say in a flow document, beside the name it is saved under.
+# The HTTP save picks exactly these from its body and the published document
+# schema describes exactly these, so a new key is one edit here — and the MCP
+# save tool, whose signature FastMCP reads, is held to the same set by a test.
+DOCUMENT_KEYS = ("description", "parameters", TIMEOUT, "steps")
 
 
 def declared_timeout(document: dict) -> int | None:
@@ -133,26 +143,6 @@ NOT_STEPS = {
 # browser, which is the one thing a caller must never be able to do.
 RESERVED_PARAMS = {"session_id"}
 
-# A reference to one of the flow's own parameters, written in any string of any
-# argument. `${name}` and nothing cleverer: no expressions, no defaults, no
-# dotted paths — those are a language, and a language in a config file is a
-# thing nobody can validate at save time.
-# One token: either an escaped sigil or a reference. Matched together and in
-# one left-to-right pass, so an escape can never be read as a reference and a
-# substituted value is never rescanned — `re.sub` does not revisit what it
-# wrote. That is what keeps a caller's value from resolving anything.
-PARAM_REFERENCE = re.compile(r"\$\$\{|\$\{([^{}]*)\}")
-# `$${` is a literal `${`. Written as a doubled sigil rather than a backslash
-# because YAML already eats backslashes and an author should not have to know
-# how many to write.
-ESCAPED = "$${"
-
-# The argument through which a secret reaches the page. Not a table of tools:
-# `write` is the only action with a `secret` parameter, so the tool schemas
-# refuse it everywhere else without this module holding a second list that
-# could disagree with them (§F1.38).
-SECRET_ARG = "secret"
-
 # `write` accepts its value as `text` or as a `secret`, so the tool schema
 # marks neither required and this says what it actually needs. A secret
 # satisfies it through `bound` rather than by being listed here — listing
@@ -190,18 +180,6 @@ def _needs_an_element(tool: str, params: dict) -> bool:
         action = str(params.get("action", "switch")).strip().lower()
         return action == "switch" and params.get("index") is None
     return tool not in OPTIONAL_ELEMENT
-
-
-def listed(keys) -> str:
-    """Keys from a document, as a sorted, comma-separated line for a message.
-
-    Every key is made a string first. A flow is YAML that anyone may have
-    written by hand, and YAML happily makes `1:` an integer key — so sorting a
-    mix of `1` and `"name"` raised TypeError, and so did joining even a lone
-    `1`. The message whose job was to refuse a malformed document became a 500
-    about our own code instead.
-    """
-    return ", ".join(sorted(str(key) for key in keys))
 
 
 REFERENCE_FIELDS = ("name", "key")
@@ -319,30 +297,6 @@ def _type_fits(value, accepted: set[str]) -> bool:
     return False
 
 
-def references(value) -> list[str]:
-    """Every ``${name}`` in ``value``, however deeply nested.
-
-    Walks the whole argument rather than only top-level strings: a selector
-    inside a list, or a header inside a mapping, is exactly as much a place an
-    author will put a parameter, and one that validated nowhere would fail at
-    run time — which is the split save-time checking exists to close.
-
-    Escaped sigils are removed before scanning, so ``$${name}`` contributes no
-    reference and cannot be reported as an undeclared one.
-    """
-    if isinstance(value, str):
-        return [
-            match.group(1)
-            for match in PARAM_REFERENCE.finditer(value)
-            if match.group(1) is not None
-        ]
-    if isinstance(value, dict):
-        return [name for item in value.values() for name in references(item)]
-    if isinstance(value, list):
-        return [name for item in value for name in references(item)]
-    return []
-
-
 def _check_references(where: str, args: dict, declared: set[str]) -> list[str]:
     """Every parameter an argument names must be one the flow declares.
 
@@ -429,7 +383,7 @@ def argument_problems(tool: str, arguments: dict, schema: dict) -> list[str]:
     # What a secret supplies, exactly as for a step: a call carrying one has
     # its text, and saying "needs text" beside another mistake sent the caller
     # to fix the one thing that was right (#38).
-    bound = {"text"} if arguments.get(SECRET_ARG) is not None else set()
+    bound = {binding.SUPPLIES} if binding.binds(arguments) else set()
     return [
         problem.removeprefix(": ")
         for problem in _check_params(
@@ -459,7 +413,7 @@ def _check_params(
     # twice.
     routed = set()
 
-    for name, value in sorted(params.items()):
+    for name, value in sorted(params.items(), key=lambda item: str(item[0])):
         if name in RESERVED_PARAMS:
             problems.append(
                 f"{where}: {name} is supplied by the run, not by the flow — "
@@ -513,12 +467,8 @@ def _check_params(
             )
 
     # `bound` is what a secret supplies: `write.text`, and nothing else has one.
-    for name in bound:
-        if name in params:
-            problems.append(
-                f"{where}: {name} is given literally and by a secret — one "
-                "value, one place. Give the text or the secret, not both"
-            )
+    if bound and binding.gives_twice(params, as_written=True):
+        problems.append(f"{where}: {binding.AT_SAVE.twice}")
 
     # Arguments a tool needs but its JSON schema cannot demand, because they
     # may arrive by more than one route. `write` takes `text` OR a binding, so
@@ -606,7 +556,7 @@ def _check_destination(where: str, params: dict) -> list[str]:
 def _check_step(index: int, step, declared: set[str], schemas: dict) -> list[str]:
     where = f"step {index}"
     if not isinstance(step, dict):
-        return [f"{where}: must be an object with a tool and its params"]
+        return [f"{where}: {NOT_A_STEP}"]
 
     if step.get("id"):
         where = f"step {index} ({step['id']})"
@@ -621,7 +571,7 @@ def _check_step(index: int, step, declared: set[str], schemas: dict) -> list[str
 
     tool = step.get("tool")
     if not tool or not isinstance(tool, str):
-        return [*problems, f"{where}: names no tool"]
+        return [*problems, f"{where}: {NAMES_NO_TOOL}"]
     if tool in NOT_STEPS:
         return [*problems, f"{where}: {tool} is not a step. {NOT_STEPS[tool]}"]
     if tool not in schemas:
@@ -664,19 +614,15 @@ def _check_step(index: int, step, declared: set[str], schemas: dict) -> list[str
 
     secret = args.get(SECRET_ARG)
     bound = set()
-    if secret is not None:
-        bound = {"text"}
+    if binding.binds(args):
+        bound = {binding.SUPPLIES}
         problems += _check_secret(where, secret)
-        if args.get("url"):
-            # The leash is checked against the page the browser is on. A step
-            # that navigates first would be checked against the page it is
-            # leaving, and a redirect would defeat even that. Navigate as its
-            # own step.
-            problems.append(
-                f"{where}: a step that types a secret may not also navigate — "
-                "put the url in its own navigate step, so the secret's allowed "
-                "sites are checked against the page that receives it"
-            )
+        # The pair is `binding`'s rule. Its two halves are placed apart here
+        # only so the problems keep the order a saved flow has always listed
+        # them in: the url beside the reference, the text beside the other
+        # arguments (`_check_params`).
+        if binding.navigates(args):
+            problems.append(f"{where}: {binding.AT_SAVE.navigates}")
         # A secret is the one value that may not be assembled from text, so it
         # is the one argument a reference may not reach. Nothing about `${}`
         # resolution would leak here — the reference names a *parameter* — but
@@ -711,28 +657,19 @@ def validate(document, schemas: dict) -> dict:
     except ValueError as exc:
         problems.append(str(exc))
 
-    parameters = document.get("parameters") or {}
-    if not isinstance(parameters, dict):
-        problems.append("parameters must be a JSON Schema object")
-        parameters = {}
-    properties = parameters.get("properties") or {}
-    if not isinstance(properties, dict):
-        problems.append("parameters.properties must be an object")
-        properties = {}
-    declared = set(properties)
+    shape = Shape(document)
+    problems += shape.parameter_problems()
+    properties = shape.properties
+    declared = shape.declared
     # `writeOnly` is standard JSON Schema for "supplied but not returned", and
     # it used to mean exactly that here. Accepting it now that nothing redacts
     # it is the worst of both: an author marks a password `writeOnly`, believes
     # it is hidden, and reads it back out of the report. A familiar marker that
     # silently does nothing is a leak with a reassuring name on it, so it is
     # refused and the refusal says what to use instead (§F1.38).
-    # Sorted by the *string* of each key, and every value type-checked before
-    # it is read. A flow is YAML anyone may have written by hand: `properties:
-    # []` has no `.items()`, `1:` is an integer key so sorting it beside a
-    # string raises TypeError, and a scalar schema has no `.get`. Each of those
-    # turned a document this function exists to refuse into a 500 about our own
-    # code — the same trap `listed()` was written for.
-    for name in sorted(properties, key=str):
+    # Sorted by the string of each key: YAML makes `1:` an integer, and an
+    # integer beside a string does not sort. `Shape` has made every name one.
+    for name in sorted(properties):
         schema = properties[name]
         if isinstance(schema, dict) and schema.get("writeOnly"):
             problems.append(
@@ -741,21 +678,23 @@ def validate(document, schemas: dict) -> dict:
                 "A value nobody may see is a secret: give write an args.secret "
                 "instead"
             )
-    for name in parameters.get("required") or []:
+    for name in shape.required:
         if name not in declared:
             problems.append(
                 f"parameters: {name!r} is required but not declared in properties"
             )
 
-    steps = document.get("steps")
-    if not isinstance(steps, list) or not steps:
-        problems.append("steps must be a non-empty list")
+    problem = shape.steps_problem()
+    if problem:
+        problems.append(problem)
         raise InvalidFlow(problems)
 
     seen = set()
-    for index, step in enumerate(steps, start=1):
+    for index, step in enumerate(shape.steps, start=1):
         problems += _check_step(index, step, declared, schemas)
-        if isinstance(step, dict) and step.get("id"):
+        # Only a string id can repeat: a list is already refused by
+        # `_check_step`, and cannot be a member of a set.
+        if isinstance(step, dict) and step.get("id") and isinstance(step["id"], str):
             if step["id"] in seen:
                 problems.append(
                     f"step {index}: id {step['id']!r} is already used; "
@@ -831,9 +770,8 @@ def step_schemas(tools: dict) -> dict:
     dropped entirely (§F1.9).
 
     Taken from the registered tools rather than from a listing, because a
-    listing is rewritten per request by ``resources.ShapeSessionId`` — so what
-    it contains depends on which session mode the caller happened to be in, and
-    a flow's shape must not.
+    listing is filtered per request by ``mirror.HideMirrors`` — so what it
+    contains depends on which client is asking, and a flow's shape must not.
     """
     schemas = {}
     for name, schema in tools.items():

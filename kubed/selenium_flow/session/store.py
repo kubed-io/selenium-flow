@@ -33,11 +33,10 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
-from typing import TYPE_CHECKING, Protocol
-from urllib.parse import urlsplit
+from typing import TYPE_CHECKING, Any, Protocol
 
-from .. import errors
-from ..core.site_data import origin_of
+from .. import faults
+from ..urls import origin_of, page_of, without_userinfo
 
 if TYPE_CHECKING:
     from ..config import RedisSettings, SessionSettings
@@ -72,6 +71,8 @@ HISTORY_CAP = 100
 Change = Callable[["SessionRecord"], "SessionRecord | None"]
 # For `upsert`: the record as it is, or None when the key is absent.
 Create = Callable[["SessionRecord | None"], "SessionRecord | None"]
+# For `change`: the same, and a note on what the write found, handed back.
+Noted = Callable[["SessionRecord | None"], "tuple[SessionRecord | None, Any]"]
 
 
 class StoreUnavailable(RuntimeError):
@@ -90,11 +91,6 @@ class StoreUnavailable(RuntimeError):
 
 class StoreConflict(RuntimeError):
     """An update kept losing to other writers and gave up (Redis only)."""
-
-
-def _page(url: str) -> str:
-    """``url`` without its query, fragment or credentials: its origin and path."""
-    return origin_of(url) + urlsplit(url).path
 
 
 @dataclass(frozen=True)
@@ -118,9 +114,9 @@ class SessionRecord:
     # rather than a default one.
     settings: dict = field(default_factory=dict)
     # Where the session has been: one {"origin", "url", "at"} per origin,
-    # newest first. Written by `at`; the admin History tab reads it.
+    # newest first. Written by `visited`; the admin History tab reads it.
     history: list = field(default_factory=list)
-    # Cookies and storage the session saved (core/site_data.py). Kept with the
+    # Cookies and storage the session saved (site_data/). Kept with the
     # record so it expires with it; never on this server's disk (with Redis,
     # as durable as Redis).
     site_data: dict = field(default_factory=dict)
@@ -179,22 +175,17 @@ class SessionRecord:
             # A malformed entry is a cache miss, not an outage.
             return None
 
-    def at(
+    def visited(
         self,
         *urls: str | None,
         now: float | None = None,
         ttl: float = DEFAULT_TTL_SECONDS,
     ) -> SessionRecord:
-        """The same record, having landed on ``urls`` in order.
+        """The same record, having landed on ``urls`` in order, then pruned.
 
         Each one with an origin moves that origin to the top with its URL and
         the time. One without — None for a URL withheld after a secret write
-        (§F1.24), ``about:blank``, ``data:`` — records nothing. Entries older
-        than ``ttl`` go, except the top one: it is where a reopen goes back to.
-
-        Only the top entry keeps its whole URL. Below it a URL keeps its origin
-        and path: a query string or fragment carries OAuth codes and reset
-        tokens, and nothing but a reopen needs them (Copilot, #51).
+        (§F1.24), ``about:blank``, ``data:`` — records nothing.
         """
         now = time.time() if now is None else now
         history = list(self.history)
@@ -205,8 +196,19 @@ class SessionRecord:
                     {"origin": origin, "url": url, "at": now},
                     *(v for v in history if v["origin"] != origin),
                 ]
+        return replace(self, history=history).pruned(now, ttl)
+
+    def pruned(self, now: float, ttl: float) -> SessionRecord:
+        """The same record without the history entries older than ``ttl``,
+        except the top one: it is where a reopen goes back to.
+
+        Only the top entry keeps its whole URL. Below it a URL keeps its origin
+        and path: a query string or fragment carries OAuth codes and reset
+        tokens, and nothing but a reopen needs them (Copilot, #51).
+        """
+        history = self.history
         kept = history[:1] + [
-            {**v, "url": _page(v["url"])} for v in history[1:] if v["at"] >= now - ttl
+            {**v, "url": page_of(v["url"])} for v in history[1:] if v["at"] >= now - ttl
         ]
         return replace(self, history=kept[:HISTORY_CAP])
 
@@ -283,6 +285,15 @@ class SessionStore(Protocol):
     # never land between a read and a fallback `set` (Copilot, #50).
     def upsert(self, key: str, fn: Create) -> SessionRecord | None: ...
 
+    # A write that answers: `fn` returns the record to store and a note on
+    # what it found there, and the note comes back beside what is stored.
+    # Only the last run's note: a run thrown away by a retry saw a record that
+    # was never written. `create` is `upsert`; without it an absent key is
+    # `(None, None)` and `fn` never runs.
+    def change(
+        self, key: str, fn: Noted, *, create: bool = False
+    ) -> tuple[SessionRecord | None, Any]: ...
+
     def delete(self, key: str) -> None: ...
 
     # Optional, and only the admin view needs it: the MCP surface never lists
@@ -294,7 +305,39 @@ class SessionStore(Protocol):
     def owners(self) -> dict[str, str]: ...
 
 
-class MemoryStore:
+class _Writes:
+    """`update` and `change`, built on the `upsert` each store implements.
+
+    Layered rather than side by side, so every write runs through the one a
+    store implements, retries included: `update` is `upsert` that never
+    creates, and `change` is either of them with a note handed back.
+    """
+
+    def upsert(self, key: str, fn: Create) -> SessionRecord | None:
+        raise NotImplementedError
+
+    def update(self, key: str, fn: Change) -> SessionRecord | None:
+        return self.upsert(key, lambda r: fn(r) if r is not None else None)
+
+    def change(
+        self, key: str, fn: Noted, *, create: bool = False
+    ) -> tuple[SessionRecord | None, Any]:
+        note: list = [None]
+
+        def run(r: SessionRecord | None) -> SessionRecord | None:
+            # Every run overwrites the note, so a retry answers with its last.
+            changed, note[0] = fn(r)
+            return changed
+
+        stored = (self.upsert if create else self.update)(key, run)
+        if stored is None and not create:
+            # Absent when the write landed: `update` skipped the last run, so
+            # any note is from a run that met a record since gone.
+            return None, None
+        return stored, note[0]
+
+
+class MemoryStore(_Writes):
     """Process-local mapping. Correct for a single replica, lost on restart.
 
     Expiry is enforced here as well as in Redis so that ``SESSION_TTL`` means
@@ -349,9 +392,6 @@ class MemoryStore:
         with self._locked(key):
             self._data[key] = (self._clock() + self._ttl, record)
 
-    def update(self, key: str, fn: Change) -> SessionRecord | None:
-        return self.upsert(key, lambda r: fn(r) if r is not None else None)
-
     def upsert(self, key: str, fn: Create) -> SessionRecord | None:
         with self._locked(key):
             current = self.get(key)
@@ -390,7 +430,7 @@ class MemoryStore:
         return {r.session_id: k for k, r in self.records().items() if r.attached}
 
 
-class RedisStore:
+class RedisStore(_Writes):
     """Shared mapping, so any replica resolves the same key.
 
     Entries expire natively: a mapping that outlives the browser it names is
@@ -435,9 +475,6 @@ class RedisStore:
 
     def set(self, key: str, record: SessionRecord) -> None:
         self._redis.set(self._k(key), record.to_json(), ex=self._ttl)
-
-    def update(self, key: str, fn: Change) -> SessionRecord | None:
-        return self.upsert(key, lambda r: fn(r) if r is not None else None)
 
     def upsert(self, key: str, fn: Create) -> SessionRecord | None:
         """WATCH, read, MULTI, write: EXEC refuses if another replica wrote the
@@ -530,14 +567,14 @@ def redis_client(conn: RedisSettings):
     for Redis that gets nothing back must not quietly keep going on a mapping
     that resolves locally. ``where`` never carries the connection's password —
     neither in this message nor in the underlying exception's, which is routed
-    through ``errors.message`` for the same scrubbing HTTP errors get. Both
+    through ``faults.message`` for the same scrubbing HTTP errors get. Both
     raises are ``from None``: chaining the raw driver exception would put its
     unscrubbed ``str()`` — URL, userinfo included — back into any traceback
     printed for this one.
     """
     url = conn.url.get_secret_value() if conn.url else None
     where = (
-        errors.without_userinfo(url) if url else f"{conn.host}:{conn.port}/{conn.db}"
+        without_userinfo(url) if url else f"{conn.host}:{conn.port}/{conn.db}"
     )
     try:
         import redis  # imported here: an optional dependency must not be a hard import
@@ -563,7 +600,7 @@ def redis_client(conn: RedisSettings):
     except Exception as exc:  # noqa: BLE001 - any failure here is Redis's, not this package's
         raise StoreUnavailable(
             f"Redis is configured but unreachable at {where} "
-            f"({type(exc).__name__}: {errors.message(exc)}); "
+            f"({type(exc).__name__}: {faults.message(exc)}); "
             "refusing to start on in-memory sessions"
         ) from None
     return client

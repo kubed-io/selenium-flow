@@ -13,9 +13,12 @@ from selenium.common.exceptions import (
     TimeoutException,
     WebDriverException,
 )
+from starlette.routing import Match
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow import errors
+from kubed.selenium_flow import errors, faults
+from kubed.selenium_flow.config import Settings
+from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import TOKEN
 
@@ -279,12 +282,25 @@ def test_upload_refuses_more_than_one_source(open_client):
     """Two sources for one file is a caller mistake worth naming precisely."""
     response = open_client.post(
         "/browser/upload",
-        json={"selector": {"xpath": "//input"}, "content": "eA==", "path": "/tmp/x"},
+        json={"selector": {"xpath": "//input"}, "content": "eA==", "text": "x"},
     )
     assert response.status_code == 400
     error = response.json()["error"]
     assert "only one" in error
-    assert "content" in error and "path" in error
+    assert "content" in error and "text" in error
+
+
+def test_upload_drops_a_server_path_like_any_unknown_field(open_client):
+    """Ruling 3. Over HTTP an unknown key is dropped rather than refused, and
+    `path` is one now: it reads nothing, and the upload still needs a file."""
+    response = open_client.post(
+        "/browser/upload",
+        json={"selector": {"xpath": "//input"}, "path": "/etc/passwd"},
+    )
+    assert response.status_code == 400
+    error = response.json()["error"]
+    assert error.startswith("the file is required")
+    assert "path" not in error and "passwd" not in error
 
 
 def test_upload_takes_plain_text_as_the_file(open_client):
@@ -310,7 +326,8 @@ def test_upload_needs_some_kind_of_file(open_client):
     )
     assert response.status_code == 400
     error = response.json()["error"]
-    assert "text" in error and "content" in error and "path" in error
+    assert "text" in error and "content" in error and "file" in error
+    assert "path" not in error
 
 
 def test_upload_rejects_content_that_is_not_base64(open_client):
@@ -403,14 +420,26 @@ def test_an_unsupported_browser_is_a_400_with_the_real_list(open_client):
         assert name in error
 
 
-def test_every_endpoint_is_mounted(open_client):
-    """A 404 here means the route table and the app disagree."""
-    from kubed.selenium_flow.routes import ACTION_IN_PATH, ENDPOINTS
+@pytest.fixture(scope="module")
+def route_table():
+    """The app's routes, built once. Nothing here sends a request or changes
+    state, so every test in the module may share it."""
+    server = SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}))
+    return server.mcp.http_app().routes
+
+
+def test_every_endpoint_is_mounted(route_table):
+    """A miss here means the route table and the app disagree. It asks the
+    router rather than posting: a POST that gets past validation waits on a DNS
+    failure for the unroutable Grid, which cost 0.3 s a path."""
+    from kubed.selenium_flow.core.capabilities import ACTION_IN_PATH, ENDPOINTS
 
     for path, action in ENDPOINTS.items():
         route = f"/browser/{path}" + ("/click" if action == ACTION_IN_PATH else "")
-        response = open_client.post(route, json={})
-        assert response.status_code != 404, f"{route} is not mounted"
+        scope = {"type": "http", "path": route, "method": "POST"}
+        assert any(
+            r.matches(scope)[0] == Match.FULL for r in route_table
+        ), f"{route} is not mounted"
 
 
 def test_the_browser_is_one_resource_addressed_by_naming_yourself(open_client):
@@ -480,17 +509,17 @@ def test_the_message_drops_the_driver_internals():
     raw = TimeoutException(
         "no element matched '//nope' within 3s"
     )
-    assert errors.message(raw) == "no element matched '//nope' within 3s"
+    assert faults.message(raw) == "no element matched '//nope' within 3s"
 
     noisy = WebDriverException(
         "Message: Error: boom\nStacktrace:\nRemoteError@chrome://remote/x.mjs:8:8"
     )
-    assert errors.message(noisy) == "Error: boom"
+    assert faults.message(noisy) == "Error: boom"
 
 
 def test_an_error_with_nothing_to_say_still_says_something():
     """Empty is worse than a class name, which at least names the kind."""
-    assert errors.message(TimeoutException("")) == "TimeoutException"
+    assert faults.message(TimeoutException("")) == "TimeoutException"
 
 
 # ---- where the whole server hangs ------------------------------------------
@@ -568,7 +597,7 @@ async def test_the_published_spec_describes_the_paths_actually_served():
     """A document that names a path nothing serves is worse than no document,
     and a prefix is exactly where the two drift apart."""
     from kubed.selenium_flow.config import Settings
-    from kubed.selenium_flow.routes import ENDPOINTS
+    from kubed.selenium_flow.core.capabilities import ENDPOINTS
     from kubed.selenium_flow.server import SeleniumMCP
     from kubed.selenium_flow.spec import build_spec
 
@@ -578,3 +607,158 @@ async def test_the_published_spec_describes_the_paths_actually_served():
     spec = await build_spec(server.mcp, ENDPOINTS, "/flow", authenticated=True)
     served = {r.path for r in server.mcp.http_app().routes if hasattr(r, "path")}
     assert set(spec["paths"]) <= served, set(spec["paths"]) - served
+
+
+# ---- every failure class, as a caller sees it --------------------------------
+#
+# `errors.status_for` is unit-tested above. What a caller receives is the status
+# line and the JSON body that `http.answer` builds from it, so each class
+# `errors.py` classifies is raised from inside a real request and read at the other end.
+
+
+def _grid_says(status: int):
+    response = requests.Response()
+    response.status_code = status
+    return requests.HTTPError("refused", response=response)
+
+
+def _raised(cls):
+    return cls("it said no")
+
+
+STATUS_TABLE = (
+    [(_raised(faults.AssertionFailed), 400), (_raised(faults.NotFound), 404)]
+    + [(_raised(faults.BidiUnavailable), 503), (_raised(faults.TooLarge), 413)]
+    + [(_raised(cls), 400) for cls in errors.CALLER if cls is not faults.AssertionFailed]
+    + [(_raised(cls), 404) for cls in errors.GONE]
+    + [(_raised(cls), 503) for cls in errors.UNAVAILABLE if cls is not faults.BidiUnavailable]
+    + [
+        (_grid_says(404), 404),
+        (_grid_says(403), 400),
+        (_grid_says(500), 503),
+        (requests.HTTPError("no response at all"), 503),
+        (TypeError("missing 'url'"), 400),
+        (ValueError("not a thing"), 400),
+        (RuntimeError("ours"), 500),
+        (KeyError("also ours"), 500),
+    ]
+)
+
+
+@pytest.mark.parametrize(
+    "exc,expected", STATUS_TABLE, ids=[type(e).__name__ + str(s) for e, s in STATUS_TABLE]
+)
+def test_every_failure_class_is_the_status_it_means_over_http(
+    open_server, open_client, monkeypatch, exc, expected
+):
+    def fails(*_args, **_kwargs):
+        raise exc
+
+    monkeypatch.setattr(open_server.sessions, "act", fails)
+    response = open_client.post("/browser/navigate", json={"url": "https://a.test/"})
+    assert response.status_code == expected
+    assert response.json() == {"error": faults.message(exc)}
+
+
+def test_the_status_table_names_every_class_errors_py_classifies():
+    """A class defined in `faults.py`, or listed in one of `errors.py`'s
+    tuples, without a row above is a status nobody looked at."""
+    import inspect
+
+    defined = {
+        cls
+        for _, cls in inspect.getmembers(faults, inspect.isclass)
+        if cls.__module__ == faults.__name__ and issubclass(cls, Exception)
+    }
+    assert defined, "faults.py defines no exception classes: the enumeration broke"
+    covered = {type(e) for e, _ in STATUS_TABLE}
+    assert defined <= covered, f"no row for {sorted(c.__name__ for c in defined - covered)}"
+    assert {*errors.CALLER, *errors.GONE, *errors.UNAVAILABLE} <= covered
+
+
+def test_a_store_that_kept_losing_to_other_writers_is_a_500(open_server, open_client, monkeypatch):
+    """S12: `StoreConflict` is a RuntimeError nothing classifies, so the caller
+    is told it is our fault and to retry — which is true. Pinned so that moving
+    the classification is a visible choice."""
+    from kubed.selenium_flow.session.store import RedisStore, SessionRecord
+
+    from .fakes import FakeRedis
+
+    fake = FakeRedis()
+    store = RedisStore(fake, prefix="p:")
+    store.set(SESSION, SessionRecord(session_id="abc"))
+    n = [0]
+
+    def always():
+        n[0] += 1
+        # Still this browser, so the detach has work to do, but never the same
+        # bytes, so the transaction never lands.
+        record = SessionRecord(session_id="abc", opened_at=float(n[0]))
+        fake.set(f"p:{SESSION}", record.to_json())
+
+    fake.interfere = always
+    monkeypatch.setattr(open_server.sessions, "store", store)
+    monkeypatch.setattr(open_server.actions, "end_browser", lambda sid: {})
+    response = open_client.delete("/browser")
+    assert response.status_code == 500
+    assert "kept changing" in response.json()["error"]
+
+
+def test_a_record_with_a_non_numeric_opened_at_is_a_session_with_no_history(
+    open_server, open_client, monkeypatch
+):
+    """S5: the whole record is a miss, so the caller is told it holds nothing —
+    a 200, not a 500 from `float()`."""
+    from kubed.selenium_flow.session.store import RedisStore
+
+    from .fakes import FakeRedis
+
+    fake = FakeRedis()
+    fake.set(f"p:{SESSION}", '{"session_id": "abc", "opened_at": "yesterday"}')
+    monkeypatch.setattr(open_server.sessions, "store", RedisStore(fake, prefix="p:"))
+    response = open_client.get("/browser")
+    assert response.status_code == 200
+    body = response.json()
+    assert (body["browser"], body["live"], body["url"]) == (None, False, None)
+
+
+def test_the_browser_resource_says_the_name_came_from_the_request(open_client):
+    """M36 over HTTP: MCP says `query` or `header`, this surface says `request`."""
+    body = open_client.get("/browser").json()
+    assert body["session"] == SESSION
+    assert body["named_by"] == "request"
+
+
+def test_readiness_remembers_the_grids_answer_for_two_seconds(server, monkeypatch):
+    """A probe is unauthenticated and frequent; each hit dialled the Grid twice.
+    Both the ok answer and the failing one are kept, then asked again."""
+    from kubed.selenium_flow import routes
+
+    now = [100.0]
+    monkeypatch.setattr(routes, "clock", lambda: now[0])
+    dialled = []
+    grid_up = [True]
+
+    def status():
+        dialled.append("status")
+        if not grid_up[0]:
+            raise ConnectionError("grid went away")
+        return {"value": {"ready": True}}
+
+    monkeypatch.setattr(server.actions.grid, "status", status)
+    monkeypatch.setattr(server.actions.grid, "session_count", lambda: 3)
+    client = TestClient(server.mcp.http_app())
+    assert client.get("/ready").status_code == 200
+    grid_up[0] = False
+    now[0] += 1.9
+    assert client.get("/ready").json()["browsers"] == 3
+    assert len(dialled) == 1, "a second hit inside the window dialled the Grid"
+    now[0] += 0.2
+    down = client.get("/ready")
+    assert down.status_code == GRID_DOWN and len(dialled) == 2
+    grid_up[0] = True
+    now[0] += 1.9
+    assert client.get("/ready").status_code == GRID_DOWN, "the failure is kept too"
+    assert len(dialled) == 2
+    now[0] += 0.2
+    assert client.get("/ready").status_code == 200 and len(dialled) == 3

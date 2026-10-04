@@ -10,6 +10,7 @@ import time
 
 import pytest
 
+from kubed.selenium_flow.session.sessions import Caller
 from kubed.selenium_flow.session.store import (
     HISTORY_CAP,
     MemoryStore,
@@ -18,7 +19,7 @@ from kubed.selenium_flow.session.store import (
 )
 
 from .conftest import NAMED, RecordingActions, manager
-from .test_sessions import FakeRedis
+from .fakes import FakeRedis
 
 pytestmark = pytest.mark.unit
 
@@ -30,8 +31,8 @@ def origins(record):
 
 
 def test_a_page_bumps_its_origin_to_the_top_with_its_url_and_time():
-    record = SessionRecord().at("https://a.test/1", now=10.0).at("https://b.test/", now=20.0)
-    record = record.at("https://a.test/2", now=30.0)
+    record = SessionRecord().visited("https://a.test/1", now=10.0).visited("https://b.test/", now=20.0)
+    record = record.visited("https://a.test/2", now=30.0)
     assert record.history == [
         {"origin": "https://a.test", "url": "https://a.test/2", "at": 30.0},
         {"origin": "https://b.test", "url": "https://b.test/", "at": 20.0},
@@ -40,21 +41,21 @@ def test_a_page_bumps_its_origin_to_the_top_with_its_url_and_time():
 
 def test_the_current_url_is_the_top_of_the_history():
     assert SessionRecord().url == ""
-    assert SessionRecord().at("https://a.test/x", now=1.0).url == "https://a.test/x"
+    assert SessionRecord().visited("https://a.test/x", now=1.0).url == "https://a.test/x"
 
 
 def test_a_page_with_no_origin_or_a_withheld_url_records_nothing():
-    record = SessionRecord().at("https://a.test/x", now=1.0)
+    record = SessionRecord().visited("https://a.test/x", now=1.0)
     for nowhere in (None, "", "about:blank", "data:text/html,hi"):
-        assert record.at(nowhere, now=2.0).history == record.history
+        assert record.visited(nowhere, now=2.0).history == record.history
 
 
 def test_only_the_current_page_keeps_its_query_and_fragment():
     # An OAuth callback's code, a reset link's token: values that only a reopen
     # of the current page could need.
-    record = SessionRecord().at("https://u:p@a.test/cb?code=XYZ#state=1", now=1.0)
+    record = SessionRecord().visited("https://u:p@a.test/cb?code=XYZ#state=1", now=1.0)
     assert record.url == "https://u:p@a.test/cb?code=XYZ#state=1"
-    record = record.at("https://b.test/reset?token=T", now=2.0)
+    record = record.visited("https://b.test/reset?token=T", now=2.0)
     assert [v["url"] for v in record.history] == [
         "https://b.test/reset?token=T",
         "https://a.test/cb",
@@ -62,20 +63,20 @@ def test_only_the_current_page_keeps_its_query_and_fragment():
 
 
 def test_several_pages_are_recorded_in_order():
-    record = SessionRecord().at("https://a.test/", "https://b.test/", "https://a.test/z", now=5.0)
+    record = SessionRecord().visited("https://a.test/", "https://b.test/", "https://a.test/z", now=5.0)
     assert [v["url"] for v in record.history] == ["https://a.test/z", "https://b.test/"]
 
 
 def test_an_entry_older_than_the_ttl_goes_but_the_top_one_stays():
-    record = SessionRecord().at("https://old.test/", now=0.0).at("https://mid.test/", now=10.0)
-    later = record.at(None, now=DAY + 20.0, ttl=DAY)
+    record = SessionRecord().visited("https://old.test/", now=0.0).visited("https://mid.test/", now=10.0)
+    later = record.visited(None, now=DAY + 20.0, ttl=DAY)
     assert origins(later) == ["https://mid.test"], "both expired; the top is where a reopen goes"
 
 
 def test_at_most_a_hundred_entries_and_the_oldest_goes_first():
     record = SessionRecord()
     for i in range(HISTORY_CAP + 5):
-        record = record.at(f"https://h{i}.test/", now=float(i))
+        record = record.visited(f"https://h{i}.test/", now=float(i))
     assert len(record.history) == HISTORY_CAP
     assert record.history[0]["origin"] == f"https://h{HISTORY_CAP + 4}.test"
     assert record.history[-1]["origin"] == "https://h5.test"
@@ -85,7 +86,7 @@ def test_at_most_a_hundred_entries_and_the_oldest_goes_first():
     "store", [MemoryStore(), RedisStore(FakeRedis(), prefix="p:")], ids=lambda s: s.kind
 )
 def test_both_stores_round_trip_the_history(store):
-    record = SessionRecord(session_id="s").at("https://a.test/1", now=1.0).at("https://b.test/2", now=2.0)
+    record = SessionRecord(session_id="s").visited("https://a.test/1", now=1.0).visited("https://b.test/2", now=2.0)
     store.set("k", record)
     assert store.get("k").history == record.history
     assert store.get("k").url == "https://b.test/2"
@@ -116,7 +117,7 @@ def test_a_stored_url_that_does_not_parse_is_dropped_not_tripped_on():
     ]})
     record = SessionRecord.from_json(raw)
     assert origins(record) == ["https://a.test"]
-    assert origins(record.at("https://c.test/", now=3.0)) == ["https://c.test", "https://a.test"]
+    assert origins(record.visited("https://c.test/", now=3.0)) == ["https://c.test", "https://a.test"]
 
 
 def test_touch_bumps_the_history_and_a_withheld_url_still_slides_the_ttl():
@@ -161,7 +162,7 @@ def test_opening_another_browser_keeps_where_the_session_has_been():
 def test_ending_a_browser_keeps_the_history():
     sessions = manager(RecordingActions())
     sessions.remember(NAMED, "one", "https://a.test/")
-    sessions.end_browser(NAMED)
+    sessions.end_browser(Caller(NAMED))
     assert sessions.store.get(NAMED).url == "https://a.test/"
 
 
@@ -175,7 +176,7 @@ def run_reporting(monkeypatch, report):
 
     monkeypatch.setattr(flowapi, "run_one", lambda *a, **kw: report)
     sessions = manager(RecordingActions())
-    sessions.open_browser(NAMED, url="https://start.test/")
+    sessions.open_browser(Caller(NAMED), url="https://start.test/")
     writes = []
     real = sessions.store.update
 

@@ -7,9 +7,9 @@ failure costs a turn and a confident green costs ten. See saga §F2.5.
 
 import pytest
 
-from kubed.selenium_flow.core import actions as actions_module
+from kubed.selenium_flow.core import assertion as assertion
+from kubed.selenium_flow.core.capabilities import ENDPOINTS, method_for
 from kubed.selenium_flow.errors import status_for
-from kubed.selenium_flow.routes import ENDPOINTS, method_for
 
 pytestmark = pytest.mark.unit
 
@@ -78,14 +78,14 @@ def test_true_passes_and_says_where_it_was_true(actions, driving):
 
 def test_false_fails_with_the_authors_message(actions, driving):
     driving(False)
-    with pytest.raises(actions_module.AssertionFailed) as failed:
+    with pytest.raises(assertion.AssertionFailed) as failed:
         actions.assert_("abc", "return false", message="Already signed in.", wait_timeout=0)
     assert "Already signed in." in str(failed.value)
 
 
 def test_false_without_a_message_names_the_page_and_asks_for_one(actions, driving):
     driving(False)
-    with pytest.raises(actions_module.AssertionFailed) as failed:
+    with pytest.raises(assertion.AssertionFailed) as failed:
         actions.assert_("abc", "return 1 > 2", wait_timeout=0)
     message = str(failed.value)
     assert "https://example.test/dashboard" in message
@@ -99,7 +99,7 @@ def test_the_failure_never_echoes_the_script(actions, driving):
     than a summary — the HTTP error, the flow report, the log (Copilot, #26)."""
     driving(False)
     script = "return document.cookie.includes('s3cret-token')"
-    with pytest.raises(actions_module.AssertionFailed) as failed:
+    with pytest.raises(assertion.AssertionFailed) as failed:
         actions.assert_("abc", script, wait_timeout=0)
     assert "s3cret-token" not in str(failed.value)
     assert script not in str(failed.value)
@@ -128,7 +128,7 @@ def test_anything_but_a_boolean_is_refused(actions, driving, answer):
 def test_a_failed_assertion_is_the_callers_to_fix(actions, driving):
     """400, beside a bad selector: retrying the identical request fails again."""
     driving(False)
-    with pytest.raises(actions_module.AssertionFailed) as failed:
+    with pytest.raises(assertion.AssertionFailed) as failed:
         actions.assert_("abc", "return false", wait_timeout=0)
     assert status_for(failed.value) == 400
 
@@ -178,7 +178,7 @@ class _AlreadySignedIn:
         return {"url": kwargs.get("url"), "title": "Login"}
 
     def assert_(self, session_id, script, message=None, **kwargs):
-        raise actions_module.AssertionFailed(message)
+        raise assertion.AssertionFailed(message)
 
     def write(self, session_id, **kwargs):  # pragma: no cover - must not run
         raise AssertionError("the flow should have stopped at the assertion")
@@ -204,8 +204,8 @@ def test_a_failing_assert_stops_the_run_and_carries_the_message():
 async def test_an_assert_cannot_be_continued_past(server):
     """`onError: continue` on an assertion is the confident green again: the run
     would carry on and report `ok` (Copilot, #26)."""
+    from kubed.selenium_flow.core.capabilities import ENDPOINTS as ROUTES
     from kubed.selenium_flow.flows.document import InvalidFlow, step_schemas, validate
-    from kubed.selenium_flow.routes import ENDPOINTS as ROUTES
 
     tools = {}
     for name in sorted(set(ROUTES.values())):
@@ -235,7 +235,7 @@ def test_a_hand_edited_flow_cannot_continue_past_one_either():
             self.wrote = False
 
         def assert_(self, session_id, script, message=None, **kwargs):
-            raise actions_module.AssertionFailed(message or "false")
+            raise assertion.AssertionFailed(message or "false")
 
         def write(self, session_id, **kwargs):
             self.wrote = True
@@ -262,8 +262,8 @@ def test_a_hand_edited_flow_cannot_continue_past_one_either():
 
 async def test_a_flow_with_an_assert_step_saves(server):
     """Save-time validation knows the tool, so an author finds a typo now."""
+    from kubed.selenium_flow.core.capabilities import ENDPOINTS as ROUTES
     from kubed.selenium_flow.flows.document import step_schemas, validate
-    from kubed.selenium_flow.routes import ENDPOINTS as ROUTES
 
     tools = {}
     for name in sorted(set(ROUTES.values())):
@@ -314,16 +314,16 @@ def test_it_never_waits_longer_than_it_was_told(actions, monkeypatch):
     # A poll that does not divide the timeout evenly, which is the only way the
     # overshoot shows: at 0.2 into 1s the old loop landed exactly on the
     # deadline and looked correct.
-    monkeypatch.setattr(actions_module, "ASSERT_POLL", 0.3)
-    monkeypatch.setattr(actions_module.time, "monotonic", lambda: now["t"])
+    monkeypatch.setattr(assertion, "ASSERT_POLL", 0.3)
+    monkeypatch.setattr(assertion.time, "monotonic", lambda: now["t"])
 
     def fake_sleep(seconds):
         slept.append(seconds)
         now["t"] += seconds
 
-    monkeypatch.setattr(actions_module.time, "sleep", fake_sleep)
+    monkeypatch.setattr(assertion.time, "sleep", fake_sleep)
 
-    with pytest.raises(actions_module.AssertionFailed):
+    with pytest.raises(assertion.AssertionFailed):
         actions.assert_("abc", "return false", wait_timeout=1)
 
     assert sum(slept) == pytest.approx(1), "it waited past its own deadline"
@@ -342,13 +342,13 @@ def test_an_answer_that_arrives_after_the_deadline_is_not_accepted(
     now = {"t": 1000.0}
     driver = _Driver(False, True)  # false first, then true — but too late
     monkeypatch.setattr(actions, "_at", lambda *a, **k: driver)
-    monkeypatch.setattr(actions_module.time, "monotonic", lambda: now["t"])
+    monkeypatch.setattr(assertion.time, "monotonic", lambda: now["t"])
     # Oversleeps, the way a loaded machine does.
     monkeypatch.setattr(
-        actions_module.time, "sleep", lambda seconds: now.update(t=now["t"] + 5)
+        assertion.time, "sleep", lambda seconds: now.update(t=now["t"] + 5)
     )
 
-    with pytest.raises(actions_module.AssertionFailed):
+    with pytest.raises(assertion.AssertionFailed):
         actions.assert_("abc", "return ready", wait_timeout=1)
     assert driver.calls == 1, "it evaluated again after the deadline had passed"
 
@@ -380,8 +380,8 @@ class _Clock:
 @pytest.fixture
 def clock(monkeypatch):
     fake = _Clock()
-    monkeypatch.setattr(actions_module.time, "monotonic", fake.monotonic)
-    monkeypatch.setattr(actions_module.time, "sleep", fake.sleep)
+    monkeypatch.setattr(assertion.time, "monotonic", fake.monotonic)
+    monkeypatch.setattr(assertion.time, "sleep", fake.sleep)
     return fake
 
 
@@ -396,7 +396,7 @@ def test_a_transient_true_does_not_satisfy_a_hold(actions, driving, clock):
     guard asking until true caught that moment — so it passed while signed out.
     True, then false, has not held true for anything."""
     driving(True, False, False, False, False, False, False, False, False, False)
-    with pytest.raises(actions_module.AssertionFailed) as failed:
+    with pytest.raises(assertion.AssertionFailed) as failed:
         actions.assert_("abc", "return signedIn", wait_timeout=1, stable_for=0.5)
     assert "did not hold" in str(failed.value)
 
@@ -453,7 +453,7 @@ def test_a_failure_tells_never_true_apart_from_would_not_hold(actions, driving, 
     """Opposite fixes: one is a wrong assertion, the other a page still
     settling. A single message for both would send an author the wrong way."""
     driving(False)
-    with pytest.raises(actions_module.AssertionFailed) as never:
+    with pytest.raises(assertion.AssertionFailed) as never:
         actions.assert_("abc", "return false", wait_timeout=1, stable_for=0.5)
     assert "did not hold" not in str(never.value)
     assert "assertion failed after" in str(never.value)
@@ -481,11 +481,11 @@ def test_an_answer_that_arrives_after_the_deadline_is_not_an_answer(actions, mon
             return self.calls > 1
 
     fake = _Clock()
-    monkeypatch.setattr(actions_module.time, "monotonic", fake.monotonic)
-    monkeypatch.setattr(actions_module.time, "sleep", fake.sleep)
+    monkeypatch.setattr(assertion.time, "monotonic", fake.monotonic)
+    monkeypatch.setattr(assertion.time, "sleep", fake.sleep)
     monkeypatch.setattr(actions, "_at", lambda *a, **k: _Slow(fake))
 
-    with pytest.raises(actions_module.AssertionFailed):
+    with pytest.raises(assertion.AssertionFailed):
         actions.assert_("abc", "return slow()", wait_timeout=5)
 
 
@@ -507,8 +507,8 @@ def test_the_single_look_a_zero_wait_promises_is_still_honoured(actions, monkeyp
             return True
 
     fake = _Clock()
-    monkeypatch.setattr(actions_module.time, "monotonic", fake.monotonic)
-    monkeypatch.setattr(actions_module.time, "sleep", fake.sleep)
+    monkeypatch.setattr(assertion.time, "monotonic", fake.monotonic)
+    monkeypatch.setattr(assertion.time, "sleep", fake.sleep)
     driver = _Slow(fake)
     monkeypatch.setattr(actions, "_at", lambda *a, **k: driver)
 

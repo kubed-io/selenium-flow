@@ -7,10 +7,10 @@ other breaks that quietly, so it is asserted here rather than trusted.
 
 import pytest
 
+from kubed.selenium_flow.core.capabilities import ENDPOINTS, method_for
 from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.http import files as files_module
 from kubed.selenium_flow.mcp import clients as clients_module
-from kubed.selenium_flow.routes import ENDPOINTS, method_for
 
 pytestmark = pytest.mark.unit
 
@@ -153,7 +153,7 @@ async def test_every_tool_declares_its_safety_hints(server, monkeypatch, resourc
     advertised as destructive when every one of them merely reads.
     """
     monkeypatch.setattr(
-        clients_module, "_http", lambda: ({"resources": resources}, {})
+        clients_module, "request_values", lambda: ({"resources": [resources]}, {})
     )
     tools = await server.mcp.list_tools()
     assert tools, "no tools listed, so this proves nothing"
@@ -202,10 +202,10 @@ async def test_resize_writes_the_new_size_back_to_the_session(server, monkeypatc
     and only diverge later, when the Grid reaped that browser and it came back
     the size it was opened at. So assert the tool actually asks.
     """
-    from .conftest import NAMED
+    from .conftest import NAMED, calling_as
 
     resize = (await server.mcp.get_tool("resize")).fn
-    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
+    calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.sessions, "resolve", lambda name: "abc")
     monkeypatch.setattr(
         server.actions,
@@ -222,7 +222,7 @@ def test_a_key_name_that_is_not_one_is_refused_with_every_name(actions, monkeypa
     """The names used to be listed in press_key's description — sixty of them,
     read on every call by a model that needed none. They are in the refusal
     instead, which is where a model that guessed wrong is looking (§F3.5)."""
-    from kubed.selenium_flow.core.actions import KEY_NAMES
+    from kubed.selenium_flow.core.keys import KEY_NAMES
 
     monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
     with pytest.raises(ValueError) as refused:

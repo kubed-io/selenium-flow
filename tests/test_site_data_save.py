@@ -8,12 +8,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from kubed.selenium_flow.core import site_data as sd
+from kubed.selenium_flow import urls
 from kubed.selenium_flow.session.store import SessionRecord
+from kubed.selenium_flow.site_data import snapshot as sd
+from kubed.selenium_flow.site_data import transfer
 
+from .fakes import FakeBidi
 from .site_data_fakes import (
     NOW,
-    FakeBidi,
     FakeSpare,
     bidi_cm,
     bidi_cookie,
@@ -113,13 +115,57 @@ def test_a_cookie_jar_over_the_cap_raises_and_saves_nothing():
     assert errors.status_for(ValueError("x")) == 400
 
 
+def _old_cap(data):
+    """The cap as it was: re-serialise the whole payload after every eviction.
+    Kept as the reference the O(n) cap must agree with."""
+    data = {**data, "origins": dict(data["origins"])}
+    gone_sites = []
+    while len(json.dumps(data)) > sd.MAX_BYTES:
+        if data["origins"]:
+            gone = list(data["origins"])[-1]
+            data["origins"] = {o: e for o, e in data["origins"].items() if o != gone}
+        else:
+            gone, data["session"] = data["session"]["origin"], {}
+        gone_sites.append(gone)
+    return data, gone_sites
+
+
+def test_the_cap_evicts_what_the_re_serialising_loop_did(monkeypatch):
+    import random
+
+    rng = random.Random(20)
+    monkeypatch.setattr(sd, "MAX_BYTES", 6_000)
+    for _ in range(300):
+        n = rng.randint(0, 12)
+        origins = [f"https://s{i}.example{rng.choice(['.com', '.é'])}" for i in range(n)]
+        pick = lambda: "".join(rng.choice('ab"\\é\n') * rng.randint(0, 900) for _ in range(2))  # noqa: E731
+        others = {o: {"k": pick()} for o in origins[1:]}
+        here = origins[0] if origins else ""
+        cap = captured(origin=here, local={"k": pick()} if here else {},
+                       session={"s": pick()} if here and rng.random() < 0.7 else {},
+                       others=others, cookies=[cookie("sid", "a.com", pick()[:300])])
+        history = [visit(o) for o in origins]
+        try:
+            data, receipt = sd.snapshot({}, cap, history, NOW)
+        except ValueError:
+            continue
+        # The same payload, uncapped, through the old loop.
+        monkeypatch.setattr(sd, "MAX_BYTES", 10**9)
+        full, _ = sd.snapshot({}, cap, history, NOW)
+        monkeypatch.setattr(sd, "MAX_BYTES", 6_000)
+        want, gone = _old_cap(full)
+        assert data == want
+        assert [s["site"] for s in receipt["skipped"]] == gone
+        assert len(json.dumps(data)) <= sd.MAX_BYTES
+
+
 def test_the_record_round_trips_its_snapshot():
     data, _ = sd.snapshot({}, captured(local={"a": "1"}, session={"t": "1"}), [visit(APP)], NOW)
-    record = SessionRecord(session_id="s").at(APP + "/x").with_site_data(data)
+    record = SessionRecord(session_id="s").visited(APP + "/x").with_site_data(data)
     again = SessionRecord.from_json(record.to_json())
     assert again.site_data == data
     assert again.detached().site_data == data, "ending a browser keeps site data"
-    assert again.at("https://x.example.com/").site_data == data
+    assert again.visited("https://x.example.com/").site_data == data
 
 
 # ---- capture: what the browser holds -----------------------------------------
@@ -136,7 +182,7 @@ class PageDriver:
 @pytest.fixture
 def spare(monkeypatch):
     fake = FakeSpare(local={SSO: {"kc": "1"}, OLD: {}})
-    monkeypatch.setattr(sd, "spare_tab", fake)
+    monkeypatch.setattr(transfer, "spare_tab", fake)
     return fake
 
 
@@ -144,7 +190,7 @@ def test_capture_reads_the_jar_the_page_and_every_other_origin_in_one_tab(spare)
     bidi = FakeBidi()
     bidi.storage.cookies = [bidi_cookie("sid", "app.example.com", http_only=True),
                             bidi_cookie("kc", "sso.example.com")]
-    got = sd.capture(bidi, PageDriver(PAGE), [APP, SSO, OLD])
+    got = transfer.capture(bidi, PageDriver(PAGE), [APP, SSO, OLD])
     assert got["cookies"][0] == {
         "name": "sid", "value": "v", "value_type": "string", "domain": "app.example.com",
         "path": "/", "http_only": True, "secure": True, "same_site": "lax", "expiry": None,
@@ -157,20 +203,20 @@ def test_capture_reads_the_jar_the_page_and_every_other_origin_in_one_tab(spare)
 
 
 def test_only_web_origins_are_visited(spare):
-    sd.capture(FakeBidi(), PageDriver(PAGE), ["chrome://settings", SSO, "file:///tmp"])
+    transfer.capture(FakeBidi(), PageDriver(PAGE), ["chrome://settings", SSO, "file:///tmp"])
     assert spare.runs == [("spare", SSO)]
 
 
 def test_a_service_worker_origin_is_reported_and_never_read(spare):
     spare.workers = {SSO}
-    got = sd.capture(FakeBidi(), PageDriver(PAGE), [APP, SSO, OLD])
+    got = transfer.capture(FakeBidi(), PageDriver(PAGE), [APP, SSO, OLD])
     assert got["others"] == {OLD: {}}
     assert got["failed"] == [{"site": SSO, "reason": "a service worker answered: save while on this site"}]
 
 
 def test_a_tab_that_cannot_open_fails_every_origin_it_did_not_read(spare):
     spare.broken = RuntimeError("socket is already closed")
-    got = sd.capture(FakeBidi(), PageDriver(PAGE), [APP, SSO, OLD])
+    got = transfer.capture(FakeBidi(), PageDriver(PAGE), [APP, SSO, OLD])
     assert got["others"] == {}
     assert got["failed"] == [
         {"site": SSO, "reason": "socket is already closed"},
@@ -179,14 +225,14 @@ def test_a_tab_that_cannot_open_fails_every_origin_it_did_not_read(spare):
 
 
 def test_no_other_origin_means_no_tab(spare):
-    got = sd.capture(FakeBidi(), PageDriver(PAGE), [APP])
+    got = transfer.capture(FakeBidi(), PageDriver(PAGE), [APP])
     assert spare.tabs == [] and got["others"] == {}
 
 
 def test_a_save_on_a_page_with_no_storage_keeps_the_cookies(spare):
     bidi = FakeBidi()
     bidi.storage.cookies = [bidi_cookie("sid", "app.example.com")]
-    got = sd.capture(bidi, PageDriver({"origin": "", "local": {}, "session": {}}))
+    got = transfer.capture(bidi, PageDriver({"origin": "", "local": {}, "session": {}}))
     data, saved = sd.snapshot({}, got, [], NOW)
     assert saved == {"cookies": 1, "sites": [], "skipped": []}
     assert data["origins"] == {} and data["session"] == {}
@@ -236,7 +282,7 @@ def test_one_save_through_the_server_keeps_every_site_the_session_went_to(monkey
     # would keep it, and a fixed stamp ages out of the store's TTL.
     now = time.time()
     server.sessions.store.set(
-        NAMED, SessionRecord(session_id="live-id").at(SSO + "/", now=now - 60).at(APP + "/x", now=now)
+        NAMED, SessionRecord(session_id="live-id").visited(SSO + "/", now=now - 60).visited(APP + "/x", now=now)
     )
     response = TestClient(server.mcp.http_app()).post(
         "/browser/save-site-data", headers={"Authorization": f"Bearer {TOKEN}"},
@@ -264,7 +310,7 @@ class Tab:
         self.current_url = url
 
     def execute_script(self, script, *args):
-        here = sd.origin_of(self.current_url)
+        here = urls.origin_of(self.current_url)
         return {"origin": here, "local": {"page": here}, "session": {}}
 
 

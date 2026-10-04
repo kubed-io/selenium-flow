@@ -821,3 +821,7 @@ caching strategies"*. Measured first, the answer was mostly not a cache:
    `SessionManager.act` has no lock on either surface. A lock per session is
    not free: `end_browser` would queue behind a 900s `assert`, which is the
    call it exists to interrupt. Left as both surfaces have it, for its own PR.
+
+   **Answered in the optimal-shape round** (2026-10-02): yes, the browser-driving
+   calls only, and `end_browser` exempt and cancelling — Rulings (2) in
+   `docs/superpowers/specs/2026-10-02-optimal-shape-design.md`.

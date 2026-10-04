@@ -10,8 +10,8 @@ import pytest
 from pydantic import ValidationError
 
 from kubed.selenium_flow.config import RedisSettings, SessionSettings
-from kubed.selenium_flow.session import sessions as sessions_module
-from kubed.selenium_flow.session.sessions import requested
+from kubed.selenium_flow.mcp import clients as clients_module
+from kubed.selenium_flow.session.sessions import Caller, values_of
 from kubed.selenium_flow.session.store import (
     DEFAULT_DB,
     MemoryStore,
@@ -21,7 +21,8 @@ from kubed.selenium_flow.session.store import (
     from_settings,
 )
 
-from .conftest import NAMED, OTHER, RecordingActions, http, manager
+from .conftest import NAMED, OTHER, RecordingActions, calling_as, http, manager
+from .fakes import FakeRedis
 
 pytestmark = pytest.mark.unit
 
@@ -29,93 +30,91 @@ pytestmark = pytest.mark.unit
 # ---- naming the session ----------------------------------------------------
 
 
-def test_a_name_in_the_query_string_is_the_session(monkeypatch):
-    monkeypatch.setattr(
-        sessions_module, "http_request", lambda: http({"session": "research"})
-    )
-    assert requested() == sessions_module.Caller("research", "query")
+def caller_of(params=None, headers=None) -> Caller:
+    """The caller a request carrying these describes, as the edge reads it."""
+    return Caller.from_request(*http(params, headers))
 
 
-def test_a_name_in_the_header_is_the_session_too(monkeypatch):
-    monkeypatch.setattr(
-        sessions_module, "http_request", lambda: http(headers={"x-session-key": "desk"})
-    )
-    assert requested() == sessions_module.Caller("desk", "header")
+def test_a_name_in_the_query_string_is_the_session():
+    caller = caller_of({"session": "research"})
+    assert (caller.name, caller.named_by) == ("research", "query")
 
 
-def test_naming_it_twice_is_refused_rather_than_resolved(monkeypatch):
+def test_a_name_in_the_header_is_the_session_too():
+    caller = caller_of(headers={"x-session-key": "desk"})
+    assert (caller.name, caller.named_by) == ("desk", "header")
+
+
+def test_naming_it_twice_is_refused_rather_than_resolved():
     """Dr K's rule, and it replaces a precedence the old surface had. A request
     carrying both has two ideas about who is calling, and picking one hides that
     from whoever wired it up — including an admin who pinned a name in a
     credential and a caller that overrode it from the URL."""
-    monkeypatch.setattr(
-        sessions_module,
-        "http_request",
-        lambda: http({"session": "from-url"}, {"x-session-key": "from-credential"}),
-    )
+    caller = caller_of({"session": "from-url"}, {"x-session-key": "from-credential"})
     with pytest.raises(ValueError, match="name your session once"):
-        requested()
+        caller.name  # noqa: B018 - the refusal is the point
 
 
-def test_a_request_that_names_nothing_names_nothing(monkeypatch):
+def test_a_request_that_names_nothing_names_nothing():
     """None is a real answer, not a failure: it is what `library` turns into the
     shared library and what `name` refuses."""
-    monkeypatch.setattr(sessions_module, "http_request", lambda: http())
-    assert requested() is None
+    assert caller_of().named == ""
 
 
 def test_stdio_is_one_client_so_a_constant_is_correct(monkeypatch):
-    monkeypatch.setattr(sessions_module, "http_request", lambda: None)
-    assert requested() == sessions_module.Caller("stdio", "stdio")
+    monkeypatch.setattr(clients_module, "request_values", lambda: None)
+    assert clients_module.caller() == Caller.stdio()
+    assert (Caller.stdio().name, Caller.stdio().named_by) == ("stdio", "stdio")
 
 
-def test_an_unusable_name_is_refused_where_it_arrives(monkeypatch):
+def test_an_unusable_name_is_refused_where_it_arrives():
     """A session name IS a directory name, so it is validated once, here. It used
     to be accepted for the browser and refused later for the library, which meant
     `?session=my bot` drove a private browser while saving its flows into the
     shared library."""
-    monkeypatch.setattr(
-        sessions_module, "http_request", lambda: http({"session": "my bot"})
-    )
     with pytest.raises(ValueError, match="not a usable session name"):
-        requested()
+        caller_of({"session": "my bot"}).name  # noqa: B018
 
 
-def test_the_shared_library_cannot_be_claimed_as_a_name(monkeypatch):
+def test_the_shared_library_cannot_be_claimed_as_a_name():
     """`global` is read-only to everyone, so a caller that could name itself that
     would own every session's shared flows."""
-    monkeypatch.setattr(
-        sessions_module, "http_request", lambda: http({"session": "global"})
-    )
     with pytest.raises(ValueError, match="reserved"):
-        requested()
+        caller_of({"session": "global"}).name  # noqa: B018
 
 
 # ---- one contract, and it is "say who you are" -----------------------------
 
 
-def test_a_caller_that_named_nothing_is_told_how_to(monkeypatch):
+def test_a_caller_that_named_nothing_is_told_how_to():
     actions = RecordingActions()
-    monkeypatch.setattr(sessions_module, "http_request", lambda: http())
     with pytest.raises(ValueError, match=r"\?session=") as raised:
-        manager(actions).name()
+        manager(actions).open_browser(caller_of())
     assert "X-Session-Key" in str(raised.value)
     assert actions.opened == 0, "an unnamed caller must never open a browser"
 
 
-def test_the_shared_library_is_the_one_thing_an_unnamed_caller_gets(monkeypatch):
+def test_opening_on_a_page_that_is_not_the_web_costs_the_held_browser_nothing():
+    """Ruling 4, and a rejected argument must cost nothing: refused before the
+    browser being held is ended, as a typo in `browser=` is."""
+    actions = RecordingActions()
+    sessions = manager(actions)
+    sessions.open_browser(Caller(NAMED))
+    with pytest.raises(ValueError) as refused:
+        sessions.open_browser(Caller(NAMED), url="file:///etc/passwd")
+    assert str(refused.value) == "only http(s) URLs can be opened here; file: cannot"
+    assert actions.opened == 1 and actions.closed == []
+
+
+def test_the_shared_library_is_the_one_thing_an_unnamed_caller_gets():
     """The other half of requiring a name, rather than an exception to it:
     `global` is read-only, so an unnamed caller can read the shared flows and can
     write nowhere at all (§F2.13)."""
-    monkeypatch.setattr(sessions_module, "http_request", lambda: http())
-    assert manager().library() == "global"
+    assert caller_of().library == "global"
 
 
-def test_a_named_caller_owns_its_own_library(monkeypatch):
-    monkeypatch.setattr(
-        sessions_module, "http_request", lambda: http({"session": "research"})
-    )
-    assert manager().library() == "research"
+def test_a_named_caller_owns_its_own_library():
+    assert caller_of({"session": "research"}).library == "research"
 
 
 # ---- resolving, without any magic ------------------------------------------
@@ -163,7 +162,7 @@ def test_a_reaped_session_is_reopened_where_it_left_off():
     actions = RecordingActions()
     sessions = manager(actions)
     sessions.store.set(
-        NAMED, SessionRecord(session_id="dead").at("https://example.com/page")
+        NAMED, SessionRecord(session_id="dead").visited("https://example.com/page")
     )
     assert sessions.resolve(NAMED) == "generated-1"
     assert actions.opened_urls == ["https://example.com/page"]
@@ -259,7 +258,7 @@ def test_ending_a_browser_means_open_session_again():
     sessions = manager(actions)
     actions.grid.alive.add("abc")
     sessions.remember(NAMED, "abc")
-    sessions.end_browser(NAMED)
+    sessions.end_browser(Caller(NAMED))
     opened_before = actions.opened
     with pytest.raises(ValueError, match="call open_session first"):
         sessions.resolve(NAMED)
@@ -275,7 +274,7 @@ def test_ending_a_browser_never_removes_the_flow_session():
     assertion as "ending keeps the context", made once."""
     sessions = manager()
     sessions.remember(NAMED, "mine", "https://x/", {"browser": "firefox"})
-    sessions.end_browser(NAMED)
+    sessions.end_browser(Caller(NAMED))
     record = sessions.store.get(NAMED)
     assert record is not None
     assert not record.attached
@@ -290,7 +289,7 @@ def test_a_session_can_only_end_its_own_browser():
     sessions = manager(actions)
     sessions.remember(NAMED, "mine")
     sessions.remember(OTHER, "theirs")
-    assert sessions.end_browser(NAMED) == "mine"
+    assert sessions.end_browser(Caller(NAMED)) == "mine"
     assert actions.closed == ["mine"]
     assert sessions.store.get(OTHER).session_id == "theirs"
 
@@ -298,7 +297,7 @@ def test_a_session_can_only_end_its_own_browser():
 def test_ending_a_browser_nobody_holds_is_harmless():
     actions = RecordingActions()
     sessions = manager(actions)
-    assert sessions.end_browser(NAMED) is None
+    assert sessions.end_browser(Caller(NAMED)) is None
     assert actions.closed == []
 
 
@@ -315,7 +314,7 @@ def test_the_backend_in_use_is_reported():
 
 
 def test_describe_reports_the_session_and_where_to_read_about_it(named_caller):
-    status = manager().describe()
+    status = manager().describe(clients_module.caller())
     assert status["session"] == NAMED
     assert "SESSIONS.md" in status["guidance"]
 
@@ -327,13 +326,13 @@ def test_describe_never_names_the_grid_id(named_caller):
     actions.grid.alive.add("abc")
     sessions = manager(actions)
     sessions.remember(NAMED, "abc", "https://example.com")
-    assert "abc" not in repr(sessions.describe())
+    assert "abc" not in repr(sessions.describe(clients_module.caller()))
 
 
 def test_describe_never_opens_a_browser(named_caller):
     """Reading a status resource must never create one."""
     actions = RecordingActions()
-    status = manager(actions).describe()
+    status = manager(actions).describe(clients_module.caller())
     assert status["live"] is False
     assert status["session"] == NAMED
     assert actions.opened == 0
@@ -345,9 +344,9 @@ def test_describe_reports_a_held_session_and_whether_it_is_still_there(named_cal
     actions.grid.alive.add("abc")
     sessions = manager(actions)
     sessions.store.set(
-        NAMED, SessionRecord(session_id="abc").at("https://example.com")
+        NAMED, SessionRecord(session_id="abc").visited("https://example.com")
     )
-    status = sessions.describe()
+    status = sessions.describe(clients_module.caller())
     assert status["url"] == "https://example.com"
     assert status["live"] is True
     assert status["named_by"] == "query"
@@ -356,7 +355,7 @@ def test_describe_reports_a_held_session_and_whether_it_is_still_there(named_cal
 def test_describe_flags_a_session_the_grid_has_reaped(named_caller):
     sessions = manager()
     sessions.store.set(NAMED, SessionRecord(session_id="dead"))
-    assert sessions.describe()["live"] is False
+    assert sessions.describe(clients_module.caller())["live"] is False
 
 
 def test_describe_reports_the_settings_a_session_was_opened_with(named_caller):
@@ -364,7 +363,7 @@ def test_describe_reports_the_settings_a_session_was_opened_with(named_caller):
     actions.grid.alive.add("abc")
     sessions = manager(actions)
     sessions.remember(NAMED, "abc", "", {"width": 1400})
-    assert sessions.describe()["settings"] == {"width": 1400}
+    assert sessions.describe(clients_module.caller())["settings"] == {"width": 1400}
 
 
 def test_describe_reports_which_browser_is_being_driven(named_caller):
@@ -375,7 +374,7 @@ def test_describe_reports_which_browser_is_being_driven(named_caller):
     actions.grid.alive.add("abc")
     sessions = manager(actions)
     sessions.remember(NAMED, "abc", "", {"browser": "firefox"})
-    assert sessions.describe()["browser"] == "firefox"
+    assert sessions.describe(clients_module.caller())["browser"] == "firefox"
 
 
 def test_describe_reports_the_window_it_is_working_in(named_caller):
@@ -391,10 +390,10 @@ def test_describe_reports_the_window_it_is_working_in(named_caller):
     actions.grid.alive.add("abc")
     sessions = manager(actions)
     sessions.remember(NAMED, "abc", "", {"width": 1024, "height": 768})
-    assert sessions.describe()["window"] == "1024x768"
+    assert sessions.describe(clients_module.caller())["window"] == "1024x768"
 
     sessions.remember(NAMED, "abc", "", {"browser": "firefox"})
-    assert sessions.describe()["window"] is None
+    assert sessions.describe(clients_module.caller())["window"] is None
 
 
 def test_a_session_stored_before_browsers_were_selectable_reads_as_chrome(named_caller):
@@ -404,113 +403,21 @@ def test_a_session_stored_before_browsers_were_selectable_reads_as_chrome(named_
     actions.grid.alive.add("abc")
     sessions = manager(actions)
     sessions.remember(NAMED, "abc", "", {"width": 1400})
-    assert sessions.describe()["browser"] == "chrome"
+    assert sessions.describe(clients_module.caller())["browser"] == "chrome"
 
 
 def test_describe_reports_no_browser_when_there_is_no_session(named_caller):
     """Naming a browser for a session that does not exist would be a fiction."""
-    assert manager().describe()["browser"] is None
+    assert manager().describe(clients_module.caller())["browser"] is None
 
 
 # ---- the stores ------------------------------------------------------------
 
 
-class FakeRedis:
-    """Enough of redis-py for the store: get, set with ex, delete, ping."""
-
-    def __init__(self, reachable=True):
-        self.data = {}
-        self.expiries = {}
-        self.reachable = reachable
-        self.calls = []
-
-    def ping(self):
-        if not self.reachable:
-            raise ConnectionError("nope")
-        return True
-
-    def get(self, key):
-        self.calls.append("get")
-        return self.data.get(key)
-
-    def mget(self, keys):
-        self.calls.append("mget")
-        return [self.data.get(key) for key in keys]
-
-    def set(self, key, value, ex=None):
-        self.data[key] = value.encode() if isinstance(value, str) else value
-        self.expiries[key] = ex
-
-    def delete(self, key):
-        self.data.pop(key, None)
-
-    def scan_iter(self, match="*", count=None):
-        prefix = match.rstrip("*")
-        return [k for k in list(self.data) if k.startswith(prefix)]
-
-    def pipeline(self):
-        return FakePipeline(self)
-
-
-class FakePipeline:
-    """redis-py's optimistic transaction: WATCH reads at once, MULTI buffers,
-    EXEC refuses with WatchError if a watched key was written since.
-
-    ``fake.interfere`` runs just before EXEC — another replica's write landing
-    between this one's read and its write.
-    """
-
-    def __init__(self, fake):
-        self.fake = fake
-        self.watched = {}
-        self.queued = []
-        self.buffering = False
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        self.reset()
-
-    def reset(self):
-        self.watched, self.queued, self.buffering = {}, [], False
-
-    def watch(self, key):
-        self.watched[key] = self.fake.data.get(key)
-
-    def unwatch(self):
-        self.watched = {}
-
-    def get(self, key):
-        return self.fake.get(key)
-
-    def multi(self):
-        self.buffering = True
-
-    def set(self, key, value, ex=None):
-        assert self.buffering, "a write outside MULTI is not a transaction"
-        self.queued.append((key, value, ex))
-
-    def execute(self):
-        from redis.exceptions import WatchError
-
-        interfere = getattr(self.fake, "interfere", None)
-        if interfere:
-            interfere()
-        changed = any(self.fake.data.get(k) != v for k, v in self.watched.items())
-        queued = self.queued
-        self.reset()
-        if changed:
-            raise WatchError("watched key changed")
-        for key, value, ex in queued:
-            self.fake.set(key, value, ex=ex)
-        return [True] * len(queued)
-
-
 def test_redis_store_round_trips_a_record_and_expires_it():
     fake = FakeRedis()
     store = RedisStore(fake, prefix="p:", ttl=99)
-    store.set("k", SessionRecord(session_id="abc").at("https://example.com"))
+    store.set("k", SessionRecord(session_id="abc").visited("https://example.com"))
     record = store.get("k")
     assert (record.session_id, record.url) == ("abc", "https://example.com")
     assert "p:k" in fake.data, "the prefix must be applied"
@@ -595,7 +502,7 @@ def _stores():
 
 @pytest.mark.parametrize("store", _stores(), ids=lambda s: s.kind)
 def test_update_applies_the_change_to_the_stored_record(store):
-    store.set("k", SessionRecord(session_id="abc").at("https://a.test"))
+    store.set("k", SessionRecord(session_id="abc").visited("https://a.test"))
     got = store.update("k", lambda r: r.with_site_data({"cookies": []}))
     assert got == store.get("k")
     assert (got.session_id, got.url, got.site_data) == ("abc", "https://a.test", {"cookies": []})
@@ -664,11 +571,11 @@ def test_redis_update_retries_when_another_writer_lands_first():
     the change is re-applied to its record rather than reverting it."""
     fake = FakeRedis()
     store = RedisStore(fake, prefix="p:")
-    store.set("k", SessionRecord(session_id="old").at("https://old.test"))
+    store.set("k", SessionRecord(session_id="old").visited("https://old.test"))
 
     def open_elsewhere():
         fake.interfere = None
-        store.set("k", SessionRecord(session_id="new").at("https://new.test"))
+        store.set("k", SessionRecord(session_id="new").visited("https://new.test"))
 
     fake.interfere = open_elsewhere
     got = store.update("k", lambda r: r.with_site_data({"a": 1}))
@@ -721,6 +628,94 @@ def test_redis_upsert_on_an_absent_key_retries_when_another_first_write_lands():
     assert store.get("k").session_id == "mine"
 
 
+# ---- change: a write that answers ---------------------------------------------
+
+
+@pytest.mark.parametrize("store", _stores(), ids=lambda s: s.kind)
+def test_change_returns_what_it_stored_and_what_it_found(store):
+    store.set("k", SessionRecord(session_id="abc"))
+    got, note = store.change("k", lambda r: (r.with_site_data({"a": 1}), r.session_id))
+    assert (got, note) == (store.get("k"), "abc")
+    assert got.site_data == {"a": 1}
+
+
+@pytest.mark.parametrize("store", _stores(), ids=lambda s: s.kind)
+def test_a_change_that_stores_nothing_still_answers(store):
+    store.set("k", SessionRecord(session_id="abc"))
+    got, note = store.change("k", lambda r: (None, "kept"))
+    assert (got.session_id, note) == ("abc", "kept")
+
+
+@pytest.mark.parametrize("store", _stores(), ids=lambda s: s.kind)
+def test_a_change_to_an_absent_session_runs_nothing_and_answers_nothing(store):
+    called = []
+    assert store.change("k", lambda r: called.append(r) or (r, "x")) == (None, None)
+    assert called == [] and store.get("k") is None
+
+
+@pytest.mark.parametrize("store", _stores(), ids=lambda s: s.kind)
+def test_a_creating_change_writes_the_first_record_and_answers(store):
+    got, note = store.change(
+        "k", lambda r: (SessionRecord(session_id="new"), r is None), create=True
+    )
+    assert (got, note) == (store.get("k"), True)
+    assert got.session_id == "new"
+
+
+def _retried_once(store, stale, landed):
+    """The store's first run of `fn` sees `stale`, then `landed` is written by
+    another writer (None: the record expires) and `fn` runs again: Redis by a
+    refused EXEC, memory by the same sequence played through `upsert` (the
+    RetryingStore pattern)."""
+
+    def land():
+        store.set("k", landed) if landed else store.delete("k")
+
+    if store.kind == "redis":
+        def elsewhere():
+            store.client.interfere = None
+            land()
+
+        store.client.interfere = elsewhere
+        return
+    real = store.upsert
+
+    def once(key, fn):
+        store.upsert = real
+        fn(stale)
+        land()
+        return real(key, fn)
+
+    store.upsert = once
+
+
+@pytest.mark.parametrize("store", _stores(), ids=lambda s: s.kind)
+def test_a_retried_change_answers_with_its_last_run_only(store):
+    """The run a retry threw away saw a record that was never written: its
+    note must not come back."""
+    stale = SessionRecord(session_id="old")
+    store.set("k", stale)
+    _retried_once(store, stale, SessionRecord(session_id="new"))
+    runs = []
+
+    def fn(r):
+        runs.append(r.session_id)
+        return r.with_site_data({"a": 1}), ("saw old" if r.session_id == "old" else None)
+
+    got, note = store.change("k", fn)
+    assert runs == ["old", "new"], "the change was retried"
+    assert note is None
+    assert got.session_id == "new" and got == store.get("k")
+
+
+@pytest.mark.parametrize("store", _stores(), ids=lambda s: s.kind)
+def test_a_change_into_a_record_that_expired_before_its_retry_answers_nothing(store):
+    stale = SessionRecord(session_id="old")
+    store.set("k", stale)
+    _retried_once(store, stale, None)
+    assert store.change("k", lambda r: (r, "saw old")) == (None, None)
+
+
 def test_two_first_opens_on_a_new_name_leave_exactly_one_browser():
     """Both opens of a never-seen name read no record. The one that writes
     second must still see the first's browser and quit the loser."""
@@ -762,9 +757,9 @@ def test_a_losing_open_describes_the_browser_the_session_kept():
     actions = InterleavedActions()
     sessions = manager(actions)
     actions.during_first = lambda: sessions.open_browser(
-        NAMED, url="https://won.test/", browser="firefox"
+        Caller(NAMED), url="https://won.test/", browser="firefox"
     )
-    told = sessions.open_browser(NAMED, url="https://lost.test/", browser="chrome")
+    told = sessions.open_browser(Caller(NAMED), url="https://lost.test/", browser="chrome")
     kept = sessions.store.get(NAMED)
     assert actions.grid.alive == {kept.session_id}
     assert told["browser"] == "firefox"
@@ -781,9 +776,9 @@ def test_a_losing_clean_open_erases_nothing_from_the_winner():
         "cookies": [{"name": "sid", "value": "1", "domain": "app.test"}],
         "origins": {}, "session": {}, "saved_at": 1000.0,
     }
-    sessions.store.set(NAMED, SessionRecord(site_data=data).at("https://app.test/"))
-    actions.during_first = lambda: sessions.open_browser(NAMED)
-    told = sessions.open_browser(NAMED, restore_site_data=False)
+    sessions.store.set(NAMED, SessionRecord(site_data=data).visited("https://app.test/"))
+    actions.during_first = lambda: sessions.open_browser(Caller(NAMED))
+    told = sessions.open_browser(Caller(NAMED), restore_site_data=False)
     assert "site_data" not in told, "the loser forgot nothing"
     assert sessions.store.get(NAMED).site_data["cookies"] == data["cookies"]
 
@@ -884,7 +879,7 @@ def test_a_missing_redis_package_stops_the_boot(monkeypatch):
 
 def test_an_unreachable_redis_never_chains_the_raw_password(monkeypatch):
     """Copilot review, PR #41: ``StoreUnavailable``'s own message is scrubbed
-    through ``errors.message``, but chaining the raw driver exception with
+    through ``faults.message``, but chaining the raw driver exception with
     ``from exc`` put its unscrubbed ``str()`` back into any traceback printed
     for the boot failure — including the password `where` is built to hide.
     Both the unreachable and missing-package raises must be ``from None``."""
@@ -1049,7 +1044,7 @@ def test_only_an_invalid_session_id_counts_as_gone(monkeypatch, response, alive,
     from kubed.selenium_flow.core import browser as browser_module
 
     monkeypatch.setattr(
-        browser_module.requests, "get", lambda *a, **k: response
+        browser_module.requests.Session, "get", lambda *a, **k: response
     )
     grid = browser_module.Grid("http://grid.invalid:4444")
     assert grid.is_alive("abc") is alive, why
@@ -1061,7 +1056,7 @@ def test_an_unreachable_grid_does_not_strand_the_session(monkeypatch):
     def boom(*a, **k):
         raise browser_module.requests.RequestException("down")
 
-    monkeypatch.setattr(browser_module.requests, "get", boom)
+    monkeypatch.setattr(browser_module.requests.Session, "get", boom)
     grid = browser_module.Grid("http://grid.invalid:4444")
     assert grid.is_alive("abc") is True
 
@@ -1070,17 +1065,17 @@ def test_an_unreachable_grid_does_not_strand_the_session(monkeypatch):
 
 
 def test_ending_something_that_is_not_there_is_not_an_error():
-    assert manager().end_browser("nobody") is None
+    assert manager().end_browser(Caller("nobody")) is None
 
 
 def test_context_is_what_a_reopen_should_inherit(monkeypatch):
     sessions = manager()
     sessions.store.set(
         NAMED,
-        SessionRecord(session_id="", settings={"browser": "firefox"}).at("https://x/"),
+        SessionRecord(session_id="", settings={"browser": "firefox"}).visited("https://x/"),
     )
     monkeypatch.setattr(
-        sessions_module, "http_request", lambda: http({"session": "desktop"})
+        clients_module, "request_values", lambda: http({"session": "desktop"})
     )
     assert sessions.context(NAMED) == {
         "settings": {"browser": "firefox"},
@@ -1090,7 +1085,7 @@ def test_context_is_what_a_reopen_should_inherit(monkeypatch):
 
 def test_context_is_empty_when_there_is_nothing_to_inherit(monkeypatch):
     monkeypatch.setattr(
-        sessions_module, "http_request", lambda: http({"session": "desktop"})
+        clients_module, "request_values", lambda: http({"session": "desktop"})
     )
     assert manager().context(NAMED) == {}
 
@@ -1109,7 +1104,7 @@ def test_opening_a_replacement_ends_the_browser_it_replaces():
     actions = RecordingActions()
     sessions = manager(actions)
     sessions.remember(NAMED, "old-browser", "https://x/", {"browser": "chrome"})
-    ended = sessions.end_browser(NAMED)
+    ended = sessions.end_browser(Caller(NAMED))
     assert ended == "old-browser"
     assert actions.closed == ["old-browser"]
 
@@ -1119,7 +1114,7 @@ def test_replacing_keeps_the_session_and_its_context():
     replacement inherits, so ending must not take it."""
     sessions = manager()
     sessions.remember(NAMED, "old-browser", "https://x/", {"browser": "firefox"})
-    sessions.end_browser(NAMED)
+    sessions.end_browser(Caller(NAMED))
     record = sessions.store.get(NAMED)
     assert not record.attached
     assert record.url == "https://x/"
@@ -1129,8 +1124,8 @@ def test_replacing_keeps_the_session_and_its_context():
 def test_ending_a_session_with_no_browser_ends_nothing():
     actions = RecordingActions()
     sessions = manager(actions)
-    sessions.store.set(NAMED, SessionRecord(session_id="").at("https://x/"))
-    assert sessions.end_browser(NAMED) is None
+    sessions.store.set(NAMED, SessionRecord(session_id="").visited("https://x/"))
+    assert sessions.end_browser(Caller(NAMED)) is None
     assert actions.closed == []
 
 
@@ -1144,7 +1139,7 @@ def test_ending_detaches_even_when_the_browser_will_not_quit():
 
     sessions = manager(Refuses())
     sessions.remember(NAMED, "old-browser", "https://x/")
-    sessions.end_browser(NAMED)
+    sessions.end_browser(Caller(NAMED))
     assert not sessions.store.get(NAMED).attached
 
 
@@ -1165,10 +1160,10 @@ async def test_open_session_comes_back_to_the_page_it_was_on(server, monkeypatch
         seen.update(kwargs)
         return {"session_id": "abc", "url": kwargs.get("url") or "about:blank"}
 
-    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
+    calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.actions, "open_session", fake_open)
     server.sessions.store.set(
-        NAMED, SessionRecord(session_id="").at("https://app.test/orders")
+        NAMED, SessionRecord(session_id="").visited("https://app.test/orders")
     )
     async with Client(server.mcp) as client:
         await client.call_tool("open_session", {})
@@ -1193,14 +1188,14 @@ async def test_fresh_drops_the_remembered_page_and_keeps_the_browser(
         seen.update(kwargs)
         return {"session_id": "abc", "url": "about:blank"}
 
-    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
+    calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.actions, "open_session", fake_open)
     server.sessions.store.set(
         NAMED,
         SessionRecord(
             session_id="",
             settings={"browser": "firefox", "width": 1400, "height": 900},
-        ).at("https://app.test/orders"),
+        ).visited("https://app.test/orders"),
     )
     async with Client(server.mcp) as client:
         await client.call_tool("open_session", {"fresh": True})
@@ -1220,7 +1215,7 @@ async def test_a_url_given_alongside_fresh_still_wins(server, monkeypatch):
     from .conftest import NAMED
 
     seen = {}
-    monkeypatch.setattr(server.sessions, "name", lambda: NAMED)
+    calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(
         server.actions,
         "open_session",
@@ -1229,7 +1224,7 @@ async def test_a_url_given_alongside_fresh_still_wins(server, monkeypatch):
         ),
     )
     server.sessions.store.set(
-        NAMED, SessionRecord(session_id="").at("https://app.test/orders")
+        NAMED, SessionRecord(session_id="").visited("https://app.test/orders")
     )
     async with Client(server.mcp) as client:
         await client.call_tool(
@@ -1261,8 +1256,8 @@ def test_two_opens_at_once_leave_exactly_one_browser():
     sit on the Grid referenced by nothing until the idle reap."""
     actions = InterleavedActions()
     sessions = manager(actions)
-    actions.during_first = lambda: sessions.open_browser(NAMED)
-    sessions.open_browser(NAMED)
+    actions.during_first = lambda: sessions.open_browser(Caller(NAMED))
+    sessions.open_browser(Caller(NAMED))
     assert actions.opened == 2
     kept = sessions.store.get(NAMED).session_id
     assert actions.grid.alive == {kept}
@@ -1282,7 +1277,7 @@ def test_two_reopens_after_a_reap_leave_exactly_one_browser():
 
 def test_a_failed_quit_never_logs_the_grids_credentials(caplog):
     """requests' HTTPError quotes the whole request URL, userinfo included;
-    the cleanup log goes through errors.message like every caller-facing line
+    the cleanup log goes through faults.message like every caller-facing line
     (Copilot, #50)."""
     import logging
 
@@ -1298,6 +1293,303 @@ def test_a_failed_quit_never_logs_the_grids_credentials(caplog):
 
     actions.end_browser = refuse
     with caplog.at_level(logging.INFO):
-        sessions.end_browser(NAMED)
+        sessions.end_browser(Caller(NAMED))
     assert "could not end browser" in caplog.text
     assert "hunter2" not in caplog.text
+
+
+# ---- how a request names itself, edge by edge (N8-N12) ----------------------
+
+
+def named_in(request) -> str:
+    """The session a Starlette request names, as a route reads it."""
+    return Caller.from_request(*values_of(request)).name
+
+
+def library_in(request) -> str:
+    """The flow library a Starlette request is about, as a route reads it."""
+    return Caller.from_request(*values_of(request)).library
+
+
+def request_with(query: str = "", headers: dict | None = None):
+    """A real Starlette request, because the HTTP routes resolve a name from one
+    and the rule must read the same off it as off the ambient request."""
+    from starlette.requests import Request
+
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/browser",
+            "query_string": query.encode(),
+            "headers": [(k.encode(), v.encode()) for k, v in (headers or {}).items()],
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "query",
+    ["session=%20desk%20", "session=desk", "session=%09desk%0A"],
+    ids=["spaces", "plain", "tab and newline"],
+)
+def test_surrounding_whitespace_is_not_part_of_a_name(query):
+    assert named_in(request_with(query)) == "desk"
+
+
+def test_a_blank_name_is_no_name_at_all():
+    """Blank after stripping counts as absent: there is nothing to refuse for
+    being malformed, so the caller is told to name itself."""
+    with pytest.raises(ValueError, match="name your session"):
+        named_in(request_with("session=%20%20"))
+    assert library_in(request_with("session=%20%20")) == "global"
+
+
+def test_a_blank_header_does_not_make_two_names_of_a_query():
+    request = request_with("session=desk", {"X-Session-Key": "   "})
+    assert named_in(request) == "desk"
+
+
+def test_the_header_name_is_matched_whatever_its_case():
+    for header in ("X-Session-Key", "x-session-key", "X-SESSION-KEY"):
+        assert named_in(request_with(headers={header: "desk"})) == "desk"
+
+
+def test_a_name_keeps_its_case_so_two_cases_are_two_sessions():
+    assert named_in(request_with("session=Desk")) == "Desk"
+    assert named_in(request_with("session=desk")) == "desk"
+
+
+def test_a_header_and_a_query_are_two_names_even_over_http_requests():
+    request = request_with("session=a", {"x-session-key": "b"})
+    with pytest.raises(ValueError, match="name your session once"):
+        named_in(request)
+    with pytest.raises(ValueError, match="name your session once"):
+        library_in(request)
+
+
+def test_library_from_a_request_is_the_callers_or_the_shared_one():
+    assert library_in(request_with("session=desk")) == "desk"
+    assert library_in(request_with()) == "global"
+
+
+def test_a_query_that_names_two_sessions_is_refused():
+    try:
+        named = named_in(request_with("session=a&session=b"))
+    except ValueError as exc:
+        assert str(exc) == "the request names two sessions: a, b"
+        return
+    raise AssertionError(f"resolved to {named!r} without a word")
+
+
+def test_a_repeated_header_names_two_sessions_too():
+    request = request_with(headers={"x-session-key": "a"})
+    request.scope["headers"].append((b"x-session-key", b"b"))
+    with pytest.raises(ValueError) as raised:
+        named_in(request)
+    assert str(raised.value) == "the request names two sessions: a, b"
+
+
+def test_a_name_repeated_with_the_same_value_is_one_name():
+    assert named_in(request_with("session=a&session=a")) == "a"
+
+
+def test_a_repeated_name_is_refused_on_the_library_path_too():
+    """A flow read that names two sessions has two ideas about whose library
+    it is, the same as a browser call."""
+    with pytest.raises(ValueError, match="names two sessions"):
+        library_in(request_with("session=a&session=b"))
+
+
+def test_a_header_beside_a_repeated_query_is_still_naming_it_twice():
+    """No precedence: the header does not settle which of the two queries
+    counts, it is one more name, and the refusal is the existing one."""
+    request = request_with("session=a&session=b", {"x-session-key": "c"})
+    with pytest.raises(ValueError, match="name your session once"):
+        named_in(request)
+
+
+def test_a_repeated_name_is_a_400_over_http(server):
+    from starlette.testclient import TestClient
+
+    from .conftest import TOKEN
+
+    client = TestClient(
+        server.mcp.http_app(), headers={"Authorization": f"Bearer {TOKEN}"}
+    )
+    response = client.get("/browser?session=a&session=b")
+    assert response.status_code == 400
+    assert response.json() == {"error": "the request names two sessions: a, b"}
+
+
+def test_a_client_setting_repeated_is_the_later_one():
+    """Only a session name became a refusal; a client default reads as it
+    always has."""
+    caller = Caller.from_request({"width": ["800", "1400"]}, {})
+    assert caller.defaults == {"width": 1400}
+
+
+def test_a_caller_carries_its_clients_defaults():
+    caller = caller_of({"session": "a", "width": "1400"}, {"x-browser": "firefox"})
+    assert caller.defaults == {"width": 1400, "browser": "firefox"}
+    assert Caller.stdio().defaults == {}
+
+
+def test_off_http_resolve_applies_no_client_defaults():
+    from kubed.selenium_flow.session import settings as settings_module
+
+    assert settings_module.resolve({}, defaults={}, client=None) == {}
+    assert settings_module.resolve(
+        {}, defaults={"browser": "chrome"}, client={"browser": "firefox"}
+    ) == {"browser": "firefox"}
+
+
+def test_an_open_uses_the_defaults_its_caller_brought():
+    actions = RecordingActions()
+    manager(actions).open_browser(
+        Caller.from_request({"session": ["a"]}, {"x-window-width": ["1400"]})
+    )
+    assert actions.opened_settings == [{"width": 1400}]
+
+
+def test_off_the_request_object_the_headers_still_name_a_caller(monkeypatch):
+    """N12: when the request object is out of reach, FastMCP's header helper is
+    the fallback — lowercased, with no query parameters to offer."""
+    import fastmcp.server.dependencies as dependencies
+
+    def no_request():
+        raise RuntimeError("no active HTTP request")
+
+    monkeypatch.setattr(dependencies, "get_http_request", no_request)
+    monkeypatch.setattr(
+        dependencies, "get_http_headers", lambda: {"X-Session-Key": " desk "}
+    )
+    assert clients_module.request_values() == ({}, {"x-session-key": [" desk "]})
+    caller = clients_module.caller()
+    assert (caller.name, caller.named_by) == ("desk", "header")
+
+    monkeypatch.setattr(dependencies, "get_http_headers", dict)
+    assert clients_module.request_values() is None, "no headers is not HTTP at all"
+
+
+# ---- how each surface says who named the session (M36) ----------------------
+
+
+def test_describe_says_header_when_the_header_named_it():
+    caller = caller_of(headers={"x-session-key": "desk"})
+    assert manager().describe(caller)["named_by"] == "header"
+
+
+def test_describe_says_request_when_a_route_names_it(server):
+    """The HTTP routes read the name off their own request and hand it in, so
+    this surface reports `request` where MCP reports `query` or `header` — a
+    divergence between the two that Task 7 settles."""
+    from starlette.testclient import TestClient
+
+    from .conftest import TOKEN
+
+    client = TestClient(
+        server.mcp.http_app(), headers={"Authorization": f"Bearer {TOKEN}"}
+    )
+    status = client.get("/browser", params={"session": "desk"}).json()
+    assert status["session"] == "desk"
+    assert status["named_by"] == "request"
+
+
+# ---- the browser a session holds, without opening one (M31) -----------------
+
+
+def test_browser_is_the_grid_id_only_while_it_is_attached_and_alive():
+    actions = RecordingActions()
+    sessions = manager(actions)
+    assert sessions.browser(NAMED) == "", "no record"
+
+    sessions.store.set(NAMED, SessionRecord(session_id=""))
+    assert sessions.browser(NAMED) == "", "a record with nothing attached"
+
+    sessions.store.set(NAMED, SessionRecord(session_id="abc"))
+    assert sessions.browser(NAMED) == "", "attached, but the Grid has reaped it"
+
+    actions.grid.alive.add("abc")
+    assert sessions.browser(NAMED) == "abc"
+    assert actions.opened == 0, "asking never opens a browser"
+    assert sessions.browser(OTHER) == "", "another name is another session"
+
+
+# ---- a record that cannot be read is a miss (S5) ----------------------------
+
+
+@pytest.mark.parametrize("opened_at", ["yesterday", [1], {"a": 1}])
+def test_a_record_with_a_non_numeric_opened_at_reads_as_absent(opened_at):
+    import json
+
+    raw = json.dumps({"session_id": "abc", "opened_at": opened_at})
+    assert SessionRecord.from_json(raw) is None
+
+
+def test_a_stored_record_with_a_non_numeric_opened_at_is_no_session():
+    fake = FakeRedis()
+    store = RedisStore(fake, prefix="p:")
+    fake.set("p:desk", '{"session_id": "abc", "opened_at": "yesterday"}')
+    assert store.get("desk") is None
+    assert store.records() == {}
+
+
+# ---- two calls on one session at once (G2) ----------------------------------
+
+
+def test_two_concurrent_calls_on_one_session_run_one_after_the_other():
+    """One browser-driving call at a time per session (Ruling 2): two navigates
+    released together do not interleave on the browser — the second's begins
+    only once the first's has ended. What stayed true from before the lock:
+    both complete, and the record is whole."""
+    import threading
+    import time
+    from types import SimpleNamespace
+
+    from kubed.selenium_flow.core.actions import Actions
+
+    from .fakes import ScriptedDriver
+
+    order = []
+
+    class Slow(ScriptedDriver):
+        def get(self, url):
+            order.append(("in", url))
+            time.sleep(0.2)  # long enough for the other to land inside, unlocked
+            order.append(("out", url))
+            super().get(url)
+
+    driver = Slow()
+    actions = Actions(
+        SimpleNamespace(reconnect=lambda session_id: driver, is_alive=lambda _: True)
+    )
+    sessions = manager(actions)
+    sessions.store.set(NAMED, SessionRecord(session_id="abc"))
+    together = threading.Barrier(2, timeout=5)
+    results, errors = [], []
+
+    def call(url):
+        try:
+            together.wait()
+            results.append(
+                sessions.act(Caller(NAMED), lambda s: actions.navigate(s, url))
+            )
+        except Exception as exc:  # noqa: BLE001 - reported below, in the main thread
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=call, args=(url,))
+        for url in ("https://a.test/", "https://b.test/")
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(10)
+
+    assert errors == []
+    assert sorted(r["url"] for r in results) == ["https://a.test/", "https://b.test/"]
+    first, second = order[0][1], order[2][1]
+    assert order == [("in", first), ("out", first), ("in", second), ("out", second)]
+    record = sessions.store.get(NAMED)
+    assert record.session_id == "abc", "the browser the record holds is unchanged"
+    assert record.url in {"https://a.test/", "https://b.test/"}

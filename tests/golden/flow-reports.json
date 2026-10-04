@@ -1,0 +1,248 @@
+{
+  "cancelled": {
+    "flow": "login",
+    "hint": {
+      "arguments": {
+        "flow": "login",
+        "step": "1"
+      },
+      "prompt": "repair_flow",
+      "read": "skill://selenium-flow/references/TROUBLESHOOTING.md"
+    },
+    "status": "failed",
+    "steps": [
+      {
+        "error": "the run was cancelled before this step",
+        "n": 1,
+        "ok": false,
+        "tool": "navigate"
+      }
+    ],
+    "steps_run": 1,
+    "steps_total": 3
+  },
+  "continue_on_error": {
+    "flow": "login",
+    "status": "ok",
+    "steps": [
+      {
+        "error": "boom",
+        "id": "dismiss-banner",
+        "n": 1,
+        "ok": false,
+        "summary": "interact css='.c' action='click'",
+        "tool": "interact"
+      },
+      {
+        "n": 2,
+        "ok": true,
+        "summary": "navigate url='x'",
+        "tool": "navigate",
+        "url": "https://example.test/navigate"
+      }
+    ],
+    "steps_run": 2,
+    "steps_total": 2,
+    "title": "Navigate",
+    "url": "https://example.test/navigate"
+  },
+  "failing": {
+    "flow": "login",
+    "hint": {
+      "arguments": {
+        "flow": "login",
+        "step": "2"
+      },
+      "prompt": "repair_flow",
+      "read": "skill://selenium-flow/references/FLOWS.md",
+      "section": "when-a-flow-fails"
+    },
+    "status": "failed",
+    "steps": [
+      {
+        "n": 1,
+        "ok": true,
+        "summary": "navigate url='https://example.test/login'",
+        "tool": "navigate",
+        "url": "https://example.test/navigate"
+      },
+      {
+        "error": "no element matched",
+        "n": 2,
+        "ok": false,
+        "summary": "write css='#email' text=5 chars",
+        "tool": "write"
+      }
+    ],
+    "steps_run": 2,
+    "steps_total": 3,
+    "title": "Navigate",
+    "url": "https://example.test/navigate"
+  },
+  "file_producing": {
+    "flow": "login",
+    "status": "ok",
+    "steps": [
+      {
+        "file": {
+          "name": "shot.png",
+          "url": "https://x.test/files/abc/shot.png?<signed>"
+        },
+        "n": 1,
+        "ok": true,
+        "summary": "screenshot",
+        "tool": "screenshot",
+        "url": "https://x.test/shot"
+      }
+    ],
+    "steps_run": 1,
+    "steps_total": 1,
+    "url": "https://x.test/shot"
+  },
+  "guarded_secret": {
+    "flow": "login",
+    "status": "ok",
+    "steps": [
+      {
+        "n": 1,
+        "ok": true,
+        "result": {
+          "title": "Write",
+          "url": "https://example.test/write",
+          "value": null
+        },
+        "summary": "write css='#p' text=<hidden>",
+        "tool": "write",
+        "url": "https://example.test/write"
+      }
+    ],
+    "steps_run": 1,
+    "steps_total": 1,
+    "title": "Write",
+    "url": "https://example.test/write"
+  },
+  "out_of_time": {
+    "flow": "login",
+    "hint": {
+      "arguments": {
+        "flow": "login",
+        "step": "2"
+      },
+      "prompt": "repair_flow",
+      "read": "skill://selenium-flow/references/FLOWS.md",
+      "section": "how-long-a-run-may-take"
+    },
+    "status": "failed",
+    "steps": [
+      {
+        "n": 1,
+        "ok": true,
+        "summary": "navigate url='0'",
+        "tool": "navigate",
+        "url": "https://example.test/navigate"
+      },
+      {
+        "error": "the run passed its 2s budget before this step",
+        "n": 2,
+        "ok": false,
+        "tool": "navigate"
+      }
+    ],
+    "steps_run": 2,
+    "steps_total": 5,
+    "title": "Navigate",
+    "url": "https://example.test/navigate"
+  },
+  "redacted_url": {
+    "flow": "login",
+    "status": "ok",
+    "steps": [
+      {
+        "n": 1,
+        "ok": true,
+        "summary": "write css='#p' text=<hidden>",
+        "tool": "write"
+      }
+    ],
+    "steps_run": 1,
+    "steps_total": 1,
+    "title": "t",
+    "url": "https://x.test/?q=<hidden>",
+    "url_redacted": true
+  },
+  "simple": {
+    "flow": "login",
+    "status": "ok",
+    "steps": [
+      {
+        "n": 1,
+        "ok": true,
+        "summary": "navigate url='https://example.test/login'",
+        "tool": "navigate",
+        "url": "https://example.test/navigate"
+      },
+      {
+        "n": 2,
+        "ok": true,
+        "summary": "write css='#email' text=5 chars",
+        "tool": "write",
+        "url": "https://example.test/write"
+      },
+      {
+        "n": 3,
+        "ok": true,
+        "summary": "interact css='button' action='click'",
+        "tool": "interact",
+        "url": "https://example.test/interact"
+      }
+    ],
+    "steps_run": 3,
+    "steps_total": 3,
+    "title": "Interact",
+    "url": "https://example.test/interact"
+  },
+  "simple_verbose": {
+    "flow": "login",
+    "status": "ok",
+    "steps": [
+      {
+        "n": 1,
+        "ok": true,
+        "result": {
+          "title": "Navigate",
+          "url": "https://example.test/navigate"
+        },
+        "summary": "navigate url='https://example.test/login'",
+        "tool": "navigate",
+        "url": "https://example.test/navigate"
+      },
+      {
+        "n": 2,
+        "ok": true,
+        "result": {
+          "title": "Write",
+          "url": "https://example.test/write",
+          "value": "a@b.c"
+        },
+        "summary": "write css='#email' text=5 chars",
+        "tool": "write",
+        "url": "https://example.test/write"
+      },
+      {
+        "n": 3,
+        "ok": true,
+        "result": {
+          "title": "Interact",
+          "url": "https://example.test/interact"
+        },
+        "summary": "interact css='button' action='click'",
+        "tool": "interact",
+        "url": "https://example.test/interact"
+      }
+    ],
+    "steps_run": 3,
+    "steps_total": 3,
+    "title": "Interact",
+    "url": "https://example.test/interact"
+  }
+}

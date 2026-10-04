@@ -37,21 +37,39 @@ from __future__ import annotations
 
 import logging
 
+import anyio
+import yaml
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from ..core.browser import as_bool
+from ..core import guidance
+from ..core.annotations import hints
+from ..core.capabilities import ENDPOINTS, LIBRARY_ARG, capability, method_for
+from ..core.coerce import as_bool
 from ..http import answer as answer_module
-from ..mcp import progress
-from ..mcp.annotations import hints
+from ..mcp import clients, progress
 from ..mcp.tools import SecretRef
-from ..routes import ENDPOINTS
-from ..session import sessions as sessions_module
+from ..names import GLOBAL_SESSION, valid_name
 from . import document as flowdoc
-from . import library as flows
+from . import engine, template
+from . import library as flowlib
 from . import run as flowrun
 
 log = logging.getLogger(__name__)
+
+# The only tools a step may dispatch to: the browser actions' commands, read off
+# the capability table that both surfaces are mounted from and that
+# test_surfaces.py holds to its hand list. The lifecycle calls are not steps
+# (`flowdoc.NOT_STEPS`).
+RUNNABLE = frozenset(ENDPOINTS.values()) - flowdoc.NOT_STEPS.keys()
+
+# A run is handed what it must not import: the capability table's tools and the
+# skill's URIs. This module knows both, so it is where the two are joined.
+flowrun.wire(
+    engine.Toolbox(runnable=RUNNABLE, method_for=method_for, library_arg=LIBRARY_ARG),
+    guidance.pointer,
+)
 
 LIST_URI = "flow://flows"
 FLOW_URI = "flow://flows/{name}"
@@ -60,13 +78,6 @@ SCHEMA_URI = "flow://schema"
 RUN_TOOL = "run_flow"
 SAVE_TOOL = "save_flow"
 DELETE_TOOL = "delete_flow"
-
-# Path -> the function behind it. Separate from routes.ENDPOINTS on purpose:
-# these are not browser actions and must not be counted as though they were.
-# The REST tree these serve (§F2.13). Kept as names rather than paths because
-# the spec and the wiki describe capabilities, and the path each one lives at is
-# the route table's business.
-FLOW_ENDPOINTS = ("list", "get", "save", "delete", "schema", "run")
 
 # Not under /flows: `schema` there would be indistinguishable from a flow of
 # that name.
@@ -84,6 +95,13 @@ FLOW_ROUTES = {
     # Its own tree beside /flows, and mounted like every other tree.
     "schema": ("get", SCHEMA_PATH),
 }
+
+# The endpoints by name, read off the route table rather than listed beside it.
+# Separate from the capability table on purpose: these are not browser actions and
+# must not be counted as though they were. Kept as names rather than paths
+# because the spec and the wiki describe capabilities, and the path each one
+# lives at is the route table's business (§F2.13).
+FLOW_ENDPOINTS = tuple(FLOW_ROUTES)
 
 OFF = (
     "saved flows are not enabled on this server: it was started with no "
@@ -104,13 +122,6 @@ def _require(store):
     if store is None:
         raise ValueError(OFF)
     return store
-
-
-# Which library a call is about: the caller's own, or the shared one when it
-# named no session. `sessions.library` owns the rule so that this surface and
-# the HTTP one cannot answer it differently.
-def session_of(sessions) -> str:
-    return sessions.library()
 
 
 def _context():
@@ -137,9 +148,9 @@ def catalogue(store, session: str) -> dict:
     # admin decides from this flag whether to show the globe and which way the
     # move button points, and "not shared" on a flow sitting in `global` offers
     # a move that would be a no-op.
-    own_are_shared = session == flows.GLOBAL_SESSION
+    own_are_shared = session == GLOBAL_SESSION
     if not own_are_shared:
-        for summary in store.summaries(flows.GLOBAL_SESSION):
+        for summary in store.summaries(GLOBAL_SESSION):
             entries[summary["name"]] = {**summary, "shared": True}
     for summary in store.summaries(session):
         entries[summary["name"]] = {**summary, "shared": own_are_shared}
@@ -156,9 +167,9 @@ def read_one(store, session: str, name: str) -> dict:
     flow = store.get(session, name)
     # A caller whose library is the shared one reads a shared flow. See
     # `catalogue`: the flag describes the directory, not the reader.
-    shared = session == flows.GLOBAL_SESSION
-    if flow is None and session != flows.GLOBAL_SESSION:
-        flow = store.get(flows.GLOBAL_SESSION, name)
+    shared = session == GLOBAL_SESSION
+    if flow is None and session != GLOBAL_SESSION:
+        flow = store.get(GLOBAL_SESSION, name)
         shared = flow is not None
     if flow is None:
         raise ValueError(
@@ -167,7 +178,7 @@ def read_one(store, session: str, name: str) -> dict:
         )
     return {
         **flow,
-        "session": flows.GLOBAL_SESSION if shared else session,
+        "session": GLOBAL_SESSION if shared else session,
         "shared": shared,
     }
 
@@ -190,7 +201,7 @@ def writable(session: str) -> str:
     `global` from the admin UI is a person doing it deliberately, on a surface
     that can show what a change affects. That writes to the store directly.
     """
-    if session == flows.GLOBAL_SESSION:
+    if session == GLOBAL_SESSION:
         raise ValueError(
             "the shared 'global' library is read-only: every session can list "
             "and run what is in it, so a flow you changed or deleted would "
@@ -230,6 +241,7 @@ def save_one(store, session: str, name: str, document: dict, schemas: dict) -> d
     # document that does not match its own schema (Copilot, #37).
     if document.get(flowdoc.TIMEOUT) is not None:
         document[flowdoc.TIMEOUT] = flowdoc.declared_timeout(document)
+    flowlib.check_size(flowlib.dump(document))
     stored = store.save(session, name, document)
     steps = len(stored.get("steps") or [])
     log.info("flow %s/%s saved (%s steps)", session, name, steps)
@@ -250,18 +262,81 @@ def delete_one(store, session: str, name: str) -> dict:
     return {"deleted": removed, "session": session, "name": name}
 
 
+async def save_text(
+    store, session: str, name: str, text, schemas: Schemas
+) -> dict:
+    """Rewrite one flow from the YAML a person typed — the **operator** path.
+
+    The admin editor's PUT. It stores the text **verbatim** (§F1.14): a person
+    wrote these, comments and ordering included, and a save that round-tripped
+    through a parsed dict (``save_one``) would quietly discard both. It is
+    validated against the live step schemas first, exactly as ``save_one`` is,
+    so the editor cannot store something that would not run.
+
+    It deliberately does not go through ``writable``: that gate keeps agents
+    out of the live shared library, and this is the surface where a person is
+    present and allowed in. A flow is written back where it already lives, so
+    editing a shared one edits the shared one; a new one is created in
+    ``session``.
+    """
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("yaml is required")
+    flowlib.check_size(text)
+    try:
+        document = flowlib.parse(text)
+    except yaml.YAMLError as exc:
+        raise ValueError(
+            f"that is not valid YAML: {flowlib.yaml_complaint(exc)}"
+        ) from None
+    if not isinstance(document, dict):
+        raise ValueError("a flow document must be a YAML mapping")
+    # The file name is the flow's identity — `LocalFlowStore.get` says
+    # so, and overwrites whatever the document claims. So an edited
+    # `name:` cannot rename anything: without this the save reports
+    # success, the flow keeps its old name, and the file is left saying
+    # otherwise. Refusing is not a smaller feature than renaming, it is
+    # an honest one; a rename is a move to a new name and belongs with
+    # the move verb whenever someone wants it.
+    claimed = document.get("name")
+    if claimed is not None and valid_name(
+        claimed, "flow name"
+    ) != valid_name(name, "flow name"):
+        raise ValueError(
+            f"this flow is called {name!r} and the file name is what "
+            "names it, so the document cannot rename it. Put "
+            f"{name!r} back, or delete this one and save a new flow "
+            "under the name you want."
+        )
+    flowdoc.validate(document, await schemas.get())
+    # Written back where it already lives, so editing a shared flow
+    # edits the shared one rather than silently forking a copy into
+    # this session. A flow that does not exist yet is created here.
+    existing = await run_in_threadpool(store.get, session, name)
+    where = session
+    if existing is None:
+        shared = await run_in_threadpool(
+            store.get, GLOBAL_SESSION, name
+        )
+        if shared is not None:
+            where = GLOBAL_SESSION
+    await run_in_threadpool(store.write_text, where, name, text)
+    return {"saved": True, "session": where, "name": name}
+
+
 class Schemas:
     """The step schemas, built once from the registered tools.
 
     Built lazily because `get_tool` is async and registration is not, and from
-    `ENDPOINTS` rather than from a listing: a listing is rewritten per request
-    by `resources.ShapeSessionId` and filtered by `HideMirrorTools`, so what it
-    contains depends on who is asking. What a flow step may say must not.
+    `ENDPOINTS` rather than from a listing: a listing is filtered per request
+    by `mirror.HideMirrors`, so what it contains depends on who is asking. What a
+    flow step may say must not.
     """
 
     def __init__(self, mcp):
         self.mcp = mcp
         self._cache: dict | None = None
+        # The published document schema, built from the step schemas once.
+        self._document: dict | None = None
 
     async def get(self) -> dict:
         if self._cache is None:
@@ -329,7 +404,7 @@ def register(
         mime_type="application/json",
     )
     def flows_resource() -> dict:
-        return catalogue(store, session_of(sessions))
+        return catalogue(store, clients.caller().library)
 
     @mcp.resource(
         FLOW_URI,
@@ -341,7 +416,7 @@ def register(
         mime_type="application/json",
     )
     def flow_resource(name: str) -> dict:
-        return read_one(store, session_of(sessions), name)
+        return read_one(store, clients.caller().library, name)
 
     @mcp.resource(
         SCHEMA_URI,
@@ -383,13 +458,19 @@ def register(
         parameters: dict | None = None,
         timeout: int | None = None,
     ) -> dict:
+        # In this order, which is the order the saved YAML lists them in.
         document = {"description": description, "steps": steps}
         if parameters:
             document["parameters"] = parameters
         if timeout is not None:
             document[flowdoc.TIMEOUT] = timeout
-        return save_one(
-            store, session_of(sessions), name, document, await schemas.get()
+        library = clients.caller().library  # on the request, before the thread
+        steps_schemas = await schemas.get()
+        # Validating, dumping and writing in a worker thread, as every other
+        # save does: the data directory may be NFS, and a slow write on the
+        # loop stalls every other request.
+        return await anyio.to_thread.run_sync(
+            save_one, store, library, name, document, steps_schemas
         )
 
     @mcp.tool(
@@ -411,10 +492,10 @@ def register(
     async def run_flow(
         name: str, params: dict | None = None, verbose: bool = False
     ) -> dict:
-        # `name()`, not `library()`: a run drives a browser, so this is one of
-        # the calls that has to know who is asking. Asked here, on the request,
+        # `name`, not `library`: a run drives a browser, so this is one of the
+        # calls that has to know who is asking. Asked here, on the request,
         # before the run moves to a thread.
-        session = sessions.name()
+        session = clients.caller().name
         watch = progress.Watch()
 
         def work():
@@ -449,7 +530,7 @@ def register(
         annotations=hints("Delete a flow", destructive=True, idempotent=True),
     )
     def delete_flow(name: str) -> dict:
-        return delete_one(store, session_of(sessions), name)
+        return delete_one(store, clients.caller().library, name)
 
     _routes(
         mcp, store, sessions, actions, schemas, token, prefix, secrets_catalogue,
@@ -463,46 +544,60 @@ async def _document_schema(schemas: Schemas) -> dict:
     Published so a model writing a flow is given the shape rather than inferring
     it. It cannot describe a step that would not run, because it is built from
     the same schemas the validator checks against.
+
+    Built once per `Schemas` and kept beside the step schemas it is made of:
+    both are fixed for the life of the server, and this one costs a pydantic
+    schema generation to build.
     """
-    steps = await schemas.get()
-    return {
-        "type": "object",
-        "properties": {
-            "name": {"type": "string"},
-            "description": {"type": "string"},
-            "parameters": {
+    if schemas._document is None:
+        schemas._document = _build_document_schema(await schemas.get())
+    return schemas._document
+
+
+def _build_document_schema(steps: dict) -> dict:
+    keys = {
+        "description": {"type": "string"},
+        "parameters": {
+            "type": "object",
+            "description": "JSON Schema for the values run_flow accepts.",
+        },
+        flowdoc.TIMEOUT: {
+            "type": "integer",
+            "minimum": 1,
+            "description": (
+                "Seconds the whole run may take before no further step "
+                f"starts. Defaults to {flowrun.RUN_TIMEOUT}."
+            ),
+        },
+        "steps": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
                 "type": "object",
-                "description": "JSON Schema for the values run_flow accepts.",
-            },
-            flowdoc.TIMEOUT: {
-                "type": "integer",
-                "minimum": 1,
-                "description": (
-                    "Seconds the whole run may take before no further step "
-                    f"starts. Defaults to {flowrun.RUN_TIMEOUT}."
-                ),
-            },
-            "steps": {
-                "type": "array",
-                "minItems": 1,
-                "items": {
-                    "type": "object",
-                    "required": ["tool"],
-                    "properties": {
-                        "tool": {"type": "string", "enum": sorted(steps)},
-                        # No `secret` here: it is an argument of `write`, so
-                        # it lives in `args` and the per-action schemas below
-                        # describe it. A step key would be a second place to
-                        # say it, and a caller following this resource would
-                        # have built a document save_flow rejects.
-                        "args": {"type": "object"},
-                        "id": {"type": "string"},
-                        "note": {"type": "string"},
-                        "onError": {"type": "string", "enum": list(flowdoc.ON_ERROR)},
-                        "return": {"type": "boolean"},
-                    },
+                "required": ["tool"],
+                "properties": {
+                    "tool": {"type": "string", "enum": sorted(steps)},
+                    # No `secret` here: it is an argument of `write`, so it
+                    # lives in `args` and the per-action schemas below describe
+                    # it. A step key would be a second place to say it, and a
+                    # caller following this resource would have built a
+                    # document save_flow rejects.
+                    "args": {"type": "object"},
+                    "id": {"type": "string"},
+                    "note": {"type": "string"},
+                    "onError": {"type": "string", "enum": list(flowdoc.ON_ERROR)},
+                    "return": {"type": "boolean"},
                 },
             },
+        },
+    }
+    return {
+        "type": "object",
+        # A key in DOCUMENT_KEYS with nothing said about it here fails on the
+        # first read, rather than going unpublished.
+        "properties": {
+            "name": {"type": "string"},
+            **{key: keys[key] for key in flowdoc.DOCUMENT_KEYS},
         },
         "required": ["name", "steps"],
         "x-step-params": steps,
@@ -516,7 +611,7 @@ async def _document_schema(schemas: Schemas) -> dict:
                 "in the string. Substitution is single-pass, so a value "
                 "containing ${...} resolves nothing. Write $${ for a literal."
             ),
-            "pattern": flowdoc.PARAM_REFERENCE.pattern,
+            "pattern": template.PARAM_REFERENCE.pattern,
         },
         # The secret reference is the MCP tool's own model rather than a copy of
         # it — a hand-written one is how this repo keeps finding its bugs. It is
@@ -556,18 +651,23 @@ def run_for(
         # capture is stored as the snapshot and stripped from the result. The
         # touch is left to `before_save` and the one at the end of the run.
         sessions.settle(
-            session, result, browser=resolved, reshapes=tool == "resize", touch=False
+            session,
+            result,
+            browser=resolved,
+            reshapes=capability(tool).reshapes,
+            touch=False,
         )
 
     # A save reads the localStorage of every site in the history, and the run
     # writes its pages once, at the end: so just before a save step the pages
     # reached so far go in, in one write, and the end writes only the rest.
-    flushed = {"pages": 0, "told": None}
+    # A reopen's report a flush is handed waits in `flushed` for the run's.
+    flushed: dict = {}
+    count = [0]
 
     def before_save(pages):
-        told = sessions.touch(session, *pages[flushed["pages"]:], browser=resolved)
-        flushed["pages"] = len(pages)
-        flushed["told"] = flushed["told"] or told
+        sessions.settle(session, flushed, url=pages[count[0]:], browser=resolved)
+        count[0] = len(pages)
 
     report = run_one(
         store,
@@ -601,14 +701,14 @@ def run_for(
     visited = [
         step["url"] for step in report.get("steps") or []
         if step.get("ok") and step.get("url")
-    ][flushed["pages"]:]
+    ][count[0]:]
     if report.get("url") and not report.get("url_redacted"):
         visited.append(report["url"])
-    # A flush may already have handed over a reopen's report.
-    told = sessions.touch(session, *visited, browser=resolved) or flushed["told"]
-    if told:
-        # The run's browser replaced a reaped one: what came back, once.
-        report["site_data"] = told
+    # The run's browser replaced a reaped one: what came back, once — on the
+    # run, whether this write or a flush before a save step was handed it.
+    sessions.settle(session, report, url=visited, browser=resolved)
+    if "site_data" in flushed and "site_data" not in report:
+        report["site_data"] = flushed["site_data"]
     return report
 
 
@@ -635,10 +735,9 @@ def _routes(
     async def answer(request: Request, what: str, call) -> JSONResponse:
         """One request, answered the way every other tree answers one.
 
-        The calls below take the session name and ignore it: a flow resolves
-        which library it belongs to from the request itself (``library_from``,
-        not ``name_from``), and one signature is what lets one wrapper serve
-        every tree.
+        Unnamed is allowed here: a flow belongs to a library, and ``caller.library``
+        is the shared one when the request named no session. A run asks for
+        ``caller.name``, because it drives a browser.
         """
         return await answer_module.answer(
             request, token, f"flows/{what}", call, log, named=False
@@ -650,9 +749,7 @@ def _routes(
         return await answer(
             request,
             "list",
-            lambda _name, _body: catalogue(
-                store, sessions_module.library_from(request)
-            ),
+            lambda caller, _body: catalogue(store, caller.library),
         )
 
     @mcp.custom_route(f"{prefix}{SCHEMA_PATH}", methods=["GET"], name="flows_schema")
@@ -663,7 +760,7 @@ def _routes(
         of that name.
         """
         return await answer(
-            request, "schema", lambda _name, _body: _document_schema(schemas)
+            request, "schema", lambda _caller, _body: _document_schema(schemas)
         )
 
     @mcp.custom_route(flows_root + "/{name}", methods=["GET"], name="flows_get")
@@ -672,10 +769,8 @@ def _routes(
         return await answer(
             request,
             "get",
-            lambda _name, _body: read_one(
-                store,
-                sessions_module.library_from(request),
-                request.path_params["name"],
+            lambda caller, _body: read_one(
+                store, caller.library, request.path_params["name"]
             ),
         )
 
@@ -683,18 +778,18 @@ def _routes(
     async def save_flow(request: Request) -> JSONResponse:
         """Create or replace one flow. One verb for both, as §F1.5 has it."""
 
-        async def call(_name, body):
-            document = {
-                key: body[key]
-                for key in ("description", "parameters", flowdoc.TIMEOUT, "steps")
-                if key in body
-            }
-            return save_one(
+        async def call(caller, body):
+            document = {key: body[key] for key in flowdoc.DOCUMENT_KEYS if key in body}
+            library = caller.library
+            steps_schemas = await schemas.get()
+            # Off the loop, as the MCP save is: see `save_flow` above.
+            return await anyio.to_thread.run_sync(
+                save_one,
                 store,
-                sessions_module.library_from(request),
+                library,
                 request.path_params["name"],
                 document,
-                await schemas.get(),
+                steps_schemas,
             )
 
         return await answer(request, "save", call)
@@ -705,10 +800,8 @@ def _routes(
         return await answer(
             request,
             "delete",
-            lambda _name, _body: delete_one(
-                store,
-                sessions_module.library_from(request),
-                request.path_params["name"],
+            lambda caller, _body: delete_one(
+                store, caller.library, request.path_params["name"]
             ),
         )
 
@@ -718,13 +811,13 @@ def _routes(
         return await answer(
             request,
             "run",
-            lambda _name, body: run_for(
+            lambda caller, body: run_for(
                 store,
                 actions,
                 sessions,
-                # `name_from`, not `library_from`: a run drives a browser, so
-                # this is one of the calls that has to know who is asking.
-                sessions_module.name_from(request),
+                # `name`, not `library`: a run drives a browser, so this is one
+                # of the calls that has to know who is asking.
+                caller.name,
                 request.path_params["name"],
                 params=body.get("params"),
                 # as_bool, not bool: over HTTP "false" arrives as a string, and

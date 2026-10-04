@@ -34,7 +34,7 @@ sys.path.insert(0, str(REPO))
 
 from kubed.selenium_flow import config
 from kubed.selenium_flow.config import Settings
-from kubed.selenium_flow.routes import ENDPOINTS
+from kubed.selenium_flow.core.capabilities import CAPABILITIES, ENDPOINTS
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.spec import build_spec
 
@@ -510,7 +510,16 @@ def pages(spec: dict) -> dict[str, str]:
             if tool:
                 by_tool[tool] = (method.upper(), path, op)
 
-    missing = set(by_tool) - set(ORDER)
+    # Every capability gets a page, whatever the spec happens to carry: the
+    # table is what both surfaces are mounted from, so a row the document left
+    # out is a broken build rather than a page that quietly never appears.
+    capabilities = {row.name for row in CAPABILITIES}
+    undocumented = capabilities - set(by_tool)
+    if undocumented:
+        raise SystemExit(
+            f"no operation in the spec for: {', '.join(sorted(undocumented))}"
+        )
+    missing = (set(by_tool) | capabilities) - set(ORDER)
     if missing:
         raise SystemExit(
             f"add these to GROUPS in {__file__}: {', '.join(sorted(missing))}"

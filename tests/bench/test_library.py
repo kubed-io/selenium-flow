@@ -13,6 +13,8 @@ import os
 import pytest
 
 from kubed.selenium_flow.flows import library as flows
+from kubed.selenium_flow.flows.store import LocalFlowStore
+from kubed.selenium_flow.names import SCREENSHOTS_DIR
 
 pytestmark = pytest.mark.bench
 
@@ -86,7 +88,7 @@ def flow(index: int) -> dict:
 @pytest.fixture(scope="module")
 def store(tmp_path_factory):
     root = tmp_path_factory.mktemp("flows")
-    store = flows.LocalFlowStore(root)
+    store = LocalFlowStore(root)
     for index in range(FLOWS):
         store.save(SESSION, f"flow-{index:02d}", flow(index))
     for index in range(SCREENSHOTS):
@@ -94,11 +96,11 @@ def store(tmp_path_factory):
             SESSION,
             f"screenshot-{index:03d}.png",
             bytes(2048),
-            flows.SCREENSHOTS_DIR,
+            SCREENSHOTS_DIR,
         )
         # Distinct mtimes, so the newest-first sort has an order to find.
         stamp = 1_760_000_000 + index
-        os.utime(root / SESSION / flows.SCREENSHOTS_DIR / entry["name"], (stamp, stamp))
+        os.utime(root / SESSION / SCREENSHOTS_DIR / entry["name"], (stamp, stamp))
     return store
 
 
@@ -108,11 +110,11 @@ def test_the_fixture_is_the_size_it_claims(store):
     assert len(names) == FLOWS
     sizes = [len(store.read_text(SESSION, name)) for name in names]
     assert min(sizes) > 2000 and max(sizes) < 5000, sizes
-    assert len(store.files(SESSION, flows.SCREENSHOTS_DIR)) == SCREENSHOTS
+    assert len(store.files(SESSION, SCREENSHOTS_DIR)) == SCREENSHOTS
 
 
 def test_files(benchmark, store):
-    found = benchmark(store.files, SESSION, flows.SCREENSHOTS_DIR)
+    found = benchmark(store.files, SESSION, SCREENSHOTS_DIR)
     assert len(found) == SCREENSHOTS
 
 

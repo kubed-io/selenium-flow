@@ -9,7 +9,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow.config import Settings
-from kubed.selenium_flow.http import admin
+from kubed.selenium_flow.http.admin import page as admin
 from kubed.selenium_flow.mcp import apps
 from kubed.selenium_flow.server import SeleniumMCP
 
@@ -142,7 +142,7 @@ def test_every_runnable_action_has_a_glyph_and_no_glyph_is_stale():
     step with no identity; the unknown glyph is reserved for a flow naming an
     action that does not exist. And a glyph for an action the runner no longer
     knows is a rename that only half happened."""
-    from kubed.selenium_flow.flows.run import RUNNABLE
+    from kubed.selenium_flow.flows.api import RUNNABLE
 
     body = re.search(r"export const TOOL_ICON[^=]*=\s*\{(.*?)\n\}", FLOW_TS.read_text(), re.S)
     assert body, "TOOL_ICON is no longer an object literal in flow.ts"
@@ -150,3 +150,67 @@ def test_every_runnable_action_has_a_glyph_and_no_glyph_is_stale():
     assert keys, "no keys parsed out of TOOL_ICON"
     assert sorted(set(RUNNABLE) - keys) == [], "runnable actions with no glyph"
     assert sorted(keys - set(RUNNABLE)) == [], "glyphs for actions the runner does not know"
+
+
+def test_the_page_is_built_once_and_rebuilt_when_the_ui_is(built_ui, monkeypatch):
+    reads = []
+    real = admin.read
+    monkeypatch.setattr(admin, "read", lambda n: reads.append(n) or real(n))
+    first = admin.page("admin", MOUNT="/flow", CONSOLE="/")
+    assert admin.page("admin", MOUNT="/flow", CONSOLE="/") == first
+    assert len(reads) == 3, "the second call re-read the shell"
+    admin.page("admin", MOUNT="/other", CONSOLE="/")
+    assert len(reads) == 6, "another mount is another page"
+    (built_ui / "admin.js").write_text("/* a rebuilt admin js */")
+    assert "/* a rebuilt admin js */" in admin.page("admin", MOUNT="/flow", CONSOLE="/")
+
+
+def test_the_page_says_to_revalidate_and_answers_304_to_its_etag(built_ui):
+    client = TestClient(_server().mcp.http_app())
+    res = client.get("/")
+    etag = res.headers["etag"]
+    assert res.headers["cache-control"] == "no-cache"
+    assert etag.startswith('"') and etag.endswith('"')
+    for sent in (etag, f"W/{etag}", f'"nope", {etag}', "*"):
+        again = client.get("/", headers={"If-None-Match": sent})
+        assert again.status_code == 304 and again.content == b"", sent
+        assert again.headers["etag"] == etag
+    assert client.get("/", headers={"If-None-Match": '"stale"'}).text == res.text
+    (built_ui / "admin.css").write_text("/* a rebuilt admin css */")
+    assert client.get("/", headers={"If-None-Match": etag}).status_code == 200
+
+
+def _framed(server):
+    return TestClient(server.mcp.http_app()).get("/").headers
+
+
+def test_the_built_page_forbids_framing_and_sniffing(built_ui):
+    headers = _framed(_server())
+    assert headers["content-security-policy"] == "frame-ancestors 'none'"
+    assert headers["x-content-type-options"] == "nosniff"
+    assert headers["referrer-policy"] == "same-origin"
+
+
+def test_the_placeholder_carries_the_same_headers():
+    headers = _framed(_server())
+    assert headers["content-security-policy"] == "frame-ancestors 'none'"
+    assert headers["x-content-type-options"] == "nosniff"
+
+
+def test_listed_frame_ancestors_are_the_only_framers_and_a_304_says_so(built_ui):
+    server = SeleniumMCP(
+        Settings(
+            grid={"url": "http://grid.invalid:4444"},
+            auth={"token": TOKEN},
+            security={"frame_ancestors": ["https://cloud.example", "https://g.example"]},
+        )
+    )
+    client = TestClient(server.mcp.http_app())
+    res = client.get("/")
+    assert (
+        res.headers["content-security-policy"]
+        == "frame-ancestors https://cloud.example https://g.example"
+    )
+    again = client.get("/", headers={"If-None-Match": res.headers["etag"]})
+    assert again.status_code == 304
+    assert "frame-ancestors" in again.headers["content-security-policy"]

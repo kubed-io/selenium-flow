@@ -6,6 +6,9 @@ const inView = (r) => {
   if (right <= left || bottom <= top) return null;
   return [(left + right) / 2, (top + bottom) / 2];
 };
+// The window's size rides along: a move that clamps to the window would
+// otherwise spend a second round trip asking for it.
+const viewport = [window.innerWidth, window.innerHeight];
 let at = inView(el.getBoundingClientRect());
 let scrolled = false;
 if (bringIntoView && at === null) {
@@ -16,6 +19,6 @@ if (bringIntoView && at === null) {
 if (at === null) {
   const r = el.getBoundingClientRect();
   return {at: [r.left + r.width / 2, r.top + r.height / 2],
-          scrolled: scrolled, outside: true};
+          scrolled: scrolled, outside: true, viewport: viewport};
 }
-return {at: at, scrolled: scrolled, outside: false};
+return {at: at, scrolled: scrolled, outside: false, viewport: viewport};

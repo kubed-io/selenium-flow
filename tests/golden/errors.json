@@ -1,0 +1,170 @@
+{
+  "AssertionFailed": {
+    "body": {
+      "error": "it went wrong"
+    },
+    "status": 400
+  },
+  "BidiUnavailable": {
+    "body": {
+      "error": "it went wrong"
+    },
+    "status": 503
+  },
+  "ElementClickInterceptedException": {
+    "body": {
+      "error": "it went wrong; For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#elementclickinterceptedexception"
+    },
+    "status": 400
+  },
+  "ElementNotInteractableException": {
+    "body": {
+      "error": "it went wrong; For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#elementnotinteractableexception"
+    },
+    "status": 400
+  },
+  "Ended": {
+    "body": {
+      "error": "it went wrong"
+    },
+    "status": 404
+  },
+  "InvalidArgumentException": {
+    "body": {
+      "error": "it went wrong"
+    },
+    "status": 400
+  },
+  "InvalidSelectorException": {
+    "body": {
+      "error": "it went wrong; For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#invalidselectorexception"
+    },
+    "status": 400
+  },
+  "InvalidSessionIdException": {
+    "body": {
+      "error": "it went wrong; For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#invalidsessionidexception"
+    },
+    "status": 404
+  },
+  "JavascriptException": {
+    "body": {
+      "error": "it went wrong"
+    },
+    "status": 400
+  },
+  "MoveTargetOutOfBoundsException": {
+    "body": {
+      "error": "it went wrong"
+    },
+    "status": 400
+  },
+  "NoAlertPresentException": {
+    "body": {
+      "error": "it went wrong"
+    },
+    "status": 400
+  },
+  "NoSuchDriverException": {
+    "body": {
+      "error": "it went wrong; For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors/driver_location"
+    },
+    "status": 404
+  },
+  "NoSuchElementException": {
+    "body": {
+      "error": "it went wrong; For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception"
+    },
+    "status": 400
+  },
+  "NoSuchFrameException": {
+    "body": {
+      "error": "it went wrong"
+    },
+    "status": 400
+  },
+  "NotFound": {
+    "body": {
+      "error": "no such thing"
+    },
+    "status": 404
+  },
+  "RuntimeError": {
+    "body": {
+      "error": "nobody expected this"
+    },
+    "status": 500
+  },
+  "SessionNotCreatedException": {
+    "body": {
+      "error": "no free slot; For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#sessionnotcreatedexception"
+    },
+    "status": 503
+  },
+  "StaleElementReferenceException": {
+    "body": {
+      "error": "it went wrong; For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#staleelementreferenceexception"
+    },
+    "status": 400
+  },
+  "TimeoutException": {
+    "body": {
+      "error": "it went wrong"
+    },
+    "status": 400
+  },
+  "TypeError": {
+    "body": {
+      "error": "a bad type"
+    },
+    "status": 400
+  },
+  "ValueError": {
+    "body": {
+      "error": "a bad value"
+    },
+    "status": 400
+  },
+  "WebDriverException": {
+    "body": {
+      "error": "the driver died\nStack"
+    },
+    "status": 500
+  },
+  "requests.ConnectionError": {
+    "body": {
+      "error": "refused http://grid:4444/"
+    },
+    "status": 503
+  },
+  "requests.HTTPError(403)": {
+    "body": {
+      "error": "403 Client Error"
+    },
+    "status": 400
+  },
+  "requests.HTTPError(404)": {
+    "body": {
+      "error": "404 Client Error"
+    },
+    "status": 404
+  },
+  "requests.HTTPError(no response)": {
+    "body": {
+      "error": "x"
+    },
+    "status": 503
+  },
+  "requests.Timeout": {
+    "body": {
+      "error": "slow"
+    },
+    "status": 503
+  },
+  "urllib3.HTTPError": {
+    "body": {
+      "error": "pool exhausted"
+    },
+    "status": 503
+  }
+}

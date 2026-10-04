@@ -16,11 +16,12 @@ import yaml
 
 from kubed.selenium_flow.config import FlowSettings
 from kubed.selenium_flow.flows import library as flows
-from kubed.selenium_flow.flows.library import (
+from kubed.selenium_flow.flows import store as flowstore
+from kubed.selenium_flow.flows.store import LocalFlowStore
+from kubed.selenium_flow.names import (
     GLOBAL_SESSION,
     STDIO_SESSION,
     InvalidName,
-    LocalFlowStore,
     library_of,
     valid_name,
 )
@@ -107,7 +108,7 @@ def test_the_reserved_names_are_reserved_as_sessions_but_not_as_flow_names():
     `stdio` or `global` is nobody's business but its author's, and `valid_name`
     still takes it — which is why the session rule is a separate function rather
     than a line inside that one."""
-    from kubed.selenium_flow.flows.library import valid_session_name
+    from kubed.selenium_flow.names import valid_session_name
 
     for reserved in (STDIO_SESSION, GLOBAL_SESSION):
         with pytest.raises(InvalidName, match="reserved"):
@@ -337,12 +338,12 @@ def test_flows_are_parsed_by_libyaml_when_the_wheel_has_it():
 
 def test_flows_are_off_unless_a_directory_is_named():
     """Not a temp-directory fallback: the operator chooses where this lives."""
-    assert flows.from_settings(FlowSettings()) is None
-    assert flows.from_settings(FlowSettings(data_dir="   ")) is None
+    assert flowstore.from_settings(FlowSettings()) is None
+    assert flowstore.from_settings(FlowSettings(data_dir="   ")) is None
 
 
 def test_naming_a_directory_turns_them_on(tmp_path):
-    store = flows.from_settings(FlowSettings(data_dir=str(tmp_path)))
+    store = flowstore.from_settings(FlowSettings(data_dir=str(tmp_path)))
     assert store is not None
     assert store.kind == "local"
 
@@ -380,9 +381,12 @@ def test_a_symlink_cannot_redirect_a_session_out_of_the_data_directory(store, tm
     assert list(outside.iterdir()) == []
 
 
-def test_a_symlinked_session_directory_is_refused_too(store, tmp_path):
-    outside = tmp_path.parent / "elsewhere"
-    outside.mkdir()
+def test_a_symlinked_session_directory_is_refused_too(
+    store, tmp_path, tmp_path_factory
+):
+    # Its own directory: tmp_path.parent is shared by every test in the worker,
+    # and another test that made "elsewhere" there turned this into an error.
+    outside = tmp_path_factory.mktemp("elsewhere")
     (tmp_path / "linked").symlink_to(outside, target_is_directory=True)
     with pytest.raises(InvalidName, match="does not resolve to itself"):
         store.save("linked", "flow", {"steps": []})
@@ -401,7 +405,7 @@ def test_surrounding_whitespace_is_trimmed_rather_than_refused():
     """Not slugging: these arrive from URL query parameters and hand-written
     JSON, where a trailing space is a typo. A name that is only whitespace still
     names nothing and is still refused."""
-    from kubed.selenium_flow.flows.library import valid_session_name
+    from kubed.selenium_flow.names import valid_session_name
 
     assert valid_name(" bot ") == "bot"
     assert valid_session_name(" bot ") == "bot"
@@ -708,3 +712,59 @@ def test_a_drag_to_where_it_already_is_is_refused_at_save():
 )
 def test_a_drag_that_says_both_ends_saves(args):
     assert _drag_problems(args) == ""
+
+
+# ---- what a save leaves on disk (S21) -----------------------------------------
+
+
+def test_a_saved_document_reads_back_byte_equal(store, tmp_path):
+    """Comments, key order and non-ASCII text are what a person wrote, and a
+    shorter rewrite leaves nothing of the longer one behind — whichever way the
+    write is done."""
+    long = "# the one that logs us in\nname: login\nnote: 'é — ünïcode'\nsteps: []\n" * 3
+    short = "# short\nsteps: []"  # and no trailing newline
+    store.write_text("bot", "login", long)
+    assert (tmp_path / "bot" / "flows" / "login.yaml").read_bytes() == long.encode()
+    store.write_text("bot", "login", short)
+    assert (tmp_path / "bot" / "flows" / "login.yaml").read_bytes() == short.encode()
+    assert store.read_text("bot", "login") == short
+
+
+def test_a_write_cut_short_leaves_the_last_document_whole(store, tmp_path, monkeypatch):
+    """A crash, a full disk or an NFS hiccup part way through a write used to
+    leave a truncated document that reads as missing. The old one now stays
+    until the new one is complete, and nothing half-written is left beside it."""
+    store.save("bot", "login", {"description": "the good one", "steps": []})
+    path = tmp_path / "bot" / "flows" / "login.yaml"
+    before = path.read_bytes()
+
+    def interrupted(*_):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "replace", interrupted)
+    with pytest.raises(OSError):
+        store.save("bot", "login", {"description": "the new one", "steps": []})
+    with pytest.raises(OSError):
+        store.write_text("bot", "login", "steps: []\n")
+    monkeypatch.undo()
+    assert path.read_bytes() == before
+    assert [p.name for p in path.parent.iterdir()] == ["login.yaml"]
+
+
+def test_a_saved_document_keeps_its_emoji_as_written(store):
+    """The admin editor shows the YAML text, so a save writes what the author
+    wrote: an emoji stays an emoji, not a `\\U0001F600` escape."""
+    store.save("bot", "smile", {"description": "ship it 😀", "steps": []})
+    assert "ship it 😀" in store.read_text("bot", "smile")
+
+
+def test_a_replaced_document_keeps_its_mode(store, tmp_path):
+    """Rewritten in place, a file kept whatever mode an operator gave it; a
+    rename over it must not quietly reset that."""
+    store.save("bot", "login", {"steps": []})
+    path = tmp_path / "bot" / "flows" / "login.yaml"
+    path.chmod(0o640)
+    store.save("bot", "login", {"description": "again", "steps": []})
+    assert path.stat().st_mode & 0o777 == 0o640
+    store.write_text("bot", "login", "steps: []\n")
+    assert path.stat().st_mode & 0o777 == 0o640

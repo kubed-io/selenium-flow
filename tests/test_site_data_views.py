@@ -3,7 +3,9 @@ Pure, over round 2's snapshot shape."""
 
 import pytest
 
-from kubed.selenium_flow.core import site_data as sd
+from kubed.selenium_flow import urls
+from kubed.selenium_flow.secrets import matching_secrets
+from kubed.selenium_flow.site_data import snapshot as sd
 
 from .site_data_fakes import NOW, cookie, snapshot
 
@@ -13,7 +15,7 @@ APP = "https://app.example.com"
 
 
 def visit(url, at=NOW):
-    return {"origin": sd.origin_of(url), "url": url, "at": at}
+    return {"origin": urls.origin_of(url), "url": url, "at": at}
 
 
 def test_one_row_per_host_with_counts_and_both_storages_in_full():
@@ -236,7 +238,7 @@ def test_a_secret_whose_leash_is_rejected_is_allowed_nowhere():
         {"name": "broken", "allowed_urls": ["https://app.example.com"],
          "allowed_urls_rejected": ["not a url"], "keys": ["k"]},
     ]
-    assert [s["name"] for s in sd.matching_secrets(secrets, "app.example.com")] == ["ok"]
+    assert [s["name"] for s in matching_secrets(secrets, "app.example.com")] == ["ok"]
 
 
 def test_a_stored_cookie_without_a_name_or_a_string_domain_counts_as_nothing():
@@ -257,3 +259,15 @@ def test_a_stored_cookie_without_a_name_or_a_string_domain_counts_as_nothing():
 def test_a_stored_session_storage_origin_that_is_not_a_url_string_counts_as_nothing(origin):
     listing, _ = sd.views({"session": {"origin": origin, "items": {"t": "1"}}})
     assert listing["sites"] == []
+
+
+def test_the_listing_and_the_summary_never_build_a_cookie_view(monkeypatch):
+    built = []
+    real = sd._cookie_view
+    monkeypatch.setattr(sd, "_cookie_view", lambda c, host: built.append(c) or real(c, host))
+    data = snapshot(cookies=[cookie("sid", ".example.com"), cookie("a", "app.example.com")])
+    assert sd.view(data)["sites"][0]["cookies"] >= 1
+    assert sd.summary(data)["sites"] >= 1
+    assert built == []
+    sd.views(data)
+    assert built, "the full view still builds them"

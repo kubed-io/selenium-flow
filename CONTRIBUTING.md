@@ -50,16 +50,23 @@ unless `GRID_URL` and `ADMIN_ORIGIN` are set — see
 | Path | Holds |
 |---|---|
 | `kubed/selenium_flow/` | the app itself: `server.py` composes it, `main.py` starts it, `routes.py` is its own route table and the mount everything hangs beneath, `errors.py` decides what a failure means |
-| `kubed/selenium_flow/core/` | the browser and the page — `actions.py` is what the server can do, as plain functions and the single source of truth |
-| `kubed/selenium_flow/session/` | who is calling, the record they hold, and the env / client / explicit settings cascade |
-| `kubed/selenium_flow/flows/` | saved documents: `document.py` validates one, `library.py` stores it, `run.py` runs it, `api.py` serves it |
-| `kubed/selenium_flow/http/` | the request machinery: one `answer.py` for every JSON tree, auth, signed links, files, the admin API |
-| `kubed/selenium_flow/mcp/` | what an agent sees: tools, resources, prompts, the embedded skill, tool annotations, and where guidance points |
+| `kubed/selenium_flow/names.py`, `urls.py` | the identity rules (what may name a session, a flow, a file) and the origin rules (page identity, and the one place a URL's credentials are cut out) — plain, so any layer may import them |
+| `kubed/selenium_flow/binding.py`, `faults.py` | how a secret reaches a field and comes back out nowhere, written once; and the failures this package raises itself, apart from what Selenium makes them mean |
+| `kubed/selenium_flow/core/` | the browser and the page — `actions.py` is what the server can do, `capabilities.py` the one table both surfaces are mounted from, `recipe.py` the road every action takes, `assertion.py` the `assert` engine, `guidance.py` where a failure points at the skill, `annotations.py` the tool annotations; `naming.py`, `coerce.py` and `defaults.py` are the pure rules, with no Selenium; `keys.py` builds its table from Selenium's `Keys` |
+| `kubed/selenium_flow/session/` | who is calling, the record they hold, and the env / client / explicit settings cascade; `locks.py` is the one-call-at-a-time lock |
+| `kubed/selenium_flow/site_data/` | the cookies and storage a session keeps: `snapshot.py` the model, `transfer.py` the BiDi read and write, `spare.py` the tab that reaches another origin |
+| `kubed/selenium_flow/flows/` | saved documents: `document.py` validates one, `shape.py` is the tolerant view of one, `template.py` fills its parameters, `store.py` and `library.py` keep it, `engine.py` runs its steps, `redact.py` and `report.py` say what the run may show, `run.py` and `api.py` wire and serve it |
+| `kubed/selenium_flow/http/` | the request machinery: one `answer.py` for every JSON tree, auth, signed links, files |
+| `kubed/selenium_flow/http/admin/` | the admin API, a module per thing: `sessions.py` (list, stream, end), `files.py`, `flows.py`, `site_data.py`, `signed.py` (signed file links), `page.py` (the built UI's shell) |
+| `kubed/selenium_flow/mcp/` | what an agent sees: tools, resources, prompts and the embedded skill |
 | `kubed/selenium_flow/spec/` | the OpenAPI document — `schemas.py` is the data, `builder.py` assembles it from the live tools |
 | `skills/selenium-flow/` | the embedded Agent Skill, mapped into the package at build time |
-| `ui/` | the admin UI and the MCP App, in Svelte — `npm --prefix ui run build` writes them beside `http/admin.py`, gitignored; without a build the server shows a placeholder |
+| `ui/` | the admin UI and the MCP App, in Svelte — `npm --prefix ui run build` writes them beside `http/admin/`, gitignored; without a build the server shows a placeholder |
 | `wiki/` | the GitHub wiki, as a submodule — depth the README has no room for |
 | `wiki/notes/` | hand-written prose folded into the generated wiki pages |
+| `tests/fakes.py` | the shared test doubles: `FakeGrid`, `ScriptedDriver`, the fake clock, Redis, BiDi and friends |
+| `tests/golden/` | the published shapes — tools, OpenAPI, errors, admin routes, run reports — pinned as JSON |
+| `tests/js/` | the harness that runs the page scripts under jsdom |
 
 Adding a capability means adding one function to `core/actions.py` and registering it
 on both surfaces. A test asserts the two sets match, so a tool without an
@@ -198,12 +205,24 @@ it just as well as a good one.
 
 ## Writing a test
 
-`tests/conftest.py` owns the shared doubles — `RecordingActions`, `FakeGrid`,
-`manager()`, and the `named_caller` / `unnamed_caller` fixtures that make the
-ambient request look like one kind of client or the other. Import them from
-there rather than writing another copy; two copies of `RecordingActions` had
-already drifted apart, and which behaviours a test could assert depended on
-which file it happened to live in.
+The shared doubles — `FakeGrid`, `ScriptedDriver`, the fake clock, Redis and
+BiDi — live in `tests/fakes.py`, and `tests/conftest.py` re-exports them beside
+`RecordingActions`, `manager()` and the `named_caller` / `unnamed_caller`
+fixtures that make the ambient request look like one kind of client or the
+other. Import them from there rather than writing another copy; two copies of
+`RecordingActions` had already drifted apart, and which behaviours a test could
+assert depended on which file it happened to live in.
+
+**A published shape is a golden.** What an agent or a client can read — the tool
+list in both modes, the OpenAPI document, the error table, the admin route
+table, a run's report — is compared with a file under `tests/golden/`. A change
+that moves one fails with the difference; if the move is intended, regenerate
+with `GOLDEN_UPDATE=1 pytest`, read the diff, and commit it on its own, never in
+a commit that also moves code.
+
+**The page scripts run under jsdom.** `tests/js/run.mjs` evaluates a script from
+`js/` the way Selenium's `execute_script` does, so a
+change to one is provable without a browser. It needs `node`.
 
 **Test a behaviour once, at the layer that owns it.** `SessionManager.end_browser`
 decides what happens to a record when a browser ends, so that belongs in

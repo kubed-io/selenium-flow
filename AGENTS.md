@@ -77,8 +77,11 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   This is what lets a caller choose its style: an n8n workflow can hand the whole job to
   an agent over MCP, or drive the same actions itself with HTTP Request nodes when it wants
   exact control. A tool with no endpoint would take that choice away, because the workflow
-  could not reproduce what the agent did. `tests/test_surfaces.py` asserts the two sets are
-  equal — if it fails, add the missing half rather than editing the assertion.
+  could not reproduce what the agent did. Both surfaces are mounted from one table,
+  `CAPABILITIES` in `core/capabilities.py`: every row is a route, and `mcp/tools.py` refuses
+  to start with a row it has no declaration for. `tests/test_surfaces.py` asserts the two
+  sets are equal against its own hand list — if it fails, add the missing half rather than
+  editing the assertion.
 
   Two clarifications on the rule. Operational routes — `/health`, `/openapi.yaml` — are
   HTTP-only on purpose; they describe or monitor the server rather than doing anything to a
@@ -89,11 +92,12 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   MCP image block to a tool caller and base64 JSON to an HTTP caller, because that is what
   each can actually use. That is the only sanctioned kind of divergence.
 
-- **`core/actions.py` is the only place behaviour lives.** `mcp/tools.py` and `routes.py` are thin
-  wrappers over it. Adding a capability to one surface and not the other is the failure
+- **`core/actions.py` is the only place behaviour lives** — with `core/recipe.py` (the road
+  every action takes) and `core/capabilities.py` (the table both surfaces are mounted from)
+  beside it. `mcp/tools.py` and `routes.py` are thin wrappers over them. Adding a capability to one surface and not the other is the failure
   this design exists to prevent, and `tests/test_surfaces.py` asserts they match — if that
   test fails, add the missing half rather than editing the assertion.
-- **Every tool declares its MCP annotations, and they must be honest.** `mcp/annotations.py` builds
+- **Every tool declares its MCP annotations, and they must be honest.** `core/annotations.py` builds
   them, and has no intra-package imports so every surface that registers a tool can use it
   without closing a cycle. A client reads `readOnlyHint` / `destructiveHint` to decide
   whether to ask the user before running a tool — ChatGPT skips the confirmation prompt
@@ -150,6 +154,27 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   retina render — both tested working against this Grid. If that capability is wanted, add
   it as a **separate** tool so the portable path keeps working when CDP goes away.
 
+## The five stages every call takes
+
+Every capability is one call that takes the same road, and each stage has one
+owner. A host — the MCP surface, the HTTP surface, a flow run — drives the
+stages; none of them writes its own copy.
+
+| Stage | What it is | Where it lives |
+|---|---|---|
+| **Caller** | who is asking: name, library, client, declared flags, read once at the edge and handed in | `Caller` in `session/sessions.py`; the readers in `mcp/clients.py` and `http/` |
+| **Capability** | what is being asked: name, arguments, route, annotations, the action | the `CAPABILITIES` table in `core/capabilities.py`, the actions in `core/actions.py`, annotations in `core/annotations.py` |
+| **Recipe** | how the browser does it: check, reattach, navigate, wait, act, report the page, under the session lock | `Recipe.run` in `core/recipe.py` |
+| **Settle** | what it leaves behind: one record write (history, capture, the reopen report) | `SessionManager.settle` in `session/sessions.py` |
+| **Surface** | how it is answered: an MCP result, an HTTP response, a flow step's entry | `mcp/tools.py`, `routes.py` with `http/answer.py`, `flows/engine.py` |
+
+The layering is enforced, not remembered: `tests/test_boundaries.py` fails when
+`core/`, `session/`, `flows/` or `site_data/` imports the protocol layers
+(`mcp/`, `http/`, `routes`, `server`, `spec`), and when the modules that are
+meant to be plain import `selenium`. Shared pure rules live in their own small
+modules — `names.py`, `urls.py`, `binding.py`, `faults.py`, `core/coerce.py` —
+so a layer that needs one does not import a layer above it.
+
 ## Integration tests: less is more
 
 `tests/integration/` runs the real server and a real browser against the
@@ -191,7 +216,7 @@ part that matters:
 | Part of the document | Where it comes from |
 |---|---|
 | **request** schemas | the MCP tool schemas verbatim, which FastMCP derives from the signatures in `mcp/tools.py` |
-| **response** shapes | `RESPONSES` in `spec/schemas.py`, by hand — the actions return plain dicts, so there is nothing to introspect |
+| **response** shapes | each capability's `response` column in `core/capabilities.py`, by hand — the actions return plain dicts, so there is nothing to introspect |
 | info, servers, tags, `/health`, error shape | `spec/schemas.py`, by hand |
 
 So adding a *parameter* to a tool updates the spec on its own; adding a *return field* does
@@ -330,6 +355,28 @@ admin list, slides its TTL, and is reopened after a reap exactly like one opened
 over MCP. That was not true before §F2.13 and the difference was invisible until
 a workflow's session expired underneath it.
 
+**One browser-driving call at a time per session** (`session/locks.py`). The
+record was always safe — every write is a compare-and-set — but two action
+sequences interleaved on one browser are not, so `Recipe.run` holds the
+session's lock from the reconnect to the page state and a second call waits its
+turn: no 409, no timeout of its own. A bound write holds it from the page read
+through the keystrokes, so nothing navigates or switches frames between the
+leash check and the typing; a flow holds it per step, never for the run, and
+the lock is first come, first served, so a call that asks during a step runs
+before the next one. `end_browser` and `open_session` take no lock, and nothing
+that only reads does: `end_browser` sets the cancel the holder watches
+(`core/cancel.py`), so a long `assert` lets go instead of making the call that
+exists to stop it wait — a direct call with `cancel.Ended` ("the browser was
+ended while this call was waiting", a 404 like any dead browser), a flow with
+its own cancellation. Keyed by the browser's Grid id, reentrant, fair, weak,
+and process-local — one replica (see "Scaling").
+
+A waiting call holds one of the 40 worker threads that FastMCP's sync tools and
+Starlette's routes share (anyio's default limiter), and it does not notice its
+client giving up: about 40 calls queued on one session would stall every other
+session, `end_browser` and `/ready`. A limiter of its own for `end_browser` is
+the fix when that becomes real.
+
 ## Sessions: what is stateful and what is not
 
 Three different "sessions" are in play, and conflating them is the trap.
@@ -358,8 +405,9 @@ The tell was the shape of the key: the server's real ids are undashed hex
 (`131c43cc…`) while the ones in the log were dashed UUIDs (`bf532044-b55e-…`) — a value
 FastMCP had invented, not one the transport negotiated.
 
-`session/sessions.py` therefore reads what the request carries itself, via
-`get_http_request()`. A missing name then shows up as a missing name, which is
+`mcp/clients.py` therefore reads what the request carries itself, via
+`get_http_request()`, into a `Caller` (`session/sessions.py`) that the edge
+hands in. A missing name then shows up as a missing name, which is
 the whole point — and under §F2.12 it is an error with a message rather than a
 silent new identity.
 
@@ -409,7 +457,7 @@ or the leak `caller_key` existed to prevent comes straight back.
   most `HISTORY_CAP` (100), so a save never reads an origin that has aged out.
   Only the top entry keeps its whole URL; below it a URL keeps its origin and path, because a
   query string or fragment carries OAuth codes and reset tokens.
-- Other origins are reached through `browser.spare_tab`: a background tab whose requests a BiDi
+- Other origins are reached through `spare.spare_tab`: a background tab whose requests a BiDi
   intercept answers with a marked blank page, so the site never loads. A save reads there; a
   restore writes there, then sets sessionStorage in the main tab the same way, all before the
   first page. A page without the marker is a service worker's and is never read. No CDP.
@@ -418,7 +466,8 @@ or the leak `caller_key` existed to prevent comes straight back.
   it expires with the record. httpOnly values are shown as `•••` on every surface; a secret a
   site keeps in its localStorage is saved and shown as it is.
 - An action returns the capture under `CAPTURED`; `SessionManager.settle` stores it and strips
-  it, so it is never returned. `act` and every flow step go through `settle`.
+  it, so it is never returned. Every record write after an action goes through `settle`:
+  `act`, every flow step and the run's pages, and a bound write (its URL withheld when tainted).
 - A silent reopen's report waits on `SessionRecord.reopened` until `touch` hands it to the first
   result from that browser — for a flow, to the run.
 - The admin tabs keep the two apart: History (the history joined by host with secrets and the
@@ -428,7 +477,8 @@ or the leak `caller_key` existed to prevent comes straight back.
   it is at write time (memory: a per-key lock; Redis: `WATCH`/`MULTI`/`EXEC`, retried, then
   `StoreConflict`). A whole record read before slow work and `set` after reverts a browser
   opened or a save made meanwhile. Do slow work outside `fn`; `fn` only computes, and may run
-  twice.
+  twice. What a write found comes back through `store.change`: `fn` returns the record and
+  a note, and only the last run's note is returned — never a dict `fn` fills on the side.
 
 ### Refresh, not cleanup
 
@@ -472,14 +522,15 @@ There used to be two modes — **saved**, where the server held your browser, an
 **stateless**, where you passed an id — with a middleware rewriting every tool
 schema per request so a caller could see which rules applied. All of it is gone
 (§F2.12). There is no `session_id` on any tool, in any body, or in any result;
-`SAVED_SESSIONS` is gone; `resources.ShapeSessionId` is gone. **Sharing is by
+`SAVED_SESSIONS` is gone. **Sharing is by
 session name**, which is then the single way to do it — and worth writing down,
 because a name is guarded by nothing but the bearer token.
 
 ## The HTTP surface is REST, and the session is not in the path
 
-Paths and methods are **declared** per capability in a route table, never
-derived from tool names (§F2.13). What the two surfaces share is bodies and
+Paths and methods are **declared** per capability — the `route` and
+`http_method` columns of its row in `core/capabilities.py` — never derived from
+tool names (§F2.13). What the two surfaces share is bodies and
 results — a request body *is* the tool's schema, asserted by
 `test_request_schemas_are_the_tool_schemas` — not shape.
 
@@ -554,8 +605,16 @@ this process, so it survives every reconnect and keeps applying until something
 switches back — verified, since our architecture reconnects per call. That makes
 a forgotten switch a nasty failure: locators on the main page fail for a reason
 that looks nothing like the cause. `session://current` reports `in_frame` for
-exactly that, detected with `window.self !== window.top` because WebDriver has
-no "which frame am I in" command.
+exactly that, detected with `window !== window.top` because WebDriver has no
+"which frame am I in" command. Never `window.self`: a page can run `self = top`
+and forge it. A secret's leash does not ask whether it is in a frame at all: it
+always reads `document.location.origin` of the selected context, because a
+keystroke reaches the frame and WebDriver's url is always the top page's, and
+**both** the top page and that origin must be allowed. Out of a frame they are
+the same origin; in one, the frame only tightens the leash. A bound write also
+refuses any element that can host a nested document (`iframe`, `frame`, `object`,
+`embed`, `fencedframe`, `portal`) as its target: keys sent to one can land in that
+document whatever context is selected, an origin the leash never read.
 
 ## Dialogs, and why the browser must never answer one
 
@@ -662,6 +721,9 @@ The browser is unaffected: its session lives on the Grid, and the record naming
 it lives in the session store. Use Redis for that record if the pod should come
 back from a restart holding its callers' browsers.
 
+The per-session lock (`session/locks.py`) is process memory too, with Redis or
+without: a second replica would let two calls drive one browser at once.
+
 ## Gotchas
 
 - **Do not bake a deployment's conventions into this package.** `REDIS_DB` defaults to
@@ -709,7 +771,7 @@ never committed, whether it exists or not.
 | | Who owns it | Default here |
 |---|---|---|
 | **How long a browser lives** | the Grid — `SE_NODE_SESSION_TIMEOUT` on the node | `300s` idle, in the cluster repo |
-| **How long we remember a caller** | `SESSION_TTL` | `3600s`, slid forward on every call |
+| **How long we remember a caller** | `SESSION_TTL` | `86400s` (a day), slid forward on every call |
 | **Where we remember it** | `SESSION_STORE` | `memory` (or `redis` to share it) |
 
 **Nothing runs a cleanup loop, and nothing should** — the Grid expires idle browsers, the store expires its own keys. If the Grid reaped one we remembered, the next call notices and reopens it at the page it was last on. 🪄

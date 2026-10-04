@@ -80,6 +80,10 @@ profile = [
 test = [
   "pytest",
   "pytest-asyncio",
+  # Shuffled order finds the test that leans on another; -n 2 --dist loadfile
+  # (.github/workflows/test.yml) keeps each module on one worker.
+  "pytest-randomly",
+  "pytest-xdist",
   # The coverage comment on a pull request (.github/workflows/test.yml).
   "pytest-cov>=7.1",
   "ruff",
@@ -116,8 +120,10 @@ packages = [
   "kubed.selenium_flow.core",
   "kubed.selenium_flow.flows",
   "kubed.selenium_flow.http",
+  "kubed.selenium_flow.http.admin",
   "kubed.selenium_flow.mcp",
   "kubed.selenium_flow.session",
+  "kubed.selenium_flow.site_data",
   "kubed.selenium_flow.spec",
   "kubed.selenium_flow.core.js",
   "kubed.selenium_flow.mcp.prompts",
@@ -152,7 +158,7 @@ packages = [
 "kubed.selenium_flow.core.js" = ["*.js"]
 "kubed.selenium_flow.mcp.prompts" = ["*.md"]
 "kubed.selenium_flow.mcp.skills" = ["*", "**/*"]
-# The built UI (§F4.15): npm writes it beside admin.py, gitignored. A glob, not
+# The built UI (§F4.15): npm writes it beside http/admin/, gitignored. A glob, not
 # a mapped package, so an install that skipped the build succeeds without it
 # (§F4.17) — a mapped directory that does not exist fails the whole install.
 "kubed.selenium_flow.http" = ["static/*"]

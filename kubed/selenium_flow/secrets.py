@@ -49,7 +49,9 @@ from typing import Protocol
 from urllib.parse import urlsplit
 
 from .config import FromEnv, FromFile, FromValue, SecretEntry, SecretsSettings
-from .flows.library import InvalidName, valid_name
+from .names import InvalidName, valid_name
+from .session import locks
+from .urls import host_of
 
 log = logging.getLogger(__name__)
 
@@ -558,17 +560,19 @@ LIST_DESCRIPTION = (
 )
 
 
-def register(mcp, catalogue, sessions, token: str | None, prefix: str = "") -> None:
+def register(mcp, catalogue, token: str | None, prefix: str = "") -> None:
     """Serve the catalogue as a resource and one endpoint."""
     from starlette.responses import JSONResponse
 
-    from . import errors
+    from . import errors, faults
     from .http import auth
+    from .mcp import clients
+    from .session.sessions import Caller, values_of
 
-    def listing() -> dict:
+    def listing(caller) -> dict:
         if catalogue is None:
             raise ValueError(OFF)
-        return catalogue.listing(sessions.name())
+        return catalogue.listing(caller.name)
 
     @mcp.resource(
         LIST_URI,
@@ -577,17 +581,17 @@ def register(mcp, catalogue, sessions, token: str | None, prefix: str = "") -> N
         mime_type="application/json",
     )
     def secrets_resource() -> dict:
-        return listing()
+        return listing(clients.caller())
 
     @mcp.custom_route(f"{prefix}/secrets", methods=["GET"], name="secrets")
     async def secrets_route(request):
         if not auth.authorized(request, token):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         try:
-            return JSONResponse(listing())
+            return JSONResponse(listing(Caller.from_request(*values_of(request))))
         except Exception as exc:  # noqa: BLE001 - errors.py decides what it means
             return JSONResponse(
-                {"error": errors.message(exc)}, status_code=errors.status_for(exc)
+                {"error": faults.message(exc)}, status_code=errors.status_for(exc)
             )
 
 
@@ -622,7 +626,7 @@ class Refused(ValueError):
     """
 
 
-def bind(catalogue, reference, url: str, tool: str = "write") -> str:
+def bind(catalogue, reference, url: str | tuple[str, ...], tool: str = "write") -> str:
     """The value a `secret` reference names, or refuse.
 
     **The only function in this package that returns a secret value**, and it
@@ -631,7 +635,10 @@ def bind(catalogue, reference, url: str, tool: str = "write") -> str:
 
     ``url`` is the page the browser is **actually on**, read at the moment of
     the bind. Checking anything else would check a permission against a page
-    other than the one receiving the keystroke.
+    other than the one receiving the keystroke. In a frame it is the top page
+    and then the frame's origin (`binding.receiving`), and **each** must be
+    allowed: the frame is a tightening, so nothing the top-page check refused
+    can pass. A refusal names the first one that is not.
     """
     # Shape-checked here, not only in the typed MCP parameter: the HTTP surface
     # passes raw JSON straight in, so a bare string reached `.get` and
@@ -685,18 +692,21 @@ def bind(catalogue, reference, url: str, tool: str = "write") -> str:
     known = entry.get("name") or "?"
     known_key = next((k for k in entry["keys"] if k == key), "?")
 
-    if not catalogue.allows(name, url):
+    pages = (url,) if isinstance(url, str) else tuple(url)
+    for here in pages:
+        if catalogue.allows(name, here):
+            continue
         # Logged loudest of anything here: something tried to use a credential
         # on a page its owner did not allow, which is the event an operator most
         # wants to know about.
         log.warning(
             "REFUSED binding secret %s/%s on %s: not an allowed site",
-            known, known_key, origin(url) or "an unknown page",
+            known, known_key, origin(here) or "an unknown page",
         )
         allowed = ", ".join(entry.get("allowed_urls") or [])
         raise Refused(
             f"the secret {name!r} may not be used on "
-            f"{origin(url) or 'this page'}. It allows: "
+            f"{origin(here) or 'this page'}. It allows: "
             # True of both sources of a leash: a directory's `_allowed_urls`
             # that fails to parse, and a config `allowed_urls: []` — declared,
             # and immediately exhausted.
@@ -714,7 +724,10 @@ def bind(catalogue, reference, url: str, tool: str = "write") -> str:
     # The audit trail: what was used, where, by which action. Never the value —
     # these are the identifiers it was looked up by, and `value` above is
     # deliberately not among the arguments.
-    log.info("bound secret %s/%s on %s for %s", known, known_key, origin(url), tool)
+    log.info(
+        "bound secret %s/%s on %s for %s",
+        known, known_key, " in ".join(reversed([origin(p) for p in pages])), tool,
+    )
     return value
 
 
@@ -727,72 +740,58 @@ def perform_write(catalogue, actions, sessions, name: str, kwargs: dict) -> dict
     credential into the session record before anything had a chance to redact
     it. Everything else about a write is identical, which is exactly why this
     lives in one place: two copies of a redaction are one copy that is older.
+    It settles like any other action, through ``sessions.settle``, with the page
+    withheld when the value reached it.
+
+    The page read, the leash check and the keystrokes are ONE turn on the
+    browser (`session.locks`): another call navigating or switching frames
+    between the check and the typing would type the value somewhere the leash
+    never saw (Copilot, #52).
     """
-    from .flows import run as flowrun
+    from . import binding
+    from .flows import redact
 
     resolved = sessions.resolve(name)
-    given, _guarded = prepare_write(catalogue, actions, resolved, kwargs)
-    hidden = flowrun.hidden_forms([given["text"]])
-    rest = {k: v for k, v in given.items() if k not in ("text", "url")}
-    try:
-        result = actions.write(
-            resolved,
-            given["text"],
-            # Not read back at all, rather than read and then hidden.
-            read_back=False,
-            **rest,
+    with locks.driving(resolved):
+        given, guarded = binding.bind_into(
+            kwargs,
+            catalogue,
+            lambda: binding.receiving(actions.page(resolved)),
+            "write",
+            binding.DIRECT,
         )
-    except Exception as exc:  # noqa: BLE001 - rewrapped, never swallowed
-        # An action puts its arguments in its error text.
-        raise ValueError(flowrun.scrub(str(exc), hidden)) from None
-    shown = flowrun.scrub_values({**result, "text_from": "secret"}, hidden)
-    # Only remember a page the value never reached. A submitting write can land
-    # on `?q=<what was typed>`; storing the scrubbed form would persist a URL
-    # that does not exist, and a later reattach would navigate to it.
+        hidden = binding.forms_of(given, guarded)
+        rest = {k: v for k, v in given.items() if k not in ("text", "url")}
+        try:
+            result = actions.write(resolved, given["text"], **rest)
+        except Exception as exc:  # noqa: BLE001 - rewrapped, never swallowed
+            # An action puts its arguments in its error text.
+            raise ValueError(redact.scrub(str(exc), hidden)) from None
+    shown = binding.after({**result, "text_from": "secret"}, guarded, hidden)
+    # Only remember a page the value never reached; a later reattach would
+    # navigate to it. Touched either way. Withholding the page must not also
+    # stop the clock: `touch` slides the TTL, and skipping it entirely let a
+    # session expire *because* its URL was correctly kept out of the store.
     #
-    # Asked of the URL rather than by comparing it with its scrubbed form: a
-    # secret whose value is the marker scrubs to itself, so equality would have
-    # called the credential URL safe and stored it.
-    #
-    # Touched either way. Withholding the page must not also stop the clock:
-    # `touch` slides the TTL, and skipping it entirely let a session expire
-    # *because* its URL was correctly kept out of the store.
-    safe = None if flowrun.taints(result.get("url"), hidden) else shown.get("url")
-    told = sessions.touch(name, safe, browser=resolved)
-    if told:
-        # The first call after a silent reopen says what came back.
-        shown["site_data"] = told
+    # The first call after a silent reopen says what came back: `settle` puts
+    # that on `shown`.
+    safe = binding.safe_url(result, hidden)
+    sessions.settle(name, shown, url=safe, browser=resolved)
     return shown
 
 
-def prepare_write(
-    catalogue, actions, session_id: str, kwargs: dict
-) -> tuple[dict, set]:
-    """Turn a `secret` on a write into the text it stands for.
-
-    Shared by the MCP tool and the HTTP endpoint, because the alternative is two
-    implementations of a security check and one of them being the older.
-
-    Refuses `url` alongside it, for the reason the flow validator refuses the
-    same pair: `actions.write` navigates *before* it types, so a leash checked
-    beforehand would be checked against the page being left — and a redirect
-    would defeat even checking the URL that was asked for. Navigation is its own
-    call.
-    """
-    kwargs = dict(kwargs)
-    reference = kwargs.pop("secret", None)
-    if reference is None:
-        return kwargs, set()
-    if hasattr(reference, "model_dump"):
-        reference = reference.model_dump(exclude_none=True)
-    if kwargs.get("text") is not None:
-        raise Refused("pass text or secret, not both")
-    if kwargs.get("url"):
-        raise Refused(
-            "a write that takes its value from a secret may not also navigate: "
-            "go to the page first, so the secret's allowed sites are checked "
-            "against the page that receives it"
-        )
-    here = actions.page(session_id).get("url", "")
-    kwargs["text"] = bind(catalogue, reference, here, tool="write")
-    return kwargs, {"text"}
+def matching_secrets(secrets: list[dict] | None, host: str) -> list[dict]:
+    """The secrets allowed on ``host``, names and keys only. A secret with no
+    `allowed_urls` is usable anywhere and is not listed under every site; one
+    with `allowed_urls_rejected` is usable nowhere, its valid lines included
+    (`Catalogue.allows`), so it is not listed either."""
+    return [
+        {
+            "name": s["name"],
+            "description": s.get("description") or "",
+            "keys": list(s.get("keys") or []),
+        }
+        for s in secrets or []
+        if not s.get("allowed_urls_rejected")
+        and any(host_of(u) == host for u in s.get("allowed_urls") or [])
+    ]

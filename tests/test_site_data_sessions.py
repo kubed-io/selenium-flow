@@ -6,8 +6,9 @@ from dataclasses import replace
 
 import pytest
 
-from kubed.selenium_flow.core import site_data
+from kubed.selenium_flow.session.sessions import Caller
 from kubed.selenium_flow.session.store import MemoryStore
+from kubed.selenium_flow.site_data import snapshot as site_data
 from tests.conftest import NAMED, RecordingActions, manager
 
 URL = "https://app.example.com/x"
@@ -58,14 +59,14 @@ class RetryingStore(MemoryStore):
 
 def opened_with_save():
     m = manager(SiteActions())
-    m.open_browser(NAMED)
-    m.act(NAMED, lambda s: m.actions.save_site_data(s))
+    m.open_browser(Caller(NAMED))
+    m.act(Caller(NAMED), lambda s: m.actions.save_site_data(s))
     return m
 
 
 def reopened(m, **kw):
-    m.end_browser(NAMED)
-    return m.open_browser(NAMED, **kw)
+    m.end_browser(Caller(NAMED))
+    return m.open_browser(Caller(NAMED), **kw)
 
 
 def reaped(m):
@@ -75,8 +76,8 @@ def reaped(m):
 
 def test_a_save_is_stored_and_never_returned_raw(named_caller):
     m = manager(SiteActions())
-    m.open_browser(NAMED)
-    result = m.act(NAMED, lambda s: m.actions.save_site_data(s))
+    m.open_browser(Caller(NAMED))
+    result = m.act(Caller(NAMED), lambda s: m.actions.save_site_data(s))
     assert site_data.CAPTURED not in result
     assert result["saved"]["cookies"] == 1 and result["uri"] == "session://site-data"
     assert list(m.store.get(NAMED).site_data["origins"]) == ["https://app.example.com"]
@@ -109,20 +110,20 @@ def test_a_failed_open_does_not_erase_what_was_saved(named_caller):
     """Declining a restore deletes only once the clean browser is open: a
     transient Grid failure must not cost the saved sign-in (Copilot, #49)."""
     m = opened_with_save()
-    m.end_browser(NAMED)
+    m.end_browser(Caller(NAMED))
 
     def refuse(**_):
         raise RuntimeError("the grid is full")
 
     m.actions.open_session = refuse
     with pytest.raises(RuntimeError):
-        m.open_browser(NAMED, restore_site_data=False)
+        m.open_browser(Caller(NAMED), restore_site_data=False)
     assert list(m.store.get(NAMED).site_data["origins"]) == ["https://app.example.com"]
 
 
 def test_nothing_saved_means_no_hint(named_caller):
     m = manager(SiteActions())
-    assert "site_data" not in m.open_browser(NAMED)
+    assert "site_data" not in m.open_browser(Caller(NAMED))
 
 
 def test_an_insecure_open_keeps_what_was_saved(named_caller):
@@ -135,14 +136,14 @@ def test_an_insecure_open_keeps_what_was_saved(named_caller):
 
 def test_remember_keeps_site_data(named_caller):
     m = opened_with_save()
-    m.open_browser(NAMED)
-    m.open_browser(NAMED)
+    m.open_browser(Caller(NAMED))
+    m.open_browser(Caller(NAMED))
     assert list(m.store.get(NAMED).site_data["origins"]) == ["https://app.example.com"]
 
 
 def test_describe_summarises_site_data(named_caller):
     m = opened_with_save()
-    assert m.describe(NAMED)["site_data"] == {"sites": 1, "uri": "session://site-data"}
+    assert m.describe(Caller(NAMED))["site_data"] == {"sites": 1, "uri": "session://site-data"}
 
 
 # ---- a silent reopen says what came back, on the first result after it --------
@@ -151,10 +152,10 @@ def test_describe_summarises_site_data(named_caller):
 def test_the_call_that_reopens_a_reaped_browser_says_what_came_back(named_caller):
     m = opened_with_save()
     reaped(m)
-    first = m.act(NAMED, lambda s: {"url": "https://elsewhere.example.com/"})
+    first = m.act(Caller(NAMED), lambda s: {"url": "https://elsewhere.example.com/"})
     assert m.actions.site_data_seen[-1]["cookies"], "the reopen restored"
     assert first["site_data"] == REPORT
-    assert "site_data" not in m.act(NAMED, lambda s: {"url": "https://elsewhere.example.com/"})
+    assert "site_data" not in m.act(Caller(NAMED), lambda s: {"url": "https://elsewhere.example.com/"})
     assert m.store.get(NAMED).reopened == {}
 
 
@@ -166,8 +167,8 @@ def test_a_report_waits_for_a_call_that_finishes(named_caller):
         raise RuntimeError("the page broke")
 
     with pytest.raises(RuntimeError):
-        m.act(NAMED, fails)
-    assert m.act(NAMED, lambda s: {"url": URL})["site_data"] == REPORT
+        m.act(Caller(NAMED), fails)
+    assert m.act(Caller(NAMED), lambda s: {"url": URL})["site_data"] == REPORT
 
 
 def test_a_report_is_never_handed_to_a_result_from_another_browser(named_caller):
@@ -177,7 +178,7 @@ def test_a_report_is_never_handed_to_a_result_from_another_browser(named_caller)
     told = {"url": URL}
     m.settle(NAMED, told, browser="an-older-browser")
     assert "site_data" not in told
-    assert m.act(NAMED, lambda s: {"url": URL})["site_data"] == REPORT
+    assert m.act(Caller(NAMED), lambda s: {"url": URL})["site_data"] == REPORT
 
 
 def test_a_retried_touch_hands_over_only_what_its_last_run_saw(named_caller):
@@ -185,8 +186,8 @@ def test_a_retried_touch_hands_over_only_what_its_last_run_saw(named_caller):
     browser is bound, nothing of this one's is committed, and nothing is told."""
     store = RetryingStore()
     m = manager(SiteActions(), store)
-    m.open_browser(NAMED)
-    m.act(NAMED, lambda s: m.actions.save_site_data(s))
+    m.open_browser(Caller(NAMED))
+    m.act(Caller(NAMED), lambda s: m.actions.save_site_data(s))
     reaped(m)
     browser = m.resolve(NAMED)
     store.first = store.get(NAMED)
@@ -199,8 +200,8 @@ def test_an_open_drops_a_report_nobody_collected(named_caller):
     m = opened_with_save()
     reaped(m)
     m.resolve(NAMED)
-    assert m.open_browser(NAMED)["site_data"] == REPORT, "the open's own report"
-    assert "site_data" not in m.act(NAMED, lambda s: {"url": URL})
+    assert m.open_browser(Caller(NAMED))["site_data"] == REPORT, "the open's own report"
+    assert "site_data" not in m.act(Caller(NAMED), lambda s: {"url": URL})
 
 
 # ---- a flow is settled the way a single call is ---------------------------------
@@ -220,7 +221,7 @@ def flow_world(tmp_path, steps):
     ))
     server.flows.save(NAMED, "login", {"steps": steps})
     m = manager(FlowActions())
-    m.open_browser(NAMED)
+    m.open_browser(Caller(NAMED))
     return server.flows, m
 
 
@@ -242,7 +243,7 @@ def test_a_flow_that_saves_keeps_the_data_and_never_reports_the_capture(
 
 def test_a_flow_run_that_reopened_the_browser_says_so_once(named_caller, tmp_path):
     store, m = flow_world(tmp_path, [{"tool": "navigate", "args": {"url": "https://w.example.com/"}}])
-    m.act(NAMED, lambda s: m.actions.save_site_data(s))
+    m.act(Caller(NAMED), lambda s: m.actions.save_site_data(s))
     reaped(m)
     report = run(store, m)
     assert report["site_data"] == REPORT
@@ -287,7 +288,7 @@ def test_a_retried_save_into_an_expired_record_claims_nothing(named_caller):
     was stored and the result must not say it was."""
     store = RetryingStore()
     m = manager(SiteActions(), store)
-    m.open_browser(NAMED)
+    m.open_browser(Caller(NAMED))
     store.first = store.get(NAMED)
     store.between = lambda: store.delete(NAMED)
     result = m.actions.save_site_data("x")
@@ -315,7 +316,7 @@ def test_ending_a_browser_keeps_a_save_that_landed_while_it_quit(named_caller):
         return real(session_id)
 
     m.actions.end_browser = end
-    m.end_browser(NAMED)
+    m.end_browser(Caller(NAMED))
     record = m.store.get(NAMED)
     assert not record.attached
     assert record.site_data["origins"].get("https://late.example.com") is not None
@@ -325,13 +326,13 @@ def test_a_save_from_a_replaced_browser_keeps_nothing(named_caller):
     """open_session(restore_site_data=false) on another request deletes the
     data; a save still finishing on the old browser must not bring it back."""
     m = manager(SiteActions())
-    m.open_browser(NAMED)
+    m.open_browser(Caller(NAMED))
 
     def save_while_replaced(resolved):
         m.store.update(NAMED, lambda r: replace(r, session_id="newer", site_data={}))
         return m.actions.save_site_data(resolved)
 
-    told = m.act(NAMED, save_while_replaced)
+    told = m.act(Caller(NAMED), save_while_replaced)
     assert site_data.CAPTURED not in told
     assert told["saved"]["sites"] == [] and told["saved"]["cookies"] == 0
     assert told["saved"]["skipped"][0]["reason"].startswith("another browser took")
@@ -343,13 +344,13 @@ def test_a_stale_result_does_not_move_the_newer_browsers_page_or_window(named_ca
     page or size over the newer browser's: a reap would reopen B at A's page
     (Copilot, #50). The TTL still slides."""
     m = opened_with_save()
-    m.store.update(NAMED, lambda r: r.at("https://b.test/"))
+    m.store.update(NAMED, lambda r: r.visited("https://b.test/"))
 
     def meanwhile(resolved):
         m.store.update(NAMED, lambda r: replace(r, session_id="newer"))
         return {"url": "https://a.test/page", "width": 640, "height": 480}
 
-    m.act(NAMED, meanwhile, reshapes=True)
+    m.act(Caller(NAMED), meanwhile, reshapes=True)
     record = m.store.get(NAMED)
     assert record.session_id == "newer"
     assert record.url == "https://b.test/"
@@ -358,7 +359,7 @@ def test_a_stale_result_does_not_move_the_newer_browsers_page_or_window(named_ca
 
 def test_a_result_from_the_browser_held_still_moves_the_page(named_caller):
     m = opened_with_save()
-    m.act(NAMED, lambda s: {"url": "https://a.test/page", "width": 640, "height": 480},
+    m.act(Caller(NAMED), lambda s: {"url": "https://a.test/page", "width": 640, "height": 480},
           reshapes=True)
     record = m.store.get(NAMED)
     assert record.url == "https://a.test/page"
@@ -377,10 +378,10 @@ def test_a_report_survives_a_result_that_fails_after_it_was_handed_over(named_ca
 
     monkeypatch.setattr(m, "_save_site_data", broken)
     with pytest.raises(ValueError):
-        m.act(NAMED, lambda s: {"url": URL})
+        m.act(Caller(NAMED), lambda s: {"url": URL})
     monkeypatch.setattr(m, "_save_site_data", real)
-    assert m.act(NAMED, lambda s: {"url": URL})["site_data"] == REPORT
-    assert "site_data" not in m.act(NAMED, lambda s: {"url": URL})
+    assert m.act(Caller(NAMED), lambda s: {"url": URL})["site_data"] == REPORT
+    assert "site_data" not in m.act(Caller(NAMED), lambda s: {"url": URL})
 
 
 @pytest.mark.parametrize("corrupt", [
@@ -392,9 +393,9 @@ def test_a_corrupt_record_never_fails_the_clean_open_that_throws_it_away(named_c
     # restore_site_data=false is the way out of a broken record, so counting
     # what it forgets must not be the thing that breaks.
     m = manager(SiteActions())
-    m.open_browser(NAMED)
+    m.open_browser(Caller(NAMED))
     m.store.update(NAMED, lambda r: r.with_site_data(corrupt))
-    m.end_browser(NAMED)
-    told = m.open_browser(NAMED, restore_site_data=False)
+    m.end_browser(Caller(NAMED))
+    told = m.open_browser(Caller(NAMED), restore_site_data=False)
     assert told["session"] == NAMED
     assert m.store.get(NAMED).site_data == {}

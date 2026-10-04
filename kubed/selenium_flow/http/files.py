@@ -74,8 +74,9 @@ from urllib.parse import quote, unquote
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from ..flows import library as flows
-from ..mcp.annotations import hints, reads
+from ..core.annotations import hints, reads
+from ..mcp import clients
+from ..names import valid_file_name
 from . import answer as answer_module
 from . import links
 
@@ -178,9 +179,9 @@ def parse_uri(uri) -> tuple[str, str]:
     prefix = ROOT_URI + "/"
     parts = text[len(prefix):].split("/") if text.startswith(prefix) else []
     if len(parts) == 1 and parts[0] and parts[0] not in RESERVED:
-        return FILES, flows.valid_file_name(unquote(parts[0]))
+        return FILES, valid_file_name(unquote(parts[0]))
     if len(parts) == 2 and parts[0] in RESERVED and parts[1]:
-        return parts[0], flows.valid_file_name(unquote(parts[1]))
+        return parts[0], valid_file_name(unquote(parts[1]))
     raise ValueError(f"{text!r} is not a file: use {SHAPES}")
 
 
@@ -458,14 +459,14 @@ def sections(
     }
 
 
-def keep(actions, sessions, store, uri, name=None, session_id=None) -> dict:
+def keep(actions, sessions, store, uri, name: str, session_id=None) -> dict:
     """Put one file in Files. A screenshot moves; a download is copied, because
     the Grid cannot delete one file (§F1.10); a Files URI answers with itself.
     """
     if store is None:
         raise ValueError(OFF)
     folder_of, leaf = parse_uri(uri)
-    session = owner(store, name or sessions.name())
+    session = owner(store, name)
     if folder_of == FILES:
         entry = next((e for e in store.files(session) if e["name"] == leaf), None)
         if entry is None:
@@ -526,7 +527,7 @@ def keep(actions, sessions, store, uri, name=None, session_id=None) -> dict:
         # reopened browser cannot hold a download it never took, so resolving
         # would only spend a Grid slot to answer the same refusal.
         if session_id is None:
-            session_id = sessions.browser(name or sessions.name())
+            session_id = sessions.browser(name)
         if not session_id:
             raise ValueError(
                 "a download is read from a browser, and none is open: "
@@ -546,7 +547,7 @@ def keep(actions, sessions, store, uri, name=None, session_id=None) -> dict:
 
 
 def keep_made(
-    sessions,
+    session: str,
     store,
     name: str,
     data: bytes,
@@ -562,32 +563,33 @@ def keep_made(
     `screenshot (1).png`, the way a browser names a second download, because
     overwriting would silently take away a file somebody was handed a link to.
     The name that was used comes back, and it is the one to pass on.
+    ``session`` is the caller's, which the file is kept for.
     """
     if store is None:
         raise ValueError(OFF)
-    session = owner(store, sessions.name())
-    wanted = flows.valid_file_name(name)
+    session = owner(store, session)
+    wanted = valid_file_name(name)
     entry = _claim(store, session, wanted, data, folder)
     url = url_for(folder, session, entry["name"], token, mount, ttl=ttl)
     return describe(folder, entry, url, base)
 
 
-def read_file(actions, sessions, store, uri, name=None) -> tuple[str, bytes]:
+def read_file(actions, sessions, store, uri, name: str) -> tuple[str, bytes]:
     """The bytes of one file, by its address, for a caller that wants to send
     it somewhere. ``name`` names the library explicitly, the way a **flow**
     does: the run supplies the library it was loaded from, so a flow in the
     shared library reads a file from the session that is running, not from
-    `global` (Copilot, #31). Omitted, the caller's own name answers.
+    `global` (Copilot, #31). Otherwise it is the caller's own name.
     """
     folder_of, leaf = parse_uri(uri)
     if folder_of == DOWNLOADS:
-        target = sessions.browser(name or sessions.name())
+        target = sessions.browser(name)
         if not target:
             raise ValueError("a download is read from a browser, and none is open")
         return leaf, actions.grid.read_file(target, leaf)
     if store is None:
         raise ValueError(OFF)
-    session = owner(store, name or sessions.name())
+    session = owner(store, name)
     try:
         return leaf, store.read_file(session, leaf, folder_of)
     except FileNotFoundError:
@@ -614,7 +616,7 @@ def delete_one(store, session: str, name: str) -> dict:
     """
     if store is None:
         raise ValueError(OFF)
-    removed = store.delete_file(session, flows.valid_file_name(name))
+    removed = store.delete_file(session, valid_file_name(name))
     return {"deleted": removed, "session": session, "name": name}
 
 
@@ -679,14 +681,14 @@ def register(
     )
     def files_resource() -> dict:
         return root(
-            actions, sessions, store, token, sessions.name(),
+            actions, sessions, store, token, clients.caller().name,
             base=base, mount=prefix, ttl=ttl,
         )
 
     def _folder_resource(which: str):
         def read() -> dict:
             return folder(
-                actions, sessions, store, token, sessions.name(), which,
+                actions, sessions, store, token, clients.caller().name, which,
                 base=base, mount=prefix, ttl=ttl,
             )
 
@@ -702,7 +704,15 @@ def register(
 
     def _item_resource(which: str):
         def read(name: str) -> bytes:
-            return read_file(actions, sessions, store, uri_of(which, name))[1]
+            # The caller is named last: with Files off, or a URI that is not
+            # one, naming the session would not fix the call, so those say so
+            # first, as they did before the caller was read at the edge.
+            folder_of, _ = parse_uri(uri_of(which, name))
+            if folder_of != DOWNLOADS and store is None:
+                raise ValueError(OFF)
+            return read_file(
+                actions, sessions, store, uri_of(which, name), clients.caller().name
+            )[1]
 
         return read
 
@@ -731,7 +741,7 @@ def register(
     )
     def session_files() -> dict:
         return sections(
-            actions, sessions, store, token, sessions.name(),
+            actions, sessions, store, token, clients.caller().name,
             base=base, mount=prefix, ttl=ttl,
         )
 
@@ -749,7 +759,11 @@ def register(
         annotations=hints("Keep a file in Files", destructive=True, idempotent=False),
     )
     def keep_file(uri: str) -> dict:
-        return keep(actions, sessions, store, uri)
+        # The caller is named last, for the reason `_item_resource` gives.
+        if store is None:
+            raise ValueError(OFF)
+        parse_uri(uri)
+        return keep(actions, sessions, store, uri, clients.caller().name)
 
     _routes(mcp, actions, sessions, store, token, base, prefix, ttl)
     return {FILES_TOOL}
@@ -782,8 +796,8 @@ def _routes(mcp, actions, sessions, store, token, base, prefix, ttl) -> None:
         return await answer(
             request,
             "list",
-            lambda name, _body: root(
-                actions, sessions, store, token, name,
+            lambda caller, _body: root(
+                actions, sessions, store, token, caller.name,
                 base=base, mount=prefix, ttl=ttl,
             ),
         )
@@ -796,8 +810,8 @@ def _routes(mcp, actions, sessions, store, token, base, prefix, ttl) -> None:
         return await answer(
             request,
             "screenshots",
-            lambda name, _body: folder(
-                actions, sessions, store, token, name, SCREENSHOTS,
+            lambda caller, _body: folder(
+                actions, sessions, store, token, caller.name, SCREENSHOTS,
                 base=base, mount=prefix, ttl=ttl,
             ),
         )
@@ -810,8 +824,8 @@ def _routes(mcp, actions, sessions, store, token, base, prefix, ttl) -> None:
         return await answer(
             request,
             "downloads",
-            lambda name, _body: folder(
-                actions, sessions, store, token, name, DOWNLOADS,
+            lambda caller, _body: folder(
+                actions, sessions, store, token, caller.name, DOWNLOADS,
                 base=base, mount=prefix, ttl=ttl,
             ),
         )
@@ -827,12 +841,12 @@ def _routes(mcp, actions, sessions, store, token, base, prefix, ttl) -> None:
         which = request.path_params["folder"]
         leaf = request.path_params["name"]
 
-        def call(name, _body):
+        def call(caller, _body):
             if which not in (SCREENSHOTS, DOWNLOADS):
                 raise ValueError(
                     f"{which!r} is not something to keep: use {SCREENSHOTS} or "
                     f"{DOWNLOADS}"
                 )
-            return keep(actions, sessions, store, uri_of(which, leaf), name=name)
+            return keep(actions, sessions, store, uri_of(which, leaf), caller.name)
 
         return await answer(request, "keep", call)

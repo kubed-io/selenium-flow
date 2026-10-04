@@ -18,10 +18,10 @@ async def step_schema_map(server):
 
     From ENDPOINTS rather than from a listing — a listing is shaped per request
     and, since flows gained tools of their own, would have offered `save_flow`
-    as a valid step. `flowrun.RUNNABLE` refuses that at run time, so a looser
+    as a valid step. `flowapi.RUNNABLE` refuses that at run time, so a looser
     map here would have let validation and execution disagree.
     """
-    from kubed.selenium_flow.routes import ENDPOINTS
+    from kubed.selenium_flow.core.capabilities import ENDPOINTS
 
     tools = {}
     for name in sorted(set(ENDPOINTS.values())):
@@ -616,7 +616,7 @@ async def test_every_flow_the_skill_teaches_would_save(step_schema_map, where, d
     exist. A skill is documentation an agent *acts on*, so its examples are
     tested rather than trusted.
     """
-    from kubed.selenium_flow.flows.library import valid_name
+    from kubed.selenium_flow.names import valid_name
 
     document = dict(document)
     name = document.pop("name", None)
@@ -780,3 +780,58 @@ async def test_a_flow_that_saves_site_data_confirms_the_sign_in_first(step_schem
     save = tools.index("save_site_data")
     click = max(i for i, t in enumerate(tools[:save]) if t == "interact")
     assert "assert" in tools[click + 1:save]
+
+
+# ---- a document somebody wrote by hand (D8, D19, D20) -----------------------
+#
+# A flow is YAML anyone may have typed, so the shapes below are what the editor
+# is for. A refusal is a 400 with a sentence the author can act on; anything
+# else is a fault in our code reported as theirs, or worse a 500.
+
+
+async def test_a_step_that_is_not_an_object_is_refused_by_number(step_schema_map):
+    with pytest.raises(InvalidFlow) as caught:
+        validate(flow(steps=[GOOD_STEP, "oops"]), step_schema_map)
+    assert caught.value.problems == [
+        "step 2: must be an object with a tool and its params"
+    ]
+
+
+@pytest.mark.parametrize("steps", ["navigate", {"a": "b"}, [], None])
+async def test_steps_that_are_not_a_list_are_refused(step_schema_map, steps):
+    with pytest.raises(InvalidFlow) as caught:
+        validate(flow(steps=steps), step_schema_map)
+    assert caught.value.problems == ["steps must be a non-empty list"]
+
+
+async def test_parameters_that_are_a_list_are_refused(step_schema_map):
+    with pytest.raises(InvalidFlow) as caught:
+        validate(flow(parameters=["email"]), step_schema_map)
+    assert caught.value.problems == ["parameters must be a JSON Schema object"]
+
+
+async def test_an_integer_key_in_args_is_a_problem_not_a_crash(step_schema_map):
+    """`args: {1: x, url: ...}` — YAML reads the key as an int (D19)."""
+    document = flow(steps=[{"tool": "navigate", "args": {1: "x", "url": "https://a.test/"}}])
+    with pytest.raises(InvalidFlow, match="navigate has no parameter 1"):
+        validate(document, step_schema_map)
+
+
+GOOD_STEP = {"tool": "navigate", "args": {"url": "https://example.test/"}}
+
+
+async def test_an_id_that_is_a_list_is_refused_with_a_sentence(step_schema_map):
+    document = flow(steps=[{**GOOD_STEP, "id": ["a"]}])
+    with pytest.raises(InvalidFlow) as caught:
+        validate(document, step_schema_map)
+    (problem,) = caught.value.problems
+    assert problem.startswith("step 1") and problem.endswith("id must be a str")
+
+
+async def test_a_required_that_is_a_string_is_refused_with_a_sentence(step_schema_map):
+    document = flow(
+        parameters={"properties": {"email": {"type": "string"}}, "required": "email"}
+    )
+    with pytest.raises(InvalidFlow) as caught:
+        validate(document, step_schema_map)
+    assert caught.value.problems == ["parameters.required must be a list of names"]

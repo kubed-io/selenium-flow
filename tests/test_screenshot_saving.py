@@ -14,9 +14,11 @@ import base64
 
 import pytest
 
-from kubed.selenium_flow import errors
+from kubed.selenium_flow import errors, faults
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.core.browser import Grid
+
+from .conftest import calling_as
 
 pytestmark = pytest.mark.unit
 
@@ -211,7 +213,7 @@ def test_a_print_that_cannot_be_kept_does_not_quote_the_disk(acting):
     with pytest.raises(RuntimeError) as failed:
         acting.print_("abc")
     assert str(failed.value) == "the print could not be kept (PermissionError)"
-    assert "/data" not in errors.message(failed.value)
+    assert "/data" not in faults.message(failed.value)
     assert errors.status_for(failed.value) == 500
 
 
@@ -435,7 +437,7 @@ async def test_a_screenshot_carries_the_site_data_hint(keeping_server, monkeypat
     png = base64.b64encode(b"\x89PNG\r\n\x1a\n").decode()
     monkeypatch.setattr(keeping_server.sessions, "act", lambda name, call, **kw: {
         "image": png, "site_data": hint, **kept})
-    monkeypatch.setattr(keeping_server.sessions, "name", lambda: "s")
+    calling_as(monkeypatch, "s")
     async with Client(keeping_server.mcp) as client:
         result = await client.call_tool("screenshot", {})
     assert result.content[0].type == "image"

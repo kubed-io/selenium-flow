@@ -5,53 +5,18 @@ nine and says only "failed" sends the agent straight back to twelve individual
 calls to find out why, which loses more than the flow ever saved.
 """
 
+import json
+
 import pytest
 
+from kubed.selenium_flow.flows import redact, template
 from kubed.selenium_flow.flows import run as flowrun
-from kubed.selenium_flow.flows.run import FlowError, run
+from kubed.selenium_flow.flows.run import run
+from kubed.selenium_flow.flows.template import FlowError
+
+from .fakes import FakeActions, FakeClock
 
 pytestmark = pytest.mark.unit
-
-
-class FakeActions:
-    """Records what it was called with, and can be told to fail on a step."""
-
-    def __init__(self, fail_on=None, error="boom"):
-        self.calls = []
-        self.fail_on = fail_on or set()
-        self.error = error
-
-    def _record(self, tool, session_id, **kwargs):
-        self.calls.append((tool, session_id, kwargs))
-        if tool in self.fail_on or len(self.calls) in self.fail_on:
-            raise RuntimeError(self.error)
-        return {"url": f"https://example.test/{tool}", "title": tool.title()}
-
-    def navigate(self, session_id, **kwargs):
-        return self._record("navigate", session_id, **kwargs)
-
-    def write(self, session_id, **kwargs):
-        # The real one reads the field back and returns it, which is the leak
-        # a guarded step has to close.
-        return {
-            **self._record("write", session_id, **kwargs),
-            "value": kwargs.get("text"),
-        }
-
-    def interact(self, session_id, **kwargs):
-        return self._record("interact", session_id, **kwargs)
-
-    def extract(self, session_id, **kwargs):
-        return {**self._record("extract", session_id, **kwargs), "text": "the heading"}
-
-    def screenshot(self, session_id, **kwargs):
-        return {
-            **self._record("screenshot", session_id, **kwargs),
-            "image": "A" * 5000,
-        }
-
-    def open_session(self, session_id, **kwargs):  # pragma: no cover - refused
-        return self._record("open_session", session_id, **kwargs)
 
 
 def flow(steps, **extra):
@@ -244,17 +209,6 @@ def test_a_flow_cannot_open_its_own_browser_even_if_the_document_says_so():
     report = run(actions, flow([{"tool": "open_session", "args": {}}]), "b")
     assert report["status"] == "failed"
     assert actions.calls == []
-
-
-class FakeClock:
-    """A clock that advances a second every time it is read."""
-
-    def __init__(self):
-        self.now = 0.0
-
-    def monotonic(self):
-        self.now += 1.0
-        return self.now
 
 
 def test_a_run_stops_when_it_is_out_of_time(monkeypatch):
@@ -871,6 +825,24 @@ def test_a_value_typed_early_is_still_hidden_from_a_later_step():
     assert "zzz-secret" not in str(report)
 
 
+@pytest.mark.parametrize("return_,verbose", [(True, False), (False, True)])
+def test_a_value_a_later_script_returns_as_a_key_is_hidden_too(return_, verbose):
+    """A dictionary key is page data like any value: a script after a bound
+    write can return an object keyed by what was typed (Copilot, #52)."""
+    steps = [
+        {"tool": "write", "args": {"selector": {"css": "#p"}, "secret": SECRET_STEP}},
+        {"tool": "execute_script", "args": {"script": "return {[v]: v}"}, "return": return_},
+    ]
+
+    class Keyed(FakeActions):
+        def execute_script(self, session_id, script, **kwargs):
+            return {"result": {"hunter2": "hunter2"}, "url": "https://x.test/", "title": "t"}
+
+    report = run(Keyed(), flow(steps), "b", verbose=verbose, catalogue=Vault())
+    assert report["steps"][1]["result"]["result"] == {"<hidden>": "<hidden>"}
+    assert "hunter2" not in json.dumps(report)
+
+
 def test_an_empty_binding_is_malformed_rather_than_absent():
     """Save-time validation rejects `secret: {}`, and the store reads YAML
     that never passed through it — treating it as absent let a literal `text`
@@ -980,11 +952,30 @@ def test_a_step_that_fails_after_typing_reports_a_redacted_page():
 
 
 def test_taints_asks_whether_the_value_is_there():
-    assert flowrun.taints("https://x.test/?q=hunter2", {"hunter2"}) is True
-    assert flowrun.taints("https://x.test/", {"hunter2"}) is False
+    assert redact.taints("https://x.test/?q=hunter2", {"hunter2"}) is True
+    assert redact.taints("https://x.test/", {"hunter2"}) is False
     # The marker is not evidence either way.
-    assert flowrun.taints(f"https://x.test/?q={flowrun.HIDDEN}", {flowrun.HIDDEN}) is True
-    assert flowrun.taints(None, {"hunter2"}) is False
+    assert redact.taints(f"https://x.test/?q={flowrun.HIDDEN}", {flowrun.HIDDEN}) is True
+    assert redact.taints(None, {"hunter2"}) is False
+
+
+def test_a_key_is_scrubbed_like_a_value_and_a_collision_keeps_the_later():
+    hidden = redact.hidden_forms(["s3cr3t"])
+    page = {"a s3cr3t": 1, "s3cr3t": 2, "kept": {"x s3cr3t": [{"s3cr3t": 3}]}}
+    assert redact.scrub_values({"result": page}, hidden) == {
+        "result": {"a <hidden>": 1, "<hidden>": 2, "kept": {"x <hidden>": [{"<hidden>": 3}]}}
+    }
+    # Two spellings of one value are two keys that scrub to one: the later wins.
+    hidden = redact.hidden_forms(["a/b"])
+    collided = redact.scrub_values({"result": {"a/b": "first", "a%2Fb": "later"}}, hidden)
+    assert collided == {"result": {"<hidden>": "later"}}
+
+
+def test_the_responses_own_fields_are_never_scrubbed():
+    """A secret that spells `url` must not rename the field a caller reads."""
+    assert redact.scrub_values({"url": "https://x.test/", "title": "t"}, {"url"}) == {
+        "url": "https://x.test/", "title": "t",
+    }
 
 
 def test_a_run_that_navigates_away_reports_the_clean_page_it_ended_on():
@@ -1085,6 +1076,41 @@ def test_a_malformed_parameters_block_does_not_crash_the_preflight(parameters):
     assert report["status"] in {"ok", "failed"}
 
 
+
+@pytest.mark.parametrize("steps", [1, {"tool": "navigate"}, "go"])
+def test_a_stored_flow_whose_steps_are_not_a_list_is_refused_not_a_crash(steps):
+    """Copilot, review 2: the preflight found it, then the refusal counted the
+    steps with `len()` and raised — a 500 about our code instead of the verdict
+    on the document. Saving refuses it; a hand-written file never saw saving."""
+    actions = FakeActions()
+    report = run(actions, flow(steps), "b")
+    assert report["status"] == "failed"
+    assert report["steps_run"] == 0
+    assert report["steps_total"] == 0
+    assert report["steps"][0]["error"] == (
+        "this flow cannot be run as written: steps must be a non-empty list."
+    )
+    assert actions.calls == []
+
+
+@pytest.mark.parametrize("tool", [["navigate"], {"name": "navigate"}])
+def test_a_stored_step_whose_tool_is_not_a_name_is_refused_not_a_crash(tool):
+    """Copilot, review 3: the preflight let it through, and the step looked the
+    tool up in a set outside its own error handling, so an unhashable one was
+    a TypeError. Saving says the step names no tool; so does the run."""
+    actions = FakeActions()
+    steps = [
+        {"tool": "navigate", "args": {"url": "https://example.test/"}},
+        {"tool": tool, "args": {"url": "https://example.test/"}},
+    ]
+    report = run(actions, flow(steps), "b")
+    assert report["status"] == "failed"
+    assert report["steps_run"] == 0
+    assert report["steps"][0]["error"] == (
+        "this flow cannot be run as written: step 2: names no tool."
+    )
+    assert actions.calls == []
+
 # ---- declared defaults -------------------------------------------------------
 
 
@@ -1097,26 +1123,26 @@ def test_a_declared_default_is_supplied_when_the_caller_omits_it():
         "name": "wiki",
         "parameters": {"properties": {"lang": {"type": "string", "default": "en"}}},
     }
-    assert flowrun.with_defaults(document, {}) == {"lang": "en"}
+    assert template.with_defaults(document, {}) == {"lang": "en"}
 
 
 def test_a_value_the_caller_passed_beats_the_default():
     document = {"parameters": {"properties": {"lang": {"default": "en"}}}}
-    assert flowrun.with_defaults(document, {"lang": "de"}) == {"lang": "de"}
+    assert template.with_defaults(document, {"lang": "de"}) == {"lang": "de"}
 
 
 def test_an_explicit_none_is_a_value_the_caller_chose():
     """Overriding it would make `lang: null` mean something different from
     every other value the caller can pass."""
     document = {"parameters": {"properties": {"lang": {"default": "en"}}}}
-    assert flowrun.with_defaults(document, {"lang": None}) == {"lang": None}
+    assert template.with_defaults(document, {"lang": None}) == {"lang": None}
 
 
 def test_a_parameter_with_no_default_is_left_absent():
     """Absent and `None` are different answers, and `substitute` leaves an
     unsupplied reference as written on purpose."""
     document = {"parameters": {"properties": {"term": {"type": "string"}}}}
-    assert flowrun.with_defaults(document, {}) == {}
+    assert template.with_defaults(document, {}) == {}
 
 
 def test_a_required_parameter_is_not_satisfied_by_its_own_default():
@@ -1130,15 +1156,15 @@ def test_a_required_parameter_is_not_satisfied_by_its_own_default():
             "required": ["term"],
         },
     }
-    with pytest.raises(flowrun.FlowError) as raised:
-        flowrun.check_params(document, {})
+    with pytest.raises(template.FlowError) as raised:
+        template.check_params(document, {})
     assert "needs term" in str(raised.value)
 
 
 @pytest.mark.parametrize("parameters", [[], "term", {"properties": "term"}, {}])
 def test_a_malformed_parameters_block_defaults_nothing(parameters):
     """It reads a stored file, so every shape a hand edit produces arrives."""
-    assert flowrun.with_defaults({"parameters": parameters}, {"a": 1}) == {"a": 1}
+    assert template.with_defaults({"parameters": parameters}, {"a": 1}) == {"a": 1}
 
 
 # The three above test the helper. These test the PROPERTY, through `run`, and
@@ -1367,3 +1393,93 @@ def test_a_file_named_after_a_secret_is_not_reported():
     ]
     report = guarded(steps, actions=ShootsASecret())
     assert "hunter2" not in str(report)
+
+
+# ---- a document somebody wrote by hand (R9) ----------------------------------
+#
+# A flow read from disk never passed through saving. Saving refuses all of these
+# (test_flowdoc.py); the runner must not answer the same document with a crash.
+
+
+@pytest.mark.parametrize(
+    ("steps", "complaint"),
+    [
+        (["oops"], "must be an object with a tool and its params"),
+        ("navigate", "steps must be a non-empty list"),
+        ({"a": "b"}, "steps must be a non-empty list"),
+    ],
+    ids=["a step that is a string", "steps as a string", "steps as a mapping"],
+)
+def test_a_document_the_validator_would_refuse_is_a_failed_run(steps, complaint):
+    report = run(FakeActions(), {"name": "login", "steps": steps}, "b")
+    assert report["status"] == "failed"
+    assert complaint in str(report)
+
+
+# ---- the secret is lifted out before anything is substituted (X1) -----------
+
+
+class Watching(FakeActions):
+    """Records where the browser was asked about, in order with the steps."""
+
+    def __init__(self):
+        super().__init__()
+        self.order = []
+
+    def page(self, session_id):
+        self.order.append("page")
+        return {"url": "https://example.test/login", "title": "t"}
+
+    def _record(self, tool, session_id, **kwargs):
+        self.order.append(tool)
+        return super()._record(tool, session_id, **kwargs)
+
+
+class Asked(Vault):
+    """A catalogue that remembers which name it was asked for."""
+
+    def __init__(self):
+        super().__init__()
+        self.names = []
+
+    def entry(self, name):
+        self.names.append(name)
+        return super().entry(name)
+
+
+def test_a_parameter_can_never_reach_the_name_of_a_secret():
+    """The secret is popped before substitution, so a caller's parameter cannot
+    choose which secret is typed (X1)."""
+    vault = Asked()
+    document = {
+        "name": "login",
+        "parameters": {"properties": {"who": {"type": "string"}}},
+        "steps": [
+            {
+                "tool": "write",
+                "args": {
+                    "selector": {"css": "#p"},
+                    "secret": {"name": "${who}", "key": "password"},
+                },
+            }
+        ],
+    }
+    run(Watching(), document, "b", params={"who": "root-password"}, catalogue=vault)
+    assert vault.names == ["${who}"], "the reference was substituted"
+
+
+def test_the_page_is_read_only_for_a_step_that_binds_a_secret():
+    """Reading it costs a WebDriver round trip, and only a secret has a leash to
+    check against it (X1)."""
+    plain = Watching()
+    run(plain, flow(SIMPLE), "b")
+    assert "page" not in plain.order
+
+    bound = Watching()
+    steps = [
+        {"tool": "navigate", "args": {"url": "https://example.test/login"}},
+        {"tool": "write", "args": {"selector": {"css": "#p"}, "secret": SECRET_STEP}},
+    ]
+    report = run(bound, flow(steps), "b", catalogue=Vault())
+    assert report["status"] == "ok"
+    assert bound.order == ["navigate", "page", "write"], "read once, before the keystroke"

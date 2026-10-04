@@ -6,8 +6,10 @@ import json
 
 import pytest
 
-from kubed.selenium_flow.core import site_data as sd
+from kubed.selenium_flow import urls
 from kubed.selenium_flow.session.store import SessionRecord
+from kubed.selenium_flow.site_data import snapshot as sd
+from kubed.selenium_flow.site_data import transfer
 
 pytestmark = pytest.mark.unit
 
@@ -23,16 +25,16 @@ def cookie(name, domain, value="v", http_only=False, expiry=None, secure=True):
 
 
 def test_origin_of_matches_location_origin():
-    assert sd.origin_of("https://App.Example.com:443/x?y#z") == "https://app.example.com"
-    assert sd.origin_of("http://localhost:3000/a") == "http://localhost:3000"
-    assert sd.origin_of("http://x.test:80/") == "http://x.test"
-    assert sd.origin_of("about:blank") == ""
-    assert sd.origin_of("") == ""
+    assert urls.origin_of("https://App.Example.com:443/x?y#z") == "https://app.example.com"
+    assert urls.origin_of("http://localhost:3000/a") == "http://localhost:3000"
+    assert urls.origin_of("http://x.test:80/") == "http://x.test"
+    assert urls.origin_of("about:blank") == ""
+    assert urls.origin_of("") == ""
 
 
 def test_an_ipv6_origin_keeps_its_brackets():
-    assert sd.origin_of("http://[::1]:3000/") == "http://[::1]:3000"
-    assert sd.origin_of("https://[2001:db8::1]/x") == "https://[2001:db8::1]"
+    assert urls.origin_of("http://[::1]:3000/") == "http://[::1]:3000"
+    assert urls.origin_of("https://[2001:db8::1]/x") == "https://[2001:db8::1]"
 
 
 def test_expired_cookies_are_dropped_and_session_cookies_kept():
@@ -70,8 +72,8 @@ def test_every_browser_is_opened_with_bidi():
 
 
 def test_read_storage_reaches_each_store_inside_its_try():
-    assert "dump(() => localStorage)" in sd.READ_STORAGE
-    assert "dump(() => sessionStorage)" in sd.READ_STORAGE
+    assert "dump(() => localStorage)" in transfer.READ_STORAGE
+    assert "dump(() => sessionStorage)" in transfer.READ_STORAGE
 
 
 @pytest.mark.skipif(__import__("shutil").which("node") is None, reason="needs node")
@@ -83,7 +85,7 @@ def test_read_storage_on_a_page_with_no_storage_returns_the_empty_shape(tmp_path
         "const location = {origin: 'null'};\n"
         "Object.defineProperty(globalThis, 'localStorage', {get() { throw new Error('SecurityError') }});\n"
         "Object.defineProperty(globalThis, 'sessionStorage', {get() { throw new Error('SecurityError') }});\n"
-        "console.log(JSON.stringify((function () {" + sd.READ_STORAGE + "})()));\n",
+        "console.log(JSON.stringify((function () {" + transfer.READ_STORAGE + "})()));\n",
         encoding="utf-8",
     )
     out = subprocess.run(["node", str(path)], capture_output=True, text=True, check=False)

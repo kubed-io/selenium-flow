@@ -6,15 +6,15 @@ import pytest
 from fastmcp import Client
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow import routes
 from kubed.selenium_flow.config import Settings
-from kubed.selenium_flow.core import site_data
+from kubed.selenium_flow.core import capabilities
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.session.sessions import Caller, SessionManager
+from kubed.selenium_flow.session.sessions import SessionManager
 from kubed.selenium_flow.session.store import SessionRecord
+from kubed.selenium_flow.site_data import snapshot as site_data
 
-from .conftest import NAMED, TOKEN
+from .conftest import NAMED, TOKEN, calling_as
 
 pytestmark = pytest.mark.unit
 
@@ -32,13 +32,12 @@ def saved_record():
         "session": {"origin": f"https://{SITE}", "items": {}},
         "saved_at": 1000.0,
     }
-    return SessionRecord(site_data=data).at(f"https://{SITE}/x")
+    return SessionRecord(site_data=data).visited(f"https://{SITE}/x")
 
 
 @pytest.fixture
-def saved(server):
-    server.sessions.name = lambda: NAMED
-    server.sessions.caller = lambda: Caller(NAMED, "header")
+def saved(server, monkeypatch):
+    calling_as(monkeypatch, NAMED)
     server.sessions.store.set(NAMED, saved_record())
     return server
 
@@ -52,7 +51,7 @@ async def test_save_site_data_is_a_tool_and_an_endpoint(server):
     async with Client(server.mcp) as c:
         names = {t.name for t in await c.list_tools()}
     assert "save_site_data" in names
-    assert routes.ENDPOINTS["save-site-data"] == "save_site_data"
+    assert capabilities.ENDPOINTS["save-site-data"] == "save_site_data"
 
 
 async def test_open_session_takes_restore_site_data(server):
@@ -113,7 +112,7 @@ def test_the_capture_never_leaves_the_server(monkeypatch):
     # The record names the browser `resolve` hands back, as it does for real:
     # a save is kept only by the browser that captured it.
     server.sessions.store.set(
-        NAMED, SessionRecord(session_id="live-id").at(f"https://{SITE}/")
+        NAMED, SessionRecord(session_id="live-id").visited(f"https://{SITE}/")
     )
     client = TestClient(server.mcp.http_app())
     response = client.post(
@@ -178,7 +177,7 @@ def test_save_with_bidi_unreachable_is_a_scrubbed_503(monkeypatch):
     server = SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
     )
-    server.sessions.store.set(NAMED, SessionRecord().at(f"https://{SITE}/"))
+    server.sessions.store.set(NAMED, SessionRecord().visited(f"https://{SITE}/"))
     client = TestClient(server.mcp.http_app())
     response = client.post(
         "/browser/save-site-data", headers=AUTH, params={"session": NAMED}, json={}
@@ -214,7 +213,7 @@ def test_an_unexpected_cookie_read_failure_stays_a_500(monkeypatch):
     server = SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
     )
-    server.sessions.store.set(NAMED, SessionRecord().at(f"https://{SITE}/"))
+    server.sessions.store.set(NAMED, SessionRecord().visited(f"https://{SITE}/"))
     client = TestClient(server.mcp.http_app())
     response = client.post(
         "/browser/save-site-data", headers=AUTH, params={"session": NAMED}, json={}

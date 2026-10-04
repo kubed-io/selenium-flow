@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `security.frame_ancestors` lets Nextcloud or Grafana frame the admin page.
+- The admin page and server logs no longer expose session names or signed links.
 - A YAML config file (`--config-file` / `CONFIG_FILE`): every setting can be set there, in env or as a flag, and a later one wins.
 - Secrets can be defined in the config file, merged over the ones in `secrets.dirs`, with keys read from a file or an env var.
 - The admin UI has a Settings tab showing every setting and where its value came from.
@@ -38,9 +40,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Secrets tab no longer lists which flows use a secret.
 - Screenshot and image links open in any browser again, including ones whose extensions hung the tab on a blank screen.
 - An expired or broken file link opened in a browser shows a page saying which, and when it expired.
+- One browser-driving call runs at a time per session; end_browser still interrupts a long assert.
 - `link_ttl` (`LINK_TTL`) sets how long a file link works; the default is still an hour.
 - **BREAKING:** a file's `url` is absolute when `PUBLIC_BASE_URL` is set, and `absolute_url` is gone.
 - **BREAKING:** `MCP_AUTH_TOKEN` is `AUTH_TOKEN`; `DEFAULT_BROWSER`, `WINDOW_WIDTH`, `WINDOW_HEIGHT`, `PAGE_LOAD_TIMEOUT` and `SCRIPT_TIMEOUT` are `SESSION_*`; `--no-skill`/`--no-apps` are `--mcp-skill false`/`--mcp-apps false`; `SKILL_ENABLED`/`APPS_ENABLED` are `MCP_SKILL`/`MCP_APPS`.
+- **BREAKING:** upload_file no longer takes path; send content with a filename, or a kept file's URI.
+- navigate and every url refuse non-web schemes (file:, chrome:, data:, …).
+- A secret is typed into a frame only when the page and the frame are both allowed, and never into an element that hosts another document (`<iframe>`, `<object>`, …).
+- Request bodies are capped: 1 MiB JSON, 64 MiB upload, 1 MiB flow YAML; over the cap is a 413.
+- Naming two different sessions in one request (?session=a&session=b) is refused.
 
 ## [0.3.0] - 2026-09-26
 

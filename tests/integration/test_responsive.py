@@ -7,6 +7,10 @@ the event loop, so one `assert` waiting minutes stalled MCP, the admin page and
 loop; this proves the property a person feels, against the real server, Grid
 and Redis, with MCP and the admin API asked at the same time.
 
+Each endpoint is asked once, untimed, before the timed loop: branch runs on a
+loaded runner failed the first iteration, which paid for lazy imports and the
+first MCP session inside the budget.
+
 The timings are written to ``PROFILE_DIR`` when it is set, for the job summary.
 """
 
@@ -35,6 +39,10 @@ BUDGET_SECONDS = 1.0
 HEADERS = {"Authorization": f"Bearer {TOKEN}", "X-Session-Key": SESSION}
 
 
+# A slow answer must be recorded as a number, not raised as a TimeoutError.
+CLIENT_TIMEOUT = max(BUSY_SECONDS * 4, BUDGET_SECONDS * 2)
+
+
 def _request(url: str, method: str = "GET", body: dict | None = None) -> float:
     """Seconds one request took. Its answer is not the point; any is fine."""
     data = json.dumps(body).encode() if body is not None else None
@@ -46,7 +54,7 @@ def _request(url: str, method: str = "GET", body: dict | None = None) -> float:
     )
     started = time.perf_counter()
     try:
-        with urllib.request.urlopen(request, timeout=BUSY_SECONDS * 4) as answer:
+        with urllib.request.urlopen(request, timeout=CLIENT_TIMEOUT) as answer:
             answer.read()
     except urllib.error.HTTPError:
         pass  # a failed assert is a 4xx, and that is what this one is for
@@ -91,6 +99,12 @@ async def test_the_server_answers_while_a_browser_is_busy(server):
             )
         )
         await asyncio.sleep(1)  # let the assert start waiting
+        # Paid here, outside the budget: lazy imports, the first MCP session.
+        await asyncio.gather(
+            asyncio.to_thread(_request, f"{server}/health"),
+            asyncio.to_thread(_request, f"{server}/admin/sessions"),
+            _list_tools(server),
+        )
         timings: dict[str, list[float]] = {
             "GET /health": [],
             "GET /admin/sessions": [],

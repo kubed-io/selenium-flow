@@ -230,6 +230,86 @@ def test_the_first_glide_in_a_browser_is_a_jump_and_says_so(actions, moving):
     assert actions.interact("abc", "hover", selector={"css": "#go"}, glide=True)["glided"] is True
 
 
+@pytest.fixture
+def lands(monkeypatch):
+    """`pointer.move` answers with whatever a test sets on the returned dict."""
+    answer = {
+        "at": (10.0, 10.0), "glided": False, "nudged": False,
+        "unknown_start": False,
+    }
+    monkeypatch.setattr(pointer, "move", lambda *a, **k: dict(answer))
+    return answer
+
+
+@pytest.mark.parametrize("action", ["hover", "scroll_to"])
+def test_hover_and_scroll_to_wait_for_the_element_to_exist_only(
+    actions, scripted, lands, action
+):
+    """Requiring clickability would refuse exactly the off-screen element
+    scroll_to is for."""
+    driver = scripted()
+    actions.interact("abc", action, selector={"css": "#go"})
+    assert ("find_element", "css selector", "#go") in driver.log
+    assert ("element", "is_displayed") not in driver.log
+
+
+@pytest.mark.parametrize("action", ["click", "double_click", "right_click"])
+def test_the_other_gestures_wait_for_the_element_to_be_clickable(
+    actions, scripted, lands, action, monkeypatch
+):
+    class Chain:
+        def __init__(self, driver):
+            pass
+
+        def __getattr__(self, name):
+            return lambda *a, **k: self
+
+    monkeypatch.setattr("kubed.selenium_flow.core.actions.ActionChains", Chain)
+    driver = scripted()
+    actions.interact("abc", action, selector={"css": "#go"})
+    assert ("element", "is_displayed") in driver.log
+
+
+def test_a_move_that_started_inside_the_target_says_it_stepped_out_first(
+    actions, scripted, lands
+):
+    """Explains a hover that worked this time and did nothing last time (§F2.10)."""
+    scripted()
+    lands["nudged"] = True
+    result = actions.interact("abc", "hover", selector={"css": "#go"})
+    assert result["nudged"] is True
+
+
+def test_a_move_that_started_outside_the_target_does_not_mention_a_nudge(
+    actions, scripted, lands
+):
+    scripted()
+    assert "nudged" not in actions.interact("abc", "hover", selector={"css": "#go"})
+
+
+def test_an_element_no_path_can_be_plotted_to_says_this_was_a_jump(
+    actions, scripted, lands
+):
+    scripted()
+    lands["unglideable"] = True
+    result = actions.interact("abc", "hover", selector={"css": "#go"}, glide=True)
+    assert "does not fit in the window even scrolled to the middle" in result["glide_note"]
+    assert result["glided"] is False
+
+
+def test_a_glide_that_was_not_delivered_for_another_reason_says_so_plainly(
+    actions, scripted, lands
+):
+    scripted()
+    result = actions.interact("abc", "hover", selector={"css": "#go"}, glide=True)
+    assert result["glide_note"] == "this was a jump"
+
+
+def test_a_jump_that_was_asked_for_has_no_note(actions, scripted, lands):
+    scripted()
+    assert "glide_note" not in actions.interact("abc", "hover", selector={"css": "#go"})
+
+
 def test_a_move_that_cannot_be_sent_costs_the_position_and_not_the_gesture(
     actions, monkeypatch
 ):
