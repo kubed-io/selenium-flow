@@ -90,6 +90,36 @@ def test_a_server_booted_with_a_token_says_auth_is_on(tmp_path, listened, caplog
     assert "s3cret" not in caplog.text, "the log line names the state, not the token"
 
 
+OIDC = """auth:
+  token: s3cret
+oidc:
+  issuer: https://auth.example.com/realms/example
+  audience: https://mcp.example.com
+  jwks_uri: https://auth.example.com/realms/example/certs
+"""
+
+
+def test_the_boot_line_says_oidc_is_off(tmp_path, listened, caplog):
+    with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.main"):
+        main_module.main(config(tmp_path))
+    assert "oidc=off" in caplog.text
+
+
+def test_the_boot_line_names_the_oidc_issuer(tmp_path, listened, caplog):
+    with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.main"):
+        main_module.main(config(tmp_path, OIDC + "  roles: [mcp]\n"))
+    assert "oidc=https://auth.example.com/realms/example" in caplog.text
+    assert not [r for r in caplog.records if r.levelno == logging.WARNING]
+
+
+def test_oidc_without_roles_warns(tmp_path, listened, caplog):
+    """No roles: every token from the issuer for the audience gets in."""
+    with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.main"):
+        main_module.main(config(tmp_path, OIDC))
+    warned = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warned) == 1 and "oidc.roles" in warned[0]
+
+
 def test_the_server_listens_where_the_config_says(tmp_path, listened):
     main_module.main(config(tmp_path, "host: 127.0.0.1\nport: 8123\n"))
     assert listened == [("127.0.0.1", 8123)]

@@ -56,15 +56,22 @@ def main(argv: list[str] | None = None) -> None:
     quiet_the_wire()
     server = SeleniumMCP(settings, sources=loaded.sources)
     log.info(
-        "config=%s grid=%s auth=%s sessions=%s skill=%s flows=%s secrets=%s",
+        "config=%s grid=%s auth=%s oidc=%s sessions=%s skill=%s flows=%s secrets=%s",
         settings.config_file or "none",
         without_userinfo(settings.grid.url),
         "on" if server.auth_token else "off",
+        settings.oidc.issuer or "off",
         server.sessions.kind,
         server.skill.skill_info.name if server.skill else "off",
         server.flows.kind if server.flows else "off",
         _secrets_summary(server.secrets),
     )
+    if settings.oidc.issuer and not settings.oidc.roles:
+        log.warning(
+            "oidc.roles is empty: any token from %s for %s gets in",
+            settings.oidc.issuer,
+            settings.oidc.audience,
+        )
     if (
         not server.auth_token
         and settings.transport == "http"
