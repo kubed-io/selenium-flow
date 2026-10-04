@@ -54,6 +54,7 @@ from ..core.browser import in_frame
 from ..core.coerce import as_bool
 from ..core.defaults import DEFAULT_BROWSER
 from ..names import GLOBAL_SESSION, valid_session_name
+from ..principal import Principal
 from ..site_data import snapshot as site_data_module
 from ..urls import allowed_navigation
 from . import locks
@@ -134,6 +135,9 @@ class Caller:
     said: tuple[Mapping[str, str], Mapping[str, str]] = field(
         default=({}, {}), repr=False
     )
+    # Who the verified credential says this is (principal.py), or None on an
+    # open server. Carried, not consulted: nothing decides anything from it yet.
+    principal: Principal | None = None
 
     @classmethod
     def from_request(
@@ -284,6 +288,7 @@ class SessionManager:
         status = {
             "session": name,
             "named_by": caller.named_by,
+            "principal": caller.principal.status() if caller.principal else None,
             "browser": None,
             "url": None,
             "live": False,

@@ -1593,3 +1593,8 @@ def test_two_concurrent_calls_on_one_session_run_one_after_the_other():
     record = sessions.store.get(NAMED)
     assert record.session_id == "abc", "the browser the record holds is unchanged"
     assert record.url in {"https://a.test/", "https://b.test/"}
+
+
+def test_describe_has_no_principal_on_an_open_server():
+    caller = Caller.from_request({}, {"x-session-key": ["desk"]})
+    assert manager().describe(caller)["principal"] is None

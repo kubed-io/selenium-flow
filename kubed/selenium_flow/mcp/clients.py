@@ -16,9 +16,12 @@ this order:
 
 from __future__ import annotations
 
-from fastmcp.server import dependencies
-from fastmcp.server.dependencies import get_context
+from dataclasses import replace
 
+from fastmcp.server import dependencies
+from fastmcp.server.dependencies import get_access_token, get_context
+
+from ..principal import Principal
 from ..session.sessions import Caller, values_of
 
 _OFF = ("off", "false", "0", "no", "none")
@@ -57,6 +60,15 @@ def request_values() -> tuple[dict[str, list[str]], dict[str, list[str]]] | None
     return {}, {k.lower(): [v] for k, v in headers.items()}
 
 
+def principal() -> Principal | None:
+    """Who this request's verified bearer is, or None on an open server."""
+    try:
+        token = get_access_token()
+    except Exception:  # noqa: BLE001 - off a request there is no bearer
+        return None
+    return getattr(token, "principal", None)
+
+
 def caller(client: str | None = None) -> Caller:
     """Who is calling this MCP request: read once, here, and handed in.
 
@@ -67,7 +79,7 @@ def caller(client: str | None = None) -> Caller:
     values = request_values()
     if values is None:
         return Caller.stdio(client=client)
-    return Caller.from_request(*values, client=client)
+    return replace(Caller.from_request(*values, client=client), principal=principal())
 
 
 def name() -> str:
