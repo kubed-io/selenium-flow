@@ -9,13 +9,21 @@ This is the *bearer* half of the server's auth. The other half is `links.py`,
 which signs a URL for one file so it can be opened by something that cannot send
 a header at all. The split is deliberate: this module answers "are you the
 operator?", `links.py` answers "may this one URL be fetched?".
+
+It also builds the MCP door's verifiers: the server token, and a JWT from the
+configured OIDC issuer.
 """
 
 from __future__ import annotations
 
 import hmac
 
+from fastmcp.server.auth.auth import AccessToken, AuthProvider, MultiAuth, TokenVerifier
+from fastmcp.server.auth.providers.jwt import JWTVerifier
 from starlette.requests import Request
+
+from .. import config
+from ..principal import ADMIN, Principal, roles_in
 
 BEARER = "bearer"
 
@@ -53,3 +61,80 @@ def authorized(request: Request, token: str | None) -> bool:
         return True
     return hmac.compare_digest(presented(request), token)
 
+
+# ---- the MCP door: verifiers FastMCP runs on /mcp ----
+
+# The client id the server token reports as. Shown nowhere; FastMCP needs one.
+CLIENT_ID = "selenium-flow"
+
+
+class PrincipalToken(AccessToken):
+    """An access token that says who it is, so nothing re-reads its claims."""
+
+    principal: Principal
+
+
+class ServerTokenVerifier(TokenVerifier):
+    """The server token on `/mcp`: the admin. Constant-time, unlike a dict lookup."""
+
+    def __init__(self, token: str):
+        super().__init__()
+        self._token = token
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        # Bytes, not str: compare_digest raises on a non-ASCII str, and a
+        # bearer is whatever a client sends.
+        if not hmac.compare_digest(token.encode(), self._token.encode()):
+            return None
+        return PrincipalToken(
+            token=token, client_id=CLIENT_ID, scopes=[], principal=ADMIN
+        )
+
+
+class OidcVerifier(JWTVerifier):
+    """A JWT from the configured issuer: signature, iss, aud, exp, then a role.
+
+    No routes: the gateway serves the protected-resource metadata and the issuer
+    serves the rest. A missing role is a refusal like any other, so a 401.
+    """
+
+    def __init__(self, oidc: config.OidcSettings, *, http_client=None):
+        super().__init__(
+            jwks_uri=oidc.jwks_uri,
+            issuer=oidc.issuer,
+            audience=oidc.audience,
+            algorithm="RS256",
+            http_client=http_client,
+        )
+        self._roles = frozenset(oidc.roles)
+        self._roles_claim = oidc.roles_claim
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        verified = await super().verify_token(token)
+        if verified is None:
+            return None
+        claims = verified.claims
+        held = roles_in(claims, self._roles_claim)
+        if self._roles and not self._roles.intersection(held):
+            return None
+        return PrincipalToken(
+            **verified.model_dump(),
+            principal=Principal.from_claims(claims, self._roles_claim),
+        )
+
+
+def provider(settings: config.Settings, *, http_client=None) -> AuthProvider | None:
+    """What `/mcp` checks a bearer with: nothing, the token, or the token then a JWT."""
+    problem = config.oidc_problem(settings)
+    if problem:
+        raise config.ConfigError(problem)
+    token = settings.auth.token.get_secret_value() if settings.auth.token else None
+    if not token:
+        return None
+    server_token = ServerTokenVerifier(token)
+    if not settings.oidc.issuer:
+        return server_token
+    # The token first: a string compare, where a JWT costs a signature check.
+    return MultiAuth(
+        verifiers=[server_token, OidcVerifier(settings.oidc, http_client=http_client)]
+    )

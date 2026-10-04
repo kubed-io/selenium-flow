@@ -193,3 +193,13 @@ def built_ui(ui_dir):
         (ui_dir / f"{name}.css").write_text(f"/* {name} css */")
         (ui_dir / f"{name}.js").write_text(f"/* {name} js */")
     return ui_dir
+
+
+@pytest.fixture
+def issuer():
+    """A loopback OIDC issuer: its JWKS is fetched for real."""
+    from .jwks import Issuer
+
+    made = Issuer()
+    yield made
+    made.close()

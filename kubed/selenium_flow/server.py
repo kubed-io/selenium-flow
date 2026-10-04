@@ -11,7 +11,6 @@ from __future__ import annotations
 import logging
 
 from fastmcp import FastMCP
-from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 from starlette.middleware import Middleware
 
 from . import config, routes, secrets
@@ -22,6 +21,7 @@ from .core.browser import Grid
 from .flows import api as flowapi
 from .flows import store as flowstore
 from .http import access_log, admin, files
+from .http import auth as http_auth
 from .http.admin import page as admin_page
 from .http.slashes import RelativeSlashRedirects
 from .mcp import (
@@ -120,14 +120,10 @@ class SeleniumMCP:
         # Read-only and value-free: this holds a catalogue, never a credential.
         self.secrets = secrets.from_settings(settings.secrets, settings.config_file)
 
-        # A token turns on auth for both surfaces. Absent, the server is open —
-        # correct for a local `docker compose up`, and the reason the deployment
-        # always sets one.
-        auth = None
-        if auth_token:
-            auth = StaticTokenVerifier(
-                tokens={auth_token: {"client_id": "selenium-flow", "scopes": []}}
-            )
+        # The token turns on auth for both surfaces; `oidc` adds a JWT beside it
+        # on /mcp only. Absent, the server is open — correct for a local
+        # `docker compose up`, and the reason the deployment always sets one.
+        auth = http_auth.provider(settings)
 
         self.mcp = FastMCP(
             "Selenium",

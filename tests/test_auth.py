@@ -9,9 +9,12 @@ question there is whether the route is guarded, not how the comparison works.
 """
 
 import pytest
+from fastmcp.server.auth.providers.jwt import RSAKeyPair
 from starlette.requests import Request
 
+from kubed.selenium_flow.config import ConfigError, Settings
 from kubed.selenium_flow.http import auth
+from kubed.selenium_flow.principal import ADMIN
 
 from .conftest import TOKEN
 
@@ -65,8 +68,66 @@ def test_no_token_configured_means_the_server_is_open():
     assert auth.authorized(_request({"Authorization": "Bearer anything"}), "")
 
 
+# ---- the MCP door -------------------------------------------------------------
+
+async def test_the_server_token_verifier_accepts_only_the_exact_token():
+    verifier = auth.ServerTokenVerifier(TOKEN)
+    token = await verifier.verify_token(TOKEN)
+    assert token.principal == ADMIN and token.client_id == auth.CLIENT_ID
+    for wrong in ("", TOKEN[:-1], TOKEN + "x", "Bearer " + TOKEN, "tökén"):
+        assert await verifier.verify_token(wrong) is None
+
+
+async def test_a_good_jwt_becomes_an_oidc_principal(issuer):
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
+    token = await verifier.verify_token(issuer.mint())
+    assert token.principal.kind == "oidc"
+    assert (token.principal.subject, token.principal.username) == ("6b0f", "drk")
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"audience": "https://other.example.com"},
+        {"issuer": "https://auth.example.com/realms/other"},
+        {"expires_in_seconds": -60},
+        {"claims": {"roles": ["viewer"]}},
+        {"claims": {"roles": "mcp"}},
+    ],
+    ids=["audience", "issuer", "expired", "no-role", "roles-not-a-list"],
+)
+async def test_a_bad_jwt_is_refused(issuer, overrides):
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
+    assert await verifier.verify_token(issuer.mint(**overrides)) is None
+
+
+async def test_a_jwt_signed_by_another_key_is_refused(issuer):
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
+    assert await verifier.verify_token(issuer.mint(keys=RSAKeyPair.generate())) is None
+
+
+async def test_no_roles_configured_checks_none(issuer):
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN, roles=()).oidc)
+    assert await verifier.verify_token(issuer.mint(claims={"roles": []})) is not None
+
+
+def test_the_provider_per_configuration(issuer):
+    assert auth.provider(Settings()) is None
+    assert isinstance(auth.provider(Settings(auth={"token": TOKEN})), auth.ServerTokenVerifier)
+    both = auth.provider(issuer.settings(TOKEN))
+    assert [type(v) for v in both.verifiers] == [auth.ServerTokenVerifier, auth.OidcVerifier]
+    # No OAuth routes: the gateway and the issuer own discovery.
+    assert both.get_routes("/mcp") == []
+
+
+def test_the_provider_refuses_oidc_without_the_token(issuer):
+    settings = issuer.settings(TOKEN).model_copy(update={"auth": Settings().auth})
+    with pytest.raises(ConfigError, match=r"auth\.token"):
+        auth.provider(settings)
+
+
 def test_a_token_turns_on_the_mcp_verifier(server):
-    assert server.mcp.auth is not None
+    assert isinstance(server.mcp.auth, auth.ServerTokenVerifier)
 
 
 def test_no_token_leaves_the_server_open(open_server):
