@@ -43,6 +43,7 @@ from .core.actions import Actions
 from .core.capabilities import CAPABILITIES, ENDPOINTS, Capability
 from .http import answer as answer_module
 from .mcp import resources
+from .principal import ADMIN
 from .session import settings
 from .session.sessions import Caller, SessionManager
 from .spec import build_spec
@@ -266,9 +267,12 @@ def register(
         """What this session is and whether it holds a browser. Opens nothing."""
         # Reported as named by `request` on this surface, as it always has been,
         # where MCP says `query` or `header` (M36): a divergence to settle on
-        # its own, not inside a refactor.
+        # its own, not inside a refactor. With a token configured only a token
+        # holder gets here, so it is the admin; an open server has no principal.
         return await _answer(request, token, "status", lambda caller, _body: (
-            sessions.describe(Caller(caller.name, "request"))
+            sessions.describe(
+                Caller(caller.name, "request", principal=ADMIN if token else None)
+            )
         ))
 
     # The same two reads the resources make, beside them the way `/files` is

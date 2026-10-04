@@ -136,6 +136,22 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   port and `==` leaks the length of a correct prefix. There used to be two hand-rolled
   copies of this check, both using `==`. If a third door appears, it calls `http/auth.py`.
 
+- **`http/auth.py` also builds `/mcp`'s verifier (`provider()`)**: the token alone, or
+  `MultiAuth[token, OidcVerifier]`. A third credential goes there too.
+- **The verifiers return a `PrincipalToken`; `Caller.principal` carries it. It decides nothing
+  yet** — ownership, per-tool roles and the admin UI's OIDC sign-in are the next round's, and
+  the spec lists them.
+- **The REST routes, admin API and signed links are token-only on purpose**: the gateway only
+  routes `/mcp`.
+- **`oidc` without `auth.token` is a `ConfigError`**, checked after the layers merge
+  (`config.oidc_problem`).
+- **Behind agentgateway, `X-Session-Key` crosses and `?session=` does not.**
+- **A JWT with an unknown `kid` makes `JWTVerifier` fetch the JWKS**, and FastMCP's bearer
+  middleware runs on every path, so any request on a door that bypasses the gateway (the
+  in-cluster Service, the ingress) can cause one. `OidcVerifier._fetch_jwks` floors that at one
+  attempt per `JWKS_REFETCH_FLOOR` (60 s), failed attempts included; misses during a fetch
+  wait for it rather than being refused.
+
 - **Type hints in `mcp/tools.py` are the tool schema.** FastMCP builds the JSON schema from the
   signature, so a missing or loose annotation is a worse tool, not a style nit. This is the
   whole reason the server exists: the n8n MCP trigger advertised every tool as a single

@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `/mcp` accepts a JWT from an OIDC issuer beside the token (`oidc.issuer`, `oidc.audience`, `oidc.jwks_uri`, `oidc.roles`), for a server behind an OIDC gateway.
+- The token is compared in constant time on `/mcp` too.
+- `session://current` says who the caller is: `admin` for the token, or the OIDC subject.
+- `GET /browser` reports `principal` too.
 - A failed flow step says one line, without the driver's stack trace.
 - A call whose browser is ended mid-wait answers 404, like the `assert` it queued behind.
 - A trailing-slash URL behind the ingress redirects to the right page, not `http://host/admin`.
