@@ -25,9 +25,17 @@ class Issuer:
         self.keys = RSAKeyPair.generate()
         jwk = RSAKey.import_key(self.keys.public_key).as_dict(private=False)
         body = json.dumps({"keys": [jwk | {"kid": KID, "use": "sig", "alg": "RS256"}]})
+        self.fetches = 0  # JWKS GETs served, a failed one included
+        self.down = False  # answer 503, as an issuer mid-outage would
+        issuer = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):  # the stdlib's name
+                issuer.fetches += 1
+                if issuer.down:
+                    self.send_response(503)
+                    self.end_headers()
+                    return
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
@@ -51,7 +59,7 @@ class Issuer:
             audience=overrides.pop("audience", AUDIENCE),
             expires_in_seconds=overrides.pop("expires_in_seconds", 300),
             additional_claims=claims,
-            kid=KID,
+            kid=overrides.pop("kid", KID),
         )
 
     def mint_raw(self, claims: dict) -> str:

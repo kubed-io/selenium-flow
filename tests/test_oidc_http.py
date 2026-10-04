@@ -6,6 +6,7 @@ issuer's JWKS is fetched over loopback (tests/jwks.py).
 """
 
 import json
+import secrets
 
 # mcp's own HTTP client (a required dependency of mcp>=2.0): the test talks to
 # the app the way the real client does.
@@ -73,6 +74,15 @@ def test_a_jwt_does_not_open_a_rest_route(oidc_server, issuer, method, path):
             path, json={}, headers={"Authorization": f"Bearer {issuer.mint()}"}
         )
     assert answer.status_code == 401
+
+
+def test_unknown_kids_on_any_path_fetch_the_jwks_at_most_once(oidc_server, issuer):
+    """The bearer middleware runs app-wide, so an open route reaches the verifier too."""
+    with TestClient(oidc_server.mcp.http_app()) as client:
+        for _ in range(5):
+            bearer = issuer.mint(kid=secrets.token_hex(8))
+            client.get("/info", headers={"Authorization": f"Bearer {bearer}"})
+    assert issuer.fetches <= 1
 
 
 async def current(server, bearer):

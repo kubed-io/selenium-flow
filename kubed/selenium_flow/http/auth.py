@@ -17,7 +17,9 @@ configured OIDC issuer.
 from __future__ import annotations
 
 import hmac
+import logging
 import time
+from typing import Any
 
 from fastmcp.server.auth.auth import AccessToken, AuthProvider, MultiAuth, TokenVerifier
 from fastmcp.server.auth.providers.jwt import JWTVerifier
@@ -25,6 +27,8 @@ from starlette.requests import Request
 
 from .. import config
 from ..principal import ADMIN, Principal, roles_in
+
+log = logging.getLogger(__name__)
 
 BEARER = "bearer"
 
@@ -71,6 +75,11 @@ NBF_LEEWAY = 60
 # The client id the server token reports as. Shown nowhere; FastMCP needs one.
 CLIENT_ID = "selenium-flow"
 
+# Seconds between JWKS fetch attempts. Issuers publish a rotated key before
+# signing with it, so a floor costs nothing; without one, any bearer with an
+# unknown kid, on any path, is a GET to the issuer.
+JWKS_REFETCH_FLOOR = 60
+
 
 class PrincipalToken(AccessToken):
     """An access token that says who it is, so nothing re-reads its claims."""
@@ -112,6 +121,17 @@ class OidcVerifier(JWTVerifier):
         )
         self._roles = frozenset(oidc.roles)
         self._roles_claim = oidc.roles_claim
+        self._fetched_at: float | None = None
+
+    async def _fetch_jwks(self) -> dict[str, Any]:
+        # JWTVerifier calls this only on a cache miss, and its caller turns the
+        # ValueError into a refusal and keeps the cached keys. The attempt is
+        # stamped before the await, so a burst and a down issuer both get one.
+        now = time.monotonic()
+        if self._fetched_at is not None and now - self._fetched_at < JWKS_REFETCH_FLOOR:
+            raise ValueError(f"JWKS fetched under {JWKS_REFETCH_FLOOR}s ago")
+        self._fetched_at = now
+        return await super()._fetch_jwks()
 
     async def verify_token(self, token: str) -> AccessToken | None:
         verified = await super().verify_token(token)

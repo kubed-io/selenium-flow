@@ -8,6 +8,8 @@ are actually wired to it is covered once, end to end, in test_routes.py — the
 question there is whether the route is guarded, not how the comparison works.
 """
 
+import asyncio
+import secrets
 import time
 
 import pytest
@@ -143,6 +145,35 @@ async def test_an_unreachable_jwks_refuses_without_raising(issuer):
     token = issuer.mint()
     issuer.close()
     assert await verifier.verify_token(token) is None
+
+
+def _unknown_kid(issuer) -> str:
+    return issuer.mint(kid=secrets.token_hex(8))
+
+
+async def test_unknown_kids_fetch_the_jwks_once_per_floor(issuer, monkeypatch):
+    """Any bearer reaches the verifier on any path, so a new kid must not mean a GET."""
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
+    tokens = [_unknown_kid(issuer) for _ in range(8)]
+    # Concurrent, as a burst arrives: the floor is taken before the first await.
+    results = await asyncio.gather(*(verifier.verify_token(t) for t in tokens))
+    assert results == [None] * 8 and issuer.fetches == 1
+    # The one fetch cached the real key, so a good token is unaffected.
+    assert await verifier.verify_token(issuer.mint()) is not None
+    assert issuer.fetches == 1
+    monkeypatch.setattr(auth, "JWKS_REFETCH_FLOOR", 0)
+    assert await verifier.verify_token(_unknown_kid(issuer)) is None
+    assert issuer.fetches == 2
+
+
+async def test_a_failed_fetch_holds_the_floor_too(issuer):
+    """A down issuer is not hammered: the attempt counts, not the success."""
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
+    issuer.down = True
+    assert await verifier.verify_token(issuer.mint()) is None
+    issuer.down = False
+    assert await verifier.verify_token(issuer.mint()) is None
+    assert issuer.fetches == 1
 
 
 def test_the_provider_per_configuration(issuer):
