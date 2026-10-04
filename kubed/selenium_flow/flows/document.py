@@ -335,7 +335,14 @@ def _undeclared_shape(parameters, steps) -> list[str]:
     """
     if not isinstance(parameters, dict) or "properties" in parameters:
         return []
-    named = set(references(steps))
+    # Each step's args only, where a parameter is substituted: a `note` that
+    # mentions `${x-ui}` names nothing (Copilot, #53).
+    named = {
+        name
+        for step in (steps if isinstance(steps, list) else [])
+        if isinstance(step, dict)
+        for name in references(step.get(ARGS))
+    }
     stray = sorted(str(key) for key in parameters if key in named)
     if not stray:
         return []

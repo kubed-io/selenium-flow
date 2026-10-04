@@ -878,3 +878,20 @@ async def test_a_valid_schema_using_any_keyword_is_not_misread(step_schema_map):
         ),
         step_schema_map,
     )
+
+
+async def test_a_note_naming_a_schema_key_is_not_a_reference(step_schema_map):
+    """Only `args` are substituted, so only `args` are evidence (Copilot, #53)."""
+    validate(
+        flow(
+            parameters={"x-ui": {"order": []}},
+            steps=[
+                {
+                    "tool": "navigate",
+                    "note": "documents $${x-ui} and ${x-ui}",
+                    "args": {"url": "https://x.test/"},
+                }
+            ],
+        ),
+        step_schema_map,
+    )
