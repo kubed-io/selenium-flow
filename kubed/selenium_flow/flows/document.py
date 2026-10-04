@@ -324,6 +324,32 @@ def _check_references(where: str, args: dict, declared: set[str]) -> list[str]:
     return problems
 
 
+# What a `parameters` schema may say at its top level besides `properties`.
+_SCHEMA_KEYWORDS = frozenset({
+    "$schema", "$id", "$comment", "type", "title", "description", "properties",
+    "required", "additionalProperties", "default", "examples",
+})
+
+
+def _undeclared_shape(parameters) -> list[str]:
+    """`parameters` written as ``{"email": {...}}`` rather than as a schema.
+
+    It used to pass as "no parameters", so the first ``${email}`` was refused
+    with "this flow declares none" - true, and no help. Only at save: a stored
+    flow that never named one of them still runs.
+    """
+    if not isinstance(parameters, dict) or "properties" in parameters:
+        return []
+    stray = sorted(str(key) for key in parameters if key not in _SCHEMA_KEYWORDS)
+    if not stray:
+        return []
+    example = {"type": "object", "properties": {stray[0]: {"type": "string"}}}
+    return [
+        f"parameters: {listed(stray)} sits where only JSON Schema keywords go. "
+        f"Declare each parameter under properties: {json.dumps(example)}"
+    ]
+
+
 def _check_secret(where: str, reference) -> list[str]:
     """``args.secret``: which secret, and which key inside it."""
     return [f"{where}: {problem}" for problem in reference_problems(reference)]
@@ -659,6 +685,7 @@ def validate(document, schemas: dict) -> dict:
 
     shape = Shape(document)
     problems += shape.parameter_problems()
+    problems += _undeclared_shape(document.get("parameters"))
     properties = shape.properties
     declared = shape.declared
     # `writeOnly` is standard JSON Schema for "supplied but not returned", and

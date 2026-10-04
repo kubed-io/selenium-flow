@@ -36,7 +36,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from .. import binding, secrets
+from .. import binding, faults, secrets
 from ..binding import SECRET_ARG
 from ..core import cancel
 from ..session import locks
@@ -624,8 +624,9 @@ def _drive(
     except Exception as exc:  # noqa: BLE001 - a failing step is an outcome
         outcome.ok = False
         # An action puts its arguments in its error text, so the message is
-        # scrubbed before it reaches either the report or the log.
-        outcome.error = scrub(str(exc), run.seen)
+        # scrubbed before it reaches either the report or the log. One line,
+        # as a single call answers: no driver stack trace, no Grid credential.
+        outcome.error = scrub(faults.message(exc), run.seen)
         run.landed(outcome, page_state(call.actions, call.session_id), guarded)
         log.info(
             "flow %s step %s (%s) failed: %s", run.name, number, label, outcome.error

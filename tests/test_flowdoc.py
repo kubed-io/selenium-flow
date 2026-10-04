@@ -835,3 +835,34 @@ async def test_a_required_that_is_a_string_is_refused_with_a_sentence(step_schem
     with pytest.raises(InvalidFlow) as caught:
         validate(document, step_schema_map)
     assert caught.value.problems == ["parameters.required must be a list of names"]
+
+
+async def test_parameters_written_without_properties_say_where_they_go(
+    step_schema_map,
+):
+    """Found live: `parameters: {"pie": {...}}` passed as "no parameters", and
+    `${pie}` was refused with "this flow declares none" - true, and no help."""
+    with pytest.raises(InvalidFlow) as caught:
+        validate(
+            flow(
+                parameters={"pie": {"type": "string"}},
+                steps=[{"tool": "navigate", "args": {"url": "https://x.test/${pie}"}}],
+            ),
+            step_schema_map,
+        )
+    problems = caught.value.problems
+    assert any(
+        "pie sits where only JSON Schema keywords go" in p
+        and '"properties": {"pie": {"type": "string"}}' in p
+        for p in problems
+    ), problems
+
+
+async def test_a_schema_with_no_properties_is_still_no_parameters(step_schema_map):
+    validate(
+        flow(
+            parameters={"type": "object", "description": "none needed"},
+            steps=[{"tool": "navigate", "args": {"url": "https://x.test/"}}],
+        ),
+        step_schema_map,
+    )
