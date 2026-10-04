@@ -2566,6 +2566,27 @@
           },
           "principal": {
             "description": "Who the credential says you are: kind admin or oidc, with subject and username for oidc. Null on an open server.",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "admin",
+                  "oidc"
+                ],
+                "type": "string"
+              },
+              "subject": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "username": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
             "type": [
               "object",
               "null"

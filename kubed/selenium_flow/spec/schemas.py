@@ -40,6 +40,11 @@ RESPONSES = {
                     "Who the credential says you are: kind admin or oidc, with"
                     " subject and username for oidc. Null on an open server."
                 ),
+                "properties": {
+                    "kind": {"type": "string", "enum": ["admin", "oidc"]},
+                    "subject": {"type": ["string", "null"]},
+                    "username": {"type": ["string", "null"]},
+                },
             },
             "browser": {"type": ["string", "null"]},
             "url": {"type": ["string", "null"], "description": "The page it is on."},
