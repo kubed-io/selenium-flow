@@ -9,6 +9,7 @@ question there is whether the route is guarded, not how the comparison works.
 """
 
 import asyncio
+import gc
 import logging
 import secrets
 import time
@@ -182,7 +183,7 @@ async def test_unknown_kids_fetch_the_jwks_once_per_floor(issuer, monkeypatch):
     """Any bearer reaches the verifier on any path, so a new kid must not mean a GET."""
     verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
     tokens = [_unknown_kid(issuer) for _ in range(8)]
-    # Concurrent, as a burst arrives: the floor is taken before the first await.
+    # Concurrent, as a burst arrives: they share one fetch.
     results = await asyncio.gather(*(verifier.verify_token(t) for t in tokens))
     assert results == [None] * 8 and issuer.fetches == 1
     # The one fetch cached the real key, so a good token is unaffected.
@@ -191,6 +192,29 @@ async def test_unknown_kids_fetch_the_jwks_once_per_floor(issuer, monkeypatch):
     monkeypatch.setattr(auth, "JWKS_REFETCH_FLOOR", 0)
     assert await verifier.verify_token(_unknown_kid(issuer)) is None
     assert issuer.fetches == 2
+
+
+async def test_a_cold_start_burst_waits_for_one_fetch(issuer):
+    """A client's first connect is a burst: valid tokens wait for the fetch, not a 401."""
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
+    valid = [issuer.mint() for _ in range(5)]
+    unknown = [_unknown_kid(issuer) for _ in range(5)]
+    burst = [t for pair in zip(unknown, valid, strict=True) for t in pair]
+    results = await asyncio.gather(*(verifier.verify_token(t) for t in burst))
+    assert [r is not None for r in results] == [False, True] * 5
+    assert issuer.fetches == 1
+
+
+async def test_a_failed_shared_fetch_reaches_every_waiter(issuer, caplog):
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
+    issuer.down = True
+    with caplog.at_level(logging.ERROR, logger="asyncio"):
+        tokens = [issuer.mint() for _ in range(5)]
+        results = await asyncio.gather(*(verifier.verify_token(t) for t in tokens))
+        gc.collect()
+        await asyncio.sleep(0)
+    assert results == [None] * 5 and issuer.fetches == 1
+    assert "never retrieved" not in caplog.text
 
 
 async def test_a_failed_fetch_holds_the_floor_too(issuer):

@@ -16,6 +16,7 @@ configured OIDC issuer.
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import logging
 import time
@@ -76,9 +77,10 @@ NBF_LEEWAY = 60
 # The client id the server token reports as. Shown nowhere; FastMCP needs one.
 CLIENT_ID = "selenium-flow"
 
-# Seconds between JWKS fetch attempts. Issuers publish a rotated key before
-# signing with it, so a floor costs nothing; without one, any bearer with an
-# unknown kid, on any path, is a GET to the issuer.
+# Seconds between JWKS fetch attempts. Without one, any bearer with an unknown
+# kid, on any path, is a GET to the issuer. Keycloak signs with a newly added
+# higher-priority key at once, so a rotation can cost up to one floor of
+# refusals for the new kid: the accepted price of closing that amplifier.
 JWKS_REFETCH_FLOOR = 60
 
 
@@ -123,16 +125,32 @@ class OidcVerifier(JWTVerifier):
         self._roles = frozenset(oidc.roles)
         self._roles_claim = oidc.roles_claim
         self._fetched_at: float | None = None
+        self._inflight: asyncio.Future | None = None
 
     async def _fetch_jwks(self) -> dict[str, Any]:
         # JWTVerifier calls this only on a cache miss, and its caller turns the
-        # ValueError into a refusal and keeps the cached keys. The attempt is
-        # stamped before the await, so a burst and a down issuer both get one.
+        # ValueError into a refusal and keeps the cached keys. Single-flight: a
+        # burst waits for the one fetch in progress, so a valid token at cold
+        # start is not refused by the floor. Shielded, so one waiter's
+        # cancellation does not cancel the fetch for the rest.
+        if self._inflight is not None:
+            return await asyncio.shield(self._inflight)
         now = time.monotonic()
         if self._fetched_at is not None and now - self._fetched_at < JWKS_REFETCH_FLOOR:
             raise ValueError(f"JWKS fetched under {JWKS_REFETCH_FLOOR}s ago")
         self._fetched_at = now
-        return await super()._fetch_jwks()
+        self._inflight = fetch = asyncio.ensure_future(super()._fetch_jwks())
+        fetch.add_done_callback(self._fetch_done)
+        return await asyncio.shield(fetch)
+
+    def _fetch_done(self, fetch: asyncio.Future) -> None:
+        # Cleared when the fetch ends, not when its first caller does: that
+        # caller may be cancelled while others still wait. Reading the
+        # exception keeps a fetch nobody awaited from warning at GC.
+        if self._inflight is fetch:
+            self._inflight = None
+        if not fetch.cancelled():
+            fetch.exception()
 
     async def verify_token(self, token: str) -> AccessToken | None:
         verified = await super().verify_token(token)

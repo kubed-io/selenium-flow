@@ -76,13 +76,14 @@ def test_a_jwt_does_not_open_a_rest_route(oidc_server, issuer, method, path):
     assert answer.status_code == 401
 
 
-def test_unknown_kids_on_any_path_fetch_the_jwks_at_most_once(oidc_server, issuer):
+def test_unknown_kids_on_any_path_fetch_the_jwks_once(oidc_server, issuer):
     """The bearer middleware runs app-wide, so an open route reaches the verifier too."""
     with TestClient(oidc_server.mcp.http_app()) as client:
         for _ in range(5):
             bearer = issuer.mint(kid=secrets.token_hex(8))
             client.get("/info", headers={"Authorization": f"Bearer {bearer}"})
-    assert issuer.fetches <= 1
+    # Exactly one: an open route reaches the verifier, and the floor holds the rest.
+    assert issuer.fetches == 1
 
 
 async def current(server, bearer):

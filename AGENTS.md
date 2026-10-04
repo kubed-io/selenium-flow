@@ -149,7 +149,8 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
 - **A JWT with an unknown `kid` makes `JWTVerifier` fetch the JWKS**, and FastMCP's bearer
   middleware runs on every path, so any request on a door that bypasses the gateway (the
   in-cluster Service, the ingress) can cause one. `OidcVerifier._fetch_jwks` floors that at one
-  attempt per `JWKS_REFETCH_FLOOR` (60 s), failed attempts included.
+  attempt per `JWKS_REFETCH_FLOOR` (60 s), failed attempts included; misses during a fetch
+  wait for it rather than being refused.
 
 - **Type hints in `mcp/tools.py` are the tool schema.** FastMCP builds the JSON schema from the
   signature, so a missing or loose annotation is a worse tool, not a style nit. This is the
