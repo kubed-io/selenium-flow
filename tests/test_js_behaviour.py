@@ -264,3 +264,27 @@ def test_a_frame_that_forges_self_is_still_a_frame_and_its_origin_is_still_read(
     assert answer["forged"] is False, "the old check is fooled"
     assert answer["in_frame"] is True
     assert answer["origin"] == "null"
+
+
+def spare(expression, origin, html=None):
+    """The real `_on_spare` script, run under jsdom (which stands on
+    https://example.test), the way BiDi's evaluate runs it."""
+    from kubed.selenium_flow.site_data.spare import SPARE_PAGE, _on_spare
+
+    return json.loads(run(
+        "-", html or SPARE_PAGE, source="return " + _on_spare(expression, origin)
+    ))
+
+
+def test_the_spare_script_runs_nothing_on_a_page_from_another_origin():
+    wrong = spare(
+        "(localStorage.setItem('k', 'v'), 1)", "https://other.test"
+    )
+    assert wrong == {"spare": True, "origin": "https://example.test"}
+    right = spare("(localStorage.setItem('k', 'v'), localStorage.k)", "https://example.test")
+    assert right == {"spare": True, "origin": "https://example.test", "value": "v"}
+
+
+def test_the_spare_script_leaves_a_page_without_the_marker_alone():
+    page = spare("1", "https://example.test", html="<p>a site</p>")
+    assert page == {"spare": False, "origin": "https://example.test"}

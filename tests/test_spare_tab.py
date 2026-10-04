@@ -76,7 +76,15 @@ def test_a_service_worker_page_is_refused_before_anything_runs_there():
 def test_a_tab_that_did_not_move_is_never_read_as_the_new_origin():
     bidi = FakeBidi(value="stale", stuck=True)
     with pytest.raises(RuntimeError, match=re.escape("not https://app.test")), spare_tab(bidi) as run:
+        run("https://app.test", "localStorage.setItem('k', 'v')")
+    assert not bidi.script.ran, "nothing was written on the wrong origin"
+
+
+def test_the_expression_runs_on_the_requested_origin():
+    bidi = FakeBidi(value=1)
+    with spare_tab(bidi) as run:
         run("https://app.test", "1")
+    assert bidi.script.ran
 
 
 def test_a_script_that_throws_raises_its_text_and_the_tab_still_closes():

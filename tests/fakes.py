@@ -366,6 +366,7 @@ class FakeScript:
             value, set(workers), stuck, fail,
         )
         self.expression = None
+        self.ran = False  # whether the page would have evaluated the expression
 
     def evaluate(self, expression=None, target=None, await_promise=None):
         self.log.append(("evaluate", target, await_promise))
@@ -376,7 +377,13 @@ class FakeScript:
             "https://before.test" if self.stuck else self.tabs.at[target["context"]]
         )
         page = {"spare": origin not in self.workers, "origin": origin}
-        if page["spare"]:
+        # No JS runs here (tests/test_js_behaviour.py runs the real script):
+        # the expression runs when the page is ours and the script guards it
+        # with the origin the tab is really on.
+        self.ran = page["spare"] and (
+            f"location.origin === {json.dumps(origin)}" in expression
+        )
+        if self.ran:
             page["value"] = self.value
         return {
             "type": "success",

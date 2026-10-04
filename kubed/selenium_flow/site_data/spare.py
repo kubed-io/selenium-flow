@@ -76,7 +76,7 @@ def spare_tab(bidi, context: str | None = None):
                 context=tab, url=origin + SPARE_PATH, wait="complete"
             )
             reply = bidi.script.evaluate(
-                expression=_on_spare(expression),
+                expression=_on_spare(expression, origin),
                 target={"context": tab},
                 await_promise=True,
             )
@@ -107,11 +107,16 @@ def spare_tab(bidi, context: str | None = None):
                 bidi.browsing_context.close(context=tab)
 
 
-def _on_spare(expression: str) -> str:
-    """``expression``, run only on our page, as a JSON string that also says
-    whose page it was and where."""
+def _on_spare(expression: str, origin: str) -> str:
+    """``expression``, run only on our page AND only on ``origin``, as a JSON
+    string that also says whose page it was and where. A navigation that did
+    not land leaves the tab on the last origin's spare page; evaluating there
+    would write this origin's saved storage into the wrong one, so the origin
+    is tested in the page, before the expression, not after in Python."""
     return (
-        "JSON.stringify(document.querySelector('meta[name=\"" + SPARE_MARKER + "\"]')"
+        "JSON.stringify((document.querySelector('meta[name=\"" + SPARE_MARKER + "\"]')"
+        " && location.origin === " + json.dumps(origin) + ")"
         " ? {spare: true, origin: location.origin, value: (" + expression + ")}"
-        " : {spare: false, origin: location.origin})"
+        " : {spare: !!document.querySelector('meta[name=\"" + SPARE_MARKER + "\"]'),"
+        " origin: location.origin})"
     )
