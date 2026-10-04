@@ -11,6 +11,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from fastmcp.server.auth.providers.jwt import RSAKeyPair
+from joserfc import jwt
 from joserfc.jwk import RSAKey
 
 from kubed.selenium_flow.config import Settings
@@ -53,6 +54,11 @@ class Issuer:
             kid=KID,
         )
 
+    def mint_raw(self, claims: dict) -> str:
+        """Sign exactly these claims: `mint` always sets `exp`, this need not."""
+        key = RSAKey.import_key(self.keys.private_key.get_secret_value())
+        return jwt.encode({"alg": "RS256", "kid": KID}, claims, key)
+
     def settings(self, token: str, roles=("mcp",)) -> Settings:
         return Settings(
             grid={"url": "http://grid.invalid:4444"},
@@ -67,3 +73,4 @@ class Issuer:
 
     def close(self):
         self.http.shutdown()
+        self.http.server_close()

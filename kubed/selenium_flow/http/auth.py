@@ -17,6 +17,7 @@ configured OIDC issuer.
 from __future__ import annotations
 
 import hmac
+import time
 
 from fastmcp.server.auth.auth import AccessToken, AuthProvider, MultiAuth, TokenVerifier
 from fastmcp.server.auth.providers.jwt import JWTVerifier
@@ -63,6 +64,9 @@ def authorized(request: Request, token: str | None) -> bool:
 
 
 # ---- the MCP door: verifiers FastMCP runs on /mcp ----
+
+# Clock skew the issuer and this server may disagree by, for `nbf`.
+NBF_LEEWAY = 60
 
 # The client id the server token reports as. Shown nowhere; FastMCP needs one.
 CLIENT_ID = "selenium-flow"
@@ -114,6 +118,17 @@ class OidcVerifier(JWTVerifier):
         if verified is None:
             return None
         claims = verified.claims
+        # FastMCP checks `exp` only when present and never looks at `nbf`; a
+        # token that never expires, or is not yet valid, is refused here.
+        exp, nbf = claims.get("exp"), claims.get("nbf")
+        if isinstance(exp, bool) or not isinstance(exp, (int, float)):
+            return None
+        if nbf is not None and (
+            isinstance(nbf, bool)
+            or not isinstance(nbf, (int, float))
+            or nbf > time.time() + NBF_LEEWAY
+        ):
+            return None
         held = roles_in(claims, self._roles_claim)
         if self._roles and not self._roles.intersection(held):
             return None

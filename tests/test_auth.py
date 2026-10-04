@@ -8,6 +8,8 @@ are actually wired to it is covered once, end to end, in test_routes.py — the
 question there is whether the route is guarded, not how the comparison works.
 """
 
+import time
+
 import pytest
 from fastmcp.server.auth.providers.jwt import RSAKeyPair
 from starlette.requests import Request
@@ -17,6 +19,7 @@ from kubed.selenium_flow.http import auth
 from kubed.selenium_flow.principal import ADMIN
 
 from .conftest import TOKEN
+from .jwks import AUDIENCE
 
 pytestmark = pytest.mark.unit
 
@@ -109,6 +112,37 @@ async def test_a_jwt_signed_by_another_key_is_refused(issuer):
 async def test_no_roles_configured_checks_none(issuer):
     verifier = auth.OidcVerifier(issuer.settings(TOKEN, roles=()).oidc)
     assert await verifier.verify_token(issuer.mint(claims={"roles": []})) is not None
+
+
+def _raw(issuer, **claims):
+    base = {"sub": "6b0f", "iss": issuer.issuer, "aud": AUDIENCE, "roles": ["mcp"]}
+    return issuer.mint_raw(base | claims)
+
+
+async def test_a_jwt_without_exp_is_refused(issuer):
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
+    assert await verifier.verify_token(_raw(issuer)) is None
+
+
+async def test_a_jwt_not_yet_valid_is_refused(issuer):
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
+    now = int(time.time())
+    token = _raw(issuer, exp=now + 7200, nbf=now + 3600)
+    assert await verifier.verify_token(token) is None
+
+
+async def test_a_jwt_valid_since_a_moment_ago_is_accepted(issuer):
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
+    now = int(time.time())
+    token = _raw(issuer, exp=now + 300, nbf=now - 5)
+    assert await verifier.verify_token(token) is not None
+
+
+async def test_an_unreachable_jwks_refuses_without_raising(issuer):
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
+    token = issuer.mint()
+    issuer.close()
+    assert await verifier.verify_token(token) is None
 
 
 def test_the_provider_per_configuration(issuer):
