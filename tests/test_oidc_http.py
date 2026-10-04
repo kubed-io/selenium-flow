@@ -7,6 +7,8 @@ issuer's JWKS is fetched over loopback (tests/jwks.py).
 
 import json
 
+# mcp's own HTTP client (a required dependency of mcp>=2.0): the test talks to
+# the app the way the real client does.
 import httpx2
 import pytest
 from fastmcp import Client

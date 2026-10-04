@@ -727,6 +727,12 @@ def test_the_browser_resource_says_the_name_came_from_the_request(open_client):
     body = open_client.get("/browser").json()
     assert body["session"] == SESSION
     assert body["named_by"] == "request"
+    assert body["principal"] is None, "an open server has no principal"
+
+
+def test_the_browser_resource_says_admin_to_the_token(client):
+    body = client.get("/browser", headers={"Authorization": f"Bearer {TOKEN}"}).json()
+    assert body["principal"] == {"kind": "admin"}
 
 
 def test_readiness_remembers_the_grids_answer_for_two_seconds(server, monkeypatch):

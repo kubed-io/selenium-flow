@@ -2564,6 +2564,13 @@
             ],
             "type": "string"
           },
+          "principal": {
+            "description": "Who the credential says you are: kind admin or oidc, with subject and username for oidc. Null on an open server.",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
           "session": {
             "description": "The name you called with.",
             "type": "string"
