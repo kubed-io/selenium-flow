@@ -61,6 +61,10 @@ gateway's rate limits or audit. That is why the identity is a forwarded JWT the
 server verifies, not a `x-user: jwt.sub` header the gateway injects: a header is
 forgeable by any pod, a signature is not. It is also why the gateway's role
 check is repeated here. The server's own checks are the same on every door.
+In the homelab the ingress door is closed (Dr K, 2026-10-04): a Traefik route
+answers 403 to `/flow/mcp` in every spelling Starlette would serve (`//mcp`,
+`%6Dcp`), on http and https, so the gateway is the only external MCP door. The
+in-cluster Service remains, for clients holding the token.
 
 **What crosses the gateway** (agentgateway `crates/agentgateway/src/mcp/upstream/
 mod.rs`, `IncomingRequestContext::apply`, read 2026-10-04): every client header is
@@ -299,7 +303,8 @@ round switches that to `passthrough` once the server verifies JWTs:
 - `apps/agentgateway/AGENTS.md`: the components table says what is live.
 
 `ROUTE_PREFIX` stays unset: the gateway's MCP backend calls `/mcp` on the Service
-directly, and the ingress keeps stripping `/flow` for the admin UI.
+directly, and the ingress keeps stripping `/flow` for the admin UI; its
+`mcp-block.yaml` refuses `/flow/mcp` with a 403.
 
 ## Testing
 
@@ -363,8 +368,6 @@ is no Keycloak in CI; the live test below is where the real issuer is proven.
 - The principal in logs and in the admin live list.
 - A per-server audience, if the shared one ever lets a token for one server open
   another that should be stricter.
-- Whether the ingress should stop routing `/mcp`, so the gateway is the only
-  external MCP door.
 
 ## Settled while planning
 
