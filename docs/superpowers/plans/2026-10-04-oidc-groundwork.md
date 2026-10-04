@@ -941,117 +941,34 @@ git commit -m "Docs: OIDC beside the token, and what the principal does not do y
 
 - [ ] **Step 1:** Full local gate: `ruff check kubed tests`, `ruff format --check kubed tests`, the whole unit suite with `-n 4`. All green.
 - [ ] **Step 2:** Push the wiki submodule, then `git push -u origin oidc`.
-- [ ] **Step 3:** Open the PR (approved by Dr K on 2026-10-04 — this one PR only). Body: the goal, the three CHANGELOG lines, the rulings, "nothing decides from the principal yet", the cluster changes that follow (Task 7), and the PR-description attribution line the session gives.
+- [ ] **Step 3:** PR #54 is open as a draft (2026-10-04). Update its body with the three CHANGELOG lines and mark it ready for review (`gh pr ready 54`).
 - [ ] **Step 4:** Watch `test`, `ui`, `package`, `quality`, `integration`, `bench`. Answer every Copilot and code-scanning thread with `gh` (fix, or decline with evidence) until none is open.
 - [ ] **Step 5:** Build the branch image: `gh workflow run image.yml --ref oidc -f push=true` (check the input name in `.github/workflows/image.yml` first); wait for `:oidc`.
 
 ---
 
-### Task 7: The cluster behind the gateway (cluster repo)
+### Task 7: The gateway hands on the caller's JWT (cluster files, no git)
 
-Work in `/projects/cluster`. **The cluster repo has unrelated uncommitted work:
-stage only the paths named here, by name, never `git add -A`.** Commit only when
-Dr K says so.
+**Already live (2026-10-04, before this round's code):**
+`apps/selenium/components/mcp/gateway.yaml` registers selenium-flow at
+`https://mcp.<domain>/selenium-flow/mcp`: `AgentgatewayBackend`, `HTTPRoute`
+and an `AgentgatewayPolicy` that validates the Keycloak JWT (Strict, the `mcp`
+role) and then sends the backend the **server token** from the
+`selenium-flow-auth` Secret (`backend.auth.secretRef`, key `MCP_AUTH_TOKEN`).
+That is the pattern for any token-protected MCP server; selenium-flow sees the
+admin until this task.
 
-**Files:**
-- Create: `apps/selenium/components/mcp/gateway.yaml`
-- Modify: `apps/selenium/components/mcp/kustomization.yaml` (`resources:` gains `gateway.yaml`; `images:` `newTag: oidc` for the live test)
-- Modify: `apps/selenium/components/mcp/config.yaml` (the `oidc:` block)
-- Modify: `apps/agentgateway/AGENTS.md` (components table: what is live; selenium-flow registered)
+**Dr K's rule: the cluster repo gets no git from this round.** Edit its files and
+apply them; never stage, commit or push there.
 
-- [ ] **Step 1: `gateway.yaml`**, modelled on `apps/mcp-kb/gateway.yaml` (read it first; same comments where they apply, trimmed). `<domain>` and `<realm>` below are placeholders, because this plan lives in a public repo: copy the real host, issuer and JWKS URL from `apps/mcp-kb/gateway.yaml`, where they are already written.
-
-```yaml
-# selenium-flow behind the agent gateway (apps/agentgateway) at
-# https://mcp.<domain>/selenium-flow/mcp. The in-cluster Service keeps
-# working with the server token; this is the OAuth way in.
-apiVersion: agentgateway.dev/v1alpha1
-kind: AgentgatewayBackend
-metadata:
-  name: selenium-flow
-spec:
-  mcp:
-    targets:
-    - name: selenium-flow
-      static:
-        backendRef:
-          name: selenium-flow
-        port: 8000
-        protocol: StreamableHTTP   # path defaults to /mcp
----
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: selenium-flow
-spec:
-  parentRefs:
-  - name: agentgateway-proxy
-    namespace: network
-    sectionName: mcp
-  hostnames:
-  - mcp.<domain>
-  rules:
-  - matches:
-    - path:
-        type: PathPrefix
-        value: /selenium-flow/mcp
-    - path:
-        type: PathPrefix
-        value: /.well-known/oauth-protected-resource/selenium-flow/mcp
-    backendRefs:
-    - group: agentgateway.dev
-      kind: AgentgatewayBackend
-      name: selenium-flow
----
-# Who may call it: a Keycloak token with the mcp scope's audience and the `mcp`
-# role. The token is handed on (passthrough), because selenium-flow verifies it
-# again: the in-cluster Service is a second door the gateway does not guard.
-apiVersion: agentgateway.dev/v1alpha1
-kind: AgentgatewayPolicy
-metadata:
-  name: selenium-flow
-spec:
-  targetRefs:
-  - group: gateway.networking.k8s.io
-    kind: HTTPRoute
-    name: selenium-flow
-  traffic:
-    jwtAuthentication:
-      mode: Strict
-      providers:
-      - issuer: https://auth.<domain>/realms/<realm>
-        audiences:
-        - https://mcp.<domain>
-        jwks:
-          remote:
-            url: https://auth.<domain>/realms/<realm>/protocol/openid-connect/certs
-      # No `provider` (agentgateway#3668), as for mcp-kb.
-      mcp:
-        resourceMetadata:
-          resource: https://mcp.<domain>/selenium-flow/mcp
-          scopesSupported:
-          - mcp
-    authorization:
-      action: Allow
-      policy:
-        matchExpressions:
-        - 'has(jwt.roles) && jwt.roles.exists(r, r == "mcp")'
-  backend:
-    auth:
-      passthrough: {}
-```
-
-Verify the `backend.auth.passthrough` placement against the live CRD before
-building: `kubectl explain agentgatewaypolicy.spec.backend.auth` (expect
-`passthrough`). If the CRD only allows `backend` on a policy targeting the
-`AgentgatewayBackend`, split it into a second policy with that `targetRef`, or
-use the backend's inline `spec.policies.auth` — whichever `kubectl explain`
-shows exists.
-
-- [ ] **Step 2: `config.yaml`** gains:
+- [ ] **Step 1: `gateway.yaml`** — replace the policy's `backend.auth.secretRef`
+  block with `passthrough: {}` and update its comment (the server now verifies
+  the JWT itself, and sees who is calling).
+- [ ] **Step 2: `config.yaml`** gains the `oidc:` block (real values: the issuer
+  and JWKS URL in `gateway.yaml`'s `jwtAuthentication`):
 
 ```yaml
-# A Keycloak JWT on /mcp beside the token, forwarded by the agent gateway.
+# A Keycloak JWT on /mcp beside the token, handed on by the agent gateway.
 oidc:
   issuer: https://auth.<domain>/realms/<realm>
   audience: https://mcp.<domain>
@@ -1060,15 +977,14 @@ oidc:
   - mcp
 ```
 
-Check the pod can reach the JWKS URL before relying on it:
-`kubectl exec -n flow deploy/selenium-flow -- python -c "import urllib.request;print(urllib.request.urlopen('<jwks url>').status)"`.
-
-- [ ] **Step 3: Build and plan**
-
-Run: `kubectl build apps/selenium | grep -A3 -E 'kind: (AgentgatewayBackend|HTTPRoute|AgentgatewayPolicy)'` and `kubectl plan apps/selenium`.
-Expected: the three new objects, the ConfigMap hash change, the image tag change, nothing else.
-
-- [ ] **Step 4: Apply — browsers first.** `kubectl up apps/selenium` renders the Grid node replicas to 0 over KEDA and kills live browsers. Tell Dr K before applying; `end_browser` on any session in use first. Then `kubectl up apps/selenium`, and `kubectl get agentgatewaypolicy,httproute,agentgatewaybackend -n flow` (Accepted/Attached).
+  Check the pod can reach the JWKS URL first:
+  `kubectl exec -n flow deploy/selenium-flow -- python -c "import urllib.request;print(urllib.request.urlopen('<jwks url>').status)"`.
+- [ ] **Step 3:** `kustomization.yaml` `images:` → `newTag: oidc` for the live test.
+- [ ] **Step 4: Plan, then apply.** `kubectl plan apps/selenium`: expect the
+  policy, the ConfigMap hash and the image tag. If the Grid node Deployments show
+  `replicas 1 → 0`, a browser is live: tell Dr K and `end_browser` first. Then
+  `kubectl up apps/selenium` and `kubectl get agentgatewaypolicy -n flow`
+  (Accepted/Attached).
 
 ---
 
@@ -1089,4 +1005,4 @@ Dr K authenticates it in Claude Code (`/mcp` → selenium-flow → authenticate;
 - [ ] **Step 3:** Read `session://current`: `principal.kind == "oidc"`, Dr K's username, `session == "claudecode"`.
 - [ ] **Step 4:** What only shows live: the tool list matches the client (the mirror tools hidden per `clientInfo` across the gateway); a 30 s `assert` and a `run_flow` complete through the gateway; a screenshot link opens; an MCP Apps view renders where the client supports it. Record each result in the spec's status line.
 - [ ] **Step 5:** In-cluster: the server token still works on the Service; a JWT missing the `mcp` role is 401 there (mint one by requesting a token for a user without the role, or skip with a note if no such user exists).
-- [ ] **Step 6:** Report to Dr K. After merge (his call): `newTag: main` back in the kustomization, `kubectl up apps/selenium` (browsers first again), and commit the cluster paths he approves.
+- [ ] **Step 6:** Report to Dr K. After merge (his call): `newTag: main` back in the kustomization and `kubectl up apps/selenium` (browsers first again). No git in the cluster repo.

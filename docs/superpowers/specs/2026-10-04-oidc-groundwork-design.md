@@ -267,8 +267,11 @@ files, site data and the secrets catalogue stay keyed by session name alone.
 
 ## The cluster install
 
-In the cluster repo (`apps/selenium/components/mcp`), committed there, not in
-this repo's PR:
+In the cluster repo (`apps/selenium/components/mcp`); files applied, no git
+there (Dr K). **Live since 2026-10-04 with the server token:** the gateway
+validates the Keycloak JWT and sends selenium-flow the server token
+(`backend.auth.secretRef`), the pattern for any token-protected MCP server. This
+round switches that to `passthrough` once the server verifies JWTs:
 
 - **`gateway.yaml`**, modelled on `apps/mcp-kb/gateway.yaml`, added to the
   component's `resources:`:
