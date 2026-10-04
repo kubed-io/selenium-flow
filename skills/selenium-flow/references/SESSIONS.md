@@ -10,6 +10,7 @@ Name your session one of two ways, whichever your client can set:
 |---|---|---|
 | A URL parameter | `…/mcp?session=research-bot` | you configure the server by URL — the usual case |
 | A header | `X-Session-Key: research-bot` | an operator pins one session to one credential |
+| The same header, renamed | `X-Workspace: research-bot` | a client that only sends approved headers, such as Claude.ai custom connectors |
 
 **Sending both is an error**, not a contest one of them wins. Two names is two
 ideas about who is calling, and quietly picking one hides that from whoever

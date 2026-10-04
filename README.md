@@ -97,6 +97,7 @@ Sessions expire on `SESSION_TTL`, slid forward on every use. Nothing else remove
 |---|---|---|
 | **A URL parameter** | `…/mcp?session=research-bot` | the usual case: one credential, each caller named in its own URL |
 | **A header** | `X-Session-Key: research-bot` | an operator pins one session to one credential |
+| **The same header, renamed** | `X-Workspace: research-bot` | a client that only sends approved headers, such as Claude.ai custom connectors |
 | **stdio** | nothing to do | one process serves one client, and it is named `stdio` |
 
 **Sending both is a 400**, not a contest one wins: two names is two ideas about who is calling, and quietly picking one hides that from whoever wired it up. Naming nothing is a 400 too, with a message saying how — except on the flow library, which falls back to the shared `global` one that everyone reads and nobody writes.

@@ -62,9 +62,10 @@ Every operation here is also an MCP tool at `{mount}/mcp`, backed by the same co
 the request schemas in this document are generated from those tools, so the two
 surfaces cannot describe different things.
 
-Name your session on every request — an `X-Session-Key` header or `?session=`
-— and every call is about that session's browser. Sending both is a 400, and so
-is sending neither on anything that touches a browser. There is no browser id
+Name your session on every request — an `X-Session-Key` header (or
+`X-Workspace`, the same header by another name) or `?session=` — and every
+call is about that session's browser. Sending both is a 400, and so is
+sending neither on anything that touches a browser. There is no browser id
 in this API.
 
 `POST {mount}/browser` opens yours, `DELETE {mount}/browser` ends it when you
@@ -603,7 +604,7 @@ def _camel(name: str) -> str:
 # right for a read and is a *refusal* for a write, so advertising the same
 # default on both would hand a generated client a 400 it had no way to see
 # coming. It is still not `required`, because a caller naming itself through
-# the X-Session-Key header legitimately omits it.
+# the X-Session-Key or X-Workspace header legitimately omits it.
 def _mcp_tools() -> tuple[dict, dict]:
     """The MCP side of each ``/flows`` and ``/files`` endpoint.
 

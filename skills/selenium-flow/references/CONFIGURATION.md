@@ -87,7 +87,7 @@ the URL is written by whoever wires up the call.
 
 | Switch | Header | Parameter | Does |
 |---|---|---|---|
-| Session name | `X-Session-Key` | `?session=<name>` | Lets the server hold your browser, and survive a reconnect |
+| Session name | `X-Session-Key` or `X-Workspace` | `?session=<name>` | Lets the server hold your browser, and survive a reconnect |
 | Resources | `X-MCP-Resources: off` or `on` | `?resources=off` or `on` | Whether this client is given `list_resources` and `read_resource`. Unset, VS Code gets them and other clients do not |
 
 Setting a session name is what turns on the ergonomic mode described in

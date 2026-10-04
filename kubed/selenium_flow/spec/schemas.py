@@ -147,6 +147,17 @@ SESSION_PARAMETERS = [
         ),
     },
     {
+        "name": "X-Workspace",
+        "in": "header",
+        "required": False,
+        "schema": {"type": "string"},
+        "description": (
+            "The same as X-Session-Key, by the name Claude.ai custom connectors "
+            "may send. Both headers with one value are one name; two values, or "
+            "a header AND ?session=, is a 400."
+        ),
+    },
+    {
         "name": "session",
         "in": "query",
         "required": False,
@@ -393,9 +404,9 @@ _WRITE_SESSION = {
         "type": "string",
         "description": (
             "Whose library to write to. Needed unless the request names a "
-            "session another way, with the X-Session-Key header: the shared "
-            "'global' library is read-only, so a write that resolves to it is "
-            "refused rather than defaulted."
+            "session another way, with the X-Session-Key or X-Workspace "
+            "header: the shared 'global' library is read-only, so a write that "
+            "resolves to it is refused rather than defaulted."
         ),
     }
 }

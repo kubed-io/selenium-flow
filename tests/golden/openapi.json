@@ -3116,7 +3116,7 @@
     }
   },
   "info": {
-    "description": "Drive a persistent browser on Selenium Grid over plain HTTP.\n\nEvery operation here is also an MCP tool at `/mcp`, backed by the same code —\nthe request schemas in this document are generated from those tools, so the two\nsurfaces cannot describe different things.\n\nName your session on every request — an `X-Session-Key` header or `?session=`\n— and every call is about that session's browser. Sending both is a 400, and so\nis sending neither on anything that touches a browser. There is no browser id\nin this API.\n\n`POST /browser` opens yours, `DELETE /browser` ends it when you\nare finished — do that even after a failure, or it holds a Grid slot until it\ntimes out.\n",
+    "description": "Drive a persistent browser on Selenium Grid over plain HTTP.\n\nEvery operation here is also an MCP tool at `/mcp`, backed by the same code —\nthe request schemas in this document are generated from those tools, so the two\nsurfaces cannot describe different things.\n\nName your session on every request — an `X-Session-Key` header (or\n`X-Workspace`, the same header by another name) or `?session=` — and every\ncall is about that session's browser. Sending both is a 400, and so is\nsending neither on anything that touches a browser. There is no browser id\nin this API.\n\n`POST /browser` opens yours, `DELETE /browser` ends it when you\nare finished — do that even after a failure, or it holds a Grid slot until it\ntimes out.\n",
     "license": {
       "identifier": "MIT",
       "name": "MIT"
@@ -3135,6 +3135,15 @@
             "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
             "in": "header",
             "name": "X-Session-Key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -3232,6 +3241,15 @@
             }
           },
           {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
             "in": "query",
             "name": "session",
@@ -3287,6 +3305,15 @@
             "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
             "in": "header",
             "name": "X-Session-Key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -3380,6 +3407,15 @@
             "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
             "in": "header",
             "name": "X-Session-Key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -3499,6 +3535,15 @@
             }
           },
           {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
             "in": "query",
             "name": "session",
@@ -3606,6 +3651,15 @@
             "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
             "in": "header",
             "name": "X-Session-Key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -3725,6 +3779,15 @@
             }
           },
           {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
             "in": "query",
             "name": "session",
@@ -3832,6 +3895,15 @@
             "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
             "in": "header",
             "name": "X-Session-Key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -3967,6 +4039,15 @@
             }
           },
           {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
             "in": "query",
             "name": "session",
@@ -4074,6 +4155,15 @@
             "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
             "in": "header",
             "name": "X-Session-Key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -4193,6 +4283,15 @@
             }
           },
           {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
             "in": "query",
             "name": "session",
@@ -4300,6 +4399,15 @@
             "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
             "in": "header",
             "name": "X-Session-Key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -4419,6 +4527,15 @@
             }
           },
           {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
             "in": "query",
             "name": "session",
@@ -4526,6 +4643,15 @@
             "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
             "in": "header",
             "name": "X-Session-Key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -4645,6 +4771,15 @@
             }
           },
           {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
             "in": "query",
             "name": "session",
@@ -4752,6 +4887,15 @@
             "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
             "in": "header",
             "name": "X-Session-Key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -4871,6 +5015,15 @@
             }
           },
           {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
             "in": "query",
             "name": "session",
@@ -4978,6 +5131,15 @@
             "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
             "in": "header",
             "name": "X-Session-Key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -5135,6 +5297,15 @@
             }
           },
           {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
             "in": "query",
             "name": "session",
@@ -5248,6 +5419,15 @@
             }
           },
           {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
             "in": "query",
             "name": "session",
@@ -5341,6 +5521,15 @@
             }
           },
           {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
             "in": "query",
             "name": "session",
@@ -5428,6 +5617,15 @@
             "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
             "in": "header",
             "name": "X-Session-Key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -5541,6 +5739,15 @@
             "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
             "in": "header",
             "name": "X-Session-Key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -5661,6 +5868,15 @@
             }
           },
           {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
             "in": "query",
             "name": "session",
@@ -5736,6 +5952,15 @@
             "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
             "in": "header",
             "name": "X-Session-Key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -5821,6 +6046,15 @@
             }
           },
           {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
             "in": "query",
             "name": "session",
@@ -5894,6 +6128,15 @@
             "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
             "in": "header",
             "name": "X-Session-Key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -6018,6 +6261,15 @@
             "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
             "in": "header",
             "name": "X-Session-Key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -6206,6 +6458,15 @@
             }
           },
           {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
             "in": "query",
             "name": "session",
@@ -6279,6 +6540,15 @@
             }
           },
           {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
             "in": "query",
             "name": "session",
@@ -6346,6 +6616,15 @@
             "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
             "in": "header",
             "name": "X-Session-Key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -6428,6 +6707,15 @@
             "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
             "in": "header",
             "name": "X-Session-Key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
             "required": false,
             "schema": {
               "type": "string"

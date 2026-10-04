@@ -45,6 +45,24 @@ def test_a_name_in_the_header_is_the_session_too():
     assert (caller.name, caller.named_by) == ("desk", "header")
 
 
+def test_x_workspace_names_the_session_like_x_session_key():
+    """Claude.ai custom connectors only send headers on an approved list, and
+    X-Session-Key is not on it. X-Workspace is the same header by another name."""
+    caller = caller_of(headers={"x-workspace": "claude-web"})
+    assert (caller.name, caller.named_by) == ("claude-web", "header")
+
+
+def test_both_headers_with_one_value_are_one_name():
+    caller = caller_of(headers={"x-session-key": "desk", "x-workspace": "desk"})
+    assert caller.name == "desk"
+
+
+def test_both_headers_with_two_values_are_two_names():
+    caller = caller_of(headers={"x-session-key": "a", "x-workspace": "b"})
+    with pytest.raises(ValueError):
+        caller.name  # noqa: B018 - the refusal is the point
+
+
 def test_naming_it_twice_is_refused_rather_than_resolved():
     """Dr K's rule, and it replaces a precedence the old surface had. A request
     carrying both has two ideas about who is calling, and picking one hides that

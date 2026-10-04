@@ -10,9 +10,10 @@ what a model sees and fills in.
 Docstrings are prompt. They are written for a model deciding whether to call the
 tool, not for a developer reading the source.
 
-No tool takes a ``session_id``. A caller names its session — ``?session=`` or
-``X-Session-Key`` — and ``sessions.py`` turns that name into the browser it
-holds. The Grid's own id is never a parameter and never a result (§F2.12).
+No tool takes a ``session_id``. A caller names its session — ``?session=``,
+``X-Session-Key`` or ``X-Workspace`` — and ``sessions.py`` turns that name
+into the browser it holds. The Grid's own id is never a parameter and never a
+result (§F2.12).
 """
 
 from __future__ import annotations
@@ -151,9 +152,9 @@ persistent: it stays alive between tool calls and keeps its page, cookies and \
 scroll position.
 
 Name your session first: add ?{NAME_PARAM}=<name> to the MCP URL, or send an \
-X-Session-Key header. Every call is then about that session, and no call takes \
-a session id — calling again with the same name is how you get the same browser \
-back, after a reconnect or a restart.
+X-Session-Key (or X-Workspace) header. Every call is then about that session, \
+and no call takes a session id — calling again with the same name is how you \
+get the same browser back, after a reconnect or a restart.
 
 Lifecycle:
 1. Call open_session to start a browser. Pass browser="firefox" for Firefox; \

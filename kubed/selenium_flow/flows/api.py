@@ -207,8 +207,8 @@ def writable(session: str) -> str:
             "and run what is in it, so a flow you changed or deleted would "
             "change or vanish under another session mid-run. Name your session "
             "and save into your own library — ?session=<name> on the URL or the "
-            "X-Session-Key header. An operator moves a flow into global from "
-            "the admin UI."
+            "X-Session-Key (or X-Workspace) header. An operator moves a flow into "
+            "global from the admin UI."
         )
     return session
 
