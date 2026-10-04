@@ -895,3 +895,16 @@ async def test_a_note_naming_a_schema_key_is_not_a_reference(step_schema_map):
         ),
         step_schema_map,
     )
+
+
+async def test_an_integer_yaml_key_gets_the_hint_too(step_schema_map):
+    """YAML makes `1:` an integer, which `${1}` names as text (Copilot, #53)."""
+    with pytest.raises(InvalidFlow) as caught:
+        validate(
+            flow(
+                parameters={1: {"type": "string"}},
+                steps=[{"tool": "navigate", "args": {"url": "https://x.test/${1}"}}],
+            ),
+            step_schema_map,
+        )
+    assert any("where only JSON Schema keywords go" in p for p in caught.value.problems)

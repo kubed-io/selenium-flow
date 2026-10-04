@@ -343,7 +343,8 @@ def _undeclared_shape(parameters, steps) -> list[str]:
         if isinstance(step, dict)
         for name in references(step.get(ARGS))
     }
-    stray = sorted(str(key) for key in parameters if key in named)
+    # `str`: YAML makes `1:` an integer, and `${1}` names it as text.
+    stray = sorted(str(key) for key in parameters if str(key) in named)
     if not stray:
         return []
     example = {"type": "object", "properties": {stray[0]: {"type": "string"}}}
