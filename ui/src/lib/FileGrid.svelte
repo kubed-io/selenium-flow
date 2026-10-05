@@ -6,9 +6,11 @@
   import Lightbox from './Lightbox.svelte'
   import type { FileEntry } from './types'
 
-  let { files, base = '', action, empty = 'No files in this session yet.', onopen, onkeep, ondelete }: {
+  let { files, base = '', action, empty = 'No files in this session yet.', layout = 'grid', onopen, onkeep, ondelete }: {
     files: FileEntry[]
     base?: string
+    /** `row`: one horizontal strip, for an inline app view that must not grow tall. */
+    layout?: 'grid' | 'row'
     action?: 'keep' | 'delete'
     empty?: string
     onopen?: (i: number) => void
@@ -23,7 +25,7 @@
 {#if !files.length}
   <div class="empty">{empty}</div>
 {:else}
-  <div class="files">
+  <div class="files" class:strip={layout === 'row'}>
     {#each files as f, i (f.name)}
       <div class="file" animate:flip={{ duration: ms(150) }} out:fade|local={{ duration: ms(120) }}>
         <FileTile {f} {base} {action} {onkeep} {ondelete}

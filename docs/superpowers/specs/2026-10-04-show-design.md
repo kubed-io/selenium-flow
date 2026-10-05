@@ -148,12 +148,12 @@ All reuse the existing pieces where they exist and the host's tokens for colour.
 - **`context`** — one card from `session://current`: session name, browser mark
   (as `SessionSummary` draws it), live/idle pill, current URL as a link, window,
   principal (`kind`, username), saved-site count. Inline, no scrolling.
-- **`folder`** — one `FileGrid` (the paged row) for the folder's `files`, its
-  tiles opening the existing `Lightbox`. Title from `data.folder`, count pill.
-  Screenshots and downloads.
-- **`files`** — the same `FileGrid` for Files' own kept files, plus a chip per
-  folder from `data.folders` (`Screenshots 4`, `Downloads 1`); a chip drills into
-  `show(<folder uri>)`.
+- **`folder`** — one `FileGrid`, one horizontal row of tiles, for the folder's
+  `files`, its tiles opening the existing `Lightbox`. Title from `data.folder`,
+  count pill. Screenshots and downloads.
+- **`files`** — the same `FileGrid`, one horizontal row of tiles, for Files' own
+  kept files, plus a chip per folder from `data.folders` (`Screenshots 4`,
+  `Downloads 1`); a chip drills into `show(<folder uri>)`.
 - **`flows`** — a horizontal card scroller from `data.flows`: equal cards with the
   flow's name, description (two lines, clamped), parameter and step counts, and a
   `shared` mark; the next card peeks; `scroll-padding-inline` from the host's safe

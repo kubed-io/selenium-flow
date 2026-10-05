@@ -7,9 +7,9 @@
   const UNAVAILABLE = "Open isn't available in this client"
 </script>
 
-<section class="row">
+<section class="section">
   <div class="head"><strong>Files</strong><span class="pill">{data.count}</span></div>
-  <div class="body"><FileGrid files={data.files} empty="Nothing here yet." /></div>
+  <div class="body"><FileGrid files={data.files} layout="row" empty="Nothing here yet." /></div>
 </section>
 <div class="chips">
   {#each data.folders as f (f.uri)}

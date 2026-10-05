@@ -8,10 +8,11 @@ const data = {
     { name: 'downloads', uri: 'session://files/downloads', count: 1, browser: true }],
 }
 
-test('kept files in one grid and a chip per folder; a chip drills in', async () => {
+test('kept files in one horizontal row and a chip per folder; a chip drills in', async () => {
   const onshow = vi.fn()
   const { container } = render(FilesView, { props: { data, onshow } })
-  expect(container.querySelectorAll('.files > .file')).toHaveLength(1)
+  expect(container.querySelectorAll('.files.strip > .file')).toHaveLength(1)
+  expect(container.querySelector('section')).not.toHaveClass('row')
   const chip = screen.getByRole('button', { name: /Screenshots/ })
   expect(chip).toHaveTextContent('4')
   expect(screen.getByRole('button', { name: /Downloads/ })).toHaveTextContent('1')
