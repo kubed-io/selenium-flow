@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A Skills-aware MCP client discovers selenium-flow's embedded skill with `skills/list`/`skills/get` and verifies every file it reads against the entry's digests.
+**Goal:** A Skills-aware MCP client discovers selenium-flow's embedded skill with `skills/list`/`skills/get` and verifies every file it reads against the entry's digests. And (Task 3, added mid-run) `show` draws the secrets catalogue, one secret opening in place.
 
 **Architecture:** A new module, `kubed/selenium_flow/mcp/skill_extension.py`, builds the skill's one SEP-2640 entry when the server starts, from FastMCP's `SkillProvider`. It registers a FastMCP `ServerExtension` binding the two JSON-RPC methods, plus a middleware that adds the declaration to a legacy `initialize` reply. `skill.register()` calls it, so `--mcp-skill false` turns it off with the skill.
 
@@ -559,6 +559,447 @@ git -C wiki add Configuration.md
 git -C wiki commit -m "mcp.skill: the Skills extension too"
 git add AGENTS.md README.md CHANGELOG.md kubed/selenium_flow/config.py wiki
 git commit -m "Docs: the Skills extension"
+```
+
+---
+
+### Task 3: Secrets in the app: `show("secret://secrets")`, one secret in place
+
+Added mid-run by Dr K, 2026-10-05: *"give the mcp-apps a view for the secrets list or one secret. the value would never be passed over the call, this would be purely read only like the admin UI."* Ruling (Dr K): one secret opens **inside the app** from the list data already sent. There is no new resource: `secrets.py`'s "one read" rule (§F1.31, no get-one) stands, so `secret://secrets/{name}` stays refused.
+
+**Files:**
+- Modify: `kubed/selenium_flow/mcp/show.py` (the `VIEWS` table, `NOUNS`)
+- Create: `ui/src/lib/secrets.ts` (the admin pane's secret helpers, moved verbatim)
+- Create: `ui/src/lib/SecretCard.svelte` (the admin pane's card snippet, as a component)
+- Modify: `ui/src/admin/SecretsPane.svelte` (use the two above)
+- Modify: `ui/src/lib/types.ts` (add `SecretsData`)
+- Create: `ui/src/lib/views/SecretsView.svelte`
+- Modify: `ui/src/App.svelte` (register the view, its noun)
+- Test: `tests/test_show.py`, `ui/src/lib/views/SecretsView.test.ts` (create), `ui/src/App.test.ts`
+- Docs: `skills/selenium-flow/SKILL.md` (the `show` row), `AGENTS.md` (*`show` is the one app tool*), `CHANGELOG.md` (`[Unreleased]`)
+
+**Interfaces:**
+- Consumes: `secret://secrets` (`secrets.py`), which returns `{count, session, secrets: [entry]}`; entries carry names, keys, `restricted`, `allowed_urls`, the warnings, `key_sources` and `origins`, but never a value. With no catalogue the resource raises `ValueError(OFF)` ("secrets are not enabled on this server: ..."), which `show` surfaces as a tool error.
+- Produces: component name `secrets`; `SecretCard` (prop `secret: Secret`); `lib/secrets.ts` exports `keyLabel`, `warnsOf`, `reasonOf`, `fromOf`.
+
+The code below was drafted and run in this pod:
+- pytest: `test_show.py` and `test_admin_secrets.py` gave 44 passed.
+- vitest: 263 passed. `npm run check`: 0 errors. `npm run lint`: clean.
+- bundle size: app 84.2 KB of 110, admin 39.4 KB of 45 (gzipped).
+
+- [ ] **Step 0: UI toolchain**
+
+`ui/node_modules` is installed in this worktree (`npm ci` already ran). UI commands run from `ui/`: `npx vitest run <file>`, `npm run -s check`, `npm run -s lint`, `npm run -s build && npm run -s size`.
+
+- [ ] **Step 1: Write the failing tests**
+
+Apply this diff to `tests/test_show.py`:
+
+```diff
+@@ -30,6 +30,20 @@ def flow_server(tmp_path, named_caller):
+     return server
+ 
+ 
++@pytest.fixture
++def secrets_server(tmp_path, named_caller):
++    """A server with one secret whose values are recognisable."""
++    demo = tmp_path / "secrets" / "demo"
++    demo.mkdir(parents=True)
++    (demo / "username").write_text("user-7f3a")
++    (demo / "password").write_text("pass-9c1e")
++    return SeleniumMCP(Settings(
++        grid={"url": "http://grid.invalid:4444"},
++        auth={"token": TOKEN},
++        secrets={"dirs": str(tmp_path / "secrets")},
++    ))
++
++
+ @pytest.mark.parametrize(
+     ("uri", "component"),
+     [
+@@ -39,6 +53,7 @@ def flow_server(tmp_path, named_caller):
+         ("session://files/downloads", "folder"),
+         ("flow://flows", "flows"),
+         ("flow://flows/login", "flow"),
++        ("secret://secrets", "secrets"),
+     ],
+ )
+ def test_every_showable_uri_has_one_view(uri, component):
+@@ -55,7 +70,7 @@ def test_every_row_matches_its_own_display_form():
+ @pytest.mark.parametrize(
+     "uri",
+     ["skill://selenium-flow/SKILL.md", "flow://schema", "session://files/a.png",
+-     "flow://flows/", "session://current/x", "secret://secrets"],
++     "flow://flows/", "session://current/x", "secret://secrets/demo"],
+ )
+ def test_anything_else_is_refused_naming_what_can_be_shown(uri):
+     with pytest.raises(ValueError) as refused:
+@@ -237,3 +252,31 @@ async def test_content_that_is_not_json_is_refused_cleanly(flow_server, content)
+         ):
+             await c.call_tool("show", {"uri": "session://current"})
+     assert "not a resource show can draw" in str(refused.value)
++
++
++async def test_the_secrets_show_as_the_resource_lists_them(secrets_server):
++    async with Client(secrets_server.mcp) as c:
++        result = await c.call_tool("show", {"uri": "secret://secrets"})
++        read = json.loads((await c.read_resource("secret://secrets"))[0].text)
++    assert result.structured_content == {
++        "component": "secrets", "uri": "secret://secrets", "data": read,
++    }
++    assert [s["name"] for s in read["secrets"]] == ["demo"]
++    assert result.content[0].text == "Showing secret://secrets to the person: 1 secret."
++
++
++async def test_showing_the_secrets_never_sends_a_value(secrets_server):
++    async with Client(secrets_server.mcp) as c:
++        result = await c.call_tool("show", {"uri": "secret://secrets"})
++    sent = json.dumps(result.structured_content) + "".join(
++        block.text for block in result.content
++    )
++    assert "demo" in sent
++    assert "user-7f3a" not in sent and "pass-9c1e" not in sent
++
++
++async def test_showing_secrets_on_a_server_without_them_says_why(flow_server):
++    async with Client(flow_server.mcp) as c:
++        with pytest.raises(ToolError) as refused:
++            await c.call_tool("show", {"uri": "secret://secrets"})
++    assert "secrets are not enabled" in str(refused.value)
+```
+
+Add this row to the `test.each` table of views in `ui/src/App.test.ts`, after the `['flow', FLOW.data, 'navigate'],` row:
+
+```ts
+  ['secrets', { session: 's', count: 1, secrets: [{ name: 'demo', keys: ['password'], restricted: false }] }, 'demo'],
+```
+
+Create `ui/src/lib/views/SecretsView.test.ts`:
+
+```ts
+import { fireEvent, render, screen } from '@testing-library/svelte'
+import { expect, test } from 'vitest'
+import SecretsView from './SecretsView.svelte'
+
+const data = {
+  session: 's', count: 2,
+  secrets: [
+    {
+      name: 'admin', description: 'The admin login', keys: ['username', 'password'],
+      restricted: true, allowed_urls: ['https://example.test/'],
+      key_sources: { password: { from: 'env' as const, name: 'ADMIN_PW' } },
+      origins: [{ source: 'config' as const, location: '/etc/c.yaml' }],
+    },
+    { name: 'open', keys: ['token'], restricted: false },
+  ],
+}
+
+test('one card per secret in a list scroller', () => {
+  render(SecretsView, { props: { data } })
+  expect(screen.getByRole('list')).toBeInTheDocument()
+  expect(screen.getAllByRole('listitem')).toHaveLength(2)
+  expect(screen.getByText('The admin login')).toBeInTheDocument()
+  expect(screen.getByText('2 keys · 1 site')).toBeInTheDocument()
+  expect(screen.getByText('1 key · any site')).toBeInTheDocument()
+})
+
+test('a card warns as the admin pane does', () => {
+  render(SecretsView, { props: { data } })
+  const open = screen.getByRole('button', { name: 'open' })
+  expect(open.querySelector('.pill.warn')).toHaveTextContent('any site')
+  expect(screen.getByRole('button', { name: 'admin' }).querySelector('.pill.warn')).toBeNull()
+})
+
+test('a card opens that one secret in place, and back returns to the list', async () => {
+  const { container } = render(SecretsView, { props: { data } })
+  await fireEvent.click(screen.getByRole('button', { name: 'admin' }))
+  expect(screen.queryByRole('list')).toBeNull()
+  const card = container.querySelector('.card.secret')!
+  expect(card).toHaveTextContent('admin')
+  expect(card).toHaveTextContent('password · env ADMIN_PW')
+  expect(card).toHaveTextContent('allowedhttps://example.test/')
+  expect(card).toHaveTextContent('fromconfig · /etc/c.yaml')
+  await fireEvent.click(screen.getByRole('button', { name: '← All secrets' }))
+  expect(screen.getAllByRole('listitem')).toHaveLength(2)
+})
+
+test('the cards open without a server call: they work with no onshow', async () => {
+  const { container } = render(SecretsView, { props: { data } })
+  await fireEvent.click(screen.getByRole('button', { name: 'open' }))
+  expect(container.querySelector('.card.secret')).toHaveTextContent('open')
+})
+
+test('no secrets: one line, no scroller', () => {
+  render(SecretsView, { props: { data: { session: 's', count: 0, secrets: [] } } })
+  expect(screen.getByText('No secrets are configured.')).toBeInTheDocument()
+  expect(screen.queryByRole('list')).toBeNull()
+})
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `PYTHONPATH=$PWD:$PY python3 -S -m pytest tests/test_show.py -q`
+Expected: failures on the new `secret://secrets` cases (`has no view`).
+
+Run (in `ui/`): `npx vitest run src/lib/views/SecretsView.test.ts src/App.test.ts`
+Expected: SecretsView fails to import; the App `secrets` row fails with `Nothing to show for "secrets".`
+
+- [ ] **Step 3: The server's table**
+
+Apply to `kubed/selenium_flow/mcp/show.py`:
+
+```diff
+@@ -34,6 +34,9 @@ VIEWS: tuple[tuple[str, re.Pattern[str], str], ...] = (
+     ("session://files/downloads", re.compile(r"session://files/downloads"), "folder"),
+     ("flow://flows", re.compile(r"flow://flows"), "flows"),
+     ("flow://flows/{name}", re.compile(r"flow://flows/[^/]+"), "flow"),
++    # One secret is a closer look inside the app, not a URI: there is no
++    # single-secret resource to read (secrets.py, "one read").
++    ("secret://secrets", re.compile(r"secret://secrets"), "secrets"),
+ )
+ SHOWABLE = tuple(form for form, _, _ in VIEWS)
+ 
+@@ -41,7 +44,7 @@ SHOWABLE = tuple(form for form, _, _ in VIEWS)
+ # its data: a flow may be 1 MiB of YAML and a listing is unbounded.
+ MAX_SHOWN = 100_000
+ # What a listing's `count` counts, for the model's line.
+-NOUNS = {"files": "kept file", "folder": "file", "flows": "flow"}
++NOUNS = {"files": "kept file", "folder": "file", "flows": "flow", "secrets": "secret"}
+ 
+ 
+ def view_for(uri: str) -> str:
+```
+
+- [ ] **Step 4: Share the admin pane's secret card**
+
+Create `ui/src/lib/secrets.ts`. Its function bodies and comments are moved verbatim from `SecretsPane.svelte`:
+
+```ts
+import type { Secret } from './types'
+
+// What a secret's card says about it, for the admin pane and the app alike:
+// both draw the same catalogue entry, so they must never read it differently.
+
+export const keyLabel = (s: Secret, k: string) => {
+  const from = s.key_sources?.[k]
+  if (!from || from.from === 'filesystem') return k
+  if (from.from === 'env') return `${k} · env ${from.name}`
+  return `${k} · ${from.from}`
+}
+// A list, not one pill: an unrestricted secret with an inline or unresolved
+// key needs BOTH warnings shown, not whichever one happened to be checked
+// first. Order matches severity. `any site` is withheld when the leash
+// itself is broken — that secret is restricted, just unusably so.
+export const warnsOf = (s: Secret) => [
+  s.allowed_urls_rejected ? 'unusable until fixed' : null,
+  s.keys_unresolved?.length ? 'key unresolved' : null,
+  s.inline_keys?.length ? 'inline value' : null,
+  !s.restricted && !s.allowed_urls_rejected ? 'any site' : null,
+].filter((w): w is string => w !== null)
+// Both a broken leash AND unresolved keys can be true at once — show both,
+// leash first, so the operator sees every reason the secret will fail.
+export const reasonOf = (s: Secret) => [
+  s.allowed_urls_rejected ? 'allowed_urls: ' + ([] as string[]).concat(s.allowed_urls_rejected).join(', ') : null,
+  ...(s.keys_unresolved?.map((u) => `${u.key}: ${u.reason}`) ?? []),
+].filter((r): r is string => r !== null).join('; ')
+export const fromOf = (s: Secret) => (s.origins ?? []).map((o) => `${o.source} · ${o.location}`).join(' + ')
+```
+
+Create `ui/src/lib/SecretCard.svelte`. Its markup is the pane's `{#snippet card}` body, verbatim:
+
+```svelte
+<script lang="ts">
+  import { fromOf, keyLabel, reasonOf, warnsOf } from './secrets'
+  import type { Secret } from './types'
+
+  let { secret: s }: { secret: Secret } = $props()
+  const warns = $derived(warnsOf(s))
+  const reason = $derived(reasonOf(s))
+</script>
+
+<div class="card secret">
+  <div class="row"><span>🔑</span><strong class="grow">{s.name}</strong>{#each warns as warn (warn)}<span class="pill warn">{warn}</span>{/each}</div>
+  {#if s.description}<div>{s.description}</div>{/if}
+  {#if reason}<div class="small error">{reason}</div>{/if}
+  {#if s.keys}
+    <div class="fact"><span class="k">keys</span>{#each s.keys as k (k)}<span class="pill">{keyLabel(s, k)}</span>{/each}</div>
+    <div class="fact"><span class="k">allowed</span>{s.restricted ? (s.allowed_urls || []).join(', ') || '—' : 'any site'}</div>
+  {/if}
+  {#if s.origins?.length}<div class="fact"><span class="k">from</span><span class="small muted">{fromOf(s)}</span></div>{/if}
+</div>
+```
+
+`ui/src/admin/SecretsPane.svelte` becomes exactly:
+
+```svelte
+<script lang="ts">
+  import { onMount } from 'svelte'
+  import SecretCard from '../lib/SecretCard.svelte'
+  import type { SecretsPayload } from '../lib/types'
+  import type { Api } from './api'
+  import { Latest } from './latest'
+
+  let { api }: { api: Api } = $props()
+  // Raw: an API response, replaced wholesale, never mutated.
+  let data = $state.raw<SecretsPayload | null>(null)
+  let error = $state<string | null>(null)
+  const loads = new Latest()
+
+  onMount(() => {
+    void loads.run((signal) => api<SecretsPayload>('/admin/secrets', 'GET', undefined, signal),
+      (d) => { data = d; error = null }, (e) => { error = e.message })
+    return () => loads.abort()
+  })
+</script>
+
+<section id="paneSecrets">
+  <div id="secrets">
+    {#if error}
+      <div class="empty error">{error}</div>
+    {:else if !data}
+      <div class="empty">Loading…</div>
+    {:else if !data.enabled}
+      <div class="empty">No secrets are configured on this server.</div>
+    {:else}
+      <h2>Secrets</h2>
+      <p class="small muted">What flows can type without anyone seeing it. Read-only here: names, keys and where each may be used — never a value.</p>
+      {#each data.secrets as s (s.name)}<SecretCard secret={s} />{/each}
+    {/if}
+  </div>
+</section>
+```
+
+In `ui/src/lib/types.ts`, insert immediately before `export interface SecretsPayload {`:
+
+```ts
+// `secret://secrets`, as `show` hands it to the app.
+export interface SecretsData {
+  session: string
+  count: number
+  secrets: Secret[]
+}
+```
+
+- [ ] **Step 5: The view, and the shell's table**
+
+Create `ui/src/lib/views/SecretsView.svelte`:
+
+```svelte
+<script lang="ts">
+  import { plural } from '../format'
+  import SecretCard from '../SecretCard.svelte'
+  import { warnsOf } from '../secrets'
+  import type { Secret, SecretsData } from '../types'
+
+  let { data }: { data: SecretsData } = $props()
+  // One secret opens from the card already here rather than another `show`:
+  // there is no single-secret resource to read (secrets.py, "one read").
+  let open = $state<string | null>(null)
+  const chosen = $derived(data.secrets.find((s) => s.name === open))
+  const reach = (s: Secret) => (s.restricted ? plural((s.allowed_urls ?? []).length, 'site') : 'any site')
+</script>
+
+{#if chosen}
+  <div class="back"><button type="button" onclick={() => (open = null)}>← All secrets</button></div>
+  <SecretCard secret={chosen} />
+{:else if !data.secrets.length}
+  <div class="empty">No secrets are configured.</div>
+{:else}
+  <div class="scroller" role="list">
+    {#each data.secrets as s (s.name)}
+      <div class="slot" role="listitem">
+        <button type="button" class="card pick" aria-label={s.name} onclick={() => (open = s.name)}>
+          <div class="row"><span>🔑</span><strong class="grow">{s.name}</strong></div>
+          {#if s.description}<div class="desc small muted">{s.description}</div>{/if}
+          <div class="small muted">{plural((s.keys ?? []).length, 'key')} · {reach(s)}</div>
+          {#if warnsOf(s).length}<div class="warns">{#each warnsOf(s) as warn (warn)}<span class="pill warn">{warn}</span>{/each}</div>{/if}
+        </button>
+      </div>
+    {/each}
+  </div>
+{/if}
+
+<style>
+  .back { margin-bottom: 8px; }
+  .back button { padding: 4px 10px; min-height: 32px; }
+  .scroller {
+    display: flex; gap: var(--gap); overflow-x: auto; overflow-y: hidden;
+    scroll-snap-type: x mandatory; scroll-padding-inline: var(--safe-left, 0);
+  }
+  .slot { flex: 0 0 min(240px, 80%); scroll-snap-align: start; display: flex; }
+  .card.pick {
+    flex: 1; margin: 0; min-height: 44px; text-align: left; font: inherit; color: var(--ink);
+    display: flex; flex-direction: column; gap: 6px; cursor: pointer;
+  }
+  .card.pick:hover { border-color: var(--accent); }
+  .card.pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .desc {
+    display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .warns { display: flex; flex-wrap: wrap; gap: 4px; }
+</style>
+```
+
+Apply to `ui/src/App.svelte`:
+
+```diff
+@@ -10,6 +10,7 @@
+   import FlowsView from './lib/views/FlowsView.svelte'
+   import FlowView from './lib/views/FlowView.svelte'
+   import FolderView from './lib/views/FolderView.svelte'
++  import SecretsView from './lib/views/SecretsView.svelte'
+ 
+   type Props = { data: never; onshow?: (uri: string) => void; expanded?: boolean }
+   // By the name a `show` result carries in `component`.
+@@ -19,9 +20,10 @@
+     folder: FolderView as Component<Props>,
+     flows: FlowsView as Component<Props>,
+     flow: FlowView as Component<Props>,
++    secrets: SecretsView as Component<Props>,
+   }
+   const EXPANDS = new Set(['flow'])
+-  const NOUNS: Record<string, string> = { files: 'kept file', folder: 'file', flows: 'flow' }
++  const NOUNS: Record<string, string> = { files: 'kept file', folder: 'file', flows: 'flow', secrets: 'secret' }
+ 
+   type Shown = { component?: string; uri?: string; data?: unknown }
+   type Result = { structuredContent?: unknown; isError?: boolean; content?: { type: string; text?: string }[] }
+```
+
+- [ ] **Step 6: Run everything that covers it**
+
+Run: `PYTHONPATH=$PWD:$PY python3 -S -m pytest tests/test_show.py tests/test_admin_secrets.py tests/test_skill.py -q`
+Expected: all pass.
+
+Run (in `ui/`): `npx vitest run`, `npm run -s check`, `npm run -s lint`, `npm run -s build && npm run -s size`
+Expected: all vitest files pass (the admin `SecretsPane.test.ts` proves the moved card is unchanged); 0 check errors; lint clean; both bundles under budget.
+
+Run: `$PY/bin/ruff check .`
+Expected: `All checks passed!` (`ruff format --check` reports an older line in `show.py` this task does not touch; leave it.)
+
+- [ ] **Step 7: Docs**
+
+`skills/selenium-flow/SKILL.md`, the `show` row of the tool table: change `context, files, a folder, flows, one flow` to `context, files, a folder, flows, one flow, the secrets`.
+
+`AGENTS.md`, section *`show` is the one app tool*: after the bullet ending "…the app would never get its data.", add:
+
+```markdown
+- **One secret opens inside the app**, from the list `show` already sent: there
+  is no single-secret resource (secrets.py, "one read"), so a drill-down has
+  nothing to call. `SecretCard` and `lib/secrets.ts` are shared with the admin
+  pane, so both read a catalogue entry the same way, and neither ever has a value.
+```
+
+`CHANGELOG.md`, under `## [Unreleased]`, immediately after the existing `show(uri)` line:
+
+```markdown
+- `show` draws `secret://secrets` too: a card per secret, one opening in place with its keys and allowed sites, never a value.
+```
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add kubed/selenium_flow/mcp/show.py tests/test_show.py ui/src skills/selenium-flow/SKILL.md AGENTS.md CHANGELOG.md
+git commit -m "show draws the secrets: a card each, one opening in place"
 ```
 
 ---

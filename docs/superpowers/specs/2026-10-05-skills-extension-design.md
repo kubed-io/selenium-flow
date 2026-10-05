@@ -79,6 +79,12 @@ Skills Support", is open, and a maintainer agreed to a single-server passthrough
    agentgateway#3579 make it reachable through `mcp.`/`mcp-pub.` later. No
    plain-HTTP gateway route, no conditional declaration. mcp-kb is already in the
    same state.
+2. **Secrets in the app, added to this PR** (Dr K, 2026-10-05, mid-build): *"give
+   the mcp-apps a view for the secrets list or one secret. the value would never
+   be passed over the call, this would be purely read only like the admin UI."*
+   One secret opens **inside the app** from the list data `show` already sent; no
+   `secret://secrets/{name}` resource (Dr K chose this over adding one), so
+   `secrets.py`'s "one read" rule (§F1.31) stands.
 
 ## Goal
 
@@ -163,6 +169,25 @@ cannot change what the next caller is served.
 
 Nothing new. The methods arrive on `/mcp` like any request, behind the same token
 or JWT check.
+
+### Secrets in the app (Ruling 2)
+
+- `show.py`: one more `VIEWS` row, `secret://secrets` → `secrets`; `NOUNS` gains
+  `secrets: secret`, so the model's line reads "…: 1 secret." With no catalogue
+  the resource's own refusal ("secrets are not enabled…") comes back as the tool
+  error. `secret://secrets/{name}` stays unshowable.
+- The app: `SecretsView` draws the catalogue as a horizontal card scroller, like
+  the flows. Each card shows the name, description, key count, reach and the
+  warning pills. A click opens that one secret in place as the admin pane's full
+  card (keys with their sources, allowed sites, the reasons it may fail, origins),
+  with "← All secrets" to go back. It needs no server call, so it works where the
+  host offers no `callServerTool`.
+- One card for both surfaces: the admin pane's card snippet becomes
+  `lib/SecretCard.svelte`, and its helpers move to `lib/secrets.ts`. The admin and
+  the app then read an entry the same way. The admin's DOM is unchanged, which its
+  tests prove.
+- Never a value: the catalogue has none. A test configures a secret with known
+  values and checks that neither appears anywhere in `show`'s result.
 
 ## Testing
 
