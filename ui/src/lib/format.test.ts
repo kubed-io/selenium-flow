@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { ago, browserMark, bytes, countsText, glyphFor, metaLine, safeHref, sessionLabel } from './format'
+import { ago, browserMark, bytes, countsText, glyphFor, metaLine, safeHref, sessionLabel, stepSummary } from './format'
 
 describe('format', () => {
   test('bytes', () => {
@@ -46,5 +46,15 @@ describe('format', () => {
     expect(sessionLabel({ key: 'k', name: 'mine' })).toBe('mine')
     expect(sessionLabel({ key: 'k', owner: 'stdio' })).toBe('stdio')
     expect(sessionLabel({ key: 'k' })).toBe('session')
+  })
+  test('stepSummary is the first string argument, cut at 60', () => {
+    expect(stepSummary({ url: 'https://example.com/a' })).toBe('https://example.com/a')
+    expect(stepSummary({ timeout: 3, text: 'hello' })).toBe('hello')
+    expect(stepSummary({ selector: { css: '#go' }, action: 'click' })).toBe('#go')
+    expect(stepSummary({ n: 1 })).toBe('')
+    expect(stepSummary(undefined)).toBe('')
+    const long = stepSummary({ url: 'x'.repeat(100) })
+    expect(long).toHaveLength(60)
+    expect(long.endsWith('…')).toBe(true)
   })
 })
