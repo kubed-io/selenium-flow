@@ -45,6 +45,13 @@ def test_every_showable_uri_has_one_view(uri, component):
     assert show.view_for(uri) == component
 
 
+def test_the_table_and_the_list_of_showable_uris_agree():
+    """SHOWABLE is what the tool says it draws, VIEWS what it can: every URI it
+    names has a view, and every view is reachable from one it names."""
+    reached = {show.view_for(uri.replace("{name}", "x")) for uri in show.SHOWABLE}
+    assert reached == {component for _, component in show.VIEWS}
+
+
 @pytest.mark.parametrize(
     "uri",
     ["skill://selenium-flow/SKILL.md", "flow://schema", "session://files/a.png",
@@ -72,6 +79,20 @@ async def test_show_returns_the_resources_own_json(flow_server, uri, component):
         shown = (await c.call_tool("show", {"uri": uri})).structured_content
         read = json.loads((await c.read_resource(uri))[0].text)
     assert shown == {"component": component, "uri": uri, "data": read}
+
+
+async def test_a_kept_file_shows_as_the_resource_lists_it(flow_server, named_caller):
+    flow_server.flows.write_file(named_caller, "report.pdf", b"%PDF-1.4")
+    async with Client(flow_server.mcp) as c:
+        shown = (await c.call_tool("show", {"uri": "session://files"})).structured_content
+        read = json.loads((await c.read_resource("session://files"))[0].text)
+
+    def unsigned(data):
+        # The signed url carries an expiry that can cross a second between calls.
+        return {**data, "files": [{k: v for k, v in f.items() if k != "url"} for f in data["files"]]}
+
+    assert [f["name"] for f in shown["data"]["files"]] == ["report.pdf"]
+    assert unsigned(shown["data"]) == unsigned(read)
 
 
 async def test_a_missing_flow_is_refused(flow_server):
@@ -121,6 +142,20 @@ async def test_the_app_may_call_show_itself(built_ui, server):
     assert ui.get("resourceUri") == apps.RESOURCE_URI
 
 
+async def test_the_app_may_frame_its_own_files(built_ui):
+    """The Lightbox previews a PDF in an <iframe>: without frameDomains the
+    host's CSP refuses it."""
+    server = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN},
+        public_base_url="https://flow.example.com/base",
+    ))
+    with patch.object(apps, "supported", return_value=True):
+        async with Client(server.mcp) as c:
+            tool = next(t for t in await c.list_tools() if t.name == "show")
+    csp = ((tool.meta or {}).get("ui") or {}).get("csp") or {}
+    assert csp.get("frameDomains") == ["https://flow.example.com"]
+
+
 async def test_the_session_status_shows_through_the_client(flow_server):
     async with Client(flow_server.mcp) as c:
         shown = (await c.call_tool("show", {"uri": "session://current"})).structured_content
@@ -129,7 +164,7 @@ async def test_the_session_status_shows_through_the_client(flow_server):
     assert shown["uri"] == "session://current"
     # Only the stable keys: liveness fields may differ between two probes.
     for key in ("session", "named_by", "browser", "store", "principal"):
-        assert shown["data"].get(key) == read.get(key)
+        assert shown["data"][key] == read[key]
 
 
 @pytest.mark.parametrize("content", ["not json", b"\x89PNG"])

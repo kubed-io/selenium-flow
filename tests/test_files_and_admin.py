@@ -472,6 +472,10 @@ async def test_apps_can_be_turned_off(built_ui):
     assert apps.RESOURCE_URI not in uris
     # The listing survives as a resource: it never depended on apps.
     assert "session://files" in uris
+    # Off means off, whatever the client says it can render.
+    with patch.object(apps, "supported", return_value=True):
+        names = {t.name for t in await off.mcp.list_tools()}
+    assert "show" not in names
 
 
 def test_the_app_csp_omits_an_origin_it_does_not_have():
