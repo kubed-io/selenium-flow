@@ -717,6 +717,19 @@ otherwise be absent from the wheel with no error at build or import time.
 `test_every_skill_file_is_covered_by_package_data` fails if a file is ever added
 that no pattern matches.
 
+The **Skills extension** (SEP-2640, `io.modelcontextprotocol/skills`) is a second
+discovery surface over the same files, in `mcp/skill_extension.py`: `skills/list`
+and `skills/get` return one entry naming every file with the sha256 and size of
+the bytes `resources/read` serves. Those are not `_manifest`'s hashes, which are of
+the disk, and `SkillProvider` reads text with newline normalisation. FastMCP
+declares the extension in `server/discover` only, so `AdvertiseSkills` puts it back
+into a legacy `initialize`. A SKILL.md that fails the spec (name ≠ folder,
+description outside 1–1024 characters, frontmatter that is not JSON) is still
+served as resources but not offered. agentgateway 1.6 refuses both methods
+(`unsupported method`, agentgateway#3579), so through the gateway a client sees the
+declaration and gets an error; in-cluster they work. Delete the module when
+FastMCP ships its own (#5016).
+
 **SKILL.md is an index, not the manual.** It carries the two facts that shape
 everything, the session-mode branch every caller has to take, and a routing table
 into `references/`. Detail belongs in a reference so an agent loads only what its

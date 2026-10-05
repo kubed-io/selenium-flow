@@ -143,6 +143,9 @@ which one applies.
 Those URIs are FastMCP's convention, served by its own `SkillProvider`, so
 `list_skills` and `download_skill` work here with no special casing.
 
+A client that implements the MCP Skills extension also finds it through
+`skills/list` and `skills/get`, and can verify every file it reads.
+
 A client that cannot read resources reads the same URIs with `read_resource`.
 `MCP_SKILL=false` turns the skill off.
 
