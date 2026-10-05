@@ -75,9 +75,13 @@ def _problem(metadata: object, name: str) -> str | None:
     if not isinstance(metadata, dict):
         return "SKILL.md has no YAML frontmatter mapping"
     try:
-        # Frontmatter travels as JSON; a YAML-only value would not survive it.
-        json.dumps(metadata, allow_nan=False)
+        # Frontmatter travels as JSON and must arrive as written: a YAML-only
+        # value fails to encode, and a non-string key (1 beside "1") encodes
+        # but comes back renamed or lost.
+        same = json.loads(json.dumps(metadata, allow_nan=False)) == metadata
     except (TypeError, ValueError):
+        same = False
+    if not same:
         return "its frontmatter is not representable as JSON"
     if metadata.get("name") != name:
         return f"its frontmatter name is not the folder name {name!r}"

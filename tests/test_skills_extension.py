@@ -151,8 +151,11 @@ async def test_switching_the_skill_off_removes_the_extension(mode):
         "- a list\n- not a mapping",
         "name: odd-skill\ndescription: Dated.\nwhen: 2026-10-05",
         "name: odd-skill\ndescription: NaN.\nweight: .nan",
+        "name: odd-skill\ndescription: Keys.\nmetadata:\n  1: one",
+        "name: odd-skill\ndescription: Keys.\nmetadata:\n  1: one\n  '1': also one",
     ],
-    ids=["name", "empty-description", "long-description", "not-a-mapping", "date", "nan"],
+    ids=["name", "empty-description", "long-description", "not-a-mapping", "date", "nan",
+         "int-key", "colliding-keys"],
 )
 async def test_a_nonconforming_skill_is_served_but_not_offered(tmp_path, caplog, front):
     folder = tmp_path / "odd-skill"
