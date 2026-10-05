@@ -785,6 +785,24 @@ server still runs every tool, with the admin URL serving a plain "Selenium
 Flow" page and no MCP App offered. The build output is gitignored — it is
 never committed, whether it exists or not.
 
+### `show` is the one app tool
+
+`show(uri)` draws a resource in the app shell; the URI-to-component table lives
+in `mcp/show.py` and nowhere else. The data is the resource's own JSON, so a view
+cannot drift from what the resource serves.
+
+- **Not an app on `read_resource`.** That is the model's reading tool; an app
+  there would draw a UI on every read Claude makes to think.
+- **Drill-down is the shell calling `show` through `callServerTool`** — the tool
+  carries `visibility: ["model", "app"]`. Never `sendMessage`: Claude only drafts
+  that into the input box, it does not send it.
+- **`updateModelContext` shares the shown URI, best effort.** A host may ignore
+  it; nothing depends on it.
+- **claude.ai ignores `size-changed`** and reads the document's own height, so
+  `App.svelte` sets `documentElement.style.height` as well as letting autoResize
+  report it. Drop it only once claude.ai honours the notification.
+- `show` is listed only for a client that renders apps. `session_files` is gone.
+
 ## Session lifetime: who owns what
 
 | | Who owns it | Default here |

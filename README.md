@@ -215,7 +215,7 @@ The Grid's own console is a second tab, framed same-origin. Put both behind one 
 
 ## 🧩 MCP Apps
 
-Hosts implementing the [MCP Apps extension](https://modelcontextprotocol.io/extensions/apps/overview) — Claude, ChatGPT, VS Code, Goose — render a tool result as UI rather than JSON. `session_files` and `browser_sessions` each declare one, so a listing arrives as thumbnails.
+Hosts implementing the [MCP Apps extension](https://modelcontextprotocol.io/extensions/apps/overview) — Claude, ChatGPT, VS Code, Goose — render a tool result as UI rather than JSON. `show(uri)` draws your session, its files, a folder of screenshots, the saved flows as cards or one flow; `browser_sessions` declares one too.
 
 The components are shared with the admin UI, not copied, so the two cannot drift. Degradation is the point: one server, the client's capabilities pick the rendering.
 

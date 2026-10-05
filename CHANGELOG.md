@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `show(uri)` draws a resource as an MCP App — your session, files, a folder, the saved flows as cards, one flow; `session_files` is gone.
 - An `X-Workspace` header names the session too, for clients like Claude.ai custom connectors that cannot send `X-Session-Key`.
 - `/mcp` accepts a JWT from an OIDC issuer beside the token (`oidc.issuer`, `oidc.audience`, `oidc.jwks_uri`, `oidc.roles`), for a server behind an OIDC gateway.
 - The token is compared in constant time on `/mcp` too.

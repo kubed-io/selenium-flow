@@ -27,6 +27,8 @@ the name is `stdio` and you need do nothing.
  "window": "1400x900"}
 ```
 
+`show(session://current)` draws it for the person.
+
 ## Two rules, and they are absolute
 
 **1. Call `open_session` first.** Nothing opens a browser implicitly. It is the

@@ -29,6 +29,8 @@ a check you repeat on Chrome and then on Firefox.
 Read `flow://schema` before writing one. It is derived
 from the tools themselves, so it cannot describe a step that would not run.
 
+`show(flow://flows/<name>)` draws one flow; `show(flow://flows)` the scroller.
+
 ## A step is a tool call
 
 ```json
