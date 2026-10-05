@@ -10,6 +10,7 @@
   import FlowsView from './lib/views/FlowsView.svelte'
   import FlowView from './lib/views/FlowView.svelte'
   import FolderView from './lib/views/FolderView.svelte'
+  import SecretsView from './lib/views/SecretsView.svelte'
 
   type Props = { data: never; onshow?: (uri: string) => void; expanded?: boolean }
   // By the name a `show` result carries in `component`.
@@ -19,9 +20,10 @@
     folder: FolderView as Component<Props>,
     flows: FlowsView as Component<Props>,
     flow: FlowView as Component<Props>,
+    secrets: SecretsView as Component<Props>,
   }
   const EXPANDS = new Set(['flow'])
-  const NOUNS: Record<string, string> = { files: 'kept file', folder: 'file', flows: 'flow' }
+  const NOUNS: Record<string, string> = { files: 'kept file', folder: 'file', flows: 'flow', secrets: 'secret' }
 
   type Shown = { component?: string; uri?: string; data?: unknown }
   type Result = { structuredContent?: unknown; isError?: boolean; content?: { type: string; text?: string }[] }
@@ -177,7 +179,7 @@
   {#if error}<div class="small error line">{error}</div>{/if}
   <div class="view" aria-busy={pending !== null}>
     {#if View}
-      <View data={top.data as never} {onshow} {expanded} />
+      {#key top}<View data={top.data as never} {onshow} {expanded} />{/key}
     {:else}
       <div class="empty error">Nothing to show{top.component ? ` for "${top.component}"` : ''}.</div>
     {/if}

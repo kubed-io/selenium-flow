@@ -23,6 +23,9 @@ not the frontmatter, so ``skills/selenium-flow/`` is what makes the URI
 
 A client that cannot read resources reads the same URIs through
 ``mirror.read_resource``.
+
+A client that implements the MCP Skills extension also finds the skill through
+``skills/list`` and ``skills/get``; that part is ours, in ``skill_extension``.
 """
 
 from __future__ import annotations
@@ -31,6 +34,8 @@ import logging
 from pathlib import Path
 
 from fastmcp.server.providers.skills.skill_provider import SkillProvider
+
+from . import skill_extension
 
 log = logging.getLogger(__name__)
 
@@ -76,5 +81,6 @@ def load() -> SkillProvider | None:
 
 
 def register(mcp, provider: SkillProvider) -> None:
-    """Serve the skill's resources."""
+    """Serve the skill's resources, and offer it through the Skills extension."""
     mcp.add_provider(provider)
+    skill_extension.register(mcp, provider)

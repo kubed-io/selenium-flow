@@ -248,7 +248,9 @@ class SecretsSettings(Section):
 
 
 class McpSettings(Section):
-    skill: bool = Field(True, description="Serve the agent skill as resources.")
+    skill: bool = Field(
+        True, description="Serve the agent skill: resources and the Skills extension."
+    )
     apps: bool = Field(True, description="Offer MCP Apps views.")
 
 

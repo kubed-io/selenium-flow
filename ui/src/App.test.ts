@@ -81,6 +81,7 @@ test.each([
   ['folder', { session: 's', folder: 'downloads', uri: 'session://files/downloads', count: 0, files: [] }, 'Downloads'],
   ['flows', FLOWS.data, 'login'],
   ['flow', FLOW.data, 'navigate'],
+  ['secrets', { session: 's', count: 1, secrets: [{ name: 'demo', keys: ['password'], restricted: false }] }, 'demo'],
 ])('draws the %s view from a show result', async (component, data, text) => {
   render(App)
   expect(screen.getByText('Loading…')).toBeInTheDocument()
@@ -336,4 +337,19 @@ test('the app declares the display modes it asks for', async () => {
   render(App)
   await vi.waitFor(() => expect(host.listeners.toolresult).toBeTypeOf('function'))
   expect(host.caps0).toMatchObject({ availableDisplayModes: ['inline', 'fullscreen'] })
+})
+
+test('a fresh show result starts its view fresh', async () => {
+  render(App)
+  const secrets = (names: string[]) => ({
+    component: 'secrets',
+    uri: 'secret://secrets',
+    data: { session: 's', count: names.length, secrets: names.map((name) => ({ name, keys: ['password'], restricted: false })) },
+  })
+  await shown(secrets(['alpha', 'beta']))
+  await fireEvent.click(await screen.findByRole('button', { name: /alpha/ }))
+  expect(screen.getByRole('button', { name: '← All secrets' })).toBeInTheDocument()
+  await shown(secrets(['alpha', 'beta']))
+  await vi.waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(2))
+  expect(screen.queryByRole('button', { name: '← All secrets' })).not.toBeInTheDocument()
 })

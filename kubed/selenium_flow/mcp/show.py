@@ -34,6 +34,9 @@ VIEWS: tuple[tuple[str, re.Pattern[str], str], ...] = (
     ("session://files/downloads", re.compile(r"session://files/downloads"), "folder"),
     ("flow://flows", re.compile(r"flow://flows"), "flows"),
     ("flow://flows/{name}", re.compile(r"flow://flows/[^/]+"), "flow"),
+    # One secret is a closer look inside the app, not a URI: there is no
+    # single-secret resource to read (secrets.py, "one read").
+    ("secret://secrets", re.compile(r"secret://secrets"), "secrets"),
 )
 SHOWABLE = tuple(form for form, _, _ in VIEWS)
 
@@ -41,7 +44,7 @@ SHOWABLE = tuple(form for form, _, _ in VIEWS)
 # its data: a flow may be 1 MiB of YAML and a listing is unbounded.
 MAX_SHOWN = 100_000
 # What a listing's `count` counts, for the model's line.
-NOUNS = {"files": "kept file", "folder": "file", "flows": "flow"}
+NOUNS = {"files": "kept file", "folder": "file", "flows": "flow", "secrets": "secret"}
 
 
 def view_for(uri: str) -> str:
