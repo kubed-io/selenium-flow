@@ -223,7 +223,7 @@ The components are shared with the admin UI, not copied, so the two cannot drift
 |---|---|
 | render apps | `show`, and the view inline |
 | read resources | `session://files`, `flow://flows`, and the file as bytes |
-| neither | the admin UI, and links anything can open |
+| neither | `read_resource` / `list_resources`, the same JSON, and links anything can open |
 
 Apps get a deny-by-default CSP with no network, so `PUBLIC_BASE_URL` is also what admits this server's images to the frame. `MCP_APPS=false` turns it off.
 

@@ -788,8 +788,9 @@ never committed, whether it exists or not.
 ### `show` is the one app tool
 
 `show(uri)` draws a resource in the app shell; the URI-to-component table lives
-in `mcp/show.py` and nowhere else; `App.svelte` maps the component names to Svelte views. The data is the resource's own JSON, so a view
-cannot drift from what the resource serves.
+in `mcp/show.py` and nowhere else; `App.svelte` maps the component names to
+Svelte views. The data is the resource's own JSON, so a view cannot drift from
+what the resource serves.
 
 - **Not an app on `read_resource`.** That is the model's reading tool; an app
   there would draw a UI on every read Claude makes to think.

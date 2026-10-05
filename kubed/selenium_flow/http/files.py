@@ -429,7 +429,8 @@ def sections(
     downloads: list[dict] | None = None,
     ttl: int = links.DEFAULT_TTL,
 ) -> dict:
-    """All three sections at once, for the admin page and `show`.
+    """All three sections at once, for the admin page. `show` reads the
+    resources, so `root` and `folder`.
 
     ``session_id``, when given, is the browser to read downloads from and is
     never resolved — the same ruling `keep` follows, so an operator surface
@@ -659,16 +660,14 @@ def register(
     sessions,
     store,
     token,
-    app_config=None,
     base="",
     prefix: str = "",
     ttl: int = links.DEFAULT_TTL,
 ) -> set[str]:
-    """Register the resources, the mirroring tool, and the file actions.
+    """Register the file resources and ``keep_file``.
 
-    Returns the mirror tool names. ``keep_file`` is not a mirror — it is a
-    capability with no resource behind it — so it stays visible to every
-    client.
+    Returns no tool names: ``keep_file`` is a capability with no resource behind
+    it, so it is visible to every client, and `show` draws the listings.
     """
 
     @mcp.resource(

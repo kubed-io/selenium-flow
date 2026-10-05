@@ -1,8 +1,8 @@
 # show: one MCP App tool that draws a resource
 
-**Status: DESIGNED 2026-10-04 on branch `show`; not yet built. Plan:
-`docs/superpowers/plans/2026-10-04-show.md`.** Dr K reads this as it grows and drops
-rulings in chat; every ruling is recorded under *Rulings*.
+**Status: BUILT on branch `show` (PR #56), 2026-10-05; final review fixes in; live
+test pending. Plan: `docs/superpowers/plans/2026-10-04-show.md`.** Dr K reads this
+as it grows and drops rulings in chat; every ruling is recorded under *Rulings*.
 
 ## Brief
 
