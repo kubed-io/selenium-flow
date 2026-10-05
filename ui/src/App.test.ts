@@ -8,6 +8,7 @@ const host = vi.hoisted(() => ({
   removed: [] as string[],
   close: vi.fn(),
   options: undefined as unknown,
+  caps0: undefined as unknown,
   caps: { serverTools: {} } as Record<string, unknown> | undefined,
   ctx: {} as Record<string, unknown> | undefined,
   callServerTool: vi.fn(),
@@ -19,7 +20,7 @@ const host = vi.hoisted(() => ({
 }))
 vi.mock('@modelcontextprotocol/ext-apps', () => ({
   App: class {
-    constructor(public info: { name: string; version: string }, caps?: unknown, options?: unknown) { host.options = options }
+    constructor(public info: { name: string; version: string }, caps?: unknown, options?: unknown) { host.caps0 = caps; host.options = options }
     addEventListener(event: string, fn: (r: unknown) => void) { host.listeners[event] = fn }
     removeEventListener(event: string, fn: (r: unknown) => void) { if (host.listeners[event] === fn) host.removed.push(event) }
     async connect() { if (host.gate) await host.gate; if (host.fail) throw host.fail }
@@ -53,6 +54,7 @@ beforeEach(() => {
   host.close.mockReset()
   host.close.mockResolvedValue(undefined)
   host.options = undefined
+  host.caps0 = undefined
   host.caps = { serverTools: {} }
   host.ctx = {}
   for (const fn of [host.callServerTool, host.updateModelContext, host.requestDisplayMode, host.applyDocumentTheme, host.applyHostStyleVariables, host.applyHostFonts]) fn.mockReset()
@@ -328,4 +330,10 @@ test('a connect that finishes after unmount does nothing', async () => {
   gate.resolve()
   await new Promise((r) => setTimeout(r, 20))
   expect(host.applyDocumentTheme).not.toHaveBeenCalled()
+})
+
+test('the app declares the display modes it asks for', async () => {
+  render(App)
+  await vi.waitFor(() => expect(host.listeners.toolresult).toBeTypeOf('function'))
+  expect(host.caps0).toMatchObject({ availableDisplayModes: ['inline', 'fullscreen'] })
 })

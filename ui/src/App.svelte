@@ -129,7 +129,12 @@
     }
     ;(async () => {
       try {
-        const h = (host = new Host({ name: 'selenium-flow', version: '1' }, {}, { autoResize: true }))
+        const h = (host = new Host(
+          { name: 'selenium-flow', version: '1' },
+          // A host may refuse a mode the app did not declare.
+          { availableDisplayModes: ['inline', 'fullscreen'] },
+          { autoResize: true },
+        ))
         h.addEventListener('toolresult', onresult)
         h.addEventListener('hostcontextchanged', adopt)
         await (connected = h.connect())
