@@ -81,6 +81,7 @@ test.each([
   ['folder', { session: 's', folder: 'downloads', uri: 'session://files/downloads', count: 0, files: [] }, 'Downloads'],
   ['flows', FLOWS.data, 'login'],
   ['flow', FLOW.data, 'navigate'],
+  ['secrets', { session: 's', count: 1, secrets: [{ name: 'demo', keys: ['password'], restricted: false }] }, 'demo'],
 ])('draws the %s view from a show result', async (component, data, text) => {
   render(App)
   expect(screen.getByText('Loading…')).toBeInTheDocument()

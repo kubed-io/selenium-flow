@@ -820,6 +820,10 @@ what the resource serves.
   for the model. A plain dict would send the JSON twice.
 - **A result over `MAX_SHOWN` (100k characters, both parts as sent) is
   refused**: Claude drops one over ~150k and the app would never get its data.
+- **One secret opens inside the app**, from the list `show` already sent: there
+  is no single-secret resource (secrets.py, "one read"), so a drill-down has
+  nothing to call. `SecretCard` and `lib/secrets.ts` are shared with the admin
+  pane, so both read a catalogue entry the same way, and neither ever has a value.
 
 ## Session lifetime: who owns what
 

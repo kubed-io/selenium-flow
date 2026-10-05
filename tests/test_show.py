@@ -30,6 +30,20 @@ def flow_server(tmp_path, named_caller):
     return server
 
 
+@pytest.fixture
+def secrets_server(tmp_path, named_caller):
+    """A server with one secret whose values are recognisable."""
+    demo = tmp_path / "secrets" / "demo"
+    demo.mkdir(parents=True)
+    (demo / "username").write_text("user-7f3a")
+    (demo / "password").write_text("pass-9c1e")
+    return SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"},
+        auth={"token": TOKEN},
+        secrets={"dirs": str(tmp_path / "secrets")},
+    ))
+
+
 @pytest.mark.parametrize(
     ("uri", "component"),
     [
@@ -39,6 +53,7 @@ def flow_server(tmp_path, named_caller):
         ("session://files/downloads", "folder"),
         ("flow://flows", "flows"),
         ("flow://flows/login", "flow"),
+        ("secret://secrets", "secrets"),
     ],
 )
 def test_every_showable_uri_has_one_view(uri, component):
@@ -55,7 +70,7 @@ def test_every_row_matches_its_own_display_form():
 @pytest.mark.parametrize(
     "uri",
     ["skill://selenium-flow/SKILL.md", "flow://schema", "session://files/a.png",
-     "flow://flows/", "session://current/x", "secret://secrets"],
+     "flow://flows/", "session://current/x", "secret://secrets/demo"],
 )
 def test_anything_else_is_refused_naming_what_can_be_shown(uri):
     with pytest.raises(ValueError) as refused:
@@ -237,3 +252,31 @@ async def test_content_that_is_not_json_is_refused_cleanly(flow_server, content)
         ):
             await c.call_tool("show", {"uri": "session://current"})
     assert "not a resource show can draw" in str(refused.value)
+
+
+async def test_the_secrets_show_as_the_resource_lists_them(secrets_server):
+    async with Client(secrets_server.mcp) as c:
+        result = await c.call_tool("show", {"uri": "secret://secrets"})
+        read = json.loads((await c.read_resource("secret://secrets"))[0].text)
+    assert result.structured_content == {
+        "component": "secrets", "uri": "secret://secrets", "data": read,
+    }
+    assert [s["name"] for s in read["secrets"]] == ["demo"]
+    assert result.content[0].text == "Showing secret://secrets to the person: 1 secret."
+
+
+async def test_showing_the_secrets_never_sends_a_value(secrets_server):
+    async with Client(secrets_server.mcp) as c:
+        result = await c.call_tool("show", {"uri": "secret://secrets"})
+    sent = json.dumps(result.structured_content) + "".join(
+        block.text for block in result.content
+    )
+    assert "demo" in sent
+    assert "user-7f3a" not in sent and "pass-9c1e" not in sent
+
+
+async def test_showing_secrets_on_a_server_without_them_says_why(flow_server):
+    async with Client(flow_server.mcp) as c:
+        with pytest.raises(ToolError) as refused:
+            await c.call_tool("show", {"uri": "secret://secrets"})
+    assert "secrets are not enabled" in str(refused.value)
