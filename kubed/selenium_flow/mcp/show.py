@@ -19,22 +19,29 @@ from ..core.annotations import reads
 
 TOOL = "show"
 
-# First match wins. The only place a URI is tied to a view.
-VIEWS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"session://current"), "context"),
-    (re.compile(r"session://files"), "files"),
-    (re.compile(r"session://files/(screenshots|downloads)"), "folder"),
-    (re.compile(r"flow://flows"), "flows"),
-    (re.compile(r"flow://flows/[^/]+"), "flow"),
+# The only place a URI is tied to a view: what the tool names, what it matches,
+# what draws it. First match wins.
+VIEWS: tuple[tuple[str, re.Pattern[str], str], ...] = (
+    ("session://current", re.compile(r"session://current"), "context"),
+    ("session://files", re.compile(r"session://files"), "files"),
+    (
+        "session://files/screenshots",
+        re.compile(r"session://files/screenshots"),
+        "folder",
+    ),
+    ("session://files/downloads", re.compile(r"session://files/downloads"), "folder"),
+    ("flow://flows", re.compile(r"flow://flows"), "flows"),
+    ("flow://flows/{name}", re.compile(r"flow://flows/[^/]+"), "flow"),
 )
-SHOWABLE = (
-    "session://current", "session://files", "session://files/screenshots",
-    "session://files/downloads", "flow://flows", "flow://flows/{name}",
-)
+SHOWABLE = tuple(form for form, _, _ in VIEWS)
+
+# Claude drops a tool result over ~150k characters, and the app then never gets
+# its data: a flow may be 1 MiB of YAML and a listing is unbounded.
+MAX_SHOWN = 100_000
 
 
 def view_for(uri: str) -> str:
-    for pattern, component in VIEWS:
+    for _, pattern, component in VIEWS:
         if pattern.fullmatch(uri):
             return component
     raise ValueError(f"{uri} has no view; show draws {', '.join(SHOWABLE)}")
@@ -62,6 +69,13 @@ def register(mcp, app_config) -> set[str]:
             data = json.loads(result.contents[0].content)
         except (TypeError, ValueError):
             raise ValueError(f"{uri} is not a resource show can draw") from None
-        return {"component": component, "uri": uri, "data": data}
+        payload = {"component": component, "uri": uri, "data": data}
+        size = len(json.dumps(payload))
+        if size > MAX_SHOWN:
+            raise ValueError(
+                f"{uri} is too large to draw here ({size} characters); "
+                "read it with the resource instead"
+            )
+        return payload
 
     return {TOOL}

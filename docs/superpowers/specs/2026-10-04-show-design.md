@@ -100,6 +100,8 @@ generic shell. A click on a flow card opens that flow inside the same app.
   view draws exactly what the resource serves and cannot drift from it. The
   result is `{"component": <view>, "uri": <uri>, "data": <the resource's JSON>}`,
   as structured content. Nothing new is computed for the views.
+- **Too large is refused:** a result over `MAX_SHOWN` (100k characters of JSON)
+  says to read the resource instead — Claude drops one over ~150k.
 - **Anything else is refused** with one sentence naming every showable URI
   (`ValueError`, the house refusal). A URI that names a missing flow refuses the
   way the resource does.

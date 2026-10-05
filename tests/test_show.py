@@ -45,11 +45,11 @@ def test_every_showable_uri_has_one_view(uri, component):
     assert show.view_for(uri) == component
 
 
-def test_the_table_and_the_list_of_showable_uris_agree():
-    """SHOWABLE is what the tool says it draws, VIEWS what it can: every URI it
-    names has a view, and every view is reachable from one it names."""
-    reached = {show.view_for(uri.replace("{name}", "x")) for uri in show.SHOWABLE}
-    assert reached == {component for _, component in show.VIEWS}
+def test_every_row_matches_its_own_display_form():
+    """One table: each row's display form, made concrete, is drawn by that row's
+    own component, not an earlier row's."""
+    for form, _, component in show.VIEWS:
+        assert show.view_for(form.replace("{name}", "x")) == component
 
 
 @pytest.mark.parametrize(
@@ -93,6 +93,19 @@ async def test_a_kept_file_shows_as_the_resource_lists_it(flow_server, named_cal
 
     assert [f["name"] for f in shown["data"]["files"]] == ["report.pdf"]
     assert unsigned(shown["data"]) == unsigned(read)
+
+
+async def test_a_result_claude_would_drop_is_refused(flow_server, monkeypatch):
+    """Claude never hands an app a result over ~150k characters, so the view
+    would wait forever; a flow may be 1 MiB of YAML."""
+    async with Client(flow_server.mcp) as c:
+        assert (await c.call_tool("show", {"uri": "flow://flows/login"})).structured_content
+        monkeypatch.setattr(show, "MAX_SHOWN", 50)
+        with pytest.raises(ToolError) as refused:
+            await c.call_tool("show", {"uri": "flow://flows/login"})
+    message = str(refused.value)
+    assert "flow://flows/login is too large to draw here (" in message
+    assert "read it with the resource instead" in message
 
 
 async def test_a_missing_flow_is_refused(flow_server):

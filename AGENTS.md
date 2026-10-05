@@ -803,6 +803,8 @@ what the resource serves.
   `App.svelte` sets `documentElement.style.height` as well as letting autoResize
   report it. Drop it only once claude.ai honours the notification.
 - `show` is listed only for a client that renders apps.
+- **A result over `MAX_SHOWN` (100k characters) is refused**: Claude drops one
+  over ~150k and the app would never get its data.
 
 ## Session lifetime: who owns what
 
