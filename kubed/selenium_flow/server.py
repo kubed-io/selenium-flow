@@ -32,6 +32,7 @@ from .mcp import (
     mirror,
     prompts,
     resources,
+    show,
     skill,
     tools,
 )
@@ -145,9 +146,9 @@ class SeleniumMCP:
         mirror.register(self.mcp)
         completions.register(self.mcp)
 
-        # A session's files: a resource, and a tool that draws them for a host
-        # that renders MCP Apps — for that host the tool is the only route to a
-        # picture, and for every other client it is listed nowhere.
+        # A session's files are resources; `show` draws them, and any other
+        # showable resource, for a host that renders MCP Apps — and is listed
+        # for no other client.
         # Where the server's own root is publicly reachable, or "" when nobody
         # said — never the bare mount, which made a relative path look absolute
         # (Copilot, #35). Links carry the mount themselves, signed over the
@@ -169,11 +170,11 @@ class SeleniumMCP:
             self.sessions,
             self.flows,
             auth_token,
-            app_config,
             base,
             prefix=self.prefix,
             ttl=settings.link_ttl,
         )
+        app_tools |= show.register(self.mcp, app_config)
         # These three are called from inside an action, below every edge, so
         # they ask the edge's own reader who is calling (`clients.caller`).
         #

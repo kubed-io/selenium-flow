@@ -57,11 +57,10 @@ Every address is offered three ways, because clients differ in what they
 accept: a resource (state to read, free for a client to pull into context), a
 file's bytes directly (so a client that reads resources can display a
 screenshot with no URL, no token, and no round trip through the model), and
-``session_files``, a tool that returns all three sections at once for a host
-that renders MCP Apps. Everything also carries a signed URL, because the most
-common destination is somewhere that can do none of the above: a chat
-transcript that renders markdown images, a link pasted to a colleague, an
-``<img>`` on the admin page.
+``show`` (``mcp/show.py``), which draws them for a host that renders MCP Apps.
+Everything also carries a signed URL, because the most common destination is
+somewhere that can do none of the above: a chat transcript that renders
+markdown images, a link pasted to a colleague, an ``<img>`` on the admin page.
 """
 
 from __future__ import annotations
@@ -74,7 +73,7 @@ from urllib.parse import quote, unquote
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from ..core.annotations import hints, reads
+from ..core.annotations import hints
 from ..mcp import clients
 from ..names import valid_file_name
 from . import answer as answer_module
@@ -91,7 +90,6 @@ FOLDER_URI = {
     DOWNLOADS: f"{ROOT_URI}/{DOWNLOADS}",
 }
 ITEM_URI = {k: v + "/{name}" for k, v in FOLDER_URI.items()}
-FILES_TOOL = "session_files"
 KEEP_TOOL = "keep_file"
 
 # The root listing's resource URI, named for the call sites that read like a
@@ -431,7 +429,8 @@ def sections(
     downloads: list[dict] | None = None,
     ttl: int = links.DEFAULT_TTL,
 ) -> dict:
-    """All three sections at once, for `session_files` and the admin page.
+    """All three sections at once, for the admin page. `show` reads the
+    resources, so `root` and `folder`.
 
     ``session_id``, when given, is the browser to read downloads from and is
     never resolved — the same ruling `keep` follows, so an operator surface
@@ -661,16 +660,14 @@ def register(
     sessions,
     store,
     token,
-    app_config=None,
     base="",
     prefix: str = "",
     ttl: int = links.DEFAULT_TTL,
 ) -> set[str]:
-    """Register the resources, the mirroring tool, and the file actions.
+    """Register the file resources and ``keep_file``.
 
-    Returns the mirror tool names. ``keep_file`` is not a mirror — it is a
-    capability with no resource behind it — so it stays visible to every
-    client.
+    Returns no tool names: ``keep_file`` is a capability with no resource behind
+    it, so it is visible to every client, and `show` draws the listings.
     """
 
     @mcp.resource(
@@ -729,23 +726,6 @@ def register(
         )(_item_resource(which))
 
     @mcp.tool(
-        name=FILES_TOOL,
-        description=(
-            "All three sections this session has — files, screenshots and "
-            "downloads — for a host that renders a component instead of "
-            "reading resources. Each entry carries its own uri and a link that "
-            "opens in a browser for a while."
-        ),
-        app=app_config,
-        annotations=reads("Files this session has"),
-    )
-    def session_files() -> dict:
-        return sections(
-            actions, sessions, store, token, clients.caller().name,
-            base=base, mount=prefix, ttl=ttl,
-        )
-
-    @mcp.tool(
         name=KEEP_TOOL,
         description=(
             "Keep one file in Files, where it stays until a person deletes it.\n\n"
@@ -766,7 +746,7 @@ def register(
         return keep(actions, sessions, store, uri, clients.caller().name)
 
     _routes(mcp, actions, sessions, store, token, base, prefix, ttl)
-    return {FILES_TOOL}
+    return set()
 
 
 def _routes(mcp, actions, sessions, store, token, base, prefix, ttl) -> None:

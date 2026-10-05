@@ -1,7 +1,7 @@
 """MCP Apps: the shared components, rendered inside a client that can show UI.
 
-An app here is one component, not a dashboard. A tool returns the data for a
-single view — the files this session downloaded — and the host paints it in a
+An app here is one component, not a dashboard. `show` returns one resource's
+JSON and the name of the component that draws it, and the host paints it in a
 sandboxed iframe next to the tool call. The admin page composes those same
 components into something a person browses; this is the other end of the same
 library.
@@ -10,13 +10,13 @@ library.
 session and nothing else, so the session list is an admin view over HTTP and
 never a tool or a resource. See AGENTS.md, "A client owns one session".
 
-Support is uneven and the degradation is the interesting part. Everything
-returns ordinary structured data with absolute, signed URLs in it, and the
+Support is uneven and the degradation is the interesting part. `show` hands
+back a resource's own JSON, with absolute, signed URLs in it, and the
 ``component`` field is only a hint about how to draw it. So:
 
-- a client with the UI extension renders the component,
-- a client without it still gets the URLs, and can link or embed them,
-- a client that shows neither still gets the filenames and sizes as text.
+- a client with the UI extension is offered `show` and renders the component,
+- a client that reads resources gets the same JSON, and can link or embed it,
+- a client that does neither gets it from `read_resource` / `list_resources`.
 
 Which is the same shape as the resource/tool mirroring in ``mirror.py``: one
 server, and the client's declared capabilities decide the rendering.
@@ -62,15 +62,24 @@ def supported() -> bool:
 
 
 def config_for(base: str) -> AppConfig:
-    """The app declaration a tool carries so a host will render its result."""
-    return AppConfig(resource_uri=RESOURCE_URI, csp=_csp(base), prefers_border=True)
+    """The app declaration a tool carries so a host will render its result.
+
+    The app may call the tool itself (`show`, for drill-down), hence both
+    audiences."""
+    return AppConfig(
+        resource_uri=RESOURCE_URI,
+        csp=_csp(base),
+        prefers_border=True,
+        visibility=["model", "app"],
+    )
 
 
 def _csp(base: str) -> ResourceCSP:
-    """What the sandboxed iframe may reach: our own files. The SDK is bundled
-    into the app (it used to come from a CDN, at a URL that 404s)."""
+    """What the sandboxed iframe may reach: our own files, and frame them —
+    the Lightbox previews a PDF in an <iframe>. The SDK is bundled into the app
+    (it used to come from a CDN, at a URL that 404s)."""
     own = [d for d in (origin(base),) if d]
-    return ResourceCSP(resource_domains=own, connect_domains=own)
+    return ResourceCSP(resource_domains=own, connect_domains=own, frame_domains=own)
 
 
 def available() -> bool:
@@ -81,11 +90,8 @@ def available() -> bool:
 
 
 def register(mcp, actions, token: str | None, base: str) -> set[str]:
-    """Serve the app shell. Returns the names of any tools it added.
-
-    Empty today: the only tool that lived here listed every browser on the Grid,
-    which is precisely what an MCP client must not be able to see. The shell
-    stays, because the files component is rendered through it.
+    """Serve the app shell. Returns the names of any tools it added: none,
+    since `show` registers itself (`mcp/show.py`) and only uses the shell.
     """
     csp = _csp(base)
 

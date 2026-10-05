@@ -463,19 +463,6 @@ async def test_the_app_shell_is_a_ui_resource(built_ui, server):
     assert apps.RESOURCE_URI in uris
 
 
-async def test_the_file_tools_are_hidden_from_a_resource_client(built_ui, server):
-    """A mirror is noise for a client that can read the resource itself."""
-    names = {t.name for t in await server.mcp.list_tools()}
-    assert "session_files" not in names
-
-
-async def test_the_file_tools_return_for_a_client_that_renders_apps(built_ui, server):
-    """For that client the tool is the only route to a rendered component."""
-    with patch.object(apps, "supported", return_value=True):
-        names = {t.name for t in await server.mcp.list_tools()}
-    assert "session_files" in names
-
-
 async def test_apps_can_be_turned_off(built_ui):
     off = SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN},
@@ -485,6 +472,10 @@ async def test_apps_can_be_turned_off(built_ui):
     assert apps.RESOURCE_URI not in uris
     # The listing survives as a resource: it never depended on apps.
     assert "session://files" in uris
+    # Off means off, whatever the client says it can render.
+    with patch.object(apps, "supported", return_value=True):
+        names = {t.name for t in await off.mcp.list_tools()}
+    assert "show" not in names
 
 
 def test_the_app_csp_omits_an_origin_it_does_not_have():

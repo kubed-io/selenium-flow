@@ -4,36 +4,50 @@
    origin, so neither can rely on fetching the other's assets. Both inline this
    file instead, which is what keeps them one design rather than two that drift.
 
-   Themed from prefers-color-scheme only: the MCP app is painted inside someone
-   else's chat window and has no toggle of its own to read. */
+   Each colour is the host's style variable when an MCP host sends one, and
+   these values when it does not (the admin page never does). The palette
+   follows the host's theme (`data-theme`, set by the app shell) and otherwise
+   prefers-color-scheme. */
 
 :root {
   color-scheme: light dark;
-  --bg: #fbfbfd;
-  --panel: #ffffff;
-  --line: #e4e4ec;
-  --ink: #16161d;
-  --muted: #6b6b7b;
-  --accent: #2f6fed;
-  --accent-ink: #ffffff;
-  --warn: #b1002e;
-  --ok: #1a7f4b;
+  --bg: var(--color-background-primary, #fbfbfd);
+  --panel: var(--color-background-secondary, #ffffff);
+  --line: var(--color-border-primary, #e4e4ec);
+  --ink: var(--color-text-primary, #16161d);
+  --muted: var(--color-text-secondary, #6b6b7b);
+  --accent: var(--color-text-info, #2f6fed);
+  --accent-ink: var(--color-text-inverse, #ffffff);
+  --warn: var(--color-text-danger, #b1002e);
+  --ok: var(--color-text-success, #1a7f4b);
   --radius: 10px;
   --gap: 12px;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #16161a;
-    --panel: #1e1e24;
-    --line: #32323c;
-    --ink: #ececf2;
-    --muted: #9b9baa;
-    --accent: #6f9bff;
-    --accent-ink: #0d0d12;
-    --warn: #ff7a92;
-    --ok: #55d093;
+  :root:not([data-theme=light]) {
+    --bg: var(--color-background-primary, #16161a);
+    --panel: var(--color-background-secondary, #1e1e24);
+    --line: var(--color-border-primary, #32323c);
+    --ink: var(--color-text-primary, #ececf2);
+    --muted: var(--color-text-secondary, #9b9baa);
+    --accent: var(--color-text-info, #6f9bff);
+    --accent-ink: var(--color-text-inverse, #0d0d12);
+    --warn: var(--color-text-danger, #ff7a92);
+    --ok: var(--color-text-success, #55d093);
   }
+}
+
+:root[data-theme=dark] {
+  --bg: var(--color-background-primary, #16161a);
+  --panel: var(--color-background-secondary, #1e1e24);
+  --line: var(--color-border-primary, #32323c);
+  --ink: var(--color-text-primary, #ececf2);
+  --muted: var(--color-text-secondary, #9b9baa);
+  --accent: var(--color-text-info, #6f9bff);
+  --accent-ink: var(--color-text-inverse, #0d0d12);
+  --warn: var(--color-text-danger, #ff7a92);
+  --ok: var(--color-text-success, #55d093);
 }
 
 * { box-sizing: border-box; }
@@ -42,7 +56,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 14px/1.5 var(--font-sans, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif);
 }
 
 a { color: var(--accent); }
@@ -156,6 +170,13 @@ input[type=password], input[type=text] {
 }
 
 .files { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--gap); }
+/* One row that scrolls sideways, the next tile peeking: an inline app view
+   stays one tile tall however many files there are. */
+.files.strip {
+  display: flex; overflow-x: auto; overflow-y: hidden;
+  scroll-snap-type: x mandatory; scroll-padding-inline: var(--safe-left, 0);
+}
+.files.strip > .file { flex: 0 0 min(190px, 70%); scroll-snap-align: start; }
 
 .file {
   border: 1px solid var(--line);
@@ -276,8 +297,8 @@ iframe.console { width: 100%; height: 72vh; border: 1px solid var(--line); borde
 
 /* ---- accordions ---------------------------------------------------------- */
 
-.section, section.row { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); margin-bottom: 12px; }
-.section > .head, section.row > .head { display: flex; align-items: center; gap: var(--gap); padding: 11px 14px; }
+.section { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); margin-bottom: 12px; }
+.section > .head { display: flex; align-items: center; gap: var(--gap); padding: 11px 14px; }
 /* A real <button>, stripped back to looking like a heading. Keeping the element
    semantic is what gives it keyboard focus and an announced expanded state; the
    styling is the part that was ever in question. */
@@ -291,7 +312,7 @@ iframe.console { width: 100%; height: 72vh; border: 1px solid var(--line); borde
    the hand cursor and the no-select (the extra element wins on specificity). */
 .section > .head span.title { cursor: default; user-select: text; }
 .section > .head .title .caret { display: inline-block; width: 12px; margin-right: 6px; color: var(--muted); }
-.section > .body, section.row > .body { padding: 0 14px 14px; }
+.section > .body { padding: 0 14px 14px; }
 .section[data-open=false] > .body { display: none; }
 
 /* ---- the file action ------------------------------------------------------

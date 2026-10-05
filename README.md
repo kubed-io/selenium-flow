@@ -215,15 +215,15 @@ The Grid's own console is a second tab, framed same-origin. Put both behind one 
 
 ## 🧩 MCP Apps
 
-Hosts implementing the [MCP Apps extension](https://modelcontextprotocol.io/extensions/apps/overview) — Claude, ChatGPT, VS Code, Goose — render a tool result as UI rather than JSON. `session_files` and `browser_sessions` each declare one, so a listing arrives as thumbnails.
+Hosts implementing the [MCP Apps extension](https://modelcontextprotocol.io/extensions/apps/overview) — Claude, ChatGPT, VS Code, Goose — render a tool result as UI rather than JSON. `show(uri)` draws your session, its files, a folder of screenshots, the saved flows as cards, or one flow.
 
-The components are shared with the admin UI, not copied, so the two cannot drift. Degradation is the point: one server, the client's capabilities pick the rendering.
+The views are the app's own; the files grid, lightbox and browser marks are shared with the admin UI, not copied. Degradation is the point: one server, the client's capabilities pick the rendering.
 
 | The client can | It gets |
 |---|---|
-| render apps | the component, inline |
-| read resources | `session://files`, and the file as bytes |
-| neither | the tool's JSON, with links anything can open |
+| render apps | `show`, and the view inline |
+| read resources | `session://files`, `flow://flows`, and the file as bytes |
+| neither | `read_resource` / `list_resources`, the same JSON, and links anything can open |
 
 Apps get a deny-by-default CSP with no network, so `PUBLIC_BASE_URL` is also what admits this server's images to the frame. `MCP_APPS=false` turns it off.
 

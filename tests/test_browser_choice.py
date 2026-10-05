@@ -61,7 +61,7 @@ def test_both_browsers_carry_the_two_capabilities_that_matter(name):
 
     Without `unhandledPromptBehavior: ignore` the browser answers dialogs on the
     caller's behalf; without `se:downloadsEnabled` the Grid keeps no per-session
-    download store and `session_files` has nothing to list.
+    download store and `show` has nothing to list.
     """
     caps = Grid("http://grid.invalid:4444")._options(name).to_capabilities()
     assert caps["unhandledPromptBehavior"] == "ignore"

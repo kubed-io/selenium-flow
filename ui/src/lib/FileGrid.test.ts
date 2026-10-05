@@ -86,3 +86,17 @@ test('without onopen the grid opens its own read-only lightbox (P1)', async () =
   expect(container.ownerDocument.querySelector('.lightbox')).not.toBeNull()
   expect(screen.queryByText('📌 Keep')).toBeNull()
 })
+
+test('the default layout is the grid the admin uses', () => {
+  const { container } = render(FileGrid, { files: [png, pdf] })
+  expect(container.querySelector('.files')).not.toHaveClass('strip')
+})
+
+test("layout row: one horizontal strip of tiles, still opening the lightbox", async () => {
+  const { container } = render(FileGrid, { files: [png, pdf], layout: 'row' })
+  const strip = container.querySelector('.files.strip')!
+  expect(strip).not.toBeNull()
+  expect(strip.querySelectorAll(':scope > .file')).toHaveLength(2)
+  await fireEvent.click(container.querySelector('a.thumb')!)
+  expect(container.ownerDocument.querySelector('.lightbox')).not.toBeNull()
+})

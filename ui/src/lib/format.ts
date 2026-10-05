@@ -65,3 +65,33 @@ export function metaLine(s: SessionRow, now = Date.now()): string {
 
 /* The headline is the session, not the browser: a session outlives its browsers. */
 export const sessionLabel = (s: SessionRow): string => s.name || s.owner || 'session'
+
+/* One line for a step: the first string argument (a selector, url or text),
+   a selector object read as its xpath or css. */
+export function stepSummary(args: unknown, max = 60): string {
+  if (!args || typeof args !== 'object') return ''
+  for (const v of Object.values(args as Record<string, unknown>)) {
+    let s: unknown = v
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      const o = v as Record<string, unknown>
+      s = o.css ?? o.xpath
+    }
+    if (typeof s === 'string' && s) return s.length > max ? s.slice(0, max - 1) + '…' : s
+  }
+  return ''
+}
+
+export const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
+
+export const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/* A flow's `parameters`, read as the server's `Shape` reads it: a flow is YAML a
+   person may have written by hand, so nothing about its shape is guaranteed. */
+export function flowParams(p: unknown): { properties: Record<string, unknown>; required: string[] } {
+  const r = isRecord(p) ? p.required : undefined
+  return {
+    properties: isRecord(p) && isRecord(p.properties) ? p.properties : {},
+    required: Array.isArray(r) ? r.filter((s): s is string => typeof s === 'string') : [],
+  }
+}

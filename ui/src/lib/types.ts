@@ -151,3 +151,68 @@ export interface HistoryRow {
 }
 /** `clears`: the origins Clear would take (every one but the current). */
 export interface HistoryPayload { key: string; sites: HistoryRow[]; clears: string[] }
+
+/* What `show` hands each view: the resource's own JSON, as the server writes it. */
+export interface ContextData {
+  session: string
+  named_by?: string | null
+  principal?: { kind: string; username?: string | null; subject?: string | null } | null
+  browser?: string | null
+  url?: string | null
+  live?: boolean
+  in_frame?: boolean | null
+  window?: string | null
+  store?: string
+  settings?: Record<string, unknown>
+  guidance?: unknown
+  site_data?: { sites: number; uri?: string }
+}
+
+export interface FolderRef { name: string; uri: string; count: number; browser?: boolean }
+
+export interface FilesRootData {
+  session: string | null
+  count: number
+  files: FileEntry[]
+  folders: FolderRef[]
+}
+
+export interface FolderData {
+  session: string | null
+  folder: string
+  uri: string
+  count: number
+  files: FileEntry[]
+  browser?: boolean
+}
+
+export interface FlowParam { type?: unknown; default?: unknown; description?: unknown }
+
+export interface FlowCard {
+  name: string
+  session?: string
+  description?: string
+  /** As the file holds it: read with `flowParams`. */
+  parameters?: unknown
+  step_count: number
+  shared?: boolean
+}
+export interface FlowsData { session: string; count: number; flows: FlowCard[] }
+
+export interface FlowStep {
+  tool?: unknown
+  args?: unknown
+  id?: unknown
+  note?: unknown
+  onError?: unknown
+}
+/** A stored flow as the file holds it: `parameters` and `steps` are unvetted (§F1.6). */
+export interface FlowData {
+  name: string
+  session?: string
+  shared?: boolean
+  description?: string
+  parameters?: unknown
+  steps?: unknown
+  timeout?: number
+}
