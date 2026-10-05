@@ -108,6 +108,44 @@ async def test_a_result_claude_would_drop_is_refused(flow_server, monkeypatch):
     assert "read it with the resource instead" in message
 
 
+@pytest.mark.parametrize(
+    ("uri", "summary"),
+    [
+        ("flow://flows/login", "Showing flow://flows/login to the person (flow)."),
+        ("session://current", "Showing session://current to the person (context)."),
+        ("flow://flows", "Showing flow://flows to the person: 1 flow."),
+        ("session://files", "Showing session://files to the person: 0 kept files."),
+        ("session://files/screenshots", "Showing session://files/screenshots to the person: 0 files."),
+    ],
+)
+async def test_the_payload_goes_once_and_the_model_gets_one_line(flow_server, uri, summary):
+    """A plain dict would also go out as a JSON text block, doubling it. The
+    model reads resources to think; the text is a line saying what was shown."""
+    async with Client(flow_server.mcp) as c:
+        result = await c.call_tool("show", {"uri": uri})
+        read = json.loads((await c.read_resource(uri))[0].text)
+    assert [block.text for block in result.content] == [summary]
+    assert result.structured_content["data"].keys() == read.keys()
+    assert result.structured_content["uri"] == uri
+
+
+async def test_the_limit_counts_the_whole_result_as_sent(flow_server, monkeypatch):
+    """Structured payload and summary line together: what Claude would drop."""
+    async with Client(flow_server.mcp) as c:
+        result = await c.call_tool("show", {"uri": "flow://flows/login"})
+        sent = len(json.dumps({
+            "content": [{"type": "text", "text": result.content[0].text}],
+            "structuredContent": result.structured_content,
+        }))
+        assert sent > len(json.dumps(result.structured_content)) + len(result.content[0].text)
+        monkeypatch.setattr(show, "MAX_SHOWN", sent)
+        await c.call_tool("show", {"uri": "flow://flows/login"})
+        monkeypatch.setattr(show, "MAX_SHOWN", sent - 1)
+        with pytest.raises(ToolError) as refused:
+            await c.call_tool("show", {"uri": "flow://flows/login"})
+    assert f"({sent} characters)" in str(refused.value)
+
+
 async def test_a_missing_flow_is_refused(flow_server):
     async with Client(flow_server.mcp) as c:
         with pytest.raises(ToolError) as refused:

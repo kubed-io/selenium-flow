@@ -14,6 +14,8 @@ import re
 
 from fastmcp.exceptions import NotFoundError
 from fastmcp.server.dependencies import get_context
+from fastmcp.tools import ToolResult
+from mcp.types import TextContent
 
 from ..core.annotations import reads
 
@@ -38,6 +40,8 @@ SHOWABLE = tuple(form for form, _, _ in VIEWS)
 # Claude drops a tool result over ~150k characters, and the app then never gets
 # its data: a flow may be 1 MiB of YAML and a listing is unbounded.
 MAX_SHOWN = 100_000
+# What a listing's `count` counts, for the model's line.
+NOUNS = {"files": "kept file", "folder": "file", "flows": "flow"}
 
 
 def view_for(uri: str) -> str:
@@ -45,6 +49,15 @@ def view_for(uri: str) -> str:
         if pattern.fullmatch(uri):
             return component
     raise ValueError(f"{uri} has no view; show draws {', '.join(SHOWABLE)}")
+
+
+def summary(uri: str, component: str, data) -> str:
+    """One line for the model: what the person is now looking at."""
+    count = data.get("count") if isinstance(data, dict) else None
+    if component in NOUNS and isinstance(count, int):
+        noun = NOUNS[component] + ("" if count == 1 else "s")
+        return f"Showing {uri} to the person: {count} {noun}."
+    return f"Showing {uri} to the person ({component})."
 
 
 def register(mcp, app_config) -> set[str]:
@@ -59,7 +72,7 @@ def register(mcp, app_config) -> set[str]:
         app=app_config,
         annotations=reads("Show a resource"),
     )
-    async def show(uri: str) -> dict:
+    async def show(uri: str) -> ToolResult:
         component = view_for(uri)
         try:
             result = await get_context().fastmcp.read_resource(uri)
@@ -70,12 +83,21 @@ def register(mcp, app_config) -> set[str]:
         except (TypeError, ValueError):
             raise ValueError(f"{uri} is not a resource show can draw") from None
         payload = {"component": component, "uri": uri, "data": data}
-        size = len(json.dumps(payload))
+        # Sent once, as structured content: a plain dict would go out as a JSON
+        # text block too, doubling it. The model reads resources to think
+        # (ruling 1), so its text is one line saying what was shown.
+        text = summary(uri, component, data)
+        size = len(json.dumps({
+            "content": [{"type": "text", "text": text}],
+            "structuredContent": payload,
+        }))
         if size > MAX_SHOWN:
             raise ValueError(
                 f"{uri} is too large to draw here ({size} characters); "
                 "read it with the resource instead"
             )
-        return payload
+        return ToolResult(
+            content=[TextContent(type="text", text=text)], structured_content=payload
+        )
 
     return {TOOL}
