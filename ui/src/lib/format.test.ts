@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { ago, browserMark, bytes, countsText, glyphFor, metaLine, safeHref, sessionLabel, stepSummary } from './format'
+import { ago, browserMark, bytes, countsText, flowParams, glyphFor, metaLine, plural, safeHref, sessionLabel, stepSummary } from './format'
 
 describe('format', () => {
   test('bytes', () => {
@@ -56,5 +56,18 @@ describe('format', () => {
     const long = stepSummary({ url: 'x'.repeat(100) })
     expect(long).toHaveLength(60)
     expect(long.endsWith('…')).toBe(true)
+  })
+  test('plural', () => {
+    expect(plural(0, 'step')).toBe('0 steps')
+    expect(plural(1, 'step')).toBe('1 step')
+    expect(plural(2, 'param')).toBe('2 params')
+    expect(plural(1, 'kept file')).toBe('1 kept file')
+  })
+  test('flowParams reads a hand-edited parameters block without trusting it', () => {
+    expect(flowParams({ properties: { a: { type: 'string' } }, required: ['a', 3] })).toEqual({ properties: { a: { type: 'string' } }, required: ['a'] })
+    expect(flowParams({ properties: 'abc', required: 'email' })).toEqual({ properties: {}, required: [] })
+    expect(flowParams({ properties: ['x'], required: 3 })).toEqual({ properties: {}, required: [] })
+    expect(flowParams(null)).toEqual({ properties: {}, required: [] })
+    expect(flowParams('x')).toEqual({ properties: {}, required: [] })
   })
 })

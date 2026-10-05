@@ -35,3 +35,37 @@ test('expanded shows every step', () => {
   expect(container.querySelectorAll('ol li')).toHaveLength(8)
   expect(screen.queryByText(/more/)).toBeNull()
 })
+
+// flow://flows/{name} is whatever YAML is on disk: nothing about its shape is guaranteed.
+test('steps that are not a list draw no steps', () => {
+  const { container } = render(FlowView, { props: { data: { name: 'odd', steps: { a: 1 } } as never } })
+  expect(container.querySelectorAll('ol li')).toHaveLength(0)
+  expect(screen.getByText('odd')).toBeInTheDocument()
+})
+
+test('a step that is not an object keeps its number', () => {
+  const { container } = render(FlowView, { props: { data: { name: 'odd', steps: [null, { tool: 'navigate' }] } as never } })
+  const items = container.querySelectorAll('ol li')
+  expect(items[0]).toHaveTextContent('1. (not a step)')
+  expect(items[1]).toHaveTextContent('2. navigate')
+})
+
+test('required as a bare word marks nothing', () => {
+  render(FlowView, { props: { data: { name: 'odd', parameters: { properties: { e: {}, email: {} }, required: 'email' } } as never } })
+  expect(screen.getByText('e')).toBeInTheDocument()
+  expect(screen.queryByText('required')).toBeNull()
+})
+
+test('required as a number marks nothing', () => {
+  render(FlowView, { props: { data: { name: 'odd', parameters: { properties: { a: {} }, required: 3 } } as never } })
+  expect(screen.getByText('a')).toBeInTheDocument()
+  expect(screen.queryByText('required')).toBeNull()
+})
+
+test('properties that are not an object, or a schema that is not one, still draw', () => {
+  const { container, unmount } = render(FlowView, { props: { data: { name: 'odd', parameters: { properties: 'abc' } } as never } })
+  expect(container.querySelectorAll('li.param')).toHaveLength(0)
+  unmount()
+  render(FlowView, { props: { data: { name: 'odd', parameters: { properties: { a: null } } } as never } })
+  expect(screen.getByText('a')).toBeInTheDocument()
+})

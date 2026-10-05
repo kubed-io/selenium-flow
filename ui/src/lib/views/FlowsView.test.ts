@@ -17,7 +17,7 @@ test('one card per flow in a list scroller', () => {
   expect(screen.getByText('login')).toBeInTheDocument()
   expect(screen.getByText('Sign in')).toBeInTheDocument()
   expect(screen.getByText('2 params · 3 steps')).toBeInTheDocument()
-  expect(screen.getByText('0 params · 1 steps')).toBeInTheDocument()
+  expect(screen.getByText('0 params · 1 step')).toBeInTheDocument()
   expect(screen.getAllByTitle('shared')).toHaveLength(1)
 })
 
@@ -43,4 +43,16 @@ test('without onshow the cards are not buttons, and say so', () => {
 test('a card that opens carries no unavailable tooltip', () => {
   render(FlowsView, { props: { data, onshow: () => {} } })
   expect(screen.queryByTitle("Open isn't available in this client")).toBeNull()
+})
+
+test('counts are pluralised, and odd parameters count as none', () => {
+  const odd = { session: 's', count: 3, flows: [
+    { name: 'one', parameters: { properties: { a: {} } }, step_count: 1 },
+    { name: 'str', parameters: { properties: 'abc' }, step_count: 2 },
+    { name: 'nil', parameters: null, step_count: 0 },
+  ] }
+  render(FlowsView, { props: { data: odd as never } })
+  expect(screen.getByText('1 param · 1 step')).toBeInTheDocument()
+  expect(screen.getByText('0 params · 2 steps')).toBeInTheDocument()
+  expect(screen.getByText('0 params · 0 steps')).toBeInTheDocument()
 })

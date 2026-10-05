@@ -1,9 +1,10 @@
 <script lang="ts">
+  import { flowParams, plural } from '../format'
   import type { FlowsData } from '../types'
 
   let { data, onshow }: { data: FlowsData; onshow?: (uri: string) => void } = $props()
   const uri = (name: string) => 'flow://flows/' + encodeURIComponent(name)
-  const params = (p?: { properties?: object }) => Object.keys(p?.properties ?? {}).length
+  const params = (p: unknown) => Object.keys(flowParams(p).properties).length
   const UNAVAILABLE = "Open isn't available in this client"
 </script>
 
@@ -18,7 +19,7 @@
           {#if f.shared}<span class="pill" title="shared">🌐</span>{/if}
         </div>
         {#if f.description}<div class="desc small muted">{f.description}</div>{/if}
-        <div class="small muted">{params(f.parameters)} params · {f.step_count} steps</div>
+        <div class="small muted">{plural(params(f.parameters), 'param')} · {plural(f.step_count, 'step')}</div>
       {/snippet}
       <div class="slot" role="listitem">
         {#if onshow}

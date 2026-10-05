@@ -186,32 +186,33 @@ export interface FolderData {
   browser?: boolean
 }
 
-export interface FlowParam { type?: string; default?: unknown; description?: string }
-export interface FlowParams { type?: string; properties?: Record<string, FlowParam>; required?: string[] }
+export interface FlowParam { type?: unknown; default?: unknown; description?: unknown }
 
 export interface FlowCard {
   name: string
   session?: string
   description?: string
-  parameters?: FlowParams
+  /** As the file holds it: read with `flowParams`. */
+  parameters?: unknown
   step_count: number
   shared?: boolean
 }
 export interface FlowsData { session: string; count: number; flows: FlowCard[] }
 
 export interface FlowStep {
-  tool: string
-  args?: Record<string, unknown>
-  id?: string
-  note?: string
-  onError?: string
+  tool?: unknown
+  args?: unknown
+  id?: unknown
+  note?: unknown
+  onError?: unknown
 }
+/** A stored flow as the file holds it: `parameters` and `steps` are unvetted (§F1.6). */
 export interface FlowData {
   name: string
   session?: string
   shared?: boolean
   description?: string
-  parameters?: FlowParams
-  steps?: FlowStep[]
+  parameters?: unknown
+  steps?: unknown
   timeout?: number
 }

@@ -80,3 +80,18 @@ export function stepSummary(args: unknown, max = 60): string {
   }
   return ''
 }
+
+export const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
+
+export const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/* A flow's `parameters`, read as the server's `Shape` reads it: a flow is YAML a
+   person may have written by hand, so nothing about its shape is guaranteed. */
+export function flowParams(p: unknown): { properties: Record<string, unknown>; required: string[] } {
+  const r = isRecord(p) ? p.required : undefined
+  return {
+    properties: isRecord(p) && isRecord(p.properties) ? p.properties : {},
+    required: Array.isArray(r) ? r.filter((s): s is string => typeof s === 'string') : [],
+  }
+}
