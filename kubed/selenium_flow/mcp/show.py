@@ -58,7 +58,10 @@ def register(mcp, app_config) -> set[str]:
             result = await get_context().fastmcp.read_resource(uri)
         except NotFoundError:
             raise ValueError(f"no resource at {uri!r}") from None
-        data = json.loads(result.contents[0].content)
+        try:
+            data = json.loads(result.contents[0].content)
+        except (TypeError, ValueError):
+            raise ValueError(f"{uri} is not a resource show can draw") from None
         return {"component": component, "uri": uri, "data": data}
 
     return {TOOL}

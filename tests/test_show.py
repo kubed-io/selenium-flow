@@ -119,3 +119,35 @@ async def test_the_app_may_call_show_itself(built_ui, server):
     ui = (tool.meta or {}).get("ui") or {}
     assert ui.get("visibility") == ["model", "app"]
     assert ui.get("resourceUri") == apps.RESOURCE_URI
+
+
+async def test_the_session_status_shows_through_the_client(flow_server):
+    async with Client(flow_server.mcp) as c:
+        shown = (await c.call_tool("show", {"uri": "session://current"})).structured_content
+        read = json.loads((await c.read_resource("session://current"))[0].text)
+    assert shown["component"] == "context"
+    assert shown["uri"] == "session://current"
+    # Only the stable keys: liveness fields may differ between two probes.
+    for key in ("session", "named_by", "browser", "store", "principal"):
+        assert shown["data"].get(key) == read.get(key)
+
+
+@pytest.mark.parametrize("content", ["not json", b"\x89PNG"])
+async def test_content_that_is_not_json_is_refused_cleanly(flow_server, content):
+    class Item:
+        pass
+
+    item = Item()
+    item.content = content
+    result = type("R", (), {"contents": [item]})()
+
+    async def read(uri):
+        return result
+
+    async with Client(flow_server.mcp) as c:
+        with (
+            patch.object(flow_server.mcp, "read_resource", read),
+            pytest.raises(ToolError) as refused,
+        ):
+            await c.call_tool("show", {"uri": "session://current"})
+    assert "not a resource show can draw" in str(refused.value)
