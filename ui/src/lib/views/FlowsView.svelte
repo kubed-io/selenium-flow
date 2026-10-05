@@ -4,6 +4,7 @@
   let { data, onshow }: { data: FlowsData; onshow?: (uri: string) => void } = $props()
   const uri = (name: string) => 'flow://flows/' + encodeURIComponent(name)
   const params = (p?: { properties?: object }) => Object.keys(p?.properties ?? {}).length
+  const UNAVAILABLE = "Open isn't available in this client"
 </script>
 
 {#if !data.flows.length}
@@ -23,7 +24,7 @@
         {#if onshow}
           <button type="button" class="card flow" aria-label={f.name} onclick={() => onshow(uri(f.name))}>{@render body()}</button>
         {:else}
-          <div class="card flow">{@render body()}</div>
+          <div class="card flow" title={UNAVAILABLE}>{@render body()}</div>
         {/if}
       </div>
     {/each}

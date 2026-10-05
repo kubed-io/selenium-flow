@@ -4,6 +4,7 @@
 
   let { data, onshow }: { data: FilesRootData; onshow?: (uri: string) => void } = $props()
   const label = (n: string) => n.charAt(0).toUpperCase() + n.slice(1)
+  const UNAVAILABLE = "Open isn't available in this client"
 </script>
 
 <section class="row">
@@ -17,7 +18,7 @@
         <span>{label(f.name)}</span><span class="pill">{f.count}</span>
       </button>
     {:else}
-      <span class="chip"><span>{label(f.name)}</span><span class="pill">{f.count}</span></span>
+      <span class="chip" title={UNAVAILABLE}><span>{label(f.name)}</span><span class="pill">{f.count}</span></span>
     {/if}
   {/each}
 </div>

@@ -35,6 +35,12 @@
   // Raw: each change replaces the array, never mutates it.
   let stack = $state.raw<Shown[]>([])
   let error = $state<string | null>(null)
+  // The URI a drill-down is waiting on. One at a time: a second click would
+  // stack a duplicate view.
+  let pending = $state<string | null>(null)
+  // Bumped by every stack change and every drill-down; a result that comes
+  // back under an older number has been overtaken and is dropped.
+  let gen = 0
   let mode = $state<McpUiDisplayMode>('inline')
   let modes = $state.raw<McpUiDisplayMode[]>([])
   let onshow = $state.raw<((uri: string) => void) | undefined>(undefined)
@@ -52,20 +58,29 @@
   }
 
   function settle(next: Shown[]) {
+    gen++
     stack = next
     error = null
+    pending = null
     const t = next.at(-1)
     // Best effort: a host may not take it, and the view does not depend on it.
     if (t) connected?.then(() => host!.updateModelContext({ content: [{ type: 'text', text: summary(t) }] })).catch(() => {})
   }
 
   async function push(uri: string) {
+    if (pending !== null) return
+    const mine = ++gen
+    pending = uri
+    error = null
     try {
       const r = (await host!.callServerTool({ name: 'show', arguments: { uri } })) as Result
+      if (mine !== gen) return
       if (r.isError) throw new Error(r.content?.find((c) => c.text)?.text || `Could not show ${uri}.`)
       settle([...stack, (r.structuredContent ?? {}) as Shown])
     } catch (err) {
-      error = err instanceof Error ? err.message : String(err)
+      if (mine === gen) error = err instanceof Error ? err.message : String(err)
+    } finally {
+      if (mine === gen) pending = null
     }
   }
 
@@ -102,22 +117,32 @@
   })
 
   onMount(() => {
+    let gone = false
     // What changes inside a view (a deleted tile, a paged row) is not the stack.
-    const watch = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit)
+    // Next frame, as the SDK does: fitting inside the callback is a resize loop.
+    const watch = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => requestAnimationFrame(fit))
     watch?.observe(document.body)
+    const onresult = (r: Result) => settle([(r.structuredContent ?? {}) as Shown])
     ;(async () => {
       try {
         const h = (host = new Host({ name: 'selenium-flow', version: '1' }, {}, { autoResize: true }))
-        h.addEventListener('toolresult', (r) => settle([((r as Result).structuredContent ?? {}) as Shown]))
+        h.addEventListener('toolresult', onresult)
         h.addEventListener('hostcontextchanged', adopt)
         await (connected = h.connect())
+        if (gone) return
         adopt(h.getHostContext())
         onshow = h.getHostCapabilities()?.serverTools ? push : undefined
       } catch (err) {
-        failed = err instanceof Error ? err.message : String(err)
+        if (!gone) failed = err instanceof Error ? err.message : String(err)
       }
     })()
-    return () => watch?.disconnect()
+    return () => {
+      gone = true
+      watch?.disconnect()
+      host?.removeEventListener('toolresult', onresult)
+      host?.removeEventListener('hostcontextchanged', adopt)
+      host?.close().catch(() => {})
+    }
   })
 </script>
 
@@ -139,15 +164,20 @@
     </div>
   {/if}
   {#if error}<div class="small error line">{error}</div>{/if}
-  {#if View}
-    <View data={top.data as never} {onshow} {expanded} />
-  {:else}
-    <div class="empty error">Nothing to show{top.component ? ` for "${top.component}"` : ''}.</div>
-  {/if}
+  <div class="view" aria-busy={pending !== null}>
+    {#if View}
+      <View data={top.data as never} {onshow} {expanded} />
+    {:else}
+      <div class="empty error">Nothing to show{top.component ? ` for "${top.component}"` : ''}.</div>
+    {/if}
+  </div>
 {/if}
 
 <style>
   .nav { display: flex; align-items: center; gap: var(--gap); margin-bottom: 8px; }
   .nav button { padding: 4px 10px; min-height: 32px; }
   .line { margin-bottom: 8px; }
+  /* Waiting on a drill-down: the view dims and stops taking clicks. */
+  .view { transition: opacity 0.15s ease; }
+  .view[aria-busy=true] { opacity: 0.55; pointer-events: none; }
 </style>

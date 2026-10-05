@@ -34,7 +34,13 @@ test('no flows: one line, no scroller', () => {
   expect(screen.queryByRole('list')).toBeNull()
 })
 
-test('without onshow the cards are not buttons', () => {
+test('without onshow the cards are not buttons, and say so', () => {
   render(FlowsView, { props: { data } })
   expect(screen.queryByRole('button')).toBeNull()
+  expect(screen.getAllByTitle("Open isn't available in this client")).toHaveLength(2)
+})
+
+test('a card that opens carries no unavailable tooltip', () => {
+  render(FlowsView, { props: { data, onshow: () => {} } })
+  expect(screen.queryByTitle("Open isn't available in this client")).toBeNull()
 })

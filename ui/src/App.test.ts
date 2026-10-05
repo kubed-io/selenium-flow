@@ -4,6 +4,9 @@ import { beforeEach, expect, test, vi } from 'vitest'
 const host = vi.hoisted(() => ({
   listeners: {} as Record<string, (r: unknown) => void>,
   fail: null as Error | null,
+  gate: null as Promise<void> | null,
+  removed: [] as string[],
+  close: vi.fn(),
   options: undefined as unknown,
   caps: { serverTools: {} } as Record<string, unknown> | undefined,
   ctx: {} as Record<string, unknown> | undefined,
@@ -18,7 +21,9 @@ vi.mock('@modelcontextprotocol/ext-apps', () => ({
   App: class {
     constructor(public info: { name: string; version: string }, caps?: unknown, options?: unknown) { host.options = options }
     addEventListener(event: string, fn: (r: unknown) => void) { host.listeners[event] = fn }
-    async connect() { if (host.fail) throw host.fail }
+    removeEventListener(event: string, fn: (r: unknown) => void) { if (host.listeners[event] === fn) host.removed.push(event) }
+    async connect() { if (host.gate) await host.gate; if (host.fail) throw host.fail }
+    close() { return host.close() }
     getHostCapabilities() { return host.caps }
     getHostContext() { return host.ctx }
     callServerTool(p: unknown) { return host.callServerTool(p) }
@@ -43,6 +48,10 @@ const FLOW = {
 beforeEach(() => {
   host.listeners = {}
   host.fail = null
+  host.gate = null
+  host.removed = []
+  host.close.mockReset()
+  host.close.mockResolvedValue(undefined)
   host.options = undefined
   host.caps = { serverTools: {} }
   host.ctx = {}
@@ -54,6 +63,12 @@ beforeEach(() => {
 async function shown(result: unknown) {
   await vi.waitFor(() => expect(host.listeners.toolresult).toBeTypeOf('function'))
   host.listeners.toolresult({ structuredContent: result })
+}
+
+function deferred<T>() {
+  let resolve!: (v: T) => void
+  const promise = new Promise<T>((r) => { resolve = r })
+  return { promise, resolve }
 }
 
 const contexts = () => host.updateModelContext.mock.calls.map(([p]) => (p as { content: { text: string }[] }).content[0].text)
@@ -211,4 +226,73 @@ test('the shell resizes itself and sets its own height', async () => {
   expect(host.options).toMatchObject({ autoResize: true })
   await shown(FLOWS)
   await vi.waitFor(() => expect(document.documentElement.style.height).toBe('322px'))
+})
+
+test('one drill-down at a time: a second click while waiting is ignored', async () => {
+  const later = deferred<unknown>()
+  host.callServerTool.mockReturnValue(later.promise)
+  const { container } = render(App)
+  await shown(FLOWS)
+  const card = await screen.findByRole('button', { name: 'login' })
+  await fireEvent.click(card)
+  await fireEvent.click(card)
+  expect(host.callServerTool).toHaveBeenCalledTimes(1)
+  await vi.waitFor(() => expect(container.querySelector('[aria-busy=true]')).not.toBeNull())
+  later.resolve({ content: [], structuredContent: FLOW })
+  await vi.waitFor(() => expect(screen.getByText('navigate')).toBeInTheDocument())
+  expect(container.querySelector('[aria-busy=true]')).toBeNull()
+  await fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+  await vi.waitFor(() => expect(screen.getByRole('button', { name: 'login' })).toBeInTheDocument())
+  expect(screen.queryByRole('button', { name: 'Back' })).toBeNull()
+})
+
+test('a tool result that arrives during a drill-down wins over it', async () => {
+  const later = deferred<unknown>()
+  host.callServerTool.mockReturnValue(later.promise)
+  const { container } = render(App)
+  await shown(FLOWS)
+  await fireEvent.click(await screen.findByRole('button', { name: 'login' }))
+  host.listeners.toolresult({ structuredContent: { component: 'context', uri: 'session://current', data: { session: 'drk', live: true } } })
+  await vi.waitFor(() => expect(screen.getByText('drk')).toBeInTheDocument())
+  expect(container.querySelector('[aria-busy=true]')).toBeNull()
+  later.resolve({ content: [], structuredContent: FLOW })
+  await new Promise((r) => setTimeout(r, 20))
+  expect(screen.getByText('drk')).toBeInTheDocument()
+  expect(screen.queryByText('navigate')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Back' })).toBeNull()
+})
+
+test('a late drill-down failure is dropped too', async () => {
+  const later = deferred<unknown>()
+  host.callServerTool.mockReturnValue(later.promise)
+  render(App)
+  await shown(FLOWS)
+  await fireEvent.click(await screen.findByRole('button', { name: 'login' }))
+  host.listeners.toolresult({ structuredContent: FLOWS })
+  later.resolve({ isError: true, content: [{ type: 'text', text: 'Too late.' }] })
+  await new Promise((r) => setTimeout(r, 20))
+  expect(screen.queryByText('Too late.')).toBeNull()
+  await fireEvent.click(screen.getByRole('button', { name: 'login' }))
+  expect(host.callServerTool).toHaveBeenCalledTimes(2)
+})
+
+test('unmounting lets go of the host', async () => {
+  const { unmount } = render(App)
+  await vi.waitFor(() => expect(host.listeners.toolresult).toBeTypeOf('function'))
+  await Promise.resolve()
+  unmount()
+  expect(host.removed.sort()).toEqual(['hostcontextchanged', 'toolresult'])
+  expect(host.close).toHaveBeenCalled()
+})
+
+test('a connect that finishes after unmount does nothing', async () => {
+  const gate = deferred<void>()
+  host.gate = gate.promise
+  host.ctx = { theme: 'dark' }
+  const { unmount } = render(App)
+  await vi.waitFor(() => expect(host.listeners.toolresult).toBeTypeOf('function'))
+  unmount()
+  gate.resolve()
+  await new Promise((r) => setTimeout(r, 20))
+  expect(host.applyDocumentTheme).not.toHaveBeenCalled()
 })

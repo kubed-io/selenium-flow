@@ -23,4 +23,10 @@ test('without onshow the chips are not buttons', () => {
   render(FilesView, { props: { data } })
   expect(screen.queryByRole('button')).toBeNull()
   expect(screen.getByText('Screenshots')).toBeInTheDocument()
+  expect(screen.getAllByTitle("Open isn't available in this client")).toHaveLength(2)
+})
+
+test('a chip that opens carries no unavailable tooltip', () => {
+  render(FilesView, { props: { data, onshow: () => {} } })
+  expect(screen.queryByTitle("Open isn't available in this client")).toBeNull()
 })
