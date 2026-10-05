@@ -788,7 +788,7 @@ never committed, whether it exists or not.
 ### `show` is the one app tool
 
 `show(uri)` draws a resource in the app shell; the URI-to-component table lives
-in `mcp/show.py` and nowhere else. The data is the resource's own JSON, so a view
+in `mcp/show.py` and nowhere else; `App.svelte` maps the component names to Svelte views. The data is the resource's own JSON, so a view
 cannot drift from what the resource serves.
 
 - **Not an app on `read_resource`.** That is the model's reading tool; an app
@@ -801,7 +801,7 @@ cannot drift from what the resource serves.
 - **claude.ai ignores `size-changed`** and reads the document's own height, so
   `App.svelte` sets `documentElement.style.height` as well as letting autoResize
   report it. Drop it only once claude.ai honours the notification.
-- `show` is listed only for a client that renders apps. `session_files` is gone.
+- `show` is listed only for a client that renders apps.
 
 ## Session lifetime: who owns what
 
