@@ -135,8 +135,9 @@ use are removed; `sections()` stays if the admin page still uses it.
 - **Sizing:** `autoResize` stays on, and after each render the shell also sets
   `document.documentElement.style.height` to the content's height (the claude.ai
   workaround). No `100vh`.
-- **Fullscreen:** views that can go fullscreen (`flow`, and the lightbox) show a
-  button only when the host lists `fullscreen` in `availableDisplayModes`.
+- **Fullscreen:** the `flow` view shows a button only when the host lists
+  `fullscreen` in `availableDisplayModes` (the lightbox is next round: it needs
+  a view→shell callback).
 - **Capabilities are checked, never assumed:** without `serverTools`, a card is
   not clickable and says so in its tooltip; the view still draws.
 
@@ -197,5 +198,6 @@ All reuse the existing pieces where they exist and the host's tokens for colour.
 - A Run button on the flow view (a parameter form; `run_flow` through
   `callServerTool`; the result drawn in place and pushed with
   `updateModelContext`).
+- Fullscreen for the lightbox (a callback from `FolderView` to the shell).
 - `readServerResource` for full-size images once Claude confirms it.
 - More views: `session://site-data`, `secret://secrets`.
