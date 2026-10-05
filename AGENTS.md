@@ -717,6 +717,19 @@ otherwise be absent from the wheel with no error at build or import time.
 `test_every_skill_file_is_covered_by_package_data` fails if a file is ever added
 that no pattern matches.
 
+The **Skills extension** (SEP-2640, `io.modelcontextprotocol/skills`) is a second
+discovery surface over the same files, in `mcp/skill_extension.py`: `skills/list`
+and `skills/get` return one entry naming every file with the sha256 and size of
+the bytes `resources/read` serves. Those are not `_manifest`'s hashes, which are of
+the disk, and `SkillProvider` reads text with newline normalisation. FastMCP
+declares the extension in `server/discover` only, so `AdvertiseSkills` puts it back
+into a legacy `initialize`. A SKILL.md that fails the spec (name ≠ folder,
+description outside 1–1024 characters, frontmatter that is not representable as
+JSON) is still served as resources but not offered. agentgateway 1.6 refuses both methods
+(`unsupported method`, agentgateway#3579), so through the gateway a client sees the
+declaration and gets an error; in-cluster they work. Delete the module when
+FastMCP ships its own (#5016).
+
 **SKILL.md is an index, not the manual.** It carries the two facts that shape
 everything, the session-mode branch every caller has to take, and a routing table
 into `references/`. Detail belongs in a reference so an agent loads only what its
@@ -807,6 +820,10 @@ what the resource serves.
   for the model. A plain dict would send the JSON twice.
 - **A result over `MAX_SHOWN` (100k characters, both parts as sent) is
   refused**: Claude drops one over ~150k and the app would never get its data.
+- **One secret opens inside the app**, from the list `show` already sent: there
+  is no single-secret resource (secrets.py, "one read"), so a drill-down has
+  nothing to call. `SecretCard` and `lib/secrets.ts` are shared with the admin
+  pane, so both read a catalogue entry the same way, and neither ever has a value.
 
 ## Session lifetime: who owns what
 

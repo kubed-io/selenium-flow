@@ -77,6 +77,13 @@ export interface Secret {
   keys_unresolved?: { key: string; reason: string }[]
   inline_keys?: string[]
 }
+// `secret://secrets`, as `show` hands it to the app.
+export interface SecretsData {
+  session: string
+  count: number
+  secrets: Secret[]
+}
+
 export interface SecretsPayload {
   enabled: boolean
   count?: number

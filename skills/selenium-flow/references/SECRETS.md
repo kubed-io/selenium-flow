@@ -11,7 +11,8 @@ call, and whatever your host logs. A password you *name* is in none of them.
 ## The loop
 
 1. **Find the secret.** Read `secret://secrets`: the names, the keys and the
-   sites each may be used on.
+   sites each may be used on. `show(secret://secrets)` draws them for the
+   person.
 2. **Find the selectors.** Drive the login page by hand once and `extract` to
    find the fields (`skill://selenium-flow/references/READING_PAGES.md`). Type nothing real yet.
 3. **Build the flow.** The password step names the secret instead of a value.
