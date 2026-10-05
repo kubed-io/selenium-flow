@@ -24,7 +24,11 @@ from pydantic import ConfigDict, TypeAdapter
 
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.mcp import skill_extension
-from kubed.selenium_flow.mcp.skill_extension import EXTENSION_ID, SkillsExtension
+from kubed.selenium_flow.mcp.skill_extension import (
+    EXTENSION_ID,
+    GetSkillParams,
+    SkillsExtension,
+)
 from kubed.selenium_flow.server import SeleniumMCP
 
 pytestmark = pytest.mark.unit
@@ -44,7 +48,9 @@ async def request(client, method, **params):
 
 
 def header(text: str) -> object:
-    return yaml.safe_load(text.split("---", 2)[1])
+    lines = text.splitlines()
+    end = next(i for i, line in enumerate(lines[1:], start=1) if line.rstrip() == "---")
+    return yaml.safe_load("\n".join(lines[1:end]))
 
 
 @pytest.mark.parametrize("mode", ["auto", "legacy"])
@@ -144,8 +150,9 @@ async def test_switching_the_skill_off_removes_the_extension(mode):
         "name: odd-skill\ndescription: " + "x" * 1025,
         "- a list\n- not a mapping",
         "name: odd-skill\ndescription: Dated.\nwhen: 2026-10-05",
+        "name: odd-skill\ndescription: NaN.\nweight: .nan",
     ],
-    ids=["name", "empty-description", "long-description", "not-a-mapping", "date"],
+    ids=["name", "empty-description", "long-description", "not-a-mapping", "date", "nan"],
 )
 async def test_a_nonconforming_skill_is_served_but_not_offered(tmp_path, caplog, front):
     folder = tmp_path / "odd-skill"
@@ -173,3 +180,22 @@ async def test_a_caller_cannot_change_what_the_next_caller_is_served(server):
     second = await extension.list_skills(None, PaginatedRequestParams())
     assert second["skills"][0]["resources"]
     assert second["skills"][0]["frontmatter"]["name"] == "selenium-flow"
+
+    got = await extension.get_skill(None, GetSkillParams(uri=SKILL_URI))
+    got["skill"]["resources"].clear()
+    got["skill"]["frontmatter"]["name"] = "changed"
+    again = await extension.get_skill(None, GetSkillParams(uri=SKILL_URI))
+    assert again["skill"]["resources"]
+    assert again["skill"]["frontmatter"]["name"] == "selenium-flow"
+
+
+async def test_a_dash_run_inside_a_value_is_not_the_header_end(tmp_path):
+    folder = tmp_path / "dashed"
+    folder.mkdir()
+    (folder / "SKILL.md").write_text(
+        "---\nname: dashed\ndescription: before --- after\n---\n\n# Body\n",
+        encoding="utf-8",
+    )
+    entry = skill_extension.entry_for(SkillProvider(folder, supporting_files="resources"))
+    assert entry is not None
+    assert entry["frontmatter"]["description"] == "before --- after"

@@ -724,8 +724,8 @@ the bytes `resources/read` serves. Those are not `_manifest`'s hashes, which are
 the disk, and `SkillProvider` reads text with newline normalisation. FastMCP
 declares the extension in `server/discover` only, so `AdvertiseSkills` puts it back
 into a legacy `initialize`. A SKILL.md that fails the spec (name ≠ folder,
-description outside 1–1024 characters, frontmatter that is not JSON) is still
-served as resources but not offered. agentgateway 1.6 refuses both methods
+description outside 1–1024 characters, frontmatter that is not representable as
+JSON) is still served as resources but not offered. agentgateway 1.6 refuses both methods
 (`unsupported method`, agentgateway#3579), so through the gateway a client sees the
 declaration and gets an error; in-cluster they work. Delete the module when
 FastMCP ships its own (#5016).

@@ -179,7 +179,7 @@
   {#if error}<div class="small error line">{error}</div>{/if}
   <div class="view" aria-busy={pending !== null}>
     {#if View}
-      <View data={top.data as never} {onshow} {expanded} />
+      {#key top}<View data={top.data as never} {onshow} {expanded} />{/key}
     {:else}
       <div class="empty error">Nothing to show{top.component ? ` for "${top.component}"` : ''}.</div>
     {/if}

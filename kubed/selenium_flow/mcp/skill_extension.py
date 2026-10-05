@@ -58,15 +58,16 @@ def _served_bytes(path: Path) -> bytes:
 
 def _frontmatter(text: str) -> object:
     """The YAML header of a SKILL.md, as parsed, or None without one."""
-    if not text.startswith("---"):
+    lines = text.splitlines()
+    if not lines or lines[0].rstrip() != "---":
         return None
-    parts = text.split("---", 2)
-    if len(parts) < 3:
-        return None
-    try:
-        return yaml.safe_load(parts[1])
-    except yaml.YAMLError:
-        return None
+    for end, line in enumerate(lines[1:], start=1):
+        if line.rstrip() == "---":
+            try:
+                return yaml.safe_load("\n".join(lines[1:end]))
+            except yaml.YAMLError:
+                return None
+    return None
 
 
 def _problem(metadata: object, name: str) -> str | None:
