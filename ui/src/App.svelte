@@ -4,8 +4,7 @@
     type McpUiDisplayMode, type McpUiHostContext,
   } from '@modelcontextprotocol/ext-apps'
   import { onMount, tick, type Component } from 'svelte'
-  import SessionList from './lib/SessionList.svelte'
-  import SessionSummary from './lib/SessionSummary.svelte'
+  import { plural } from './lib/format'
   import ContextView from './lib/views/ContextView.svelte'
   import FilesView from './lib/views/FilesView.svelte'
   import FlowsView from './lib/views/FlowsView.svelte'
@@ -20,11 +19,9 @@
     folder: FolderView as Component<Props>,
     flows: FlowsView as Component<Props>,
     flow: FlowView as Component<Props>,
-    sessionList: SessionList as Component<Props>,
-    sessionSummary: SessionSummary as Component<Props>,
   }
   const EXPANDS = new Set(['flow'])
-  const NOUNS: Record<string, string> = { files: 'kept files', folder: 'files', flows: 'flows' }
+  const NOUNS: Record<string, string> = { files: 'kept file', folder: 'file', flows: 'flow' }
 
   type Shown = { component?: string; uri?: string; data?: unknown }
   type Result = { structuredContent?: unknown; isError?: boolean; content?: { type: string; text?: string }[] }
@@ -32,6 +29,8 @@
   let host: Host | undefined
   let connected: Promise<void> | undefined
   let failed = $state<string | null>(null)
+  // The model's own show call was refused: its message, in place of a view.
+  let refused = $state<string | null>(null)
   // Raw: each change replaces the array, never mutates it.
   let stack = $state.raw<Shown[]>([])
   let error = $state<string | null>(null)
@@ -54,13 +53,14 @@
   function summary(s: Shown) {
     const count = (s.data as { count?: unknown } | undefined)?.count
     const noun = NOUNS[String(s.component)]
-    return `Showing ${s.uri}` + (noun && typeof count === 'number' ? `, ${count} ${noun}` : '')
+    return `Showing ${s.uri}` + (noun && typeof count === 'number' ? `, ${plural(count, noun)}` : '')
   }
 
   function settle(next: Shown[]) {
     gen++
     stack = next
     error = null
+    refused = null
     pending = null
     const t = next.at(-1)
     // Best effort: a host may not take it, and the view does not depend on it.
@@ -112,17 +112,21 @@
 
   // Read to be tracked: whatever changes what the shell draws.
   $effect(() => {
-    void [stack, error, mode, failed]
+    void [stack, error, mode, failed, refused]
     tick().then(fit)
   })
 
   onMount(() => {
     let gone = false
-    // What changes inside a view (a deleted tile, a paged row) is not the stack.
+    // What changes inside a view (a deleted tile, an image loading) is not the stack.
     // Next frame, as the SDK does: fitting inside the callback is a resize loop.
     const watch = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => requestAnimationFrame(fit))
     watch?.observe(document.body)
-    const onresult = (r: Result) => settle([(r.structuredContent ?? {}) as Shown])
+    const onresult = (r: Result) => {
+      if (!r.isError) return settle([(r.structuredContent ?? {}) as Shown])
+      settle([])
+      refused = r.content?.find((c) => c.text)?.text || 'Could not show this.'
+    }
     ;(async () => {
       try {
         const h = (host = new Host({ name: 'selenium-flow', version: '1' }, {}, { autoResize: true }))
@@ -148,6 +152,8 @@
 
 {#if failed !== null}
   <div class="empty error">This host could not start the app: {failed}</div>
+{:else if refused !== null}
+  <div class="empty error">{refused}</div>
 {:else if !top}
   <div class="empty">Loading…</div>
 {:else}

@@ -92,6 +92,39 @@ test('fileSections is no longer drawn', async () => {
   await vi.waitFor(() => expect(screen.getByText('Nothing to show for "fileSections".')).toHaveClass('error'))
 })
 
+test.each(['sessionList', 'sessionSummary'])('%s is not a view: no tool emits it', async (component) => {
+  render(App)
+  await shown({ component, data: { sessions: [] } })
+  await vi.waitFor(() => expect(screen.getByText(`Nothing to show for "${component}".`)).toHaveClass('error'))
+})
+
+test("the model's own show call that failed draws the refusal", async () => {
+  render(App)
+  await vi.waitFor(() => expect(host.listeners.toolresult).toBeTypeOf('function'))
+  host.listeners.toolresult({ isError: true, content: [{ type: 'text', text: 'x://y has no view; show draws session://current' }] })
+  await vi.waitFor(() => expect(screen.getByText('x://y has no view; show draws session://current')).toHaveClass('error'))
+  expect(screen.queryByText(/Nothing to show/)).toBeNull()
+  expect(screen.queryByText('Loading…')).toBeNull()
+  // The next result replaces it.
+  await shown(FLOWS)
+  await screen.findByRole('button', { name: 'login' })
+  expect(screen.queryByText(/has no view/)).toBeNull()
+})
+
+test('a failed show with no text still says it failed', async () => {
+  render(App)
+  await vi.waitFor(() => expect(host.listeners.toolresult).toBeTypeOf('function'))
+  host.listeners.toolresult({ isError: true, content: [] })
+  await vi.waitFor(() => expect(screen.getByText('Could not show this.')).toHaveClass('error'))
+})
+
+test('the model context count is pluralised', async () => {
+  render(App)
+  await shown(FLOWS)
+  await vi.waitFor(() => expect(contexts()).toHaveLength(1))
+  expect(contexts()[0]).toBe('Showing flow://flows, 1 flow')
+})
+
 test('an unknown component says so (P1)', async () => {
   render(App)
   await shown({ component: 'nope' })
