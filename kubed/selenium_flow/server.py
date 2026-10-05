@@ -32,6 +32,7 @@ from .mcp import (
     mirror,
     prompts,
     resources,
+    show,
     skill,
     tools,
 )
@@ -174,6 +175,7 @@ class SeleniumMCP:
             prefix=self.prefix,
             ttl=settings.link_ttl,
         )
+        app_tools |= show.register(self.mcp, app_config)
         # These three are called from inside an action, below every edge, so
         # they ask the edge's own reader who is calling (`clients.caller`).
         #

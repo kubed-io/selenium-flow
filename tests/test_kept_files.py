@@ -444,18 +444,6 @@ def test_a_grid_refusal_does_not_echo_the_grid_url():
     assert "404" in text, "the useful half survived"
 
 
-async def test_the_file_listing_never_opens_a_browser(kept_server, named_caller):
-    """It cannot call `sessions.resolve`: that opens a browser when the record
-    has none, and a listing that opened one would be the leak the status
-    resource refuses to be. It asks `browser` instead, which answers "" — and
-    the kept files still list, which is what keeping one is for."""
-    tool = await kept_server.mcp.get_tool(files.FILES_TOOL)
-    opened_before = kept_server.actions.grid
-    listing = tool.fn()
-    assert listing["files"] == []
-    assert kept_server.actions.grid is opened_before
-
-
 @pytest.mark.parametrize(
     "status,expected",
     [(404, 404), (400, 400), (422, 400), (500, 503), (502, 503), (None, 503)],

@@ -62,8 +62,16 @@ def supported() -> bool:
 
 
 def config_for(base: str) -> AppConfig:
-    """The app declaration a tool carries so a host will render its result."""
-    return AppConfig(resource_uri=RESOURCE_URI, csp=_csp(base), prefers_border=True)
+    """The app declaration a tool carries so a host will render its result.
+
+    The app may call the tool itself (`show`, for drill-down), hence both
+    audiences."""
+    return AppConfig(
+        resource_uri=RESOURCE_URI,
+        csp=_csp(base),
+        prefers_border=True,
+        visibility=["model", "app"],
+    )
 
 
 def _csp(base: str) -> ResourceCSP:

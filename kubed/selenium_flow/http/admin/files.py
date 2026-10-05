@@ -69,7 +69,7 @@ def mount(
             if not live_id and flow_store is None:
                 # Genuinely nothing: no store configured, and no browser to ask.
                 # `files.sections` raises for this — the right answer for a
-                # caller asking "what do I have" (`session_files`), and the
+                # caller asking "what do I have" (`show`), and the
                 # wrong one for a page rendering an (empty) tab of its own.
                 listing = {
                     "component": "fileSections",
