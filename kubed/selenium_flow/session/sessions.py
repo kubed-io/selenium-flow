@@ -402,11 +402,15 @@ class SessionManager:
             name,
         )
         saved = self._restorable(record)
+        replay = dict(record.settings or {})
+        if self.recordings is None:
+            # Nobody would collect the video (recording was turned off since).
+            replay.pop("record", None)
         opened = self.actions.open_session(
             url=record.url or None,
-            **({"video_name": name} if (record.settings or {}).get("record") else {}),
+            **({"video_name": name} if replay.get("record") else {}),
             **({"site_data": saved} if saved else {}),
-            **(record.settings or {}),
+            **replay,
         )
         # Nobody asked for this reopen, so the first result after it says what
         # came back: the record holds the report until `touch` hands it over.
@@ -419,12 +423,19 @@ class SessionManager:
             replacing=record.session_id,
             report=opened.get("site_data"),
         )
-        if (record.settings or {}).get("record") and self.recordings is not None:
-            self.recordings.expect(
-                name,
-                opened["session_id"],
-                (record.settings or {}).get("browser") or DEFAULT_BROWSER,
-            )
+        if replay.get("record"):
+            try:
+                self.recordings.expect(
+                    name,
+                    opened["session_id"],
+                    replay.get("browser") or DEFAULT_BROWSER,
+                )
+            except OSError as exc:
+                # The browser is open and remembered; failing the caller's
+                # action over the filing would help nobody.
+                log.warning(
+                    "recording for %s cannot be filed: %s", name, faults.message(exc)
+                )
         return kept
 
     def act(self, caller: Caller, call, *, reshapes: bool = False) -> dict:

@@ -137,3 +137,26 @@ def test_the_inbox_defaults_inside_the_data_dir_and_can_be_set_apart():
     s = config.Settings(data={"dir": "/d"}, recording={"dir": "/elsewhere"})
     assert config.recording_dir(s) == "/elsewhere"
     assert config.recording_dir(config.Settings()) is None
+
+
+def test_a_reap_survives_a_note_that_cannot_be_written():
+    class Broken(Recorder):
+        def expect(self, session, grid_id, browser):
+            raise PermissionError(13, "denied", "/data/sessions/bot/recordings")
+
+    m = manager(Recorder())
+    m.open_browser(caller(), record=True)
+    m.recordings = Broken()
+    m.actions.grid.alive.clear()
+    assert m.resolve("bot") == "grid0002"
+    assert m.actions.grid.alive == {"grid0002"}
+
+
+def test_a_reap_with_recording_off_does_not_replay_record():
+    m = manager(Recorder())
+    m.open_browser(caller(), record=True)
+    m.recordings = None
+    m.actions.grid.alive.clear()
+    m.resolve("bot")
+    assert not m.actions.calls[-1].get("record")
+    assert "video_name" not in m.actions.calls[-1]
