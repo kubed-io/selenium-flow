@@ -135,7 +135,11 @@ class SeleniumMCP:
             self.collector = recording_collector.Collector(
                 self.flows,
                 inbox,
-                alive=self.grid.is_alive,
+                # The Grid's status, never a call to a session: a command sent
+                # to one is activity, and would keep it from ever being reaped.
+                live=lambda: {
+                    s["session_id"] for s in self.grid.sessions() if s.get("session_id")
+                },
                 wait=settings.recording.wait,
                 polling=mounts.polling(settings.recording.watch, inbox),
                 poll_ms=settings.recording.poll,

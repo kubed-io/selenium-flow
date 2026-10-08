@@ -1,6 +1,7 @@
 """Recordings and notes in the session store."""
 
 import errno
+import logging
 import os
 import shutil
 
@@ -68,11 +69,14 @@ def test_notes_are_written_listed_and_deleted_and_never_listed_as_files(store):
     assert store.delete_note("bot", GID) is False
 
 
-def test_a_broken_note_is_skipped_not_fatal(store):
+def test_a_broken_note_is_skipped_not_fatal(store, caplog):
     store.write_note("bot", GID, {"opened": 1})
     path = store.root / "bot" / RECORDINGS_DIR / ".pending" / f"{GID}.json"
     path.write_text("{not json")
-    assert store.notes() == []
+    with caplog.at_level(logging.WARNING):
+        assert store.notes() == []
+    # The operator's log names the session, never the Grid's id.
+    assert "bot" in caplog.text and GID not in caplog.text
 
 
 def test_grid_ids_are_validated_before_they_become_paths():

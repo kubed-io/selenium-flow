@@ -556,7 +556,8 @@ class FileStore(SessionLayout):
                     valid_grid_id(grid_id)
                     note = json.loads(entry.read_text(encoding="utf-8"))
                 except (InvalidName, ValueError, OSError):
-                    log.warning("ignoring recording note %s/%s", session, entry.name)
+                    # The file is named by the Grid's id; the log never is.
+                    log.warning("ignoring a recording note in session %s", session)
                     continue
                 if isinstance(note, dict):
                     found.append((session, grid_id, note))

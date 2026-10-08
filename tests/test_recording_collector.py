@@ -33,7 +33,7 @@ def parts(tmp_path):
     filed = []
     clock = Clock()
     c = collector_module.Collector(
-        store, inbox, alive=lambda gid: gid in alive, wait=600, polling=True,
+        store, inbox, live=lambda: set(alive), wait=600, polling=True,
         poll_ms=50, on_filed=lambda: filed.append(1), clock=clock, tick=0.1,
         idle_after=60.0,
     )
@@ -121,7 +121,7 @@ async def test_the_task_runs_only_while_something_is_owed_and_survives_a_restart
     await c.stop()
     # A new process: the note is the queue.
     c2 = collector_module.Collector(
-        store, inbox, alive=lambda gid: False, wait=600, polling=True, poll_ms=50,
+        store, inbox, live=set, wait=600, polling=True, poll_ms=50,
         clock=clock, tick=0.1,
     )
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
@@ -170,3 +170,123 @@ def test_a_server_with_recording_on_needs_a_usable_inbox(tmp_path):
     (tmp_path / "recordings").mkdir()
     server = SeleniumMCP(settings)
     assert server.collector is not None and server.sessions.recordings is server.collector
+
+
+class Listing:
+    """The Grid's running sessions, counting how often it is asked."""
+
+    def __init__(self, ids=(), fails=False):
+        self.ids = set(ids)
+        self.fails = fails
+        self.calls = 0
+
+    def __call__(self):
+        self.calls += 1
+        if self.fails:
+            raise ConnectionError("grid down")
+        return set(self.ids)
+
+
+def collector(store, inbox, live, clock, **kw):
+    kw.setdefault("tick", 100.0)
+    return collector_module.Collector(
+        store, inbox, live=live, wait=600, polling=True, poll_ms=50,
+        clock=clock, **kw,
+    )
+
+
+async def test_one_listing_a_tick_however_many_are_owed(tmp_path):
+    """Liveness comes from the Grid's status, never from touching a session (a
+    command a node counts as activity, so asking would keep it alive forever),
+    and one listing serves every owed browser and both branches for a tick."""
+    store = flows.LocalFlowStore(tmp_path / "sessions")
+    inbox = tmp_path / "recordings"
+    inbox.mkdir()
+    ids = [f"{n:032x}" for n in range(1, 5)]
+    live, clock = Listing(ids), Clock()
+    c = collector(store, inbox, live, clock)
+    for n, gid in enumerate(ids):
+        c.expect(f"s{n}", gid, "chrome")
+    (inbox / f"s0_{ids[0]}.mp4").write_bytes(BODY)  # cut off: the quiet branch
+    for step in (0, 10, 61, 70, 99):
+        clock.now = 1_791_500_000.0 + step
+        await c.sweep()
+    assert live.calls == 1 and set(c.owed) == set(ids)
+    clock.now += 2  # a tick on: one more listing, for all of them
+    await c.sweep()
+    assert live.calls == 2
+
+
+async def test_a_cut_off_file_whose_browser_is_gone_marks_it_ended(parts):
+    c, store, inbox, alive, filed, clock = parts
+    c.expect("bot", GID, "chrome")
+    (inbox / f"bot_{GID}.mp4").write_bytes(BODY)
+    alive.clear()
+    await c.sweep()  # not quiet yet, so not filed: but known to have ended
+    assert filed == [] and c.owed[GID].ended == int(clock.now * 1000)
+    assert store.notes()[0][2]["ended"] == int(clock.now * 1000)
+
+
+async def test_a_grid_that_cannot_list_means_every_browser_lives(tmp_path, caplog):
+    store = flows.LocalFlowStore(tmp_path / "sessions")
+    inbox = tmp_path / "recordings"
+    inbox.mkdir()
+    live, clock = Listing(fails=True), Clock()
+    c = collector(store, inbox, live, clock, tick=0.1)
+    c.expect("bot", GID, "chrome")
+    (inbox / f"bot_{GID}.mp4").write_bytes(BODY)
+    with caplog.at_level(logging.INFO):
+        for _ in range(3):
+            clock.now += 61
+            await c.sweep()
+    assert live.calls == 3 and c.owed[GID].ended is None
+    assert store.files("bot", RECORDINGS_DIR) == []
+    assert GID not in caplog.text
+
+
+async def test_a_failed_sweep_is_retried_a_tick_later(tmp_path, caplog):
+    store = flows.LocalFlowStore(tmp_path / "sessions")
+    inbox = tmp_path / "recordings"
+    inbox.mkdir()
+    filed = []
+    c = collector(
+        store, inbox, Listing([GID]), Clock(), tick=0.1,
+        on_filed=lambda: filed.append(1),
+    )
+    real, failures = c._inbox_files, []
+
+    def flaky():
+        if not failures:
+            failures.append(1)
+            raise PermissionError(f"/inbox/bot_{GID}.mp4")
+        return real()
+
+    c._inbox_files = flaky
+    (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
+    with caplog.at_level(logging.WARNING):
+        await c.start()
+        c.expect("bot", GID, "chrome")
+        for _ in range(50):
+            if filed:
+                break
+            await asyncio.sleep(0.05)
+    assert filed == [1] and c.owed == {} and failures == [1]
+    assert "PermissionError" in caplog.text and "bot" in caplog.text
+    assert GID not in caplog.text
+    await c.stop()
+
+
+async def test_a_note_that_cannot_be_read_is_skipped_by_session(tmp_path, caplog):
+    store = flows.LocalFlowStore(tmp_path / "sessions")
+    inbox = tmp_path / "recordings"
+    inbox.mkdir()
+    other = "0123456789abcdef0123456789abcdef"
+    store.write_note("good", GID, {"opened": "1791500000000", "ended": 5.0})
+    store.write_note("bad", other, {"opened": ["no"], "browser": "chrome"})
+    c = collector(store, inbox, Listing([GID]), Clock())
+    with caplog.at_level(logging.WARNING):
+        await c.start()
+    assert set(c.owed) == {GID}
+    assert c.owed[GID].opened == 1_791_500_000_000 and c.owed[GID].ended == 5
+    assert "bad" in caplog.text and other not in caplog.text
+    await c.stop()

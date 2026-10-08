@@ -14,8 +14,15 @@ holds an owed Grid id and ends in ``mfro`` is moved into the session's
 recordings and its note deleted; one with no ``mfro`` is moved as it is once
 it has been quiet for a minute **and** the browser is gone (a live recording
 writes a keyframe at least every ~17 s, so this never files one early); an
-owed browser not yet known to have ended is asked about, so a file that never
+owed browser not yet known to have ended is looked for, so a file that never
 comes has a deadline to miss.
+
+**Whether a browser is gone is read off the Grid's status — never asked of the
+browser.** Any command sent to a session is activity the node counts against
+``SE_NODE_SESSION_TIMEOUT``, so a collector that asked each owed browser every
+tick would keep every recorded browser alive forever. ``live`` lists the
+sessions the Grid is running (``GET /status``, which touches none), once a
+tick, shared by every owed browser.
 
 It owns no browser and takes no session lock. ``expect`` and ``ended`` are
 called from worker threads (FastMCP's sync tools, Starlette's routes), so they
@@ -56,7 +63,29 @@ class Owed:
     opened: int
     browser: str
     ended: int | None = None
-    checked: float = 0.0
+
+
+def _millis(value) -> int:
+    """A note's timestamp as an int, or ValueError: a note is a file somebody
+    could have edited, so its fields are read, not trusted."""
+    if isinstance(value, bool):
+        raise ValueError("not a timestamp")
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    raise ValueError("not a timestamp")
+
+
+def _owed_from(session: str, grid_id: str, note: dict) -> Owed:
+    opened, ended = note.get("opened"), note.get("ended")
+    return Owed(
+        session,
+        grid_id,
+        0 if opened is None else _millis(opened),
+        str(note.get("browser") or ""),
+        None if ended is None else _millis(ended),
+    )
 
 
 class Collector:
@@ -65,7 +94,7 @@ class Collector:
         store,
         inbox,
         *,
-        alive,
+        live,
         wait: int,
         polling: bool,
         poll_ms: int,
@@ -76,7 +105,9 @@ class Collector:
     ):
         self.store = store
         self.inbox = Path(inbox)
-        self.alive = alive
+        # () -> the Grid session ids currently running. Never a per-session
+        # call: see the module docstring.
+        self.live = live
         self.wait = wait
         self.polling = polling
         self.poll_ms = poll_ms
@@ -87,9 +118,14 @@ class Collector:
         self.owed: dict[str, Owed] = {}
         # path -> (size, mtime, first seen at that size and mtime)
         self._quiet: dict[str, tuple[int, float, float]] = {}
+        # (when it was taken, the ids, or None when the Grid could not say).
+        self._listing: tuple[float, frozenset[str] | None] | None = None
+        self._listing_failed = False
         self._loop: asyncio.AbstractEventLoop | None = None
         self._task: asyncio.Task | None = None
         self._stop: anyio.Event | None = None
+        self._retry: asyncio.TimerHandle | None = None
+        self._failing = False
         # Set by `stop`: a recording expected during shutdown starts no task;
         # its note is on disk, so the next process files it.
         self._stopping = False
@@ -116,6 +152,8 @@ class Collector:
         if loop is None:
             # Not started: nothing runs yet, so there is no task to wake and no
             # thread to cross. Apply it here; `start` re-reads the notes anyway.
+            # Safe only because the server's lifespan starts the collector
+            # before any request is served, so no worker thread races this.
             fn()
             return
         try:
@@ -136,16 +174,21 @@ class Collector:
         self._loop = asyncio.get_running_loop()
         self._stopping = False
         for session, grid_id, note in await anyio.to_thread.run_sync(self.store.notes):
-            self.owed[grid_id] = Owed(
-                session, grid_id, int(note.get("opened") or 0),
-                str(note.get("browser") or ""), note.get("ended"),
-            )
+            try:
+                self.owed[grid_id] = _owed_from(session, grid_id, note)
+            except ValueError:
+                log.warning(
+                    "recordings: ignoring an unreadable note in session %s", session
+                )
         if self.owed:
             log.info("recordings: %d owed from before the restart", len(self.owed))
             self._ensure()
 
     async def stop(self) -> None:
         self._stopping = True
+        if self._retry is not None:
+            self._retry.cancel()
+            self._retry = None
         if self._stop is not None:
             self._stop.set()
         task, self._task = self._task, None
@@ -166,14 +209,28 @@ class Collector:
         self._write(owed)
 
     def _ensure(self) -> None:
-        if not self.running and self._loop is not None and not self._stopping:
-            self._task = self._loop.create_task(self._run())
+        loop = self._loop
+        if loop is None or self._stopping:
+            return
+        try:
+            on_loop = asyncio.get_running_loop() is loop
+        except RuntimeError:
+            on_loop = False
+        if not on_loop:
+            # Only the loop starts the task; `_post` brings every caller here.
+            return
+        if self._retry is not None:
+            # A retry still pending is superseded by this start.
+            self._retry.cancel()
+            self._retry = None
+        if not self.running:
+            self._task = loop.create_task(self._run())
 
     async def _run(self) -> None:
         try:
             while self.owed:
                 self._stop = anyio.Event()
-                await self.sweep()
+                await self._swept()
                 if not self.owed:
                     break
                 async for _changes in awatch(
@@ -186,42 +243,62 @@ class Collector:
                     watch_filter=None,
                     recursive=True,
                 ):
-                    await self.sweep()
+                    await self._swept()
                     if not self.owed:
                         self._stop.set()
         except asyncio.CancelledError:
             raise
-        except Exception:  # logged; the notes keep the queue
-            log.exception(
-                "recordings: the collector stopped; it resumes on the next recording"
-            )
+        except Exception as exc:  # noqa: BLE001 - the notes keep the queue; retried
+            if not self._failing:
+                # Once per streak, and no traceback: a path in one names a
+                # Grid id, which the operator's log never does.
+                log.warning(
+                    "recordings: a sweep failed (%s) with recordings owed for %s; "
+                    "retrying every %ss",
+                    type(exc).__name__,
+                    ", ".join(sorted({o.session for o in self.owed.values()})),
+                    self.tick,
+                )
+            self._failing = True
+            if not self._stopping and self._loop is not None:
+                self._retry = self._loop.call_later(self.tick, self._ensure)
         finally:
             if self._task is asyncio.current_task():
                 self._task = None
 
+    async def _swept(self) -> None:
+        await self.sweep()
+        if self._failing:
+            self._failing = False
+            log.info("recordings: sweeping again")
+
     async def sweep(self) -> None:
-        """One look: file what is finished, ask about the rest, drop the late."""
+        """One look: file what is finished, look for the rest, drop the late."""
         files = await anyio.to_thread.run_sync(self._inbox_files)
         now = self.clock()
+        present = {str(path) for path, _size, _mtime in files}
+        self._quiet = {k: v for k, v in self._quiet.items() if k in present}
         for grid_id, owed in list(self.owed.items()):
-            match = next((p for p in files if grid_id in p.name), None)
+            match = next((f for f in files if grid_id in f[0].name), None)
+            quiet = 0.0
             if match is not None:
-                if await anyio.to_thread.run_sync(mp4.is_complete, match):
-                    await self._file(owed, match)
-                elif (
-                    self._quiet_for(match, now) >= self.idle_after
-                    and not await self._is_alive(owed)
-                ):
+                path, size, mtime = match
+                if await anyio.to_thread.run_sync(mp4.is_complete, path):
+                    await self._file(owed, path)
+                    continue
+                quiet = self._quiet_for(path, size, mtime, now)
+            settled = quiet >= self.idle_after
+            gone = (owed.ended is None or settled) and await self._gone(owed, now)
+            if gone and owed.ended is None:
+                self._mark_ended(grid_id)
+            if match is not None:
+                if settled and gone:
                     log.info(
                         "recordings: %s/%s ends without a trailer; filed as it is",
                         owed.session, name_for(owed.opened),
                     )
-                    await self._file(owed, match)
+                    await self._file(owed, match[0])
                 continue
-            if owed.ended is None and now - owed.checked >= self.tick:
-                owed.checked = now
-                if not await self._is_alive(owed):
-                    self._mark_ended(grid_id)
             if owed.ended is not None and now * 1000 - owed.ended >= self.wait * 1000:
                 await anyio.to_thread.run_sync(
                     self.store.delete_note, owed.session, grid_id
@@ -234,11 +311,35 @@ class Collector:
                     time.strftime("%H:%M", time.gmtime(owed.opened / 1000)),
                 )
 
-    async def _is_alive(self, owed: Owed) -> bool:
+    async def _gone(self, owed: Owed, now: float) -> bool:
+        """Whether the Grid's listing says this browser is no longer running.
+
+        False whenever it cannot say: the listing failed, or was taken before
+        this browser opened (a cached one can be up to a tick old).
+        """
+        listing = self._listing
+        if listing is None or now - listing[0] >= self.tick:
+            listing = (now, await self._list())
+            self._listing = listing
+        at, ids = listing
+        if ids is None or at * 1000 < owed.opened:
+            return False
+        return owed.grid_id not in ids
+
+    async def _list(self) -> frozenset[str] | None:
         try:
-            return bool(await anyio.to_thread.run_sync(self.alive, owed.grid_id))
-        except Exception:  # noqa: BLE001 - the Grid can blip; assume it lives
-            return True
+            ids = frozenset(await anyio.to_thread.run_sync(self.live))
+        except Exception as exc:  # noqa: BLE001 - the Grid can blip; assume all live
+            if not self._listing_failed:
+                log.info(
+                    "recordings: the Grid's session list is unavailable (%s); "
+                    "every recorded browser counts as running",
+                    type(exc).__name__,
+                )
+            self._listing_failed = True
+            return None
+        self._listing_failed = False
+        return ids
 
     async def _file(self, owed: Owed, path: Path) -> None:
         try:
@@ -265,26 +366,30 @@ class Collector:
         if self.on_filed is not None:
             self.on_filed()
 
-    def _quiet_for(self, path: Path, now: float) -> float:
-        try:
-            info = path.stat()
-        except OSError:
-            return 0.0
+    def _quiet_for(self, path: Path, size: int, mtime: float, now: float) -> float:
+        """How long ``path`` has kept this size and mtime, as of ``now``."""
         key = str(path)
         seen = self._quiet.get(key)
-        if seen is None or seen[0] != info.st_size or seen[1] != info.st_mtime:
-            self._quiet[key] = (info.st_size, info.st_mtime, now)
+        if seen is None or seen[0] != size or seen[1] != mtime:
+            self._quiet[key] = (size, mtime, now)
             return 0.0
         return now - seen[2]
 
-    def _inbox_files(self) -> list[Path]:
+    def _inbox_files(self) -> list[tuple[Path, int, float]]:
+        """Every candidate in the inbox with its size and mtime. In a worker
+        thread: on a network filesystem a stat can hang."""
         found = []
         for root, dirs, names in os.walk(self.inbox):
             dirs[:] = [d for d in dirs if not d.startswith(".")]
             for name in names:
                 if name.startswith(".") or name.endswith(PARTIAL_SUFFIXES):
                     continue
-                found.append(Path(root) / name)
+                path = Path(root) / name
+                try:
+                    info = path.stat()
+                except OSError:
+                    continue
+                found.append((path, info.st_size, info.st_mtime))
         return found
 
     def _note(self, owed: Owed) -> dict:
