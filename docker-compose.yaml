@@ -38,10 +38,16 @@ services:
       # Empty disables auth, which is what you want locally.
       AUTH_TOKEN: ${AUTH_TOKEN:-}
       REDIS_URL: ${REDIS_URL:-}
-      DATA_DIR: /data
-      RECORDING_ENABLED: "true"
-    volumes:
-    - ./data:/data
+      # Opt in to saved flows, kept files and recordings: off by default, since
+      # Docker creates a missing bind-mount folder as root and this image runs
+      # as 65534, which then cannot write it. First, once:
+      #   mkdir -p data/recordings && chmod -R 777 data
+      # then uncomment these two settings, the volume below, and the Grid's
+      # recording lines. The README's "Recording" section has the details.
+      # DATA_DIR: /data
+      # RECORDING_ENABLED: "true"
+    # volumes:
+    # - ./data:/data
     depends_on:
       selenium:
         condition: service_healthy
@@ -58,11 +64,12 @@ services:
     - 7900:7900
     environment:
       SE_NODE_SESSION_TIMEOUT: ${SE_NODE_SESSION_TIMEOUT:-300}
-      # Precaution, pending a check: switches on recording for a standalone
-      # container (open_session record=true). May not be needed.
-      SE_VIDEO_RECORD_STANDALONE: "true"
-    volumes:
-    - ./data/recordings:/videos
+      # Recording, opt-in with DATA_DIR above. Precaution, pending a check:
+      # switches on recording for a standalone container (open_session
+      # record=true), and may not be needed.
+      # SE_VIDEO_RECORD_STANDALONE: "true"
+    # volumes:
+    # - ./data/recordings:/videos
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4444/status"]
       interval: 5s

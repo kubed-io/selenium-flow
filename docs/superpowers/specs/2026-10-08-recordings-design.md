@@ -452,7 +452,7 @@ them:
 1. `docker compose up` with `selenium/standalone-chromium` and `./data/recordings`
    on `/videos`: does `se:recordVideo` record a standalone session, or does it
    need `SE_VIDEO_RECORD_STANDALONE=true`? What exact file name lands?
-   Not run here (no Docker daemon in the build pod); requested from Dr K: `docker compose up --build`, then `POST /browser?session=compose {"record": true}` and `DELETE /browser?session=compose`, and watch ./data/sessions/compose/recordings/. The compose file sets `SE_VIDEO_RECORD_STANDALONE=true` in case the standalone image needs it.
+   Not run here (no Docker daemon in the build pod); requested from Dr K: recording is opt-in in the compose file (a bind-mount folder Docker creates is root's, and the image runs as 65534), so first `mkdir -p data/recordings && chmod -R 777 data` and uncomment `DATA_DIR`, `RECORDING_ENABLED`, both volumes and the Grid's `SE_VIDEO_RECORD_STANDALONE=true` (there in case the standalone image needs it); then `docker compose up --build`, `POST /browser?session=compose {"record": true}` and `DELETE /browser?session=compose`, and watch ./data/sessions/compose/recordings/.
 2. Starlette `FileResponse` honours `Range` at the pinned version (believed
    since 0.39; the floor is 0.48).
 3. The CSP a top-level `video/mp4` document needs to play in Chrome and

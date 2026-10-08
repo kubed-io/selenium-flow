@@ -171,7 +171,7 @@ write(selector={"css": "#password"}, secret={"name": "nextcloud", "key": "passwo
 
 The server types it; it never passes through the model, the transcript or a log. A secret can be pinned to the sites it may be used on, and is refused anywhere else.
 
-## 🗂 Files, Screenshots and Downloads
+## 🗂 Files, Screenshots, Recordings and Downloads
 
 Four sections, addressed by path, that never merge into one list:
 
@@ -183,18 +183,19 @@ Four sections, addressed by path, that never merge into one list:
 | **Files** | anything `keep_file`'d, and every `print` | one at a time, by an operator |
 
 `keep_file(uri)` **moves** a screenshot or recording into Files, or **copies** a download
-there before the browser ends it. `upload_file(file=uri)` attaches any of the
-others to a file input. No agent tool clears or deletes anything — that is an
+there before the browser ends it. `upload_file(file=uri)` puts a file from any of
+the four into a page's file input. No agent tool clears or deletes anything — that is an
 operator action in the [Admin UI](#-admin-ui) below.
 
 | Read it as | URI |
 |---|---|
-| a resource | `session://files` — Files, plus the two folders below |
-| a resource | `session://files/{name}` — one kept file, as bytes |
+| a resource | `session://files` — Files, plus the three folders below |
+| a resource | `session://files/{name}` — one kept file, as bytes (a video: its entry) |
 | a resource | `session://files/screenshots`, `.../screenshots/{name}` |
+| a resource | `session://files/recordings`, `.../recordings/{name}` — an entry, never the video |
 | a resource | `session://files/downloads`, `.../downloads/{name}` |
-| JSON over HTTP | `GET /files`, `GET /files/screenshots`, `GET /files/downloads` |
-| keep one, over HTTP | `PUT /files/screenshots/{name}/kept`, `PUT /files/downloads/{name}/kept` |
+| JSON over HTTP | `GET /files`, `GET /files/screenshots`, `GET /files/recordings`, `GET /files/downloads` |
+| keep one, over HTTP | `PUT /files/{folder}/{name}/kept` — `screenshots`, `recordings` or `downloads` |
 
 Every entry carries a link to hand someone — signed and time-limited when the
 server has a token, a plain path when authentication is off — because an
@@ -203,7 +204,7 @@ opts out when a capture is not worth keeping.
 
 ---
 
-## Recording
+## 🎬 Recording
 
 `open_session(record=true)` films the browser's whole life — from that call until
 the browser ends or the Grid reaps it — and the video appears under
@@ -231,9 +232,12 @@ nodes, or recordings share one screen.
   `RECORDING_DIR`, S3, SFTP. Leaving `--inplace` out of `SE_UPLOAD_OPTS` makes
   rclone write `*.partial` and rename, which this server waits for.
 - **A local folder** for stdio or compose: bind-mount it into the Grid container
-  at `/videos` (see `docker-compose.yaml`). A standalone container may also need
-  `SE_VIDEO_RECORD_STANDALONE=true` to start its recorder (set in
-  `docker-compose.yaml`; not yet verified).
+  at `/videos`. In `docker-compose.yaml` this is opt-in, because Docker creates
+  a missing folder as root and this image runs as 65534: run
+  `mkdir -p data/recordings && chmod -R 777 data` once, then uncomment
+  `DATA_DIR`, `RECORDING_ENABLED`, both volumes and the Grid's
+  `SE_VIDEO_RECORD_STANDALONE=true`, which a standalone container may need to
+  start its recorder (not yet verified).
 
 A recording is matched to its session by the Grid's session id in its file name,
 so any path and prefix the transport adds is fine. One that never arrives is
@@ -292,6 +296,34 @@ secrets:
 Point at the file with `--config-file` or `CONFIG_FILE`. Prefer `file:` or `env:` for a secret's keys — `value:` writes the value into the config file itself.
 
 Every setting, in all three spellings: the wiki's [Configuration](https://github.com/kubed-io/selenium-flow/wiki/Configuration) page.
+
+### 💾 The data directory
+
+`DATA_DIR` turns on flows, kept files and recordings; unset, they are off.
+
+```
+$DATA_DIR/
+├── sessions/<name>/{flows,files,screenshots,recordings}
+└── recordings/          # RECORDING_DIR's default: where the Grid's videos arrive
+```
+
+| Setting | Default | |
+|---|---|---|
+| `RECORDING_ENABLED` | `false` | `open_session(record=true)` works; needs `DATA_DIR` |
+| `RECORDING_DIR` | `$DATA_DIR/recordings` | the inbox the Grid's recordings arrive in |
+| `RECORDING_WAIT` | `600` | seconds after a browser ends to wait for its video |
+| `RECORDING_WATCH` | `auto` | `events`, `poll`, or `auto` (polls on a network filesystem) |
+| `RECORDING_POLL` | `1000` | milliseconds between looks, when polling |
+
+**Upgrading from `FLOW_DATA_DIR`:** sessions used to sit at the top of the
+directory, and the server now refuses to boot until they move — once:
+
+```bash
+cd "$DATA_DIR" && ls             # the old session folders, and recordings/ if any
+mkdir sessions && mv <each session folder> sessions/
+```
+
+Leave `recordings/` where it is, then set `DATA_DIR` in place of `FLOW_DATA_DIR`.
 
 ### Session defaults cascade
 
