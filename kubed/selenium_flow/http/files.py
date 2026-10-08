@@ -1,6 +1,6 @@
-"""A session's files as three sections, addressed by path (§F4.6, §F4.7).
+"""A session's files as four sections, addressed by path (§F4.6, §F4.7).
 
-**Downloads, Screenshots and Files never merge into one list.** The first
+**Downloads, Screenshots, Recordings and Files never merge into one list.** The first
 draft of this feature merged everything so a caller only had to ask once
 (§F1.10); that ruling is superseded, and for the same reason it existed — a
 folder that lists its own sub-folders costs a caller nothing it does not want,
@@ -9,7 +9,7 @@ knows. In a path, the section is part of the address, so a name only has to
 be unique inside its own folder, and there is no ``section=`` argument on
 ``keep_file`` for a name that lives in two places at once.
 
-The three sections still divide along the line §F1.10 drew, because the line
+The four sections still divide along the line §F1.10 drew, because the line
 was right even though the merge built on top of it was not:
 
 - **Downloads belong to the browser.** They live in the Grid's per-session
@@ -341,11 +341,11 @@ def root(
     mount: str = "",
     ttl: int = links.DEFAULT_TTL,
 ) -> dict:
-    """``session://files``: the Files section's own files, and its two folders.
+    """``session://files``: the Files section's own files, and its three folders.
 
     The two folders are named with a count each rather than expanded, so a
     caller who only wants to know whether there is anything to look at need
-    not pay for either listing.
+    not pay for any listing.
     """
     owned = owner(store, name)
     # Never `resolve`: see the module docstring.
@@ -848,7 +848,7 @@ def _routes(mcp, actions, sessions, store, token, base, prefix, ttl) -> None:
 
     @mcp.custom_route(files_root, methods=["GET"], name="files_list")
     async def list_files(request: Request) -> JSONResponse:
-        """Files' own listing, and the two folders beside it."""
+        """Files' own listing, and the three folders beside it."""
         return await answer(
             request,
             "list",

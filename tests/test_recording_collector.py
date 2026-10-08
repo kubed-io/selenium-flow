@@ -433,3 +433,78 @@ def test_a_filed_recording_pokes_the_admin_broadcast(tmp_path):
     ))
     poke = server.collector.on_filed
     assert isinstance(poke.__self__, Broadcast) and poke.__func__ is Broadcast.poke
+
+
+async def test_an_unreadable_inbox_keeps_every_note_past_wait(parts, monkeypatch, caplog):
+    c, store, inbox, alive, _filed, clock = parts
+    c.expect("bot", GID, "chrome")
+    c.ended(GID)
+    await asyncio.sleep(0)
+    alive.clear()
+    real = collector_module.os.scandir
+
+    def denied(path="."):
+        if str(path) == str(inbox):
+            raise PermissionError(13, "denied", str(inbox))
+        return real(path)
+
+    monkeypatch.setattr(collector_module.os, "scandir", denied)
+    clock.now += 1200
+    with pytest.raises(PermissionError):
+        await c.sweep()
+    assert store.notes() != [] and GID in c.owed
+    monkeypatch.undo()
+    (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
+    await c.sweep()
+    assert GID not in c.owed
+
+
+async def test_an_unreadable_inbox_is_logged_without_the_grid_id(parts, monkeypatch, caplog):
+    c, store, inbox, _alive, _filed, _clock = parts
+    c.expect("bot", GID, "chrome")
+
+    real = collector_module.os.scandir
+
+    def denied(path="."):
+        if str(path) == str(inbox):
+            raise PermissionError(13, "denied", str(inbox))
+        return real(path)
+
+    monkeypatch.setattr(collector_module.os, "scandir", denied)
+    with caplog.at_level(logging.WARNING):
+        await c.start()
+        for _ in range(20):
+            if c._failing:
+                break
+            await asyncio.sleep(0.05)
+        await c.stop()
+    assert c._failing and "PermissionError" in caplog.text
+    assert GID not in caplog.text and store.notes() != []
+
+
+async def test_an_unreadable_subfolder_does_not_starve_others_nor_drop_notes(parts, monkeypatch, caplog):
+    c, store, inbox, alive, _filed, clock = parts
+    (inbox / "bad").mkdir()
+    c.expect("bot", GID, "chrome")
+    c.ended(GID)
+    await asyncio.sleep(0)
+    alive.clear()
+    bad = str(inbox / "bad")
+    real = collector_module.os.scandir
+
+    def denied(path="."):
+        if str(path) == bad:
+            raise PermissionError(13, "denied", bad)
+        return real(path)
+
+    monkeypatch.setattr(collector_module.os, "scandir", denied)
+    clock.now += 1200
+    with caplog.at_level(logging.WARNING):
+        await c.sweep()
+        await c.sweep()
+    assert GID in c.owed and store.notes() != []
+    assert "cannot be read" in caplog.text and caplog.text.count("cannot be read") == 1
+    assert GID not in caplog.text
+    (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
+    await c.sweep()
+    assert GID not in c.owed

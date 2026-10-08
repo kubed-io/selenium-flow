@@ -609,7 +609,7 @@ FILE_SCHEMAS = {
     "FileEntry": {
         "type": "object",
         "description": (
-            "One file, in whichever of the three sections listed it — Files, "
+            "One file, in whichever of the four sections listed it — Files, "
             "Screenshots, Recordings or Downloads."
         ),
         "properties": {

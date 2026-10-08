@@ -594,7 +594,7 @@
         "type": "object"
       },
       "FileEntry": {
-        "description": "One file, in whichever of the three sections listed it — Files, Screenshots, Recordings or Downloads.",
+        "description": "One file, in whichever of the four sections listed it — Files, Screenshots, Recordings or Downloads.",
         "properties": {
           "content_type": {
             "type": "string"

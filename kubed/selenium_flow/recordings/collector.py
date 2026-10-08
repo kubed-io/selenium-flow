@@ -146,6 +146,9 @@ class Collector:
         self._stop: anyio.Event | None = None
         self._retry: asyncio.TimerHandle | None = None
         self._failing = False
+        # Nested directories the last walk could not read (see _inbox_files).
+        self._blind = False
+        self._blind_logged = False
         # Set by `stop`: a recording expected during shutdown starts no task;
         # its note is on disk, so the next process files it.
         self._stopping = False
@@ -363,7 +366,11 @@ class Collector:
                     )
                     await self._file(owed, match[0])
                 continue
-            if owed.ended is not None and now * 1000 - owed.ended >= self.wait * 1000:
+            if (
+                owed.ended is not None
+                and not self._blind
+                and now * 1000 - owed.ended >= self.wait * 1000
+            ):
                 await self._forget(owed)
                 log.warning(
                     "recording for session %s (opened %s UTC) never reached "
@@ -446,8 +453,23 @@ class Collector:
     def _inbox_files(self) -> list[tuple[Path, int, float]]:
         """Every candidate in the inbox with its size and mtime. In a worker
         thread: on a network filesystem a stat can hang."""
+        # os.walk swallows a directory it cannot read, which scans as empty and
+        # lets an owed recording age past `wait` and be dropped. The inbox root
+        # unreadable is a storage fault: raise, so _run logs it once per streak
+        # and retries with every expectation kept. A NESTED directory raising
+        # too would let one bad subfolder starve every other recording for
+        # good, so that one is skipped instead -- but while any subtree is
+        # unreadable, sweep() will not drop a late note, since the file could
+        # be in there.
+        unreadable = []
+
+        def onerror(exc: OSError) -> None:
+            if Path(exc.filename or "") == self.inbox:
+                raise exc
+            unreadable.append(exc)
+
         found = []
-        for root, dirs, names in os.walk(self.inbox):
+        for root, dirs, names in os.walk(self.inbox, onerror=onerror):
             dirs[:] = [d for d in dirs if not d.startswith(".")]
             for name in names:
                 if name.startswith(".") or name.endswith(PARTIAL_SUFFIXES):
@@ -458,6 +480,17 @@ class Collector:
                 except OSError:
                     continue
                 found.append((path, info.st_size, info.st_mtime))
+        self._blind = bool(unreadable)
+        if not unreadable:
+            self._blind_logged = False
+        elif not self._blind_logged:
+            self._blind_logged = True
+            # Once per streak; no path, which can name a Grid id.
+            log.warning(
+                "recordings: %d inbox folder(s) cannot be read (%s); recordings "
+                "owed will not be dropped while that lasts",
+                len(unreadable), type(unreadable[0]).__name__,
+            )
         return found
 
     def _note(self, owed: Owed) -> dict:
