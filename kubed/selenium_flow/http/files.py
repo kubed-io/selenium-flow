@@ -75,7 +75,7 @@ from starlette.responses import JSONResponse
 
 from ..core.annotations import hints
 from ..mcp import clients
-from ..names import valid_file_name
+from ..names import RESERVED_IN_FILES, candidates, valid_file_name
 from . import answer as answer_module
 from . import links
 
@@ -185,33 +185,20 @@ def parse_uri(uri) -> tuple[str, str]:
 
 def _unreserved(name: str) -> str:
     """A name Files can hold: the folder names are taken there (§F4.6)."""
-    return f"{name} (1)" if name in RESERVED else name
-
-
-def _candidates(name: str):
-    """``name``, then ``name (1)``, ``name (2)`` … the way a browser names a
-    second download."""
-    stem, dot, suffix = name.rpartition(".")
-    if not dot or not stem:
-        stem, suffix = name, ""
-    yield name
-    n = 1
-    while True:
-        yield f"{stem} ({n}).{suffix}" if suffix else f"{stem} ({n})"
-        n += 1
+    return f"{name} (1)" if name in RESERVED_IN_FILES else name
 
 
 def _claim(store, session: str, name: str, data: bytes, folder: str) -> dict:
     """Write under the first free name. The exclusive create is the claim, so
     two racing saves cannot both win (Copilot, #40)."""
-    for candidate in _candidates(name):
-        if folder == FILES and candidate in RESERVED:
+    for candidate in candidates(name):
+        if folder == FILES and candidate in RESERVED_IN_FILES:
             continue
         try:
             return store.create_file(session, candidate, data, folder)
         except FileExistsError:
             continue
-    raise AssertionError("unreachable")  # _candidates is infinite
+    raise AssertionError("unreachable")  # candidates is infinite
 
 
 def describe(folder: str, entry: dict, url: str, base: str = "") -> dict:

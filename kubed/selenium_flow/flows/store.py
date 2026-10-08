@@ -38,8 +38,11 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import errno
+import json
 import logging
 import os
+import shutil
 import stat
 import uuid
 from pathlib import Path
@@ -50,9 +53,13 @@ import yaml
 from ..names import (
     FILES_DIR,
     FOLDERS,
+    RECORDINGS_DIR,
+    RESERVED_IN_FILES,
     SESSIONS_DIR,
     InvalidName,
+    candidates,
     valid_file_name,
+    valid_grid_id,
     valid_name,
 )
 from .library import dump, summary, view, yaml_complaint
@@ -68,6 +75,8 @@ log = logging.getLogger("kubed.selenium_flow.flows.library")
 # /openapi.yaml (§F1.14).
 SUFFIX = ".yaml"
 FLOWS_DIR = "flows"
+PENDING_DIR = ".pending"
+_NO_LINK = frozenset({errno.EXDEV, errno.EPERM, errno.ENOTSUP, errno.EMLINK})
 
 
 def valid_folder(folder) -> str:
@@ -410,8 +419,8 @@ class FileStore(SessionLayout):
 
     Bytes rather than documents, and deliberately the whole of what a file
     store needs: the Grid supplies the only other operations there are, and it
-    supplies them for *its* files, not ours. Two folders, kept apart because
-    Files is curated and screenshots are disposable until kept.
+    supplies them for *its* files, not ours. Three folders, kept apart because
+    Files is curated while screenshots and recordings are disposable until kept.
     """
 
     def _files_dir(self, session: str, folder: str = FILES_DIR) -> Path:
@@ -423,6 +432,89 @@ class FileStore(SessionLayout):
             valid_folder(folder),
             valid_file_name(name),
         )
+
+    def file_path(self, session: str, name: str, folder: str = FILES_DIR) -> Path:
+        """Where one file lives, checked: for a route that streams it from disk."""
+        return self._file_path(session, name, folder)
+
+    def move_in(self, session: str, source: Path, name: str, folder: str) -> dict:
+        """Take ``source`` into a folder under the first free name, and remove it.
+
+        Never an overwrite: the claim is a hard link (or, where links cannot
+        cross, an exclusive create and a copy), so a racing move cannot win the
+        same name. Files skips its reserved names, as `_claim` does.
+        """
+        source = Path(source)
+        for candidate in candidates(valid_file_name(name)):
+            if folder == FILES_DIR and candidate in RESERVED_IN_FILES:
+                continue
+            target = self._file_path(session, candidate, folder)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.link(source, target)
+            except FileExistsError:
+                continue
+            except OSError as exc:
+                # No hard link here (another filesystem, or one that has none):
+                # claim the name with an exclusive create and copy instead.
+                if not (isinstance(exc, PermissionError) or exc.errno in _NO_LINK):
+                    raise
+                try:
+                    with target.open("xb") as out, source.open("rb") as src:
+                        shutil.copyfileobj(src, out, 1024 * 1024)
+                except FileExistsError:
+                    continue
+            source.unlink()
+            return self._entry(target)
+        raise AssertionError("unreachable")  # candidates is infinite
+
+    def _note_path(self, session: str, grid_id: str) -> Path:
+        return self._resolved(
+            valid_name(session, "session name"),
+            RECORDINGS_DIR,
+            PENDING_DIR,
+            f"{valid_grid_id(grid_id)}.json",
+        )
+
+    def write_note(self, session: str, grid_id: str, note: dict) -> None:
+        """Write a recording's note whole: a temp file, then a rename."""
+        path = self._note_path(session, grid_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(note), encoding="utf-8")
+        tmp.replace(path)
+
+    def delete_note(self, session: str, grid_id: str) -> bool:
+        try:
+            self._note_path(session, grid_id).unlink()
+        except FileNotFoundError:
+            return False
+        return True
+
+    def notes(self) -> list[tuple[str, str, dict]]:
+        """Every owed recording, as ``(session, grid_id, note)``. A note that is
+        not JSON, or names no usable id, is skipped with a warning."""
+        found = []
+        for session in self.sessions():
+            try:
+                pending = self._resolved(
+                    valid_name(session), RECORDINGS_DIR, PENDING_DIR
+                )
+            except InvalidName:
+                continue
+            if not pending.is_dir():
+                continue
+            for entry in sorted(pending.glob("*.json")):
+                grid_id = entry.stem
+                try:
+                    valid_grid_id(grid_id)
+                    note = json.loads(entry.read_text(encoding="utf-8"))
+                except (InvalidName, ValueError, OSError):
+                    log.warning("ignoring recording note %s/%s", session, entry.name)
+                    continue
+                if isinstance(note, dict):
+                    found.append((session, grid_id, note))
+        return found
 
     def _entry(self, path: Path) -> dict:
         """One file, in either Files or Screenshots, shaped like the Grid's own
