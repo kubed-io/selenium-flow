@@ -7,6 +7,7 @@
       "counts": {
         "downloads": 0,
         "files": 0,
+        "recordings": 0,
         "screenshots": 0
       },
       "files_count": 0,
@@ -20,6 +21,7 @@
       "name": "reopened",
       "node": null,
       "owner": "named",
+      "recording": false,
       "session_id": "live-1",
       "site_data_count": 0,
       "site_data_rev": "[null, []]",
@@ -34,6 +36,7 @@
       "counts": {
         "downloads": 0,
         "files": 0,
+        "recordings": 0,
         "screenshots": 0
       },
       "files_count": 0,
@@ -47,6 +50,7 @@
       "name": "live",
       "node": null,
       "owner": "named",
+      "recording": false,
       "session_id": "live-1",
       "site_data_count": 0,
       "site_data_rev": "[null, []]",
@@ -61,6 +65,7 @@
       "counts": {
         "downloads": null,
         "files": 0,
+        "recordings": 0,
         "screenshots": 0
       },
       "files_count": 0,
@@ -74,6 +79,7 @@
       "name": "sited",
       "node": null,
       "owner": "named",
+      "recording": false,
       "session_id": null,
       "site_data_count": 1,
       "site_data_rev": "[1790799970.0, [\"app.example.com\"]]",
@@ -88,6 +94,7 @@
       "counts": {
         "downloads": null,
         "files": 0,
+        "recordings": 0,
         "screenshots": 0
       },
       "files_count": 0,
@@ -101,6 +108,7 @@
       "name": "detached",
       "node": null,
       "owner": "named",
+      "recording": false,
       "session_id": null,
       "site_data_count": 0,
       "site_data_rev": "[null, []]",

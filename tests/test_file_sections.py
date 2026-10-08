@@ -100,7 +100,7 @@ def test_a_uri_that_names_no_file_is_refused_with_the_shapes(uri):
 # ---- listings -----------------------------------------------------------------
 
 
-def test_the_root_lists_files_and_names_two_folders(store):
+def test_the_root_lists_files_and_names_three_folders(store):
     store.write_file(S, "report.pdf", b"p")
     store.create_file(S, "shot.png", b"s", SCREENSHOTS_DIR)
     got = files.root(Actions(), Sessions(), store, TOKEN, S)
@@ -108,13 +108,14 @@ def test_the_root_lists_files_and_names_two_folders(store):
     assert got["count"] == 1
     assert got["folders"] == [
         {"name": "screenshots", "uri": "session://files/screenshots", "count": 1},
+        {"name": "recordings", "uri": "session://files/recordings", "count": 0},
         {"name": "downloads", "uri": "session://files/downloads", "count": 2, "browser": True},
     ]
 
 
 def test_with_no_browser_the_downloads_folder_says_so(store):
     got = files.root(Actions(), Sessions(browser=""), store, TOKEN, S)
-    assert got["folders"][1] == {
+    assert got["folders"][2] == {
         "name": "downloads", "uri": "session://files/downloads", "count": 0, "browser": False,
     }
 
@@ -155,7 +156,7 @@ def test_the_root_counts_downloads_without_describing_them(store, monkeypatch):
     monkeypatch.setattr(files, "describe", describe_must_not_see_downloads)
 
     got = files.root(Actions(PartialAwareGrid()), Sessions(), store, TOKEN, S)
-    assert got["folders"][1]["count"] == 1
+    assert got["folders"][2]["count"] == 1
 
 
 def test_every_entry_carries_its_own_uri_and_no_kept_flag(store):

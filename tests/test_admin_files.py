@@ -249,7 +249,7 @@ def test_a_broken_screenshot_store_is_a_5xx_not_a_404(client, live):
     (Copilot, PR #41)."""
     with patch.object(
         flows.LocalFlowStore,
-        "read_file",
+        "file_path",
         side_effect=PermissionError(
             13, "Permission denied", "/data/flows/desktop/screenshots/shot.png"
         ),
@@ -277,7 +277,7 @@ def test_the_session_row_counts_each_section(client, live):
         ),
     ):
         row = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
-    assert row["counts"] == {"downloads": 1, "screenshots": 1, "files": 1}
+    assert row["counts"] == {"downloads": 1, "screenshots": 1, "recordings": 0, "files": 1}
     assert row["files_count"] == 3
 
 

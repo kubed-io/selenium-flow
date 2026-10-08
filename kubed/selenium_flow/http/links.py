@@ -146,3 +146,15 @@ def screenshot_url(
 ) -> str:
     """A URL for one screenshot."""
     return _url(screenshot_path(session, name), token, mount, ttl)
+
+
+def recording_path(session: str, name: str) -> str:
+    """The unsigned path of one recording, keyed by session like a screenshot."""
+    return f"/recordings/{quote(session, safe='')}/{quote(name, safe='')}"
+
+
+def recording_url(
+    session: str, name: str, token: str | None, mount: str = "", ttl: int = DEFAULT_TTL
+) -> str:
+    """A URL for one recording."""
+    return _url(recording_path(session, name), token, mount, ttl)

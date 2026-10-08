@@ -610,7 +610,7 @@ FILE_SCHEMAS = {
         "type": "object",
         "description": (
             "One file, in whichever of the three sections listed it — Files, "
-            "Screenshots or Downloads."
+            "Screenshots, Recordings or Downloads."
         ),
         "properties": {
             "name": {"type": "string"},
@@ -653,7 +653,7 @@ FILE_SCHEMAS = {
     },
     "FileList": {
         "type": "object",
-        "description": "session://files: Files' own listing, and its two folders.",
+        "description": "session://files: Files' own listing, and its three folders.",
         "properties": {
             "session": {
                 "type": ["string", "null"],
@@ -672,9 +672,12 @@ FILE_SCHEMAS = {
     },
     "FileFolder": {
         "type": "object",
-        "description": "One of the two folders named beside Files' own files.",
+        "description": "One of the three folders named beside Files' own files.",
         "properties": {
-            "name": {"type": "string", "enum": ["screenshots", "downloads"]},
+            "name": {
+                "type": "string",
+                "enum": ["screenshots", "recordings", "downloads"],
+            },
             "uri": {"type": "string"},
             "count": {"type": "integer"},
             "browser": {
@@ -689,11 +692,15 @@ FILE_SCHEMAS = {
     "FolderList": {
         "type": "object",
         "description": (
-            "One folder's own listing: session://files/screenshots or /downloads."
+            "One folder's own listing: session://files/screenshots, /recordings "
+            "or /downloads."
         ),
         "properties": {
             "session": {"type": ["string", "null"]},
-            "folder": {"type": "string", "enum": ["screenshots", "downloads"]},
+            "folder": {
+                "type": "string",
+                "enum": ["screenshots", "recordings", "downloads"],
+            },
             "uri": {"type": "string"},
             "count": {"type": "integer"},
             "browser": {
@@ -835,9 +842,10 @@ SITE_DATA_SCHEMAS = {
 _FILE_OPERATIONS = {
     "list": (
         "listFiles",
-        "Files' own listing, and its two folders.",
+        "Files' own listing, and its three folders.",
         "Everything kept in Files, newest first, plus a count for "
-        "session://files/screenshots and session://files/downloads — each its "
+        "session://files/screenshots, session://files/recordings and "
+        "session://files/downloads — each its "
         "own listing, fetched separately so a caller who only wants to know "
         "whether there is anything to look at need not pay for either.",
         {"type": "object", "properties": {}},
@@ -848,6 +856,14 @@ _FILE_OPERATIONS = {
         "This session's saved screenshots, not yet kept.",
         "Newest first. Works after the browser that took them is gone, because "
         "they are already ours.",
+        {"type": "object", "properties": {}},
+        "FolderList",
+    ),
+    "recordings": (
+        "listRecordings",
+        "This session's recordings, not yet kept.",
+        "Newest first. One video per browser opened with record=true, filed "
+        "shortly after it ended. Works after the browser is gone.",
         {"type": "object", "properties": {}},
         "FolderList",
     ),
@@ -862,7 +878,7 @@ _FILE_OPERATIONS = {
     ),
     "keep": (
         "keepFile",
-        "Moves a screenshot into Files, or copies a download there.",
+        "Moves a screenshot or a recording into Files, or copies a download there.",
         "The folder and name are both in the path — a screenshot moves out of "
         "its folder, a download is copied because the Grid offers no way to "
         "remove one file. A clash with a name already in Files lands beside it "

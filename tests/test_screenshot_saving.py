@@ -348,6 +348,7 @@ def test_a_kept_page_opens_without_its_scripts(keeping_server):
     from kubed.selenium_flow.http import links
 
     inert = "default-src 'none'; style-src 'unsafe-inline'"
+    media = "default-src 'none'; media-src 'self'; style-src 'unsafe-inline'"
     client = TestClient(keeping_server.mcp.http_app())
     for name, csp in (
         ("page.html", "sandbox"),
@@ -360,6 +361,8 @@ def test_a_kept_page_opens_without_its_scripts(keeping_server):
         ("shot.gif", inert),
         ("shot.webp", inert),
         ("shot.avif", inert),
+        ("clip.mp4", media),
+        ("clip.webm", media),
     ):
         keeping_server.flows.write_file("stdio", name, b"<script>alert(1)</script>")
         response = client.get(links.kept_url("stdio", name, "tok"))

@@ -536,7 +536,7 @@ def _named_in_path(template: str) -> list[dict]:
             "in": "path",
             "required": True,
             "schema": (
-                {"type": "string", "enum": ["screenshots", "downloads"]}
+                {"type": "string", "enum": ["screenshots", "recordings", "downloads"]}
                 if name == "folder"
                 else {"type": "string"}
             ),
@@ -636,6 +636,10 @@ def _mcp_tools() -> tuple[dict, dict]:
             "screenshots": (
                 "x-mcp-resource",
                 files_module.FOLDER_URI[files_module.SCREENSHOTS],
+            ),
+            "recordings": (
+                "x-mcp-resource",
+                files_module.FOLDER_URI[files_module.RECORDINGS],
             ),
             "downloads": (
                 "x-mcp-resource",

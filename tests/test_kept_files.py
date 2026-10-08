@@ -301,6 +301,7 @@ MCP_FOR = {
     "list": ("resource", files.ROOT_URI),
     "screenshots": ("resource", files.FOLDER_URI[files.SCREENSHOTS]),
     "downloads": ("resource", files.FOLDER_URI[files.DOWNLOADS]),
+    "recordings": ("resource", files.FOLDER_URI[files.RECORDINGS]),
     "keep": ("tool", files.KEEP_TOOL),
 }
 
@@ -400,7 +401,7 @@ def test_keep_then_list_over_http(client, live):
     assert body["session"] == SESSION
     # The Grid still reports both — keeping a download is a copy, so the
     # original stays exactly where it was until the browser ends (§F1.10).
-    downloads = body["folders"][1]
+    downloads = next(f for f in body["folders"] if f["name"] == "downloads")
     assert downloads["name"] == "downloads" and downloads["count"] == 2
 
 
@@ -636,7 +637,7 @@ def test_such_a_session_shows_unknown_counts_not_the_shared_librarys(
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get("/admin/sessions", headers=AUTH).json()
     row = next(r for r in body["sessions"] if r["key"] == BAD_KEY)
-    assert row["counts"] == {"downloads": None, "screenshots": None, "files": None}
+    assert row["counts"] == {"downloads": None, "screenshots": None, "recordings": None, "files": None}
     assert row["files_count"] is None and row["flows_count"] is None
 
 
@@ -708,7 +709,7 @@ def test_a_broken_kept_store_is_a_5xx_not_a_404(client, live):
     (Copilot, PR #41)."""
     with patch.object(
         flows.LocalFlowStore,
-        "read_file",
+        "file_path",
         side_effect=PermissionError(
             13, "Permission denied", "/data/flows/desktop/files/report.pdf"
         ),
@@ -754,12 +755,12 @@ async def test_the_file_endpoints_are_tagged_apart(spec):
 
 
 async def test_the_keep_routes_folder_parameter_is_an_enum(spec):
-    """It can only ever be `screenshots` or `downloads` — `files.RESERVED` says
+    """It can only ever be `screenshots`, `recordings` or `downloads` — `files.RESERVED` says
     so, and the route itself refuses a third — so a generated client should
     not have to guess one."""
     params = spec["paths"]["/files/{folder}/{name}/kept"]["put"]["parameters"]
     folder = next(p for p in params if p["name"] == "folder")
-    assert folder["schema"]["enum"] == ["screenshots", "downloads"]
+    assert folder["schema"]["enum"] == ["screenshots", "recordings", "downloads"]
 
 
 async def test_every_file_response_schema_it_references_exists(spec):

@@ -14,18 +14,19 @@ from __future__ import annotations
 
 import logging
 import re
+import stat
 import time
 from collections.abc import Callable
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from urllib.parse import quote
 
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse, Response
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from ... import errors, faults
 from ...core.browser import is_partial
-from ...names import SCREENSHOTS_DIR, InvalidName
+from ...names import RECORDINGS_DIR, SCREENSHOTS_DIR, InvalidName
 from .. import files, links
 
 log = logging.getLogger(__name__)
@@ -128,14 +129,14 @@ def fresh_for(request: Request) -> int:
         return 3600
 
 
-def served(name: str, data: bytes, max_age: int) -> Response:
-    """One stored file's bytes, however it was stored.
+# A video or audio file opened in a tab is a media document that loads itself:
+# it needs `media-src 'self'` and nothing else, and like an image it is not
+# sandboxed, for the reason RASTER_TYPES gives.
+MEDIA_ONLY = "default-src 'none'; media-src 'self'; style-src 'unsafe-inline'"
 
-    Shared by the signed routes — a browser's download, a kept file and a
-    screenshot — because the only thing that differs between them is where the
-    bytes came from. Two copies of this is how one of them ends up without the
-    ``Content-Disposition`` and downloads as ``shot.png`` called ``name``.
-    """
+
+def headers_for(name: str, max_age: int) -> dict:
+    """The headers every stored file is served with; see `served`."""
     kind = files.content_type(name)
     headers = {
         # Named for download, but shown inline when the browser can: the
@@ -154,6 +155,8 @@ def served(name: str, data: bytes, max_age: int) -> Response:
         # 'none'` backs that — as GitHub serves its avatars. The inline style is
         # Firefox's image viewer.
         headers["Content-Security-Policy"] = NO_SCRIPT
+    elif kind.startswith(("video/", "audio/")):
+        headers["Content-Security-Policy"] = MEDIA_ONLY
     elif kind != "application/pdf":
         # These bytes are a site's: a page kept by `print(format="html")`, an
         # SVG, an .html some site downloaded. Opened inline on this origin,
@@ -163,7 +166,20 @@ def served(name: str, data: bytes, max_age: int) -> Response:
         # known inert, because a list of dangerous ones is what misses `.xht`;
         # a PDF is the exception, since Chrome's viewer does not load under it.
         headers["Content-Security-Policy"] = "sandbox"
-    return Response(data, media_type=kind, headers=headers)
+    return headers
+
+
+def served(name: str, data: bytes, max_age: int) -> Response:
+    """One stored file's bytes, however it was stored.
+
+    Shared by the signed routes that hold bytes — a browser's download — because
+    the only thing that differs between them is where the bytes came from. Two
+    copies of this is how one of them ends up without the ``Content-Disposition``
+    and downloads as ``shot.png`` called ``name``.
+    """
+    return Response(
+        data, media_type=files.content_type(name), headers=headers_for(name, max_age)
+    )
 
 
 def signed_refused(exc: Exception, what: str) -> JSONResponse:
@@ -198,7 +214,8 @@ def route(
     name: str,
     owner: str,
     path_of: Callable[[str, str], str],
-    read: Callable[[str, str], bytes],
+    read: Callable[[str, str], bytes] | None = None,
+    path: Callable[[str, str], Path] | None = None,
     closed: Callable[[str], bool],
     absent: tuple[type[Exception], ...] = (),
     what: str,
@@ -208,7 +225,9 @@ def route(
 
     ``owner`` is the URL parameter naming whose file it is (a browser id or a
     session); ``path_of`` is the path the signature was minted over; ``read``
-    fetches the bytes, in a worker thread. ``closed(name)`` answers 404 before
+    fetches the bytes, in a worker thread; ``path`` instead resolves the file on
+    disk and streams it, answering ``Range`` so a player can seek.
+    ``closed(name)`` answers 404 before
     anything is read — a partial download, or no store to look in — and
     ``absent`` lists the exceptions that mean the file is genuinely not there
     (or a name the store would never have written). Anything else is a fault
@@ -225,6 +244,18 @@ def route(
         if closed(leaf):
             return JSONResponse({"error": "not found"}, status_code=404)
         try:
+            if path is not None:
+                resolved = await run_in_threadpool(path, who, leaf)
+                # stat, not is_file: is_file turns a permission fault into
+                # "absent", and a storage fault must stay a 5xx.
+                info = await run_in_threadpool(resolved.stat)
+                if not stat.S_ISREG(info.st_mode):
+                    return JSONResponse({"error": "not found"}, status_code=404)
+                return FileResponse(
+                    resolved,
+                    media_type=files.content_type(leaf),
+                    headers=headers_for(leaf, fresh_for(request)),
+                )
             data = await run_in_threadpool(read, who, leaf)
         except absent:
             return JSONResponse({"error": "not found"}, status_code=404)
@@ -238,7 +269,7 @@ def route(
 
 
 def mount(mcp, actions, flow_store, token, prefix) -> None:
-    """Mount the three signed routes."""
+    """Mount the four signed routes."""
     route(
         mcp,
         token,
@@ -274,7 +305,7 @@ def mount(mcp, actions, flow_store, token, prefix) -> None:
         name="kept_file",
         owner="session",
         path_of=links.kept_path,
-        read=lambda session, leaf: flow_store.read_file(session, leaf),
+        path=lambda session, leaf: flow_store.file_path(session, leaf),
         closed=lambda _leaf: flow_store is None,
         absent=gone,
         what="reading kept {name} for {owner}",
@@ -293,7 +324,7 @@ def mount(mcp, actions, flow_store, token, prefix) -> None:
         name="screenshot_file",
         owner="session",
         path_of=links.screenshot_path,
-        read=lambda session, leaf: flow_store.read_file(
+        path=lambda session, leaf: flow_store.file_path(
             session, leaf, SCREENSHOTS_DIR
         ),
         closed=lambda _leaf: flow_store is None,
@@ -307,4 +338,18 @@ def mount(mcp, actions, flow_store, token, prefix) -> None:
         same way a kept file does, but it is not a kept file — it lives in its
         own folder until someone keeps or clears it (§F4.6).
         """,
+    )
+    route(
+        mcp,
+        token,
+        url=f"{prefix}/recordings/{{session}}/{{name}}",
+        name="recording_file",
+        owner="session",
+        path_of=links.recording_path,
+        path=lambda session, leaf: flow_store.file_path(session, leaf, RECORDINGS_DIR),
+        closed=lambda _leaf: flow_store is None,
+        absent=gone,
+        what="reading recording {name} for {owner}",
+        doc="""One recording, authorised by the signature in its own URL, streamed
+        from disk so a player can seek (Range).""",
     )
