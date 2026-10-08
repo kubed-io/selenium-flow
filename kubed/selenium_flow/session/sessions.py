@@ -64,6 +64,11 @@ from .store import MemoryStore, SessionRecord, SessionStore
 
 log = logging.getLogger(__name__)
 
+RECORDING_OFF = (
+    "Recording is not set up on this server (recording.enabled is off). "
+    "See the README's Recording section."
+)
+
 # `settle`'s default page: the one the result itself reports.
 FROM_RESULT = object()
 
@@ -268,6 +273,7 @@ class SessionManager:
         store: SessionStore | None = None,
         skill_available: bool = True,
         defaults: dict | None = None,
+        recordings=None,
     ):
         self.actions = actions
         self.store = store if store is not None else MemoryStore()
@@ -278,6 +284,9 @@ class SessionManager:
         # The operator's floor for a new session, from the config's session
         # section. See `session/settings.py` for where this sits in the cascade.
         self.defaults = dict(defaults or {})
+        # Who files a recorded browser's video (`recordings.Collector`), or None
+        # when recording is off. Told on open and on end; it owns no browser.
+        self.recordings = recordings
 
     @property
     def kind(self) -> str:
@@ -300,6 +309,7 @@ class SessionManager:
             "browser": None,
             "url": None,
             "live": False,
+            "recording": False,
             "in_frame": None,
             "window": None,
             "store": self.kind,
@@ -333,6 +343,7 @@ class SessionManager:
         status["live"] = (
             self.actions.grid.is_alive(record.session_id) if record.attached else False
         )
+        status["recording"] = bool(status["live"] and status["settings"].get("record"))
         if status["live"]:
             # Only worth a round trip when there is a live browser to ask, and
             # one reconnect answers both questions.
@@ -393,13 +404,14 @@ class SessionManager:
         saved = self._restorable(record)
         opened = self.actions.open_session(
             url=record.url or None,
+            **({"video_name": name} if (record.settings or {}).get("record") else {}),
             **({"site_data": saved} if saved else {}),
             **(record.settings or {}),
         )
         # Nobody asked for this reopen, so the first result after it says what
         # came back: the record holds the report until `touch` hands it over.
         # A reopen alongside this one may bind first; then act on its browser.
-        return self.remember(
+        kept = self.remember(
             name,
             opened["session_id"],
             opened.get("url", record.url or ""),
@@ -407,6 +419,13 @@ class SessionManager:
             replacing=record.session_id,
             report=opened.get("site_data"),
         )
+        if (record.settings or {}).get("record") and self.recordings is not None:
+            self.recordings.expect(
+                name,
+                opened["session_id"],
+                (record.settings or {}).get("browser") or DEFAULT_BROWSER,
+            )
+        return kept
 
     def act(self, caller: Caller, call, *, reshapes: bool = False) -> dict:
         """Resolve this session's browser, act on it, remember where it ended up.
@@ -563,12 +582,17 @@ class SessionManager:
         # validates as well as merges: an explicit browser is checked strictly,
         # and doing it afterwards meant a typo in `browser=` quit a perfectly
         # good browser and then failed. A rejected argument must cost nothing.
+        inherited_settings = {
+            k: v for k, v in (previous.get("settings") or {}).items() if k != "record"
+        }
         resolved = settings_module.resolve(
             wanted,
             defaults=self.defaults,
-            previous=previous.get("settings"),
+            previous=inherited_settings,
             client=caller.defaults,
         )
+        if resolved.get("record") and self.recordings is None:
+            raise ValueError(RECORDING_OFF)
         # The caller's page, checked for the same reason. A remembered one is
         # where the browser already was, so it is not the caller's to check.
         if url:
@@ -593,7 +617,10 @@ class SessionManager:
             forgotten = (site_data_module.summary(saved) or {"sites": 0})["sites"]
             saved = {}
         opened = self.actions.open_session(
-            url=url or inherited, **({"site_data": saved} if saved else {}), **resolved
+            url=url or inherited,
+            **({"video_name": name} if resolved.get("record") else {}),
+            **({"site_data": saved} if saved else {}),
+            **resolved,
         )
         kept = self.remember(
             name, opened["session_id"], opened.get("url", ""), resolved,
@@ -603,11 +630,30 @@ class SessionManager:
             # A concurrent open bound first and this browser was quit: describe
             # the one the session holds, not the discarded one (Copilot, #50).
             return self._held(name)
+        noted = None
+        if resolved.get("record"):
+            try:
+                self.recordings.expect(
+                    name,
+                    opened["session_id"],
+                    resolved.get("browser") or DEFAULT_BROWSER,
+                )
+            except OSError as exc:
+                # The browser is open and recording on the Grid; only the filing
+                # failed. Said in the result, as `file_error` is for a screenshot,
+                # and never with the path (names a layout nobody asked about).
+                log.warning(
+                    "recording for %s cannot be filed: %s", name, faults.message(exc)
+                )
+                noted = f"this recording cannot be filed: {type(exc).__name__}"
         if forgotten is not None:
             opened["site_data"] = {"forgotten": forgotten}
         # The Grid's id is dropped here rather than never fetched: it is how the
         # browser is reached, and it is not part of what a caller is told.
         told = {k: v for k, v in opened.items() if k != "session_id"}
+        told["recording"] = bool(resolved.get("record"))
+        if noted:
+            told["recording_error"] = noted
         return {"session": name, **told}
 
     def _held(self, name: str) -> dict:
@@ -619,6 +665,7 @@ class SessionManager:
             "browser": settings.get("browser"),
             "url": record.url if record else "",
             "settings": settings,
+            "recording": bool(settings.get("record")),
             "note": "another open of this session bound its browser first: "
             "this is that browser",
         }
@@ -806,6 +853,8 @@ class SessionManager:
             # record naming a browser that cannot be ended is worse than one
             # naming nothing, because the next call would try to use it.
             log.info("could not end browser %s: %s", target, faults.message(exc))
+        if self.recordings is not None:
+            self.recordings.ended(target)
         # Ending took a Grid round trip: detach the record as it is now, and
         # only if it still names this browser — one opened meanwhile stays.
         self.store.update(

@@ -379,3 +379,9 @@ def test_the_retired_file_section_stops_the_boot_with_the_move(tmp_path):
     with pytest.raises(config.ConfigError) as exc:
         config.load(["--config-file", str(path)], {})
     assert str(exc.value) == config.RETIRED_FLOW
+
+
+def test_recording_section_defaults_and_env():
+    s = config.load([], {"DATA_DIR": "/d", "RECORDING_ENABLED": "true"}).settings
+    assert s.recording.enabled is True
+    assert (s.recording.wait, s.recording.watch, s.recording.poll) == (600, "auto", 1000)

@@ -32,7 +32,7 @@ from pydantic.fields import FieldInfo
 from pydantic_settings import EnvSettingsSource, NoDecode
 
 from .core.defaults import DEFAULT_GRID_URL, normalize_browser
-from .names import valid_name
+from .names import INBOX_DIR, valid_name
 from .urls import without_userinfo
 
 # Marks a field that only the config file may set: structure, not a value.
@@ -206,6 +206,32 @@ class DataSettings(Section):
         return (value or "").strip() or None
 
 
+class RecordingSettings(Section):
+    enabled: bool = Field(
+        False, description="The Grid's recordings reach recording.dir."
+    )
+    dir: str | None = Field(
+        None,
+        description="Where the Grid's recordings arrive. Unset is data.dir/recordings.",
+    )
+    wait: int = Field(
+        600,
+        ge=30,
+        description="Seconds after a browser ends to wait for its recording.",
+    )
+    watch: Literal["auto", "events", "poll"] = Field(
+        "auto", description="auto, events or poll: how recording.dir is watched."
+    )
+    poll: int = Field(
+        1000, ge=200, description="Milliseconds between looks, when polling."
+    )
+
+    @field_validator("dir")
+    @classmethod
+    def _blank_is_unset(cls, value):
+        return (value or "").strip() or None
+
+
 class SecretsSettings(Section):
     # NoDecode: pydantic-settings would otherwise JSON-decode a list read from
     # env, and `SECRETS_DIRS=/a:/b` is not JSON.
@@ -363,6 +389,10 @@ class Settings(Section):
     data: DataSettings = Field(
         default_factory=DataSettings,
         description="Where sessions, their flows and files, and recordings live.",
+    )
+    recording: RecordingSettings = Field(
+        default_factory=RecordingSettings,
+        description="Video of a browser's whole life, from the Grid's recorder.",
     )
     secrets: SecretsSettings = Field(
         default_factory=SecretsSettings, description="Where secrets are read from."
@@ -771,7 +801,26 @@ def load(
     problem = oidc_problem(settings)
     if problem:
         raise ConfigError(problem)
+    problem = recording_problem(settings)
+    if problem:
+        raise ConfigError(problem)
     return Loaded(settings, sources)
+
+
+def recording_problem(settings: Settings) -> str | None:
+    """Why recording cannot run, or None. Checked after every layer merges."""
+    if settings.recording.enabled and not settings.data.dir:
+        return "recording.enabled needs data.dir: a recording is filed into its session"
+    return None
+
+
+def recording_dir(settings: Settings) -> str | None:
+    """The inbox: recording.dir, else data.dir/recordings, else None."""
+    if settings.recording.dir:
+        return settings.recording.dir
+    if settings.data.dir:
+        return str(Path(settings.data.dir) / INBOX_DIR)
+    return None
 
 
 def sources_for(settings: Settings) -> dict[str, str]:

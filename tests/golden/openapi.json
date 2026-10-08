@@ -1454,6 +1454,17 @@
             ],
             "default": null
           },
+          "record": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "restore_site_data": {
             "default": true,
             "type": "boolean"
@@ -1503,6 +1514,14 @@
           "height": {
             "description": "Window height in use.",
             "type": "integer"
+          },
+          "recording": {
+            "description": "Whether this browser is being recorded.",
+            "type": "boolean"
+          },
+          "recording_error": {
+            "description": "Why this recording cannot be filed, when it cannot.",
+            "type": "string"
           },
           "session": {
             "description": "The session this browser belongs to — the name you called with. There is no browser id to keep.",
@@ -2592,6 +2611,10 @@
               "null"
             ]
           },
+          "recording": {
+            "description": "Whether the browser this session holds is being recorded.",
+            "type": "boolean"
+          },
           "session": {
             "description": "The name you called with.",
             "type": "string"
@@ -3298,7 +3321,7 @@
         "x-mcp-resource": "session://current"
       },
       "post": {
-        "description": "Start this session's browser, or come back to the one it had. Call it before\nanything else: nothing opens a browser for you.\n\nWith no arguments it returns to the same browser, window and page, which is\nthe right call after a browser was reaped or ended. Calling it while you\nhold a browser ends that one first, which is how you switch:\nopen_session(browser=\"firefox\"). Files that browser had and you did not keep\ngo with it.\n\nSet width and height when layout matters; the headless default is narrow.\nfresh=true starts on about:blank. Saved site data comes back by default;\nrestore_site_data=false opens without it and deletes it, which is how you\nstart as a new user. page_load_timeout bounds a navigation that\nhangs. insecure=true accepts a self-signed certificate; use it only for a site\nyou know has one. An insecure browser gets no saved site data.",
+        "description": "Start this session's browser, or come back to the one it had. Call it before\nanything else: nothing opens a browser for you.\n\nWith no arguments it returns to the same browser, window and page, which is\nthe right call after a browser was reaped or ended. Calling it while you\nhold a browser ends that one first, which is how you switch:\nopen_session(browser=\"firefox\"). Files that browser had and you did not keep\ngo with it.\n\nSet width and height when layout matters; the headless default is narrow.\nfresh=true starts on about:blank. Saved site data comes back by default;\nrestore_site_data=false opens without it and deletes it, which is how you\nstart as a new user. page_load_timeout bounds a navigation that\nhangs. insecure=true accepts a self-signed certificate; use it only for a site\nyou know has one. An insecure browser gets no saved site data.\nrecord=true films this browser's whole life as a video, from now until it\nends; it appears under session://files/recordings shortly after. A person\nwatches it, so only when one will — it costs the Grid. Not inherited: ask\nagain for the next browser.",
         "operationId": "open_session",
         "parameters": [
           {

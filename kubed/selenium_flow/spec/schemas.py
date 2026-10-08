@@ -52,6 +52,12 @@ RESPONSES = {
                 "type": "boolean",
                 "description": "Whether a browser is open for this session.",
             },
+            "recording": {
+                "type": "boolean",
+                "description": (
+                    "Whether the browser this session holds is being recorded."
+                ),
+            },
             "in_frame": {"type": ["boolean", "null"]},
             "window": {
                 "type": ["string", "null"],

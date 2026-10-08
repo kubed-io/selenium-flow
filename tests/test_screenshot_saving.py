@@ -544,7 +544,7 @@ def test_open_session_opens_insecure_only_when_asked_and_remembers_it(server, mo
         def get(self, url):
             self.current_url = url
 
-    def opening(browser=None, insecure=False):
+    def opening(browser=None, insecure=False, record=False, video_name=None):
         asked.append(insecure)
         return _Driver()
 

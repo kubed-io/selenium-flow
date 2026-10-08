@@ -159,6 +159,16 @@ CAPABILITIES: tuple[Capability, ...] = (
                         "server default / client default / explicit cascade."
                     ),
                 },
+                "recording": {
+                    "type": "boolean",
+                    "description": "Whether this browser is being recorded.",
+                },
+                "recording_error": {
+                    "type": "string",
+                    "description": (
+                        "Why this recording cannot be filed, when it cannot."
+                    ),
+                },
             },
         },
     ),

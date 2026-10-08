@@ -151,6 +151,8 @@ class Actions:
         page_load_timeout=None,
         script_timeout=None,
         insecure=None,
+        record=None,
+        video_name=None,
         site_data=None,
     ) -> dict:
         """Start a browser session with the settings it should run under.
@@ -163,11 +165,15 @@ class Actions:
 
         A session's saved site data is restored here — cookies, every origin's
         storage, the saved sessionStorage — before the first page loads, except
-        into an ``insecure`` browser, which gets none.
+        into an ``insecure`` browser, which gets none. ``record`` asks the Grid
+        to film this browser's whole life.
         """
         name = normalize_browser(browser)
         insecure = as_bool(insecure, False)
-        driver = self.grid.open(name, insecure=insecure)
+        record = as_bool(record, False)
+        driver = self.grid.open(
+            name, insecure=insecure, record=record, video_name=video_name
+        )
         session_id = driver.session_id
 
         if width or height:
@@ -231,6 +237,8 @@ class Actions:
             applied["script_timeout"] = as_int(script_timeout, 0)
         if insecure:
             applied["insecure"] = True
+        if record:
+            applied["record"] = True
         result = {
             "session_id": session_id,
             "browser": name,
