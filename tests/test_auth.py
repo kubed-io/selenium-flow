@@ -188,10 +188,15 @@ async def test_unknown_kids_fetch_the_jwks_once_per_floor(issuer, monkeypatch):
     assert results == [None] * 8 and issuer.fetches == 1
     # The one fetch cached the real key, so a good token is unaffected.
     assert await verifier.verify_token(issuer.mint()) is not None
-    assert issuer.fetches == 1
-    monkeypatch.setattr(auth, "JWKS_REFETCH_FLOOR", 0)
+    # And the next unknown kid, inside the floor, is refused without one.
     assert await verifier.verify_token(_unknown_kid(issuer)) is None
-    assert issuer.fetches == 2
+    assert issuer.fetches == 1
+    # Past the floor, a miss fetches again: the floor is the only thing holding it.
+    monkeypatch.setattr(auth, "JWKS_REFETCH_FLOOR", 0)
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
+    for fetches in (2, 3):
+        assert await verifier.verify_token(_unknown_kid(issuer)) is None
+        assert issuer.fetches == fetches
 
 
 async def test_a_cold_start_burst_waits_for_one_fetch(issuer):

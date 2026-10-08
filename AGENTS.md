@@ -148,9 +148,11 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
 - **Behind agentgateway, `X-Session-Key` / `X-Workspace` cross and `?session=` does not.**
 - **A JWT with an unknown `kid` makes `JWTVerifier` fetch the JWKS**, and FastMCP's bearer
   middleware runs on every path, so any request on a door that bypasses the gateway (the
-  in-cluster Service, the ingress) can cause one. `OidcVerifier._fetch_jwks` floors that at one
-  attempt per `JWKS_REFETCH_FLOOR` (60 s), failed attempts included; misses during a fetch
-  wait for it rather than being refused.
+  in-cluster Service, the ingress) can cause one. `OidcVerifier` floors that at one attempt
+  per `JWKS_REFETCH_FLOOR` (60 s), failed attempts included; misses during a fetch wait for
+  it rather than being refused. On FastMCP 4.1+ it is FastMCP's own floor
+  (`jwks_refresh_interval`, default 30 s), set to ours rather than doubled; the
+  `_fetch_jwks` override is the same floor for 4.0 and goes when the lower bound reaches 4.1.
 
 - **Type hints in `mcp/tools.py` are the tool schema.** FastMCP builds the JSON schema from the
   signature, so a missing or loose annotation is a worse tool, not a style nit. This is the
