@@ -84,12 +84,13 @@ CLIENT_ID = "selenium-flow"
 # refusals for the new kid: the accepted price of closing that amplifier.
 JWKS_REFETCH_FLOOR = 60
 
-# FastMCP 4.1 floors JWKS refreshes itself (`jwks_refresh_interval`, attempts
-# counted, refreshes serialised under a lock), at 30 s by default. Where it can,
-# this module sets that rather than keeping a second floor beside it; the
-# `_fetch_jwks` override below is the same floor for 4.0, and goes when the
-# dependency's lower bound reaches 4.1.
-_NATIVE_FLOOR = (
+# FastMCP 4.1 floors JWKS refreshes itself (`jwks_refresh_interval`, 30 s by
+# default), but records the attempt and fetches under a lock, unshielded: a
+# first caller cancelled mid-fetch takes the fetch with it, and everyone waiting
+# is refused for the whole interval. So that floor is set to 0 (refresh on every
+# miss, its documented off) and `OidcVerifier._fetch_jwks` is the one floor on
+# every FastMCP. 4.0 has no such parameter, so it is passed only where it exists.
+_TAKES_REFRESH_INTERVAL = (
     "jwks_refresh_interval" in inspect.signature(JWTVerifier.__init__).parameters
 )
 
@@ -125,30 +126,29 @@ class OidcVerifier(JWTVerifier):
     """
 
     def __init__(self, oidc: config.OidcSettings, *, http_client=None):
-        # Read once, here, on either path: the floor a verifier was built with.
-        self._floor = JWKS_REFETCH_FLOOR
-        floor = {"jwks_refresh_interval": self._floor} if _NATIVE_FLOOR else {}
+        # FastMCP's own floor off, so ours is the only one (see above).
+        native = {"jwks_refresh_interval": 0} if _TAKES_REFRESH_INTERVAL else {}
         super().__init__(
             jwks_uri=oidc.jwks_uri,
             issuer=oidc.issuer,
             audience=oidc.audience,
             algorithm="RS256",
             http_client=http_client,
-            **floor,
+            **native,
         )
         self._roles = frozenset(oidc.roles)
         self._roles_claim = oidc.roles_claim
+        self._floor = JWKS_REFETCH_FLOOR  # read once: the floor it was built with
         self._fetched_at: float | None = None
         self._inflight: asyncio.Future | None = None
 
     async def _fetch_jwks(self) -> dict[str, Any]:
-        if _NATIVE_FLOOR:
-            return await super()._fetch_jwks()
-        # FastMCP 4.0: JWTVerifier calls this on every cache miss, and its caller
-        # turns the ValueError into a refusal and keeps the cached keys.
-        # Single-flight: a burst waits for the one fetch in progress, so a valid
-        # token at cold start is not refused by the floor. Shielded, so one
-        # waiter's cancellation does not cancel the fetch for the rest.
+        # JWTVerifier calls this on every cache miss (4.1: under its lock, one
+        # miss at a time), and its caller turns the ValueError into a refusal
+        # and keeps the cached keys. Single-flight: a burst waits for the one
+        # fetch in progress, so a valid token at cold start is not refused by
+        # the floor. Shielded, so one waiter's cancellation does not cancel the
+        # fetch for the rest.
         if self._inflight is not None:
             return await asyncio.shield(self._inflight)
         now = time.monotonic()

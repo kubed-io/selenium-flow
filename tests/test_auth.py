@@ -210,6 +210,25 @@ async def test_a_cold_start_burst_waits_for_one_fetch(issuer):
     assert issuer.fetches == 1
 
 
+async def test_a_cancelled_first_caller_does_not_cost_the_rest_the_fetch(issuer):
+    """The caller that started the fetch may go; the ones waiting on it still get it."""
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
+    issuer.gate.clear()
+    try:
+        first = asyncio.ensure_future(verifier.verify_token(issuer.mint()))
+        while issuer.fetches == 0:
+            await asyncio.sleep(0.01)
+        rest = [asyncio.ensure_future(verifier.verify_token(issuer.mint())) for _ in range(4)]
+        await asyncio.sleep(0.05)
+        first.cancel()
+        await asyncio.sleep(0.05)
+    finally:
+        issuer.gate.set()
+    results = await asyncio.gather(*rest)
+    assert all(r is not None for r in results) and issuer.fetches == 1
+    assert first.cancelled()
+
+
 async def test_a_failed_shared_fetch_reaches_every_waiter(issuer, caplog):
     verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
     issuer.down = True
