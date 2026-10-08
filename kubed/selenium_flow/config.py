@@ -691,7 +691,7 @@ def oidc_problem(settings: Settings) -> str | None:
 
 
 RETIRED_FLOW = (
-    "DATA_DIR is now DATA_DIR, and session folders live under "
+    "FLOW_DATA_DIR is now DATA_DIR, and session folders live under "
     "DATA_DIR/sessions/ — move them there once, then set DATA_DIR"
 )
 
@@ -700,7 +700,7 @@ def _retired(environ: Mapping[str, str], file: dict) -> None:
     """A name this server used to read, refused rather than ignored.
 
     The env layer drops unknown names on purpose (Kubernetes injects plenty),
-    so a deployment still setting DATA_DIR would boot with flows quietly
+    so a deployment still setting FLOW_DATA_DIR would boot with flows quietly
     off. One retired name is worth naming; the rule stays lenient for the rest.
     """
     if any(

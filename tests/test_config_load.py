@@ -363,7 +363,10 @@ def test_data_dir_is_the_setting_and_reads_from_env():
 def test_the_retired_env_name_stops_the_boot_with_the_move():
     with pytest.raises(config.ConfigError) as exc:
         config.load([], {"FLOW_DATA_DIR": "/data/flows"})
-    assert str(exc.value) == config.RETIRED_FLOW
+    assert str(exc.value) == (
+        "FLOW_DATA_DIR is now DATA_DIR, and session folders live under "
+        "DATA_DIR/sessions/ — move them there once, then set DATA_DIR"
+    )
 
 
 def test_a_blank_retired_env_name_is_not_a_setting():
