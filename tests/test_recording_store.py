@@ -1,6 +1,8 @@
 """Recordings and notes in the session store."""
 
+import errno
 import os
+import shutil
 
 import pytest
 
@@ -84,3 +86,52 @@ def test_grid_ids_are_validated_before_they_become_paths():
 def test_candidates_are_the_browser_naming_rule():
     it = candidates("a.mp4")
     assert [next(it) for _ in range(3)] == ["a.mp4", "a (1).mp4", "a (2).mp4"]
+
+
+def test_a_copy_that_fails_midway_leaves_no_partial_file(store, tmp_path, monkeypatch):
+    src = tmp_path / "v.mp4"
+    src.write_bytes(b"data")
+    monkeypatch.setattr(os, "link", lambda *_a, **_k: (_ for _ in ()).throw(OSError(18, "EXDEV")))
+    monkeypatch.setattr(shutil, "copyfileobj", lambda *_a, **_k: (_ for _ in ()).throw(OSError(28, "ENOSPC")))
+    with pytest.raises(OSError):
+        store.move_in("bot", src, "rec.mp4", RECORDINGS_DIR)
+    folder = store.root / "bot" / RECORDINGS_DIR
+    assert [p for p in folder.iterdir() if p.name != ".pending"] == []
+    assert src.read_bytes() == b"data"
+
+
+def test_a_link_failure_that_is_not_about_links_raises(store, tmp_path, monkeypatch):
+    src = tmp_path / "v.mp4"
+    src.write_bytes(b"data")
+    monkeypatch.setattr(os, "link", lambda *_a, **_k: (_ for _ in ()).throw(OSError(errno.EIO, "EIO")))
+    with pytest.raises(OSError):
+        store.move_in("bot", src, "rec.mp4", RECORDINGS_DIR)
+    assert src.read_bytes() == b"data"
+
+
+def test_a_symlinked_note_is_skipped(store, tmp_path):
+    outside = tmp_path / "outside.json"
+    outside.write_text('{"secret": 1}')
+    pending = store.root / "bot" / RECORDINGS_DIR / ".pending"
+    pending.mkdir(parents=True)
+    (pending / f"{GID}.json").symlink_to(outside)
+    assert store.notes() == []
+
+
+def test_the_copy_path_keeps_the_sources_mtime(store, tmp_path, monkeypatch):
+    src = tmp_path / "v.mp4"
+    src.write_bytes(b"data")
+    os.utime(src, (1_000_000_000, 1_000_000_000))
+    real = os.link
+    calls = []
+
+    def link(a, b, *args, **kw):
+        if not calls:
+            calls.append(1)
+            raise OSError(errno.EXDEV, "EXDEV")
+        return real(a, b, *args, **kw)
+
+    monkeypatch.setattr(os, "link", link)
+    landed = store.move_in("bot", src, "rec.mp4", RECORDINGS_DIR)
+    path = store.file_path("bot", landed["name"], RECORDINGS_DIR)
+    assert int(path.stat().st_mtime) == 1_000_000_000

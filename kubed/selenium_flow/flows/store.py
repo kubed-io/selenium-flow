@@ -143,6 +143,11 @@ def _listed(directory: Path, usable) -> list[tuple[str, os.stat_result]]:
             os.close(fd)
 
 
+def _no_link(exc: OSError) -> bool:
+    """Whether a failed ``os.link`` means links are unavailable, not a real fault."""
+    return isinstance(exc, PermissionError) or exc.errno in _NO_LINK
+
+
 def _replace(path: Path, text: str) -> None:
     """Write ``text`` as ``path`` in one step: a reader sees the old document or
     the new one, never part of either.
@@ -445,28 +450,69 @@ class FileStore(SessionLayout):
         same name. Files skips its reserved names, as `_claim` does.
         """
         source = Path(source)
-        for candidate in candidates(valid_file_name(name)):
-            if folder == FILES_DIR and candidate in RESERVED_IN_FILES:
-                continue
-            target = self._file_path(session, candidate, folder)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                os.link(source, target)
-            except FileExistsError:
-                continue
-            except OSError as exc:
-                # No hard link here (another filesystem, or one that has none):
-                # claim the name with an exclusive create and copy instead.
-                if not (isinstance(exc, PermissionError) or exc.errno in _NO_LINK):
-                    raise
-                try:
-                    with target.open("xb") as out, source.open("rb") as src:
-                        shutil.copyfileobj(src, out, 1024 * 1024)
-                except FileExistsError:
+        staged: Path | None = None  # a complete copy, when links are impossible
+        try:
+            for candidate in candidates(valid_file_name(name)):
+                if folder == FILES_DIR and candidate in RESERVED_IN_FILES:
                     continue
-            source.unlink()
-            return self._entry(target)
-        raise AssertionError("unreachable")  # candidates is infinite
+                target = self._file_path(session, candidate, folder)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if staged is None:
+                    try:
+                        os.link(source, target)
+                    except FileExistsError:
+                        continue
+                    except OSError as exc:
+                        if not _no_link(exc):
+                            raise
+                        # No hard link here (another filesystem, or one that
+                        # has none): copy beside the target under a name no
+                        # listing addresses, so the final name never holds a
+                        # partial file.
+                        staged = target.with_name(
+                            f".{target.name}.{uuid.uuid4().hex}.tmp"
+                        )
+                        with staged.open("xb") as out, source.open("rb") as src:
+                            shutil.copyfileobj(src, out, 1024 * 1024)
+                        shutil.copystat(source, staged)
+                    else:
+                        source.unlink()
+                        return self._entry(target)
+                if self._claim_staged(staged, target):
+                    staged = None
+                    source.unlink()
+                    return self._entry(target)
+            raise AssertionError("unreachable")  # candidates is infinite
+        finally:
+            if staged is not None:
+                with contextlib.suppress(OSError):
+                    staged.unlink()
+
+    @staticmethod
+    def _claim_staged(staged: Path, target: Path) -> bool:
+        """Give ``staged`` the final name ``target`` if it is free."""
+        try:
+            os.link(staged, target)
+        except FileExistsError:
+            return False
+        except OSError as exc:
+            if not _no_link(exc):
+                raise
+            # Not even a link inside one directory: claim the name with an
+            # exclusive create, then rename the finished file over the claim.
+            try:
+                os.close(os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            except FileExistsError:
+                return False
+            try:
+                staged.replace(target)
+            except OSError:
+                with contextlib.suppress(OSError):
+                    target.unlink()
+                raise
+            return True
+        staged.unlink()
+        return True
 
     def _note_path(self, session: str, grid_id: str) -> Path:
         return self._resolved(
@@ -480,9 +526,7 @@ class FileStore(SessionLayout):
         """Write a recording's note whole: a temp file, then a rename."""
         path = self._note_path(session, grid_id)
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(note), encoding="utf-8")
-        tmp.replace(path)
+        _replace(path, json.dumps(note))
 
     def delete_note(self, session: str, grid_id: str) -> bool:
         try:
@@ -505,6 +549,8 @@ class FileStore(SessionLayout):
             if not pending.is_dir():
                 continue
             for entry in sorted(pending.glob("*.json")):
+                if entry.is_symlink() or not entry.is_file():
+                    continue
                 grid_id = entry.stem
                 try:
                     valid_grid_id(grid_id)
