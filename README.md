@@ -173,17 +173,18 @@ The server types it; it never passes through the model, the transcript or a log.
 
 ## 🗂 Files, Screenshots and Downloads
 
-Three sections, addressed by path, that never merge into one list:
+Four sections, addressed by path, that never merge into one list:
 
 | Section | Holds | Cleared |
 |---|---|---|
 | **Downloads** | whatever the **site** downloaded — the Grid's own store | dies with the browser |
 | **Screenshots** | every `screenshot`, from the moment it is taken | kept, or cleared in bulk |
+| **Recordings** | the video of a browser opened with `record=true` | kept, or cleared in bulk |
 | **Files** | anything `keep_file`'d, and every `print` | one at a time, by an operator |
 
-`keep_file(uri)` **moves** a screenshot into Files, or **copies** a download
+`keep_file(uri)` **moves** a screenshot or recording into Files, or **copies** a download
 there before the browser ends it. `upload_file(file=uri)` attaches any of the
-three to a file input. No agent tool clears or deletes anything — that is an
+others to a file input. No agent tool clears or deletes anything — that is an
 operator action in the [Admin UI](#-admin-ui) below.
 
 | Read it as | URI |
@@ -230,8 +231,9 @@ nodes, or recordings share one screen.
   `RECORDING_DIR`, S3, SFTP. Leaving `--inplace` out of `SE_UPLOAD_OPTS` makes
   rclone write `*.partial` and rename, which this server waits for.
 - **A local folder** for stdio or compose: bind-mount it into the Grid container
-  at `/videos` (see `docker-compose.yaml`). A standalone container also needs
-  `SE_VIDEO_RECORD_STANDALONE=true` to start its recorder.
+  at `/videos` (see `docker-compose.yaml`). A standalone container may also need
+  `SE_VIDEO_RECORD_STANDALONE=true` to start its recorder (set in
+  `docker-compose.yaml`; not yet verified).
 
 A recording is matched to its session by the Grid's session id in its file name,
 so any path and prefix the transport adds is fine. One that never arrives is
@@ -241,7 +243,7 @@ given up on after `RECORDING_WAIT` seconds with a warning in the log.
 
 ## 🖥 Admin UI
 
-`GET /` — **your** sessions, marked with the browser each is running. Open one for its Files tab — Downloads, Screenshots and Files, each cleared the way that fits it — and its Flows tab. Click a file to view it in place; **End** quits a stale browser and gives its Grid slot back, rather than waiting out the Grid's idle timeout — the session itself is kept.
+`GET /` — **your** sessions, marked with the browser each is running. Open one for its Files tab — Downloads, Screenshots, Recordings and Files, each cleared the way that fits it — and its Flows tab. Click a file to view it in place; **End** quits a stale browser and gives its Grid slot back, rather than waiting out the Grid's idle timeout — the session itself is kept.
 
 Flow sessions, not Grid sessions: browsers somebody else put on the Grid are not listed. Nothing on the MCP surface lists sessions at all — a client sees its own and nothing else. [More in the wiki](https://github.com/kubed-io/selenium-flow/wiki/Administration).
 

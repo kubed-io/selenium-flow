@@ -58,7 +58,8 @@ services:
     - 7900:7900
     environment:
       SE_NODE_SESSION_TIMEOUT: ${SE_NODE_SESSION_TIMEOUT:-300}
-      # Switches on recording for a standalone container (open_session record=true).
+      # Precaution, pending a check: switches on recording for a standalone
+      # container (open_session record=true). May not be needed.
       SE_VIDEO_RECORD_STANDALONE: "true"
     volumes:
     - ./data/recordings:/videos
