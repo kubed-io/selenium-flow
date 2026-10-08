@@ -165,7 +165,7 @@
     })
   }
 
-  function clear(what: 'downloads' | 'screenshots') {
+  function clear(what: 'downloads' | 'screenshots' | 'recordings') {
     if (what === 'downloads') {
       // Which downloads Files also holds a copy of: the download goes, the
       // copy stays — said per row, the only version both complete and true.
@@ -177,6 +177,17 @@
         onconfirm: async () => {
           refuseIfGone()
           await api(sessionPath(key, '/files/downloads'), 'DELETE')
+          if (!destroyed) void m.loadFiles()
+        },
+      })
+    } else if (what === 'recordings') {
+      const names = m.files.recordings.map((f) => f.name)
+      ask({
+        title: 'Clear recordings', body: clearRecordingsBody, data: names, danger: true,
+        confirm: 'Delete ' + names.length + ' recording' + (names.length === 1 ? '' : 's'),
+        onconfirm: async () => {
+          refuseIfGone()
+          await api(sessionPath(key, '/files/recordings'), 'DELETE')
           if (!destroyed) void m.loadFiles()
         },
       })
@@ -268,6 +279,11 @@
   {:else}
     <p class="small muted">There is nothing downloaded to clear.</p>
   {/if}
+{/snippet}
+
+{#snippet clearRecordingsBody(names: string[])}
+  <p>Deletes {names.length === 1 ? 'the 1 recording' : 'all ' + names.length + ' recordings'} in this session. Anything you kept is in Files and stays.</p>
+  <ul class="names">{#each names as n (n)}<li>{n}</li>{/each}</ul>
 {/snippet}
 
 {#snippet clearScreenshotsBody(names: string[])}

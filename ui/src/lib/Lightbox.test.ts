@@ -56,3 +56,12 @@ test('an empty refresh closes; cancelled is silent; any other failure alerts (X3
   await vi.waitFor(() => expect(screen.getByText('No')).not.toBeDisabled())
   expect(alert).not.toHaveBeenCalled()
 })
+
+test('a video plays in a <video controls>, not "No preview" (R5)', () => {
+  const v = { name: 'r.mp4', size: 1, url: '/v', content_type: 'video/mp4' }
+  const { container } = render(Lightbox, { files: [v], index: 0, base: '/r', onclose: () => {} })
+  const video = container.querySelector('video')!
+  expect(video).toHaveAttribute('src', '/r/v')
+  expect(video).toHaveAttribute('controls')
+  expect(screen.queryByText('No preview for this kind of file.')).toBeNull()
+})

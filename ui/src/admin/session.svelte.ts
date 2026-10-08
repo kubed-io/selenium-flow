@@ -5,7 +5,7 @@ import type { FileEntry, FilesData, FilesResponse, FlowDoc, FlowsListing, Histor
 
 /* Handed to a session that has not answered yet, or whose load failed: the
    clears must never act on a previous session's names. */
-export const NO_FILES: FilesData = Object.freeze({ downloads: [], screenshots: [], files: [], browser: false }) as FilesData
+export const NO_FILES: FilesData = Object.freeze({ downloads: [], screenshots: [], recordings: [], files: [], browser: false }) as FilesData
 
 /* Not a count: deleting the kept copy of a name that is also a download leaves
    the count alone while the tile changes. The browser id is in it because a
@@ -17,11 +17,12 @@ const downloadsEmpty = (hasBrowser: boolean) => (hasBrowser ? 'No downloads.' : 
 export interface FilesView {
   downloads: FileEntry[]
   screenshots: FileEntry[]
+  recordings: FileEntry[]
   files: FileEntry[]
   downloadsEmpty: string
   /* The pills, set only by a load that answers — as today, a browser change
      blanks the Downloads grid but leaves its pill until the reload lands. */
-  counts: { downloads: number; screenshots: number; files: number }
+  counts: { downloads: number; screenshots: number; recordings: number; files: number }
 }
 
 /* One session on screen. Created by SessionDetail and disposed with it, so
@@ -89,6 +90,7 @@ export class SessionModel {
         const files = {
           downloads: data.downloads || [],
           screenshots: data.screenshots || [],
+          recordings: data.recordings || [],
           files: data.files || [],
           browser: !!data.browser,
         }
@@ -96,7 +98,7 @@ export class SessionModel {
         this.view = {
           ...files,
           downloadsEmpty: downloadsEmpty(files.browser),
-          counts: { downloads: files.downloads.length, screenshots: files.screenshots.length, files: files.files.length },
+          counts: { downloads: files.downloads.length, screenshots: files.screenshots.length, recordings: files.recordings.length, files: files.files.length },
         }
         this.filesError = null
         this.loadingFiles = false

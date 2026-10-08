@@ -2,7 +2,12 @@ import { describe, expect, test } from 'vitest'
 import { ago, browserMark, bytes, countsText, flowParams, glyphFor, metaLine, plural, safeHref, sessionLabel, stepSummary } from './format'
 
 describe('format', () => {
-  test('bytes', () => {
+  test('counts name recordings, singular and plural (R8)', () => {
+  expect(countsText({ key: 'k', counts: { downloads: 0, screenshots: 6, recordings: 2, files: 2 } })).toBe('6 screenshots · 2 recordings · 2 files')
+  expect(countsText({ key: 'k', counts: { downloads: 0, screenshots: 0, recordings: 1, files: 0 } })).toBe('1 recording')
+})
+
+test('bytes', () => {
     expect(bytes(512)).toBe('512 B')
     expect(bytes(2048)).toBe('2.0 KB')
     expect(bytes(3 * 1048576)).toBe('3.0 MB')
