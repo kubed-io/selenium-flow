@@ -415,22 +415,25 @@ class SessionManager:
         # Nobody asked for this reopen, so the first result after it says what
         # came back: the record holds the report until `touch` hands it over.
         # A reopen alongside this one may bind first; then act on its browser.
+        # The settings this browser was opened with: without `record` when
+        # recording is off, so nothing reports a video nobody is making.
         kept = self.remember(
             name,
             opened["session_id"],
             opened.get("url", record.url or ""),
-            record.settings,
+            replay,
             replacing=record.session_id,
             report=opened.get("site_data"),
         )
-        if replay.get("record"):
+        # A reopen that lost the race had its browser quit: nothing to file.
+        if replay.get("record") and kept == opened["session_id"]:
             try:
                 self.recordings.expect(
                     name,
                     opened["session_id"],
                     replay.get("browser") or DEFAULT_BROWSER,
                 )
-            except OSError as exc:
+            except (OSError, ValueError) as exc:
                 # The browser is open and remembered; failing the caller's
                 # action over the filing would help nobody.
                 log.warning(
@@ -649,7 +652,9 @@ class SessionManager:
                     opened["session_id"],
                     resolved.get("browser") or DEFAULT_BROWSER,
                 )
-            except OSError as exc:
+            except (OSError, ValueError) as exc:
+                # ValueError: `InvalidName` from a link on the note's path. The
+                # browser is open either way, so it is never the caller's 400.
                 # The browser is open and recording on the Grid; only the filing
                 # failed. Said in the result, as `file_error` is for a screenshot,
                 # and never with the path (names a layout nobody asked about).

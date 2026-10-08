@@ -9,7 +9,7 @@ not). The notes survive a restart, so ``start`` picks up where the last
 process left off.
 
 It wakes on a change in the inbox (``watchfiles``: events, or polling on a
-network filesystem) and on a timer, and each time sweeps: a file whose name
+network filesystem) and on a timer, and each time sweeps: an ``.mp4`` whose name
 holds an owed Grid id and ends in ``mfro`` is moved into the session's
 recordings and its note deleted; one with no ``mfro`` is moved as it is once
 it has been quiet for a minute **and** the browser is gone (a live recording
@@ -22,11 +22,17 @@ browser.** Any command sent to a session is activity the node counts against
 ``SE_NODE_SESSION_TIMEOUT``, so a collector that asked each owed browser every
 tick would keep every recorded browser alive forever. ``live`` lists the
 sessions the Grid is running (``GET /status``, which touches none), once a
-tick, shared by every owed browser.
+tick, shared by every owed browser. An empty listing (a hub restarted before
+its nodes registered again) reads as every browser gone, so a browser a later
+listing shows running is no longer ended: a blip starts no deadline that sticks.
 
 It owns no browser and takes no session lock. ``expect`` and ``ended`` are
-called from worker threads (FastMCP's sync tools, Starlette's routes), so they
-write to disk there and hand the rest to the loop.
+called from worker threads (FastMCP's sync tools, Starlette's routes).
+``expect`` writes its note there, in the caller's thread; ``ended`` hands the
+change to the loop, and the loop writes every note it changes in a worker
+thread, never on itself: ``DATA_DIR`` can be NFS, and a write that stalls on
+the loop stalls every request. Writes and deletes of notes take one lock, so a
+note filed meanwhile is never written back.
 """
 
 from __future__ import annotations
@@ -34,6 +40,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import math
 import os
 import time
 from dataclasses import dataclass
@@ -65,16 +72,29 @@ class Owed:
     ended: int | None = None
 
 
+# The year 3000 in milliseconds: past it, `gmtime` raises in every sweep.
+LATEST_MS = 32_503_680_000_000
+
+
 def _millis(value) -> int:
     """A note's timestamp as an int, or ValueError: a note is a file somebody
-    could have edited, so its fields are read, not trusted."""
+    could have edited, so its fields are read, not trusted. A time that is not
+    finite or not between 1970 and the year 3000 is refused here, so the note
+    is skipped, rather than stopping the boot (``1e999``) or every later sweep
+    (``1e20``, which ``name_for`` cannot format)."""
     if isinstance(value, bool):
         raise ValueError("not a timestamp")
-    if isinstance(value, (int, float)):
-        return int(value)
-    if isinstance(value, str) and value.strip().isdigit():
-        return int(value.strip())
-    raise ValueError("not a timestamp")
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("not a timestamp")
+        value = int(value)
+    elif isinstance(value, str) and value.strip().isdigit():
+        value = int(value.strip())
+    elif not isinstance(value, int):
+        raise ValueError("not a timestamp")
+    if not 0 <= value < LATEST_MS:
+        raise ValueError("not a timestamp")
+    return value
 
 
 def _owed_from(session: str, grid_id: str, note: dict) -> Owed:
@@ -129,6 +149,9 @@ class Collector:
         # Set by `stop`: a recording expected during shutdown starts no task;
         # its note is on disk, so the next process files it.
         self._stopping = False
+        # Every note write or delete made from the loop, in order (`_save`).
+        self._notes_lock = asyncio.Lock()
+        self._saves: set[asyncio.Task] = set()
 
     @property
     def running(self) -> bool:
@@ -173,6 +196,8 @@ class Collector:
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
         self._stopping = False
+        # A lock waited on binds to its loop; a restarted server has a new one.
+        self._notes_lock = asyncio.Lock()
         for session, grid_id, note in await anyio.to_thread.run_sync(self.store.notes):
             try:
                 self.owed[grid_id] = _owed_from(session, grid_id, note)
@@ -196,17 +221,46 @@ class Collector:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+        # A note change still being written lands before the process goes.
+        for save in list(self._saves):
+            with contextlib.suppress(Exception):
+                await save
 
     def _add(self, owed: Owed) -> None:
         self.owed[owed.grid_id] = owed
         self._ensure()
 
     def _mark_ended(self, grid_id: str) -> None:
+        """``ended``'s half on the loop (or, before `start`, inline)."""
         owed = self.owed.get(grid_id)
         if owed is None or owed.ended is not None:
             return
         owed.ended = int(self.clock() * 1000)
-        self._write(owed)
+        if self._loop is None:
+            # Not started: this is the caller's own thread, not the loop.
+            self._write(owed)
+            return
+        save = self._loop.create_task(self._save(owed))
+        self._saves.add(save)
+        save.add_done_callback(self._saves.discard)
+
+    async def _save(self, owed: Owed) -> None:
+        """Write ``owed``'s note as it is now, in a worker thread. Skipped once
+        it is filed or dropped: its note is gone and must stay gone."""
+        async with self._notes_lock:
+            if self.owed.get(owed.grid_id) is not owed:
+                return
+            await anyio.to_thread.run_sync(self._write, owed)
+
+    async def _forget(self, owed: Owed) -> None:
+        """Stop owing ``owed``: out of memory first, so a `_save` waiting for
+        the lock finds it gone, then its note."""
+        async with self._notes_lock:
+            if self.owed.get(owed.grid_id) is owed:
+                self.owed.pop(owed.grid_id, None)
+            await anyio.to_thread.run_sync(
+                self.store.delete_note, owed.session, owed.grid_id
+            )
 
     def _ensure(self) -> None:
         loop = self._loop
@@ -279,7 +333,16 @@ class Collector:
         present = {str(path) for path, _size, _mtime in files}
         self._quiet = {k: v for k, v in self._quiet.items() if k in present}
         for grid_id, owed in list(self.owed.items()):
-            match = next((f for f in files if grid_id in f[0].name), None)
+            if self.owed.get(grid_id) is not owed:
+                continue  # filed or dropped while this sweep awaited
+            match = next(
+                (f for f in files
+                 if grid_id in f[0].name and f[0].suffix.lower() == ".mp4"),
+                None,
+            )
+            if owed.ended is not None and await self._back(owed, now):
+                owed.ended = None
+                await self._save(owed)
             quiet = 0.0
             if match is not None:
                 path, size, mtime = match
@@ -290,7 +353,8 @@ class Collector:
             settled = quiet >= self.idle_after
             gone = (owed.ended is None or settled) and await self._gone(owed, now)
             if gone and owed.ended is None:
-                self._mark_ended(grid_id)
+                owed.ended = int(now * 1000)
+                await self._save(owed)
             if match is not None:
                 if settled and gone:
                     log.info(
@@ -300,10 +364,7 @@ class Collector:
                     await self._file(owed, match[0])
                 continue
             if owed.ended is not None and now * 1000 - owed.ended >= self.wait * 1000:
-                await anyio.to_thread.run_sync(
-                    self.store.delete_note, owed.session, grid_id
-                )
-                self.owed.pop(grid_id, None)
+                await self._forget(owed)
                 log.warning(
                     "recording for session %s (opened %s UTC) never reached "
                     "RECORDING_DIR; see the README's Recording section",
@@ -311,20 +372,30 @@ class Collector:
                     time.strftime("%H:%M", time.gmtime(owed.opened / 1000)),
                 )
 
+    async def _listed(self, now: float) -> tuple[float, frozenset[str] | None]:
+        """The Grid's listing, taken at most once a tick."""
+        listing = self._listing
+        if listing is None or now - listing[0] >= self.tick:
+            listing = (now, await self._list())
+            self._listing = listing
+        return listing
+
     async def _gone(self, owed: Owed, now: float) -> bool:
         """Whether the Grid's listing says this browser is no longer running.
 
         False whenever it cannot say: the listing failed, or was taken before
         this browser opened (a cached one can be up to a tick old).
         """
-        listing = self._listing
-        if listing is None or now - listing[0] >= self.tick:
-            listing = (now, await self._list())
-            self._listing = listing
-        at, ids = listing
+        at, ids = await self._listed(now)
         if ids is None or at * 1000 < owed.opened:
             return False
         return owed.grid_id not in ids
+
+    async def _back(self, owed: Owed, now: float) -> bool:
+        """Whether a listing taken after ``owed`` was marked ended shows it
+        running: what an empty listing from a restarting hub had wrong."""
+        at, ids = await self._listed(now)
+        return ids is not None and at * 1000 > owed.ended and owed.grid_id in ids
 
     async def _list(self) -> frozenset[str] | None:
         try:
@@ -357,10 +428,7 @@ class Collector:
                 owed.session, name_for(owed.opened), type(exc).__name__,
             )
             return
-        await anyio.to_thread.run_sync(
-            self.store.delete_note, owed.session, owed.grid_id
-        )
-        self.owed.pop(owed.grid_id, None)
+        await self._forget(owed)
         self._quiet.pop(str(path), None)
         log.info("recordings: filed %s/%s", owed.session, entry["name"])
         if self.on_filed is not None:

@@ -9,9 +9,18 @@ no ``/proc`` to ask.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 NETWORK = frozenset({"nfs", "nfs4", "cifs", "smb3", "smbfs", "9p", "ceph", "glusterfs"})
+
+# The kernel writes space, tab, newline and backslash in a mount point as
+# three-digit octal escapes (\040, \011, \012, \134).
+_ESCAPE = re.compile(r"\\([0-7]{3})")
+
+
+def _unescaped(point: str) -> str:
+    return _ESCAPE.sub(lambda m: chr(int(m.group(1), 8)), point)
 
 
 def network_filesystem(path, mountinfo: str = "/proc/self/mountinfo") -> bool:
@@ -27,7 +36,7 @@ def network_filesystem(path, mountinfo: str = "/proc/self/mountinfo") -> bool:
         fields = left.split()
         if not sep or len(fields) < 5 or not right.split():
             continue
-        point = fields[4].replace("\\040", " ")
+        point = _unescaped(fields[4])
         inside = target == point or target.startswith(point.rstrip("/") + "/")
         if inside and len(point) >= len(best_point):
             best_point, best_type = point, right.split()[0]

@@ -181,7 +181,7 @@ And everything to read:
 |---|---|
 | `session://current` | what you are holding |
 | `session://files` | Files' own kept files, each with a link, plus the three folders below |
-| `session://files/{name}` | one kept file, as bytes |
+| `session://files/{name}` | one kept file, as bytes; a video (a kept recording) is described instead — its link plays it |
 | `session://files/screenshots` | saved screenshots not yet kept |
 | `session://files/screenshots/{name}` | one of those, as bytes |
 | `session://files/recordings` | this session's recordings not yet kept, each with a link that plays it |

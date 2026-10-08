@@ -70,6 +70,7 @@ import logging
 import mimetypes
 from urllib.parse import quote, unquote
 
+from fastmcp.resources import ResourceContent, ResourceResult
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -674,7 +675,8 @@ ITEM_DESCRIPTION = {
         "One file from Files, as bytes. The name comes from the "
         f"{ROOT_URI} listing, which also carries each file's real media type — "
         "a template declares one type for every file it serves, so this is "
-        "deliberately the generic one."
+        "deliberately the generic one. A video (a kept recording) answers its "
+        "entry instead, as JSON: its url plays it."
     ),
     SCREENSHOTS: (
         f"One screenshot, as bytes, from {FOLDER_URI[SCREENSHOTS]}. It answers "
@@ -734,14 +736,33 @@ def register(
             mime_type="application/json",
         )(_folder_resource(which))
 
+    def _entry(which: str, name: str) -> dict | None:
+        """One stored file's entry, described and signed, or None."""
+        listing = folder(
+            actions, sessions, store, token, clients.caller().name, which,
+            base=base, mount=prefix, ttl=ttl,
+        )
+        return next((f for f in listing["files"] if f["name"] == unquote(name)), None)
+
     def _item_resource(which: str):
-        def read(name: str) -> bytes:
+        def read(name: str) -> bytes | ResourceResult:
             # The caller is named last: with Files off, or a URI that is not
             # one, naming the session would not fix the call, so those say so
             # first, as they did before the caller was read at the edge.
-            folder_of, _ = parse_uri(uri_of(which, name))
+            folder_of, leaf = parse_uri(uri_of(which, name))
             if folder_of != DOWNLOADS and store is None:
                 raise ValueError(OFF)
+            if folder_of == FILES and content_type(leaf).startswith("video/"):
+                # A kept recording: the Recordings rule, for the same reason.
+                entry = _entry(FILES, name)
+                if entry is None:
+                    raise ValueError(
+                        f"no file at {uri_of(which, name)}. {ROOT_URI} lists what "
+                        "there is"
+                    )
+                return ResourceResult(
+                    [ResourceContent(json.dumps(entry), mime_type="application/json")]
+                )
             return read_file(
                 actions, sessions, store, uri_of(which, name), clients.caller().name
             )[1]
@@ -773,11 +794,7 @@ def register(
     def recording_resource(name: str) -> dict:
         if store is None:
             raise ValueError(OFF)
-        listing = folder(
-            actions, sessions, store, token, clients.caller().name, RECORDINGS,
-            base=base, mount=prefix, ttl=ttl,
-        )
-        entry = next((f for f in listing["files"] if f["name"] == unquote(name)), None)
+        entry = _entry(RECORDINGS, name)
         if entry is None:
             raise ValueError(
                 f"no recording called {name!r}. {FOLDER_URI[RECORDINGS]} lists them"

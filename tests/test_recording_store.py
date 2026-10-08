@@ -157,3 +157,16 @@ def test_a_racing_keep_that_loses_the_source_leaves_no_copy(store, tmp_path, mon
     with pytest.raises(FileNotFoundError):
         store.move_in("bot", src, "a.mp4", FILES_DIR)
     assert store.files("bot", FILES_DIR) == []
+
+
+def test_a_stranded_staging_file_is_skipped_without_a_warning(store, caplog):
+    """A copy cut off by a crash: listed on every broadcast tick, so a warning
+    for it would repeat for ever."""
+    folder = store.root / "bot" / RECORDINGS_DIR
+    folder.mkdir(parents=True)
+    (folder / f".rec.mp4.{'a' * 32}.tmp").write_bytes(b"part")
+    (folder / "rec.mp4").write_bytes(b"whole")
+    with caplog.at_level(logging.WARNING):
+        names = [f["name"] for f in store.files("bot", RECORDINGS_DIR)]
+    assert names == ["rec.mp4"]
+    assert ".tmp" not in caplog.text

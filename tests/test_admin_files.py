@@ -198,7 +198,7 @@ def test_keeping_from_the_admin_moves_a_screenshot(client, live):
 
 
 @pytest.mark.parametrize("folder", ["files", "flows"])
-def test_the_admin_keeps_only_from_the_two_folders(client, live, folder):
+def test_the_admin_keeps_only_out_of_a_folder_a_file_leaves(client, live, folder):
     response = client.post(
         f"/admin/sessions/{KEY}/files/{folder}/whatever.pdf/keep", headers=AUTH
     )

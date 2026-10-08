@@ -160,3 +160,52 @@ def test_a_reap_with_recording_off_does_not_replay_record():
     m.resolve("bot")
     assert not m.actions.calls[-1].get("record")
     assert "video_name" not in m.actions.calls[-1]
+
+
+def test_a_reap_with_recording_off_remembers_the_browser_as_unrecorded():
+    m = manager(Recorder())
+    m.open_browser(caller(), record=True)
+    m.recordings = None
+    m.actions.grid.alive.clear()
+    m.resolve("bot")
+    assert m.describe(caller())["recording"] is False
+    assert "record" not in m.store.get("bot").settings
+
+
+def test_a_reap_that_loses_the_race_expects_nothing():
+    rec = Recorder()
+    m = manager(rec)
+    m.open_browser(caller(), record=True)
+    m.actions.grid.alive.clear()
+    real = m.actions.open_session
+
+    def open_while_another_binds(**kwargs):
+        # A reopen alongside this one binds its browser first.
+        m.actions.grid.alive.add("grid9999")
+        m.remember("bot", "grid9999", "", {"record": True}, replacing="grid0001")
+        return real(**kwargs)
+
+    m.actions.open_session = open_while_another_binds
+    assert m.resolve("bot") == "grid9999"
+    assert [e[1] for e in rec.expected] == ["grid0001"]
+
+
+@pytest.mark.parametrize("where", ["open", "reap"])
+def test_a_note_path_that_is_refused_never_fails_the_open(where):
+    from kubed.selenium_flow.names import InvalidName
+
+    class Refused(Recorder):
+        def expect(self, session, grid_id, browser):
+            raise InvalidName("'recordings' is a link")
+
+    if where == "open":
+        m = manager(Refused())
+        result = m.open_browser(caller(), record=True)
+        assert result["recording_error"] == "this recording cannot be filed: InvalidName"
+        assert m.actions.grid.alive == {"grid0001"}
+    else:
+        m = manager(Recorder())
+        m.open_browser(caller(), record=True)
+        m.recordings = Refused()
+        m.actions.grid.alive.clear()
+        assert m.resolve("bot") == "grid0002"

@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 
 import pytest
 
@@ -290,3 +291,145 @@ async def test_a_note_that_cannot_be_read_is_skipped_by_session(tmp_path, caplog
     assert c.owed[GID].opened == 1_791_500_000_000 and c.owed[GID].ended == 5
     assert "bad" in caplog.text and other not in caplog.text
     await c.stop()
+
+
+async def test_an_inbox_copy_that_cannot_be_removed_is_filed_once(parts, caplog):
+    """A recorder-owned or sticky inbox folder: the link lands, the unlink is
+    refused. Filed, the note goes, the inbox copy stays — and never a (1)."""
+    c, store, inbox, _alive, filed, _clock = parts
+    c.expect("bot", GID, "chrome")
+    sub = inbox / "node"
+    sub.mkdir()
+    source = sub / f"bot_{GID}.mp4"
+    source.write_bytes(BODY + mp4.trailer())
+    sub.chmod(0o555)
+    try:
+        with caplog.at_level(logging.WARNING):
+            for _ in range(3):
+                await c.sweep()
+        names = [f["name"] for f in store.files("bot", RECORDINGS_DIR)]
+        assert names == [collector_module.name_for(int(_clock.now * 1000))]
+        assert store.notes() == [] and c.owed == {} and filed == [1]
+        assert source.exists()
+        assert "left" in caplog.text and GID not in caplog.text
+    finally:
+        sub.chmod(0o755)
+
+
+@pytest.mark.parametrize(
+    "field", ['"opened": 1e999', '"opened": 1e20', '"opened": -5',
+              '"opened": NaN', '"ended": 1e999', '"opened": "99999999999999999999"'],
+)
+async def test_a_note_with_an_impossible_time_is_skipped_not_fatal(tmp_path, caplog, field):
+    """Overflow at boot would stop the lifespan; a year past gmtime's range
+    would fail every sweep and starve every other recording."""
+    store = flows.LocalFlowStore(tmp_path / "sessions")
+    inbox = tmp_path / "recordings"
+    inbox.mkdir()
+    other = "0123456789abcdef0123456789abcdef"
+    store.write_note("good", GID, {"opened": 1_791_500_000_000})
+    pending = store.root / "bad" / RECORDINGS_DIR / ".pending"
+    pending.mkdir(parents=True)
+    (pending / f"{other}.json").write_text("{" + field + "}")
+    c = collector(store, inbox, Listing([GID, other]), Clock())
+    with caplog.at_level(logging.WARNING):
+        await c.start()
+    assert set(c.owed) == {GID}
+    assert "bad" in caplog.text and other not in caplog.text
+    await c.stop()  # the sweep below is the only one
+    (inbox / f"good_{GID}.mp4").write_bytes(BODY + mp4.trailer())
+    await c.sweep()
+    assert c.owed == {} and len(store.files("good", RECORDINGS_DIR)) == 1
+
+
+async def test_only_an_mp4_is_ever_filed(parts):
+    """A recorder's sidecar names the same id; it is not a recording."""
+    c, store, inbox, alive, filed, clock = parts
+    c.expect("bot", GID, "chrome")
+    (inbox / f"bot_{GID}.log").write_bytes(b"ffmpeg says hello")
+    (inbox / f"bot_{GID}.json").write_bytes(b"{}")
+    alive.clear()
+    for _ in range(3):
+        clock.now += 61
+        await c.sweep()
+    assert filed == [] and store.files("bot", RECORDINGS_DIR) == []
+    (inbox / f"bot_{GID}.MP4").write_bytes(BODY + mp4.trailer())
+    await c.sweep()
+    assert filed == [1] and (inbox / f"bot_{GID}.log").exists()
+
+
+async def test_a_browser_seen_running_again_is_no_longer_ended(parts):
+    """An empty listing from a hub that restarted reads as every browser gone;
+    a later listing that shows it running takes the deadline back."""
+    c, store, _inbox, alive, _filed, clock = parts
+    c.expect("bot", GID, "chrome")
+    alive.clear()
+    await c.sweep()
+    assert c.owed[GID].ended is not None
+    alive.add(GID)
+    clock.now += 1  # a tick on: a fresh listing
+    await c.sweep()
+    assert c.owed[GID].ended is None
+    assert store.notes()[0][2]["ended"] is None
+    clock.now += 700  # past RECORDING_WAIT from the blip: still owed
+    await c.sweep()
+    assert GID in c.owed
+
+
+async def test_note_writes_never_run_on_the_loop(parts):
+    """DATA_DIR is NFS in the cluster: a write on the loop stalls every request."""
+    import threading
+
+    c, store, _inbox, alive, _filed, clock = parts
+    real, threads = store.write_note, []
+
+    def write_note(*a, **kw):
+        threads.append(threading.current_thread())
+        return real(*a, **kw)
+
+    store.write_note = write_note
+    await c.start()
+    loop_thread = threading.current_thread()
+    try:
+        await asyncio.to_thread(c.expect, "bot", GID, "chrome")
+        other = "0123456789abcdef0123456789abcdef"
+        await asyncio.to_thread(c.expect, "two", other, "chrome")
+        alive.add(other)
+        threads.clear()
+        await asyncio.to_thread(c.ended, other)  # end_browser's path
+        alive.clear()  # GID reaped: the sweep's path
+        clock.now += 1
+        await c.sweep()
+        for _ in range(50):
+            if c.owed[other].ended is not None and len(threads) >= 2:
+                break
+            await asyncio.sleep(0.02)
+        assert len(threads) >= 2 and loop_thread not in threads
+        assert {n[1]: n[2]["ended"] for n in store.notes()}[other] is not None
+    finally:
+        await c.stop()
+
+
+async def test_a_poke_forgets_the_last_broadcast_and_ticks_now():
+    from kubed.selenium_flow.http.admin.sessions import Broadcast
+
+    b = Broadcast(compute=dict)
+    b._latest = (time.monotonic(), {"sessions": []}, "{}")
+    assert b.fresh() is not None and not b._nudge.is_set()
+    b.poke()
+    assert b.fresh() is None and b._nudge.is_set()
+
+
+def test_a_filed_recording_pokes_the_admin_broadcast(tmp_path):
+    from kubed.selenium_flow import config
+    from kubed.selenium_flow.http.admin.sessions import Broadcast
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    (tmp_path / "recordings").mkdir()
+    server = SeleniumMCP(config.Settings(
+        grid={"url": "http://grid.invalid:4444"},
+        data={"dir": str(tmp_path)},
+        recording={"enabled": True},
+    ))
+    poke = server.collector.on_filed
+    assert isinstance(poke.__self__, Broadcast) and poke.__func__ is Broadcast.poke

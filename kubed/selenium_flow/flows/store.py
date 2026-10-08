@@ -476,11 +476,11 @@ class FileStore(SessionLayout):
                             shutil.copyfileobj(src, out, 1024 * 1024)
                         shutil.copystat(source, staged)
                     else:
-                        self._release(source, target)
+                        self._release(session, source, target)
                         return self._entry(target)
                 if self._claim_staged(staged, target):
                     staged = None
-                    self._release(source, target)
+                    self._release(session, source, target)
                     return self._entry(target)
             raise AssertionError("unreachable")  # candidates is infinite
         finally:
@@ -489,15 +489,28 @@ class FileStore(SessionLayout):
                     staged.unlink()
 
     @staticmethod
-    def _release(source: Path, target: Path) -> None:
+    def _release(session: str, source: Path, target: Path) -> None:
         """Remove the moved file's source. If a racing move took it first, this
-        one lost: unclaim ``target`` so no duplicate stays, and say so."""
+        one lost: unclaim ``target`` so no duplicate stays, and say so.
+
+        Any other failure leaves the move done: ``target`` is claimed and whole,
+        and only the original stays behind (a sticky or recorder-owned inbox
+        folder). Unclaiming then would be filed again on every sweep, a
+        ``(1)``, a ``(2)``, … until the disk is full. The log names the filed
+        file, never the source: an inbox name carries the Grid's id.
+        """
         try:
             source.unlink()
         except FileNotFoundError:
             with contextlib.suppress(OSError):
                 target.unlink()
             raise
+        except OSError as exc:
+            log.warning(
+                "%s/%s/%s is in place, but its original could not be removed "
+                "(%s) and was left where it was",
+                session, target.parent.name, target.name, type(exc).__name__,
+            )
 
     @staticmethod
     def _claim_staged(staged: Path, target: Path) -> bool:
@@ -593,6 +606,10 @@ class FileStore(SessionLayout):
         """
 
         def usable(name: str) -> str | None:
+            if name.startswith("."):
+                # Never a caller's: a staged copy (`move_in`) or the notes.
+                # Silent, or a stranded one warns on every broadcast tick.
+                return None
             # For the reason `_flow_entries` gives: a name the store would
             # refuse to address must not reach a caller that reads it back.
             try:

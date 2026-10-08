@@ -153,3 +153,26 @@ def test_keep_file_moves_a_recording(srv):
     result = asyncio.run(go())
     assert result.structured_content["uri"] == "session://files/rec-20261008-1403.mp4"
     assert srv.flows.files(STDIO_NAME, RECORDINGS_DIR) == []
+
+
+def test_a_kept_recording_read_from_files_answers_its_entry_not_the_video(srv):
+    """The Files item resource holds the Recordings rule for any video: a model
+    cannot watch one, and base64 of a whole video is all a read would carry."""
+    srv.flows.write_file(STDIO_NAME, "notes.txt", b"plain", FILES_DIR)
+
+    async def go():
+        async with Client(srv.mcp) as c:
+            await c.call_tool(
+                "keep_file", {"uri": "session://files/recordings/rec-20261008-1403.mp4"}
+            )
+            video = await c.read_resource("session://files/rec-20261008-1403.mp4")
+            text = await c.read_resource("session://files/notes.txt")
+            return video, text
+
+    video, text = asyncio.run(go())
+    entry = json.loads(video[0].text)
+    assert video[0].mime_type == "application/json"
+    assert entry["name"] == "rec-20261008-1403.mp4" and entry["url"]
+    assert entry["content_type"] == "video/mp4"
+    assert entry["uri"] == "session://files/rec-20261008-1403.mp4"
+    assert text[0].blob  # anything else is still its bytes
