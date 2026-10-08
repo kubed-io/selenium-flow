@@ -148,7 +148,7 @@ input[type=password], input[type=text] {
 }
 
 .pill.live { color: var(--ok); border-color: currentColor; }
-.pill.rec { background: var(--warn); border-color: var(--warn); color: #fff; }
+.pill.rec { background: var(--warn); border-color: var(--warn); color: var(--panel); }
 .pill.warn { color: var(--warn); border-color: currentColor; }
 
 /* Polish only (spec, difference 3): a soft pulse on the live badge's dot.
@@ -194,10 +194,10 @@ input[type=password], input[type=text] {
   place-items: center;
   background: color-mix(in srgb, var(--ink) 5%, transparent);
   overflow: hidden;
+  position: relative;
 }
 
 .file .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.file .thumb { position: relative; }
 .file .thumb .play {
   position: absolute; right: 8px; bottom: 8px; width: 28px; height: 28px;
   display: grid; place-items: center; border-radius: 50%;
