@@ -449,16 +449,31 @@ them:
 1. `docker compose up` with `selenium/standalone-chromium` and `./data/recordings`
    on `/videos`: does `se:recordVideo` record a standalone session, or does it
    need `SE_VIDEO_RECORD_STANDALONE=true`? What exact file name lands?
+   Measured in Task 8, Step 6, once `docker-compose.yaml` mounts `./data/recordings`.
 2. Starlette `FileResponse` honours `Range` at the pinned version (believed
    since 0.39; the floor is 0.48).
 3. The CSP a top-level `video/mp4` document needs to play in Chrome and
    Firefox without a sandbox.
+   Measured in Task 9 against the deployed server. Task 6 ships
+   `default-src 'none'; media-src 'self'; style-src 'unsafe-inline'` for
+   `video/*`, which is what a top-level media document needs to load itself.
 4. The recorder's timing: seconds from our quit to a file ending in `mfro`.
+   Requested from Dr K (2026-10-08): the live inbox listing, a recording's last
+   16 bytes, and the quit-to-mfro timing — commands in the plan's Task 1, Steps 2–3.
 5. A real recording from the node image ends in `mfro` — the source says so;
    the plan looks at actual bytes.
+   Requested from Dr K (2026-10-08): the live inbox listing, a recording's last
+   16 bytes, and the quit-to-mfro timing — commands in the plan's Task 1, Steps 2–3.
 6. `watchfiles` has a wheel for every Python the matrix runs (3.10–3.14) and
    for the image's platform, and its polling sees a file another container
    writes to a shared Docker volume.
+
+**Results (2026-10-08):**
+
+2. Settled: Starlette 1.7.0 `FileResponse` answers `Range: bytes=10-19` with
+   `206` and `Content-Range: bytes 10-19/2560` (measured with `TestClient`).
+6. Settled for wheels: watchfiles 1.3.0 ships `cp310-abi3` wheels (manylinux
+   x86_64/aarch64, macOS) — one wheel covers 3.10–3.14.
 
 ### Out of scope
 
