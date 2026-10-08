@@ -114,7 +114,7 @@ def test_the_wire_loggers_never_log_at_debug(monkeypatch):
                         lambda argv: SimpleNamespace(settings=settings, sources={}))
 
     class Server:
-        auth_token = skill = flows = secrets = None
+        auth_token = skill = flows = secrets = collector = None
         sessions = SimpleNamespace(kind="memory")
 
         def __init__(self, *a, **kw):

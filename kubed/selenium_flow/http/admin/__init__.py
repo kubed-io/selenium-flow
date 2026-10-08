@@ -48,8 +48,11 @@ def register(
     settings_payload=None,
     link_ttl: int = links.DEFAULT_TTL,
     frame_ancestors: list[str] | None = None,
-) -> None:
+) -> session_list.Broadcast:
     """Mount the admin pages, their JSON API, and the signed file routes.
+
+    Returns the session list's ``Broadcast``, so the server can tell open pages
+    a recording was filed.
 
     ``flow_store`` is the *documents and kept files* store — what
     ``DATA_DIR`` points at — and is deliberately not spelled ``store``:
@@ -104,3 +107,4 @@ def register(
     )
     flows.mount(mcp, flow_store, schemas, prefix, guarded, broadcast.changes)
     signed.mount(mcp, actions, flow_store, token, prefix)
+    return broadcast

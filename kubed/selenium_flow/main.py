@@ -59,7 +59,8 @@ def main(argv: list[str] | None = None) -> None:
     except config.ConfigError as exc:
         raise SystemExit(f"selenium-flow: {exc}") from None
     log.info(
-        "config=%s grid=%s auth=%s oidc=%s sessions=%s skill=%s flows=%s secrets=%s",
+        "config=%s grid=%s auth=%s oidc=%s sessions=%s skill=%s flows=%s secrets=%s "
+        "recordings=%s",
         settings.config_file or "none",
         without_userinfo(settings.grid.url),
         "on" if server.auth_token else "off",
@@ -68,6 +69,7 @@ def main(argv: list[str] | None = None) -> None:
         server.skill.skill_info.name if server.skill else "off",
         server.flows.kind if server.flows else "off",
         _secrets_summary(server.secrets),
+        "on" if server.collector else "off",
     )
     if settings.oidc.issuer and not settings.oidc.roles:
         log.warning(

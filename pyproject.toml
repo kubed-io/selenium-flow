@@ -53,6 +53,10 @@ dependencies = [
   # fastmcp; declared because config.py imports it. 2.8 is the first release
   # with env_nested_max_split, which maps REDIS_HOST to redis.host.
   "pydantic-settings>=2.8,<3",
+  # The recordings collector watches the inbox with it: native events on a local
+  # disk, polling on a network filesystem where events cannot see the other
+  # side's writes. abi3 wheels from cp310 cover every Python CI runs.
+  "watchfiles>=1.3",
   "mcp>=2.0,<3",
   "sse-starlette>=3.3",
 ]

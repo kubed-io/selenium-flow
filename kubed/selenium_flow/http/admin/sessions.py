@@ -234,6 +234,12 @@ class Broadcast:
         self._latest = None
         self._floor = time.monotonic()
 
+    def poke(self) -> None:
+        """Something an open page should see changed (a recording was filed):
+        forget the last broadcast and tick now. Called on the event loop."""
+        self.invalidate()
+        self._nudge.set()
+
     def changes(self, handler):
         """For a route that changes what the list shows — End, Forget, Clear,
         keep, delete: once it has run, however it ended, the listing after it
