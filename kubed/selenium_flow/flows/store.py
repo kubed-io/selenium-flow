@@ -476,17 +476,28 @@ class FileStore(SessionLayout):
                             shutil.copyfileobj(src, out, 1024 * 1024)
                         shutil.copystat(source, staged)
                     else:
-                        source.unlink()
+                        self._release(source, target)
                         return self._entry(target)
                 if self._claim_staged(staged, target):
                     staged = None
-                    source.unlink()
+                    self._release(source, target)
                     return self._entry(target)
             raise AssertionError("unreachable")  # candidates is infinite
         finally:
             if staged is not None:
                 with contextlib.suppress(OSError):
                     staged.unlink()
+
+    @staticmethod
+    def _release(source: Path, target: Path) -> None:
+        """Remove the moved file's source. If a racing move took it first, this
+        one lost: unclaim ``target`` so no duplicate stays, and say so."""
+        try:
+            source.unlink()
+        except FileNotFoundError:
+            with contextlib.suppress(OSError):
+                target.unlink()
+            raise
 
     @staticmethod
     def _claim_staged(staged: Path, target: Path) -> bool:

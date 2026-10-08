@@ -264,6 +264,7 @@ BROWSER = {"accept": "text/html,application/xhtml+xml,*/*;q=0.8"}
         links.file_path("abc", "shot.png"),
         links.kept_path("desk", "shot.png"),
         links.screenshot_path("desk", "shot.png"),
+        links.recording_path("desk", "a.mp4"),
     ],
 )
 def test_a_dead_link_opened_in_a_browser_says_why(client, path):

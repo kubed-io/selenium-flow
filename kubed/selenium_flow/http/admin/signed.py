@@ -1,13 +1,15 @@
 """Signed file links: what a URL that cannot send a header is allowed to open.
 
-``/files/*``, ``/kept/*`` and ``/screenshots/*`` are for anything that renders a
+``/files/*``, ``/kept/*``, ``/screenshots/*`` and ``/recordings/*`` are
+for anything that renders a
 URL — an ``<img>`` on the admin page, a markdown image in a chat transcript, a
 link sent to someone else — and are authorised by signature rather than by
 header, because none of those can set one. The signature covers one exact path
 and an expiry, so a link grants one file for a while rather than the API.
 
-The three routes differ in where the bytes live and nothing else, which is why
-there is one factory (``route``) and three calls to it.
+The four routes differ in where the bytes live and nothing else, which is why
+there is one factory (``route``) and four calls to it. Files on disk are
+streamed (``Range``); a Grid download is read as bytes.
 """
 
 from __future__ import annotations
@@ -235,6 +237,9 @@ def route(
     ``what`` names the read in the log, with ``{name}`` and ``{owner}``.
     """
 
+    if (read is None) == (path is None):
+        raise ValueError(f"route {name}: give exactly one of read= and path=")
+
     async def handler(request: Request) -> Response:
         who = request.path_params[owner]
         leaf = request.path_params["name"]
@@ -255,6 +260,7 @@ def route(
                     resolved,
                     media_type=files.content_type(leaf),
                     headers=headers_for(leaf, fresh_for(request)),
+                    stat_result=info,
                 )
             data = await run_in_threadpool(read, who, leaf)
         except absent:

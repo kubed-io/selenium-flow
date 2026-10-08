@@ -5,6 +5,8 @@ import logging
 import os
 import shutil
 
+from pathlib import Path
+
 import pytest
 
 from kubed.selenium_flow.flows import store as flows
@@ -139,3 +141,20 @@ def test_the_copy_path_keeps_the_sources_mtime(store, tmp_path, monkeypatch):
     landed = store.move_in("bot", src, "rec.mp4", RECORDINGS_DIR)
     path = store.file_path("bot", landed["name"], RECORDINGS_DIR)
     assert int(path.stat().st_mtime) == 1_000_000_000
+
+
+def test_a_racing_keep_that_loses_the_source_leaves_no_copy(store, tmp_path, monkeypatch):
+    inbox = tmp_path / "recordings"
+    inbox.mkdir()
+    src = inbox / "a.mp4"
+    src.write_bytes(b"v")
+    real_link = os.link
+
+    def link_then_lose_the_source(a, b):
+        real_link(a, b)
+        Path(a).unlink()  # the winning keep removes it between our claim and unlink
+
+    monkeypatch.setattr(os, "link", link_then_lose_the_source)
+    with pytest.raises(FileNotFoundError):
+        store.move_in("bot", src, "a.mp4", FILES_DIR)
+    assert store.files("bot", FILES_DIR) == []
