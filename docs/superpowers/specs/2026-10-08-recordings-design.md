@@ -1,6 +1,6 @@
 # Recordings: a video of a browser's whole life
 
-**Status: APPROVED by Dr K, 2026-10-08. Plan:
+**Status: BUILT on branch recordings (PR to follow); Task 9 — Dr K's live check — pending. Plan:
 `docs/superpowers/plans/2026-10-08-recordings.md`. Penpot: *Admin UI* → page
 *Session · Files*, flow Recordings (boards `recordings-*`,
 `lightbox-recording-*`, `overlay-clear-recordings`).
@@ -237,7 +237,7 @@ end_browser               ─► note stamped ─► collector.ended(gridId)
     │     a file whose name holds an owed Grid id changed                   │
     │        → ends in a valid mfro?   yes → file it                        │
     │        → no mfro, unchanged 60 s, browser gone?  → file it as it is   │
-    │     timer → ask the Grid about owed browsers not yet ended (reaps);   │
+    │     timer → read the Grid's /status listing once (never a session);   │
     │             drop notes past ended + recording.wait, with a warning    │
     │     filed → note deleted, admin broadcast nudged                      │
     │   nothing owed → stop_event set, the task ends                        │
@@ -283,9 +283,12 @@ the boundary rules: no protocol imports, no `selenium`). It keeps a
   deletes the note, logs one line, and calls the admin broadcast's
   `invalidate()` and nudge. Across filesystems a move is a copy and an unlink.
 - **Reaps need no caller.** The recorder finishes a reaped browser's file on its
-  own, and the change is seen like any other. The timer asks the Grid only about
-  owed browsers not yet marked ended, so that a file that never comes has a
-  deadline to miss.
+  own, and the change is seen like any other. Once per tick the collector reads
+  the Grid's `/status` listing and never touches a session (a command such as
+  `GET /session/{id}/url` counts as activity and would stop the Grid reaping the
+  browser), so that a file that never comes has a deadline to miss. A listing
+  taken before a browser opened cannot mark it gone, and a failed sweep is
+  retried a tick later.
 - **Missing** after `ended + recording.wait`: the note is deleted and one
   warning is logged — *"recording for session S (opened 14:03) never reached
   RECORDING_DIR; see the README's Recording section"*. Nothing is shown: the row
@@ -449,7 +452,7 @@ them:
 1. `docker compose up` with `selenium/standalone-chromium` and `./data/recordings`
    on `/videos`: does `se:recordVideo` record a standalone session, or does it
    need `SE_VIDEO_RECORD_STANDALONE=true`? What exact file name lands?
-   Measured in Task 8, Step 6, once `docker-compose.yaml` mounts `./data/recordings`.
+   Not run here (no Docker daemon in the build pod); requested from Dr K: `docker compose up --build`, then `POST /browser?session=compose {"record": true}` and `DELETE /browser?session=compose`, and watch ./data/sessions/compose/recordings/. The compose file sets `SE_VIDEO_RECORD_STANDALONE=true` in case the standalone image needs it.
 2. Starlette `FileResponse` honours `Range` at the pinned version (believed
    since 0.39; the floor is 0.48).
 3. The CSP a top-level `video/mp4` document needs to play in Chrome and
@@ -458,15 +461,14 @@ them:
    `default-src 'none'; media-src 'self'; style-src 'unsafe-inline'` for
    `video/*`, which is what a top-level media document needs to load itself.
 4. The recorder's timing: seconds from our quit to a file ending in `mfro`.
-   Requested from Dr K (2026-10-08): the live inbox listing, a recording's last
-   16 bytes, and the quit-to-mfro timing — commands in the plan's Task 1, Steps 2–3.
 5. A real recording from the node image ends in `mfro` — the source says so;
    the plan looks at actual bytes.
-   Requested from Dr K (2026-10-08): the live inbox listing, a recording's last
+   Items 4 and 5 requested from Dr K (2026-10-08): the live inbox listing, a recording's last
    16 bytes, and the quit-to-mfro timing — commands in the plan's Task 1, Steps 2–3.
 6. `watchfiles` has a wheel for every Python the matrix runs (3.10–3.14) and
    for the image's platform, and its polling sees a file another container
    writes to a shared Docker volume.
+   The wheel half is settled (below); the shared-Docker-volume polling half is still open.
 
 **Results (2026-10-08):**
 

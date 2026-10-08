@@ -507,6 +507,35 @@ A stored mapping can name a browser the Grid has already reaped. `resolve` check
 package runs a cleanup loop: the Grid expires idle browsers via `SE_NODE_SESSION_TIMEOUT`,
 and the store expires mappings via its own TTL. Do not add a scheduler.
 
+**One bounded wait is allowed:** a task that waits for something this server was
+told to expect, and ends when nothing is owed — the admin broadcast (while a page
+listens) and the recordings collector (while a recording is owed). A loop that
+tidies is still not.
+
+### Recordings: Selenium records, the operator delivers, we file
+
+- The inbox (`recording.dir`) is the operator's; we never clean it. A file no
+  note claims stays where it is.
+- The queue is the notes under `sessions/<name>/recordings/.pending/<gridId>.json`.
+  They are on disk, so they survive a restart whatever the session store is.
+- Matching is by Grid id found anywhere in the file name, never by session name
+  (the recorder strips `.`). The Grid id stays on disk, in the note only.
+- A file is complete when it ends in `mfro`; one cut off (no `mfro`, unchanged
+  60 s, browser gone) is filed as it is.
+- **The collector never sends the Grid a session command.** It learns whether a
+  recorded browser still runs from one `GET /status` listing per tick
+  (`Grid.sessions()`): a WebDriver command such as `GET /session/{id}/url` counts
+  as activity and would stop the Grid ever reaping the browser. A listing taken
+  before a browser opened cannot mark it gone (a cached listing older than the
+  note's `opened` is ignored). A failed sweep is retried a tick later, logged once
+  per failure streak.
+- Recordings follow the screenshot lifecycle: kept into Files or cleared.
+- `record` is never inherited by an explicit open, but a reap replays it, and
+  only while `recording.enabled`; with recording off it is dropped from the reopen.
+- Layout: `DATA_DIR/sessions/<name>/{flows,files,screenshots,recordings}`, and
+  the inbox `DATA_DIR/recordings/` by default. `data` and `recording` are
+  config sections; `FLOW_DATA_DIR` is the one retired name refused at boot.
+
 ### Everything to read is a resource, named by its URI
 
 `session://current` is the natural shape for "what browser am I holding" — state to read,
@@ -601,7 +630,10 @@ token on this origin. Images get `default-src 'none'` and no sandbox, and
 this is not an oversight to tidy away: the sandbox's opaque origin is felt by
 every extension in the tab, and one reading `localStorage` threw on each
 render until screenshot links opened black and hung. A PDF gets neither,
-since Chrome's viewer does not load under a sandbox. A link that does not open
+since Chrome's viewer does not load under a sandbox. Video and audio are the other unsandboxed case: they get
+`default-src 'none'; media-src 'self'; style-src 'unsafe-inline'`, because a
+sandboxed top-level media document does not play. Files on our disk (kept files,
+screenshots, recordings) stream with HTTP Range so a video can seek. A link that does not open
 is a page saying why for a browser and JSON for anything else, and
 `link_ttl` sets how long one lasts.
 

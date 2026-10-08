@@ -38,6 +38,10 @@ services:
       # Empty disables auth, which is what you want locally.
       AUTH_TOKEN: ${AUTH_TOKEN:-}
       REDIS_URL: ${REDIS_URL:-}
+      DATA_DIR: /data
+      RECORDING_ENABLED: "true"
+    volumes:
+    - ./data:/data
     depends_on:
       selenium:
         condition: service_healthy
@@ -54,6 +58,10 @@ services:
     - 7900:7900
     environment:
       SE_NODE_SESSION_TIMEOUT: ${SE_NODE_SESSION_TIMEOUT:-300}
+      # Switches on recording for a standalone container (open_session record=true).
+      SE_VIDEO_RECORD_STANDALONE: "true"
+    volumes:
+    - ./data/recordings:/videos
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4444/status"]
       interval: 5s

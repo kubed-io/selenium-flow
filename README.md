@@ -159,7 +159,7 @@ Drive a form once, save the steps under a name, and every run after that is one 
 run_flow(name="sign-up", params={"email": "a@example.com"})
 ```
 
-A step is just a tool call, validated against the live tool schemas when it is saved — so a flow that could not run is refused before it starts. It runs in whatever browser you already hold, which means the same flow checks Chrome and then Firefox without an edit. Each named session keeps its own library, beside a shared one called `global` that every session can run and none can change. Set `DATA_DIR` to turn them on.
+A step is just a tool call, validated against the live tool schemas when it is saved — so a flow that could not run is refused before it starts. It runs in whatever browser you already hold, which means the same flow checks Chrome and then Firefox without an edit. Each named session keeps its own library, beside a shared one called `global` that every session can run and none can change. Set `DATA_DIR` to turn them on; sessions live under `DATA_DIR/sessions/<name>/`.
 
 ## 🔐 Secrets — typed, never shown
 
@@ -199,6 +199,43 @@ Every entry carries a link to hand someone — signed and time-limited when the
 server has a token, a plain path when authentication is off — because an
 `<img>` tag cannot send an `Authorization` header. `screenshot(save=false)`
 opts out when a capture is not worth keeping.
+
+---
+
+## Recording
+
+`open_session(record=true)` films the browser's whole life — from that call until
+the browser ends or the Grid reaps it — and the video appears under
+`session://files/recordings` (and in the admin page's Recordings row) shortly
+after. Like screenshots, recordings stay until they are kept into Files or
+cleared.
+
+**Selenium records; you deliver; selenium-flow files.** Every docker-selenium
+node image from `4.45.0-20260606` contains the recorder and starts it for a
+session that asks with `se:recordVideo`. The Grid has no endpoint to download a
+recording, so how the file reaches this server is yours to choose. The one rule:
+
+> Make the Grid's recordings arrive in `RECORDING_DIR` (default
+> `$DATA_DIR/recordings`), and set `RECORDING_ENABLED=true`.
+
+Both sides need write access to that directory: the Grid's side writes, this
+server moves the finished file out. Keep `SE_NODE_MAX_SESSIONS=1` on recording
+nodes, or recordings share one screen.
+
+- **A shared volume.** Mount the same directory at the nodes' `/videos` and at
+  `RECORDING_DIR` here. Nothing else to configure.
+- **rclone, to anything.** The recorder uploads each finished file with rclone:
+  set `SE_UPLOAD_DESTINATION_PREFIX` and an `RCLONE_CONFIG_<REMOTE>_*` remote on
+  the nodes — a WebDAV such as Nextcloud whose folder is the same storage as
+  `RECORDING_DIR`, S3, SFTP. Leaving `--inplace` out of `SE_UPLOAD_OPTS` makes
+  rclone write `*.partial` and rename, which this server waits for.
+- **A local folder** for stdio or compose: bind-mount it into the Grid container
+  at `/videos` (see `docker-compose.yaml`). A standalone container also needs
+  `SE_VIDEO_RECORD_STANDALONE=true` to start its recorder.
+
+A recording is matched to its session by the Grid's session id in its file name,
+so any path and prefix the transport adds is fine. One that never arrives is
+given up on after `RECORDING_WAIT` seconds with a warning in the log.
 
 ---
 
