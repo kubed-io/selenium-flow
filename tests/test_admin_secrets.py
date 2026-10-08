@@ -24,7 +24,7 @@ def secrets_dir(tmp_path):
 def test_the_endpoint_lists_the_catalogue(tmp_path, secrets_dir):
     srv = SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN},
-        flow={"data_dir": str(tmp_path / "flows")}, secrets={"dirs": str(secrets_dir)},
+        data={"dir": str(tmp_path / "flows")}, secrets={"dirs": str(secrets_dir)},
     ))
     body = TestClient(srv.mcp.http_app()).get("/admin/secrets", headers=AUTH).json()
     assert body["enabled"] is True
@@ -70,7 +70,7 @@ def test_a_broken_store_answers_through_errors_not_a_bare_500(
 
     srv = SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN},
-        flow={"data_dir": str(tmp_path / "flows")}, secrets={"dirs": str(secrets_dir)},
+        data={"dir": str(tmp_path / "flows")}, secrets={"dirs": str(secrets_dir)},
     ))
 
     def boom(self, session=""):

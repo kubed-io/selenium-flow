@@ -220,7 +220,7 @@ async def test_nothing_an_agent_reads_names_what_was_removed():
     server = SeleniumMCP(
         Settings(
             grid={"url": "http://grid.invalid:4444"},
-            flow={"data_dir": tempfile.mkdtemp()},
+            data={"dir": tempfile.mkdtemp()},
             secrets={"dirs": tempfile.mkdtemp()},
         )
     )

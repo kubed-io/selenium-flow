@@ -28,7 +28,7 @@ pytestmark = pytest.mark.unit
 def server(tmp_path, monkeypatch):
     server = SeleniumMCP(
         Settings(
-            grid={"url": "http://grid.invalid:4444"}, flow={"data_dir": str(tmp_path)}
+            grid={"url": "http://grid.invalid:4444"}, data={"dir": str(tmp_path)}
         )
     )
     calling_as(monkeypatch, "refusals")

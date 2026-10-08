@@ -105,7 +105,7 @@ page; these are the ones that change behaviour you will notice.
 | `AUTH_TOKEN` | unset | Sets the bearer token for both surfaces. Unset means **no auth** |
 | `SESSION_STORE` | `memory` | `redis` to share a caller's browser across replicas or a restart |
 | `SESSION_TTL` | `86400` | How long a caller's mapping is kept. Not the browser's lifetime |
-| `FLOW_DATA_DIR` | unset | A directory to keep saved flows in. Unset means no flows |
+| `DATA_DIR` | unset | A directory to keep saved flows in. Unset means no flows |
 | `SECRETS_DIRS` | unset | Colon-separated directories of secrets. Unset means none to bind |
 | `MCP_SKILL` | `true` | `false` serves only the bare tools, no guidance |
 | `LOG_LEVEL` | `INFO` | `DEBUG` logs which key each call resolved to, and how |

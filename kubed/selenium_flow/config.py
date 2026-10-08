@@ -191,12 +191,16 @@ class RedisSettings(Section):
     )
 
 
-class FlowSettings(Section):
-    data_dir: str | None = Field(
-        None, description="Where flows and kept files live. Unset turns flows off."
+class DataSettings(Section):
+    dir: str | None = Field(
+        None,
+        description=(
+            "Where sessions and recordings live. Unset turns flows, kept files "
+            "and recordings off."
+        ),
     )
 
-    @field_validator("data_dir")
+    @field_validator("dir")
     @classmethod
     def _blank_is_off(cls, value):
         return (value or "").strip() or None
@@ -356,8 +360,9 @@ class Settings(Section):
         default_factory=RedisSettings,
         description="The session store\u2019s connection.",
     )
-    flow: FlowSettings = Field(
-        default_factory=FlowSettings, description="Saved flows and kept files."
+    data: DataSettings = Field(
+        default_factory=DataSettings,
+        description="Where sessions, their flows and files, and recordings live.",
     )
     secrets: SecretsSettings = Field(
         default_factory=SecretsSettings, description="Where secrets are read from."
@@ -685,6 +690,27 @@ def oidc_problem(settings: Settings) -> str | None:
     return None
 
 
+RETIRED_FLOW = (
+    "DATA_DIR is now DATA_DIR, and session folders live under "
+    "DATA_DIR/sessions/ — move them there once, then set DATA_DIR"
+)
+
+
+def _retired(environ: Mapping[str, str], file: dict) -> None:
+    """A name this server used to read, refused rather than ignored.
+
+    The env layer drops unknown names on purpose (Kubernetes injects plenty),
+    so a deployment still setting DATA_DIR would boot with flows quietly
+    off. One retired name is worth naming; the rule stays lenient for the rest.
+    """
+    if any(
+        k.lower() == "flow_data_dir" and not _is_blank(v) for k, v in environ.items()
+    ):
+        raise ConfigError(RETIRED_FLOW)
+    if "flow" in file:
+        raise ConfigError(RETIRED_FLOW)
+
+
 def load(
     argv: list[str] | None = None, environ: Mapping[str, str] | None = None
 ) -> Loaded:
@@ -700,6 +726,7 @@ def load(
     # Blank is unset in the file layer too, same as env and args — a quoted
     # `""` (or whitespace) does not mean "use this empty value".
     file = _drop_blank_leaves(_read_file(path)) if path else {}
+    _retired(environ, file)
     # The file's own contract is strict, checked in isolation: `_merge` below
     # overwrites a whole section when a later layer sets any key in it, so a
     # malformed `redis: broken` would otherwise validate fine once, say,

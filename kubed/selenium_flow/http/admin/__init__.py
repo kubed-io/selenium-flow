@@ -52,7 +52,7 @@ def register(
     """Mount the admin pages, their JSON API, and the signed file routes.
 
     ``flow_store`` is the *documents and kept files* store — what
-    ``FLOW_DATA_DIR`` points at — and is deliberately not spelled ``store``:
+    ``DATA_DIR`` points at — and is deliberately not spelled ``store``:
     ``sessions.store`` is a different thing entirely, holding session records,
     and the two sat one scope apart with the same name until one shadowed the
     other and a listing died on ``MemoryStore.files``.

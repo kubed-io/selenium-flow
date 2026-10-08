@@ -31,7 +31,7 @@ def reader(tmp_path, monkeypatch):
     server = SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
-        flow={"data_dir": str(tmp_path)},
+        data={"dir": str(tmp_path)},
     ))
     calling_as(monkeypatch, NAMED)
     return server

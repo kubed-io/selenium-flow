@@ -215,3 +215,10 @@ def test_a_path_no_route_serves_keeps_only_its_first_segment(tmp_path, listened)
     line = access_line("/kept/s3cr3t?x=1")
     assert line == '1.2.3.4:5 - "GET /kept/… HTTP/1.1" 200'
     assert access_line("/") == '1.2.3.4:5 - "GET / HTTP/1.1" 200'
+
+
+def test_a_config_error_while_building_the_server_stops_the_boot(tmp_path, listened):
+    (tmp_path / "old" / "flows").mkdir(parents=True)
+    with pytest.raises(SystemExit) as exc:
+        main_module.main(["--data-dir", str(tmp_path)])
+    assert "move" in str(exc.value) and "sessions/" in str(exc.value)

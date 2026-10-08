@@ -118,7 +118,7 @@ class Actions:
         if self.keep is None:
             raise ValueError(
                 "keeping files is not enabled on this server: it was started "
-                "with no FLOW_DATA_DIR, so there is nowhere to save one"
+                "with no DATA_DIR, so there is nowhere to save one"
             )
         return self.keep(name, data, folder)
 
@@ -1118,7 +1118,7 @@ class Actions:
                     _generated_name(filename or "page", f".{kind}"), data, FILES_DIR
                 )
             except OSError as exc:
-                # A full disk or a permission names a path under FLOW_DATA_DIR,
+                # A full disk or a permission names a path under DATA_DIR,
                 # which is nobody's business but the log's. Still a server fault.
                 log.error("a print could not be kept", exc_info=exc)
                 raise RuntimeError(

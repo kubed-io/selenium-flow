@@ -5456,7 +5456,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — an unusable name, or a server with no FLOW_DATA_DIR to keep files in. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — an unusable name, or a server with no DATA_DIR to keep files in. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -5558,7 +5558,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — an unusable name, or a server with no FLOW_DATA_DIR to keep files in. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — an unusable name, or a server with no DATA_DIR to keep files in. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -5660,7 +5660,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — an unusable name, or a server with no FLOW_DATA_DIR to keep files in. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — an unusable name, or a server with no DATA_DIR to keep files in. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -5793,7 +5793,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — an unusable name, or a server with no FLOW_DATA_DIR to keep files in. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — an unusable name, or a server with no DATA_DIR to keep files in. Do not retry it unchanged."
           },
           "401": {
             "content": {

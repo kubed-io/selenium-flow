@@ -41,7 +41,7 @@ def kept_server(tmp_path):
     return SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
-        flow={"data_dir": str(tmp_path)},
+        data={"dir": str(tmp_path)},
     ))
 
 
@@ -245,7 +245,7 @@ def test_a_broken_screenshot_store_is_a_5xx_not_a_404(client, live):
     """A read that fails is not the same fact as a read that found nothing:
     an NFS permission fault or a mount gone read-only must not tell a client
     to stop retrying something that could work on the next attempt, and its
-    message must not quote FLOW_DATA_DIR's own layout back at whoever asked
+    message must not quote DATA_DIR's own layout back at whoever asked
     (Copilot, PR #41)."""
     with patch.object(
         flows.LocalFlowStore,

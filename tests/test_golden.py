@@ -196,7 +196,7 @@ class Listing(FakeGrid):
 
 def test_the_admin_session_listing_is_what_it_was(tmp_path):
     server = SeleniumMCP(
-        Settings(**SETTINGS, flow={"data_dir": str(tmp_path)}),
+        Settings(**SETTINGS, data={"dir": str(tmp_path)}),
         store=MemoryStore(),
     )
     server.actions.grid = Listing()

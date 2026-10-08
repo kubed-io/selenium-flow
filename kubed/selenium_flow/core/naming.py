@@ -96,7 +96,7 @@ def _why_unsaved(exc: BaseException) -> str:
 
     Our own refusals — nowhere to keep files, an unusable name — are written to
     be read and are repeated. Anything else, an `OSError` above all, carries a
-    path under `FLOW_DATA_DIR` that answers a question nobody asked, so it is
+    path under `DATA_DIR` that answers a question nobody asked, so it is
     reported by type and the detail stays in the log.
     """
     if isinstance(exc, ValueError):

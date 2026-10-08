@@ -34,6 +34,13 @@ GLOBAL_SESSION = "global"
 # remedy cannot be performed (§F1.2).
 STDIO_SESSION = "stdio"
 
+# The data directory is a root with two homes in it (recordings spec, ruling 6):
+# every session's own folder under `sessions/`, and the inbox the Grid's
+# recordings arrive in. Neither can collide with a session's name, because a
+# session is one level further down.
+SESSIONS_DIR = "sessions"
+INBOX_DIR = "recordings"
+
 # Where a session's own files land. `files` IS the Files section — a print, and
 # anything kept; `screenshots` holds every screenshot until it is kept or
 # cleared (§F4.1). Downloads are not a folder here: they are the Grid's.

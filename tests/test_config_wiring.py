@@ -27,7 +27,7 @@ def test_the_environment_is_read_in_two_modules_only():
 
 def test_a_server_built_from_settings_uses_them(tmp_path):
     s = Settings(grid=GRID, auth={"token": "t"}, route_prefix="/flow",
-                 flow={"data_dir": str(tmp_path)}, mcp={"skill": False},
+                 data={"dir": str(tmp_path)}, mcp={"skill": False},
                  session={"browser": "firefox", "ttl": 42})
     server = SeleniumMCP(s)
     assert server.settings is s
@@ -41,7 +41,7 @@ def test_a_server_built_from_settings_uses_them(tmp_path):
 
 
 def test_no_settings_is_every_default(monkeypatch):
-    monkeypatch.setenv("FLOW_DATA_DIR", "/nowhere")
+    monkeypatch.setenv("DATA_DIR", "/nowhere")
     server = SeleniumMCP()
     assert server.flows is None and server.secrets is None and server.auth_token is None
 

@@ -347,7 +347,7 @@ def test_a_partial_download_is_never_served(client):
 
 
 def test_the_admin_api_lists_files_with_signed_urls(client, flow_session):
-    """`server` keeps no flows (no `FLOW_DATA_DIR`), so Downloads is the only
+    """`server` keeps no flows (no `DATA_DIR`), so Downloads is the only
     section with anything in it — and it still has to list, signed, with flows
     off entirely."""
     with (

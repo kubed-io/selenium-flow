@@ -254,7 +254,7 @@ def test_keeping_a_download_with_no_browser_is_refused(store):
 
 
 def test_keeping_refuses_when_there_is_nowhere_to_keep():
-    with pytest.raises(ValueError, match="FLOW_DATA_DIR"):
+    with pytest.raises(ValueError, match="DATA_DIR"):
         files.keep(Actions(), Sessions(), None, "session://files/screenshots/a.png", S)
 
 

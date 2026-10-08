@@ -129,7 +129,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (today's rows are mouse-only) -->
 <div id="flows" onclick={pick}>{#if m.flowsError}<div class="empty error">{m.flowsError}</div>{:else if !m.flows}<div
   class="empty">Loading…</div>{:else if !data.enabled}<div
-  class="empty">Flows are off: this server was started with no FLOW_DATA_DIR.</div>{:else if !(data.flows || []).length}<div
+  class="empty">Flows are off: this server was started with no DATA_DIR.</div>{:else if !(data.flows || []).length}<div
   class="empty">No flows yet.</div>{:else}<div class="flows"><div class="flowlist" id="flowlist">{#each data.flows || [] as item (item.name)}<!--
     svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (today's list items are mouse-only)
     --><div class="item" aria-selected={item.name === flowName} onclick={() => choose(item.name)}><div

@@ -54,7 +54,10 @@ def main(argv: list[str] | None = None) -> None:
     settings = loaded.settings
     logging.basicConfig(level=settings.log_level)
     quiet_the_wire()
-    server = SeleniumMCP(settings, sources=loaded.sources)
+    try:
+        server = SeleniumMCP(settings, sources=loaded.sources)
+    except config.ConfigError as exc:
+        raise SystemExit(f"selenium-flow: {exc}") from None
     log.info(
         "config=%s grid=%s auth=%s oidc=%s sessions=%s skill=%s flows=%s secrets=%s",
         settings.config_file or "none",

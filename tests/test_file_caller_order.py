@@ -18,11 +18,11 @@ pytestmark = pytest.mark.unit
 
 
 def server_for(monkeypatch, tmp_path, *, files_on: bool) -> SeleniumMCP:
-    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
-    flow = {"data_dir": str(tmp_path)} if files_on else {}
+    monkeypatch.delenv("DATA_DIR", raising=False)
+    data = {"dir": str(tmp_path)} if files_on else {}
     server = SeleniumMCP(
         Settings(
-            grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}, flow=flow
+            grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}, data=data
         )
     )
     calling_as(monkeypatch, None)
@@ -34,9 +34,9 @@ async def test_files_off_is_said_before_an_unnamed_caller_is_told_to_name_itself
 ):
     server = server_for(monkeypatch, tmp_path, files_on=False)
     keep = await server.mcp.get_tool(files.KEEP_TOOL)
-    with pytest.raises(ValueError, match="FLOW_DATA_DIR"):
+    with pytest.raises(ValueError, match="DATA_DIR"):
         keep.fn(uri="session://files/a.txt")
-    with pytest.raises(Exception, match="FLOW_DATA_DIR"):  # a resource wraps it
+    with pytest.raises(Exception, match="DATA_DIR"):  # a resource wraps it
         await server.mcp.read_resource("session://files/a.txt")
 
 

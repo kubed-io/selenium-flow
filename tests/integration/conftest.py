@@ -126,7 +126,7 @@ def server(tmp_path_factory):
         **os.environ,
         "GRID_URL": GRID_URL,
         "AUTH_TOKEN": TOKEN,
-        "FLOW_DATA_DIR": str(root / "data"),
+        "DATA_DIR": str(root / "data"),
         "SECRETS_DIRS": str(root / "secrets"),
         "HOST": "0.0.0.0",
         "PORT": str(port),

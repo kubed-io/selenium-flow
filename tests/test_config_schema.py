@@ -81,7 +81,7 @@ def test_secrets_dirs_as_a_list_drops_blanks_too():
 
 
 def test_a_blank_flow_dir_is_off():
-    assert Settings(flow={"data_dir": "   "}).flow.data_dir is None
+    assert Settings(data={"dir": "   "}).data.dir is None
 
 
 def test_a_key_reference_is_exactly_one_of_file_env_value():

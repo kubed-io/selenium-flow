@@ -14,7 +14,7 @@ import time
 import pytest
 import yaml
 
-from kubed.selenium_flow.config import FlowSettings
+from kubed.selenium_flow.config import ConfigError, DataSettings
 from kubed.selenium_flow.flows import library as flows
 from kubed.selenium_flow.flows import store as flowstore
 from kubed.selenium_flow.flows.store import LocalFlowStore
@@ -338,12 +338,12 @@ def test_flows_are_parsed_by_libyaml_when_the_wheel_has_it():
 
 def test_flows_are_off_unless_a_directory_is_named():
     """Not a temp-directory fallback: the operator chooses where this lives."""
-    assert flowstore.from_settings(FlowSettings()) is None
-    assert flowstore.from_settings(FlowSettings(data_dir="   ")) is None
+    assert flowstore.from_settings(DataSettings()) is None
+    assert flowstore.from_settings(DataSettings(dir="   ")) is None
 
 
 def test_naming_a_directory_turns_them_on(tmp_path):
-    store = flowstore.from_settings(FlowSettings(data_dir=str(tmp_path)))
+    store = flowstore.from_settings(DataSettings(dir=str(tmp_path)))
     assert store is not None
     assert store.kind == "local"
 
@@ -421,8 +421,8 @@ def test_a_blank_explicit_directory_means_off_just_as_a_blank_env_does():
     from kubed.selenium_flow.server import SeleniumMCP
 
     grid = {"url": "http://grid.invalid:4444"}
-    assert SeleniumMCP(Settings(grid=grid, flow={"data_dir": "   "})).flows is None
-    assert SeleniumMCP(Settings(grid=grid, flow={"data_dir": None})).flows is None
+    assert SeleniumMCP(Settings(grid=grid, data={"dir": "   "})).flows is None
+    assert SeleniumMCP(Settings(grid=grid, data={"dir": None})).flows is None
 
 
 def test_an_explicit_directory_is_used_and_trimmed(tmp_path):
@@ -430,11 +430,11 @@ def test_an_explicit_directory_is_used_and_trimmed(tmp_path):
     from kubed.selenium_flow.server import SeleniumMCP
 
     server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"}, flow={"data_dir": f"  {tmp_path}  "}
+        grid={"url": "http://grid.invalid:4444"}, data={"dir": f"  {tmp_path}  "}
     ))
     assert server.flows is not None
     server.flows.save("bot", "login", {"steps": []})
-    assert (tmp_path / "bot" / "flows" / "login.yaml").is_file()
+    assert (tmp_path / "sessions" / "bot" / "flows" / "login.yaml").is_file()
 
 
 # ---- what the second review caught ------------------------------------------
@@ -464,7 +464,7 @@ def test_a_symlink_to_another_session_is_refused_even_though_it_stays_inside(
 def test_the_root_itself_may_be_a_link_because_that_is_the_installer_s_business(
     tmp_path,
 ):
-    """FLOW_DATA_DIR pointing at a mount is exactly the case §F1.12 leaves open,
+    """DATA_DIR pointing at a mount is exactly the case §F1.12 leaves open,
     so only the parts we join on have to be honest."""
     real = tmp_path / "real"
     real.mkdir()
@@ -768,3 +768,19 @@ def test_a_replaced_document_keeps_its_mode(store, tmp_path):
     assert path.stat().st_mode & 0o777 == 0o640
     store.write_text("bot", "login", "steps: []\n")
     assert path.stat().st_mode & 0o777 == 0o640
+
+
+def test_sessions_live_under_sessions(tmp_path):
+    store = flowstore.from_settings(DataSettings(dir=str(tmp_path)))
+    store.write_file("bot", "a.txt", b"x")
+    assert (tmp_path / "sessions" / "bot" / "files" / "a.txt").read_bytes() == b"x"
+
+
+def test_an_old_layout_stops_the_boot_and_names_what_to_move(tmp_path):
+    (tmp_path / "claudecode" / "screenshots").mkdir(parents=True)
+    (tmp_path / "global" / "flows").mkdir(parents=True)
+    (tmp_path / "recordings").mkdir()  # the inbox is not a session
+    with pytest.raises(ConfigError) as exc:
+        flowstore.from_settings(DataSettings(dir=str(tmp_path)))
+    assert "claudecode, global" in str(exc.value)
+    assert "sessions/" in str(exc.value)

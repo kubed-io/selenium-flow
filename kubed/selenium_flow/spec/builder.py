@@ -728,7 +728,7 @@ def _file_paths(prefix: str = "") -> dict:
             },
             "400": _error(
                 "The request cannot succeed as sent — an unusable name, or a "
-                "server with no FLOW_DATA_DIR to keep files in. Do not retry it "
+                "server with no DATA_DIR to keep files in. Do not retry it "
                 "unchanged."
             ),
             "401": _error("Missing or wrong bearer token."),

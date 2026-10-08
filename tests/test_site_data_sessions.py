@@ -217,7 +217,7 @@ def flow_world(tmp_path, steps):
     from kubed.selenium_flow.server import SeleniumMCP
 
     server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"}, flow={"data_dir": str(tmp_path)},
+        grid={"url": "http://grid.invalid:4444"}, data={"dir": str(tmp_path)},
     ))
     server.flows.save(NAMED, "login", {"steps": steps})
     m = manager(FlowActions())

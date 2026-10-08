@@ -17,7 +17,7 @@ was right even though the merge built on top of it was not:
   that store is *list, read-one, delete-all* — there is no write and no
   per-file delete — so those are the only operations offered for them.
 - **Screenshots and Files belong to the session**, which outlives any
-  browser. They are ours, under ``FLOW_DATA_DIR``. Screenshots pile up until
+  browser. They are ours, under ``DATA_DIR``. Screenshots pile up until
   kept or cleared in bulk; Files holds only what somebody chose to keep, or a
   print, and gets no bulk delete because everything in it is there on purpose
   (§F4.1).
@@ -137,7 +137,7 @@ IMAGE_TYPES = RASTER_TYPES | {"image/svg+xml"}
 
 OFF = (
     "keeping files is not enabled on this server: it was started with no "
-    "FLOW_DATA_DIR, so there is nowhere to keep them"
+    "DATA_DIR, so there is nowhere to keep them"
 )
 
 NOTHING = "nothing to list: this server keeps no files and holds no browser for you"

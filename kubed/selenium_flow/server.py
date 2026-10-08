@@ -115,7 +115,7 @@ class SeleniumMCP:
 
         # Saved flows, or None when no data directory was named — which is the
         # default, and is the feature being off rather than a degraded mode.
-        self.flows = flowstore.from_settings(settings.flow)
+        self.flows = flowstore.from_settings(settings.data)
 
         # The secrets an agent may bind, or None when none were configured.
         # Read-only and value-free: this holds a catalogue, never a credential.

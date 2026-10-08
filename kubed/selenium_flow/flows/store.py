@@ -8,8 +8,9 @@ is or how to run one — see the saga's Chapter 1, §F1.1 through §F1.4. What a
 document is as text — parsing it once, saying where it broke, summarising it —
 is ``flows.library``.
 
-**The codebase sees a directory and nothing else.** ``FLOW_DATA_DIR`` points at
-one and the installer decides what is behind it: a folder on a laptop, an
+**The codebase sees a directory and nothing else.** ``DATA_DIR`` points at
+one (sessions live under ``DATA_DIR/sessions``) and the installer decides what is
+behind it: a folder on a laptop, an
 ``emptyDir`` in this cluster, a PVC, an NFS mount. That choice is deliberately
 not ours, and it is why the backend is two small method sets rather than a
 module full of ``open()`` calls — a WebDAV implementation is the next one, so
@@ -25,7 +26,7 @@ Two rules that exist for the backend that does not exist yet:
   and descriptions rather than whole documents precisely so a listing stays one
   cheap operation over a network store.
 
-Unset ``FLOW_DATA_DIR`` means the feature is off, and deliberately not a
+Unset ``DATA_DIR`` means the feature is off, and deliberately not a
 fallback to a temp directory. The point is not durability — an ``emptyDir`` a
 redeploy wipes is an accepted backing — it is that *the operator chose where
 this lives*. Falling back to ``/tmp`` would put flows on the 64Mi volume the
@@ -46,11 +47,18 @@ from typing import TYPE_CHECKING
 
 import yaml
 
-from ..names import FILES_DIR, FOLDERS, InvalidName, valid_file_name, valid_name
+from ..names import (
+    FILES_DIR,
+    FOLDERS,
+    SESSIONS_DIR,
+    InvalidName,
+    valid_file_name,
+    valid_name,
+)
 from .library import dump, summary, view, yaml_complaint
 
 if TYPE_CHECKING:
-    from ..config import FlowSettings
+    from ..config import DataSettings
 
 # The store's old logger name, kept: operators filter Loki by it.
 log = logging.getLogger("kubed.selenium_flow.flows.library")
@@ -194,7 +202,7 @@ class SessionLayout:
         So the check is equality, not containment: the resolved path must be
         the path we asked for. Nothing below the root may traverse a link.
         The root itself is resolved first and so may be one — pointing
-        ``FLOW_DATA_DIR`` at a mount is the installer's business (§F1.12), and
+        ``DATA_DIR`` at a mount is the installer's business (§F1.12), and
         it is only the parts *we* join on that have to be honest.
         """
         root = self.root.resolve()
@@ -517,10 +525,45 @@ class LocalFlowStore(FlowStore, FileStore):
     kind = "local"
 
 
-def from_settings(flow: FlowSettings) -> LocalFlowStore | None:
-    """The flow store the config asks for, or None when flows are off (the default)."""
-    if not flow.data_dir:
-        log.info("flows: off (set flow.data_dir to enable them)")
+# Folders that mark a directory as a session's, for the old-layout check.
+_SESSION_MARKS = (FLOWS_DIR, FILES_DIR, "screenshots")
+
+
+def old_layout(root: Path) -> list[str]:
+    """Session folders still at the top of the data directory, sorted.
+
+    Before the recordings release a session lived at ``DATA_DIR/<name>``; it
+    lives at ``DATA_DIR/sessions/<name>`` now. One left behind would make every
+    flow and file it holds silently vanish, so the boot refuses and names them.
+    """
+    if not root.is_dir():
+        return []
+    found = []
+    for entry in root.iterdir():
+        if entry.name == SESSIONS_DIR or not entry.is_dir() or entry.is_symlink():
+            continue
+        try:
+            valid_name(entry.name)
+        except InvalidName:
+            continue
+        if any((entry / mark).is_dir() for mark in _SESSION_MARKS):
+            found.append(entry.name)
+    return sorted(found)
+
+
+def from_settings(data: DataSettings) -> LocalFlowStore | None:
+    """The store the config asks for, or None when the data directory is unset."""
+    if not data.dir:
+        log.info("flows: off (set data.dir to enable them)")
         return None
-    log.info("flows: local, under %s", flow.data_dir)
-    return LocalFlowStore(flow.data_dir)
+    root = Path(data.dir)
+    stranded = old_layout(root)
+    if stranded:
+        from ..config import ConfigError  # local: config imports names, not us
+
+        raise ConfigError(
+            f"{', '.join(stranded)} in {root} are session folders from before "
+            f"the sessions/ layout: move them into {root / SESSIONS_DIR}/"
+        )
+    log.info("flows: local, under %s", root / SESSIONS_DIR)
+    return LocalFlowStore(root / SESSIONS_DIR)

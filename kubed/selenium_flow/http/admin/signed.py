@@ -175,7 +175,7 @@ def signed_refused(exc: Exception, what: str) -> JSONResponse:
     that: a signed URL is a shareable link with no further auth check, so
     anything `faults.message` might say — a Grid outage's
     `requests.ConnectionError` names `GRID_URL`'s own host:port, a storage
-    fault can name a path under `FLOW_DATA_DIR` — must never reach it. Only
+    fault can name a path under `DATA_DIR` — must never reach it. Only
     the status class survives to the body; the real detail still goes to
     the log, same as `refused` (Copilot, PR #41).
     """
