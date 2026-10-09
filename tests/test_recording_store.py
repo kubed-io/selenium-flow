@@ -197,14 +197,17 @@ def test_a_session_that_cannot_be_read_is_reported_and_the_rest_are_listed(store
     store.write_note("good", GID, {"opened": 1})
     store.write_note("bad", other, {"opened": 2})
     bad = str(store.root / "bad")
-    real = os.stat
 
-    def stat(path, *a, **kw):
-        if os.fspath(path) == bad:
-            raise OSError(errno.EIO, "Input/output error", bad)
-        return real(path, *a, **kw)
+    def failing(real):
+        def stat(path, *a, **kw):
+            if os.fspath(path) == bad:
+                raise OSError(errno.EIO, "Input/output error", bad)
+            return real(path, *a, **kw)
+        return stat
 
-    monkeypatch.setattr(os, "stat", stat)
+    # Both: Python 3.14's `Path.lstat` is `os.lstat`, 3.13's is `os.stat`.
+    for name in ("stat", "lstat"):
+        monkeypatch.setattr(os, name, failing(getattr(os, name)))
     failed = []
     assert store.notes(on_error=lambda s, e: failed.append((s, type(e)))) == [
         ("good", GID, {"opened": 1})

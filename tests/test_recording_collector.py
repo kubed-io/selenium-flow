@@ -633,18 +633,20 @@ async def test_notes_that_cannot_be_read_at_boot_are_read_on_a_later_tick(
 
 
 def _eio_on(path, monkeypatch):
-    """Every stat of ``path`` fails as NFS fails: EIO."""
+    """Every stat of ``path`` fails as NFS fails: EIO. Both calls, since
+    Python 3.14's `Path.lstat` is `os.lstat` and 3.13's is `os.stat`."""
     import errno
     import os
 
-    real = os.stat
+    def failing(real):
+        def stat(p, *a, **kw):
+            if os.fspath(p) == str(path):
+                raise OSError(errno.EIO, "Input/output error", str(path))
+            return real(p, *a, **kw)
+        return stat
 
-    def stat(p, *a, **kw):
-        if os.fspath(p) == str(path):
-            raise OSError(errno.EIO, "Input/output error", str(path))
-        return real(p, *a, **kw)
-
-    monkeypatch.setattr(os, "stat", stat)
+    for name in ("stat", "lstat"):
+        monkeypatch.setattr(os, name, failing(getattr(os, name)))
 
 
 async def test_one_session_that_cannot_be_read_does_not_block_another(tmp_path, monkeypatch, caplog):
