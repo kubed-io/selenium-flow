@@ -282,3 +282,10 @@ async def test_the_listing_publishes_both_row_shapes(reader):
     tool = await reader.mcp.get_tool(mirror.LIST_TOOL)
     schema = json.dumps(tool.output_schema)
     assert "uri_template" in schema and "mime_type" in schema
+
+
+async def test_the_mirror_refuses_an_old_uri_naming_the_new_one(reader):
+    from fastmcp.exceptions import ToolError
+
+    with pytest.raises(ToolError, match="`session://current` is now `workspace://current`"):
+        await read(reader, "session://current")

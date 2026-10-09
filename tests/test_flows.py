@@ -770,7 +770,7 @@ def test_a_replaced_document_keeps_its_mode(store, tmp_path):
     assert path.stat().st_mode & 0o777 == 0o640
 
 
-def test_workspaces_live_under_sessions(tmp_path):
+def test_workspaces_live_under_workspaces(tmp_path):
     store = flowstore.from_settings(DataSettings(dir=str(tmp_path)))
     store.write_file("bot", "a.txt", b"x")
     assert (tmp_path / "workspaces" / "bot" / "files" / "a.txt").read_bytes() == b"x"
@@ -818,7 +818,7 @@ def _touch(path):
     path.write_bytes(b"x")
 
 
-def test_an_old_workspace_named_sessions_is_refused(tmp_path):
+def test_an_old_workspace_named_workspaces_is_refused(tmp_path):
     _touch(tmp_path / "workspaces" / "flows" / "a.yaml")
     with pytest.raises(ConfigError, match=r"`workspaces`.*reserved.*workspaces-old"):
         flowstore.from_settings(DataSettings(dir=str(tmp_path)))
@@ -847,13 +847,13 @@ def test_an_image_under_recordings_screenshots_is_an_old_workspace(tmp_path):
 
 
 @pytest.mark.parametrize("folder", ["files", "screenshots"])
-def test_an_old_sessions_folder_holding_a_file_is_refused(tmp_path, folder):
+def test_an_old_workspaces_folder_holding_a_file_is_refused(tmp_path, folder):
     _touch(tmp_path / "workspaces" / folder / "a.bin")
     with pytest.raises(ConfigError, match=r"`workspaces`"):
         flowstore.from_settings(DataSettings(dir=str(tmp_path)))
 
 
-def test_a_symlinked_sessions_flows_is_skipped(tmp_path):
+def test_a_symlinked_workspaces_flows_is_skipped(tmp_path):
     _touch(tmp_path / "elsewhere" / "a.yaml")
     (tmp_path / "workspaces").mkdir()
     (tmp_path / "workspaces" / "flows").symlink_to(tmp_path / "elsewhere")
@@ -947,3 +947,33 @@ def test_both_folders_stop_the_boot_naming_both(tmp_path):
 def test_a_fresh_data_directory_has_nothing_to_move(tmp_path):
     assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
     assert not (tmp_path / "sessions").exists()
+
+
+def test_an_old_flat_workspace_named_sessions_is_refused_and_not_moved(tmp_path):
+    _touch(tmp_path / "sessions" / "flows" / "a.yaml")
+    _touch(tmp_path / "bot" / "flows" / "b.yaml")
+    with pytest.raises(ConfigError, match=r"sessions.*bot|bot.*sessions"):
+        flowstore.from_settings(DataSettings(dir=str(tmp_path)))
+    assert (tmp_path / "sessions" / "flows" / "a.yaml").exists()
+    assert not (tmp_path / "workspaces").exists()
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="no symlinks here")
+def test_a_symlinked_sessions_folder_is_renamed_as_the_link(tmp_path):
+    (tmp_path / "real" / "desk" / "flows").mkdir(parents=True)
+    (tmp_path / "sessions").symlink_to(tmp_path / "real")
+    assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
+    assert (tmp_path / "workspaces").is_symlink()
+    assert not os.path.lexists(tmp_path / "sessions")
+    assert (tmp_path / "real" / "desk" / "flows").is_dir()
+
+
+def test_a_failed_move_stops_the_boot_as_unreadable(tmp_path, monkeypatch):
+    (tmp_path / "sessions" / "a").mkdir(parents=True)
+
+    def refuse(self, target):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr("pathlib.Path.rename", refuse)
+    with pytest.raises(ConfigError, match="cannot be read"):
+        flowstore.from_settings(DataSettings(dir=str(tmp_path)))

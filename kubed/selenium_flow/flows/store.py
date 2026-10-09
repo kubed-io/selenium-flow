@@ -912,12 +912,21 @@ def _move_old_folder(root: Path) -> None:
     """Rename DATA_DIR/sessions to DATA_DIR/workspaces when only the old exists.
 
     One rename on one filesystem, so a crash leaves one name or the other,
-    never half of each. Both present is a merge only a person can do.
+    never half of each. Both present is a merge only a person can do. A
+    `sessions` that has the old flat shape is a workspace, and stays put.
     """
     from ..config import ConfigError  # local: config imports names, not us
 
     old, new = root / _OLD_DIR, root / WORKSPACES_DIR
     if not _is_dir(old):
+        return
+    if (
+        _holds_file(old / FLOWS_DIR, ".yaml")
+        or _holds_file(old / FILES_DIR)
+        or _holds_file(old / "screenshots")
+    ):
+        # A flat-layout workspace named `sessions` (released 0.3.0 shape), not
+        # the unreleased sessions/ folder: leave it for old_layout to report.
         return
     if os.path.lexists(new):
         raise ConfigError(

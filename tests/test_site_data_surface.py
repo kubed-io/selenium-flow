@@ -125,7 +125,7 @@ def test_the_capture_never_leaves_the_server(monkeypatch):
     assert body["uri"] == "workspace://site-data"
 
 
-async def test_current_session_names_site_data(saved):
+async def test_current_workspace_names_site_data(saved):
     current = await read(saved, "workspace://current")
     assert current["site_data"] == {"sites": 1, "uri": "workspace://site-data"}
 
