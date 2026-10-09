@@ -351,7 +351,7 @@ This is a rule, not a preference.
   session open, and calls `open_session`. There is no "reclaim", no "take over".
 - **The admin surface is HTTP endpoints and the UI, never tools or resources.**
   It is the only thing that sees across workspaces, and it is gated on the server
-  token rather than on being an MCP client at all.
+  token or an admin-role sign-in rather than on being an MCP client at all.
 - **Everything is ephemeral.** Stale entries are ignored and silently cleaned;
   nothing needs an operator to tidy up.
 
@@ -659,8 +659,8 @@ a path segment. `POST /browser` opens *yours*; there is no `/browser/{id}`,
 because addressing a browser by id is exactly what E18 removed.
 
 **The one place a workspace is in a path is `/admin/workspaces/{key}`**, and
-that is the same rule from the other side: the token holder looking across
-workspaces is the only role that addresses them as resources. Its End is
+that is the same rule from the other side: the admin (the token, or an admin-UI
+sign-in) looking across workspaces is the only role that addresses them as resources. Its End is
 `DELETE /admin/workspaces/{key}/session` — it ends the session, never the
 workspace, which only expires.
 
