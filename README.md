@@ -331,7 +331,7 @@ cd "$DATA_DIR" && ls             # the old session folders, and recordings/ if a
 mkdir sessions && mv <each session folder> sessions/
 ```
 
-Leave `recordings/` where it is, then set `DATA_DIR` in place of `FLOW_DATA_DIR`.
+Leave `recordings/` where it is, then set `DATA_DIR` in place of `FLOW_DATA_DIR`. `sessions` and `recordings` are now reserved names: an old session called either is refused at boot until you rename it (say `sessions-old`) and move it into `sessions/`.
 
 ### Session defaults cascade
 

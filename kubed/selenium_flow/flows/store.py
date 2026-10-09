@@ -820,6 +820,36 @@ def _is_symlink(path: Path) -> bool:
         return False
 
 
+def _holds_file(folder: Path, suffix: str = "") -> bool:
+    """Whether `folder` holds a regular file directly in it (not a symlink)."""
+    if not _is_dir(folder) or _is_symlink(folder):
+        return False
+    for entry in folder.iterdir():
+        if entry.name.endswith(suffix) and not _is_symlink(entry):
+            try:
+                if stat.S_ISREG(entry.stat().st_mode):
+                    return True
+            except (FileNotFoundError, NotADirectoryError):
+                continue
+    return False
+
+
+def _old_reserved(entry: Path) -> bool:
+    """Whether a folder named like a newly reserved name is an old session.
+
+    Only an unmistakable old shape counts: in the new layout these paths hold
+    sub-folders only, so a regular file directly in them is the old layout.
+    """
+    if entry.name == SESSIONS_DIR:
+        return (
+            _holds_file(entry / FLOWS_DIR, ".yaml")
+            or _holds_file(entry / FILES_DIR)
+            or _holds_file(entry / "screenshots")
+        )
+    # A bare files/ is ambiguous (a transport prefix creates it): not counted.
+    return _holds_file(entry / FLOWS_DIR, ".yaml") or _holds_file(entry / "screenshots")
+
+
 def old_layout(root: Path, inbox: str | os.PathLike | None = None) -> list[str]:
     """Session folders still at the top of the data directory, sorted.
 
@@ -827,19 +857,29 @@ def old_layout(root: Path, inbox: str | os.PathLike | None = None) -> list[str]:
     lives at ``DATA_DIR/sessions/<name>`` now. One left behind would make every
     flow and file it holds silently vanish, so the boot refuses and names them.
     The recordings inbox is never a session, whatever it holds: ``INBOX_DIR``
-    always, and ``inbox`` (``recording.dir``) when it is a direct child of root.
+    always, and the configured ``inbox`` (``recording.dir``) when it is, or lies
+    beneath, a top-level entry. ``sessions`` and ``recordings`` are now reserved
+    names: either is reported as an old session only when it holds the old
+    shape (regular files directly in its ``flows/``, ``files/`` or
+    ``screenshots/``), and is otherwise the new layout or the inbox.
     """
     if not _is_dir(root):
         return []
-    skip = {SESSIONS_DIR, INBOX_DIR}
-    if inbox:
-        configured = Path(inbox).resolve()
-        if configured.parent == root.resolve():
-            skip.add(configured.name)
+    reserved = {SESSIONS_DIR, INBOX_DIR}
+    configured = Path(inbox).resolve() if inbox else None
+    base = root.resolve()
     found = []
     for entry in root.iterdir():
-        if entry.name in skip or _is_symlink(entry) or not _is_dir(entry):
+        if _is_symlink(entry) or not _is_dir(entry):
             continue
+        if entry.name in reserved:
+            if _old_reserved(entry):
+                found.append(entry.name)
+            continue
+        if configured is not None:
+            here = base / entry.name
+            if configured == here or here in configured.parents:
+                continue
         try:
             valid_name(entry.name)
         except InvalidName:
@@ -868,6 +908,13 @@ def from_settings(
             f"data directory {root} cannot be read ({type(exc).__name__}: "
             f"{exc.strerror or 'I/O error'})"
         ) from None
+    for name in (SESSIONS_DIR, INBOX_DIR):
+        if name in stranded:
+            raise ConfigError(
+                f"`{name}` in {root} is a session folder from before the "
+                f"sessions/ layout, and `{name}` is now reserved: rename it "
+                f"(e.g. to `{name}-old`), then move it into {root / SESSIONS_DIR}/"
+            )
     if stranded:
         raise ConfigError(
             f"{', '.join(stranded)} in {root} are session folders from before "

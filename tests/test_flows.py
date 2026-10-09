@@ -806,6 +806,40 @@ def test_a_configured_inbox_beside_the_sessions_is_never_an_old_session(tmp_path
     assert "real" in str(exc.value) and "inbox2" not in str(exc.value)
 
 
+def test_a_nested_inbox_is_not_an_old_session(tmp_path):
+    (tmp_path / "inbox" / "files").mkdir(parents=True)
+    (tmp_path / "inbox" / "files" / "x.mp4").write_bytes(b"x")
+    inbox = tmp_path / "inbox" / "files"
+    assert flowstore.from_settings(DataSettings(dir=str(tmp_path)), inbox=str(inbox))
+
+
+def _touch(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"x")
+
+
+def test_an_old_session_named_sessions_is_refused(tmp_path):
+    _touch(tmp_path / "sessions" / "flows" / "a.yaml")
+    with pytest.raises(ConfigError, match=r"`sessions`.*reserved.*sessions-old"):
+        flowstore.from_settings(DataSettings(dir=str(tmp_path)))
+
+
+def test_a_new_session_named_flows_boots(tmp_path):
+    _touch(tmp_path / "sessions" / "flows" / "flows" / "a.yaml")
+    assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
+
+
+def test_an_old_session_named_recordings_is_refused(tmp_path):
+    _touch(tmp_path / "recordings" / "flows" / "a.yaml")
+    with pytest.raises(ConfigError, match=r"`recordings`.*reserved"):
+        flowstore.from_settings(DataSettings(dir=str(tmp_path)))
+
+
+def test_an_inbox_with_a_transport_prefix_boots(tmp_path):
+    _touch(tmp_path / "recordings" / "files" / "x.mp4")
+    assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
+
+
 def _stat_eio_on(monkeypatch, fn_name, needle):
     import errno
     import os
