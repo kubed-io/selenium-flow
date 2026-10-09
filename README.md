@@ -111,7 +111,7 @@ Call again with the same name — after a reconnect, a client restart, a week la
 
 > 🔑 A workspace name is an address, not a secret: the bearer token is the credential, so anyone holding it who knows your workspace's name can drive your browser.
 
-Browser lifetime is the Grid's (`SE_NODE_SESSION_TIMEOUT`, 300s here); how long a workspace is remembered is `WORKSPACE_TTL`, slid forward on every call. Nothing runs a cleanup loop.
+Browser lifetime is the Grid's (`SE_NODE_SESSION_TIMEOUT`, 300s here); how long a workspace is remembered is `WORKSPACE_TTL`, slid forward on every call. Nothing runs a cleanup loop. The server reads that timeout from the Grid's `/status` at every open and shows it as `grid_timeout` in `workspace://current` and on the admin card.
 
 ### 📍 Where am I?
 

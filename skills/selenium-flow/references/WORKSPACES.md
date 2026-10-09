@@ -35,7 +35,7 @@ the name is `stdio` and you need do nothing.
 ```
 
 `live` says whether a session is open. `show(workspace://current)` draws it for
-the person.
+the person. `grid_timeout` is how long a session may sit idle before the Grid ends it; any call starts the clock again.
 
 ## Two rules, and they are absolute
 
