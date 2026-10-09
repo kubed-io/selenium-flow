@@ -1202,14 +1202,14 @@
           "name": {
             "type": "string"
           },
-          "sessions": {
+          "version": {
+            "type": "string"
+          },
+          "workspaces": {
             "enum": [
               "memory",
               "redis"
             ],
-            "type": "string"
-          },
-          "version": {
             "type": "string"
           }
         },
@@ -2005,18 +2005,18 @@
           "grid_ready": {
             "type": "boolean"
           },
-          "sessions": {
-            "description": "Where session records are kept.",
-            "enum": [
-              "memory",
-              "redis"
-            ],
-            "type": "string"
-          },
           "status": {
             "enum": [
               "ok",
               "degraded"
+            ],
+            "type": "string"
+          },
+          "workspaces": {
+            "description": "Where workspace records are kept.",
+            "enum": [
+              "memory",
+              "redis"
             ],
             "type": "string"
           }

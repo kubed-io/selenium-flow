@@ -48,11 +48,11 @@ def test_the_sensitive_settings_are_exactly_the_three():
 
 def test_defaults_need_no_environment(monkeypatch):
     monkeypatch.setenv("PORT", "9999")
-    monkeypatch.setenv("SESSION_TTL", "1")
+    monkeypatch.setenv("WORKSPACE_TTL", "1")
     s = Settings()
     assert s.port == 8000
-    assert s.session.ttl == 86400
-    assert s.session.store == "memory"
+    assert s.workspace.ttl == 86400
+    assert s.workspace.store == "memory"
 
 
 def test_an_unknown_key_is_refused():
@@ -157,3 +157,7 @@ def test_security_frame_ancestors_is_a_comma_list_with_all_three_spellings():
 def test_frame_ancestors_refuses_what_is_not_an_origin(bad, says):
     with pytest.raises(ValidationError, match=says):
         Settings(security={"frame_ancestors": [bad]})
+
+
+def test_the_redis_prefix_names_workspaces():
+    assert Settings().redis.prefix == "selenium-flow:workspace:"

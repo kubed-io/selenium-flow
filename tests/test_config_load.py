@@ -21,11 +21,11 @@ def test_nothing_set_is_every_default():
 
 
 def test_precedence_per_leaf(tmp_path):
-    path = _file(tmp_path, "port: 1\nsession:\n  ttl: 1\nredis:\n  port: 1\n")
-    loaded = load(["--port", "3", "--config-file", path], {"PORT": "2", "SESSION_TTL": "2", "REDIS_HOST": "h"})
+    path = _file(tmp_path, "port: 1\nworkspace:\n  ttl: 1\nredis:\n  port: 1\n")
+    loaded = load(["--port", "3", "--config-file", path], {"PORT": "2", "WORKSPACE_TTL": "2", "REDIS_HOST": "h"})
     s, src = loaded.settings, loaded.sources
     assert (s.port, src["port"]) == (3, "args")
-    assert (s.session.ttl, src["session.ttl"]) == (2, "env")
+    assert (s.workspace.ttl, src["workspace.ttl"]) == (2, "env")
     # A partial section survives another layer setting a sibling.
     assert (s.redis.port, src["redis.port"]) == (1, "config")
     assert (s.redis.host, src["redis.host"]) == ("h", "env")
@@ -43,9 +43,9 @@ def test_a_malformed_section_in_the_file_stops_the_boot_even_when_env_sets_its_k
 
 
 def test_a_malformed_section_in_the_file_stops_the_boot_even_when_args_set_its_keys(tmp_path):
-    path = _file(tmp_path, "session: 5\n")
-    with pytest.raises(ConfigError, match="session"):
-        load(["--session-ttl", "3"], {"CONFIG_FILE": path})
+    path = _file(tmp_path, "workspace: 5\n")
+    with pytest.raises(ConfigError, match="workspace"):
+        load(["--workspace-ttl", "3"], {"CONFIG_FILE": path})
 
 
 def test_the_config_file_comes_from_env_when_no_flag(tmp_path):
@@ -57,37 +57,37 @@ def test_the_config_file_comes_from_env_when_no_flag(tmp_path):
 
 
 def test_session_store_is_derived_from_a_redis_setting():
-    assert load([], {}).settings.session.store == "memory"
-    assert load([], {"REDIS_HOST": "r"}).settings.session.store == "redis"
-    assert load(["--redis-url", "redis://r:6379"], {}).settings.session.store == "redis"
-    assert load([], {"REDIS_HOST": "r", "SESSION_STORE": "memory"}).settings.session.store == "memory"
+    assert load([], {}).settings.workspace.store == "memory"
+    assert load([], {"REDIS_HOST": "r"}).settings.workspace.store == "redis"
+    assert load(["--redis-url", "redis://r:6379"], {}).settings.workspace.store == "redis"
+    assert load([], {"REDIS_HOST": "r", "WORKSPACE_STORE": "memory"}).settings.workspace.store == "memory"
     # A port alone configures nothing: it is not host or url, so naming only
     # it must not flip the store to redis.
-    assert load([], {"REDIS_PORT": "6380"}).settings.session.store == "memory"
+    assert load([], {"REDIS_PORT": "6380"}).settings.workspace.store == "memory"
 
 
 def test_a_derived_redis_store_reports_where_redis_was_set(tmp_path):
     # A store derived from Redis must say where Redis was set, not "default".
-    assert load([], {"REDIS_HOST": "r"}).sources["session.store"] == "env"
-    assert load(["--redis-url", "redis://r:6379"], {}).sources["session.store"] == "args"
+    assert load([], {"REDIS_HOST": "r"}).sources["workspace.store"] == "env"
+    assert load(["--redis-url", "redis://r:6379"], {}).sources["workspace.store"] == "args"
 
     path = _file(tmp_path, "redis:\n  host: h\n")
-    assert load([], {"CONFIG_FILE": path}).sources["session.store"] == "config"
+    assert load([], {"CONFIG_FILE": path}).sources["workspace.store"] == "config"
 
     # host from config, url from env: env outranks config.
     loaded = load([], {"CONFIG_FILE": path, "REDIS_URL": "redis://r:6379"})
-    assert loaded.sources["session.store"] == "env"
+    assert loaded.sources["workspace.store"] == "env"
 
     # No redis setting at all: memory IS the default, so the source stays default.
     loaded = load([], {})
-    assert loaded.settings.session.store == "memory"
-    assert loaded.sources["session.store"] == "default"
+    assert loaded.settings.workspace.store == "memory"
+    assert loaded.sources["workspace.store"] == "default"
 
-    # Explicit SESSION_STORE=memory alongside REDIS_HOST: the explicit env
+    # Explicit WORKSPACE_STORE=memory alongside REDIS_HOST: the explicit env
     # value wins, and its own source is reported, not derived.
-    loaded = load([], {"REDIS_HOST": "r", "SESSION_STORE": "memory"})
-    assert loaded.settings.session.store == "memory"
-    assert loaded.sources["session.store"] == "env"
+    loaded = load([], {"REDIS_HOST": "r", "WORKSPACE_STORE": "memory"})
+    assert loaded.settings.workspace.store == "memory"
+    assert loaded.sources["workspace.store"] == "env"
 
 
 @pytest.mark.parametrize("name", ["FLOW_UI_PORT", "MCP_KB_PORT", "SESSION_FOO_PORT", "BROWSER", "SELENIUM_FLOW_PORT", "SECRETS_ENTRIES"])
@@ -119,7 +119,7 @@ def test_a_bare_section_name_in_env_is_ignored_not_a_crash(name):
 
 
 def test_env_names_are_case_insensitive():
-    assert load([], {"session_ttl": "5"}).settings.session.ttl == 5
+    assert load([], {"workspace_ttl": "5"}).settings.workspace.ttl == 5
 
 
 def test_secrets_dirs_from_env_and_args():
@@ -204,8 +204,8 @@ def test_a_named_directory_is_reported_as_not_a_file(tmp_path):
 
 
 def test_a_bad_env_value_names_the_variable():
-    with pytest.raises(ConfigError, match="SESSION_TTL"):
-        load([], {"SESSION_TTL": "soon"})
+    with pytest.raises(ConfigError, match="WORKSPACE_TTL"):
+        load([], {"WORKSPACE_TTL": "soon"})
 
 
 def test_a_validation_error_never_echoes_the_rejected_input():
@@ -222,7 +222,7 @@ def test_an_empty_redis_env_value_counts_as_unset():
     """`REDIS_URL=""` and `REDIS_HOST=""` are what an unset docker-compose
     interpolation (`${REDIS_URL:-}`) actually sends — not absence."""
     loaded = load([], {"REDIS_URL": "", "REDIS_HOST": ""})
-    assert loaded.settings.session.store == "memory"
+    assert loaded.settings.workspace.store == "memory"
     assert loaded.sources["redis.url"] == "default"
     assert loaded.sources["redis.host"] == "default"
 
@@ -255,7 +255,7 @@ def test_a_blank_redis_host_in_the_config_file_counts_as_unset(tmp_path):
     # `redis.host`'s source "config" and drive the store to redis anyway.
     path = _file(tmp_path, 'redis:\n  host: ""\n')
     loaded = load([], {"CONFIG_FILE": path})
-    assert loaded.settings.session.store == "memory"
+    assert loaded.settings.workspace.store == "memory"
     assert loaded.sources["redis.host"] == "default"
 
 
@@ -269,7 +269,7 @@ def test_a_blank_log_level_in_the_config_file_is_the_default(tmp_path):
 def test_a_whitespace_only_redis_url_in_the_config_file_counts_as_unset(tmp_path):
     path = _file(tmp_path, 'redis:\n  url: "  "\n')
     loaded = load([], {"CONFIG_FILE": path})
-    assert loaded.settings.session.store == "memory"
+    assert loaded.settings.workspace.store == "memory"
     assert loaded.sources["redis.url"] == "default"
 
 
@@ -300,7 +300,7 @@ def test_help_names_all_three_spellings(capsys):
     with pytest.raises(SystemExit):
         load(["--help"], {})
     out = capsys.readouterr().out
-    assert "--session-ttl" in out and "SESSION_TTL" in out and "session.ttl" in out
+    assert "--workspace-ttl" in out and "WORKSPACE_TTL" in out and "workspace.ttl" in out
     assert "--secrets-entries" not in out
 
 
@@ -394,3 +394,59 @@ def test_recording_settle_reads_from_env_and_flag_and_zero_is_allowed():
     assert loaded.settings.recording.settle == 25
     with pytest.raises(config.ConfigError, match=r"recording\.settle"):
         config.load([], {"RECORDING_SETTLE": "-1"})
+
+
+def test_the_workspace_section_reads_from_env():
+    settings = config.load([], {"WORKSPACE_TTL": "60"}).settings
+    assert settings.workspace.ttl == 60
+
+
+def test_session_browser_is_still_a_session_setting():
+    settings = config.load([], {"SESSION_BROWSER": "firefox"}).settings
+    assert settings.session.browser == "firefox"
+
+
+def test_one_moved_session_env_name_stops_the_boot_naming_its_workspace_name():
+    with pytest.raises(config.ConfigError) as exc:
+        config.load([], {"SESSION_TTL": "60"})
+    assert str(exc.value) == (
+        "SESSION_TTL is now WORKSPACE_TTL: workspace settings moved out of session"
+    )
+
+
+def test_several_moved_session_env_names_are_named_together():
+    with pytest.raises(config.ConfigError) as exc:
+        config.load([], {"SESSION_TTL": "60", "session_store": "redis"})
+    assert str(exc.value) == (
+        "SESSION_STORE, SESSION_TTL are now WORKSPACE_STORE, WORKSPACE_TTL: "
+        "workspace settings moved out of session"
+    )
+
+
+def test_a_blank_moved_session_env_name_is_not_a_setting():
+    config.load([], {"SESSION_TTL": ""})
+
+
+def test_an_env_name_that_merely_starts_with_session_is_not_retired():
+    # Kubernetes injects <SERVICE>_PORT for every Service, and a Service may be
+    # called session: only a moved setting's own name is retired.
+    config.load([], {"SESSION_PORT": "tcp://10.0.0.1:80"})
+
+
+def test_a_session_file_section_with_a_moved_key_stops_the_boot(tmp_path):
+    path = tmp_path / "c.yaml"
+    path.write_text("session:\n  ttl: 60\n")
+    with pytest.raises(config.ConfigError) as exc:
+        config.load(["--config-file", str(path)], {})
+    assert str(exc.value) == config.RETIRED_SESSION_KEYS
+    assert config.RETIRED_SESSION_KEYS == (
+        "the config file's `session.store` and `session.ttl` are now "
+        "`workspace.store` and `workspace.ttl`"
+    )
+
+
+def test_a_session_file_section_with_only_browser_settings_loads(tmp_path):
+    path = tmp_path / "c.yaml"
+    path.write_text("session:\n  browser: firefox\n")
+    loaded = config.load(["--config-file", str(path)], {})
+    assert loaded.settings.session.browser == "firefox"

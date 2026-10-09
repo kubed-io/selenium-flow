@@ -85,7 +85,7 @@ class SeleniumMCP:
         # from it.
         self.store = (
             store if store is not None
-            else store_module.from_settings(settings.session, settings.redis)
+            else store_module.from_settings(settings.workspace, settings.redis)
         )
         # Where the pointer is in each browser, on the same backend as the
         # session record (§F2.3) - built FROM that store rather than from a

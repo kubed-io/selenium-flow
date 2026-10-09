@@ -115,10 +115,10 @@ READY = {
         },
         "grid_ready": {"type": "boolean"},
         "browsers": {"type": "integer", "description": "Browsers held Grid-wide."},
-        "sessions": {
+        "workspaces": {
             "type": "string",
             "enum": ["memory", "redis"],
-            "description": "Where session records are kept.",
+            "description": "Where workspace records are kept.",
         },
         "error": {"type": "string", "description": "Only present when degraded."},
     },
@@ -135,7 +135,7 @@ INFO = {
         },
         "mcp": {"type": "string", "description": "Path of the MCP endpoint."},
         "grid": {"type": "string"},
-        "sessions": {"type": "string", "enum": ["memory", "redis"]},
+        "workspaces": {"type": "string", "enum": ["memory", "redis"]},
     },
 }
 

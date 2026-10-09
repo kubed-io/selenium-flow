@@ -9,7 +9,7 @@ reopening on the default instead of the one that was asked for.
 import pytest
 from selenium import webdriver
 
-from kubed.selenium_flow.config import WorkspaceSettings
+from kubed.selenium_flow.config import SessionSettings
 from kubed.selenium_flow.core.browser import Grid, is_partial
 from kubed.selenium_flow.core.defaults import BROWSERS, normalize_browser
 from kubed.selenium_flow.workspace import settings as settings_module
@@ -149,7 +149,7 @@ class TestTheSettingsCascade:
     """
 
     def test_the_config_default_is_read(self):
-        assert settings_module.from_settings(WorkspaceSettings(browser="firefox")) == {
+        assert settings_module.from_settings(SessionSettings(browser="firefox")) == {
             "browser": "firefox"
         }
 

@@ -175,7 +175,7 @@ def register(
                 "grid": grid,
                 "grid_ready": ready,
                 "browsers": running,
-                "sessions": workspaces.kind,
+                "workspaces": workspaces.kind,
             }, (200 if ready else 503)
         # Measured after the dial, so a slow Grid does not use up its own window.
         answered[:] = [clock(), body, code]
@@ -198,7 +198,7 @@ def register(
                 "mount": prefix or "/",
                 "mcp": f"{prefix}/mcp",
                 "grid": urls.public_url(actions.grid.url),
-                "sessions": workspaces.kind,
+                "workspaces": workspaces.kind,
             }
         )
 

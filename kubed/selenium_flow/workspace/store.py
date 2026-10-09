@@ -45,7 +45,7 @@ log = logging.getLogger(__name__)
 
 # Every key is written under this prefix, which is what makes sharing a database
 # with other applications safe.
-DEFAULT_PREFIX = "selenium-flow:session:"
+DEFAULT_PREFIX = "selenium-flow:workspace:"
 # The pointer store writes under the session prefix too, in this sub-namespace.
 # No caller key has this shape, so it is never a session — but a SCAN of the
 # prefix finds it, and `records()` reading one as a record emptied the admin
@@ -536,22 +536,22 @@ class RedisStore(_Writes):
         return {r.session_id: k for k, r in self.records().items() if r.attached}
 
 
-def from_settings(session: WorkspaceSettings, conn: RedisSettings) -> WorkspaceStore:
+def from_settings(workspace: WorkspaceSettings, conn: RedisSettings) -> WorkspaceStore:
     """Build the session store the config asks for.
 
     Redis configured and unreachable, or missing its package, is a startup
     error rather than a silent step down to memory (§F4.12). An unknown
     backend no longer reaches here: the config refuses it at load.
     """
-    if session.store == "memory":
-        log.info("session store: memory, ttl %ss", session.ttl)
-        return MemoryStore(ttl=session.ttl)
+    if workspace.store == "memory":
+        log.info("workspace store: memory, ttl %ss", workspace.ttl)
+        return MemoryStore(ttl=workspace.ttl)
     client = redis_client(conn)  # raises StoreUnavailable rather than returning None
     log.info(
-        "session store: redis db %s, prefix %s, ttl %ss",
-        conn.db, conn.prefix, session.ttl,
+        "workspace store: redis db %s, prefix %s, ttl %ss",
+        conn.db, conn.prefix, workspace.ttl,
     )
-    return RedisStore(client, prefix=conn.prefix, ttl=session.ttl)
+    return RedisStore(client, prefix=conn.prefix, ttl=workspace.ttl)
 
 
 def redis_client(conn: RedisSettings):

@@ -522,12 +522,12 @@ def test_open_session_opens_insecure_only_when_asked_and_remembers_it(server, mo
 
     from fastmcp import Client
 
-    from kubed.selenium_flow.config import Settings, WorkspaceSettings, load
+    from kubed.selenium_flow.config import SessionSettings, Settings, load
     from kubed.selenium_flow.workspace import settings
 
     # §F3.8, pinned at both ends: the config schema has no field for it at
     # all, so nothing in `session.*` can ever set a floor for it...
-    assert "insecure" not in WorkspaceSettings.model_fields
+    assert "insecure" not in SessionSettings.model_fields
     # ...and naming it in the environment is naming nothing: SESSION_INSECURE
     # is not a leaf `config.py` knows, so `load` ignores it rather than
     # inventing somewhere to put it.
