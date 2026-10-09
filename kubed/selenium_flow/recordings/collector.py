@@ -25,14 +25,11 @@ file is found the same way and deleted rather than filed, and a deadline it
 misses is no one's loss. The timer is a tick, or ``settle`` when that is
 shorter, so a finished file in a quiet inbox is not left a tick past settling.
 
-**Whether a browser is gone is read off the Grid's status — never asked of the
-browser.** Any command sent to a session is activity the node counts against
-``SE_NODE_SESSION_TIMEOUT``, so a collector that asked each owed browser every
-tick would keep every recorded browser alive forever. ``live`` lists the
-sessions the Grid is running (``GET /status``, which touches none), once a
-tick, shared by every owed browser. An empty listing (a hub restarted before
-its nodes registered again) reads as every browser gone, so a browser a later
-listing shows running is no longer ended: a blip starts no deadline that sticks.
+**Whether a session is gone is the monitor's to say** (`monitor/`). Every
+owed session is watched for ``"recording"`` — when it is expected, and at
+``start`` for each note still owed and not ended — and released once its note
+is gone from disk. The monitor reads the Grid's status, never the browser, and
+announces an end as ``session.ended``, which the server hands to ``ended``.
 
 It owns no browser and takes no session lock. ``expect`` and ``ended`` are
 called from worker threads (FastMCP's sync tools, Starlette's routes).
@@ -156,11 +153,11 @@ class Collector:
         store,
         inbox,
         *,
-        live,
         wait: int,
         polling: bool,
         poll_ms: int,
         on_filed=None,
+        monitor=None,
         clock=time.time,
         tick: float = 30.0,
         idle_after: float = 60.0,
@@ -168,9 +165,9 @@ class Collector:
     ):
         self.store = store
         self.inbox = Path(inbox)
-        # () -> the Grid session ids currently running. Never a per-session
-        # call: see the module docstring.
-        self.live = live
+        # Watches each owed session and says when it ends (`monitor.Monitor`:
+        # `watch`, `release`); None watches nothing, for a test.
+        self.monitor = monitor
         self.wait = wait
         self.polling = polling
         self.poll_ms = poll_ms
@@ -182,9 +179,6 @@ class Collector:
         self.owed: dict[str, Owed] = {}
         # path -> (size, mtime, first seen at that size and mtime)
         self._quiet: dict[str, tuple[int, float, float]] = {}
-        # (when it was taken, the ids, or None when the Grid could not say).
-        self._listing: tuple[float, frozenset[str] | None] | None = None
-        self._listing_failed = False
         self._loop: asyncio.AbstractEventLoop | None = None
         self._task: asyncio.Task | None = None
         self._stop: anyio.Event | None = None
@@ -236,11 +230,20 @@ class Collector:
                 # a browser its workspace holds: kept in memory, written again.
                 self._post(lambda: self._add(owed, replacing_only=True))
             raise
+        self._watch(owed)
         self._post(lambda: self._add(owed))
 
     def ended(self, grid_id: str) -> None:
-        """A browser was ended. Ignored unless it is owed."""
+        """A session ended (the monitor's ``session.ended``, any cause).
+        Ignored unless it is owed."""
         self._post(lambda: self._mark_ended(grid_id))
+
+    def _watch(self, owed: Owed) -> None:
+        """Ask the monitor to say when this session ends."""
+        if self.monitor is not None:
+            self.monitor.watch(
+                owed.grid_id, owed.workspace, "recording", browser=owed.browser
+            )
 
     def _post(self, fn) -> None:
         loop = self._loop
@@ -316,6 +319,8 @@ class Collector:
                 # or a sweep may hold that object.
                 if self.owed.setdefault(grid_id, owed) is owed:
                     loaded += 1
+                    if not owed.done and owed.ended is None:
+                        self._watch(owed)
         if loaded:
             log.info("recordings: %d owed from before the restart", loaded)
         self._unread = bool(failed)
@@ -423,6 +428,8 @@ class Collector:
             self._undeleted.discard(owed.grid_id)
             if self.owed.get(owed.grid_id) is owed:  # else expected again meanwhile
                 del self.owed[owed.grid_id]
+                if self.monitor is not None:
+                    self.monitor.release(owed.grid_id, "recording")
 
     def _ensure(self) -> None:
         loop = self._loop
@@ -517,9 +524,6 @@ class Collector:
                 continue
             # None for one expected after the snapshot too: matched next sweep.
             match = matches.get(grid_id)
-            if owed.ended is not None and await self._back(owed, now):
-                owed.ended = None
-                await self._save(owed)
             quiet = 0.0
             if match is not None:
                 path, size, mtime = match
@@ -532,12 +536,8 @@ class Collector:
                         await self._file(owed, path)
                     continue
             idle = quiet >= self.idle_after
-            gone = (owed.ended is None or idle) and await self._gone(owed, now)
-            if gone and owed.ended is None:
-                owed.ended = int(now * 1000)
-                await self._save(owed)
             if match is not None:
-                if idle and gone:
+                if idle and owed.ended is not None:
                     if not owed.discard:
                         log.info(
                             "recordings: %s/%s ends without a trailer; filed as it is",
@@ -562,46 +562,6 @@ class Collector:
                     owed.workspace,
                     time.strftime("%H:%M", time.gmtime(owed.opened / 1000)),
                 )
-
-    async def _listed(self, now: float) -> tuple[float, frozenset[str] | None]:
-        """The Grid's listing, taken at most once a tick."""
-        listing = self._listing
-        if listing is None or now - listing[0] >= self.tick:
-            listing = (now, await self._list())
-            self._listing = listing
-        return listing
-
-    async def _gone(self, owed: Owed, now: float) -> bool:
-        """Whether the Grid's listing says this browser is no longer running.
-
-        False whenever it cannot say: the listing failed, or was taken before
-        this browser opened (a cached one can be up to a tick old).
-        """
-        at, ids = await self._listed(now)
-        if ids is None or at * 1000 < owed.opened:
-            return False
-        return owed.grid_id not in ids
-
-    async def _back(self, owed: Owed, now: float) -> bool:
-        """Whether a listing taken after ``owed`` was marked ended shows it
-        running: what an empty listing from a restarting hub had wrong."""
-        at, ids = await self._listed(now)
-        return ids is not None and at * 1000 > owed.ended and owed.grid_id in ids
-
-    async def _list(self) -> frozenset[str] | None:
-        try:
-            ids = frozenset(await anyio.to_thread.run_sync(self.live))
-        except Exception as exc:  # noqa: BLE001 - the Grid can blip; assume all live
-            if not self._listing_failed:
-                log.info(
-                    "recordings: the Grid's session list is unavailable (%s); "
-                    "every recorded browser counts as running",
-                    type(exc).__name__,
-                )
-            self._listing_failed = True
-            return None
-        self._listing_failed = False
-        return ids
 
     async def _file(self, owed: Owed, path: Path) -> None:
         """File ``path`` for ``owed``: the move, the mark and the delete as one

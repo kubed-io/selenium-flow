@@ -123,6 +123,10 @@ class Workspace:
     # A silent reopen's site data report, held until the first result from
     # that browser carries it: {"browser": id, "report": {...}}, or {}.
     reopened: dict = field(default_factory=dict)
+    # Seconds the Grid lets this workspace's session sit idle before reaping
+    # it, read from its node at the last open (session monitor spec, ruling
+    # 10). Kept when the session ends; None when the Grid did not say.
+    grid_timeout: int | None = None
 
     @property
     def url(self) -> str:
@@ -170,6 +174,7 @@ class Workspace:
                 history=_visits(data.get("history")),
                 site_data=site_data if isinstance(site_data, dict) else {},
                 reopened=reopened if isinstance(reopened, dict) else {},
+                grid_timeout=_timeout(data.get("grid_timeout")),
             )
         except (ValueError, TypeError):
             # A malformed entry is a cache miss, not an outage.
@@ -240,6 +245,13 @@ class Workspace:
         open is meant to inherit, so ending a browser must not take them.
         """
         return replace(self, session_id="")
+
+
+def _timeout(raw) -> int | None:
+    """A stored ``grid_timeout``: a positive whole number of seconds, or None."""
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw <= 0:
+        return None
+    return raw
 
 
 def _visits(raw) -> list[dict]:

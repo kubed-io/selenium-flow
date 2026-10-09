@@ -59,6 +59,10 @@ dependencies = [
   "watchfiles>=1.3",
   "mcp>=2.0,<3",
   "sse-starlette>=3.3",
+  # The session monitor's held BiDi socket (monitor/bidi.py, the only
+  # importer): an asyncio client with pings. It already arrives with fastmcp,
+  # whose floor this is; declared because the module imports it.
+  "websockets>=15",
 ]
 
 [project.optional-dependencies]
@@ -126,6 +130,7 @@ packages = [
   "kubed.selenium_flow.http",
   "kubed.selenium_flow.http.admin",
   "kubed.selenium_flow.mcp",
+  "kubed.selenium_flow.monitor",
   "kubed.selenium_flow.recordings",
   "kubed.selenium_flow.workspace",
   "kubed.selenium_flow.site_data",

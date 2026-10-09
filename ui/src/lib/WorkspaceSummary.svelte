@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { browserMark, safeHref } from './format'
+  import { browserMark, idle, safeHref } from './format'
   import type { WorkspaceRow } from './types'
 
   let { data }: { data: WorkspaceRow | null } = $props()
@@ -15,7 +15,14 @@
       ['window', s.window],
       ['started', s.started ? new Date(s.started * 1000).toLocaleString() : null],
     ]],
-    ['browser', [['version', s.version], ['id', s.session_id], ['node', s.node]]],
+    ['browser', [
+      ['version', s.version],
+      ['id', s.session_id],
+      ['node', s.node],
+      // The session's, as drawn: kept on the record after it ends, so an idle
+      // card shows it too (spec ruling 11).
+      ['idle timeout', idle(s.grid_timeout, s.live)],
+    ]],
   ].map(([label, facts]) => [label, (facts as [string, unknown][]).filter(([, v]) => v)] as const)
     .filter(([, facts]) => facts.length))
 </script>

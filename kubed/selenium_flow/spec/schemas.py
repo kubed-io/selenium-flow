@@ -63,6 +63,14 @@ RESPONSES = {
                 "type": ["string", "null"],
                 "description": "Window size as WxH, when one is known.",
             },
+            "grid_timeout": {
+                "type": ["integer", "null"],
+                "description": (
+                    "Seconds the Grid lets a session in this workspace sit idle"
+                    " before it ends it, read from its node at the last open."
+                    " Null when the Grid did not say."
+                ),
+            },
             "store": {"type": "string", "enum": ["memory", "redis"]},
             "settings": {"type": "object"},
             "site_data": {
