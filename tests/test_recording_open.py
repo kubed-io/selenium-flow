@@ -3,14 +3,14 @@
 import pytest
 
 from kubed.selenium_flow import config
-from kubed.selenium_flow.session import sessions as sessions_module
-from kubed.selenium_flow.session.sessions import Caller, SessionManager
+from kubed.selenium_flow.workspace import workspaces as workspaces_module
+from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
 pytestmark = pytest.mark.unit
 
 
 class Recorder:
-    """The hook SessionManager calls; records what it was told."""
+    """The hook Workspaces calls; records what it was told."""
 
     def __init__(self):
         self.expected, self.finished, self.discarded = [], [], []
@@ -37,7 +37,7 @@ class Grid:
 
 
 class Actions:
-    """Answers the two calls SessionManager makes when opening and ending."""
+    """Answers the two calls Workspaces makes when opening and ending."""
 
     def __init__(self):
         self.grid = Grid()
@@ -67,7 +67,7 @@ class Actions:
 
 
 def manager(recorder=None):
-    return SessionManager(Actions(), recordings=recorder)
+    return Workspaces(Actions(), recordings=recorder)
 
 
 def caller(name="bot"):
@@ -78,7 +78,7 @@ def test_record_without_recording_set_up_is_a_400_and_opens_nothing():
     m = manager(None)
     with pytest.raises(ValueError) as exc:
         m.open_browser(caller(), record=True)
-    assert str(exc.value) == sessions_module.RECORDING_OFF
+    assert str(exc.value) == workspaces_module.RECORDING_OFF
     assert m.actions.calls == []
 
 
@@ -166,7 +166,7 @@ def recording_at(data_dir, inbox=None):
     ".",  # above: the collector would sweep every session folder
     "/",
 ])
-def test_an_inbox_overlapping_the_sessions_does_not_boot(tmp_path, inbox):
+def test_an_inbox_overlapping_the_workspaces_does_not_boot(tmp_path, inbox):
     problem = recording_at(tmp_path, tmp_path / inbox)
     assert problem and "must not overlap" in problem
     assert str((tmp_path / "sessions").resolve()) in problem
@@ -180,7 +180,7 @@ def test_a_relative_inbox_is_compared_where_the_server_opens_it(
     assert recording_at(tmp_path, "inbox") is None
 
 
-def test_the_default_inbox_and_a_sibling_are_apart_from_the_sessions(tmp_path):
+def test_the_default_inbox_and_a_sibling_are_apart_from_the_workspaces(tmp_path):
     assert recording_at(tmp_path) is None
     assert recording_at(tmp_path, tmp_path / "videos") is None
     assert recording_at(tmp_path, tmp_path / "sessions-inbox") is None

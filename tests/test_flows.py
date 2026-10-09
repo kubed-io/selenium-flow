@@ -19,8 +19,8 @@ from kubed.selenium_flow.flows import library as flows
 from kubed.selenium_flow.flows import store as flowstore
 from kubed.selenium_flow.flows.store import LocalFlowStore
 from kubed.selenium_flow.names import (
-    GLOBAL_SESSION,
-    STDIO_SESSION,
+    GLOBAL_WORKSPACE,
+    STDIO_WORKSPACE,
     InvalidName,
     library_of,
     valid_name,
@@ -83,7 +83,7 @@ def test_the_error_names_which_kind_of_name_was_wrong():
 # ---- which session owns a caller's flows ------------------------------------
 
 
-def test_a_session_owns_the_library_of_its_own_name():
+def test_a_workspace_owns_the_library_of_its_own_name():
     """One answer now, where there were three. A session name IS a directory
     name — validated where it arrives (§F2.12) — so there is no longer a lenient
     resolver for browsers, a strict one for storage, and a third answering None
@@ -99,20 +99,20 @@ def test_stdio_gets_a_library_of_its_own():
     it in the read-only shared library would leave it with no writable library
     at all and no way to obtain one: a refusal whose remedy cannot be performed.
     """
-    assert library_of(STDIO_SESSION) == STDIO_SESSION
-    assert STDIO_SESSION != GLOBAL_SESSION
+    assert library_of(STDIO_WORKSPACE) == STDIO_WORKSPACE
+    assert STDIO_WORKSPACE != GLOBAL_WORKSPACE
 
 
-def test_the_reserved_names_are_reserved_as_sessions_but_not_as_flow_names():
+def test_the_reserved_names_are_reserved_as_workspaces_but_not_as_flow_names():
     """The reservation is about who may own that *library*. A flow called
     `stdio` or `global` is nobody's business but its author's, and `valid_name`
     still takes it — which is why the session rule is a separate function rather
     than a line inside that one."""
-    from kubed.selenium_flow.names import valid_session_name
+    from kubed.selenium_flow.names import valid_workspace_name
 
-    for reserved in (STDIO_SESSION, GLOBAL_SESSION):
+    for reserved in (STDIO_WORKSPACE, GLOBAL_WORKSPACE):
         with pytest.raises(InvalidName, match="reserved"):
-            valid_session_name(reserved)
+            valid_workspace_name(reserved)
         assert valid_name(reserved, "flow name") == reserved
 
 
@@ -159,22 +159,22 @@ def test_delete_reports_whether_there_was_anything_there(store):
     assert store.get("bot", "login") is None
 
 
-def test_one_session_cannot_see_another_s_flows(store):
+def test_one_workspace_cannot_see_another_s_flows(store):
     store.save("research-bot", "login", {"steps": []})
     assert store.names("form-filler") == []
     assert store.get("form-filler", "login") is None
 
 
-def test_sessions_are_listed_for_the_admin_view(store):
+def test_workspaces_are_listed_for_the_admin_view(store):
     store.save("research-bot", "a", {"steps": []})
     store.save("form-filler", "b", {"steps": []})
-    assert store.sessions() == ["form-filler", "research-bot"]
+    assert store.workspaces() == ["form-filler", "research-bot"]
 
 
 def test_nothing_is_created_until_something_is_written(tmp_path):
     """A read must not leave a directory behind for every name asked about."""
     store = LocalFlowStore(tmp_path / "data")
-    assert store.sessions() == []
+    assert store.workspaces() == []
     assert store.names("bot") == []
     assert not (tmp_path / "data" / "bot").exists()
 
@@ -348,7 +348,7 @@ def test_naming_a_directory_turns_them_on(tmp_path):
     assert store.kind == "local"
 
 
-def test_a_traversing_session_name_cannot_escape_the_data_directory(store):
+def test_a_traversing_workspace_name_cannot_escape_the_data_directory(store):
     for attempt in ("../escape", "..", "a/../../b"):
         with pytest.raises(InvalidName):
             store.save(attempt, "flow", {"steps": []})
@@ -364,7 +364,7 @@ def test_a_traversing_flow_name_cannot_escape_either(store):
 # ---- what the review caught -------------------------------------------------
 
 
-def test_a_symlink_cannot_redirect_a_session_out_of_the_data_directory(store, tmp_path):
+def test_a_symlink_cannot_redirect_a_workspace_out_of_the_data_directory(store, tmp_path):
     """The containment check used to stop at the session directory, so a link
     left at <session>/flows redirected every read and write under it while the
     boundary still looked guarded. resolve() follows links at every level."""
@@ -381,7 +381,7 @@ def test_a_symlink_cannot_redirect_a_session_out_of_the_data_directory(store, tm
     assert list(outside.iterdir()) == []
 
 
-def test_a_symlinked_session_directory_is_refused_too(
+def test_a_symlinked_workspace_directory_is_refused_too(
     store, tmp_path, tmp_path_factory
 ):
     # Its own directory: tmp_path.parent is shared by every test in the worker,
@@ -405,10 +405,10 @@ def test_surrounding_whitespace_is_trimmed_rather_than_refused():
     """Not slugging: these arrive from URL query parameters and hand-written
     JSON, where a trailing space is a typo. A name that is only whitespace still
     names nothing and is still refused."""
-    from kubed.selenium_flow.names import valid_session_name
+    from kubed.selenium_flow.names import valid_workspace_name
 
     assert valid_name(" bot ") == "bot"
-    assert valid_session_name(" bot ") == "bot"
+    assert valid_workspace_name(" bot ") == "bot"
     with pytest.raises(InvalidName):
         valid_name("   ")
 
@@ -440,7 +440,7 @@ def test_an_explicit_directory_is_used_and_trimmed(tmp_path):
 # ---- what the second review caught ------------------------------------------
 
 
-def test_a_symlink_to_another_session_is_refused_even_though_it_stays_inside(
+def test_a_symlink_to_another_workspace_is_refused_even_though_it_stays_inside(
     store, tmp_path
 ):
     """"Inside the data directory" was too weak: bot/flows -> research-bot/flows
@@ -770,7 +770,7 @@ def test_a_replaced_document_keeps_its_mode(store, tmp_path):
     assert path.stat().st_mode & 0o777 == 0o640
 
 
-def test_sessions_live_under_sessions(tmp_path):
+def test_workspaces_live_under_sessions(tmp_path):
     store = flowstore.from_settings(DataSettings(dir=str(tmp_path)))
     store.write_file("bot", "a.txt", b"x")
     assert (tmp_path / "sessions" / "bot" / "files" / "a.txt").read_bytes() == b"x"
@@ -787,12 +787,12 @@ def test_an_old_layout_stops_the_boot_and_names_what_to_move(tmp_path):
 
 
 @pytest.mark.parametrize("inner", ["files", "flows", "screenshots", "x/files"])
-def test_the_recordings_inbox_is_never_an_old_session(tmp_path, inner):
+def test_the_recordings_inbox_is_never_an_old_workspace(tmp_path, inner):
     (tmp_path / "recordings" / inner).mkdir(parents=True)
     assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
 
 
-def test_a_configured_inbox_beside_the_sessions_is_never_an_old_session(tmp_path):
+def test_a_configured_inbox_beside_the_workspaces_is_never_an_old_workspace(tmp_path):
     (tmp_path / "inbox2" / "files").mkdir(parents=True)
     with pytest.raises(ConfigError):
         flowstore.from_settings(DataSettings(dir=str(tmp_path)))
@@ -806,7 +806,7 @@ def test_a_configured_inbox_beside_the_sessions_is_never_an_old_session(tmp_path
     assert "real" in str(exc.value) and "inbox2" not in str(exc.value)
 
 
-def test_a_nested_inbox_is_not_an_old_session(tmp_path):
+def test_a_nested_inbox_is_not_an_old_workspace(tmp_path):
     (tmp_path / "inbox" / "files").mkdir(parents=True)
     (tmp_path / "inbox" / "files" / "x.mp4").write_bytes(b"x")
     inbox = tmp_path / "inbox" / "files"
@@ -818,18 +818,18 @@ def _touch(path):
     path.write_bytes(b"x")
 
 
-def test_an_old_session_named_sessions_is_refused(tmp_path):
+def test_an_old_workspace_named_sessions_is_refused(tmp_path):
     _touch(tmp_path / "sessions" / "flows" / "a.yaml")
     with pytest.raises(ConfigError, match=r"`sessions`.*reserved.*sessions-old"):
         flowstore.from_settings(DataSettings(dir=str(tmp_path)))
 
 
-def test_a_new_session_named_flows_boots(tmp_path):
+def test_a_new_workspace_named_flows_boots(tmp_path):
     _touch(tmp_path / "sessions" / "flows" / "flows" / "a.yaml")
     assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
 
 
-def test_an_old_session_named_recordings_is_refused(tmp_path):
+def test_an_old_workspace_named_recordings_is_refused(tmp_path):
     _touch(tmp_path / "recordings" / "flows" / "a.yaml")
     with pytest.raises(ConfigError, match=r"`recordings`.*reserved"):
         flowstore.from_settings(DataSettings(dir=str(tmp_path)))
@@ -840,7 +840,7 @@ def test_a_video_under_recordings_screenshots_boots(tmp_path):
     assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
 
 
-def test_an_image_under_recordings_screenshots_is_an_old_session(tmp_path):
+def test_an_image_under_recordings_screenshots_is_an_old_workspace(tmp_path):
     _touch(tmp_path / "recordings" / "screenshots" / "SHOT.PNG")
     with pytest.raises(ConfigError, match=r"`recordings`"):
         flowstore.from_settings(DataSettings(dir=str(tmp_path)))
@@ -908,7 +908,7 @@ def test_a_missing_data_dir_is_no_old_layout(tmp_path):
     assert flowstore.old_layout(tmp_path / "nope") == []
 
 
-def test_a_recording_dir_nothing_collects_from_hides_no_old_session(tmp_path):
+def test_a_recording_dir_nothing_collects_from_hides_no_old_workspace(tmp_path):
     from kubed.selenium_flow import config
     from kubed.selenium_flow.server import SeleniumMCP
 

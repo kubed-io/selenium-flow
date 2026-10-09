@@ -308,7 +308,7 @@ def test_a_mounted_server_hands_out_links_it_serves(tmp_path, public, expected):
     assert described["url"].startswith(expected)
 
 
-def test_print_over_http_keeps_the_file_for_the_session_that_asked(
+def test_print_over_http_keeps_the_file_for_the_workspace_that_asked(
     keeping_server, monkeypatch, tmp_path
 ):
     """The other surface, end to end: the alias, the body, the caller's name
@@ -317,7 +317,7 @@ def test_print_over_http_keeps_the_file_for_the_session_that_asked(
 
     driver = _Driver()
     monkeypatch.setattr(keeping_server.actions, "_at", lambda *a, **k: driver)
-    monkeypatch.setattr(keeping_server.sessions, "resolve", lambda name: "abc")
+    monkeypatch.setattr(keeping_server.workspaces, "resolve", lambda name: "abc")
     client = TestClient(
         keeping_server.mcp.http_app(),
         headers={"Authorization": "Bearer tok", "X-Session-Key": "desk"},
@@ -422,7 +422,7 @@ async def test_print_is_a_tool_that_keeps_the_file(keeping_server, monkeypatch):
 
     driver = _Driver()
     monkeypatch.setattr(keeping_server.actions, "_at", lambda *a, **k: driver)
-    monkeypatch.setattr(keeping_server.sessions, "resolve", lambda name: "abc")
+    monkeypatch.setattr(keeping_server.workspaces, "resolve", lambda name: "abc")
     async with Client(keeping_server.mcp) as client:
         result = await client.call_tool("print", {"format": "html"})
     assert result.structured_content["file"]["name"] == "page.html"
@@ -438,7 +438,7 @@ async def test_a_screenshot_carries_the_site_data_hint(keeping_server, monkeypat
 
     hint = {"restored": ["https://w.test"], "uri": "session://site-data/w.test"}
     png = base64.b64encode(b"\x89PNG\r\n\x1a\n").decode()
-    monkeypatch.setattr(keeping_server.sessions, "act", lambda name, call, **kw: {
+    monkeypatch.setattr(keeping_server.workspaces, "act", lambda name, call, **kw: {
         "image": png, "site_data": hint, **kept})
     calling_as(monkeypatch, "s")
     async with Client(keeping_server.mcp) as client:
@@ -522,12 +522,12 @@ def test_open_session_opens_insecure_only_when_asked_and_remembers_it(server, mo
 
     from fastmcp import Client
 
-    from kubed.selenium_flow.config import SessionSettings, Settings, load
-    from kubed.selenium_flow.session import settings
+    from kubed.selenium_flow.config import Settings, WorkspaceSettings, load
+    from kubed.selenium_flow.workspace import settings
 
     # §F3.8, pinned at both ends: the config schema has no field for it at
     # all, so nothing in `session.*` can ever set a floor for it...
-    assert "insecure" not in SessionSettings.model_fields
+    assert "insecure" not in WorkspaceSettings.model_fields
     # ...and naming it in the environment is naming nothing: SESSION_INSECURE
     # is not a leaf `config.py` knows, so `load` ignores it rather than
     # inventing somewhere to put it.

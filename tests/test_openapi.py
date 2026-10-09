@@ -52,7 +52,7 @@ async def test_the_browser_resource_carries_its_three_methods(spec):
     assert set(spec["paths"]["/browser"]) == {"post", "get", "delete"}
 
 
-async def test_every_operation_says_how_to_name_a_session(spec):
+async def test_every_operation_says_how_to_name_a_workspace(spec):
     """It is the one thing a caller must supply and the only thing that is not
     a body field, so an operation that does not publish it cannot be called by
     a generated client."""
@@ -291,10 +291,10 @@ async def test_every_flow_response_schema_it_references_exists(spec):
                     assert ref.split("/")[-1] in defined, f"{method} {path} -> {ref}"
 
 
-async def test_the_http_surface_has_a_session_to_be_fresh_from_now(spec, server):
+async def test_the_http_surface_has_a_workspace_to_be_fresh_from_now(spec, server):
     """`fresh` says "do not go back to the page my session was last on". It used
     to be dropped from this contract because `routes.py` never touched
-    `SessionManager` and there was no session to go back to — the difference
+    `Workspaces` and there was no session to go back to — the difference
     §F2.13 removed by giving both surfaces the same one."""
     published = spec["components"]["schemas"]["OpenSessionRequest"]["properties"]
     assert "fresh" in published

@@ -127,7 +127,7 @@ packages = [
   "kubed.selenium_flow.http.admin",
   "kubed.selenium_flow.mcp",
   "kubed.selenium_flow.recordings",
-  "kubed.selenium_flow.session",
+  "kubed.selenium_flow.workspace",
   "kubed.selenium_flow.site_data",
   "kubed.selenium_flow.spec",
   "kubed.selenium_flow.core.js",

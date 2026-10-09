@@ -50,8 +50,8 @@ from urllib.parse import urlsplit
 
 from .config import FromEnv, FromFile, FromValue, SecretEntry, SecretsSettings
 from .names import InvalidName, valid_name
-from .session import locks
 from .urls import host_of
+from .workspace import locks
 
 log = logging.getLogger(__name__)
 
@@ -463,12 +463,12 @@ class Catalogue:
     def _entries(self) -> dict:
         return self._snapshot()[0]
 
-    def listing(self, session: str = "") -> dict:
+    def listing(self, workspace: str = "") -> dict:
         """The catalogue, as a caller may see it. Names and keys, never values."""
         entries = self._entries()
         return {
             "count": len(entries),
-            "session": session,
+            "session": workspace,
             "secrets": [entries[name] for name in sorted(entries)],
         }
 
@@ -567,7 +567,7 @@ def register(mcp, catalogue, token: str | None, prefix: str = "") -> None:
     from . import errors, faults
     from .http import auth
     from .mcp import clients
-    from .session.sessions import Caller, values_of
+    from .workspace.workspaces import Caller, values_of
 
     def listing(caller) -> dict:
         if catalogue is None:
@@ -731,7 +731,7 @@ def bind(catalogue, reference, url: str | tuple[str, ...], tool: str = "write") 
     return value
 
 
-def perform_write(catalogue, actions, sessions, name: str, kwargs: dict) -> dict:
+def perform_write(catalogue, actions, workspaces, name: str, kwargs: dict) -> dict:
     """A whole bound write — resolve, type, redact, remember — on either surface.
 
     Deliberately NOT routed through ``sessions.act``. That touches the session
@@ -744,14 +744,14 @@ def perform_write(catalogue, actions, sessions, name: str, kwargs: dict) -> dict
     withheld when the value reached it.
 
     The page read, the leash check and the keystrokes are ONE turn on the
-    browser (`session.locks`): another call navigating or switching frames
+    browser (`workspace.locks`): another call navigating or switching frames
     between the check and the typing would type the value somewhere the leash
     never saw (Copilot, #52).
     """
     from . import binding
     from .flows import redact
 
-    resolved = sessions.resolve(name)
+    resolved = workspaces.resolve(name)
     with locks.driving(resolved):
         given, guarded = binding.bind_into(
             kwargs,
@@ -776,7 +776,7 @@ def perform_write(catalogue, actions, sessions, name: str, kwargs: dict) -> dict
     # The first call after a silent reopen says what came back: `settle` puts
     # that on `shown`.
     safe = binding.safe_url(result, hidden)
-    sessions.settle(name, shown, url=safe, browser=resolved)
+    workspaces.settle(name, shown, url=safe, browser=resolved)
     return shown
 
 

@@ -39,7 +39,7 @@ from typing import Protocol
 from .. import binding, faults, secrets
 from ..binding import SECRET_ARG
 from ..core import cancel
-from ..session import locks
+from ..workspace import locks
 from .document import ARGS, ASSERTION, declared_timeout
 from .redact import scrub, scrub_values, taints
 from .report import OUT_OF_TIME, clean, refused, summarise, with_hint
@@ -472,7 +472,7 @@ def execute(
 
     ``stop`` is a `threading.Event`. Once it is set no further step starts, and
     a step that is waiting gives up at its next poll (see `core.cancel`).
-    Ending the browser does the same (`session.locks`).
+    Ending the browser does the same (`workspace.locks`).
 
     Each step has the browser to itself, from reading the page a secret is
     checked against to the action's last page read; the run as a whole does

@@ -138,7 +138,7 @@ async def test_the_app_shell_is_refused_rather_than_read(reader):
 
 
 def _serving(reader, data: bytes):
-    reader.sessions.browser = lambda name: "abc"
+    reader.workspaces.browser = lambda name: "abc"
     reader.actions.grid.read_file = lambda session, name: data
 
 

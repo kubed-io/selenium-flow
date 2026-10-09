@@ -194,7 +194,7 @@ async def test_a_tool_that_can_act_on_the_page_admits_it(server):
         assert tools[name].annotations.destructive_hint is True, name
 
 
-async def test_resize_writes_the_new_size_back_to_the_session(server, monkeypatch):
+async def test_resize_writes_the_new_size_back_to_the_workspace(server, monkeypatch):
     """The one line of tool wiring that would fail silently.
 
     `sessions.reshape` is tested on its own, but a `resize` that forgot to ask
@@ -206,16 +206,16 @@ async def test_resize_writes_the_new_size_back_to_the_session(server, monkeypatc
 
     resize = (await server.mcp.get_tool("resize")).fn
     calling_as(monkeypatch, NAMED)
-    monkeypatch.setattr(server.sessions, "resolve", lambda name: "abc")
+    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "abc")
     monkeypatch.setattr(
         server.actions,
         "resize",
         lambda s, width, height: {"width": width, "height": height, "url": "about:blank"},
     )
-    server.sessions.remember(NAMED, "abc", "", {"browser": "firefox"})
+    server.workspaces.remember(NAMED, "abc", "", {"browser": "firefox"})
 
     resize(width=1024, height=768)
-    assert server.sessions.store.get(NAMED).window == "1024x768"
+    assert server.workspaces.store.get(NAMED).window == "1024x768"
 
 
 def test_a_key_name_that_is_not_one_is_refused_with_every_name(actions, monkeypatch):

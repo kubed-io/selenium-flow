@@ -6,9 +6,9 @@ from dataclasses import replace
 
 import pytest
 
-from kubed.selenium_flow.session.sessions import Caller
-from kubed.selenium_flow.session.store import MemoryStore
 from kubed.selenium_flow.site_data import snapshot as site_data
+from kubed.selenium_flow.workspace.store import MemoryStore
+from kubed.selenium_flow.workspace.workspaces import Caller
 from tests.conftest import NAMED, RecordingActions, manager
 
 URL = "https://app.example.com/x"

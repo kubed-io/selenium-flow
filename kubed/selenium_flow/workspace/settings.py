@@ -35,7 +35,7 @@ from ..core.coerce import as_bool
 from ..core.defaults import normalize_browser
 
 if TYPE_CHECKING:
-    from ..config import SessionSettings
+    from ..config import WorkspaceSettings
 
 log = logging.getLogger(__name__)
 
@@ -98,7 +98,7 @@ SETTINGS = {
 FROM_CONFIG = ("browser", "width", "height", "page_load_timeout", "script_timeout")
 
 
-def from_settings(session: SessionSettings) -> dict:
+def from_settings(session: WorkspaceSettings) -> dict:
     """The operator's defaults: only what is set, so unset stays unset."""
     return {
         name: getattr(session, name)

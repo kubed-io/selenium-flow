@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 
 # The session an unnamed caller shares — with the one exception of stdio, which
-# gets STDIO_SESSION below because it cannot name itself and would otherwise
+# gets STDIO_WORKSPACE below because it cannot name itself and would otherwise
 # have nowhere writable. A caller keyed on an
 # MCP transport id gets a new key on every reconnect, so a directory per key
 # would bury the disk in folders whose flows nobody could ever reach again.
@@ -21,7 +21,7 @@ import re
 #
 # It is a legal session name like any other: ?session=global lands in the same
 # directory, which is consistent rather than a special case.
-GLOBAL_SESSION = "global"
+GLOBAL_WORKSPACE = "global"
 
 # The library a stdio caller owns. Stdio is one process serving one client, so
 # a constant is exactly right — the same reasoning that makes `stdio` a usable
@@ -32,13 +32,13 @@ GLOBAL_SESSION = "global"
 # itself. Resolving it to the read-only shared library would leave it with no
 # writable library at all and no way to obtain one, which is a refusal whose
 # remedy cannot be performed (§F1.2).
-STDIO_SESSION = "stdio"
+STDIO_WORKSPACE = "stdio"
 
 # The data directory is a root with two homes in it (recordings spec, ruling 6):
 # every session's own folder under `sessions/`, and the inbox the Grid's
 # recordings arrive in. Neither can collide with a session's name, because a
 # session is one level further down.
-SESSIONS_DIR = "sessions"
+WORKSPACES_DIR = "sessions"
 INBOX_DIR = "recordings"
 
 # Where a session's own files land. `files` IS the Files section — a print, and
@@ -142,10 +142,10 @@ def valid_name(name, kind: str = "name") -> str:
 # Neither can be claimed by a caller naming itself. `stdio` is the transport's
 # own library; `global` is the shared one every session reads and none may
 # write (§F1.2), so a caller that could claim it would own everyone's flows.
-RESERVED_SESSIONS = frozenset({STDIO_SESSION, GLOBAL_SESSION})
+RESERVED_WORKSPACES = frozenset({STDIO_WORKSPACE, GLOBAL_WORKSPACE})
 
 
-def valid_session_name(name) -> str:
+def valid_workspace_name(name) -> str:
     """A session name a caller is allowed to choose, else raise.
 
     Everything :func:`valid_name` requires, plus the reserved set. Kept apart
@@ -153,14 +153,14 @@ def valid_session_name(name) -> str:
     called ``stdio`` or ``global`` is perfectly reasonable — it is only the
     library name that is spoken for.
     """
-    session = valid_name(name, "session name")
-    if session in RESERVED_SESSIONS:
+    workspace = valid_name(name, "session name")
+    if workspace in RESERVED_WORKSPACES:
         raise InvalidName(
-            f"{session!r} is a reserved library name — {STDIO_SESSION} belongs "
-            f"to the stdio transport and {GLOBAL_SESSION} is the shared library "
+            f"{workspace!r} is a reserved library name — {STDIO_WORKSPACE} belongs "
+            f"to the stdio transport and {GLOBAL_WORKSPACE} is the shared library "
             "every session reads: choose another session name"
         )
-    return session
+    return workspace
 
 
 def valid_file_name(name) -> str:
@@ -209,7 +209,7 @@ def library_of(key: str) -> str | None:
     meaning "this session has nowhere to keep anything", and is shown as having
     no library rather than being shown the shared one as though it were its own.
 
-    ``valid_name`` rather than ``valid_session_name``: the reserved names are
+    ``valid_name`` rather than ``valid_workspace_name``: the reserved names are
     reserved against being *claimed* by a caller, and the two sessions that
     legitimately own them are exactly the ones this function is asked about.
     """

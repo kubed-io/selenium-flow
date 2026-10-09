@@ -50,7 +50,7 @@ from ..core.coerce import as_bool
 from ..http import answer as answer_module
 from ..mcp import clients, progress
 from ..mcp.tools import SecretRef
-from ..names import GLOBAL_SESSION, valid_name
+from ..names import GLOBAL_WORKSPACE, valid_name
 from . import document as flowdoc
 from . import engine, template
 from . import library as flowlib
@@ -134,7 +134,7 @@ def _context():
         return None
 
 
-def catalogue(store, session: str) -> dict:
+def catalogue(store, workspace: str) -> dict:
     """Every flow this session can run: its own, plus the shared library.
 
     A name defined in both resolves to this session's, and the entry says which
@@ -148,42 +148,42 @@ def catalogue(store, session: str) -> dict:
     # admin decides from this flag whether to show the globe and which way the
     # move button points, and "not shared" on a flow sitting in `global` offers
     # a move that would be a no-op.
-    own_are_shared = session == GLOBAL_SESSION
+    own_are_shared = workspace == GLOBAL_WORKSPACE
     if not own_are_shared:
-        for summary in store.summaries(GLOBAL_SESSION):
+        for summary in store.summaries(GLOBAL_WORKSPACE):
             entries[summary["name"]] = {**summary, "shared": True}
-    for summary in store.summaries(session):
+    for summary in store.summaries(workspace):
         entries[summary["name"]] = {**summary, "shared": own_are_shared}
     return {
-        "session": session,
+        "session": workspace,
         "count": len(entries),
         "flows": [entries[name] for name in sorted(entries)],
     }
 
 
-def read_one(store, session: str, name: str) -> dict:
+def read_one(store, workspace: str, name: str) -> dict:
     """One flow: this session's if it has one, else the shared library's."""
     store = _require(store)
-    flow = store.get(session, name)
+    flow = store.get(workspace, name)
     # A caller whose library is the shared one reads a shared flow. See
     # `catalogue`: the flag describes the directory, not the reader.
-    shared = session == GLOBAL_SESSION
-    if flow is None and session != GLOBAL_SESSION:
-        flow = store.get(GLOBAL_SESSION, name)
+    shared = workspace == GLOBAL_WORKSPACE
+    if flow is None and workspace != GLOBAL_WORKSPACE:
+        flow = store.get(GLOBAL_WORKSPACE, name)
         shared = flow is not None
     if flow is None:
         raise ValueError(
-            f"no flow called {name!r} in {session} or the shared library. "
+            f"no flow called {name!r} in {workspace} or the shared library. "
             "flow://flows lists what there is."
         )
     return {
         **flow,
-        "session": GLOBAL_SESSION if shared else session,
+        "session": GLOBAL_WORKSPACE if shared else workspace,
         "shared": shared,
     }
 
 
-def writable(session: str) -> str:
+def writable(workspace: str) -> str:
     """``session`` if an agent may write to it, else refuse (§F1.2).
 
     **`global` is read-and-run only on this surface**, and the argument is
@@ -201,7 +201,7 @@ def writable(session: str) -> str:
     `global` from the admin UI is a person doing it deliberately, on a surface
     that can show what a change affects. That writes to the store directly.
     """
-    if session == GLOBAL_SESSION:
+    if workspace == GLOBAL_WORKSPACE:
         raise ValueError(
             "the shared 'global' library is read-only: every session can list "
             "and run what is in it, so a flow you changed or deleted would "
@@ -210,10 +210,10 @@ def writable(session: str) -> str:
             "X-Session-Key (or X-Workspace) header. An operator moves a flow into "
             "global from the admin UI."
         )
-    return session
+    return workspace
 
 
-def save_one(store, session: str, name: str, document: dict, schemas: dict) -> dict:
+def save_one(store, workspace: str, name: str, document: dict, schemas: dict) -> dict:
     """Create or replace one of *this session's* flows.
 
     Never the shared library, even when a flow of that name was read from it:
@@ -226,7 +226,7 @@ def save_one(store, session: str, name: str, document: dict, schemas: dict) -> d
     # thing entirely. A named caller already got OFF here, so this ordering is
     # also what makes the two consistent.
     store = _require(store)
-    session = writable(session)
+    workspace = writable(workspace)
     document = dict(document or {})
     document.pop("session", None)
     document.pop("shared", None)
@@ -242,10 +242,10 @@ def save_one(store, session: str, name: str, document: dict, schemas: dict) -> d
     if document.get(flowdoc.TIMEOUT) is not None:
         document[flowdoc.TIMEOUT] = flowdoc.declared_timeout(document)
     flowlib.check_size(flowlib.dump(document))
-    stored = store.save(session, name, document)
+    stored = store.save(workspace, name, document)
     steps = len(stored.get("steps") or [])
-    log.info("flow %s/%s saved (%s steps)", session, name, steps)
-    saved = {"saved": True, "session": session, **stored}
+    log.info("flow %s/%s saved (%s steps)", workspace, name, steps)
+    saved = {"saved": True, "session": workspace, **stored}
     # Said on the way out rather than refused on the way in: the flow is valid
     # and has been kept. See `flowdoc.concerns`.
     concerns = flowdoc.concerns(document)
@@ -254,16 +254,16 @@ def save_one(store, session: str, name: str, document: dict, schemas: dict) -> d
     return saved
 
 
-def delete_one(store, session: str, name: str) -> dict:
+def delete_one(store, workspace: str, name: str) -> dict:
     """Remove one of *this session's* flows. Never the shared library."""
     store = _require(store)  # see save_one: the disabled answer comes first
-    session = writable(session)
-    removed = store.delete(session, name)
-    return {"deleted": removed, "session": session, "name": name}
+    workspace = writable(workspace)
+    removed = store.delete(workspace, name)
+    return {"deleted": removed, "session": workspace, "name": name}
 
 
 async def save_text(
-    store, session: str, name: str, text, schemas: Schemas
+    store, workspace: str, name: str, text, schemas: Schemas
 ) -> dict:
     """Rewrite one flow from the YAML a person typed — the **operator** path.
 
@@ -311,14 +311,14 @@ async def save_text(
     # Written back where it already lives, so editing a shared flow
     # edits the shared one rather than silently forking a copy into
     # this session. A flow that does not exist yet is created here.
-    existing = await run_in_threadpool(store.get, session, name)
-    where = session
+    existing = await run_in_threadpool(store.get, workspace, name)
+    where = workspace
     if existing is None:
         shared = await run_in_threadpool(
-            store.get, GLOBAL_SESSION, name
+            store.get, GLOBAL_WORKSPACE, name
         )
         if shared is not None:
-            where = GLOBAL_SESSION
+            where = GLOBAL_WORKSPACE
     await run_in_threadpool(store.write_text, where, name, text)
     return {"saved": True, "session": where, "name": name}
 
@@ -351,7 +351,7 @@ class Schemas:
 def run_one(
     store,
     actions,
-    session: str,
+    workspace: str,
     name: str,
     params: dict | None = None,
     verbose: bool = False,
@@ -364,7 +364,7 @@ def run_one(
     before_save=None,
 ) -> dict:
     """Run one flow against an already-resolved browser."""
-    document = read_one(store, session, name)
+    document = read_one(store, workspace, name)
     report = flowrun.run(
         actions,
         document,
@@ -379,13 +379,13 @@ def run_one(
         skill_available=skill_available,
         # The CALLER's library, not `document["session"]`: a flow read from the
         # shared `global` library still uploads a file this caller kept.
-        library=session,
+        library=workspace,
     )
     return {"session": document["session"], **report}
 
 
 def register(
-    mcp, store, sessions, actions, token: str | None, prefix: str = "",
+    mcp, store, workspaces, actions, token: str | None, prefix: str = "",
     secrets_catalogue=None, schemas=None, skill_available: bool = True,
 ) -> None:
     """Register the flow resources, tools and endpoints."""
@@ -495,15 +495,15 @@ def register(
         # `name`, not `library`: a run drives a browser, so this is one of the
         # calls that has to know who is asking. Asked here, on the request,
         # before the run moves to a thread.
-        session = clients.caller().name
+        workspace = clients.caller().name
         watch = progress.Watch()
 
         def work():
             return run_for(
                 store,
                 actions,
-                sessions,
-                session,
+                workspaces,
+                workspace,
                 name,
                 params=params,
                 verbose=verbose,
@@ -533,7 +533,7 @@ def register(
         return delete_one(store, clients.caller().library, name)
 
     _routes(
-        mcp, store, sessions, actions, schemas, token, prefix, secrets_catalogue,
+        mcp, store, workspaces, actions, schemas, token, prefix, secrets_catalogue,
         skill_available,
     )
 
@@ -631,7 +631,7 @@ def _build_document_schema(steps: dict) -> dict:
 
 
 def run_for(
-    store, actions, sessions, session: str, name: str,
+    store, actions, workspaces, workspace: str, name: str,
     params=None, verbose: bool = False,
     secrets_catalogue=None, skill_available: bool = True,
     before_step=None, stop=None,
@@ -643,15 +643,15 @@ def run_for(
     have it: a run there slid no TTL and recorded no page, so a workflow that
     ran flows for an hour could expire out of the store while it worked.
     """
-    resolved = sessions.resolve(session)
+    resolved = workspaces.resolve(workspace)
 
     def remember(tool, result):
         # The same post-action work a single call gets from `sessions.act`:
         # `resize` changes something the session RECORD stores, and a save's
         # capture is stored as the snapshot and stripped from the result. The
         # touch is left to `before_save` and the one at the end of the run.
-        sessions.settle(
-            session,
+        workspaces.settle(
+            workspace,
             result,
             browser=resolved,
             reshapes=capability(tool).reshapes,
@@ -666,13 +666,13 @@ def run_for(
     count = [0]
 
     def before_save(pages):
-        sessions.settle(session, flushed, url=pages[count[0]:], browser=resolved)
+        workspaces.settle(workspace, flushed, url=pages[count[0]:], browser=resolved)
         count[0] = len(pages)
 
     report = run_one(
         store,
         actions,
-        session,
+        workspace,
         name,
         params=params,
         verbose=verbose,
@@ -706,14 +706,14 @@ def run_for(
         visited.append(report["url"])
     # The run's browser replaced a reaped one: what came back, once — on the
     # run, whether this write or a flush before a save step was handed it.
-    sessions.settle(session, report, url=visited, browser=resolved)
+    workspaces.settle(workspace, report, url=visited, browser=resolved)
     if "site_data" in flushed and "site_data" not in report:
         report["site_data"] = flushed["site_data"]
     return report
 
 
 def _routes(
-    mcp, store, sessions, actions, schemas: Schemas, token, prefix,
+    mcp, store, workspaces, actions, schemas: Schemas, token, prefix,
     secrets_catalogue=None, skill_available: bool = True,
 ) -> None:
     """The flow library as REST (§F2.13).
@@ -814,7 +814,7 @@ def _routes(
             lambda caller, body: run_for(
                 store,
                 actions,
-                sessions,
+                workspaces,
                 # `name`, not `library`: a run drives a browser, so this is one
                 # of the calls that has to know who is asking.
                 caller.name,

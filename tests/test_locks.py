@@ -21,9 +21,9 @@ from kubed.selenium_flow.core import cancel
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.flows import run as flowrun
 from kubed.selenium_flow.secrets import ALLOWED_URLS, Catalogue, FilesystemSource
-from kubed.selenium_flow.session import locks
-from kubed.selenium_flow.session.sessions import Caller
-from kubed.selenium_flow.session.store import SessionRecord
+from kubed.selenium_flow.workspace import locks
+from kubed.selenium_flow.workspace.store import Workspace
+from kubed.selenium_flow.workspace.workspaces import Caller
 
 from .conftest import NAMED, OTHER, manager
 from .fakes import ScriptedDriver
@@ -70,13 +70,13 @@ class Grid:
 
 
 def wired(**browsers):
-    """Real `Actions` and a `SessionManager` over ``name=(grid id, driver)``."""
+    """Real `Actions` and a `Workspaces` over ``name=(grid id, driver)``."""
     grid = Grid(**dict(browsers.values()))
     actions = Actions(grid)
-    sessions = manager(actions)
+    workspaces = manager(actions)
     for name, (gid, _) in browsers.items():
-        sessions.store.set(name, SessionRecord(session_id=gid))
-    return actions, sessions
+        workspaces.store.set(name, Workspace(session_id=gid))
+    return actions, workspaces
 
 
 def in_thread(work):
@@ -94,19 +94,19 @@ def in_thread(work):
     return thread, outcome
 
 
-def test_two_sessions_drive_their_browsers_at_the_same_time():
+def test_two_workspaces_drive_their_browsers_at_the_same_time():
     """The lock is per session: a call on one never waits for another's."""
     both = threading.Barrier(2, timeout=5)  # broken unless both are inside at once
 
     def meet(_url):
         both.wait()
 
-    actions, sessions = wired(
+    actions, workspaces = wired(
         **{NAMED: ("b1", Driver(on_get=meet)), OTHER: ("b2", Driver(on_get=meet))}
     )
     runs = [
         in_thread(
-            lambda name=name: sessions.act(
+            lambda name=name: workspaces.act(
                 Caller(name), lambda s: actions.navigate(s, f"https://{name}.test/")
             )
         )
@@ -129,18 +129,18 @@ def test_end_browser_does_not_wait_for_an_assert_and_the_assert_lets_go():
     driver = Driver(
         scripts={"return false": False}, on_script=lambda script: polling.set()
     )
-    actions, sessions = wired(**{NAMED: ("abc", driver)})
+    actions, workspaces = wired(**{NAMED: ("abc", driver)})
 
     started = time.monotonic()
     thread, outcome = in_thread(
-        lambda: sessions.act(
+        lambda: workspaces.act(
             Caller(NAMED),
             lambda s: actions.assert_(s, "return false", wait_timeout=10),
         )
     )
     assert polling.wait(5), "the assert never started"
 
-    ended, _ = in_thread(lambda: sessions.end_browser(Caller(NAMED)))
+    ended, _ = in_thread(lambda: workspaces.end_browser(Caller(NAMED)))
     ended.join(1)
     assert not ended.is_alive(), "end_browser waited for the assert"
 
@@ -151,7 +151,7 @@ def test_end_browser_does_not_wait_for_an_assert_and_the_assert_lets_go():
     assert isinstance(error, cancel.Ended)
     assert str(error) == ENDED
     assert actions.grid.quit_ == ["abc"]
-    assert not sessions.store.get(NAMED).attached
+    assert not workspaces.store.get(NAMED).attached
 
 
 @pytest.fixture
@@ -174,7 +174,7 @@ def leashed(tmp_path):
             return
         racing.append(
             in_thread(
-                lambda: sessions.act(
+                lambda: workspaces.act(
                     Caller(NAMED), lambda s: actions.navigate(s, f"{SITE}/elsewhere")
                 )
             )
@@ -187,11 +187,11 @@ def leashed(tmp_path):
         on_script=read_origin,
         on_get=lambda url: landed.set(),
     )
-    actions, sessions = wired(**{NAMED: ("abc", driver)})
+    actions, workspaces = wired(**{NAMED: ("abc", driver)})
     return SimpleNamespace(
         catalogue=Catalogue([FilesystemSource(tmp_path)]),
         actions=actions,
-        sessions=sessions,
+        workspaces=workspaces,
         driver=driver,
         racing=racing,
     )
@@ -214,7 +214,7 @@ def test_a_navigate_cannot_land_between_a_secrets_check_and_its_keystrokes(leash
     shown = secrets.perform_write(
         leashed.catalogue,
         leashed.actions,
-        leashed.sessions,
+        leashed.workspaces,
         NAMED,
         {"selector": {"css": "#p"}, "secret": SECRET},
     )
@@ -239,7 +239,7 @@ def test_a_flow_takes_the_browser_per_step_and_end_browser_stops_it(monkeypatch)
     its turn, and `end_browser` is seen before the next step starts — which
     then never runs."""
     driver = Driver()
-    actions, sessions = wired(**{NAMED: ("abc", driver)})
+    actions, workspaces = wired(**{NAMED: ("abc", driver)})
     between = []
 
     def monotonic():
@@ -248,10 +248,10 @@ def test_a_flow_takes_the_browser_per_step_and_end_browser_stops_it(monkeypatch)
         between.append(None)
         if len(between) == 3:
             for work in (
-                lambda: sessions.act(
+                lambda: workspaces.act(
                     Caller(NAMED), lambda s: actions.navigate(s, "https://other.test/")
                 ),
-                lambda: sessions.end_browser(Caller(NAMED)),
+                lambda: workspaces.end_browser(Caller(NAMED)),
             ):
                 thread, outcome = in_thread(work)
                 thread.join(1)
@@ -272,10 +272,10 @@ def test_a_flow_takes_the_browser_per_step_and_end_browser_stops_it(monkeypatch)
     assert visited == ["https://one.test/", "https://other.test/"]
 
 
-def test_a_session_nobody_is_driving_holds_nothing():
+def test_a_workspace_nobody_is_driving_holds_nothing():
     """The registry is weak: a hold lives while a call holds or waits for it."""
-    actions, sessions = wired(**{NAMED: ("idle", Driver())})
-    sessions.act(Caller(NAMED), lambda s: actions.navigate(s, "https://a.test/"))
+    actions, workspaces = wired(**{NAMED: ("idle", Driver())})
+    workspaces.act(Caller(NAMED), lambda s: actions.navigate(s, "https://a.test/"))
     assert "idle" not in locks._holds
     locks.interrupt("idle")  # nothing to tell, and nothing is created
     assert "idle" not in locks._holds
@@ -293,12 +293,12 @@ def polling_driver():
     return driver, polling
 
 
-def end_once_polling(sessions, polling):
+def end_once_polling(workspaces, polling):
     """End ``NAMED``'s browser from another thread once its assert is polling."""
 
     def end():
         assert polling.wait(5), "the assert never started"
-        sessions.end_browser(Caller(NAMED))
+        workspaces.end_browser(Caller(NAMED))
 
     thread = threading.Thread(target=end)
     thread.start()
@@ -318,7 +318,7 @@ def ended_server(monkeypatch):
     )
     driver, polling = polling_driver()
     server.actions.grid = Grid(abc=driver)
-    server.sessions.store.set(NAMED, SessionRecord(session_id="abc"))
+    server.workspaces.store.set(NAMED, Workspace(session_id="abc"))
     calling_as(monkeypatch, NAMED)
     return server, polling, TOKEN
 
@@ -336,7 +336,7 @@ def test_over_http_an_assert_whose_browser_was_ended_is_a_404(ended_server):
 
     server, polling, token = ended_server
     client = TestClient(server.mcp.http_app(), headers={"X-Session-Key": NAMED})
-    ender = end_once_polling(server.sessions, polling)
+    ender = end_once_polling(server.workspaces, polling)
     response = client.post(
         "/browser/assert",
         json={"script": "return false", "wait_timeout": 10},
@@ -352,7 +352,7 @@ async def test_over_mcp_an_assert_whose_browser_was_ended_says_so(ended_server):
     from fastmcp.exceptions import ToolError
 
     server, polling, _ = ended_server
-    ender = end_once_polling(server.sessions, polling)
+    ender = end_once_polling(server.workspaces, polling)
     async with Client(server.mcp) as client:
         with pytest.raises(ToolError, match=ENDED):
             await client.call_tool(
@@ -367,7 +367,7 @@ def test_a_flow_keeps_its_own_cancellation(how):
     caller or by its browser being ended — says what a cancelled run always
     has, and the step after never starts."""
     driver, polling = polling_driver()
-    actions, sessions = wired(**{NAMED: ("abc", driver)})
+    actions, workspaces = wired(**{NAMED: ("abc", driver)})
     stop = threading.Event()
 
     def cancel_it():
@@ -375,7 +375,7 @@ def test_a_flow_keeps_its_own_cancellation(how):
         if how == "stop":
             stop.set()
         else:
-            sessions.end_browser(Caller(NAMED))
+            workspaces.end_browser(Caller(NAMED))
 
     canceller = threading.Thread(target=cancel_it)
     canceller.start()
@@ -408,7 +408,7 @@ def test_a_call_queued_during_a_flow_step_runs_before_the_next_step():
             return
         queued.append(
             in_thread(
-                lambda: sessions.act(
+                lambda: workspaces.act(
                     Caller(NAMED), lambda s: actions.navigate(s, "https://queued.test/")
                 )
             )
@@ -422,7 +422,7 @@ def test_a_call_queued_during_a_flow_step_runs_before_the_next_step():
             time.sleep(0.001)
 
     driver = Driver(on_get=during_step_one)
-    actions, sessions = wired(**{NAMED: ("abc", driver)})
+    actions, workspaces = wired(**{NAMED: ("abc", driver)})
     report = flowrun.run(actions, {"name": "ten", "steps": steps}, "abc")
     ((thread, outcome),) = queued
     thread.join(5)
@@ -446,7 +446,7 @@ def test_a_call_queued_when_end_browser_cuts_in_never_drives_the_browser():
             assert release.wait(5), "never released"
 
     driver = Driver(on_get=hold_until_released)
-    actions, sessions = wired(**{NAMED: ("queued", driver)})
+    actions, workspaces = wired(**{NAMED: ("queued", driver)})
     reconnects = []
     grid = actions.grid
     reattach, quit_ = grid.reconnect, grid.quit
@@ -462,7 +462,7 @@ def test_a_call_queued_when_end_browser_cuts_in_never_drives_the_browser():
     grid.reconnect, grid.quit = counted, pending_delete
 
     def navigate(url):
-        return lambda: sessions.act(Caller(NAMED), lambda s: actions.navigate(s, url))
+        return lambda: workspaces.act(Caller(NAMED), lambda s: actions.navigate(s, url))
 
     holder, _ = in_thread(navigate("https://holder.test/"))
     assert holding.wait(5), "the holder never started"
@@ -473,7 +473,7 @@ def test_a_call_queued_when_end_browser_cuts_in_never_drives_the_browser():
         assert time.monotonic() < deadline, "the call never queued"
         time.sleep(0.001)
 
-    ender, _ = in_thread(lambda: sessions.end_browser(Caller(NAMED)))
+    ender, _ = in_thread(lambda: workspaces.end_browser(Caller(NAMED)))
     deadline = time.monotonic() + 5
     while not locks._holds["queued"].ending.is_set():
         assert time.monotonic() < deadline, "end_browser never interrupted"
@@ -505,20 +505,20 @@ def test_an_assert_with_a_message_says_its_browser_was_ended_not_its_message(whe
         if when == "between looks" or ended.is_set():
             return
         ended.set()
-        sessions.end_browser(Caller(NAMED))
+        workspaces.end_browser(Caller(NAMED))
         if when == "mid-look":
             raise InvalidSessionIdException("session deleted as the browser closed")
 
     driver = Driver(scripts={"return false": False}, on_script=look)
     # A browser of its own: an ended hold another test's traceback still keeps
     # alive would end this one before its first look.
-    actions, sessions = wired(**{NAMED: (f"message {when}", driver)})
+    actions, workspaces = wired(**{NAMED: (f"message {when}", driver)})
     polling = threading.Event()
     if when == "between looks":
         driver.__dict__["on_script"] = lambda script: polling.set()
-        ender = end_once_polling(sessions, polling)
+        ender = end_once_polling(workspaces, polling)
     with pytest.raises(cancel.Ended, match=ENDED):
-        sessions.act(
+        workspaces.act(
             Caller(NAMED),
             lambda s: actions.assert_(
                 s,
@@ -545,9 +545,9 @@ def test_a_flow_step_queued_when_end_browser_cuts_in_ends_the_run_with_its_repor
             assert release.wait(5), "never released"
 
     driver = Driver(on_get=hold_until_released)
-    actions, sessions = wired(**{NAMED: ("queued flow", driver)})
+    actions, workspaces = wired(**{NAMED: ("queued flow", driver)})
     holder, _ = in_thread(
-        lambda: sessions.act(
+        lambda: workspaces.act(
             Caller(NAMED), lambda s: actions.navigate(s, "https://holder.test/")
         )
     )
@@ -562,7 +562,7 @@ def test_a_flow_step_queued_when_end_browser_cuts_in_ends_the_run_with_its_repor
         assert time.monotonic() < deadline, "the step never queued"
         time.sleep(0.001)
 
-    sessions.end_browser(Caller(NAMED))
+    workspaces.end_browser(Caller(NAMED))
     release.set()
     holder.join(5)
     flow.join(5)
@@ -594,15 +594,15 @@ def test_a_call_waiting_on_an_element_when_its_browser_ends_says_so():
                 "Failed to execute request (POST http://localhost:26538/session/w/element)"
             )
 
-    actions, sessions = wired(**{NAMED: ("waits for an element", Waiting())})
+    actions, workspaces = wired(**{NAMED: ("waits for an element", Waiting())})
     thread, outcome = in_thread(
-        lambda: sessions.act(
+        lambda: workspaces.act(
             Caller(NAMED),
             lambda s: actions.extract(s, selector={"css": "h1"}, wait_timeout=10),
         )
     )
     assert waiting.wait(5), "the extract never started waiting"
-    sessions.end_browser(Caller(NAMED))
+    workspaces.end_browser(Caller(NAMED))
     gone.set()
     thread.join(5)
 
@@ -620,8 +620,8 @@ def test_a_failure_with_no_ending_is_still_itself():
         def find_element(self, by=None, value=None):
             raise WebDriverException("the node went away")
 
-    actions, sessions = wired(**{NAMED: ("broken", Broken())})
+    actions, workspaces = wired(**{NAMED: ("broken", Broken())})
     with pytest.raises(WebDriverException, match="the node went away"):
-        sessions.act(
+        workspaces.act(
             Caller(NAMED), lambda s: actions.extract(s, selector={"css": "h1"})
         )

@@ -195,14 +195,14 @@ def _unreserved(name: str) -> str:
     return f"{name} (1)" if name in RESERVED_IN_FILES else name
 
 
-def _claim(store, session: str, name: str, data: bytes, folder: str) -> dict:
+def _claim(store, workspace: str, name: str, data: bytes, folder: str) -> dict:
     """Write under the first free name. The exclusive create is the claim, so
     two racing saves cannot both win (Copilot, #40)."""
     for candidate in candidates(name):
         if folder == FILES and candidate in RESERVED_IN_FILES:
             continue
         try:
-            return store.create_file(session, candidate, data, folder)
+            return store.create_file(workspace, candidate, data, folder)
         except FileExistsError:
             continue
     raise AssertionError("unreachable")  # candidates is infinite
@@ -248,7 +248,7 @@ def describe(folder: str, entry: dict, url: str, base: str = "") -> dict:
 
 def url_for(
     folder: str,
-    session: str,
+    workspace: str,
     name: str,
     token,
     mount: str = "",
@@ -263,10 +263,10 @@ def url_for(
     if folder == DOWNLOADS:
         return links.file_url(session_id, name, token, mount, ttl)
     if folder == SCREENSHOTS:
-        return links.screenshot_url(session, name, token, mount, ttl)
+        return links.screenshot_url(workspace, name, token, mount, ttl)
     if folder == RECORDINGS:
-        return links.recording_url(session, name, token, mount, ttl)
-    return links.kept_url(session, name, token, mount, ttl)
+        return links.recording_url(workspace, name, token, mount, ttl)
+    return links.kept_url(workspace, name, token, mount, ttl)
 
 
 def owner(store, name: str) -> str:
@@ -282,7 +282,7 @@ def listing_of(
     actions,
     store,
     folder: str,
-    session: str,
+    workspace: str,
     session_id: str,
     token,
     base: str = "",
@@ -308,13 +308,14 @@ def listing_of(
             downloads = actions.grid.files(session_id) if session_id else []
         entries = downloads
     else:
-        entries = store.files(session, folder) if store is not None and session else []
+        listed = store is not None and workspace
+        entries = store.files(workspace, folder) if listed else []
     described = [
         describe(
             folder,
             entry,
             url_for(
-                folder, session, entry.get("name", ""), token, mount, session_id, ttl
+                folder, workspace, entry.get("name", ""), token, mount, session_id, ttl
             ),
             base,
         )
@@ -334,7 +335,7 @@ def downloads_count(actions, session_id: str) -> int:
 
 def root(
     actions,
-    sessions,
+    workspaces,
     store,
     token,
     name: str,
@@ -350,7 +351,7 @@ def root(
     """
     owned = owner(store, name)
     # Never `resolve`: see the module docstring.
-    target = sessions.browser(name)
+    target = workspaces.browser(name)
     if not target and store is None:
         raise ValueError(NOTHING)
     file_list = listing_of(
@@ -389,7 +390,7 @@ def root(
 
 def folder(
     actions,
-    sessions,
+    workspaces,
     store,
     token,
     name: str,
@@ -403,7 +404,7 @@ def folder(
         raise ValueError(f"{which!r} is not a file section: use {SHAPES}")
     owned = owner(store, name)
     # Never `resolve`: see the module docstring.
-    target = sessions.browser(name)
+    target = workspaces.browser(name)
     if not target and store is None:
         raise ValueError(NOTHING)
     entries = listing_of(
@@ -423,7 +424,7 @@ def folder(
 
 def sections(
     actions,
-    sessions,
+    workspaces,
     store,
     token,
     name: str,
@@ -443,7 +444,7 @@ def sections(
     """
     owned = owner(store, name)
     # Never `resolve`: see the module docstring.
-    target = session_id if session_id is not None else sessions.browser(name)
+    target = session_id if session_id is not None else workspaces.browser(name)
     if not target and store is None:
         raise ValueError(NOTHING)
     return {
@@ -465,7 +466,7 @@ def sections(
     }
 
 
-def keep(actions, sessions, store, uri, name: str, session_id=None) -> dict:
+def keep(actions, workspaces, store, uri, name: str, session_id=None) -> dict:
     """Put one file in Files. A screenshot moves; a download is copied, because
     the Grid cannot delete one file (§F1.10); a Files URI answers with itself.
     A recording moves too, strictly: if its source cannot be removed the Files
@@ -475,24 +476,24 @@ def keep(actions, sessions, store, uri, name: str, session_id=None) -> dict:
     if store is None:
         raise ValueError(OFF)
     folder_of, leaf = parse_uri(uri)
-    session = owner(store, name)
+    workspace = owner(store, name)
     if folder_of == FILES:
-        entry = next((e for e in store.files(session) if e["name"] == leaf), None)
+        entry = next((e for e in store.files(workspace) if e["name"] == leaf), None)
         if entry is None:
             raise ValueError(f"no file called {leaf!r} in Files. {ROOT_URI} lists them")
         landed = entry
         log.info("keep %s: already in Files", uri)
     elif folder_of == SCREENSHOTS:
         try:
-            data = store.read_file(session, leaf, SCREENSHOTS)
+            data = store.read_file(workspace, leaf, SCREENSHOTS)
         except FileNotFoundError:
             raise ValueError(
                 f"no screenshot called {leaf!r}: it may be kept already or cleared. "
                 f"{FOLDER_URI[SCREENSHOTS]} lists what there is"
             ) from None
-        landed = _claim(store, session, leaf, data, FILES)
+        landed = _claim(store, workspace, leaf, data, FILES)
         try:
-            removed = store.delete_file(session, leaf, SCREENSHOTS)
+            removed = store.delete_file(workspace, leaf, SCREENSHOTS)
         except Exception:
             # A move is a copy plus a delete, and if the delete fails the copy
             # must not survive it — otherwise the file is in both folders and
@@ -500,12 +501,12 @@ def keep(actions, sessions, store, uri, name: str, session_id=None) -> dict:
             # effort: a failure here is logged, not raised over the original,
             # because the original is the one the caller needs to see.
             try:
-                store.delete_file(session, landed["name"], FILES)
+                store.delete_file(workspace, landed["name"], FILES)
             except Exception:  # noqa: BLE001 - best effort, the original error wins
                 log.warning(
                     "keep %s: could not roll back the claimed copy %s/%s after "
                     "the screenshot delete failed",
-                    uri, session, landed["name"],
+                    uri, workspace, landed["name"],
                 )
             raise
         if not removed:
@@ -516,36 +517,36 @@ def keep(actions, sessions, store, uri, name: str, session_id=None) -> dict:
             # all, so it is rolled back and this answers the same way that
             # race's other ordering already does.
             try:
-                store.delete_file(session, landed["name"], FILES)
+                store.delete_file(workspace, landed["name"], FILES)
             except Exception:  # noqa: BLE001 - best effort, the ValueError wins
                 log.warning(
                     "keep %s: could not roll back the claimed copy %s/%s after "
                     "the screenshot was already gone",
-                    uri, session, landed["name"],
+                    uri, workspace, landed["name"],
                 )
             raise ValueError(
                 f"no screenshot called {leaf!r}: it may be kept already or cleared. "
                 f"{FOLDER_URI[SCREENSHOTS]} lists what there is"
             )
-        log.info("kept %s as %s/%s", uri, session, landed["name"])
+        log.info("kept %s as %s/%s", uri, workspace, landed["name"])
     elif folder_of == RECORDINGS:
         # The screenshot rule, without reading a video into memory: a move,
         # landing beside a same-named file as name (1) (recordings spec, ruling 7).
         try:
-            source = store.file_path(session, leaf, RECORDINGS)
+            source = store.file_path(workspace, leaf, RECORDINGS)
             try:
                 is_file = stat.S_ISREG(source.stat().st_mode)
             except NotADirectoryError:
                 is_file = False  # only FileNotFoundError propagates as missing
             if not is_file:
                 raise FileNotFoundError(leaf)
-            landed = store.move_in(session, source, leaf, FILES, strict=True)
+            landed = store.move_in(workspace, source, leaf, FILES, strict=True)
         except FileNotFoundError:
             raise ValueError(
                 f"no recording called {leaf!r}: it may be kept already or cleared. "
                 f"{FOLDER_URI[RECORDINGS]} lists what there is"
             ) from None
-        log.info("kept %s as %s/%s", uri, session, landed["name"])
+        log.info("kept %s as %s/%s", uri, workspace, landed["name"])
     else:
         # `session_id`, when given, is the browser to read from and is never
         # resolved — the caller (the admin) can then ask for a specific
@@ -554,15 +555,15 @@ def keep(actions, sessions, store, uri, name: str, session_id=None) -> dict:
         # reopened browser cannot hold a download it never took, so resolving
         # would only spend a Grid slot to answer the same refusal.
         if session_id is None:
-            session_id = sessions.browser(name)
+            session_id = workspaces.browser(name)
         if not session_id:
             raise ValueError(
                 "a download is read from a browser, and none is open: "
                 "open_session first"
             )
         data = actions.grid.read_file(session_id, leaf)
-        landed = store.write_file(session, _unreserved(leaf), data, FILES)
-        log.info("kept %s as %s/%s", uri, session, landed["name"])
+        landed = store.write_file(workspace, _unreserved(leaf), data, FILES)
+        log.info("kept %s as %s/%s", uri, workspace, landed["name"])
     return {
         "kept": True,
         "from": uri_of(folder_of, leaf),
@@ -574,7 +575,7 @@ def keep(actions, sessions, store, uri, name: str, session_id=None) -> dict:
 
 
 def keep_made(
-    session: str,
+    workspace: str,
     store,
     name: str,
     data: bytes,
@@ -594,14 +595,14 @@ def keep_made(
     """
     if store is None:
         raise ValueError(OFF)
-    session = owner(store, session)
+    workspace = owner(store, workspace)
     wanted = valid_file_name(name)
-    entry = _claim(store, session, wanted, data, folder)
-    url = url_for(folder, session, entry["name"], token, mount, ttl=ttl)
+    entry = _claim(store, workspace, wanted, data, folder)
+    url = url_for(folder, workspace, entry["name"], token, mount, ttl=ttl)
     return describe(folder, entry, url, base)
 
 
-def read_file(actions, sessions, store, uri, name: str) -> tuple[str, bytes]:
+def read_file(actions, workspaces, store, uri, name: str) -> tuple[str, bytes]:
     """The bytes of one file, by its address, for a caller that wants to send
     it somewhere. ``name`` names the library explicitly, the way a **flow**
     does: the run supplies the library it was loaded from, so a flow in the
@@ -610,36 +611,36 @@ def read_file(actions, sessions, store, uri, name: str) -> tuple[str, bytes]:
     """
     folder_of, leaf = parse_uri(uri)
     if folder_of == DOWNLOADS:
-        target = sessions.browser(name)
+        target = workspaces.browser(name)
         if not target:
             raise ValueError("a download is read from a browser, and none is open")
         return leaf, actions.grid.read_file(target, leaf)
     if store is None:
         raise ValueError(OFF)
-    session = owner(store, name)
+    workspace = owner(store, name)
     try:
-        return leaf, store.read_file(session, leaf, folder_of)
+        return leaf, store.read_file(workspace, leaf, folder_of)
     except FileNotFoundError:
         raise ValueError(f"no file at {uri}. {ROOT_URI} lists what there is") from None
 
 
-def clear_screenshots(store, session: str) -> dict:
+def clear_screenshots(store, workspace: str) -> dict:
     """Empty the screenshots folder. **Operator-only** — there is no tool for
     this, the same as clearing downloads (§F4.1)."""
     if store is None:
         raise ValueError(OFF)
-    return {"cleared": store.clear_folder(session, SCREENSHOTS), "session": session}
+    return {"cleared": store.clear_folder(workspace, SCREENSHOTS), "session": workspace}
 
 
-def clear_recordings(store, session: str) -> dict:
+def clear_recordings(store, workspace: str) -> dict:
     """Empty the recordings folder. **Operator-only**, like clearing screenshots;
     notes for recordings still to come are not in it and are left alone."""
     if store is None:
         raise ValueError(OFF)
-    return {"cleared": store.clear_folder(session, RECORDINGS), "session": session}
+    return {"cleared": store.clear_folder(workspace, RECORDINGS), "session": workspace}
 
 
-def delete_one(store, session: str, name: str) -> dict:
+def delete_one(store, workspace: str, name: str) -> dict:
     """Remove one file from Files. **Operator-only** — there is no tool for
     this.
 
@@ -651,8 +652,8 @@ def delete_one(store, session: str, name: str) -> dict:
     """
     if store is None:
         raise ValueError(OFF)
-    removed = store.delete_file(session, valid_file_name(name))
-    return {"deleted": removed, "session": session, "name": name}
+    removed = store.delete_file(workspace, valid_file_name(name))
+    return {"deleted": removed, "session": workspace, "name": name}
 
 
 FOLDER_NAME = {
@@ -702,7 +703,7 @@ ITEM_DESCRIPTION = {
 def register(
     mcp,
     actions,
-    sessions,
+    workspaces,
     store,
     token,
     base="",
@@ -723,14 +724,14 @@ def register(
     )
     def files_resource() -> dict:
         return root(
-            actions, sessions, store, token, clients.caller().name,
+            actions, workspaces, store, token, clients.caller().name,
             base=base, mount=prefix, ttl=ttl,
         )
 
     def _folder_resource(which: str):
         def read() -> dict:
             return folder(
-                actions, sessions, store, token, clients.caller().name, which,
+                actions, workspaces, store, token, clients.caller().name, which,
                 base=base, mount=prefix, ttl=ttl,
             )
 
@@ -747,7 +748,7 @@ def register(
     def _entry(which: str, name: str) -> dict | None:
         """One stored file's entry, described and signed, or None."""
         listing = folder(
-            actions, sessions, store, token, clients.caller().name, which,
+            actions, workspaces, store, token, clients.caller().name, which,
             base=base, mount=prefix, ttl=ttl,
         )
         return next((f for f in listing["files"] if f["name"] == unquote(name)), None)
@@ -772,7 +773,7 @@ def register(
                     [ResourceContent(json.dumps(entry), mime_type="application/json")]
                 )
             return read_file(
-                actions, sessions, store, uri_of(which, name), clients.caller().name
+                actions, workspaces, store, uri_of(which, name), clients.caller().name
             )[1]
 
         return read
@@ -827,13 +828,13 @@ def register(
         if store is None:
             raise ValueError(OFF)
         parse_uri(uri)
-        return keep(actions, sessions, store, uri, clients.caller().name)
+        return keep(actions, workspaces, store, uri, clients.caller().name)
 
-    _routes(mcp, actions, sessions, store, token, base, prefix, ttl)
+    _routes(mcp, actions, workspaces, store, token, base, prefix, ttl)
     return set()
 
 
-def _routes(mcp, actions, sessions, store, token, base, prefix, ttl) -> None:
+def _routes(mcp, actions, workspaces, store, token, base, prefix, ttl) -> None:
     """The same operations as REST, for callers that are not MCP.
 
     Their own tree under ``/files``, for the reason ``/flows`` has one: these
@@ -861,7 +862,7 @@ def _routes(mcp, actions, sessions, store, token, base, prefix, ttl) -> None:
             request,
             "list",
             lambda caller, _body: root(
-                actions, sessions, store, token, caller.name,
+                actions, workspaces, store, token, caller.name,
                 base=base, mount=prefix, ttl=ttl,
             ),
         )
@@ -875,7 +876,7 @@ def _routes(mcp, actions, sessions, store, token, base, prefix, ttl) -> None:
             request,
             "screenshots",
             lambda caller, _body: folder(
-                actions, sessions, store, token, caller.name, SCREENSHOTS,
+                actions, workspaces, store, token, caller.name, SCREENSHOTS,
                 base=base, mount=prefix, ttl=ttl,
             ),
         )
@@ -889,7 +890,7 @@ def _routes(mcp, actions, sessions, store, token, base, prefix, ttl) -> None:
             request,
             "downloads",
             lambda caller, _body: folder(
-                actions, sessions, store, token, caller.name, DOWNLOADS,
+                actions, workspaces, store, token, caller.name, DOWNLOADS,
                 base=base, mount=prefix, ttl=ttl,
             ),
         )
@@ -903,7 +904,7 @@ def _routes(mcp, actions, sessions, store, token, base, prefix, ttl) -> None:
             request,
             "recordings",
             lambda caller, _body: folder(
-                actions, sessions, store, token, caller.name, RECORDINGS,
+                actions, workspaces, store, token, caller.name, RECORDINGS,
                 base=base, mount=prefix, ttl=ttl,
             ),
         )
@@ -925,6 +926,6 @@ def _routes(mcp, actions, sessions, store, token, base, prefix, ttl) -> None:
                     f"{which!r} is not something to keep: use {SCREENSHOTS}, "
                     f"{RECORDINGS} or {DOWNLOADS}"
                 )
-            return keep(actions, sessions, store, uri_of(which, leaf), caller.name)
+            return keep(actions, workspaces, store, uri_of(which, leaf), caller.name)
 
         return await answer(request, "keep", call)

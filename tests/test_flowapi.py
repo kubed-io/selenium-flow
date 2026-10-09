@@ -15,7 +15,7 @@ from starlette.testclient import TestClient
 
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.flows import api as flowapi
-from kubed.selenium_flow.names import GLOBAL_SESSION, STDIO_SESSION
+from kubed.selenium_flow.names import GLOBAL_WORKSPACE, STDIO_WORKSPACE
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import NAMED, TOKEN
@@ -71,11 +71,11 @@ def acting_as(monkeypatch, server, session):
     anything touching a browser refuses it.
     """
     from kubed.selenium_flow.mcp import clients as clients_module
-    from kubed.selenium_flow.names import STDIO_SESSION
+    from kubed.selenium_flow.names import STDIO_WORKSPACE
 
     from .conftest import calling_as
 
-    if session == STDIO_SESSION:
+    if session == STDIO_WORKSPACE:
         # The stdio caller is the one off HTTP: there is no request to read.
         monkeypatch.setattr(clients_module, "request_values", lambda: None)
     else:
@@ -156,7 +156,7 @@ async def test_saving_the_same_name_replaces_it(flow_server, store):
 
 
 async def test_reads_see_the_shared_library(flow_server, store):
-    store.save(GLOBAL_SESSION, "cookie-banner", {"steps": GOOD, "description": "shared"})
+    store.save(GLOBAL_WORKSPACE, "cookie-banner", {"steps": GOOD, "description": "shared"})
     listing = await resource(flow_server, flowapi.LIST_URI)
     assert [f["name"] for f in listing["flows"]] == ["cookie-banner"]
     assert listing["flows"][0]["shared"] is True
@@ -164,7 +164,7 @@ async def test_reads_see_the_shared_library(flow_server, store):
 
 
 async def test_your_own_flow_wins_a_name_collision(flow_server, store):
-    store.save(GLOBAL_SESSION, "login", {"steps": GOOD, "description": "shared"})
+    store.save(GLOBAL_WORKSPACE, "login", {"steps": GOOD, "description": "shared"})
     await call(flow_server, flowapi.SAVE_TOOL, name="login", steps=GOOD,
                description="mine")
     listing = await resource(flow_server, flowapi.LIST_URI)
@@ -173,22 +173,22 @@ async def test_your_own_flow_wins_a_name_collision(flow_server, store):
     assert listing["flows"][0]["shared"] is False
     assert (await resource(flow_server, "flow://flows/login"))["description"] == "mine"
     # Shadowed, not overwritten.
-    assert store.get(GLOBAL_SESSION, "login")["description"] == "shared"
+    assert store.get(GLOBAL_WORKSPACE, "login")["description"] == "shared"
 
 
 async def test_a_save_never_writes_to_the_shared_library(flow_server, store):
     """An agent cannot publish. Promotion to global is an admin action (§F1.2)."""
-    store.save(GLOBAL_SESSION, "login", {"steps": GOOD, "description": "shared"})
+    store.save(GLOBAL_WORKSPACE, "login", {"steps": GOOD, "description": "shared"})
     await call(flow_server, flowapi.SAVE_TOOL, name="login", steps=GOOD,
                description="mine")
-    assert store.get(GLOBAL_SESSION, "login")["description"] == "shared"
+    assert store.get(GLOBAL_WORKSPACE, "login")["description"] == "shared"
 
 
 async def test_a_delete_never_touches_the_shared_library(flow_server, store):
-    store.save(GLOBAL_SESSION, "login", {"steps": GOOD})
+    store.save(GLOBAL_WORKSPACE, "login", {"steps": GOOD})
     result = await call(flow_server, flowapi.DELETE_TOOL, name="login")
     assert result["deleted"] is False
-    assert store.get(GLOBAL_SESSION, "login") is not None
+    assert store.get(GLOBAL_WORKSPACE, "login") is not None
 
 
 async def test_an_unnamed_caller_cannot_save_into_the_shared_library(
@@ -201,7 +201,7 @@ async def test_an_unnamed_caller_cannot_save_into_the_shared_library(
     acting_as(monkeypatch, flow_server, None)
     with pytest.raises(ValueError, match="read-only"):
         await call(flow_server, flowapi.SAVE_TOOL, name="shared", steps=GOOD)
-    assert store.names(GLOBAL_SESSION) == []
+    assert store.names(GLOBAL_WORKSPACE) == []
 
 
 async def test_an_unnamed_caller_still_reads_and_runs_the_shared_library(
@@ -209,7 +209,7 @@ async def test_an_unnamed_caller_still_reads_and_runs_the_shared_library(
 ):
     """Read-only has to mean read. The shared library is most of what an unnamed
     caller is for, and losing it would make this a regression, not a fix."""
-    store.save(GLOBAL_SESSION, "login", {"steps": GOOD, "description": "shared"})
+    store.save(GLOBAL_WORKSPACE, "login", {"steps": GOOD, "description": "shared"})
     acting_as(monkeypatch, flow_server, None)
     listing = await resource(flow_server, flowapi.LIST_URI)
     assert [f["name"] for f in listing["flows"]] == ["login"]
@@ -226,7 +226,7 @@ async def test_a_flow_in_the_shared_library_is_marked_shared_to_everyone(
     whether to show the globe and which way the move button points, so it
     offered "To global" on a flow already there — a move that does nothing.
     """
-    store.save(GLOBAL_SESSION, "login", {"steps": GOOD})
+    store.save(GLOBAL_WORKSPACE, "login", {"steps": GOOD})
     acting_as(monkeypatch, flow_server, None)
     listing = await resource(flow_server, flowapi.LIST_URI)
     assert listing["flows"][0]["shared"] is True
@@ -238,11 +238,11 @@ async def test_an_unnamed_caller_cannot_delete_from_it_either(
 ):
     """Deleting is the worse half: a flow that vanishes mid-run leaves nothing
     behind saying it ever existed, or who removed it."""
-    store.save(GLOBAL_SESSION, "login", {"steps": GOOD})
+    store.save(GLOBAL_WORKSPACE, "login", {"steps": GOOD})
     acting_as(monkeypatch, flow_server, None)
     with pytest.raises(ValueError, match="read-only"):
         await call(flow_server, flowapi.DELETE_TOOL, name="login")
-    assert store.get(GLOBAL_SESSION, "login") is not None
+    assert store.get(GLOBAL_WORKSPACE, "login") is not None
 
 
 async def test_a_stdio_caller_has_a_writable_library(flow_server, monkeypatch, store):
@@ -250,18 +250,18 @@ async def test_a_stdio_caller_has_a_writable_library(flow_server, monkeypatch, s
     query parameter or a header, so it cannot name itself — if it resolved to
     the shared library it would be permanently unable to save a flow, and the
     refusal would tell it to do something it has no way of doing."""
-    acting_as(monkeypatch, flow_server, STDIO_SESSION)
+    acting_as(monkeypatch, flow_server, STDIO_WORKSPACE)
     await call(flow_server, flowapi.SAVE_TOOL, name="login", steps=GOOD)
-    assert store.names(STDIO_SESSION) == ["login"]
-    assert store.names(GLOBAL_SESSION) == [], "it wrote into the shared library"
+    assert store.names(STDIO_WORKSPACE) == ["login"]
+    assert store.names(GLOBAL_WORKSPACE) == [], "it wrote into the shared library"
 
 
 async def test_a_stdio_caller_still_reads_the_shared_library(
     flow_server, monkeypatch, store
 ):
     """Its own library is additional to `global`, not instead of it."""
-    store.save(GLOBAL_SESSION, "shared", {"steps": GOOD})
-    acting_as(monkeypatch, flow_server, STDIO_SESSION)
+    store.save(GLOBAL_WORKSPACE, "shared", {"steps": GOOD})
+    acting_as(monkeypatch, flow_server, STDIO_WORKSPACE)
     listing = await resource(flow_server, flowapi.LIST_URI)
     assert [f["name"] for f in listing["flows"]] == ["shared"]
     assert listing["flows"][0]["shared"] is True
@@ -366,7 +366,7 @@ def test_save_then_list_then_get_over_http(client):
     assert got.json()["steps"] == GOOD
 
 
-def test_the_session_can_be_named_in_the_query_string_too(client):
+def test_the_workspace_can_be_named_in_the_query_string_too(client):
     """Whichever one a caller can set. `?session=` is what an n8n HTTP node has;
     the header is what an admin pins inside a credential."""
     client.put(
@@ -378,7 +378,7 @@ def test_the_session_can_be_named_in_the_query_string_too(client):
     assert [f["name"] for f in listing.json()["flows"]] == ["theirs"]
 
 
-def test_naming_the_session_twice_is_refused(client):
+def test_naming_the_workspace_twice_is_refused(client):
     """Dr K's rule, and it replaces a precedence: a request carrying both has
     two ideas about who is calling, and picking one hides that (§F2.13)."""
     response = client.get(
@@ -401,7 +401,7 @@ def test_an_http_caller_that_names_nothing_reads_global_but_cannot_write_it(
     assert saved.status_code == 400
     assert "read-only" in saved.json()["error"]
     listing = unkeyed_client.get("/flows", headers=AUTH)
-    assert listing.json()["session"] == GLOBAL_SESSION
+    assert listing.json()["session"] == GLOBAL_WORKSPACE
     assert listing.json()["flows"] == []
 
 
@@ -424,7 +424,7 @@ def test_a_broken_flow_is_a_400_over_http_too(client):
     assert "no tool called" in response.json()["error"]
 
 
-def test_a_traversing_session_name_is_a_400(client):
+def test_a_traversing_workspace_name_is_a_400(client):
     """The name is validated where it arrives, so this never reaches a path."""
     response = client.get("/flows", headers=named("../../etc"))
     assert response.status_code == 400
@@ -454,7 +454,7 @@ def test_the_reserved_libraries_cannot_be_named(client):
     """Both doors onto the same collision. `stdio` is the transport's own
     library and `global` is the shared one, so neither is a name a caller may
     claim — and reading one that way is the same leak as writing it."""
-    for reserved in (STDIO_SESSION, GLOBAL_SESSION):
+    for reserved in (STDIO_WORKSPACE, GLOBAL_WORKSPACE):
         saved = client.put(
             "/flows/x", json={"steps": GOOD}, headers=named(reserved)
         )
@@ -468,7 +468,7 @@ def test_the_shared_library_is_what_naming_nothing_gets_you(unkeyed_client):
     way to it — which is also what makes the reservation safe to widen."""
     listing = unkeyed_client.get("/flows", headers=AUTH)
     assert listing.status_code == 200
-    assert listing.json()["session"] == GLOBAL_SESSION
+    assert listing.json()["session"] == GLOBAL_WORKSPACE
 
 
 # ---- running one ------------------------------------------------------------
@@ -488,7 +488,7 @@ def ran(flow_server, monkeypatch):
 
     for tool in ("navigate", "write", "interact"):
         monkeypatch.setattr(flow_server.actions, tool, record(tool))
-    monkeypatch.setattr(flow_server.sessions, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(flow_server.workspaces, "resolve", lambda name: "browser-1")
     return flow_server, calls
 
 
@@ -515,13 +515,13 @@ async def test_a_saved_flow_runs_end_to_end(ran):
 async def test_running_a_shared_flow_works_and_says_it_was_shared(ran):
     server, _calls = ran
     server.flows.save(
-        GLOBAL_SESSION,
+        GLOBAL_WORKSPACE,
         "banner",
         {"steps": [{"tool": "navigate", "args": {"url": "x"}}]},
     )
     report = await call(server, flowapi.RUN_TOOL, name="banner")
     assert report["status"] == "ok"
-    assert report["session"] == GLOBAL_SESSION
+    assert report["session"] == GLOBAL_WORKSPACE
 
 
 async def test_running_a_flow_that_is_not_there_says_where_to_look(ran):
@@ -555,7 +555,7 @@ async def test_run_flow_admits_it_is_destructive(flow_server):
     assert tools[flowapi.RUN_TOOL].annotations.destructive_hint is True
 
 
-def test_running_over_http_needs_a_named_session(client):
+def test_running_over_http_needs_a_named_workspace(client):
     """A run drives a browser, so it is one of the calls that has to know who is
     asking — the one place the fallback to the shared library does not apply,
     because there is no shared browser (§F2.13)."""
@@ -574,7 +574,7 @@ def test_verbose_false_over_http_does_not_turn_verbose_on(client, flow_server,
         "navigate",
         lambda session_id, **kw: {"url": "u", "title": "t", "big": "x" * 100},
     )
-    monkeypatch.setattr(flow_server.sessions, "resolve", lambda name: "b")
+    monkeypatch.setattr(flow_server.workspaces, "resolve", lambda name: "b")
     client.put("/flows/f", json={"steps": GOOD}, headers=named("workflow"))
     response = client.post(
         "/flows/f/runs", json={"verbose": "false"}, headers=named("workflow")
@@ -583,7 +583,7 @@ def test_verbose_false_over_http_does_not_turn_verbose_on(client, flow_server,
     assert "result" not in response.json()["steps"][0]
 
 
-async def test_a_resize_step_is_written_back_to_the_session(flow_server, monkeypatch):
+async def test_a_resize_step_is_written_back_to_the_workspace(flow_server, monkeypatch):
     """Otherwise the flow resizes the live browser and the session comes back
     the old size the next time the Grid reaps it."""
     monkeypatch.setattr(
@@ -592,8 +592,8 @@ async def test_a_resize_step_is_written_back_to_the_session(flow_server, monkeyp
         lambda session_id, **kw: {"width": kw["width"], "height": kw["height"],
                                   "url": "u", "title": "t"},
     )
-    monkeypatch.setattr(flow_server.sessions, "resolve", lambda name: "browser-1")
-    flow_server.sessions.remember(NAMED, "browser-1", "", {"browser": "firefox"})
+    monkeypatch.setattr(flow_server.workspaces, "resolve", lambda name: "browser-1")
+    flow_server.workspaces.remember(NAMED, "browser-1", "", {"browser": "firefox"})
     await call(
         flow_server,
         flowapi.SAVE_TOOL,
@@ -601,7 +601,7 @@ async def test_a_resize_step_is_written_back_to_the_session(flow_server, monkeyp
         steps=[{"tool": "resize", "args": {"width": 1400, "height": 900}}],
     )
     await call(flow_server, flowapi.RUN_TOOL, name="widen")
-    record = flow_server.sessions.store.get(NAMED)
+    record = flow_server.workspaces.store.get(NAMED)
     assert record.window == "1400x900"
     # And the browser choice survived, as reshape's merge promises.
     assert record.settings["browser"] == "firefox"
@@ -711,7 +711,7 @@ async def test_a_run_reads_a_kept_file_from_the_callers_own_library(
     monkeypatch.setattr(
         "kubed.selenium_flow.core.browser.wait_for_element", lambda *a, **k: _Element()
     )
-    monkeypatch.setattr(flow_server.sessions, "resolve", lambda *a, **k: "browser-1")
+    monkeypatch.setattr(flow_server.workspaces, "resolve", lambda *a, **k: "browser-1")
 
     # Seeded in the SHARED library, deliberately. If the flow were saved into
     # this caller's own, `document["session"]` and the caller's library would
@@ -719,7 +719,7 @@ async def test_a_run_reads_a_kept_file_from_the_callers_own_library(
     # unnoticed (Copilot, #32). Here they differ, so only the right one can
     # produce the expected answer.
     store.save(
-        GLOBAL_SESSION,
+        GLOBAL_WORKSPACE,
         "send-export",
         {
             "description": "Upload the export",
@@ -737,7 +737,7 @@ async def test_a_run_reads_a_kept_file_from_the_callers_own_library(
     report = await call(flow_server, flowapi.RUN_TOOL, name="send-export")
 
     assert report["status"] == "ok", report
-    assert report["session"] == GLOBAL_SESSION, "the flow came from global"
+    assert report["session"] == GLOBAL_WORKSPACE, "the flow came from global"
     assert asked["uri"] == "session://files/export.csv"
     # The CALLER's library, not the one the flow was read from.
     assert asked["session"] == "desktop"

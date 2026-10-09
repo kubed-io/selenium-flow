@@ -7,7 +7,7 @@ fake cannot show, which is why the unit suite counts the calls instead.
 
 import pytest
 
-from kubed.selenium_flow.session.store import RedisStore, SessionRecord
+from kubed.selenium_flow.workspace.store import RedisStore, Workspace
 
 from ..fakes import FakeRedis
 
@@ -22,7 +22,7 @@ def store():
     for index in range(SESSIONS):
         store.set(
             f"agent-{index:02d}",
-            SessionRecord(
+            Workspace(
                 session_id=f"{index:032x}" if index % 4 else "",
                 opened_at=1_760_000_000.0 + index,
                 settings={"browser": "chrome", "width": 1440, "height": 900},

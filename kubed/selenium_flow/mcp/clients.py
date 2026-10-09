@@ -22,7 +22,7 @@ from fastmcp.server import dependencies
 from fastmcp.server.dependencies import get_access_token, get_context
 
 from ..principal import Principal
-from ..session.sessions import Caller, values_of
+from ..workspace.workspaces import Caller, values_of
 
 _OFF = ("off", "false", "0", "no", "none")
 

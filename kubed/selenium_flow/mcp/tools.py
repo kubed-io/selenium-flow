@@ -11,7 +11,7 @@ Docstrings are prompt. They are written for a model deciding whether to call the
 tool, not for a developer reading the source.
 
 No tool takes a ``session_id``. A caller names its session — ``?session=``,
-``X-Session-Key`` or ``X-Workspace`` — and ``sessions.py`` turns that name
+``X-Session-Key`` or ``X-Workspace`` — and ``workspaces.py`` turns that name
 into the browser it holds. The Grid's own id is never a parameter and never a
 result (§F2.12).
 """
@@ -43,7 +43,7 @@ from ..core.capabilities import CAPABILITIES, Capability, capability
 from ..core.defaults import BROWSERS
 from ..core.probe import DEFAULT_LIMIT as OUTLINE_LIMIT
 from ..core.recipe import DIALOG_TIMEOUT, WAIT_TIMEOUT
-from ..session.sessions import NAME_PARAM, SessionManager
+from ..workspace.workspaces import NAME_PARAM, Workspaces
 from . import clients
 
 
@@ -274,7 +274,7 @@ def _as_image(result: dict) -> Image | ToolResult:
 
 
 def register(
-    mcp: FastMCP, actions: Actions, sessions: SessionManager, catalogue=None
+    mcp: FastMCP, actions: Actions, workspaces: Workspaces, catalogue=None
 ) -> None:
     """Register every capability as an MCP tool on ``mcp``.
 
@@ -305,10 +305,10 @@ def register(
                 raise ValueError(f"{row.name} needs text, or a secret to supply it")
             if arguments["secret"] is not None:
                 return secrets_module.perform_write(
-                    catalogue, actions, sessions, clients.caller().name, arguments
+                    catalogue, actions, workspaces, clients.caller().name, arguments
                 )
             del arguments["secret"]
-        return sessions.act(
+        return workspaces.act(
             clients.caller(),
             lambda s: getattr(actions, row.method)(s, **arguments),
             reshapes=row.reshapes,
@@ -374,7 +374,7 @@ def register(
         watches it, so only when one will — it costs the Grid. Not inherited: ask
         again for the next browser.
         """
-        return sessions.open_browser(
+        return workspaces.open_browser(
             clients.caller(),
             url=url,
             fresh=fresh,
@@ -416,7 +416,7 @@ def register(
         and you did not keep go with it.
         """
         caller = clients.caller()
-        sessions.end_browser(caller)
+        workspaces.end_browser(caller)
         return {"success": True, "session": caller.name}
 
     @action("navigate")

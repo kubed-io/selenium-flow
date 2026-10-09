@@ -90,7 +90,7 @@ def test_keeping_over_http_names_only_the_two_keepable_folders(http, folder):
 
 
 def test_reading_a_screenshot_resource_returns_its_bytes(srv):
-    from kubed.selenium_flow.session.sessions import STDIO_NAME
+    from kubed.selenium_flow.workspace.workspaces import STDIO_NAME
     srv.flows.create_file(STDIO_NAME, "shot.png", b"\x89PNG", SCREENSHOTS_DIR)
 
     async def go():

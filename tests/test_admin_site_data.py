@@ -13,8 +13,8 @@ from starlette.testclient import TestClient
 
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.session.store import SessionRecord
 from kubed.selenium_flow.site_data import snapshot as site_data
+from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import TOKEN
 
@@ -37,7 +37,7 @@ DATA = {
 
 
 def visited():
-    return (SessionRecord(session_id="")
+    return (Workspace(session_id="")
             .visited("https://mail.example.org/", now=5.0)
             .visited("https://app.example.com/x", now=6.0))
 
@@ -53,7 +53,7 @@ def server():
             "keys": {"user": {"value": "me"}},
         }}},
     ))
-    s.sessions.store.set(KEY, visited().with_site_data(DATA))
+    s.workspaces.store.set(KEY, visited().with_site_data(DATA))
     return s
 
 
@@ -104,7 +104,7 @@ def test_forget_takes_one_host_and_leaves_shared_cookies_and_the_history(client,
         "origins": ["https://app.example.com"],
         "kept_shared": [{"name": "shared", "domain": ".example.com", "path": "/"}],
     }
-    record = server.sessions.store.get(KEY)
+    record = server.workspaces.store.get(KEY)
     assert [c["name"] for c in record.site_data["cookies"]] == ["shared", "ad"]
     assert record.site_data["origins"] == {} and record.site_data["session"] == {}
     assert record.history == visited().history, "History is not Site data's to touch"
@@ -115,7 +115,7 @@ def test_forget_takes_one_host_and_leaves_shared_cookies_and_the_history(client,
 
 def test_clear_deletes_the_snapshot_and_keeps_the_history(client, server):
     assert client.delete(url()).json() == {"cleared": ["app.example.com", "ads.example.net"]}
-    record = server.sessions.store.get(KEY)
+    record = server.workspaces.store.get(KEY)
     assert record.site_data == {}
     assert record.history == visited().history
     assert client.get(url()).json()["sites"] == []
@@ -136,8 +136,8 @@ def test_the_row_counts_hosts_and_its_rev_moves_on_a_save_a_forget_and_a_clear(c
     forgot = row(client)
     assert forgot["site_data_count"] == 1
     assert forgot["site_data_rev"] != before["site_data_rev"]
-    record = server.sessions.store.get(KEY)
-    server.sessions.store.set(KEY, record.with_site_data({**record.site_data, "saved_at": 20.0}))
+    record = server.workspaces.store.get(KEY)
+    server.workspaces.store.set(KEY, record.with_site_data({**record.site_data, "saved_at": 20.0}))
     resaved = row(client)
     assert resaved["site_data_rev"] != forgot["site_data_rev"], "a re-save of the same hosts moves it"
     client.delete(url())
@@ -151,7 +151,7 @@ def test_details_say_what_forget_takes_and_what_it_leaves(client):
 
 
 def test_a_parent_only_row_can_be_forgotten_and_a_covered_host_cannot(server):
-    server.sessions.store.set(KEY, visited().with_site_data({
+    server.workspaces.store.set(KEY, visited().with_site_data({
         "cookies": [{"name": "shared", "value": "s", "domain": ".example.org", "path": "/"}],
         "origins": {}, "session": {}, "saved_at": 10.0,
     }))
@@ -176,7 +176,7 @@ def test_forget_answers_404_through_the_central_policy(client):
 def test_the_payload_comes_from_one_grouping_of_the_jar(server, monkeypatch):
     cookies = [{"name": "c", "value": "v", "domain": f"h{i}.example{i}.com", "path": "/"}
                for i in range(300)]
-    server.sessions.store.set(KEY, visited().with_site_data({
+    server.workspaces.store.set(KEY, visited().with_site_data({
         "cookies": cookies, "origins": {}, "session": {}, "saved_at": 1.0}))
     calls = {"n": 0}
     real = site_data._Jar.covering
@@ -197,7 +197,7 @@ def test_forget_keeps_a_save_that_lands_while_it_works(client, server, monkeypat
     moment Forget starts computing, and must survive it."""
     import threading
 
-    store = server.sessions.store
+    store = server.workspaces.store
     real = site_data.forget
     saver = []
 

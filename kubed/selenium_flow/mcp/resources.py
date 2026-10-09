@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from fastmcp import FastMCP
 
-from ..session.sessions import SessionManager
 from ..site_data import snapshot as site_data
+from ..workspace.workspaces import Workspaces
 from . import clients
 
 RESOURCE_URI = "session://current"
@@ -26,7 +26,7 @@ DESCRIPTION = (
 )
 
 
-def register(mcp: FastMCP, sessions: SessionManager) -> None:
+def register(mcp: FastMCP, workspaces: Workspaces) -> None:
     """Register the session status resource."""
 
     @mcp.resource(
@@ -35,8 +35,8 @@ def register(mcp: FastMCP, sessions: SessionManager) -> None:
         description=DESCRIPTION,
         mime_type="application/json",
     )
-    def current_session_resource() -> dict:
-        return sessions.describe(clients.caller())
+    def current_workspace_resource() -> dict:
+        return workspaces.describe(clients.caller())
 
     @mcp.resource(
         site_data.LIST_URI,
@@ -45,7 +45,7 @@ def register(mcp: FastMCP, sessions: SessionManager) -> None:
         mime_type="application/json",
     )
     def site_data_resource() -> dict:
-        return site_listing(sessions, clients.caller().name)
+        return site_listing(workspaces, clients.caller().name)
 
     @mcp.resource(
         f"{site_data.LIST_URI}/{{site}}",
@@ -54,7 +54,7 @@ def register(mcp: FastMCP, sessions: SessionManager) -> None:
         mime_type="application/json",
     )
     def one_site_resource(site: str) -> dict:
-        return one_site(sessions, clients.caller().name, site)
+        return one_site(workspaces, clients.caller().name, site)
 
 
 SITE_DESCRIPTION = (
@@ -73,17 +73,17 @@ ONE_SITE_DESCRIPTION = (
 )
 
 
-def site_listing(sessions: SessionManager, name: str) -> dict:
+def site_listing(workspaces: Workspaces, name: str) -> dict:
     """``session://site-data``. Reads the record; never opens a browser."""
-    record = sessions.store.get(name)
+    record = workspaces.store.get(name)
     if record is None:
         return site_data.view({})
     return site_data.view(record.site_data, record.history)
 
 
-def one_site(sessions: SessionManager, name: str, site: str) -> dict:
+def one_site(workspaces: Workspaces, name: str, site: str) -> dict:
     """``session://site-data/{site}``, or a ValueError that says where to look."""
-    record = sessions.store.get(name)
+    record = workspaces.store.get(name)
     found = site_data.site_view(record.site_data if record else {}, site)
     if found is None:
         raise ValueError(f"no saved data for {site!r}: {site_data.LIST_URI} lists them")

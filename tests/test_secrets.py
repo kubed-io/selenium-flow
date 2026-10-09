@@ -745,7 +745,7 @@ def bound_http(tmp_path, monkeypatch):
     ))
     # A named session holding a browser: this surface addresses one by naming
     # itself now, so there is no id to put in the body (§F2.13).
-    monkeypatch.setattr(server.sessions, "resolve", lambda name: "b1")
+    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "b1")
     client = TestClient(server.mcp.http_app(), headers={"X-Session-Key": "desktop"})
     return client, typed
 
@@ -877,7 +877,7 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
         secrets={"dirs": str(tmp_path)},
     ))
     calling_as(monkeypatch, NAMED)
-    monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "browser-1")
     monkeypatch.setattr(
         server.actions, "page",
         lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
@@ -893,7 +893,7 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
     )
     touched = []
     monkeypatch.setattr(
-        server.sessions, "touch",
+        server.workspaces, "touch",
         lambda name, url, browser=None: touched.append((url, browser)),
     )
 
@@ -931,7 +931,7 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
         secrets={"dirs": str(tmp_path)},
     ))
     calling_as(monkeypatch, NAMED)
-    monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "browser-1")
     monkeypatch.setattr(
         server.actions, "page",
         lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
@@ -944,7 +944,7 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
     )
     touched = []
     monkeypatch.setattr(
-        server.sessions, "touch", lambda name, url, browser=None: touched.append((url, browser))
+        server.workspaces, "touch", lambda name, url, browser=None: touched.append((url, browser))
     )
 
     write = await server.mcp.get_tool("write")
@@ -975,7 +975,7 @@ def _direct(tmp_path, monkeypatch, write):
         secrets={"dirs": str(tmp_path)},
     ))
     calling_as(monkeypatch, NAMED)
-    monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "browser-1")
     monkeypatch.setattr(
         server.actions, "page",
         lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
@@ -983,7 +983,7 @@ def _direct(tmp_path, monkeypatch, write):
     monkeypatch.setattr(server.actions, "write", write)
     touched = []
     monkeypatch.setattr(
-        server.sessions, "touch",
+        server.workspaces, "touch",
         lambda name, url, browser=None: touched.append((url, browser)),
     )
     return server, touched
@@ -1051,7 +1051,7 @@ async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
         secrets={"dirs": str(tmp_path)},
     ))
     calling_as(monkeypatch, NAMED)
-    monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "browser-1")
     monkeypatch.setattr(
         server.actions, "page",
         lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
@@ -1063,7 +1063,7 @@ async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
         },
     )
     report = {"restored": ["nc.example.com"], "skipped": [], "uri": "session://site-data"}
-    monkeypatch.setattr(server.sessions, "touch", lambda name, url, browser=None: report)
+    monkeypatch.setattr(server.workspaces, "touch", lambda name, url, browser=None: report)
 
     write = await server.mcp.get_tool("write")
     result = write.fn(
@@ -1094,31 +1094,31 @@ def test_an_http_binding_naming_two_sources_is_refused(bound_http, monkeypatch):
     assert typed == []
 
 
-def test_a_session_in_use_is_kept_alive_even_when_its_page_is_withheld():
+def test_a_workspace_in_use_is_kept_alive_even_when_its_page_is_withheld():
     """`touch` slides the TTL as well as recording the page, and the two are
     separate facts. A login flow binding a secret every few minutes — the exact
     thing secrets exist for — expired out of the store *because* its URL was
     correctly kept out of it.
 
-    Driven through `touch` rather than the store: `SessionRecord.at` has always
+    Driven through `touch` rather than the store: `Workspace.at` has always
     kept the old page when given nothing, and it was `touch`'s own early return
     that threw the refresh away. A test on the store would have passed
     throughout.
     """
-    from kubed.selenium_flow.session.store import MemoryStore, SessionRecord
+    from kubed.selenium_flow.workspace.store import MemoryStore, Workspace
 
     from .conftest import NAMED, manager
 
     clock = [1000.0]
     store = MemoryStore(ttl=60, clock=lambda: clock[0])
     store.set(
-        NAMED, SessionRecord(session_id="browser-1").visited("https://nc.test/home")
+        NAMED, Workspace(session_id="browser-1").visited("https://nc.test/home")
     )
-    sessions = manager(store=store)
+    workspaces = manager(store=store)
 
     clock[0] += 50
     # The page is withheld, the way a bound write withholds it.
-    sessions.touch(NAMED, None)
+    workspaces.touch(NAMED, None)
 
     clock[0] += 50  # past the original expiry, inside the slid one
     kept = store.get(NAMED)

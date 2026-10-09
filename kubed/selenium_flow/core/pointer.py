@@ -149,7 +149,7 @@ def matching(store):
     through a one-word typo in the property. A store that says it is redis and
     then cannot produce a client should raise.
     """
-    # `ttl` is in the `SessionStore` protocol, and the fallback is for a store
+    # `ttl` is in the `WorkspaceStore` protocol, and the fallback is for a store
     # written before it was - `SeleniumMCP` takes an injected store, and a
     # direct read turned a store that merely predates this into a server that
     # will not start (Copilot, #32).
@@ -161,7 +161,7 @@ def matching(store):
     ttl = getattr(store, "ttl", DEFAULT_TTL_SECONDS)
     if store.kind != "redis":
         return MemoryPointers(ttl=ttl)
-    from ..session.store import POINTER_NAMESPACE
+    from ..workspace.store import POINTER_NAMESPACE
 
     return RedisPointers(
         store.client, prefix=store.prefix + POINTER_NAMESPACE, ttl=ttl

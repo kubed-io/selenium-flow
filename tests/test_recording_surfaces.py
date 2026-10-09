@@ -16,7 +16,7 @@ from kubed.selenium_flow.http import files, links
 from kubed.selenium_flow.http.admin import signed
 from kubed.selenium_flow.names import FILES_DIR, RECORDINGS_DIR
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.session.sessions import STDIO_NAME
+from kubed.selenium_flow.workspace.workspaces import STDIO_NAME
 
 pytestmark = pytest.mark.unit
 

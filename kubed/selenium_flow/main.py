@@ -65,7 +65,7 @@ def main(argv: list[str] | None = None) -> None:
         without_userinfo(settings.grid.url),
         "on" if server.auth_token else "off",
         settings.oidc.issuer or "off",
-        server.sessions.kind,
+        server.workspaces.kind,
         server.skill.skill_info.name if server.skill else "off",
         server.flows.kind if server.flows else "off",
         _secrets_summary(server.secrets),

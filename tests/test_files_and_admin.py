@@ -18,7 +18,7 @@ from kubed.selenium_flow.core import browser
 from kubed.selenium_flow.http import files, links
 from kubed.selenium_flow.mcp import apps
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.session.store import SessionRecord
+from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import TOKEN
 
@@ -45,7 +45,7 @@ def flow_session(server):
     The admin surface lists *our* sessions, not the Grid's, so a test that does
     not put one in the store is asking about an empty server.
     """
-    server.sessions.store.set(KEY, SessionRecord(session_id="abc").visited("https://x/"))
+    server.workspaces.store.set(KEY, Workspace(session_id="abc").visited("https://x/"))
     return server
 
 
@@ -191,14 +191,14 @@ def test_the_admin_api_requires_the_token(client):
 # --- ending a session -----------------------------------------------------
 
 
-def test_ending_a_session_requires_the_token(client):
+def test_ending_a_workspace_requires_the_token(client):
     """It quits somebody's browser, so it is the last route to leave open."""
     assert client.delete("/admin/sessions/abc").status_code == 401
     bad = {"Authorization": "Bearer nope"}
     assert client.delete("/admin/sessions/abc", headers=bad).status_code == 401
 
 
-def test_ending_a_session_quits_the_browser(client, flow_session):
+def test_ending_a_workspace_quits_the_browser(client, flow_session):
     with patch.object(browser.Grid, "quit") as quit_:
         response = client.delete(
             f"/admin/sessions/{KEY}", headers={"Authorization": f"Bearer {TOKEN}"}
@@ -213,8 +213,8 @@ def test_a_grid_that_refuses_to_quit_is_still_a_200(client, flow_session):
     Grid does not stop that being true — the record is detached either way. So
     the operator sees success rather than a 500 for something already handled.
 
-    That the detach happens is SessionManager's contract, asserted directly in
-    test_sessions.py; the route's contract is the status code."""
+    That the detach happens is the Workspaces manager's contract, asserted directly in
+    test_workspaces.py; the route's contract is the status code."""
     with patch.object(browser.Grid, "quit", side_effect=RuntimeError("gone")):
         response = client.delete(
             f"/admin/sessions/{KEY}", headers={"Authorization": f"Bearer {TOKEN}"}
@@ -222,10 +222,10 @@ def test_a_grid_that_refuses_to_quit_is_still_a_200(client, flow_session):
     assert response.status_code == 200
 
 
-def test_ending_a_session_with_no_browser_is_a_no_op(client, server):
+def test_ending_a_workspace_with_no_browser_is_a_no_op(client, server):
     """The button's job is "make sure this holds no browser", which is already
     true — so it succeeds rather than erroring."""
-    server.sessions.store.set("idle", SessionRecord(session_id=""))
+    server.workspaces.store.set("idle", Workspace(session_id=""))
     with patch.object(browser.Grid, "quit") as quit_:
         response = client.delete(
             "/admin/sessions/idle", headers={"Authorization": f"Bearer {TOKEN}"}
@@ -235,7 +235,7 @@ def test_ending_a_session_with_no_browser_is_a_no_op(client, server):
     quit_.assert_not_called()
 
 
-def test_ending_a_session_does_not_disturb_the_files_route(client, flow_session):
+def test_ending_a_workspace_does_not_disturb_the_files_route(client, flow_session):
     """`/admin/sessions/<key>` and `/admin/sessions/<key>/files` are different
     routes, and a DELETE to one must not be routed to the other."""
     with (
@@ -366,13 +366,13 @@ def test_the_admin_api_lists_files_with_signed_urls(client, flow_session):
     assert body["files"] == [], "no store, nothing to keep into"
 
 
-def test_the_listing_shows_flow_sessions_not_grid_sessions(client, server):
+def test_the_listing_shows_workspaces_not_grid_sessions(client, server):
     """The Grid is the superset — it runs browsers put there by anything at all.
     Listing those would be showing somebody else's work as though it were ours,
     and handing whoever holds the admin token a browser id they never opened."""
-    server.sessions.store.set(
+    server.workspaces.store.set(
         "mine",
-        SessionRecord(session_id="mine", settings={"browser": "firefox"}).visited("https://x/"),
+        Workspace(session_id="mine", settings={"browser": "firefox"}).visited("https://x/"),
     )
     grid_rows = [
         {"session_id": "mine", "browser": "firefox", "version": "155", "node": "n1"},
@@ -390,11 +390,11 @@ def test_the_listing_shows_flow_sessions_not_grid_sessions(client, server):
     assert "somebody-else" not in str(body)
 
 
-def test_a_detached_session_is_listed_as_idle_with_its_context(client, server):
+def test_a_detached_workspace_is_listed_as_idle_with_its_context(client, server):
     """The point of the split: no browser, but still a session worth seeing."""
-    server.sessions.store.set(
+    server.workspaces.store.set(
         "idle",
-        SessionRecord(session_id="", settings={"browser": "firefox"}).visited("https://x/"),
+        Workspace(session_id="", settings={"browser": "firefox"}).visited("https://x/"),
     )
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get(
@@ -408,10 +408,10 @@ def test_a_detached_session_is_listed_as_idle_with_its_context(client, server):
     assert row["browser"] == "firefox", "the context outlives the browser"
 
 
-def test_the_stdio_session_is_listed_and_labelled(client, server):
+def test_the_stdio_workspace_is_listed_and_labelled(client, server):
     """One key shape survives — the name a caller chose — and `stdio` is the one
     nobody typed, so it is still worth saying where it came from (§F2.12)."""
-    server.sessions.store.set("stdio", SessionRecord(session_id="abc"))
+    server.workspaces.store.set("stdio", Workspace(session_id="abc"))
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get(
             "/admin/sessions", headers={"Authorization": f"Bearer {TOKEN}"}
@@ -419,11 +419,11 @@ def test_the_stdio_session_is_listed_and_labelled(client, server):
     assert body["sessions"][0]["owner"] == "stdio"
 
 
-def test_a_detached_session_has_no_files_rather_than_an_error(client, server):
+def test_a_detached_workspace_has_no_files_rather_than_an_error(client, server):
     """It had them; the Grid deleted them with the browser. That is not a
     fault — and neither is having no store at all, which `server` also has
     none of."""
-    server.sessions.store.set("idle", SessionRecord(session_id=""))
+    server.workspaces.store.set("idle", Workspace(session_id=""))
     body = client.get(
         "/admin/sessions/idle/files",
         headers={"Authorization": f"Bearer {TOKEN}"},
@@ -443,7 +443,7 @@ async def test_files_are_a_resource_and_a_template(server):
     assert "session://files/{name}" in templates
 
 
-async def test_the_mcp_surface_never_lists_other_sessions(built_ui, server):
+async def test_the_mcp_surface_never_lists_other_workspaces(built_ui, server):
     """A client owns one session and may only ever see that one.
 
     The session list is an admin view over HTTP, deliberately not a tool and not
@@ -487,7 +487,7 @@ def test_the_app_csp_omits_an_origin_it_does_not_have():
 # --- the live event stream ------------------------------------------------
 
 
-def test_the_sessions_call_hands_back_a_signed_stream_url(client):
+def test_the_workspaces_call_hands_back_a_signed_stream_url(client):
     """EventSource cannot send a header, so it is given a URL it can just open."""
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get(
@@ -583,7 +583,7 @@ async def test_every_connected_page_is_sent_the_same_events(server, monkeypatch)
     import asyncio
     import threading
 
-    from kubed.selenium_flow.http.admin import sessions as admin
+    from kubed.selenium_flow.http.admin import workspaces as admin
 
     monkeypatch.setattr(admin, "POLL_SECONDS", 0.05)
     gate = threading.Semaphore(0)
@@ -595,7 +595,7 @@ async def test_every_connected_page_is_sent_the_same_events(server, monkeypatch)
         return {"value": {"nodes": []}}
 
     monkeypatch.setattr(server.actions.grid, "status", status)
-    server.sessions.store.set("one", SessionRecord(session_id=""))
+    server.workspaces.store.set("one", Workspace(session_id=""))
 
     app = server.mcp.http_app()
     stop = asyncio.Event()
@@ -618,7 +618,7 @@ async def test_every_connected_page_is_sent_the_same_events(server, monkeypatch)
         assert all(len(s) == 1 for s in sinks), "a tick that found no change spoke"
 
         # Tick three is blocked having already read the store; this lands in four.
-        server.sessions.store.set("two", SessionRecord(session_id=""))
+        server.workspaces.store.set("two", Workspace(session_id=""))
         await tick(4)
         await _until(lambda: all(len(s) == 2 for s in sinks), "the change")
         assert sinks[0] == sinks[1] == sinks[2]

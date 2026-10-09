@@ -89,7 +89,7 @@ def file_path(session_id: str, name: str) -> str:
     return f"/files/{quote(session_id, safe='')}/{quote(name, safe='')}"
 
 
-def kept_path(session: str, name: str) -> str:
+def kept_path(workspace: str, name: str) -> str:
     """The unsigned path of one file kept beyond the browser that made it.
 
     A separate route rather than a flag on the one above, because it is keyed by
@@ -97,7 +97,7 @@ def kept_path(session: str, name: str) -> str:
     a *session name* that outlives it (§F1.10). One route taking either would
     have to guess which it was handed, and the two namespaces can collide.
     """
-    return f"/kept/{quote(session, safe='')}/{quote(name, safe='')}"
+    return f"/kept/{quote(workspace, safe='')}/{quote(name, safe='')}"
 
 
 def _url(path: str, token: str | None, base: str, ttl: int) -> str:
@@ -125,36 +125,44 @@ def file_url(
 
 
 def kept_url(
-    session: str,
+    workspace: str,
     name: str,
     token: str | None,
     base: str = "",
     ttl: int = DEFAULT_TTL,
 ) -> str:
     """A URL for one file kept beyond its browser."""
-    return _url(kept_path(session, name), token, base, ttl)
+    return _url(kept_path(workspace, name), token, base, ttl)
 
 
-def screenshot_path(session: str, name: str) -> str:
+def screenshot_path(workspace: str, name: str) -> str:
     """The unsigned path of one screenshot. Keyed by session name, like a kept
     file, because a screenshot outlives the browser that took it."""
-    return f"/screenshots/{quote(session, safe='')}/{quote(name, safe='')}"
+    return f"/screenshots/{quote(workspace, safe='')}/{quote(name, safe='')}"
 
 
 def screenshot_url(
-    session: str, name: str, token: str | None, mount: str = "", ttl: int = DEFAULT_TTL
+    workspace: str,
+    name: str,
+    token: str | None,
+    mount: str = "",
+    ttl: int = DEFAULT_TTL,
 ) -> str:
     """A URL for one screenshot."""
-    return _url(screenshot_path(session, name), token, mount, ttl)
+    return _url(screenshot_path(workspace, name), token, mount, ttl)
 
 
-def recording_path(session: str, name: str) -> str:
-    """The unsigned path of one recording, keyed by session like a screenshot."""
-    return f"/recordings/{quote(session, safe='')}/{quote(name, safe='')}"
+def recording_path(workspace: str, name: str) -> str:
+    """The unsigned path of one recording, keyed by workspace like a screenshot."""
+    return f"/recordings/{quote(workspace, safe='')}/{quote(name, safe='')}"
 
 
 def recording_url(
-    session: str, name: str, token: str | None, mount: str = "", ttl: int = DEFAULT_TTL
+    workspace: str,
+    name: str,
+    token: str | None,
+    mount: str = "",
+    ttl: int = DEFAULT_TTL,
 ) -> str:
     """A URL for one recording."""
-    return _url(recording_path(session, name), token, mount, ttl)
+    return _url(recording_path(workspace, name), token, mount, ttl)

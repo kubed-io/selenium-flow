@@ -20,8 +20,8 @@ from kubed.selenium_flow.core.browser import Grid
 from kubed.selenium_flow.http.admin import page as _admin_page
 from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.session.sessions import SessionManager
-from kubed.selenium_flow.session.store import MemoryStore
+from kubed.selenium_flow.workspace.store import MemoryStore
+from kubed.selenium_flow.workspace.workspaces import Workspaces
 
 from .fakes import FakeGrid, ScriptedDriver
 
@@ -105,8 +105,8 @@ def http(params=None, headers=None):
 
 
 def manager(actions=None, store=None):
-    """A SessionManager over doubles, which is how nearly every test wants one."""
-    return SessionManager(actions or RecordingActions(), store or MemoryStore())
+    """A Workspaces manager over doubles, which is how nearly every test wants one."""
+    return Workspaces(actions or RecordingActions(), store or MemoryStore())
 
 
 @pytest.fixture

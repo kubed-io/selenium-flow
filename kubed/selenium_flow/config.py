@@ -32,7 +32,7 @@ from pydantic.fields import FieldInfo
 from pydantic_settings import EnvSettingsSource, NoDecode
 
 from .core.defaults import DEFAULT_GRID_URL, normalize_browser
-from .names import INBOX_DIR, SESSIONS_DIR, valid_name
+from .names import INBOX_DIR, WORKSPACES_DIR, valid_name
 from .urls import without_userinfo
 
 # Marks a field that only the config file may set: structure, not a value.
@@ -153,7 +153,7 @@ class GridSettings(Section):
     )
 
 
-class SessionSettings(Section):
+class WorkspaceSettings(Section):
     store: Literal["memory", "redis"] = Field(
         "memory",
         description="memory; redis.host or redis.url switches it to redis.",
@@ -384,8 +384,8 @@ class Settings(Section):
     grid: GridSettings = Field(
         default_factory=GridSettings, description="The Selenium Grid it drives."
     )
-    session: SessionSettings = Field(
-        default_factory=SessionSettings,
+    session: WorkspaceSettings = Field(
+        default_factory=WorkspaceSettings,
         description="How sessions are kept, and how new browsers open.",
     )
     redis: RedisSettings = Field(
@@ -820,7 +820,7 @@ def recording_problem(settings: Settings) -> str | None:
     if settings.recording.enabled:
         # Resolved as the server opens them: relative to the working directory.
         inbox = Path(recording_dir(settings)).resolve()
-        sessions = (Path(settings.data.dir) / SESSIONS_DIR).resolve()
+        sessions = (Path(settings.data.dir) / WORKSPACES_DIR).resolve()
         if inbox == sessions or sessions in inbox.parents or inbox in sessions.parents:
             return (
                 f"recording.dir {inbox} must not overlap {sessions}: inside it, "

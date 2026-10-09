@@ -18,9 +18,9 @@ from starlette.responses import JSONResponse
 from ...flows import api as flowapi
 from ...flows import template
 from ...flows.shape import Shape
-from ...names import GLOBAL_SESSION, library_of, valid_name
+from ...names import GLOBAL_WORKSPACE, library_of, valid_name
 from .. import answer
-from .sessions import library, revision
+from .workspaces import library, revision
 
 log = logging.getLogger(__name__)
 
@@ -82,12 +82,12 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
         it came from, which is what the UI marks with a globe.
         """
         key = request.path_params["key"]
-        session = library_of(key)
+        workspace = library_of(key)
         # Flows off, or a session whose name cannot be a directory: an empty
         # list with a reason, rather than an error that blanks the whole panel.
-        if flow_store is None or session is None:
+        if flow_store is None or workspace is None:
             return JSONResponse(
-                {"key": key, "session": session, "enabled": False, "flows": []}
+                {"key": key, "session": workspace, "enabled": False, "flows": []}
             )
         # Read BEFORE the listing, deliberately. An edit landing between the two
         # would otherwise pair the old summaries with the new revision — the
@@ -95,12 +95,12 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
         # showing what it was already showing. This order errs the other way: a
         # token older than the listing costs one redundant refresh.
         rev = await run_in_threadpool(
-            lambda: revision(flow_store, session)
+            lambda: revision(flow_store, workspace)
             + "+"
-            + revision(flow_store, GLOBAL_SESSION)
+            + revision(flow_store, GLOBAL_WORKSPACE)
         )
         try:
-            payload = await run_in_threadpool(flowapi.catalogue, flow_store, session)
+            payload = await run_in_threadpool(flowapi.catalogue, flow_store, workspace)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"flows for {key}", log)
         # The revision this listing was built from, so the page can record what
@@ -135,14 +135,14 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
         key = request.path_params["key"]
         name = request.path_params["name"]
         try:
-            session = library(key)
+            workspace = library(key)
             enabled()
             if request.method in ("GET", "DELETE"):
                 # Both act on the flow *as resolved* — this session's if it has
                 # one, else the shared library's — so the panel and the buttons
                 # address the same document the reader is looking at.
                 found = await run_in_threadpool(
-                    flowapi.read_one, flow_store, session, name
+                    flowapi.read_one, flow_store, workspace, name
                 )
                 where = found["session"]
                 if request.method == "GET":
@@ -162,7 +162,7 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
             body = await answer.read_body(request)
             text = body.get("yaml") if isinstance(body, dict) else None
             return JSONResponse(
-                await flowapi.save_text(flow_store, session, name, text, schemas)
+                await flowapi.save_text(flow_store, workspace, name, text, schemas)
             )
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"flow {name} for {key}", log)
@@ -187,14 +187,14 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
         key = request.path_params["key"]
         name = request.path_params["name"]
         try:
-            session = library(key)
+            workspace = library(key)
             enabled()
             body = await answer.read_body(request)
             target = valid_name(
                 body.get("to") if isinstance(body, dict) else None, "session name"
             )
             found = await run_in_threadpool(
-                flowapi.read_one, flow_store, session, name
+                flowapi.read_one, flow_store, workspace, name
             )
             source = found["session"]
             if source == target:

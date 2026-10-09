@@ -2,7 +2,7 @@
 
 `AGENTS.md` shapes the package in layers: the protocol (`mcp/`, `http/`) sits on
 top, Selenium on the bottom (`core/browser`, `core/actions`, `core/pointer`,
-`core/probe`), and what lies between -- the flow engine, the session store, the
+`core/probe`), and what lies between -- the flow engine, the workspace store, the
 site-data snapshot, the vocabulary modules -- is plain Python. A promise nothing
 checks drifts, so this blocks the libraries in a fresh subprocess and imports
 every module that is meant to be free of them, found by walking the tree so a
@@ -63,7 +63,7 @@ def walk(directory: str, skip: tuple[str, ...] = ()) -> tuple[str, ...]:
 # here; `flows/api` is the HTTP face of the flow tools and imports starlette.
 NO_PROTOCOL = (
     *walk("core"),
-    *walk("session"),
+    *walk("workspace"),
     *walk("flows", skip=("api",)),
     *walk("site_data"),
     *walk("recordings"),
@@ -83,7 +83,7 @@ NO_SELENIUM = tuple(
         "core.naming",
         "core.coerce",
         "core.assertion",
-        "session.store",
+        "workspace.store",
         "site_data.snapshot",
         "recordings.mp4",
         "flows.template",
@@ -172,7 +172,7 @@ def describe(failures: dict[str, str]) -> str:
 def test_the_walk_finds_the_layers():
     """The walk reaches each layer, so an empty one cannot pass for clean."""
     assert "kubed.selenium_flow.flows.engine" in NO_PROTOCOL
-    assert "kubed.selenium_flow.session.store" in NO_PROTOCOL
+    assert "kubed.selenium_flow.workspace.store" in NO_PROTOCOL
     assert "kubed.selenium_flow.site_data.snapshot" in NO_PROTOCOL
     assert "kubed.selenium_flow.core.coerce" in NO_PROTOCOL
     assert "kubed.selenium_flow.flows.api" not in NO_PROTOCOL
@@ -182,7 +182,7 @@ def test_the_walk_finds_the_layers():
 def test_the_kernel_imports_no_protocol_library():
     """Nothing outside `mcp/`, `http/` and `flows/api` reaches the protocol.
 
-    `session/sessions` and `secrets` lean on `mcp` and `starlette` only inside
+    `workspace/workspaces` and `secrets` lean on `mcp` and `starlette` only inside
     functions; those stay lazy, which is what this proves.
     """
     failures = import_failures(NO_PROTOCOL, PROTOCOL)
@@ -221,7 +221,7 @@ UPPER = tuple(
 )
 
 # The kernel: the same layers `NO_PROTOCOL` walks, `flows/api` excepted.
-KERNEL = ("core", "session", "flows", "site_data", "recordings")
+KERNEL = ("core", "workspace", "flows", "site_data", "recordings")
 KERNEL_SKIP = {"flows/api.py"}
 
 # Upward imports that exist today, each with the reason. Keyed by file and the
@@ -282,7 +282,7 @@ def kernel_imports_upward() -> dict[tuple[str, str], str]:
 
 
 def test_the_kernel_never_imports_upward():
-    """`core`, `session`, `flows` and `site_data` import nothing from `mcp`,
+    """`core`, `workspace`, `flows` and `site_data` import nothing from `mcp`,
     `http`, `routes`, `server` or `spec` — at module scope or inside a function."""
     found = kernel_imports_upward()
     offending = {key: where for key, where in found.items()
@@ -317,7 +317,7 @@ def test_the_upward_check_leaves_the_kernel_alone():
     """Imports within and across the kernel are not mistaken for reaching up."""
     source = (
         "from .annotations import hints\n"
-        "from ..session import store\n"
+        "from ..workspace import store\n"
         "from .. import names, urls\n"
         "import json\n"
     )

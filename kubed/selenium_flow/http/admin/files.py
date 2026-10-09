@@ -15,13 +15,13 @@ from starlette.responses import JSONResponse
 from ...names import library_of
 from .. import answer
 from .. import files as stored
-from .sessions import attached_id, header, library
+from .workspaces import attached_id, header, library
 
 log = logging.getLogger(__name__)
 
 
 def mount(
-    mcp, actions, sessions, flow_store, token, prefix, link_ttl, sessions_payload,
+    mcp, actions, workspaces, flow_store, token, prefix, link_ttl, workspaces_payload,
     guarded, changes,
 ) -> None:
     """Mount the files listing, keep, and clear/delete.
@@ -44,7 +44,7 @@ def mount(
         key = request.path_params["key"]
         # A session whose name cannot be a directory keeps nothing, so it has no
         # kept files to list — and must not be shown the shared library's.
-        session = library_of(key) or ""
+        workspace = library_of(key) or ""
         try:
             # Whether there are downloads to list depends on whether the browser
             # is still on the Grid. The record can name one the Grid already
@@ -58,7 +58,7 @@ def mount(
             # outage would quietly render an empty download list instead of an
             # error. `is_alive` assumes alive when it cannot tell, so a Grid
             # that is down still surfaces from the call below.
-            attached = attached_id(sessions, key)
+            attached = attached_id(workspaces, key)
             alive = attached and await run_in_threadpool(
                 actions.grid.is_alive, attached
             )
@@ -84,10 +84,10 @@ def mount(
                 listing = await run_in_threadpool(
                     stored.sections,
                     actions,
-                    sessions,
+                    workspaces,
                     flow_store,
                     token,
-                    session,
+                    workspace,
                     mount=prefix,
                     session_id=live_id,
                     downloads=downloads,
@@ -97,7 +97,7 @@ def mount(
                 {
                     **listing,
                     "key": key,
-                    "session": await header(sessions_payload, key, attached),
+                    "session": await header(workspaces_payload, key, attached),
                 }
             )
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
@@ -127,13 +127,13 @@ def mount(
             kept = await run_in_threadpool(
                 stored.keep,
                 actions,
-                sessions,
+                workspaces,
                 flow_store,
                 stored.uri_of(folder, name),
                 # The library this key owns, refused the same way the delete
                 # and clear handlers refuse it, not the raw key.
                 name=library(key),
-                session_id=attached_id(sessions, key),
+                session_id=attached_id(workspaces, key),
             )
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"keeping {folder}/{name} for {key}", log)
@@ -158,7 +158,7 @@ def mount(
                 # per-file delete. Screenshots and Files are ours and
                 # elsewhere, so they are untouched — which is exactly what
                 # makes this safe to put behind a button (§F1.10).
-                session_id = attached_id(sessions, key)
+                session_id = attached_id(workspaces, key)
                 alive = session_id and await run_in_threadpool(
                     actions.grid.is_alive, session_id
                 )

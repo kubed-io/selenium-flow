@@ -1,6 +1,6 @@
-"""The session list: its payload, its live stream, and ending a browser.
+"""The workspace list: its payload, its live stream, and ending a browser.
 
-Flow sessions, not Grid sessions. ``sessions_payload`` is built once per
+Workspaces, not Grid sessions. ``workspaces_payload`` is built once per
 registration (it remembers whether the store was failing, so an outage warns
 once) and handed to whatever else needs a row — the files tab's header.
 
@@ -23,15 +23,15 @@ from starlette.responses import JSONResponse, Response
 
 from ...core.defaults import DEFAULT_BROWSER
 from ...names import (
-    GLOBAL_SESSION,
+    GLOBAL_WORKSPACE,
     RECORDINGS_DIR,
     SCREENSHOTS_DIR,
-    STDIO_SESSION,
+    STDIO_WORKSPACE,
     InvalidName,
     library_of,
 )
-from ...session.sessions import Caller
 from ...site_data import snapshot as site_data
+from ...workspace.workspaces import Caller
 from .. import auth, links
 
 log = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ def owner_label(key: str) -> dict:
     admin page still wants to say where a session came from, and `stdio` is
     still a session nobody typed.
     """
-    if key == STDIO_SESSION:
+    if key == STDIO_WORKSPACE:
         return {"name": key, "owner": "stdio"}
     return {"name": key, "owner": "named"}
 
@@ -74,7 +74,7 @@ def _grid_facts(session: dict) -> dict:
     return {"version": session.get("version"), "node": session.get("node")}
 
 
-def named(call, session: str) -> list[str]:
+def named(call, workspace: str) -> list[str]:
     """What a session has, by name, or nothing if the store cannot say.
 
     Names rather than a count, because two of these lists overlap: keeping a
@@ -83,13 +83,13 @@ def named(call, session: str) -> list[str]:
     """
     try:
         return [str(item.get("name", item)) if isinstance(item, dict) else str(item)
-                for item in call(session)]
+                for item in call(workspace)]
     except Exception:  # noqa: BLE001 - a count is not worth failing a listing
-        log.info("could not list %s for %s", call.__name__, session)
+        log.info("could not list %s for %s", call.__name__, workspace)
         return []
 
 
-def revision(flow_store, session: str) -> str:
+def revision(flow_store, workspace: str) -> str:
     """A token that changes whenever this session's flows do.
 
     A *count* cannot see an edit — the YAML changes and the number does not
@@ -98,19 +98,19 @@ def revision(flow_store, session: str) -> str:
     The store answers this; a backend that cannot is free to return its
     count, and the panel degrades to what the file list already does.
     """
-    if flow_store is None or session is None:
+    if flow_store is None or workspace is None:
         return ""
     try:
-        return str(flow_store.revision(session))
+        return str(flow_store.revision(workspace))
     except AttributeError:
         # A backend that does not implement one. Falling back to the count
         # is what makes the sentence above true: a constant here would make
         # the page's stamp constant too, and it would never repaint again —
         # which is the very bug this helper exists to fix, reintroduced
         # silently for anyone whose store is not the local one.
-        return str(len(named(flow_store.names, session)))
+        return str(len(named(flow_store.names, workspace)))
     except Exception:  # noqa: BLE001 - never worth failing a listing
-        log.info("could not read the flow revision for %s", session)
+        log.info("could not read the flow revision for %s", workspace)
         return ""
 
 
@@ -121,27 +121,27 @@ def library(key: str) -> str:
     does: that would put one session's file in the shared library. An
     ``InvalidName`` is a ValueError, so ``errors.py`` already answers 400.
     """
-    session = library_of(key)
-    if session is None:
+    workspace = library_of(key)
+    if workspace is None:
         raise InvalidName(
             f"session {key!r} cannot keep files: its name is not one it may "
             "own a library under — either not a usable directory name, or "
             "reserved. Use letters, digits, dots, dashes and underscores, "
             "starting with a letter or digit."
         )
-    return session
+    return workspace
 
 
-def attached_id(sessions, key: str) -> str:
+def attached_id(workspaces, key: str) -> str:
     """The browser a flow session currently holds, or "" if none."""
-    store = getattr(sessions, "store", None)
+    store = getattr(workspaces, "store", None)
     if store is None:
         return ""
     record = store.get(key)
     return record.session_id if record and record.attached else ""
 
 
-async def header(sessions_payload, key: str, session_id: str) -> dict:
+async def header(workspaces_payload, key: str, session_id: str) -> dict:
     """The session facts the detail view leads with.
 
     Sent alongside the files rather than fetched separately, and
@@ -154,7 +154,7 @@ async def header(sessions_payload, key: str, session_id: str) -> dict:
         "attached": bool(session_id),
     }
     try:
-        listing = await run_in_threadpool(sessions_payload)
+        listing = await run_in_threadpool(workspaces_payload)
         return next((s for s in listing["sessions"] if s["key"] == key), detail)
     except Exception as exc:  # noqa: BLE001 - a Grid blip, not a failure
         log.info("session header for %s unavailable: %s", key, exc)
@@ -208,7 +208,7 @@ class Broadcast:
     """
 
     def __init__(self, compute):
-        # `sessions_payload`, for a caller that wants the list computed now.
+        # `workspaces_payload`, for a caller that wants the list computed now.
         self.compute = compute
         self._pages: set[_Page] = set()
         self._task: asyncio.Task | None = None
@@ -328,7 +328,7 @@ class _Stream(EventSourceResponse):
 
 
 def mount(
-    mcp, actions, sessions, flow_store, token, prefix, guarded
+    mcp, actions, workspaces, flow_store, token, prefix, guarded
 ):
     """Mount the session list, its event stream and the end-a-browser route.
 
@@ -340,7 +340,7 @@ def mount(
     # than on every two-second poll of every open page.
     store_failing = [False]
 
-    def sessions_payload() -> dict:
+    def workspaces_payload() -> dict:
         """Every flow session, and the browser each one currently holds.
 
         Flow sessions, not Grid sessions. The Grid is the superset — it runs
@@ -352,13 +352,13 @@ def mount(
         Blocking — it talks to the Grid for liveness and file counts — so
         callers on the event loop must run it in a worker thread.
         """
-        sessions_store = getattr(sessions, "store", None)
-        if sessions_store is None or not hasattr(sessions_store, "records"):
+        workspaces_store = getattr(workspaces, "store", None)
+        if workspaces_store is None or not hasattr(workspaces_store, "records"):
             # A store that cannot enumerate is not an error: sessions still
             # work, there is simply no history to show.
             return {"sessions": []}
         try:
-            records = sessions_store.records()
+            records = workspaces_store.records()
         except Exception as exc:  # noqa: BLE001 - a Redis blip is not an outage
             # A warning, because the page renders this as "no sessions" and that
             # looks exactly like an empty install - at info it hid a store that
@@ -385,7 +385,7 @@ def mount(
         # whole shared library once per session — O(sessions x shared flows) on
         # a two-second poll.
         shared_rev = (
-            revision(flow_store, GLOBAL_SESSION) if flow_store is not None else ""
+            revision(flow_store, GLOBAL_WORKSPACE) if flow_store is not None else ""
         )
 
         rows = []
@@ -408,25 +408,25 @@ def mount(
             # None when the session named itself something no directory can be
             # called. Such a session keeps nothing, and must not be shown the
             # shared library's counts as though they were its own.
-            session = library_of(key)
-            stores = flow_store is not None and session is not None
-            flow_names = named(flow_store.names, session) if stores else []
+            workspace = library_of(key)
+            stores = flow_store is not None and workspace is not None
+            flow_names = named(flow_store.names, workspace) if stores else []
             # Screenshots and Files are the session's own — countable whenever
             # there is a store and a usable name, independent of whether a
             # browser is attached. Downloads are the Grid's and countable only
             # while one is live, which is why that count alone can be None for
             # a reason `stores` never causes.
             shots = (
-                named(lambda s: flow_store.files(s, SCREENSHOTS_DIR), session)
+                named(lambda s: flow_store.files(s, SCREENSHOTS_DIR), workspace)
                 if stores
                 else []
             )
             recs = (
-                named(lambda s: flow_store.files(s, RECORDINGS_DIR), session)
+                named(lambda s: flow_store.files(s, RECORDINGS_DIR), workspace)
                 if stores
                 else []
             )
-            kept = named(flow_store.files, session) if stores else []
+            kept = named(flow_store.files, workspace) if stores else []
             counts = {
                 "downloads": len(downloads) if downloads is not None else None,
                 "screenshots": len(shots) if stores else None,
@@ -515,7 +515,7 @@ def mount(
                     # covers this session's library and the shared one, because
                     # the panel lists both.
                     "flows_rev": (
-                        revision(flow_store, session) + "+" + shared_rev
+                        revision(flow_store, workspace) + "+" + shared_rev
                         if stores
                         else None
                     ),
@@ -524,7 +524,7 @@ def mount(
             )
         return {"sessions": rows}
 
-    broadcast = Broadcast(sessions_payload)
+    broadcast = Broadcast(workspaces_payload)
 
     @mcp.custom_route(
         f"{prefix}/admin/sessions", methods=["GET"], name="admin_sessions")
@@ -532,7 +532,7 @@ def mount(
     async def admin_sessions(request: Request) -> JSONResponse:
         # What the open pages were just sent, when that is recent: a page loads
         # this and opens the stream together, and both are the same answer.
-        payload = broadcast.fresh() or await run_in_threadpool(sessions_payload)
+        payload = broadcast.fresh() or await run_in_threadpool(workspaces_payload)
         # A signed URL for the event stream, because EventSource cannot send an
         # Authorization header — the same reason the file route is signed. It is
         # minted here so it is only ever handed to a caller that had the token.
@@ -619,7 +619,7 @@ def mount(
         Grid slot while somebody waits.
         """
         key = request.path_params["key"]
-        session_id = attached_id(sessions, key)
+        session_id = attached_id(workspaces, key)
         if not session_id:
             # Nothing attached is success, not a failure: the button's whole
             # job is "make sure this session is not holding a browser".
@@ -628,7 +628,7 @@ def mount(
         # cannot mean different things: the admin names the session by its
         # key. Blocking HTTP to the Grid, so off the event loop — a slow Grid
         # would stall every connected dashboard.
-        await run_in_threadpool(sessions.end_browser, Caller(key, "admin"))
+        await run_in_threadpool(workspaces.end_browser, Caller(key, "admin"))
         return JSONResponse({"success": True, "key": key, "session_id": session_id})
 
     return broadcast

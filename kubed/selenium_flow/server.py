@@ -41,10 +41,10 @@ from .mcp import (
 )
 from .recordings import collector as recording_collector
 from .recordings import mounts
-from .session import settings as session_settings
-from .session import store as store_module
-from .session.sessions import SessionManager
-from .session.store import SessionStore
+from .workspace import settings as workspace_settings
+from .workspace import store as store_module
+from .workspace.store import WorkspaceStore
+from .workspace.workspaces import Workspaces
 
 log = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ class SeleniumMCP:
         settings: Settings | None = None,
         *,
         sources: dict[str, str] | None = None,
-        store: SessionStore | None = None,
+        store: WorkspaceStore | None = None,
         pointers=None,
     ):
         settings = settings if settings is not None else Settings()
@@ -155,11 +155,11 @@ class SeleniumMCP:
                 inbox, "polling" if self.collector.polling else "events",
             )
 
-        self.sessions = SessionManager(
+        self.workspaces = Workspaces(
             self.actions,
             store=self.store,
             skill_available=self.skill is not None,
-            defaults=session_settings.from_settings(settings.session),
+            defaults=workspace_settings.from_settings(settings.session),
             recordings=self.collector,
         )
 
@@ -192,7 +192,7 @@ class SeleniumMCP:
             auth=auth,
             lifespan=lifespan,
         )
-        tools.register(self.mcp, self.actions, self.sessions, self.secrets)
+        tools.register(self.mcp, self.actions, self.workspaces, self.secrets)
 
         # Everything to read is a resource. A client that cannot read them gets
         # `mirror`'s two tools, which read the same URIs (§F3.6).
@@ -201,7 +201,7 @@ class SeleniumMCP:
         # invoke a prompt still points somebody at the right one (§F2.6).
         self.prompts = prompts.register(self.mcp)
 
-        resources.register(self.mcp, self.sessions)
+        resources.register(self.mcp, self.workspaces)
         if self.skill is not None:
             skill.register(self.mcp, self.skill)
         mirror.register(self.mcp)
@@ -228,7 +228,7 @@ class SeleniumMCP:
         app_tools = files.register(
             self.mcp,
             self.actions,
-            self.sessions,
+            self.workspaces,
             self.flows,
             auth_token,
             base,
@@ -253,13 +253,13 @@ class SeleniumMCP:
         # the same reason: which flow session owns a file is a question about
         # the caller, which the behaviour layer deliberately cannot see.
         self.actions.read_file = lambda uri, session=None: files.read_file(
-            self.actions, self.sessions, self.flows, uri,
+            self.actions, self.workspaces, self.flows, uri,
             session or clients.caller().name,
         )
         # And where the caller's session has been, so one save reads every
         # site's storage. Wired here for the same reason: which session is
         # calling is a question about the caller.
-        self.actions.visited = lambda: self.sessions.visited(clients.caller().name)
+        self.actions.visited = lambda: self.workspaces.visited(clients.caller().name)
         self.apps = (
             apps.register(self.mcp, self.actions, auth_token, base)
             if apps_enabled
@@ -277,7 +277,7 @@ class SeleniumMCP:
         flowapi.register(
             self.mcp,
             self.flows,
-            self.sessions,
+            self.workspaces,
             self.actions,
             auth_token,
             prefix=self.prefix,
@@ -296,7 +296,7 @@ class SeleniumMCP:
         routes.register(
             self.mcp,
             self.actions,
-            self.sessions,
+            self.workspaces,
             auth_token,
             self.prefix,
             catalogue=self.secrets,
@@ -311,7 +311,7 @@ class SeleniumMCP:
             auth_token,
             console_url=settings.grid.console_url,
             prefix=self.prefix,
-            sessions=self.sessions,
+            workspaces=self.workspaces,
             flow_store=self.flows,
             schemas=schemas,
             catalogue=self.secrets,

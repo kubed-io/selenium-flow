@@ -7,9 +7,9 @@ import json
 import pytest
 
 from kubed.selenium_flow import urls
-from kubed.selenium_flow.session.store import SessionRecord
 from kubed.selenium_flow.site_data import snapshot as sd
 from kubed.selenium_flow.site_data import transfer
+from kubed.selenium_flow.workspace.store import Workspace
 
 pytestmark = pytest.mark.unit
 
@@ -47,8 +47,8 @@ def test_expired_cookies_are_dropped_and_session_cookies_kept():
 
 
 def test_a_record_written_before_site_data_reads_as_empty():
-    assert SessionRecord.from_json('{"session_id": "s", "url": "u"}').site_data == {}
-    assert SessionRecord.from_json('{"session_id": "s", "site_data": [1]}').site_data == {}
+    assert Workspace.from_json('{"session_id": "s", "url": "u"}').site_data == {}
+    assert Workspace.from_json('{"session_id": "s", "site_data": [1]}').site_data == {}
 
 
 # ---- BiDi ------------------------------------------------------------------
@@ -115,7 +115,7 @@ def test_the_wire_loggers_never_log_at_debug(monkeypatch):
 
     class Server:
         auth_token = skill = flows = secrets = collector = None
-        sessions = SimpleNamespace(kind="memory")
+        workspaces = SimpleNamespace(kind="memory")
 
         def __init__(self, *a, **kw):
             pass

@@ -300,7 +300,7 @@ async def test_the_task_runs_only_while_something_is_owed_and_survives_a_restart
     await c2.stop()
 
 
-async def test_two_sessions_never_claim_each_others_files(parts):
+async def test_two_workspaces_never_claim_each_others_files(parts):
     c, store, inbox, alive, _filed, _clock = parts
     other = "0123456789abcdef0123456789abcdef"
     alive.add(other)
@@ -334,7 +334,7 @@ def test_a_server_with_recording_on_needs_a_usable_inbox(tmp_path):
         SeleniumMCP(settings)
     (tmp_path / "recordings").mkdir()
     server = SeleniumMCP(settings)
-    assert server.collector is not None and server.sessions.recordings is server.collector
+    assert server.collector is not None and server.workspaces.recordings is server.collector
 
 
 class Listing:
@@ -442,7 +442,7 @@ async def test_a_failed_sweep_is_retried_a_tick_later(tmp_path, caplog):
     await c.stop()
 
 
-async def test_a_note_that_cannot_be_read_is_skipped_by_session(tmp_path, caplog):
+async def test_a_note_that_cannot_be_read_is_skipped_by_workspace(tmp_path, caplog):
     store = flows.LocalFlowStore(tmp_path / "sessions")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
@@ -576,7 +576,7 @@ async def test_note_writes_never_run_on_the_loop(parts):
 
 
 async def test_a_poke_forgets_the_last_broadcast_and_ticks_now():
-    from kubed.selenium_flow.http.admin.sessions import Broadcast
+    from kubed.selenium_flow.http.admin.workspaces import Broadcast
 
     b = Broadcast(compute=dict)
     b._latest = (time.monotonic(), {"sessions": []}, "{}")
@@ -587,7 +587,7 @@ async def test_a_poke_forgets_the_last_broadcast_and_ticks_now():
 
 def test_a_filed_recording_pokes_the_admin_broadcast(tmp_path):
     from kubed.selenium_flow import config
-    from kubed.selenium_flow.http.admin.sessions import Broadcast
+    from kubed.selenium_flow.http.admin.workspaces import Broadcast
     from kubed.selenium_flow.server import SeleniumMCP
 
     (tmp_path / "recordings").mkdir()
@@ -814,7 +814,7 @@ def _eio_on(path, monkeypatch):
         monkeypatch.setattr(os, name, failing(getattr(os, name)))
 
 
-async def test_one_session_that_cannot_be_read_does_not_block_another(tmp_path, monkeypatch, caplog):
+async def test_one_workspace_that_cannot_be_read_does_not_block_another(tmp_path, monkeypatch, caplog):
     store = flows.LocalFlowStore(tmp_path / "sessions")
     inbox = tmp_path / "recordings"
     inbox.mkdir()

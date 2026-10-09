@@ -15,8 +15,8 @@ import threading
 
 import pytest
 
-from kubed.selenium_flow.http.admin import sessions as admin
-from kubed.selenium_flow.session.store import SessionRecord
+from kubed.selenium_flow.http.admin import workspaces as admin
+from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import TOKEN
 from .test_files_and_admin import _listen, _until
@@ -97,7 +97,7 @@ async def _close(stop, tasks, gate=None):
 
 async def test_three_pages_cost_one_grid_listing_a_tick(server, gated):
     gate, entered = gated
-    server.sessions.store.set("one", SessionRecord(session_id=""))
+    server.workspaces.store.set("one", Workspace(session_id=""))
     app = server.mcp.http_app()
     stop = asyncio.Event()
     sinks = [[], [], []]
@@ -144,7 +144,7 @@ async def test_a_page_joining_mid_tick_is_sent_each_state_once(
     sends a page the same state twice."""
     monkeypatch.setattr(admin, "FRESH_SECONDS", 60.0)
     gate, entered = gated
-    server.sessions.store.set("one", SessionRecord(session_id=""))
+    server.workspaces.store.set("one", Workspace(session_id=""))
     app = server.mcp.http_app()
     stop = asyncio.Event()
     first, second, third = [], [], []
@@ -169,7 +169,7 @@ async def test_a_page_joining_mid_tick_is_sent_each_state_once(
         assert len(entered) == 3, "a fresh join is not a Grid call"
 
         # Tick 3 read the store before it blocked; the change lands in tick 4.
-        server.sessions.store.set("two", SessionRecord(session_id=""))
+        server.workspaces.store.set("two", Workspace(session_id=""))
         gate.release(1)
         await _until(lambda: len(entered) >= 4, "tick 4")
         gate.release(1)
@@ -185,7 +185,7 @@ async def test_the_listing_is_the_last_broadcast_while_it_is_fresh(
 ):
     monkeypatch.setattr(admin, "POLL_SECONDS", 60.0)
     monkeypatch.setattr(admin, "FRESH_SECONDS", 60.0)
-    server.sessions.store.set("one", SessionRecord(session_id="abc"))
+    server.workspaces.store.set("one", Workspace(session_id="abc"))
     app = server.mcp.http_app()
     stop = asyncio.Event()
     sink = []
@@ -200,9 +200,9 @@ async def test_the_listing_is_the_last_broadcast_while_it_is_fresh(
 
         # Ending a browser changes the list, so the listing after it is new.
         def end_browser(caller):
-            server.sessions.store.set(caller.name, SessionRecord(session_id=""))
+            server.workspaces.store.set(caller.name, Workspace(session_id=""))
 
-        monkeypatch.setattr(server.sessions, "end_browser", end_browser)
+        monkeypatch.setattr(server.workspaces, "end_browser", end_browser)
         await _request(app, "DELETE", "/admin/sessions/one")
         listing = await _request(app, "GET", "/admin/sessions")
         assert len(counted) == asked + 1
@@ -220,7 +220,7 @@ async def test_a_failed_tick_sends_nothing_and_the_stream_carries_on(
     server, counted, monkeypatch
 ):
     monkeypatch.setattr(admin, "POLL_SECONDS", 0.02)
-    server.sessions.store.set("one", SessionRecord(session_id=""))
+    server.workspaces.store.set("one", Workspace(session_id=""))
     failures = []
     real = admin.owner_label
 
@@ -295,9 +295,9 @@ async def test_a_forget_with_a_page_open_is_in_the_next_listing(
                      "path": "/"}],
         "origins": {}, "session": {}, "saved_at": 1.0,
     }
-    server.sessions.store.set(
+    server.workspaces.store.set(
         "one",
-        SessionRecord(session_id="").visited("https://app.example.com/").with_site_data(jar),
+        Workspace(session_id="").visited("https://app.example.com/").with_site_data(jar),
     )
     app = server.mcp.http_app()
     stop = asyncio.Event()

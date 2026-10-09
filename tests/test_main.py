@@ -193,7 +193,7 @@ SESSION_PATHS = [
 
 @pytest.mark.parametrize("prefix", ["", "/flow"])
 @pytest.mark.parametrize(("path", "template"), SESSION_PATHS)
-def test_the_access_log_names_the_route_never_the_session(
+def test_the_access_log_names_the_route_never_the_workspace(
     tmp_path, listened, prefix, path, template
 ):
     """Copilot, review 2: a session name is the credential past the token, and

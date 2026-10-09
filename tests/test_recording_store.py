@@ -190,7 +190,7 @@ def test_a_note_that_cannot_be_read_is_a_fault_not_a_broken_note(store, monkeypa
         store.notes()
 
 
-def test_a_session_that_cannot_be_read_is_reported_and_the_rest_are_listed(store, monkeypatch):
+def test_a_workspace_that_cannot_be_read_is_reported_and_the_rest_are_listed(store, monkeypatch):
     """A stat that fails on one session folder is that session's fault, never
     an empty session (Python 3.14's `is_dir` reads any OSError as False)."""
     other = "0123456789abcdef0123456789abcdef"

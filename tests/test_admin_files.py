@@ -24,7 +24,7 @@ from kubed.selenium_flow.flows import store as flows
 from kubed.selenium_flow.http import links
 from kubed.selenium_flow.names import RECORDINGS_DIR, SCREENSHOTS_DIR
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.session.store import SessionRecord
+from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import TOKEN
 
@@ -56,8 +56,8 @@ def client(kept_server):
 @pytest.fixture
 def live(kept_server):
     """A flow session holding a browser, which is what the admin API addresses."""
-    kept_server.sessions.store.set(
-        KEY, SessionRecord(session_id="abc").visited("https://x/")
+    kept_server.workspaces.store.set(
+        KEY, Workspace(session_id="abc").visited("https://x/")
     )
     return kept_server
 
@@ -113,7 +113,7 @@ def test_a_reaped_browser_has_no_downloads_to_clear(client, kept_server):
     """The record still names a browser; the Grid no longer has it. Dialling
     `clear_files` for an id the Grid has reaped would be a call for nothing,
     so this is success without ever making it."""
-    kept_server.sessions.store.set(KEY, SessionRecord(session_id="abc"))
+    kept_server.workspaces.store.set(KEY, Workspace(session_id="abc"))
     with (
         patch.object(browser.Grid, "is_alive", return_value=False),
         patch.object(browser.Grid, "clear_files") as clear,
@@ -210,7 +210,7 @@ def test_the_admin_keep_refuses_a_key_that_owns_no_library(client, kept_server, 
     clear handlers do, so a stored key that cannot be a directory is refused
     with that reason rather than reaching the store as a raw name."""
     stale = "named:desktop"
-    kept_server.sessions.store.set(stale, SessionRecord(session_id="").visited("https://x/"))
+    kept_server.workspaces.store.set(stale, Workspace(session_id="").visited("https://x/"))
     response = client.post(
         f"/admin/sessions/{stale}/files/screenshots/shot.png/keep", headers=AUTH
     )
@@ -265,7 +265,7 @@ def test_a_broken_screenshot_store_is_a_5xx_not_a_404(client, live):
 # ---- the counts -----------------------------------------------------------
 
 
-def test_the_session_row_counts_each_section(client, live):
+def test_the_workspace_row_counts_each_section(client, live):
     live.flows.write_file(SESSION, "shot.png", b"x", SCREENSHOTS_DIR)
     live.flows.write_file(SESSION, "report.pdf", b"x")
     with (
@@ -320,9 +320,9 @@ def test_every_files_endpoint_needs_the_token(client, method, path):
 
 
 def test_recordings_are_listed_counted_cleared_and_kept(client, live):
-    live.sessions.store.set(
+    live.workspaces.store.set(
         KEY,
-        SessionRecord(session_id="abc", settings={"record": True}).visited("https://x/"),
+        Workspace(session_id="abc", settings={"record": True}).visited("https://x/"),
     )
     live.flows.write_file(SESSION, "rec-1.mp4", b"v", RECORDINGS_DIR)
     live.flows.write_file(SESSION, "rec-2.mp4", b"w", RECORDINGS_DIR)

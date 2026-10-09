@@ -126,7 +126,7 @@ def _page(**extra) -> dict:
 CAPABILITIES: tuple[Capability, ...] = (
     # The browser resource's own two: POST and DELETE on /browser itself,
     # because which browser is a question about who is asking (§F2.13). Both
-    # are served by `SessionManager`, which is where a browser is made and
+    # are served by `Workspaces`, which is where a browser is made and
     # ended, rather than through `sessions.act`.
     Capability(
         name="open_session",

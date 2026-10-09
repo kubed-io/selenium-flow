@@ -54,13 +54,13 @@ from ..core.actions import Actions
 from ..core.browser import in_frame
 from ..core.coerce import as_bool
 from ..core.defaults import DEFAULT_BROWSER
-from ..names import GLOBAL_SESSION, valid_session_name
+from ..names import GLOBAL_WORKSPACE, valid_workspace_name
 from ..principal import Principal
 from ..site_data import snapshot as site_data_module
 from ..urls import allowed_navigation
 from . import locks
 from . import settings as settings_module
-from .store import MemoryStore, SessionRecord, SessionStore
+from .store import MemoryStore, Workspace, WorkspaceStore
 
 log = logging.getLogger(__name__)
 
@@ -177,7 +177,7 @@ class Caller:
                 refusal = ValueError(_two_names(chosen))
             else:
                 try:
-                    named = valid_session_name(chosen[0])
+                    named = valid_workspace_name(chosen[0])
                 except ValueError as exc:
                     refusal = exc
         said = (_last(params, CLIENT_PARAMS), _last(headers, CLIENT_HEADERS))
@@ -215,7 +215,7 @@ class Caller:
         """
         if self.refusal is not None:
             raise type(self.refusal)(*self.refusal.args)
-        return self.named or GLOBAL_SESSION
+        return self.named or GLOBAL_WORKSPACE
 
     @property
     def defaults(self) -> dict:
@@ -258,8 +258,8 @@ def values_of(request) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
     return params, headers
 
 
-class SessionManager:
-    """Resolves a named session to the browser it holds, through a ``SessionStore``.
+class Workspaces:
+    """Resolves a named workspace to the browser it holds, through a ``WorkspaceStore``.
 
     The store maps **name -> record**, and the record carries the Grid session
     id, the page, and the settings a reopen has to replay. The name is the key
@@ -270,7 +270,7 @@ class SessionManager:
     def __init__(
         self,
         actions: Actions,
-        store: SessionStore | None = None,
+        store: WorkspaceStore | None = None,
         skill_available: bool = True,
         defaults: dict | None = None,
         recordings=None,
@@ -281,8 +281,8 @@ class SessionManager:
         # for the caller to read, and a skill:// URI nobody can read teaches an
         # agent the manual is broken (Copilot, #36).
         self.skill_available = skill_available
-        # The operator's floor for a new session, from the config's session
-        # section. See `session/settings.py` for where this sits in the cascade.
+        # The operator's floor for a new workspace, from the config's session
+        # section. See `workspace/settings.py` for where this sits in the cascade.
         self.defaults = dict(defaults or {})
         # Who files a recorded browser's video (`recordings.Collector`), or None
         # when recording is off. Told on open and on end; it owns no browser.
@@ -294,7 +294,7 @@ class SessionManager:
         return getattr(self.store, "kind", "memory")
 
     def describe(self, caller: Caller) -> dict:
-        """What this session is, and whether it currently holds a browser.
+        """What this workspace is, and whether it currently holds a browser.
 
         Deliberately side-effect free: reading a status resource must never open
         a browser, so this peeks at the store rather than going through
@@ -357,7 +357,7 @@ class SessionManager:
         return status
 
     def browser(self, name: str) -> str:
-        """The Grid id this session is driving, or "" if it holds no live one.
+        """The Grid id this workspace is driving, or "" if it holds no live one.
 
         For the callers that need the browser but must never *open* one — the
         file listing, which exists to keep answering after a browser is gone.
@@ -467,7 +467,7 @@ class SessionManager:
         return {"video_name": name, "on_created": created}
 
     def act(self, caller: Caller, call, *, reshapes: bool = False) -> dict:
-        """Resolve this session's browser, act on it, remember where it ended up.
+        """Resolve this workspace's browser, act on it, remember where it ended up.
 
         The three steps every action shares, on **both** surfaces. It lives here
         rather than in each of them because the two used to carry their own copy
@@ -479,7 +479,7 @@ class SessionManager:
         *stores* rather than just the page it is on. See :meth:`reshape`.
 
         The action takes the session's turn on the browser itself, in
-        `Recipe.run` (`session.locks`). Resolving and settling do not need it:
+        `Recipe.run` (`workspace.locks`). Resolving and settling do not need it:
         every record write is a compare-and-set.
         """
         name = caller.name
@@ -542,7 +542,7 @@ class SessionManager:
     def _hold_again(self, name: str, report: dict, browser: str | None) -> None:
         """Put a reopen's report back when the result carrying it failed."""
 
-        def held(r: SessionRecord) -> SessionRecord | None:
+        def held(r: Workspace) -> Workspace | None:
             if r.reopened or (browser and r.session_id != browser):
                 return None
             return replace(r, reopened={"browser": r.session_id, "report": report})
@@ -566,7 +566,7 @@ class SessionManager:
         if not captured:
             return
 
-        def save(r: SessionRecord) -> tuple[SessionRecord | None, dict]:
+        def save(r: Workspace) -> tuple[Workspace | None, dict]:
             if producer is not None and r.session_id != producer:
                 # Another browser holds the session now — perhaps one opened
                 # with restore_site_data=false. What this one captured is not
@@ -588,7 +588,7 @@ class SessionManager:
         result["uri"] = site_data_module.LIST_URI
 
     @staticmethod
-    def _restorable(record: SessionRecord) -> dict:
+    def _restorable(record: Workspace) -> dict:
         """The snapshot a new browser is given, or {} when there is none."""
         if not site_data_module.restorable(record.site_data):
             return {}
@@ -602,13 +602,13 @@ class SessionManager:
         restore_site_data: bool = True,
         **wanted,
     ) -> dict:
-        """Open this session's browser, or pick up the one it was using.
+        """Open this workspace's browser, or pick up the one it was using.
 
         The only place a browser is created, and the only place its settings can
         be chosen, which is why it is never done implicitly. Shared by both
         surfaces for the same reason :meth:`act` is.
 
-        It takes no turn on the browser (`session.locks`): it makes one rather
+        It takes no turn on the browser (`workspace.locks`): it makes one rather
         than driving it, and the one it replaces goes through `end_browser`.
         """
         name = caller.name
@@ -726,7 +726,7 @@ class SessionManager:
         forget_site_data: bool = False,
         report: dict | None = None,
     ) -> str:
-        """Bind a browser to this session, and say which browser it holds.
+        """Bind a browser to this workspace, and say which browser it holds.
 
         The settings are stored because a reopen has to use the *same* browser,
         not a default one — swapping Firefox for Chrome, or a 1400x900 window
@@ -750,7 +750,7 @@ class SessionManager:
         """
         ttl = self.store.ttl
 
-        def bound(r: SessionRecord | None) -> tuple[SessionRecord | None, str | None]:
+        def bound(r: Workspace | None) -> tuple[Workspace | None, str | None]:
             current = r.session_id if r is not None else ""
             if current and current not in (session_id, replacing):
                 # Bound first by another open: that browser is the one kept.
@@ -758,7 +758,7 @@ class SessionManager:
             # Replaced, not rebuilt: a field the record gains later survives a
             # bind. History (where the session has been) survives a new browser.
             fresh = replace(
-                r if r is not None else SessionRecord(),
+                r if r is not None else Workspace(),
                 session_id=session_id,
                 opened_at=time.time(),
                 settings=dict(settings or {}),
@@ -811,7 +811,7 @@ class SessionManager:
         """
         ttl = self.store.ttl
 
-        def at(r: SessionRecord) -> tuple[SessionRecord, dict | None]:
+        def at(r: Workspace) -> tuple[Workspace, dict | None]:
             if browser and r.session_id != browser:
                 return r, None
             held = r.reopened
@@ -838,7 +838,7 @@ class SessionManager:
             )
 
     def context(self, name: str) -> dict:
-        """The browser and page this session last had, for a reopen.
+        """The browser and page this workspace last had, for a reopen.
 
         Empty when there is no record, which is the same answer as "nothing to
         inherit" and lets ``open_session`` treat both alike.
@@ -849,7 +849,7 @@ class SessionManager:
         return {"settings": dict(record.settings or {}), "url": record.url or ""}
 
     def visited(self, name: str) -> list[str]:
-        """The origins this session has been to, newest first.
+        """The origins this workspace has been to, newest first.
 
         As the next write would keep them: a save reads this before its own
         touch prunes, so an origin that aged out since the last call would
@@ -861,7 +861,7 @@ class SessionManager:
         return [v["origin"] for v in record.pruned(time.time(), self.store.ttl).history]
 
     def end_browser(self, caller: Caller) -> str | None:
-        """End the browser a session holds, keeping the session itself.
+        """End the browser a workspace holds, keeping the workspace itself.
 
         **The one place a browser is ended.** The caller ending its own, the
         admin End button, and ``open_session`` replacing one all come through
@@ -874,7 +874,7 @@ class SessionManager:
         the next call, because the name comes from the caller's own URL or
         header rather than from anything stored.
 
-        **It never waits its turn** (`session.locks`): a call driving the
+        **It never waits its turn** (`workspace.locks`): a call driving the
         browser is told it is ending - a long `assert` raises its cancellation
         at its next poll - and the browser is quit without waiting for it.
         Queued behind a 900 s `assert`, the call that exists to interrupt one

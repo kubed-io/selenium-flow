@@ -27,7 +27,7 @@ from starlette.responses import JSONResponse
 
 from .. import errors, faults
 from ..faults import TooLarge
-from ..session.sessions import Caller, values_of
+from ..workspace.workspaces import Caller, values_of
 from . import auth
 
 JSON_CAP = 2**20

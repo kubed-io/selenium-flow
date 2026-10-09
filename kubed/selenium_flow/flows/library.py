@@ -100,7 +100,7 @@ def dump(document: dict) -> str:
     return yaml.safe_dump(document, sort_keys=False, width=100, allow_unicode=True)
 
 
-def summary(name: str, session: str, document: dict) -> dict:
+def summary(name: str, workspace: str, document: dict) -> dict:
     """Name, description and parameters for one flow — never the steps.
 
     ``document`` may be the cache's own (`view`), so the two fields handed out
@@ -108,7 +108,7 @@ def summary(name: str, session: str, document: dict) -> dict:
     """
     return {
         "name": name,
-        "session": session,
+        "session": workspace,
         "description": copy.deepcopy(document.get("description", "")),
         "parameters": copy.deepcopy(document.get("parameters", {})),
         # Named for what it is. Calling it `steps` would put an int where the

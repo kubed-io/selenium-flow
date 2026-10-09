@@ -35,7 +35,7 @@ def test_a_server_built_from_settings_uses_them(tmp_path):
     assert server.prefix == "/flow"
     assert server.flows is not None
     assert server.skill is None
-    assert server.sessions.defaults == {"browser": "firefox"}
+    assert server.workspaces.defaults == {"browser": "firefox"}
     assert server.store._ttl == 42
     assert server.sources["session.ttl"] == "args"
 

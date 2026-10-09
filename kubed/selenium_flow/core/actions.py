@@ -265,7 +265,7 @@ class Actions:
         """Capture the browser's cookies, the page's storage, and the
         localStorage of every other origin the session has been to.
 
-        The capture rides back under a private key; the session manager stores
+        The capture rides back under a private key; the workspace manager stores
         it and no caller sees it.
         """
 
@@ -281,7 +281,7 @@ class Actions:
         """Quit the browser and free its Grid slot.
 
         The browser, not the session. A flow session survives its browser and
-        keeps the context the next open inherits — see ``SessionManager``.
+        keeps the context the next open inherits — see ``Workspaces``.
         """
         self.grid.quit(session_id)
         self._moved(session_id, None)

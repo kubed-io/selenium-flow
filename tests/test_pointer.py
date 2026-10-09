@@ -698,12 +698,12 @@ def test_a_destination_outside_the_window_stops_at_the_edge_rather_than_failing(
     assert result["to"]["x"] == edge
 
 
-def test_the_pointer_store_is_built_from_the_session_store():
+def test_the_pointer_store_is_built_from_the_workspace_store():
     """Not from a second reading of the environment. An injected Redis store
     with a memory environment would otherwise share session mappings and keep
     pointers process-local, so a glide on another replica silently starts as a
     jump (Copilot, #31)."""
-    from kubed.selenium_flow.session.store import MemoryStore, RedisStore
+    from kubed.selenium_flow.workspace.store import MemoryStore, RedisStore
 
     assert pointer.matching(MemoryStore()).kind == "memory"
 
@@ -719,7 +719,7 @@ def test_a_server_given_a_shared_store_shares_its_pointers_too():
     """Through the constructor, which is where the mismatch actually lived."""
     from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
-    from kubed.selenium_flow.session.store import RedisStore
+    from kubed.selenium_flow.workspace.store import RedisStore
 
     server = SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}),
@@ -728,14 +728,14 @@ def test_a_server_given_a_shared_store_shares_its_pointers_too():
     assert server.actions.pointers.kind == "redis"
 
 
-def test_an_injected_session_store_can_bring_a_matching_pointer_store():
+def test_an_injected_workspace_store_can_bring_a_matching_pointer_store():
     """The two are one decision. A caller that hands in a shared session store
     while the environment says memory would otherwise share session mappings
     across replicas and keep pointers local — and a cross-replica glide would
     silently degrade to a jump (Copilot, #31)."""
     from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
-    from kubed.selenium_flow.session.store import MemoryStore
+    from kubed.selenium_flow.workspace.store import MemoryStore
 
     mine = MemoryPointers()
     server = SeleniumMCP(
@@ -779,25 +779,25 @@ def test_a_dead_browser_during_a_move_is_not_reported_as_bad_geometry(
     assert status_for(dead.value) == 404
 
 
-def test_the_pointer_store_keeps_the_session_stores_retention():
+def test_the_pointer_store_keeps_the_workspace_stores_retention():
     """Both backends expose `ttl` now. The memory path used to fall back to its
     own default, so a server configured for minutes held a pointer for a day
     (Copilot, #31)."""
-    from kubed.selenium_flow.session.store import MemoryStore, RedisStore
+    from kubed.selenium_flow.workspace.store import MemoryStore, RedisStore
 
     assert pointer.matching(MemoryStore(ttl=60))._ttl == 60
     assert pointer.matching(RedisStore(_Redis(), ttl=60))._ttl == 60
 
 
 def test_a_custom_store_without_a_ttl_still_starts_the_server():
-    """`SeleniumMCP` takes an injected store, and `SessionStore` is a Protocol —
+    """`SeleniumMCP` takes an injected store, and `WorkspaceStore` is a Protocol —
     so a store written before `ttl` joined the contract is still a valid one.
     Reading it directly turned that into a server that would not start
     (Copilot, #32). The contract asks for it; the fallback is for the ones that
     predate it."""
     from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
-    from kubed.selenium_flow.session.store import SessionRecord
+    from kubed.selenium_flow.workspace.store import Workspace
 
     class _Minimal:
         """Exactly the protocol as it was: kind, and the CRUD."""
@@ -810,7 +810,7 @@ def test_a_custom_store_without_a_ttl_still_starts_the_server():
         def get(self, key):
             return self._data.get(key)
 
-        def set(self, key, record: SessionRecord):
+        def set(self, key, record: Workspace):
             self._data[key] = record
 
         def delete(self, key):

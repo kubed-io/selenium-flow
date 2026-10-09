@@ -10,7 +10,7 @@ page load before it was refused.
 
 `Recipe.run` is the one copy. An action is its own argument checks plus a body,
 and anything that must hold for every action - one call at a time per session
-(`session.locks`), a deadline per call - has one place to attach.
+(`workspace.locks`), a deadline per call - has one place to attach.
 """
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ from typing import Any, NamedTuple
 
 from selenium.common.exceptions import StaleElementReferenceException
 
-from ..session import locks
 from ..urls import allowed_navigation
+from ..workspace import locks
 from . import browser
 from .coerce import as_int
 
@@ -114,7 +114,7 @@ class Recipe:
         failing an action that succeeded (AGENTS.md "Dialogs").
 
         From the reconnect to that page state the session's browser is this
-        call's alone (`session.locks`): another waits its turn, and the checks
+        call's alone (`workspace.locks`): another waits its turn, and the checks
         above are made before it does, so a refused call never waits.
         """
         target = browser.locator(selector) if self.wait or selector else None

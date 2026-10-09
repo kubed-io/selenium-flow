@@ -9,10 +9,10 @@ reopening on the default instead of the one that was asked for.
 import pytest
 from selenium import webdriver
 
-from kubed.selenium_flow.config import SessionSettings
+from kubed.selenium_flow.config import WorkspaceSettings
 from kubed.selenium_flow.core.browser import Grid, is_partial
 from kubed.selenium_flow.core.defaults import BROWSERS, normalize_browser
-from kubed.selenium_flow.session import settings as settings_module
+from kubed.selenium_flow.workspace import settings as settings_module
 
 pytestmark = pytest.mark.unit
 
@@ -149,7 +149,7 @@ class TestTheSettingsCascade:
     """
 
     def test_the_config_default_is_read(self):
-        assert settings_module.from_settings(SessionSettings(browser="firefox")) == {
+        assert settings_module.from_settings(WorkspaceSettings(browser="firefox")) == {
             "browser": "firefox"
         }
 
@@ -274,7 +274,7 @@ async def test_a_rejected_browser_does_not_cost_you_the_one_you_have(
     open_session = (await server.mcp.get_tool("open_session")).fn
     ended = []
     calling_as(monkeypatch, NAMED)
-    monkeypatch.setattr(server.sessions, "end_browser", lambda *a: ended.append(a))
+    monkeypatch.setattr(server.workspaces, "end_browser", lambda *a: ended.append(a))
 
     with pytest.raises(ValueError, match="safari"):
         open_session(browser="safari")

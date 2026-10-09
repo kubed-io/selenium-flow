@@ -106,7 +106,7 @@ def test_browser_is_not_read_from_the_unix_convention_env_var():
 
 
 def test_an_unusable_session_browser_stops_the_boot():
-    """Unlike the two default sources `session/settings.py` merges on top of
+    """Unlike the two default sources `workspace/settings.py` merges on top of
     this, the config itself is strict: a typo here is the operator's, not a
     client's, and refusing the boot says so with the reason (§F4.12)."""
     with pytest.raises(ConfigError, match=r"session\.browser"):

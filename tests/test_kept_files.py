@@ -27,10 +27,10 @@ from kubed.selenium_flow.core.capabilities import ENDPOINTS
 from kubed.selenium_flow.flows import store as flows
 from kubed.selenium_flow.http import files, links
 from kubed.selenium_flow.http.admin import signed as admin
-from kubed.selenium_flow.names import FILES_DIR, GLOBAL_SESSION, InvalidName
+from kubed.selenium_flow.names import FILES_DIR, GLOBAL_WORKSPACE, InvalidName
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.session.store import SessionRecord
 from kubed.selenium_flow.spec import build_spec
+from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import NAMED, TOKEN
 from .fakes import FakeActions, FakeGrid
@@ -75,8 +75,8 @@ def client(kept_server):
 @pytest.fixture
 def live(kept_server):
     """A flow session holding a browser, which is what the admin API addresses."""
-    kept_server.sessions.store.set(
-        KEY, SessionRecord(session_id="abc").visited("https://x/")
+    kept_server.workspaces.store.set(
+        KEY, Workspace(session_id="abc").visited("https://x/")
     )
     return kept_server
 
@@ -166,7 +166,7 @@ def test_deleting_reports_whether_there_was_anything_there(store):
     assert store.delete_file(SESSION, "report.pdf") is False
 
 
-def test_one_session_cannot_see_anothers_kept_files(store):
+def test_one_workspace_cannot_see_anothers_kept_files(store):
     store.write_file(SESSION, "report.pdf", b"x")
     assert store.files("other") == []
 
@@ -637,29 +637,29 @@ def test_a_grid_refusal_over_the_admin_surface_does_not_echo_the_grid_url(
 BAD_KEY = "my bot"
 
 
-def test_a_session_whose_name_is_not_a_directory_keeps_nothing(client, kept_server):
+def test_a_workspace_whose_name_is_not_a_directory_keeps_nothing(client, kept_server):
     """`library_of` hands such a caller nothing to write into rather than the
     shared one — the same mistake E6 fixed for flows, arriving on the file side
     through the admin surface. Every write path here refuses through
     `library(key)`, so nothing can land in `global` for a key that cannot own a
     directory of its own."""
-    kept_server.sessions.store.set(BAD_KEY, SessionRecord(session_id="abc"))
+    kept_server.workspaces.store.set(BAD_KEY, Workspace(session_id="abc"))
     response = client.delete(
         f"/admin/sessions/{quote(BAD_KEY, safe='')}/files/report.pdf", headers=AUTH
     )
     assert response.status_code == 400
     assert "cannot keep files" in response.json()["error"]
-    assert kept_server.flows.files(GLOBAL_SESSION) == [], "it leaked to global"
+    assert kept_server.flows.files(GLOBAL_WORKSPACE) == [], "it leaked to global"
 
 
-def test_such_a_session_shows_unknown_counts_not_the_shared_librarys(
+def test_such_a_workspace_shows_unknown_counts_not_the_shared_librarys(
     client, kept_server
 ):
     """Borrowing `global`'s numbers would tell an operator this session has a
     file and a flow it has no way to reach."""
-    kept_server.flows.write_file(GLOBAL_SESSION, "shared.pdf", b"x")
-    kept_server.flows.save(GLOBAL_SESSION, "shared", {"steps": []})
-    kept_server.sessions.store.set(BAD_KEY, SessionRecord(session_id=""))
+    kept_server.flows.write_file(GLOBAL_WORKSPACE, "shared.pdf", b"x")
+    kept_server.flows.save(GLOBAL_WORKSPACE, "shared", {"steps": []})
+    kept_server.workspaces.store.set(BAD_KEY, Workspace(session_id=""))
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get("/admin/sessions", headers=AUTH).json()
     row = next(r for r in body["sessions"] if r["key"] == BAD_KEY)
@@ -891,7 +891,7 @@ def _stage_upload(server, monkeypatch):
         def execute_script(self, *_a, **_k):
             return None
 
-    monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "browser-1")
     monkeypatch.setattr(server.actions, "_at", lambda *a, **k: _Driver())
     monkeypatch.setattr(browser, "accept_local_files", lambda _d: None)
     monkeypatch.setattr(
@@ -935,7 +935,7 @@ def test_a_session_field_on_the_upload_body_never_reaches_the_action(
     )
 
 
-def test_upload_over_http_reads_the_file_from_the_callers_own_session(
+def test_upload_over_http_reads_the_file_from_the_callers_own_workspace(
     kept_server, client, monkeypatch
 ):
     """The vulnerability closed above, proved end to end with the real store

@@ -94,7 +94,7 @@ def name_for(opened_ms: int) -> str:
 
 @dataclass
 class Owed:
-    session: str
+    workspace: str
     grid_id: str
     opened: int
     browser: str
@@ -136,10 +136,10 @@ def _millis(value) -> int:
     return value
 
 
-def _owed_from(session: str, grid_id: str, note: dict) -> Owed:
+def _owed_from(workspace: str, grid_id: str, note: dict) -> Owed:
     opened, ended, filed = note.get("opened"), note.get("ended"), note.get("filed")
     return Owed(
-        session,
+        workspace,
         grid_id,
         0 if opened is None else _millis(opened),
         str(note.get("browser") or ""),
@@ -215,7 +215,7 @@ class Collector:
     # ---- from worker threads ----------------------------------------------
 
     def expect(
-        self, session: str, grid_id: str, browser: str, *, discard: bool = False
+        self, workspace: str, grid_id: str, browser: str, *, discard: bool = False
     ) -> None:
         """A recorded browser opened: note it on disk, then tell the loop.
         ``discard``: no session holds it (yet); its video is deleted, never
@@ -226,10 +226,10 @@ class Collector:
         ``call_soon_threadsafe`` runs callbacks first in, first out."""
         valid_grid_id(grid_id)
         owed = Owed(
-            session, grid_id, int(self.clock() * 1000), browser, discard=discard
+            workspace, grid_id, int(self.clock() * 1000), browser, discard=discard
         )
         try:
-            self.store.write_note(session, grid_id, self._note(owed))
+            self.store.write_note(workspace, grid_id, self._note(owed))
         except Exception:
             if not discard:
                 # A provisional note already owed must not delete the video of
@@ -291,8 +291,8 @@ class Collector:
         waits, so this can never add back a note it deleted meanwhile."""
         failed: dict[str, str] = {}
 
-        def fault(session: str, exc: OSError) -> None:
-            failed.setdefault(session, type(exc).__name__)
+        def fault(workspace: str, exc: OSError) -> None:
+            failed.setdefault(workspace, type(exc).__name__)
 
         async with self._notes_lock:
             try:
@@ -302,13 +302,13 @@ class Collector:
             except OSError as exc:  # the data directory itself
                 notes, failed = [], {"": type(exc).__name__}
             loaded = 0
-            for session, grid_id, note in notes:
+            for workspace, grid_id, note in notes:
                 try:
-                    owed = _owed_from(session, grid_id, note)
+                    owed = _owed_from(workspace, grid_id, note)
                 except ValueError:
                     log.warning(
                         "recordings: ignoring an unreadable note in session %s",
-                        session,
+                        workspace,
                     )
                     continue
                 # One already in memory (expected meanwhile, or read by an
@@ -407,7 +407,7 @@ class Collector:
                 await anyio.to_thread.run_sync(self._write, owed)
             try:
                 await anyio.to_thread.run_sync(
-                    self.store.delete_note, owed.session, owed.grid_id
+                    self.store.delete_note, owed.workspace, owed.grid_id
                 )
             except OSError as exc:
                 # Once a recording a process, whether this one marked it or
@@ -417,7 +417,7 @@ class Collector:
                     log.warning(
                         "recordings: a note for %s could not be removed (%s); "
                         "retrying every %ss",
-                        owed.session, type(exc).__name__, self.tick,
+                        owed.workspace, type(exc).__name__, self.tick,
                     )
                 return
             self._undeleted.discard(owed.grid_id)
@@ -468,11 +468,11 @@ class Collector:
             if not self._failing:
                 # Once per streak, and no traceback: a path in one names a
                 # Grid id, which the operator's log never does.
-                sessions = sorted({o.session for o in self.owed.values()})
+                workspaces = sorted({o.workspace for o in self.owed.values()})
                 log.warning(
                     "recordings: a sweep failed (%s) with %s; retrying every %ss",
                     type(exc).__name__,
-                    f"recordings owed for {', '.join(sessions)}" if sessions
+                    f"recordings owed for {', '.join(workspaces)}" if workspaces
                     else "notes not yet read",
                     self.tick,
                 )
@@ -541,7 +541,7 @@ class Collector:
                     if not owed.discard:
                         log.info(
                             "recordings: %s/%s ends without a trailer; filed as it is",
-                            owed.session, name_for(owed.opened),
+                            owed.workspace, name_for(owed.opened),
                         )
                     await self._file(owed, match[0])
                 continue
@@ -553,13 +553,13 @@ class Collector:
                 await self._forget(owed)
                 if owed.discard:
                     log.debug(
-                        "recordings: no video came to discard for %s", owed.session
+                        "recordings: no video came to discard for %s", owed.workspace
                     )
                     continue
                 log.warning(
                     "recording for session %s (opened %s UTC) never reached "
                     "RECORDING_DIR; see the README's Recording section",
-                    owed.session,
+                    owed.workspace,
                     time.strftime("%H:%M", time.gmtime(owed.opened / 1000)),
                 )
 
@@ -622,7 +622,7 @@ class Collector:
         try:
             entry = await anyio.to_thread.run_sync(
                 self.store.move_in,
-                owed.session,
+                owed.workspace,
                 path,
                 name_for(owed.opened),
                 RECORDINGS_DIR,
@@ -631,12 +631,12 @@ class Collector:
             # The inbox name carries the Grid id; the operator's log never does.
             log.warning(
                 "recordings: could not file %s/%s: %s",
-                owed.session, name_for(owed.opened), type(exc).__name__,
+                owed.workspace, name_for(owed.opened), type(exc).__name__,
             )
             return
         await self._forget(owed, entry["name"])
         self._quiet.pop(str(path), None)
-        log.info("recordings: filed %s/%s", owed.session, entry["name"])
+        log.info("recordings: filed %s/%s", owed.workspace, entry["name"])
         if self.on_filed is not None:
             self.on_filed()
 
@@ -649,14 +649,14 @@ class Collector:
         except OSError as exc:
             log.warning(
                 "recordings: could not discard a video for %s: %s",
-                owed.session, type(exc).__name__,
+                owed.workspace, type(exc).__name__,
             )
             return
         await self._forget(owed)
         self._quiet.pop(str(path), None)
         log.info(
             "recordings: discarded a video for %s: no session holds its browser",
-            owed.session,
+            owed.workspace,
         )
 
     def _quiet_for(self, path: Path, size: int, mtime: float, now: float) -> float:
@@ -796,9 +796,9 @@ class Collector:
 
     def _write(self, owed: Owed) -> None:
         try:
-            self.store.write_note(owed.session, owed.grid_id, self._note(owed))
+            self.store.write_note(owed.workspace, owed.grid_id, self._note(owed))
         except OSError as exc:
             log.warning(
                 "recordings: could not update a note for %s: %s",
-                owed.session, type(exc).__name__,
+                owed.workspace, type(exc).__name__,
             )

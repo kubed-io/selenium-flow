@@ -29,7 +29,7 @@ import json
 from ..secrets import matching_secrets
 from ..urls import host_of
 
-# The private key an action hands its capture back under. `SessionManager.settle`
+# The private key an action hands its capture back under. `Workspaces.settle`
 # removes it and stores it as the snapshot; no caller ever sees it.
 CAPTURED = "_site_data_captured"
 MAX_BYTES = 1_000_000
