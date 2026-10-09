@@ -67,6 +67,7 @@ NO_PROTOCOL = (
     *walk("flows", skip=("api",)),
     *walk("site_data"),
     *walk("recordings"),
+    *walk("monitor"),
     *(
         f"kubed.selenium_flow.{name}"
         for name in (
@@ -86,6 +87,7 @@ NO_SELENIUM = tuple(
         "workspace.store",
         "site_data.snapshot",
         "recordings.mp4",
+        "monitor.events",
         "flows.template",
         "flows.redact",
         "flows.engine",
@@ -172,6 +174,7 @@ def describe(failures: dict[str, str]) -> str:
 def test_the_walk_finds_the_layers():
     """The walk reaches each layer, so an empty one cannot pass for clean."""
     assert "kubed.selenium_flow.flows.engine" in NO_PROTOCOL
+    assert "kubed.selenium_flow.monitor.events" in NO_PROTOCOL
     assert "kubed.selenium_flow.workspace.store" in NO_PROTOCOL
     assert "kubed.selenium_flow.site_data.snapshot" in NO_PROTOCOL
     assert "kubed.selenium_flow.core.coerce" in NO_PROTOCOL
@@ -221,7 +224,7 @@ UPPER = tuple(
 )
 
 # The kernel: the same layers `NO_PROTOCOL` walks, `flows/api` excepted.
-KERNEL = ("core", "workspace", "flows", "site_data", "recordings")
+KERNEL = ("core", "workspace", "flows", "site_data", "recordings", "monitor")
 KERNEL_SKIP = {"flows/api.py"}
 
 # Upward imports that exist today, each with the reason. Keyed by file and the

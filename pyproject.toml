@@ -126,6 +126,7 @@ packages = [
   "kubed.selenium_flow.http",
   "kubed.selenium_flow.http.admin",
   "kubed.selenium_flow.mcp",
+  "kubed.selenium_flow.monitor",
   "kubed.selenium_flow.recordings",
   "kubed.selenium_flow.workspace",
   "kubed.selenium_flow.site_data",
