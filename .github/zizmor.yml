@@ -62,8 +62,8 @@ rules:
   # the claude runner runs the YAML on main, never a pull request's copy. Each job is
   # gated on the sender's id (Dr K's, or Copilot's reviewer through agent-relay.yml), the
   # PR head must be a branch of this repository, and no step runs the PR's code before
-  # that gate. The code job checks out the PR head to change it; only Dr K and the App
-  # can push branches here.
+  # that gate. The code job checks out the PR head to change it, and its install steps
+  # run the head's build and npm scripts; only Dr K and the App can push branches here.
   dangerous-triggers:
     ignore:
     - agent-pr.yml

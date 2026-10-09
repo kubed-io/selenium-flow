@@ -39,6 +39,5 @@ venv/
 kubed/selenium_flow/http/static/
 node_modules/
 
-
 # issue-agent thread files
 .issue/
