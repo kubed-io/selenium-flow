@@ -4,7 +4,7 @@
   import ConsolePane from './ConsolePane.svelte'
   import { Live } from './live.svelte'
   import Login from './Login.svelte'
-  import { begin, complete, hasReply, MARKER, NOT_REACHED, readConfig, refresh, renewIn, usernameOf, type Tokens } from './oidc'
+  import { begin, complete, hasReply, MARKER, NOT_REACHED, readConfig, Refused, refresh, renewIn, usernameOf, type Tokens } from './oidc'
   import { go, hashes, router, sync } from './router.svelte'
   import SecretsPane from './SecretsPane.svelte'
   import WorkspaceDetail from './WorkspaceDetail.svelte'
@@ -39,18 +39,25 @@
   // An OIDC sign-in's tokens: memory only, so a reload signs in again —
   // silently while the issuer's session lives (spec 2026-10-09-admin-oidc).
   let tokens: Tokens | null = null
+  // One timer: the next renewal, or the wait before trying a failed one again.
   let renewal: ReturnType<typeof setTimeout> | undefined
+  // The renewal under way, which every caller shares: the timer, a call whose
+  // bearer is about to run out, and a 401 alike.
+  let renewing: Promise<boolean> | null = null
   const resuming = !!oidc && (hasReply() || !!sessionStorage.getItem(MARKER))
   let phase = $state<'probing' | 'login' | 'in'>(token || resuming ? 'probing' : 'login')
   let refused = $state(false)
   let said = $state<string | null>(null)
 
-  const api = createApi({ base: BASE, token: () => tokens?.access ?? token, onUnauthorized: () => signOut() })
+  const ENDED = 'Your sign-in ended; sign in again.'
+
+  const api = createApi({ base: BASE, token: () => tokens?.access ?? token, onUnauthorized: unauthorized, ready })
   const live = new Live(api, ROOT)
 
   function signOut(message: string | null = null) {
     live.stop()
     clearTimeout(renewal)
+    renewing = null
     token = ''
     tokens = null
     sessionStorage.removeItem('sf-token')
@@ -108,23 +115,64 @@
     }
   }
 
-  // Renew 30 s before the access token runs out; a failed renewal ends it.
+  // Renew 30 s before the access token runs out. With no refresh token (Okta
+  // and Auth0 issue none without `offline_access`) the sign-in ends when the
+  // access token does, and says so.
   function schedule() {
     clearTimeout(renewal)
-    if (!oidc || !tokens?.refresh) return
-    renewal = setTimeout(async () => {
-      const current = tokens
-      if (!current) return
-      try {
-        const next = await refresh(oidc, current)
-        // Signed out (or unmounted) while the issuer answered: keep nothing.
-        if (tokens !== current) return
-        tokens = next
-        schedule()
-      } catch {
-        if (tokens === current) signOut('Your sign-in ended; sign in again.')
+    if (!tokens) return
+    const wait = tokens.refresh ? renewIn(tokens) : Math.min(2 ** 31 - 1, Math.max(0, tokens.expiresAt - Date.now()))
+    renewal = setTimeout(() => void renew(), wait)
+  }
+
+  // True once the tokens are renewed; false when the sign-in has ended, which
+  // only a refusal does, and never silently. An issuer that cannot be reached
+  // or answers 5xx is asked again — 2 s, then doubling to a minute — for as
+  // long as the page holds this sign-in: a woken laptop's network comes back.
+  function renew(): Promise<boolean> {
+    if (renewing) return renewing
+    const run: Promise<boolean> = (async () => {
+      const held = tokens
+      if (!oidc || !held) return false
+      clearTimeout(renewal)
+      for (let wait = 2_000; ; wait = Math.min(wait * 2, 60_000)) {
+        try {
+          const next = await refresh(oidc, held)
+          // Signed out (or unmounted) while the issuer answered: keep nothing.
+          if (tokens !== held) return false
+          tokens = next
+          schedule()
+          return true
+        } catch (e) {
+          if (tokens !== held) return false
+          if (e instanceof Refused) { signOut(ENDED); return false }
+        }
+        // Sign out clears this timer, and the wait is simply never over.
+        await new Promise((wake) => { renewal = setTimeout(wake, wait) })
       }
-    }, renewIn(tokens))
+    })()
+    renewing = run
+    void run.finally(() => { if (renewing === run) renewing = null })
+    return run
+  }
+
+  // A bearer at or within 5 s of its expiry waits for the renewal rather than
+  // earning a 401 — what a tab woken from sleep sends first. One with longer
+  // left goes at once.
+  function ready(): Promise<void> | undefined {
+    if (phase !== 'in' || !tokens || tokens.expiresAt - Date.now() > 5_000) return
+    return renew().then((renewed) => { if (!renewed) throw new ApiError('unauthorized', 401) })
+  }
+
+  // A 401. The server token's is today's rule: sign out. An OIDC sign-in
+  // renews once and tries again, unless a renewal already replaced the bearer
+  // that failed; only a refused renewal or a second 401 ends it, saying so
+  // (spec 2026-10-09-admin-oidc, ruling 4). On the card already, what it says
+  // stays said.
+  async function unauthorized(sent: string, retried: boolean): Promise<boolean> {
+    if (phase !== 'in' || !tokens) { signOut(phase === 'login' ? said : null); return false }
+    if (retried) { signOut(ENDED); return false }
+    return sent !== tokens.access || renew()
   }
 
   onMount(() => {

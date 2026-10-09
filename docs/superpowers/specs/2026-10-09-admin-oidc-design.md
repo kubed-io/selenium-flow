@@ -133,6 +133,22 @@ leaves open are decided here; Dr K reviews them on the PR.
    (no RP-initiated logout). Cost if wrong: on a shared browser the next person
    to click *Sign in with OIDC* goes straight through the issuer's still-live
    session; adding an `end_session_endpoint` redirect is a few lines.
+
+   Claude, 2026-10-09, from the PR review; for Dr K to confirm: **an expired
+   access token renews once and retries; only a refused renewal or a retried
+   401 signs out.** As first ruled, a tab woken from sleep past the token's
+   life sent its first call with the dead token, and the 401 signed out —
+   with no message, marker and all — a sign-in the refresh token could still
+   renew; a renewal whose network was not back yet did the same. Now a call
+   whose token is at or within 5 s of expiry waits for the one shared
+   renewal, a 401 renews and tries once more, and a renewal the issuer could
+   not answer (offline, 5xx, 408, 429) is asked again, 2 s doubling to a
+   minute, for as long as the page holds the sign-in; only the issuer's 4xx
+   ends it. With no refresh token (Okta and Auth0 issue none without
+   `offline_access`, which the UI does not ask for) the sign-in ends when the
+   access token does. Every end says *Your sign-in ended; sign in again.*
+   Cost if wrong: against an issuer that stays down, a call with an expiring
+   token waits rather than fails, for as long as the page is open.
 5. Claude, 2026-10-09: **the admin check is the `/mcp` verifier's, minus its
    role, plus two of its own.** One `OidcVerifier` per server: signature,
    `iss`, `aud` (`oidc.audience`), `exp`, `nbf` — then the admin door requires
@@ -273,8 +289,11 @@ selenium-flow  answer.guarded → auth.AdminDoor.admit
    refused this sign-in.* Either way the tokens are dropped.
 5. **Renew.** 30 s before `expires_in` runs out (never sooner than 5 s from
    now), `grant_type=refresh_token`; the answer replaces the tokens (a missing
-   new refresh token keeps the old one). A failed renewal signs out with
-   *Your sign-in ended; sign in again.*
+   new refresh token keeps the old one). An issuer that could not answer is
+   asked again, 2 s doubling to a minute; one that refuses (a 4xx) signs out
+   with *Your sign-in ended; sign in again.*, as does the access token running
+   out with no refresh token. A call whose access token is at or within 5 s of
+   expiry waits for the renewal, and a 401 renews once and retries (ruling 4).
 6. **Reload.** Tokens are gone. The marker, if set, is removed and step 1 runs
    with `prompt=none`; the issuer's live session answers at once, and a dead one
    answers `login_required`, which shows the card. Because the marker is
@@ -369,7 +388,8 @@ error line `#loginError` shows *That token was refused.* for a token, or the
 OIDC message it is given.
 
 **`oidc.ts`** (new): `readConfig`, `discover`, `challengeOf`, `begin`,
-`complete`, `refresh`, `renewIn`, `usernameOf` (the access token's
+`complete`, `refresh` (which throws `Refused` for the issuer's 4xx, and
+anything else for a failure worth retrying), `renewIn`, `usernameOf` (the access token's
 `preferred_username`, decoded for display only — the server verified it).
 `begin` takes the navigation as an argument so tests can catch it.
 
@@ -379,7 +399,9 @@ boot order is *a reply → a stored token → the marker → the card*; the rene
 timer; sign-out clears all of it.
 
 **`api.ts`**: a refused call throws an `ApiError` carrying `status`, so the
-probe can tell 403 from the rest. Messages are unchanged.
+probe can tell 403 from the rest. Messages are unchanged. A `ready` hook runs
+before each call (where a call waits for a renewal), and the 401 hook can ask
+for one retry with the bearer held then; the server token's never does.
 
 **The live list**: `WorkspaceRow.opened_by`, and `metaLine` appends
 `· by drk` / `· by token`.
@@ -389,13 +411,16 @@ probe can tell 403 from the rest. Messages are unchanged.
 | What | Where | Lives until |
 |---|---|---|
 | server token | `sessionStorage['sf-token']` | the tab closes, or sign out, or a 401 (today's) |
-| access, refresh token | a variable in `Admin.svelte` | reload, sign out, a failed renewal, a 401 |
+| access, refresh token | a variable in `Admin.svelte` | reload, sign out, a refused renewal, a 401 a renewal does not cure, expiry with no refresh token |
 | PKCE verifier, `state`, return hash | `sessionStorage['sf-oidc-pending']` | the reply is read (deleted first) |
 | marker `sf-signin=oidc` | `sessionStorage` | read on reload (deleted first), or sign out |
 | `localStorage` | nothing | — |
 
 The access token lasts what the issuer says (Keycloak: 5 min by default); the
-sign-in lasts as long as the issuer's SSO session lets refreshes succeed.
+sign-in lasts as long as the issuer's SSO session lets refreshes succeed —
+through a sleep or a dropped network, because a renewal that could not reach
+the issuer is tried again — or, with no refresh token, as long as the access
+token.
 
 ### 7. The event stream
 
@@ -419,7 +444,7 @@ always there to sign with, because `oidc` without it does not boot.
 | `oidc.client_id` without `admin_roles`, or the reverse | boot stops: *…set together or not at all* |
 | `oidc.client_id` without the issuer triple | boot stops: *…needs oidc.issuer…* |
 | `client_id` unset | no OIDC row; a JWT on the admin API is 401 |
-| discovery unreachable, CORS refused, or its `issuer` differs | card: *The issuer could not be reached.* |
+| discovery unreachable, CORS refused, its `issuer` differs, or it names an `http:` endpoint for an `https:` issuer | card: *The issuer could not be reached.* |
 | the reply's `state` does not match, or there is no pending entry | card: *That sign-in reply was not ours; try again.* URL cleaned |
 | the reply's `iss` differs from the issuer | card: *That sign-in reply came from another issuer.* |
 | the person cancels, or the issuer answers an `error` | card: *The issuer said: {error_description or error}.* |
@@ -427,8 +452,9 @@ always there to sign with, because `oidc` without it does not boot.
 | the token endpoint refuses the code (reused, expired, verifier mismatch) | card: *The issuer would not complete the sign-in.* |
 | probe 403 (no admin role) | card: *Signed in as drk, who does not hold an admin role.* Tokens dropped |
 | probe 401 (wrong `aud`, `azp`, signature; JWKS unreachable) | card: *The server refused this sign-in.* Server logs the reason with the subject |
-| renewal fails (SSO session ended, issuer down) | card: *Your sign-in ended; sign in again.* |
-| a call 401s mid-session | signed out, as today |
+| renewal refused (SSO session ended, refresh token spent), or the access token runs out with no refresh token | card: *Your sign-in ended; sign in again.* |
+| renewal cannot reach the issuer (offline, 5xx, 408, 429) | asked again, 2 s doubling to a minute; a call whose token is expiring waits for it |
+| a call 401s mid-session | the server token: signed out, as today. An OIDC sign-in: renewed and retried once; a second 401 signs out with *Your sign-in ended; sign in again.* |
 | the page is framed | the button opens a tab (ruling 10) |
 | the issuer is down on a reload with the marker | one failed navigation; the marker is already gone, so the next load shows the card |
 
@@ -490,10 +516,12 @@ never the audience or JWKS URI; a REST caller carries the admin principal
 when a token is set, so its opens record `opened_by: admin`. The admin-workspaces golden gains `"opened_by": null`.
 
 **UI (vitest):** `oidc.ts` — the RFC 7636 vector, the authorization URL, the
-reply's every branch, the exchange's form body, renewal, `renewIn`,
+reply's every branch, the exchange's form body, renewal and a refusal told
+from a failure, `https:` endpoints under an `https:` issuer, `renewIn`,
 `usernameOf`; `Login` — the row hidden and shown, framed opens a tab;
 `Admin` — a reply signs in with the bearer and stores no token, 403 says so, the
-marker starts a silent sign-in; `metaLine` with `opened_by`.
+marker starts a silent sign-in, a woken tab renews once before its first call,
+a failed renewal is retried, a 401 renews and retries once, every end says so; `metaLine` with `opened_by`.
 
 **Live, on the cluster** (the acceptance test, Dr K): the Verify-first items,
 then sign in through Keycloak, use every tab, reload, wait past an access-token

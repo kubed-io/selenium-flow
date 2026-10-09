@@ -57,13 +57,21 @@ export const hasReply = (): boolean => {
   return params.has('code') || params.has('error')
 }
 
+/* The issuer's own no to a grant: a 4xx, RFC 6749 5.2's 400 `invalid_grant`
+   (a spent refresh token, an ended SSO session) the usual one. Asking again
+   changes nothing, unlike a network that is not back yet, an issuer answering
+   5xx, or a 408 or 429, which say themselves to ask again later. */
+export class Refused extends Error {}
+
 /* Only a web URL is ever followed or sent the code: a hostile issuer's
-   `javascript:` endpoint would otherwise run in this page's origin. */
-function web(url: unknown): url is string {
+   `javascript:` endpoint would otherwise run in this page's origin. And an
+   https issuer's endpoints are https: the code and the tokens never cross in
+   the clear because one line of its discovery said so. */
+function web(url: unknown, secure: boolean): url is string {
   if (typeof url !== 'string') return false
   try {
     const { protocol } = new URL(url)
-    return protocol === 'https:' || protocol === 'http:'
+    return protocol === 'https:' || (!secure && protocol === 'http:')
   } catch {
     return false
   }
@@ -81,7 +89,8 @@ export async function discover(config: OidcConfig): Promise<Endpoints> {
     throw new Error(NOT_REACHED)
   }
   // OIDC Discovery 4.3: the document must name the issuer it was fetched for.
-  if (doc.issuer !== config.issuer || !web(doc.authorization_endpoint) || !web(doc.token_endpoint)) {
+  const secure = config.issuer.startsWith('https:')
+  if (doc.issuer !== config.issuer || !web(doc.authorization_endpoint, secure) || !web(doc.token_endpoint, secure)) {
     throw new Error(NOT_REACHED)
   }
   return { authorization_endpoint: doc.authorization_endpoint, token_endpoint: doc.token_endpoint }
@@ -130,21 +139,25 @@ export async function complete(config: OidcConfig): Promise<Reply> {
   }
   let endpoints: Endpoints
   try { endpoints = await discover(config) } catch { return { kind: 'error', message: NOT_REACHED } }
-  const tokens = await grant(config, endpoints.token_endpoint, {
-    grant_type: 'authorization_code',
-    code: params.get('code') ?? '',
-    redirect_uri: redirectUri(),
-    code_verifier: pending.verifier,
-  })
-  return tokens ? { kind: 'tokens', tokens } : { kind: 'error', message: NOT_COMPLETED }
+  try {
+    const tokens = await grant(config, endpoints.token_endpoint, {
+      grant_type: 'authorization_code',
+      code: params.get('code') ?? '',
+      redirect_uri: redirectUri(),
+      code_verifier: pending.verifier,
+    })
+    return { kind: 'tokens', tokens }
+  } catch {
+    return { kind: 'error', message: NOT_COMPLETED }
+  }
 }
 
+/* Throws `Refused` when renewing cannot work, and anything else when the
+   issuer could not be asked or could not answer — worth asking again. */
 export async function refresh(config: OidcConfig, tokens: Tokens): Promise<Tokens> {
-  if (!tokens.refresh) throw new Error('no refresh token')
+  if (!tokens.refresh) throw new Refused('no refresh token')
   const { token_endpoint } = await discover(config)
-  const next = await grant(config, token_endpoint, { grant_type: 'refresh_token', refresh_token: tokens.refresh }, tokens)
-  if (!next) throw new Error('the issuer refused the refresh')
-  return next
+  return grant(config, token_endpoint, { grant_type: 'refresh_token', refresh_token: tokens.refresh }, tokens)
 }
 
 /* When to renew: 30 s before the access token runs out, never sooner than 5 s,
@@ -164,25 +177,22 @@ export function usernameOf(access: string): string | undefined {
   }
 }
 
-async function grant(config: OidcConfig, endpoint: string, form: Record<string, string>, previous?: Tokens): Promise<Tokens | null> {
-  let res: Response
-  try {
-    res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ ...form, client_id: config.client_id }),
-    })
-  } catch {
-    return null
-  }
-  if (!res.ok) return null
+async function grant(config: OidcConfig, endpoint: string, form: Record<string, string>, previous?: Tokens): Promise<Tokens> {
+  // A fetch that throws (offline, CORS) throws on through: not a refusal.
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ ...form, client_id: config.client_id }),
+  })
+  if (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) throw new Refused(`the issuer refused the grant (${res.status})`)
+  if (!res.ok) throw new Error(`the token endpoint answered ${res.status}`)
   let body: { access_token?: unknown; refresh_token?: unknown; expires_in?: unknown }
   try {
     body = ((await res.json()) ?? {}) as typeof body
   } catch {
-    return null
+    throw new Error('the token endpoint did not answer JSON')
   }
-  if (typeof body.access_token !== 'string' || !body.access_token) return null
+  if (typeof body.access_token !== 'string' || !body.access_token) throw new Error('the token endpoint sent no access token')
   // RFC 6749 5.1 makes `expires_in` a number; one that is not still renews.
   const lifetime = Number(body.expires_in)
   return {

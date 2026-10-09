@@ -182,6 +182,9 @@ function renewing(renewal: Answer, settings: Answer = { body: { sections: [] } }
 }
 const refreshes = (calls: { method: string; path: string; body?: unknown }[]) =>
   calls.filter((c) => c.method === 'POST' && String(c.body).includes('grant_type=refresh_token'))
+const bearers = (calls: { path: string; headers: Headers }[], path = '/admin/workspaces') =>
+  calls.filter((c) => c.path === path).map((c) => c.headers.get('Authorization'))
+const ENDED = /^Your sign-in ended; sign in again\.$/
 const toSettings = () => { history.replaceState(null, '', '/#/settings'); window.dispatchEvent(new HashChangeEvent('hashchange')) }
 
 test('a renewal 30 s before expiry replaces the access token', async () => {
@@ -209,20 +212,121 @@ test('a refused renewal signs out with exactly "Your sign-in ended; sign in agai
   expect(sessionStorage.getItem(oidc.MARKER)).toBeNull()
 })
 
-test('a 401 mid-session signs out and stops the renewal', async () => {
+test('a 401 a renewal does not cure signs out, saying so, and stops the renewal', async () => {
+  const RENEWED = fakeJwt({ preferred_username: 'drk', n: 2 })
   let expired = false
-  const { calls } = renewing({ body: { access_token: ACCESS, expires_in: 300 } },
+  const { calls } = renewing({ body: { access_token: RENEWED, expires_in: 300 } },
     () => (expired ? { status: 401 } : { body: { sections: [] } }))
   const { container } = render(Admin, { mount: '', console: '/grid', oidc: CONFIG })
   await vi.waitFor(() => expect(screen.getByText('Sign out')).toBeInTheDocument())
   expired = true
   toSettings()
-  await vi.waitFor(() => expect(container.querySelector('#login')).toBeVisible())
-  expect(calls.find((c) => c.path === '/admin/settings')!.headers.get('Authorization')).toBe('Bearer ' + ACCESS)
+  await vi.waitFor(() => expect(container.querySelector('#loginError')).toHaveTextContent(ENDED))
+  expect(bearers(calls, '/admin/settings')).toEqual(['Bearer ' + ACCESS, 'Bearer ' + RENEWED])
   expect(sessionStorage.getItem(oidc.MARKER)).toBeNull()
   // The renewal timer itself is gone, not merely harmless when it fires.
   expect(vi.getTimerCount()).toBe(0)
   await vi.advanceTimersByTimeAsync(600_000)
+  expect(refreshes(calls)).toHaveLength(1)
+})
+
+test('a 401 on a bearer the page still trusted renews once and tries again', async () => {
+  const RENEWED = fakeJwt({ preferred_username: 'drk', n: 2 })
+  let revoked = false
+  const { calls } = renewing({ body: { access_token: RENEWED, expires_in: 300 } },
+    () => (revoked ? { status: 401 } : { body: { sections: [] } }))
+  render(Admin, { mount: '', console: '/grid', oidc: CONFIG })
+  await vi.waitFor(() => expect(screen.getByText('Sign out')).toBeInTheDocument())
+  revoked = true
+  const settings = vi.mocked(fetch).getMockImplementation()!
+  vi.mocked(fetch).mockImplementation(async (url, init) => {
+    if (new Headers(init?.headers).get('Authorization') === 'Bearer ' + RENEWED) revoked = false
+    return settings(url, init)
+  })
+  toSettings()
+  await vi.waitFor(() => expect(bearers(calls, '/admin/settings')).toEqual(['Bearer ' + ACCESS, 'Bearer ' + RENEWED]))
+  expect(screen.getByText('Sign out')).toBeInTheDocument()
+  expect(refreshes(calls)).toHaveLength(1)
+})
+
+test('a tab that slept past expiry renews once before its first call, and stays signed in', async () => {
+  const RENEWED = fakeJwt({ preferred_username: 'drk', n: 2 })
+  const late = deferred<Reply>()
+  const { calls } = renewing(() => late.promise)
+  render(Admin, { mount: '', console: '/grid', oidc: CONFIG })
+  await vi.waitFor(() => expect(screen.getByText('Sign out')).toBeInTheDocument())
+  const sent = bearers(calls).length
+  // The lid closes: the clock runs on, no timer fires. On waking the poll
+  // comes due before the renewal does.
+  vi.setSystemTime(Date.now() + 400_000)
+  await vi.advanceTimersByTimeAsync(30_000)
+  expect(refreshes(calls)).toHaveLength(1)
+  expect(bearers(calls).slice(sent)).toEqual([])
+  late.resolve({ body: { access_token: RENEWED, expires_in: 300 } })
+  await vi.waitFor(() => expect(bearers(calls).slice(sent)).toEqual(['Bearer ' + RENEWED]))
+  expect(screen.getByText('Sign out')).toBeInTheDocument()
+  await vi.advanceTimersByTimeAsync(60_000)
+  expect(refreshes(calls)).toHaveLength(1)
+})
+
+test('a renewal the network fails is tried again, and its success keeps the sign-in', async () => {
+  const RENEWED = fakeJwt({ preferred_username: 'drk', n: 2 })
+  const answers: Answer[] = [() => { throw new TypeError('Failed to fetch') }, { status: 503 }, { body: { access_token: RENEWED, expires_in: 300 } }]
+  const { calls } = renewing(() => answer(answers.shift()!))
+  render(Admin, { mount: '', console: '/grid', oidc: CONFIG })
+  await vi.waitFor(() => expect(screen.getByText('Sign out')).toBeInTheDocument())
+  await vi.advanceTimersByTimeAsync(271_000)
+  expect(refreshes(calls)).toHaveLength(1)
+  await vi.advanceTimersByTimeAsync(2_000)
+  expect(refreshes(calls)).toHaveLength(2)
+  await vi.advanceTimersByTimeAsync(4_000)
+  expect(refreshes(calls)).toHaveLength(3)
+  expect(screen.getByText('Sign out')).toBeInTheDocument()
+  toSettings()
+  await vi.waitFor(() => expect(bearers(calls, '/admin/settings')).toEqual(['Bearer ' + RENEWED]))
+})
+
+test('a slept tab whose renewal is refused is told so, not just shown the card', async () => {
+  renewing({ status: 400, body: { error: 'invalid_grant' } })
+  const { container } = render(Admin, { mount: '', console: '/grid', oidc: CONFIG })
+  await vi.waitFor(() => expect(screen.getByText('Sign out')).toBeInTheDocument())
+  vi.setSystemTime(Date.now() + 400_000)
+  await vi.advanceTimersByTimeAsync(30_000)
+  await vi.waitFor(() => expect(container.querySelector('#loginError')).toHaveTextContent(ENDED))
+  await vi.advanceTimersByTimeAsync(300_000)
+  expect(container.querySelector('#loginError')).toHaveTextContent(ENDED)
+})
+
+test('without a refresh token the sign-in ends with the access token, saying so', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  returning()
+  const { calls } = fakeFetch({
+    [WELL_KNOWN]: { body: DISCOVERY },
+    [TOKEN]: { body: { access_token: ACCESS, expires_in: 300 } },
+    'GET /admin/workspaces': { body: WORKSPACES },
+  })
+  const { container } = render(Admin, { mount: '', console: '/grid', oidc: CONFIG })
+  await vi.waitFor(() => expect(screen.getByText('Sign out')).toBeInTheDocument())
+  await vi.advanceTimersByTimeAsync(290_000)
+  expect(screen.getByText('Sign out')).toBeInTheDocument()
+  await vi.advanceTimersByTimeAsync(11_000)
+  await vi.waitFor(() => expect(container.querySelector('#loginError')).toHaveTextContent(ENDED))
+  expect(refreshes(calls)).toHaveLength(0)
+})
+
+test('without a refresh token a 401 ends the sign-in, saying so', async () => {
+  returning()
+  const { calls } = fakeFetch({
+    [WELL_KNOWN]: { body: DISCOVERY },
+    [TOKEN]: { body: { access_token: ACCESS, expires_in: 300 } },
+    'GET /admin/workspaces': { body: WORKSPACES },
+    'GET /admin/settings': { status: 401 },
+  })
+  const { container } = render(Admin, { mount: '', console: '/grid', oidc: CONFIG })
+  await vi.waitFor(() => expect(screen.getByText('Sign out')).toBeInTheDocument())
+  toSettings()
+  await vi.waitFor(() => expect(container.querySelector('#loginError')).toHaveTextContent(ENDED))
+  expect(bearers(calls, '/admin/settings')).toEqual(['Bearer ' + ACCESS])
   expect(refreshes(calls)).toHaveLength(0)
 })
 

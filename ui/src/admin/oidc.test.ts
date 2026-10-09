@@ -2,7 +2,7 @@ import { beforeEach, expect, test, vi } from 'vitest'
 import { fakeFetch, fakeJwt } from '../test/helpers'
 import {
   begin, challengeOf, complete, NOT_COMPLETED, NOT_OURS, NOT_REACHED, OTHER_ISSUER,
-  PENDING, readConfig, refresh, renewIn, usernameOf,
+  PENDING, readConfig, Refused, refresh, renewIn, usernameOf,
 } from './oidc'
 
 const ISSUER = 'https://auth.example.com/realms/example'
@@ -85,6 +85,24 @@ test('an endpoint that is not http(s) is never followed nor sent the code', asyn
   }
 })
 
+test('under an https issuer an http endpoint is refused; an http issuer may use http', async () => {
+  for (const field of ['authorization_endpoint', 'token_endpoint']) {
+    fakeFetch({ [WELL_KNOWN]: { body: { ...DISCOVERY, [field]: 'http://auth.example.com/realms/example/x' } } })
+    const go = vi.fn()
+    await expect(begin(CONFIG, false, go)).rejects.toThrow(NOT_REACHED)
+    expect(go).not.toHaveBeenCalled()
+  }
+  const local = 'http://localhost:8080/realms/dev'
+  fakeFetch({
+    'GET /realms/dev/.well-known/openid-configuration': {
+      body: { issuer: local, authorization_endpoint: local + '/auth', token_endpoint: local + '/token' },
+    },
+  })
+  const go = vi.fn()
+  await begin({ issuer: local, client_id: 'c' }, false, go)
+  expect(go.mock.calls[0][0]).toMatch(/^http:\/\/localhost:8080\/realms\/dev\/auth\?/)
+})
+
 test('no reply is nothing to do', async () => {
   expect(await complete(CONFIG)).toEqual({ kind: 'none' })
 })
@@ -158,6 +176,24 @@ test('refresh swaps the tokens and keeps a refresh token the issuer did not reis
 test('a refused refresh throws', async () => {
   fakeFetch({ [WELL_KNOWN]: { body: DISCOVERY }, [TOKEN]: { status: 400 } })
   await expect(refresh(CONFIG, { access: 'a1', refresh: 'r1', expiresAt: 0 })).rejects.toThrow()
+})
+
+test("an issuer's 4xx is a refusal; a refresh it could not answer is not", async () => {
+  const held = { access: 'a1', refresh: 'r1', expiresAt: 0 }
+  for (const status of [400, 401, 403]) {
+    fakeFetch({ [WELL_KNOWN]: { body: DISCOVERY }, [TOKEN]: { status, body: { error: 'invalid_grant' } } })
+    await expect(refresh(CONFIG, held)).rejects.toBeInstanceOf(Refused)
+  }
+  await expect(refresh(CONFIG, { access: 'a1', expiresAt: 0 })).rejects.toBeInstanceOf(Refused)
+  // Offline, a 5xx, a rate limit, a proxy's page, discovery down: worth asking again.
+  for (const token of [unreachable, html, () => new Response('', { status: 503 }), () => new Response('', { status: 429 }), () => new Response('', { status: 408 })]) {
+    issuerAnswers(token)
+    const failed = await refresh(CONFIG, held).catch((e: unknown) => e)
+    expect(failed).toBeInstanceOf(Error)
+    expect(failed).not.toBeInstanceOf(Refused)
+  }
+  issuerAnswers(html, unreachable)
+  expect(await refresh(CONFIG, held).catch((e: unknown) => e)).not.toBeInstanceOf(Refused)
 })
 
 test('renewal is 30 s before expiry, never sooner than 5 s', () => {
