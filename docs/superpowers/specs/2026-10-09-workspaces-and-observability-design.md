@@ -78,10 +78,17 @@ Selenium Grid trunk, `LocalNode.java`, `ProxyNodeWebsockets.java`,
   (`DirectForwardingListener.onText/onBinary` → `sessionConsumer.accept` →
   `isSessionOwner` → `getIfPresent`). A BiDi *event* resets the timer as a
   click does.
-- So a held socket with **no subscriptions** is silent, changes nothing, and
-  closes when the Grid reaps — an instant "this browser ended". A socket with
-  **subscriptions on a busy page** (polling, analytics, chat heartbeats) keeps
-  the browser alive forever.
+- So a held socket with **no subscriptions** is silent and changes nothing. A
+  socket with **subscriptions on a busy page** (polling, analytics, chat
+  heartbeats) keeps the browser alive forever.
+- **Measured 2026-10-09** (E2's spec, cluster Grid 4.48.0, Chrome 152): a
+  subscribed socket on a page logging every 5 s kept its session alive past
+  660 s (2.2× the 300 s timeout); a pinged silent socket was reaped at ~330 s,
+  so **pings are not activity**. A silent socket is **not** closed by a
+  `DELETE` or a reap: the hub keeps answering pings and swallows commands. A
+  held socket is therefore a channel, never a liveness signal; "ended" comes
+  from the `/status` listing (E2's spec, its ruling 4). This corrects the
+  research above as first written.
 - **The timeout is reported, per node**: `GET /status` carries `sessionTimeout`
   (ms) on every node; GraphQL `nodesInfo { nodes { id sessionTimeout } }` and
   `session(id) { nodeId }`. Standalone (`docker compose up`) is a node too, 300 s
@@ -460,9 +467,12 @@ The unknowns an epic's plan proves before building on them, each with the
 epic that owns it:
 
 1. (E2) A second BiDi socket on one Grid session, beside the per-call one.
+   *Measured: yes, two held plus the per-call one.*
 2. (E2) The reap closes a silent held socket; a subscribed socket on a polling
-   page is not reaped within 2× the timeout.
-3. (E2) `/status.sessionTimeout` on standalone and under KEDA.
+   page is not reaped within 2× the timeout. *Measured: the reap does **not**
+   close it; the subscribed socket outlived 2.2× the timeout.*
+3. (E2) `/status.sessionTimeout` on standalone and under KEDA. *Measured under
+   KEDA: 300000 ms; standalone unverified.*
 4. (E3) Chrome re-sends the console buffer to a new socket; Firefox replays
    only after an unsubscribe.
 5. (E3) Firefox data collectors with and without a network subscription.
