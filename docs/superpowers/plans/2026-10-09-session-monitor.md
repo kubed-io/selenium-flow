@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-09-session-monitor-design.md` (cited as *spec*; its rulings as *ruling n*). Programme: `docs/superpowers/specs/2026-10-09-workspaces-and-observability-design.md`.
 
-**This plan assumes E1 (#60) merged.** Paths and names are E1's: `kubed/selenium_flow/workspace/workspaces.py` (`Workspaces`, `Caller`), `workspace/store.py` (`Workspace`, the record), `http/admin/workspaces.py` (`Broadcast`, `workspaces_payload`), `tests/test_workspaces.py`, `tests/golden/admin-workspaces.json`, `ui/src/lib/WorkspaceSummary.svelte`, `WorkspaceRow` in `ui/src/lib/types.ts`, the collector's `Owed.workspace`, the server's `self.workspaces`. Before Task 1, run `git grep -n -E "class Workspaces\b|class Workspace\b|class Broadcast|WorkspaceRow|def workspaces_payload"` and confirm each exists; if E1 chose another spelling for one, use E1's spelling wherever this plan names it — nothing else changes. E1 rewrote comments and docstrings, so the find-and-replace blocks below anchor on code; where a block quotes a comment, match the code lines and keep E1's comment.
+**This plan is written against E1's code** (#60, branch `issue-60-workspaces` at `8d33c6e`), and reconciled with it on 2026-10-09: every path, name, anchor and find-and-replace block below was applied, task by task, to a scratch copy of that tree, and the suite passed after each task (see *Reconciled with E1*, at the end). Names used: `kubed/selenium_flow/workspace/workspaces.py` (`Workspaces`, `Caller`), `workspace/store.py` (`Workspace`, the record), `http/admin/workspaces.py` (`Broadcast`, `workspaces_payload`), `tests/test_workspaces.py`, `tests/golden/admin-workspaces.json`, `ui/src/lib/WorkspaceSummary.svelte`, `WorkspaceRow` in `ui/src/lib/types.ts`, the collector's `Owed.workspace`, the server's `self.workspaces`. If E1 changes again before it merges, run `git grep -n -E "class Workspaces\b|class Workspace\b|class Broadcast|WorkspaceRow|def workspaces_payload"` before Task 1 and use E1's spelling wherever this plan names one. Where a block quotes a comment, it is E1's comment as it stands at `8d33c6e`.
 
 ## Global Constraints
 
@@ -517,8 +517,8 @@ In `tests/test_boundaries.py`:
 
 - in `NO_PROTOCOL`, after `*walk("recordings"),` add `*walk("monitor"),`;
 - in `NO_SELENIUM`, after `"recordings.mp4",` add `"monitor.events",`;
-- `KERNEL` gains `"monitor"` as its last entry (after E1: `("core", "workspace", "flows", "site_data", "recordings", "monitor")`);
-- in `test_the_walk_finds_the_layers`, first line of the body: `assert "kubed.selenium_flow.monitor.events" in NO_PROTOCOL`.
+- `KERNEL` gains `"monitor"` as its last entry: `("core", "workspace", "flows", "site_data", "recordings", "monitor")`;
+- in `test_the_walk_finds_the_layers`, after its docstring, below `assert "kubed.selenium_flow.flows.engine" in NO_PROTOCOL`: `assert "kubed.selenium_flow.monitor.events" in NO_PROTOCOL` (not above the docstring, which would stop being one).
 
 - [ ] **Step 4: Run the tests to make sure they pass**
 
@@ -1983,8 +1983,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 import pytest
 
-from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 from kubed.selenium_flow.workspace.store import Workspace
+from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
 pytestmark = pytest.mark.unit
 
@@ -2309,22 +2309,23 @@ with
 
 and its comment with: *"Only a confirmed quit (a 404 counts: Grid.quit treats it as done) is announced; after a failure the session may still run, and the monitor's listing finds it later if it is watched."*
 
-`kubed/selenium_flow/mcp/resources.py`, `DESCRIPTION`: before the line `"Reading this never opens a browser: …"` insert
+`kubed/selenium_flow/mcp/resources.py`, `DESCRIPTION`: before its last line, `"Reading this never opens a browser: live is false when no session is open."`, insert (E1's words: the live browser is a *session*, spec ruling 18)
 
 ```python
-    "grid_timeout is how many seconds the Grid lets this browser sit idle "
-    "before it ends it; every call starts that clock again.\n\n"
+    "grid_timeout is how many seconds the Grid lets a session in this "
+    "workspace sit idle before it ends it; every call starts that clock "
+    "again.\n\n"
 ```
 
-`kubed/selenium_flow/spec/schemas.py`, the status response (E1's `current_workspace` entry in `RESPONSES`): after the `"window"` property add
+`kubed/selenium_flow/spec/schemas.py`, `RESPONSES["current_workspace"]["properties"]`: after the `"window"` property (the dict whose description is `"Window size as WxH, when one is known."`) add
 
 ```python
             "grid_timeout": {
                 "type": ["integer", "null"],
                 "description": (
-                    "Seconds the Grid lets this browser sit idle before it ends"
-                    " it, read from its node at the last open. Null when the"
-                    " Grid did not say."
+                    "Seconds the Grid lets a session in this workspace sit idle"
+                    " before it ends it, read from its node at the last open."
+                    " Null when the Grid did not say."
                 ),
             },
 ```
@@ -2335,7 +2336,7 @@ Run: `pytest tests/test_workspace_monitor.py tests/test_recording_open.py tests/
 Expected: all pass.
 
 Run: `GOLDEN_UPDATE=1 pytest tests/test_golden.py -q -p no:randomly && git diff --stat tests/golden`
-Expected: only `tests/golden/openapi.json` changes, and `git diff tests/golden/openapi.json` shows exactly the `grid_timeout` property and the resource description's new sentence. (Measured on the pre-rename tree: those two hunks and nothing else.) Then `pytest tests/test_golden.py -q` passes.
+Expected: only `tests/golden/openapi.json` changes, and `git diff tests/golden/openapi.json` shows exactly the `grid_timeout` property and the resource description's new sentence. (Measured on E1's tree at `8d33c6e`: those two hunks, 8 lines added and 1 changed, and nothing else.) Then `pytest tests/test_golden.py -q` passes.
 
 - [ ] **Step 5: Commit**
 
@@ -2364,7 +2365,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Rewrite the collector's tests for ends announced by the monitor, and add the new ones**
 
-Save this script outside the repo (e.g. `/tmp/rewrite_collector_tests.py`) and run it from the repo root: `python3 /tmp/rewrite_collector_tests.py tests/test_recording_collector.py`. It replaces the fake listing with a `Watcher`, deletes the four listing tests (they are the monitor's now: Task 4), turns *"the Grid stopped listing it"* into `c.ended(GID)` and drops it where the test had already ended the session, and stops with an `AssertionError` if the file is not in the shape it expects. It was run against the pre-rename file; if E1 changed a line it anchors on, make that one edit by hand, as described in its comments.
+Save this script outside the repo (e.g. `/tmp/rewrite_collector_tests.py`) and run it from the repo root: `python3 /tmp/rewrite_collector_tests.py tests/test_recording_collector.py`. It replaces the fake listing with a `Watcher`, deletes the four listing tests (they are the monitor's now: Task 4), turns *"the Grid stopped listing it"* into `c.ended(GID)` and drops it where the test had already ended the session, and stops with an `AssertionError` if the file is not in the shape it expects. Dry-run against E1's file at `8d33c6e` (1 267 lines): it applies unchanged, leaving 233 lines changed (76 added, 157 removed), and the rewritten file passes once Step 3 and Step 4 are in. If the file changes again before this runs and an assertion fires, make that one edit by hand, as described in its comments.
 
 ```python
 """Rewrite tests/test_recording_collector.py for ends announced by the monitor.
@@ -2497,7 +2498,7 @@ Then, in `test_a_server_with_recording_on_needs_a_usable_inbox`, after its last 
     assert server.collector.monitor is server.monitor
 ```
 
-Append to `tests/test_recording_collector.py`:
+Append to `tests/test_recording_collector.py`, two blank lines after its last test (`test_a_first_expect_that_cannot_be_written_owes_nothing` at `8d33c6e`):
 
 ```python
 async def test_an_expected_browser_is_watched_and_released_once_filed(parts):
@@ -2899,18 +2900,18 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: AGENTS.md**
 
-Apply the spec's §11 verbatim: the BiDi sentence in *"Plain W3C WebDriver only"*; the last paragraph of *"Refresh, not cleanup"* and the new *"The Grid reaps; we let it."* paragraph; the Recordings bullet *"Nothing that watches sends the Grid a session command."*; the new section *"The session monitor and the bus"* after *"Refresh, not cleanup"*; the Gotchas sentence; the lifetime table row; the *Scaling* sentence. Copy each block from the spec rather than retyping it.
+Apply the spec's §11 verbatim: the BiDi sentence in *"Plain W3C WebDriver only"*; the last paragraph of *"Refresh, not cleanup"* and the new *"The Grid reaps; we let it."* paragraph; the Recordings bullet *"Nothing that watches sends the Grid a session command."*; the new section *"The session monitor and the bus"* after *"Refresh, not cleanup"*; the Gotchas sentence (appended to the bullet *"The Grid's session timeout is not this repo's setting."*); the lifetime table row (E1's section *"Two lifetimes: the session and the workspace"*, row *"How long a session's browser lives idle"*: only its middle cell changes); the *Scaling* sentence, as its own paragraph after *"The per-session lock (`workspace/locks.py`) is process memory too…"*. Copy each block from the spec rather than retyping it. Every anchor was found once in E1's AGENTS.md at `8d33c6e`.
 
 - [ ] **Step 2: README, skill, changelog**
 
-- `README.md`: where it names `SE_NODE_SESSION_TIMEOUT`, add the sentence: *"The server reads it from the Grid's `/status` at every open and shows it as `grid_timeout` in `workspace://current` and on the admin card."* Keep the README within its byte budget (`tests/test_readme.py`).
-- `skills/selenium-flow/references/WORKSPACES.md`: where it explains `workspace://current`, add: *"`grid_timeout` is how long the browser may sit idle before the Grid ends it; any call starts the clock again."*
-- `CHANGELOG.md`, `[Unreleased]`: *"`workspace://current` and the admin summary show how long the Grid lets a browser sit idle (`grid_timeout`)."*
+- `README.md`: the one line naming `SE_NODE_SESSION_TIMEOUT` (*"Browser lifetime is the Grid's (`SE_NODE_SESSION_TIMEOUT`, 300s here); … Nothing runs a cleanup loop."*) gains, at its end: *" The server reads that timeout from the Grid's `/status` at every open and shows it as `grid_timeout` in `workspace://current` and on the admin card."* Measured: 24 752 bytes after, inside `tests/test_readme.py`'s 25 000.
+- `skills/selenium-flow/references/WORKSPACES.md`: the paragraph *"`live` says whether a session is open. `show(workspace://current)` draws it for the person."* gains: *"`grid_timeout` is how long a session may sit idle before the Grid ends it; any call starts the clock again."*
+- `CHANGELOG.md`, `[Unreleased]`: *"`workspace://current` and the admin summary show how long the Grid lets a session sit idle (`grid_timeout`)."*
 
 - [ ] **Step 3: Wiki**
 
 Run: `git submodule update --init wiki && python scripts/generate_wiki.py && pytest tests/test_wiki.py -q`
-Expected: the status page (`wiki/current_workspace.md`) gains `grid_timeout`; `test_wiki.py` passes. Commit the submodule's change in the wiki repo the way earlier wiki changes were (see CONTRIBUTING.md), and the pointer here.
+Expected: only the status page (`wiki/current_workspace.md`) changes, by two lines: the description's `grid_timeout` sentence and a `grid_timeout` row in the response table (measured against the wiki at E1's pointer, `9c75f98`); `test_wiki.py` passes. Commit the submodule's change in the wiki repo the way earlier wiki changes were (see CONTRIBUTING.md), and the pointer here.
 
 - [ ] **Step 4: The whole suite**
 
@@ -2945,3 +2946,22 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 | §11 AGENTS.md | 8 |
 | §12 documentation | 2 (pyproject), 8 |
 | §13 testing | every task |
+
+## Reconciled with E1
+
+On 2026-10-09 every task above was applied in order to a scratch copy of E1's tree (`issue-60-workspaces` at `8d33c6e`, wiki at `9c75f98`), outside the repo, with the code and tests exactly as written here:
+
+| After | Result |
+|---|---|
+| Task 1 | `test_monitor_events.py` 10 passed; boundaries and packaging pass |
+| Task 2 | `test_monitor_bidi.py` 8 passed, against a real `websockets` 17.2 server |
+| Task 3 | `test_grid_listing.py` and the BiDi users (`test_grid_connections`, `test_site_data_restore`, `test_spare_tab`) 48 passed |
+| Task 4 | `test_monitor.py` 19 passed; the three monitor files five times in a row under `pytest-randomly`, no flake |
+| Task 5 | `test_workspace_monitor.py` 9 passed; `test_recording_open`, `test_workspaces`, `test_history`, `test_routes` pass; golden: `openapi.json` only |
+| Task 6 | the rewrite script applies unchanged; the six files of Step 5 149 passed; whole suite 2 404 passed, 35 skipped; no golden moves |
+| Task 7 | UI 274 tests, `check` and `lint` pass; golden: `admin-workspaces.json` only, one `"grid_timeout": null` per row (4) |
+| Task 8 | wiki regenerated (`current_workspace.md`, +2 lines); whole suite 2 428 passed, 26 skipped (the wiki tests run once it is checked out); `ruff check .` clean |
+
+The tools goldens (`tools-on.json`, `tools-off.json`), `admin-routes.json`, `errors.json` and `flow-reports.json` never moved.
+
+What changed in this plan to get there: the boundary assert goes after `test_the_walk_finds_the_layers`'s docstring, not above it; `tests/test_workspace_monitor.py` imports `workspace.store` before `workspace.workspaces` (ruff's isort: the pre-rename order was sorted, the renamed one is not); the new sentence and schema description say *a session in this workspace* (spec ruling 18); Task 8 names E1's lifetime table and row, the README line and the skill paragraph exactly. `test_admin_events.py::test_nothing_polls_once_the_last_page_has_gone`, a timing test (0.2 s), failed once in an `-n 8` run of the whole suite and passed in the three runs after and alone; no session opens in it, so the bus never pokes it. If it fails in CI, rerun before suspecting the monitor.

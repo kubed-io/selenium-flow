@@ -9,9 +9,10 @@ merges, so this spec is written in E1's vocabulary, as Dr K settled it on
 site data, history, settings); a **session** is the live browser open inside a
 workspace — at most one at a time, started by `open_session`, ended by
 `end_browser` — and it holds the Grid's session, whose id is its `session_id`.
-An idle workspace has no session. Where this spec points at code as it is today
-it gives both paths, e.g. `session/sessions.py` (→ `workspace/workspaces.py`
-after E1). Penpot: Components page, boards `summary / live` and
+An idle workspace has no session. E1 is implemented (branch
+`issue-60-workspaces`, `8d33c6e`), and every path and name this spec gives is
+E1's code, checked against it on 2026-10-09 (rulings 17–19 record what it
+changed). Penpot: Components page, boards `summary / live` and
 `summary / idle`, which carry the rows `IDLE TIMEOUT` and `CAPTURE` (read, not
 edited: programme R15).
 
@@ -76,7 +77,7 @@ cluster's Grid (`http://10.43.225.177:4444`, hub and node **4.48.0**
   `_back`, `_list` in `recordings/collector.py`), and `ended(grid_id)` fed from
   `end_browser`. That logic moves; the note queue does not.
 - **The admin broadcast polls and can be poked.** `Broadcast.poke()`
-  (`http/admin/sessions.py` → `http/admin/workspaces.py`) forgets the last
+  (`http/admin/workspaces.py`) forgets the last
   payload and ticks now; the collector already calls it when a recording is
   filed.
 
@@ -193,6 +194,33 @@ are decided here; Dr K reviews them on the PR.
     `Grid.quit(session_id)`). A watch is per session. `browser` stays the
     browser's kind (`chrome`, `firefox`). E3 and E4 cite these names. Cost if
     wrong: a rename across three event types before anything consumes them.
+17. Claude, 2026-10-09, on E1's config split (its ruling 9): **`grid_timeout`
+    is a field of the workspace record, never a setting.** E1 left the
+    `session` section as *how a session opens* (`browser`, `width`, `height`,
+    `page_load_timeout`, `script_timeout`), resolved through the cascade into
+    the record's `settings`, which a reap replays into `open_session` as its
+    arguments. The Grid's timeout is read, never set (programme R4): in
+    `settings` it would be replayed as an argument `open_session` does not
+    take, and in the `session` section it would be a setting that sets
+    nothing. So it is `Workspace.grid_timeout`, beside `settings`, and the
+    `grid_` prefix keeps it apart from the two `session.*_timeout` values,
+    which are ours to set. Cost if wrong: if Dr K wants it among the
+    session's settings, the reap's replay filters it out — one line.
+18. Claude, 2026-10-09, on E1's ruling 8 (*session* is the live browser):
+    **text about the timeout says *session*.** The resource description,
+    the status schema, the skill line and the changelog say *a session in
+    this workspace* / *a session*, not *this browser*; the card's label stays
+    `idle timeout`, as the boards have it. Cost if wrong: a word in four
+    places, and the `openapi.json` golden.
+19. Claude, 2026-10-09: **E2 adds nothing to E1's `session` config section**,
+    and ruling 13 stands. That section is how a session opens; the monitor is
+    how one is watched, so if it ever needs settings they are a `monitor`
+    section (a free name: no underscore, no environment variable of its
+    own). Nothing else E1 renamed reaches E2's design: the admin's End
+    (`DELETE /admin/workspaces/{key}/session`) goes through
+    `Workspaces.end_browser`, so it announces `ended` like the caller's own;
+    and the event names already follow E1's vocabulary (ruling 16). Cost if
+    wrong: none; nothing is built on it.
 
 ## Goal
 
@@ -415,9 +443,10 @@ class BidiSocket:
 - **Shown**:
   - `workspace://current` and `GET /browser`: `grid_timeout` (integer seconds,
     or `null`), and one sentence in the resource's description: *"grid_timeout
-    is how many seconds the Grid lets this browser sit idle before it ends it;
-    every call starts that clock again."* The hand-written status response
-    schema in `spec/schemas.py` gains the field.
+    is how many seconds the Grid lets a session in this workspace sit idle
+    before it ends it; every call starts that clock again."* (ruling 18). The
+    hand-written status response schema in `spec/schemas.py`
+    (`RESPONSES["current_workspace"]`) gains the field.
   - The admin workspace row (`workspaces_payload`): `grid_timeout`, from the
     record. `WorkspaceRow.grid_timeout?: number | null` in `ui/src/lib/types.ts`.
   - `WorkspaceSummary.svelte`: the fact `idle timeout` in the `workspace` group,
@@ -572,9 +601,10 @@ In **Gotchas**, after *"The Grid's session timeout is not this repo's
 setting."*: *"This server reads it per node from `/status` at every open and
 reopen and reports it as `grid_timeout`; it never sets or assumes it."*
 
-In the lifetime table (today **Session lifetime: who owns what**), the row *How
-long a browser lives* reads: *the Grid — `SE_NODE_SESSION_TIMEOUT` on the node,
-read from `/status` and shown as `grid_timeout`*.
+In the lifetime table (E1's **Two lifetimes: the session and the workspace**),
+the row *How long a session's browser lives idle* reads, in its *Who owns it*
+cell: *the Grid — `SE_NODE_SESSION_TIMEOUT` on the node, read from `/status`
+and shown as `grid_timeout`*.
 
 In **Scaling: one replica**, after the lock's paragraph: *"The session
 monitor's watches and the bus are process memory too: a second replica would
@@ -586,13 +616,13 @@ watch nothing the first opened."*
 - **README**: where it names `SE_NODE_SESSION_TIMEOUT`, one sentence — the
   server reads it from the Grid's `/status` and shows it as `grid_timeout`.
 - **Skill**: `references/WORKSPACES.md` gains one line where it explains
-  `workspace://current`: `grid_timeout` is how long the browser may sit idle
+  `workspace://current`: `grid_timeout` is how long a session may sit idle
   before the Grid ends it, and any call starts the clock again.
 - **Wiki**: regenerated; the status page gains the field from the schema.
 - **pyproject**: `websockets>=15`, with its reason beside it, as the others
   have; `kubed.selenium_flow.monitor` in the packages list.
 - **CHANGELOG `[Unreleased]`**: *"`workspace://current` and the admin summary
-  show how long the Grid lets a browser sit idle (`grid_timeout`)."* The monitor
+  show how long the Grid lets a session sit idle (`grid_timeout`)."* The monitor
   itself is internal and earns no line.
 
 ### 13. Testing
@@ -694,8 +724,12 @@ Chrome was asked for), whether connecting a silent socket is itself activity
 and the ingress behaviour in ruling 2.
 
 The design was also prototyped outside the repo before the plan was written:
-`monitor/`, the collector and workspace changes and their tests, on today's
-tree, passed the whole suite but for the two goldens the new field moves.
+`monitor/`, the collector and workspace changes and their tests, on the
+pre-rename tree, passed the whole suite but for the two goldens the new field
+moves. Once E1 was implemented the plan was applied, task by task and as
+written, to a copy of E1's tree (`8d33c6e`): Python, UI, ruff and the wiki
+check all pass, and only `openapi.json` (Task 5) and `admin-workspaces.json`
+(Task 7) move. The plan's *Reconciled with E1* section has the counts.
 
 ## Next round
 
