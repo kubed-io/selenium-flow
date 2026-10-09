@@ -602,7 +602,10 @@ class Collector:
                 path = Path(root) / name
                 try:
                     info = path.stat()
-                except OSError:
+                except FileNotFoundError:
+                    continue  # gone mid-scan: simply gone
+                except OSError as exc:
+                    unreadable.append(exc)  # present but unseen: blind
                     continue
                 found.append((path, info.st_size, info.st_mtime))
         self._blind = bool(unreadable)

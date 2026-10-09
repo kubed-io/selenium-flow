@@ -53,6 +53,7 @@ import yaml
 from ..names import (
     FILES_DIR,
     FOLDERS,
+    INBOX_DIR,
     RECORDINGS_DIR,
     RESERVED_IN_FILES,
     SESSIONS_DIR,
@@ -730,18 +731,25 @@ class LocalFlowStore(FlowStore, FileStore):
 _SESSION_MARKS = (FLOWS_DIR, FILES_DIR, "screenshots")
 
 
-def old_layout(root: Path) -> list[str]:
+def old_layout(root: Path, inbox: str | os.PathLike | None = None) -> list[str]:
     """Session folders still at the top of the data directory, sorted.
 
     Before the recordings release a session lived at ``DATA_DIR/<name>``; it
     lives at ``DATA_DIR/sessions/<name>`` now. One left behind would make every
     flow and file it holds silently vanish, so the boot refuses and names them.
+    The recordings inbox is never a session, whatever it holds: ``INBOX_DIR``
+    always, and ``inbox`` (``recording.dir``) when it is a direct child of root.
     """
     if not root.is_dir():
         return []
+    skip = {SESSIONS_DIR, INBOX_DIR}
+    if inbox:
+        configured = Path(inbox).resolve()
+        if configured.parent == root.resolve():
+            skip.add(configured.name)
     found = []
     for entry in root.iterdir():
-        if entry.name == SESSIONS_DIR or not entry.is_dir() or entry.is_symlink():
+        if entry.name in skip or not entry.is_dir() or entry.is_symlink():
             continue
         try:
             valid_name(entry.name)
@@ -752,13 +760,15 @@ def old_layout(root: Path) -> list[str]:
     return sorted(found)
 
 
-def from_settings(data: DataSettings) -> LocalFlowStore | None:
+def from_settings(
+    data: DataSettings, inbox: str | os.PathLike | None = None
+) -> LocalFlowStore | None:
     """The store the config asks for, or None when the data directory is unset."""
     if not data.dir:
         log.info("flows: off (set data.dir to enable them)")
         return None
     root = Path(data.dir)
-    stranded = old_layout(root)
+    stranded = old_layout(root, inbox)
     if stranded:
         from ..config import ConfigError  # local: config imports names, not us
 

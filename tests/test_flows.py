@@ -784,3 +784,23 @@ def test_an_old_layout_stops_the_boot_and_names_what_to_move(tmp_path):
         flowstore.from_settings(DataSettings(dir=str(tmp_path)))
     assert "claudecode, global" in str(exc.value)
     assert "sessions/" in str(exc.value)
+
+
+@pytest.mark.parametrize("inner", ["files", "flows", "screenshots", "x/files"])
+def test_the_recordings_inbox_is_never_an_old_session(tmp_path, inner):
+    (tmp_path / "recordings" / inner).mkdir(parents=True)
+    assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
+
+
+def test_a_configured_inbox_beside_the_sessions_is_never_an_old_session(tmp_path):
+    (tmp_path / "inbox2" / "files").mkdir(parents=True)
+    with pytest.raises(ConfigError):
+        flowstore.from_settings(DataSettings(dir=str(tmp_path)))
+    store = flowstore.from_settings(
+        DataSettings(dir=str(tmp_path)), inbox=str(tmp_path / "inbox2")
+    )
+    assert store is not None
+    (tmp_path / "real" / "flows").mkdir(parents=True)
+    with pytest.raises(ConfigError) as exc:
+        flowstore.from_settings(DataSettings(dir=str(tmp_path)), inbox=str(tmp_path / "inbox2"))
+    assert "real" in str(exc.value) and "inbox2" not in str(exc.value)

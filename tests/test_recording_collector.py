@@ -790,3 +790,52 @@ async def test_a_stale_read_of_the_notes_never_brings_a_filed_one_back(tmp_path)
     gate.set()
     await asyncio.gather(load, sweep)
     assert filed == [1] and c.owed == {} and real() == []
+
+
+def _stat_fails_on(path, exc, monkeypatch):
+    """stat of ``path`` raises ``exc`` through both os.stat and os.lstat."""
+    import os
+
+    def failing(real):
+        def stat(p, *a, **kw):
+            if os.fspath(p) == str(path):
+                raise exc
+            return real(p, *a, **kw)
+        return stat
+
+    for name in ("stat", "lstat"):
+        monkeypatch.setattr(os, name, failing(getattr(os, name)))
+
+
+async def test_a_file_whose_stat_fails_blocks_drops_but_others_are_filed(parts, monkeypatch, caplog):
+    import errno
+
+    c, store, inbox, alive, _filed, clock = parts
+    other = "0123456789abcdef0123456789abcdef"
+    c.expect("bot", GID, "chrome")
+    c.expect("bot2", other, "chrome")
+    c.ended(GID)
+    await asyncio.sleep(0)
+    alive.clear()
+    alive.add(other)
+    (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
+    (inbox / f"bot2_{other}.mp4").write_bytes(BODY + mp4.trailer())
+    _stat_fails_on(inbox / f"bot_{GID}.mp4", OSError(errno.EIO, "Input/output error"), monkeypatch)
+    clock.now += 1200
+    with caplog.at_level(logging.WARNING):
+        await c.sweep()
+        await c.sweep()
+    assert GID in c.owed and store.notes() != []  # not dropped
+    assert len(store.files("bot2", RECORDINGS_DIR)) == 1  # the readable one filed
+    assert caplog.text.count("cannot be read") == 1
+    assert GID not in caplog.text and "bot_" not in caplog.text
+    monkeypatch.undo()
+    await c.sweep()
+    assert GID not in c.owed and len(store.files("bot", RECORDINGS_DIR)) == 1
+
+
+async def test_a_file_that_vanishes_mid_scan_is_not_blindness(parts, monkeypatch):
+    c, _store, inbox, _alive, _filed, _clock = parts
+    (inbox / f"bot_{GID}.mp4").write_bytes(BODY)
+    _stat_fails_on(inbox / f"bot_{GID}.mp4", FileNotFoundError(2, "gone"), monkeypatch)
+    assert c._inbox_files() == [] and c._blind is False
