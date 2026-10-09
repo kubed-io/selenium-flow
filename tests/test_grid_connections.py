@@ -92,6 +92,27 @@ def test_a_grid_that_refuses_the_connection_is_not_asked_twice(monkeypatch):
     assert len(asked) == 1
 
 
+def test_the_idle_timeout_is_asked_once_and_briefly(fake, monkeypatch):
+    """It is shown, never needed, and read on every open: a slow or restarting
+    hub must not hold a successful open for two full Grid timeouts."""
+    from kubed.selenium_flow.core.browser import SHOWN_TIMEOUT
+
+    grid = Grid(fake.url)
+    grid.status()
+    get, timeouts = grid.http.get, []
+
+    def recorded(url, **kwargs):
+        timeouts.append(kwargs.get("timeout"))
+        return get(url, **kwargs)
+
+    monkeypatch.setattr(grid.http, "get", recorded)
+    fake.drop = 1
+    with pytest.raises(requests.ConnectionError):
+        grid.session_timeout("abc")
+    assert len(fake.requests) == 2, "not asked again"
+    assert timeouts == [SHOWN_TIMEOUT] and SHOWN_TIMEOUT <= 5
+
+
 def test_the_pool_keeps_no_cookies(fake):
     """Each call used to be its own session; a cookie set by whatever fronts the
     Grid must not ride on every later call."""

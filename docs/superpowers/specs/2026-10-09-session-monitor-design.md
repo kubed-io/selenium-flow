@@ -453,7 +453,8 @@ class BidiSocket:
 ### 6. The Grid's timeout: read, stored, shown
 
 - **Read** by `Grid.session_timeout(session_id) -> int | None` (one
-  `listing()`), called by `Workspaces.open_browser` right after the session opens
+  `GET /status`, sent once with a 5 s timeout, `SHOWN_TIMEOUT`, so a slow hub
+  cannot hold an open that has succeeded), called by `Workspaces.open_browser` right after the session opens
   and by `resolve`'s reopen after a reap — the two places a session is made. Any
   failure (`/status` down, the session not listed) is `None` and is logged at
   info without the id; it never fails the open.

@@ -4,6 +4,8 @@ import pytest
 
 from kubed.selenium_flow.core.browser import Grid
 
+from .fakes import CountingGridServer
+
 pytestmark = pytest.mark.unit
 
 # The shape the cluster's Grid 4.48.0 answered with on 2026-10-09, trimmed.
@@ -57,9 +59,11 @@ def test_a_timeout_that_is_not_a_positive_number_is_none(value):
 
 
 def test_session_timeout_reads_the_browsers_own_node():
-    g = grid()
-    assert g.session_timeout("bbb") == 90
-    assert g.session_timeout("gone") is None
+    with CountingGridServer() as fake:
+        fake.reply = lambda path: STATUS
+        g = Grid(fake.url)
+        assert g.session_timeout("bbb") == 90
+        assert g.session_timeout("gone") is None
 
 
 @pytest.mark.parametrize(
