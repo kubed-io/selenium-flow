@@ -246,7 +246,7 @@ class Monitor:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
-        for w in self.watches.values():
+        for w in list(self.watches.values()):  # a close can end a watch
             if w.socket is not None:
                 sock, w.socket = w.socket, None
                 await sock.close()

@@ -371,6 +371,25 @@ async def test_stop_closes_every_socket(parts):
     assert not monitor.running
 
 
+async def test_stop_survives_a_watch_ending_while_it_closes(parts):
+    monitor, listing, _clock, _heard = parts
+    listing.running[OTHER] = 300
+    await monitor.start()
+    monitor.watch(GID, "a", "capture")
+    monitor.watch(OTHER, "b", "capture")
+    await monitor.look()
+    first = FakeSocket.made[0]
+    close = first.close
+
+    async def close_and_end_the_other():
+        await close()
+        monitor.ended("b", OTHER, "ended")  # on the loop: drops it at once
+
+    first.close = close_and_end_the_other
+    await monitor.stop()
+    assert first.closed == 1 and OTHER not in monitor.watches
+
+
 async def test_watch_and_ended_from_worker_threads(parts):
     monitor, _listing, _clock, heard = parts
     await monitor.start()
