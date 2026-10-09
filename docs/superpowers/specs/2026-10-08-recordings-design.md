@@ -267,7 +267,7 @@ the boundary rules: no protocol imports, no `selenium`). It keeps a
   `force_polling` and `poll_delay_ms` from `recording.watch` and
   `recording.poll`, `stop_event` for the end, and `yield_on_timeout` with a
   30 s `rust_timeout` for the timer. A change is matched by Grid id anywhere in
-  the file name, at any depth: the recorder's per-session subfolder, rclone
+  its path below the inbox: the recorder's per-session subfolder, rclone
   prefixes and Nextcloud paths all keep it. Names ending `.partial` or `.part`
   are skipped — a transport that renames is finishing.
 - **Complete** means the last 16 bytes are `00 00 00 10 'mfro' 00 00 00 00` and

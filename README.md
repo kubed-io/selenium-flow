@@ -239,8 +239,16 @@ nodes, or recordings share one screen.
   `SE_VIDEO_RECORD_STANDALONE=true`, which a standalone container may need to
   start its recorder (not yet verified).
 
-A recording is matched to its session by the Grid's session id in its file name,
-so any path and prefix the transport adds is fine. One that never arrives is
+A recording is matched to its session by the Grid's session id anywhere in its
+path below `RECORDING_DIR` (folders or file name), so any path and prefix the
+transport adds is fine.
+
+**What the recorder must be set to.** Keep `SE_VIDEO_FILE_NAME=auto` (the
+default): a fixed name gives every session the same file, which cannot be
+matched. And keep either `SE_VIDEO_FILE_NAME_SUFFIX=true` (the default) or
+`SE_VIDEO_SESSION_SUBFOLDER=true`, so the Grid session id is in the path;
+with both off a custom `se:videoName` carries no id, the recording is made, and
+it is never matched. One that never arrives is
 given up on after `RECORDING_WAIT` seconds with a warning in the log.
 
 ---

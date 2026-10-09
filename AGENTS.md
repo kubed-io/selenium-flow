@@ -519,6 +519,9 @@ tidies is still not.
 
 ### Recordings: Selenium records, the operator delivers, we file
 
+- A file is matched by the owed Grid id anywhere in its path below the inbox; one
+  path naming two owed ids is skipped. The recorder must keep `SE_VIDEO_FILE_NAME=auto`
+  and `SE_VIDEO_FILE_NAME_SUFFIX=true` or `SE_VIDEO_SESSION_SUBFOLDER=true`, or no id is there.
 - The inbox (`recording.dir`) is the operator's; we never clean it. A file no
   note claims stays where it is.
 - The queue is the notes under `sessions/<name>/recordings/.pending/<gridId>.json`.

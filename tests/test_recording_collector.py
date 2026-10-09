@@ -937,3 +937,33 @@ async def test_a_source_swapped_for_a_link_is_a_fault_not_a_filing(parts, monkey
     await c.sweep()
     assert filed == [] and GID in c.owed and store.files("bot", RECORDINGS_DIR) == []
     assert outside.read_bytes() == b"AUTH_TOKEN"
+
+
+async def test_the_grid_id_may_be_only_in_a_folder(parts):
+    c, store, inbox, _alive, filed, _clock = parts
+    c.expect("bot", GID, "chrome")
+    (inbox / "x").mkdir()
+    (inbox / "x" / "spike.mp4").write_bytes(BODY + mp4.trailer())
+    await c.sweep()
+    assert filed == [] and GID in c.owed
+    (inbox / GID).mkdir()
+    (inbox / GID / "spike.mp4").write_bytes(BODY + mp4.trailer())
+    await c.sweep()
+    assert filed == [1] and GID not in c.owed
+    assert len(store.files("bot", RECORDINGS_DIR)) == 1
+    assert (inbox / "x" / "spike.mp4").exists()
+
+
+async def test_a_path_naming_two_owed_ids_is_skipped_and_logged_without_them(parts, caplog):
+    c, _store, inbox, _alive, filed, _clock = parts
+    other = "1" * 32
+    c.expect("bot", GID, "chrome")
+    c.expect("bot2", other, "chrome")
+    (inbox / GID).mkdir()
+    (inbox / GID / f"{other}.mp4").write_bytes(BODY + mp4.trailer())
+    with caplog.at_level(logging.WARNING):
+        await c.sweep()
+        await c.sweep()
+    assert filed == []
+    warned = [r.getMessage() for r in caplog.records if "more than one" in r.getMessage()]
+    assert len(warned) == 1 and GID not in warned[0] and other not in warned[0]

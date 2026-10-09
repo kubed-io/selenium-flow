@@ -9,9 +9,9 @@ not). The notes survive a restart, so ``start`` picks up where the last
 process left off.
 
 It wakes on a change in the inbox (``watchfiles``: events, or polling on a
-network filesystem) and on a timer, and each time sweeps: an ``.mp4`` whose name
-holds an owed Grid id and ends in ``mfro`` is moved into the session's
-recordings and its note deleted; one with no ``mfro`` is moved as it is once
+network filesystem) and on a timer, and each time sweeps: an ``.mp4`` whose path
+below the inbox holds an owed Grid id and ends in ``mfro`` is moved into the
+session's recordings and its note deleted; one with no ``mfro`` is moved as it is once
 it has been quiet for a minute **and** the browser is gone (a live recording
 writes a keyframe at least every ~17 s, so this never files one early); an
 owed browser not yet known to have ended is looked for, so a file that never
@@ -190,6 +190,8 @@ class Collector:
         # The notes on disk have not been read yet (`_load`).
         self._unread = False
         self._unread_logged = False
+        # Inbox paths already logged as naming more than one owed Grid id.
+        self._ambiguous: set[str] = set()
         # Grid ids whose note this process has said it cannot remove.
         self._undeleted: set[str] = set()
 
@@ -457,9 +459,7 @@ class Collector:
                 await self._forget(owed)  # its note is all that is left
                 continue
             match = next(
-                (f for f in files
-                 if grid_id in f[0].name and f[0].suffix.lower() == ".mp4"),
-                None,
+                (f for f in files if self._ids_in(f[0]) == [grid_id]), None,
             )
             if owed.ended is not None and await self._back(owed, now):
                 owed.ended = None
@@ -581,15 +581,38 @@ class Collector:
             return 0.0
         return now - seen[2]
 
+    def _ids_in(self, path: Path) -> list[str]:
+        """The owed Grid ids in ``path`` below the inbox, folders and file name
+        alike (the recorder's per-session subfolder mode keeps the id only in
+        the folder). Empty for a file that is not an ``.mp4``. A path holding
+        more than one owed id is ambiguous: it matches none, and is logged once
+        without the ids."""
+        if path.suffix.lower() != ".mp4":
+            return []
+        try:
+            below = path.relative_to(self.inbox).as_posix()
+        except ValueError:
+            below = path.name
+        ids = [g for g in self.owed if g in below]
+        if len(ids) > 1:
+            if below not in self._ambiguous:
+                self._ambiguous.add(below)
+                log.warning(
+                    "recordings: a file in the inbox names more than one owed "
+                    "Grid id; it is skipped"
+                )
+            return []
+        self._ambiguous.discard(below)
+        return ids
+
     def _completeness(self, files) -> dict[str, bool]:
         """Whether each owed file ends in a trailer; a file whose read faulted
         is left out, and the sweep goes blind so no note is dropped meanwhile.
         In a worker thread."""
-        names = list(self.owed)
         out: dict[str, bool] = {}
         faults = []
         for path, _size, _mtime in files:
-            if path.suffix.lower() != ".mp4" or not any(g in path.name for g in names):
+            if not self._ids_in(path):
                 continue
             try:
                 out[str(path)] = mp4.is_complete(path)
