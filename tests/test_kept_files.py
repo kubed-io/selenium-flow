@@ -134,6 +134,32 @@ def test_keeping_the_same_name_replaces_it(store):
     assert len(store.files(SESSION)) == 1
 
 
+def test_a_re_keep_never_changes_a_file_already_being_read(store):
+    """A signed link streams the inode it opened, with its length already sent:
+    a re-keep is a new file renamed over the name, not a rewrite of that one."""
+    store.write_file(SESSION, "report.pdf", b"first")
+    with store.file_path(SESSION, "report.pdf").open("rb") as streaming:
+        store.write_file(SESSION, "report.pdf", b"second, and longer")
+        assert streaming.read() == b"first"
+    assert store.read_file(SESSION, "report.pdf") == b"second, and longer"
+
+
+def test_a_re_keep_that_fails_leaves_the_kept_file_and_no_temporary(
+    store, monkeypatch
+):
+    store.write_file(SESSION, "report.pdf", b"first")
+
+    def broken(fd):
+        raise OSError(5, "Input/output error")
+
+    monkeypatch.setattr(flows.os, "fsync", broken)
+    with pytest.raises(OSError):
+        store.write_file(SESSION, "report.pdf", b"second")
+    assert store.read_file(SESSION, "report.pdf") == b"first"
+    folder = store.file_path(SESSION, "report.pdf").parent
+    assert [p.name for p in folder.iterdir()] == ["report.pdf"]
+
+
 def test_deleting_reports_whether_there_was_anything_there(store):
     store.write_file(SESSION, "report.pdf", b"x")
     assert store.delete_file(SESSION, "report.pdf") is True

@@ -172,9 +172,10 @@ def _no_link(exc: OSError) -> bool:
     return isinstance(exc, PermissionError) or exc.errno in _NO_LINK
 
 
-def _replace(path: Path, text: str) -> None:
+def _replace(path: Path, text: str | bytes, *, sync: bool = False) -> None:
     """Write ``text`` as ``path`` in one step: a reader sees the old document or
-    the new one, never part of either.
+    the new one, never part of either. ``sync`` flushes it to disk before the
+    rename, for bytes that have no other copy.
 
     Writing in place let a crash or an NFS hiccup between the open and the last
     write leave a truncated document, which reads as missing — the previous
@@ -189,10 +190,16 @@ def _replace(path: Path, text: str) -> None:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    file = temporary.open("x", encoding="utf-8")
+    if isinstance(text, bytes):
+        file = temporary.open("xb")
+    else:
+        file = temporary.open("x", encoding="utf-8")
     try:
         with file:
             file.write(text)
+            if sync:
+                file.flush()
+                os.fsync(file.fileno())
         # Nothing to replace means the new file keeps the umask's mode.
         with contextlib.suppress(FileNotFoundError):
             temporary.chmod(stat.S_IMODE(path.stat().st_mode))
@@ -743,10 +750,11 @@ class FileStore(SessionLayout):
         Create-or-replace, the same rule `save` follows: keeping a name that is
         already kept is how someone re-keeps a file they have since downloaded
         again, and the alternative is a second copy under a name nobody chose.
+        A new file renamed over the old, never a rewrite: a link already
+        streaming the old file keeps its bytes.
         """
         path = self._file_path(session, name, folder)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
+        _replace(path, data, sync=True)
         return self._entry(path)
 
     def create_file(
