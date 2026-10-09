@@ -221,9 +221,15 @@ class PinnedFileResponse(FileResponse):
 
     def __init__(self, fd: int, info: os.stat_result, **kwargs) -> None:
         self._fd = fd
-        super().__init__(f"/proc/self/fd/{fd}", stat_result=info, **kwargs)
+        try:
+            super().__init__(f"/proc/self/fd/{fd}", stat_result=info, **kwargs)
+        except BaseException:
+            os.close(fd)
+            raise
 
     async def __call__(self, scope, receive, send) -> None:
+        # No pathsend: a server sending that path itself would race the close.
+        scope = {**scope, "extensions": {}}
         try:
             await super().__call__(scope, receive, send)
         finally:

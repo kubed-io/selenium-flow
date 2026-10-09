@@ -234,13 +234,14 @@ def _fds():
 
 def _before_send(monkeypatch, action):
     """Run ``action`` after the handler validated the file, before bytes stream."""
-    real = signed.PinnedFileResponse.__call__
+    real = signed._pinned
 
-    async def call(self, scope, receive, send):
+    def pinned(resolved):
+        found = real(resolved)
         action()
-        await real(self, scope, receive, send)
+        return found
 
-    monkeypatch.setattr(signed.PinnedFileResponse, "__call__", call)
+    monkeypatch.setattr(signed, "_pinned", pinned)
 
 
 def test_a_file_unlinked_after_the_check_is_still_served_whole(store, tmp_path, monkeypatch):
