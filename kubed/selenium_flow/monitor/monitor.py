@@ -16,8 +16,13 @@ asked of the browser.** Each look takes one ``GET /status`` listing
 would be activity and would stop the Grid ever reaping the browser. A session
 is **gone** when two listings in a row, each showing at least one node and
 taken after its watch began, do not list it — or one, after its socket
-dropped. A listing that failed or shows no nodes (a hub restarting before its
-nodes register again) says nothing.
+dropped. A listing that failed says nothing, and so does one that shows no
+nodes (a hub restarting before its nodes register again) — until listings with
+no nodes have run unbroken for the watch's idle timeout plus a tick, from the
+run's first or the watch's start, whichever is later: then each is a miss.
+Every WebDriver command and BiDi frame reaches a node through the hub, so a
+node unlisted that long received no activity and has reaped the session, or is
+gone itself (KEDA at zero, an evicted node, a Grid redeployed).
 
 **A socket is a channel** (`bidi.py`): held only for a reason that names BiDi
 events (``events_for``), until the watch's deadline — its last activity plus
@@ -120,6 +125,7 @@ class Monitor:
         self._stopping = False
         self._closing: set[asyncio.Task] = set()
         self._listing_failed = False
+        self._empty_since: float | None = None  # the current run of no-node listings
         self._socket_failed: set[str] = set()
 
     # ---- from any thread ---------------------------------------------------
@@ -262,17 +268,22 @@ class Monitor:
                     "session counts as running",
                     type(exc).__name__,
                 )
-            nodes, running = 0, {}
+            listed, nodes, running = False, 0, {}
         else:
+            listed = True
             if self._listing_failed:
                 self._listing_failed = False
                 log.info("monitor: the Grid's status answers again")
+            if nodes:
+                self._empty_since = None
+            elif self._empty_since is None:
+                self._empty_since = now
         for w in list(self.watches.values()):
             if self.watches.get(w.session_id) is not w:
                 continue  # dropped while this look awaited
             if w.socket is not None and w.socket.dropped:
                 w.socket, w.dropped = None, True
-            if nodes and now >= w.since:
+            if listed and now >= w.since and (nodes or self._unlisted(w, now)):
                 if w.session_id in running:
                     w.misses = 0
                     w.dropped = False
@@ -286,6 +297,11 @@ class Monitor:
             await self._socket(w, now)
 
     # ---- inside -------------------------------------------------------------
+
+    def _unlisted(self, w: Watch, now: float) -> bool:
+        """No node listed for the whole of this watch's idle timeout and a tick."""
+        start = max(self._empty_since or now, w.since)
+        return now - start >= (w.timeout or DEFAULT_TIMEOUT) + self.tick
 
     def _wanted(self, w: Watch) -> list[str]:
         return sorted({e for reason in w.owed for e in self.events_for.get(reason, ())})

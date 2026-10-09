@@ -115,6 +115,19 @@ are decided here; Dr K reviews them on the PR.
    than a tick could have a live recorded session marked ended; its recording is
    still filed if it arrives within `recording.wait` (600 s), and lost only if it
    does not.
+   Claude, 2026-10-09, from the PR review; for Dr K to confirm: **a listing
+   with no nodes is a miss once such listings have run unbroken for the
+   watch's idle timeout plus a tick**, measured from the run's first listing
+   or the watch's start, whichever is later; a listing with a node starts the
+   run again, a failed one neither starts nor extends it. KEDA at zero is not
+   only after a miss: a node can go with its session (evicted, OOM, a Grid
+   redeployed, this server restarting while the Grid is at zero), and then
+   nothing ever ended the watch, filed a cut-off recording or started
+   `recording.wait`. Every command and BiDi frame reaches a node through the
+   hub, so a node unlisted that long has had no activity: it has reaped the
+   session, or is gone. Cost if wrong: a hub listing no node for longer than
+   an idle timeout while its nodes still run a session ends that watch; a
+   recording that then arrives within `recording.wait` is still filed.
 5. Claude, 2026-10-09: **the note queue stays** (the programme's
    recommendation). Notes on disk remain the recordings' queue and survive a
    restart; only liveness moves to the monitor. At `start` the collector watches
@@ -519,7 +532,7 @@ what capture re-creates.
 | Case | Answer |
 |---|---|
 | `/status` unreachable or erroring | the listing says nothing: no watch changes; logged once a streak by exception type; asked again next tick |
-| A listing with no nodes | says nothing (ruling 4) |
+| A listing with no nodes | says nothing, until no node has been listed for the watch's idle timeout plus a tick; then a miss (ruling 4) |
 | A session missing from one listing | one miss; gone at two (ruling 4) |
 | The Grid's timeout cannot be read at open | `grid_timeout: null`, logged at info without the id; the open succeeds |
 | Two nodes with different timeouts | each session carries its own node's |
@@ -583,8 +596,11 @@ command…"* becomes:
 >   per tick (`Grid.listing()`): a WebDriver command such as
 >   `GET /session/{id}/url` counts as activity and would stop the Grid ever
 >   reaping the browser. A session is gone when two listings with nodes, taken
->   after the watch began, miss it; a listing that fails or shows no nodes says
->   nothing. The collector hears an end as `session.ended`, and watches every
+>   after the watch began, miss it. A listing that fails says nothing; one with
+>   no nodes says nothing until such listings have run unbroken for the watch's
+>   idle timeout plus a tick, and is a miss after: every command reaches a node
+>   through the hub, so a node unlisted that long has reaped the session or is
+>   gone itself. The collector hears an end as `session.ended`, and watches every
 >   owed note at start.
 
 A new section after **Refresh, not cleanup**:
@@ -656,7 +672,9 @@ minutes).
   socket factory: one listing per look however many watches; a listed session
   resets misses and refreshes its timeout; two misses publish `gone` once and
   drop the watch; a failed listing, one with no nodes, and one older than the
-  watch say nothing; `ended` publishes once and refuses a later `watch`;
+  watch say nothing; no nodes for a watch's timeout plus a tick is a miss,
+  counted from the later of the run's start and the watch's, a listing with
+  nodes starts the run again and a failed one does not extend it; `ended` publishes once and refuses a later `watch`;
   `release` of the last reason drops the watch; the task runs only while a watch
   exists and a watch before `start` is taken up by it; recording alone holds no
   socket; a reason in `events_for` opens and subscribes, the deadline closes it,

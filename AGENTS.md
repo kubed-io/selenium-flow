@@ -610,8 +610,11 @@ which it still owes something. It says so on a bus: `session.opened`,
   per tick (`Grid.listing()`): a WebDriver command such as
   `GET /session/{id}/url` counts as activity and would stop the Grid ever
   reaping the browser. A session is gone when two listings with nodes, taken
-  after the watch began, miss it; a listing that fails or shows no nodes says
-  nothing. The collector hears an end as `session.ended`, and watches every
+  after the watch began, miss it. A listing that fails says nothing; one with
+  no nodes says nothing until such listings have run unbroken for the watch's
+  idle timeout plus a tick, and is a miss after: every command reaches a node
+  through the hub, so a node unlisted that long has reaped the session or is
+  gone itself. The collector hears an end as `session.ended`, and watches every
   owed note at start.
 - Recordings follow the screenshot lifecycle: kept into Files or cleared.
 - `record` is never inherited by an explicit open, but a reap replays it, and

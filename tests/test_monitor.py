@@ -152,6 +152,76 @@ async def test_a_listing_that_cannot_say_says_nothing(parts, listing, caplog):
     assert GID not in caplog.text
 
 
+async def test_no_nodes_for_a_whole_idle_timeout_is_a_miss(parts):
+    monitor, listing, clock, heard = parts
+    monitor.tick = 30
+    listing.nodes, listing.running = 0, {}
+    monitor.watch(GID, "bot", "recording", grid_timeout=300)
+    await monitor.look()  # the run of empty listings starts here
+    clock.now += 300 + 30 - 1
+    await monitor.look()
+    assert heard == [] and monitor.watches[GID].misses == 0
+    clock.now += 1
+    await monitor.look()
+    assert monitor.watches[GID].misses == 1
+    clock.now += 30
+    await monitor.look()
+    assert [(e.kind, e.cause) for e in heard] == [("session.ended", "gone")]
+
+
+async def test_a_listing_with_nodes_starts_the_empty_run_again(parts):
+    monitor, listing, clock, heard = parts
+    monitor.tick = 30
+    monitor.watch(GID, "bot", "recording")
+    listing.nodes, listing.running = 0, {}
+    await monitor.look()
+    clock.now += 200
+    listing.nodes, listing.running = 1, {GID: 300}
+    await monitor.look()
+    listing.nodes, listing.running = 0, {}
+    clock.now += 1
+    await monitor.look()  # a new run starts here
+    clock.now += 300 + 30 - 1
+    await monitor.look()
+    assert heard == [] and monitor.watches[GID].misses == 0
+    clock.now += 1
+    await monitor.look()
+    assert monitor.watches[GID].misses == 1
+
+
+async def test_a_failed_listing_neither_starts_nor_extends_the_empty_run(parts):
+    monitor, listing, clock, heard = parts
+    monitor.tick = 30
+    monitor.watch(GID, "bot", "recording")
+    listing.fails = True
+    await monitor.look()
+    clock.now += 330
+    await monitor.look()
+    listing.fails, listing.nodes, listing.running = False, 0, {}
+    await monitor.look()  # the run starts here, not at the first failure
+    assert heard == [] and monitor.watches[GID].misses == 0
+    clock.now += 330
+    listing.fails = True
+    await monitor.look()
+    assert monitor.watches[GID].misses == 0
+    listing.fails = False
+    await monitor.look()
+    assert monitor.watches[GID].misses == 1
+
+
+async def test_a_watch_older_than_its_timeout_is_not_ended_by_one_empty_listing(parts):
+    monitor, listing, clock, heard = parts
+    monitor.tick = 30
+    monitor.watch(GID, "bot", "recording")
+    await monitor.look()
+    clock.now += 1000  # listed all along; then the hub restarts
+    listing.nodes, listing.running = 0, {}
+    await monitor.look()
+    clock.now += 30
+    await monitor.look()
+    assert heard == [] and monitor.watches[GID].misses == 0
+
+
 async def test_a_listing_older_than_the_watch_says_nothing(parts):
     monitor, listing, clock, heard = parts
     listing.running.clear()
