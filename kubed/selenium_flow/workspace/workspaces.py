@@ -288,6 +288,7 @@ class Workspaces:
         skill_available: bool = True,
         defaults: dict | None = None,
         recordings=None,
+        monitor=None,
     ):
         self.actions = actions
         self.store = store if store is not None else MemoryStore()
@@ -299,8 +300,11 @@ class Workspaces:
         # section. See `workspace/settings.py` for where this sits in the cascade.
         self.defaults = dict(defaults or {})
         # Who files a recorded browser's video (`recordings.Collector`), or None
-        # when recording is off. Told on open and on end; it owns no browser.
+        # when recording is off. Told on open; it owns no browser.
         self.recordings = recordings
+        # Who announces each session opened and ended (`monitor.Monitor`), or
+        # None, which announces nothing: a unit test's manager.
+        self.monitor = monitor
 
     @property
     def kind(self) -> str:
@@ -326,6 +330,7 @@ class Workspaces:
             "recording": False,
             "in_frame": None,
             "window": None,
+            "grid_timeout": None,
             "store": self.kind,
             "settings": {},
         }
@@ -348,6 +353,9 @@ class Workspaces:
         # something is off-screen or a layout has collapsed, and it should not
         # have to dig it out of settings or take a screenshot to find out.
         status["window"] = record.window
+        # The idle timeout the Grid gave the last session: kept when it has
+        # ended, like the window, because it is what the next one will get.
+        status["grid_timeout"] = record.grid_timeout
         saved = site_data_module.summary(record.site_data)
         if saved is not None:
             status["site_data"] = saved
@@ -415,6 +423,7 @@ class Workspaces:
             record.session_id,
             name,
         )
+        self._ended(name, record.session_id, "lost")
         saved = self._restorable(record)
         replay = dict(record.settings or {})
         if self.recordings is None:
@@ -431,6 +440,7 @@ class Workspaces:
         # A reopen alongside this one may bind first; then act on its browser.
         # The settings this browser was opened with: without `record` when
         # recording is off, so nothing reports a video nobody is making.
+        timeout = self._timeout_of(opened["session_id"])
         kept = self.remember(
             name,
             opened["session_id"],
@@ -438,7 +448,13 @@ class Workspaces:
             replay,
             replacing=record.session_id,
             report=opened.get("site_data"),
+            grid_timeout=timeout,
         )
+        if kept == opened["session_id"] and self.monitor is not None:
+            self.monitor.opened(
+                name, kept, replay.get("browser") or DEFAULT_BROWSER, timeout,
+                reopened=True,
+            )
         # A browser this workspace does not hold keeps its provisional note.
         if replay.get("record") and kept == opened["session_id"]:
             try:
@@ -479,6 +495,20 @@ class Workspaces:
                 )
 
         return {"video_name": name, "on_created": created}
+
+    def _timeout_of(self, session_id: str) -> int | None:
+        """The idle timeout the Grid gives this session, or None when it will
+        not say. Never fails the open that asks (session monitor spec, §6)."""
+        try:
+            return self.actions.grid.session_timeout(session_id)
+        except Exception as exc:  # noqa: BLE001 - a fact to show, not to need
+            log.info("the Grid's idle timeout is unknown: %s", type(exc).__name__)
+            return None
+
+    def _ended(self, name: str, session_id: str, cause: str) -> None:
+        """Announce that ``session_id`` ended, when there is a monitor."""
+        if self.monitor is not None:
+            self.monitor.ended(name, session_id, cause)
 
     def act(self, caller: Caller, call, *, reshapes: bool = False) -> dict:
         """Resolve this workspace's browser, act on it, remember where it ended up.
@@ -675,16 +705,22 @@ class Workspaces:
             **({"site_data": saved} if saved else {}),
             **resolved,
         )
+        timeout = self._timeout_of(opened["session_id"])
         kept = self.remember(
             name, opened["session_id"], opened.get("url", ""), resolved,
             replacing=ended, forget_site_data=forgotten is not None,
             opened_by=caller.principal.opener() if caller.principal else None,
+            grid_timeout=timeout,
         )
         if kept != opened["session_id"]:
             # A concurrent open bound first and this browser was quit: describe
             # the one the workspace holds, not the discarded one (Copilot, #50).
             # Its provisional note stays, so its video is deleted, not filed.
             return self._held(name)
+        if self.monitor is not None:
+            self.monitor.opened(
+                name, kept, resolved.get("browser") or DEFAULT_BROWSER, timeout
+            )
         noted = None
         if resolved.get("record"):
             try:
@@ -741,6 +777,7 @@ class Workspaces:
         forget_site_data: bool = False,
         report: dict | None = None,
         opened_by: dict | object | None = KEEP,
+        grid_timeout: int | None = None,
     ) -> str:
         """Bind a browser to this workspace, and say which browser it holds.
 
@@ -782,6 +819,7 @@ class Workspaces:
                 # Reset explicitly: any other bind drops an earlier reopen's report.
                 reopened={"browser": session_id, "report": report} if report else {},
                 **({} if opened_by is KEEP else {"opened_by": opened_by}),
+                grid_timeout=grid_timeout,
             )
             return fresh.visited(url, ttl=ttl), None
 
@@ -799,6 +837,8 @@ class Workspaces:
             # faults.message strips the Grid URL's credentials, which a
             # requests HTTPError quotes whole (Copilot, #50).
             log.info("could not end browser %s: %s", session_id, faults.message(exc))
+        else:
+            self._ended(name, session_id, "ended")
         return kept
 
     def touch(
@@ -914,15 +954,16 @@ class Workspaces:
             # record naming a browser that cannot be ended is worse than one
             # naming nothing, because the next call would try to use it.
             log.info("could not end browser %s: %s", target, faults.message(exc))
-        # Only a confirmed quit (a 404 counts: Grid.quit treats it as done)
-        # starts the collector's clock; after a failure the browser may still
-        # be recording, and the collector's Grid listing finds it later.
-        if quit_ok and self.recordings is not None:
-            self.recordings.ended(target)
         # Ending took a Grid round trip: detach the record as it is now, and
         # only if it still names this browser — one opened meanwhile stays.
         self.store.update(
             name, lambda r: r.detached() if r.session_id == target else None
         )
+        # Only a confirmed quit (a 404 counts: Grid.quit treats it as done) is
+        # announced, and only once detached, so a page redrawn on it never
+        # draws the old row; after a failure the session may still run, and
+        # the monitor's listing finds it later if it is watched.
+        if quit_ok:
+            self._ended(name, target, "ended")
         log.info("ended browser %s for workspace %s", target, name)
         return target

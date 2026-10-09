@@ -126,6 +126,10 @@ class Workspace:
     # Who opened the browser this workspace holds — {"kind", "username"} — for
     # the admin list. Shown, never consulted (spec 2026-10-09-admin-oidc).
     opened_by: dict | None = None
+    # Seconds the Grid lets this workspace's session sit idle before reaping
+    # it, read from its node at the last open (session monitor spec, ruling
+    # 10). Kept when the session ends; None when the Grid did not say.
+    grid_timeout: int | None = None
 
     @property
     def url(self) -> str:
@@ -174,6 +178,7 @@ class Workspace:
                 site_data=site_data if isinstance(site_data, dict) else {},
                 reopened=reopened if isinstance(reopened, dict) else {},
                 opened_by=_opener(data.get("opened_by")),
+                grid_timeout=_timeout(data.get("grid_timeout")),
             )
         except (ValueError, TypeError):
             # A malformed entry is a cache miss, not an outage.
@@ -252,6 +257,13 @@ def _opener(value) -> dict | None:
         return None
     name = value.get("username")
     return {"kind": value["kind"], "username": name if isinstance(name, str) else None}
+
+
+def _timeout(raw) -> int | None:
+    """A stored ``grid_timeout``: a positive whole number of seconds, or None."""
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw <= 0:
+        return None
+    return raw
 
 
 def _visits(raw) -> list[dict]:

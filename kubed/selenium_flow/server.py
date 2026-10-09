@@ -39,6 +39,8 @@ from .mcp import (
     skill,
     tools,
 )
+from .monitor.events import LocalBus
+from .monitor.monitor import Monitor
 from .recordings import collector as recording_collector
 from .recordings import mounts
 from .workspace import settings as workspace_settings
@@ -122,6 +124,16 @@ class SeleniumMCP:
             config.recording_dir(settings) if settings.recording.enabled else None,
         )
 
+        # Which sessions are open, ended and owed (session monitor spec): one
+        # bus, one monitor, in this process. The monitor watches by the Grid's
+        # status listing and holds a BiDi socket only for a reason that needs
+        # its events; E2 has none. Built before the collector and the
+        # workspaces, which tell it what they open, end and owe.
+        self.bus = LocalBus()
+        self.monitor = Monitor(
+            self.bus, listing=self.grid.listing, socket_url=self.grid.bidi_url
+        )
+
         # Recordings (recordings spec): the Grid films, the operator delivers to
         # the inbox, the collector files. Built before the workspaces, which tell
         # it about every recorded browser; None when recording is off.
@@ -140,11 +152,8 @@ class SeleniumMCP:
             self.collector = recording_collector.Collector(
                 self.flows,
                 inbox,
-                # The Grid's status, never a call to a session: a command sent
-                # to one is activity, and would keep it from ever being reaped.
-                live=lambda: {
-                    s["session_id"] for s in self.grid.sessions() if s.get("session_id")
-                },
+                # Says when each owed session ends, as `session.ended` below.
+                monitor=self.monitor,
                 wait=settings.recording.wait,
                 polling=mounts.polling(settings.recording.watch, inbox),
                 poll_ms=settings.recording.poll,
@@ -154,6 +163,12 @@ class SeleniumMCP:
                 "recordings: on, inbox %s, %s",
                 inbox, "polling" if self.collector.polling else "events",
             )
+            collector_ended = self.collector.ended
+            self.bus.subscribe(
+                "session.ended",
+                lambda event: collector_ended(event.session_id),
+                name="recordings",
+            )
 
         self.workspaces = Workspaces(
             self.actions,
@@ -161,6 +176,7 @@ class SeleniumMCP:
             skill_available=self.skill is not None,
             defaults=workspace_settings.from_settings(settings.session),
             recordings=self.collector,
+            monitor=self.monitor,
         )
 
         # The secrets an agent may bind, or None when none were configured.
@@ -174,12 +190,17 @@ class SeleniumMCP:
         # also admits an admin-UI JWT when `oidc.client_id` is set.
         self.doors = http_auth.doors(settings)
 
-        # The collector's task lives on the server's event loop, so it starts
-        # and stops with it. It runs only while a recording is owed.
-        collector = self.collector
+        # The bus, the monitor and the collector live on the server's event
+        # loop, so they start and stop with it: the bus first, so nothing is
+        # announced to a loop that is not there, and the monitor before the
+        # collector, which asks it to watch what its notes still owe. The two
+        # tasks run only while something is owed.
+        collector, monitor, bus = self.collector, self.monitor, self.bus
 
         @asynccontextmanager
         async def lifespan(_server):
+            bus.start()
+            await monitor.start()
             if collector is not None:
                 await collector.start()
             try:
@@ -187,6 +208,8 @@ class SeleniumMCP:
             finally:
                 if collector is not None:
                     await collector.stop()
+                await monitor.stop()
+                await bus.stop()
 
         self.mcp = FastMCP(
             "Selenium",
@@ -326,6 +349,13 @@ class SeleniumMCP:
         # A filed recording shows on every open admin page now, not a tick on.
         if self.collector is not None:
             self.collector.on_filed = broadcast.poke
+        # So does a session opening or ending; the page's poll stays for
+        # everything else.
+        self.bus.subscribe(
+            ("session.opened", "session.ended"),
+            lambda _event: broadcast.poke(),
+            name="admin",
+        )
 
     def run(
         self, transport: str = "http", host: str = "0.0.0.0", port: int = 8000

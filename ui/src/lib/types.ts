@@ -33,6 +33,7 @@ export interface WorkspaceRow {
   node?: string | null
   url?: string | null
   window?: string | null
+  grid_timeout?: number | null
   counts?: Counts | null
   files_count?: number | null
   files_rev?: string | number | null
