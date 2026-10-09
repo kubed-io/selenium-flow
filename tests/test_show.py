@@ -11,6 +11,7 @@ from fastmcp.exceptions import ToolError
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.mcp import apps, show
 from kubed.selenium_flow.server import SeleniumMCP
+from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import TOKEN
 
@@ -311,3 +312,122 @@ async def test_showing_secrets_on_a_server_without_them_says_why(flow_server):
         with pytest.raises(ToolError) as refused:
             await c.call_tool("show", {"uri": "secret://secrets"})
     assert "secrets are not enabled" in str(refused.value)
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 64
+
+
+def never(*args, **kwargs):
+    raise AssertionError("show read bytes, or opened a browser, to draw an entry")
+
+
+@pytest.mark.parametrize(
+    ("folder", "name", "uri"),
+    [
+        ("screenshots", "shot 1.png", "workspace://files/screenshots/shot%201.png"),
+        ("recordings", "run.mp4", "workspace://files/recordings/run.mp4"),
+        (None, "report.pdf", "workspace://files/report.pdf"),
+    ],
+)
+async def test_one_file_is_drawn_from_its_listing_entry(
+    flow_server, named_caller, monkeypatch, folder, name, uri
+):
+    if folder:
+        flow_server.flows.write_file(named_caller, name, PNG, folder)
+    else:
+        flow_server.flows.write_file(named_caller, name, PNG)
+    listing = uri.rpartition("/")[0]
+    monkeypatch.setattr(flow_server.flows, "read_file", never)
+    monkeypatch.setattr(flow_server.workspaces, "resolve", never)
+    async with Client(flow_server.mcp) as c:
+        shown = (await c.call_tool("show", {"uri": uri})).structured_content
+        listed = json.loads((await c.read_resource(listing))[0].text)
+    entry = next(f for f in listed["files"] if f["name"] == name)
+
+    def unsigned(e):
+        return {k: v for k, v in e.items() if k != "url"}
+
+    assert shown["component"] == "file"
+    assert shown["uri"] == uri
+    assert unsigned(shown["data"]) == unsigned(entry)
+    assert shown["data"]["url"]
+
+
+async def test_a_download_is_drawn_from_the_grids_listing(flow_server, monkeypatch):
+    monkeypatch.setattr(flow_server.workspaces, "browser", lambda name: "abc")
+    monkeypatch.setattr(flow_server.workspaces, "resolve", never)
+    monkeypatch.setattr(
+        flow_server.actions.grid,
+        "files",
+        lambda session_id: [{"name": "report.csv", "size": 3, "creationTime": 1}],
+    )
+    monkeypatch.setattr(flow_server.actions.grid, "read_file", never)
+    async with Client(flow_server.mcp) as c:
+        shown = (await c.call_tool(
+            "show", {"uri": "workspace://files/downloads/report.csv"}
+        )).structured_content
+    assert shown["component"] == "file"
+    assert shown["data"]["name"] == "report.csv"
+    assert shown["data"]["keep_with"].startswith("keep_file(")
+
+
+async def test_a_file_the_listing_lacks_is_refused_naming_the_listing(flow_server):
+    async with Client(flow_server.mcp) as c:
+        with pytest.raises(ToolError) as refused:
+            await c.call_tool("show", {"uri": "workspace://files/screenshots/gone.png"})
+    assert (
+        "no file at workspace://files/screenshots/gone.png. "
+        "workspace://files/screenshots lists what there is"
+    ) in str(refused.value)
+
+
+async def test_a_skill_page_is_drawn_from_its_text(flow_server):
+    uri = "skill://selenium-flow/references/TROUBLESHOOTING.md"
+    async with Client(flow_server.mcp) as c:
+        result = await c.call_tool("show", {"uri": uri})
+        read = (await c.read_resource(uri))[0].text
+    assert result.structured_content == {"component": "document", "uri": uri, "data": read}
+    assert read.startswith("# When something goes wrong")
+    assert [b.text for b in result.content] == [
+        f"Showing {uri} to the person (document)."
+    ]
+
+
+@pytest.mark.parametrize("uri", ["flow://schema", "skill://selenium-flow/_manifest"])
+async def test_a_json_document_is_drawn_from_its_json(flow_server, uri):
+    async with Client(flow_server.mcp) as c:
+        shown = (await c.call_tool("show", {"uri": uri})).structured_content
+        read = json.loads((await c.read_resource(uri))[0].text)
+    assert shown == {"component": "document", "uri": uri, "data": read}
+
+
+async def test_the_site_data_pair_draws_with_httponly_masked(flow_server, named_caller):
+    site = "app.example.com"
+    flow_server.workspaces.store.set(named_caller, Workspace(site_data={
+        "cookies": [
+            {"name": "sid", "value": "s3cret", "domain": site, "http_only": True},
+            {"name": "theme", "value": "dark", "domain": site},
+        ],
+        "origins": {f"https://{site}": {"local": {"k": "v"}}},
+        "session": {"origin": f"https://{site}", "items": {}},
+        "saved_at": 1000.0,
+    }).visited(f"https://{site}/x"))
+    async with Client(flow_server.mcp) as c:
+        listing = (await c.call_tool("show", {"uri": "workspace://site-data"})).structured_content
+        one = (await c.call_tool(
+            "show", {"uri": f"workspace://site-data/{site}"}
+        )).structured_content
+    assert listing["component"] == "sites"
+    assert [r["uri"] for r in listing["data"]["sites"]] == [f"workspace://site-data/{site}"]
+    assert one["component"] == "site"
+    sent = json.dumps(one, ensure_ascii=False)
+    assert "\u2022\u2022\u2022" in sent
+    assert "s3cret" not in sent
+
+
+async def test_the_description_names_the_schemes(built_ui, server):
+    with patch.object(apps, "supported", return_value=True):
+        tool = next(t for t in await server.mcp.list_tools() if t.name == "show")
+    for scheme in ("workspace://", "flow://", "secret://", "skill://"):
+        assert scheme in tool.description
+    assert "read the resource instead" in tool.description

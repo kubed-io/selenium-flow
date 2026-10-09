@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import re
 from typing import NamedTuple
+from urllib.parse import unquote
 
 from fastmcp.exceptions import NotFoundError
 from fastmcp.server.dependencies import get_context
@@ -109,28 +110,62 @@ def summary(uri: str, component: str, data) -> str:
     return f"Showing {uri} to the person ({component})."
 
 
+# The one text type `show` hands a view as text: a document is drawn from it.
+MARKDOWN = "text/markdown"
+
+DESCRIPTION = (
+    "Draw any resource this server serves - a workspace://, flow://, secret:// "
+    "or skill:// URI, as its resources and resource templates list them - for "
+    "the person to see. For you to read one, read the resource instead. The "
+    "view the person is looking at is shared with you as context."
+)
+
+
+async def _content(uri: str):
+    """A resource as a view takes it: markdown as its text, anything else as
+    its JSON."""
+    try:
+        result = await get_context().fastmcp.read_resource(uri)
+    except NotFoundError:
+        raise ValueError(f"no resource at {uri!r}") from None
+    item = result.contents[0]
+    content = item.content
+    kind = getattr(item, "mime_type", None) or ""
+    if isinstance(content, str) and kind.startswith(MARKDOWN):
+        return content
+    try:
+        return json.loads(content)
+    except (TypeError, ValueError):
+        raise ValueError(f"{uri} is not a resource show can draw") from None
+
+
+async def _entry(uri: str) -> dict:
+    """One file, as its folder's listing describes it: never its bytes. The
+    listing never opens a browser, and a download's costs the Grid call the
+    Downloads view already makes (spec 2026-10-09-show-everything, ruling 1)."""
+    listing_uri, _, leaf = uri.rpartition("/")
+    listing = await _content(listing_uri)
+    name = unquote(leaf)
+    files = listing.get("files", []) if isinstance(listing, dict) else []
+    found = next(
+        (f for f in files if isinstance(f, dict) and f.get("name") == name), None
+    )
+    if found is None:
+        raise ValueError(f"no file at {uri}. {listing_uri} lists what there is")
+    return found
+
+
 def register(mcp, app_config) -> set[str]:
     @mcp.tool(
         name=TOOL,
-        description=(
-            "Draw a resource for the person to see: "
-            + ", ".join(SHOWABLE)
-            + ". For you to read one, read the resource instead. The view the "
-            "person is looking at is shared with you as context."
-        ),
+        description=DESCRIPTION,
         app=app_config,
         annotations=reads("Show a resource"),
     )
     async def show(uri: str) -> ToolResult:
-        component = view_for(uri)
-        try:
-            result = await get_context().fastmcp.read_resource(uri)
-        except NotFoundError:
-            raise ValueError(f"no resource at {uri!r}") from None
-        try:
-            data = json.loads(result.contents[0].content)
-        except (TypeError, ValueError):
-            raise ValueError(f"{uri} is not a resource show can draw") from None
+        view = row_for(uri)
+        component = view.component
+        data = await (_entry(uri) if view.entry else _content(uri))
         payload = {"component": component, "uri": uri, "data": data}
         # Sent once, as structured content: a plain dict would go out as a JSON
         # text block too, doubling it. The model reads resources to think
