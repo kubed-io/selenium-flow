@@ -341,7 +341,7 @@ class _Writes:
 class MemoryStore(_Writes):
     """Process-local mapping. Correct for a single replica, lost on restart.
 
-    Expiry is enforced here as well as in Redis so that ``SESSION_TTL`` means
+    Expiry is enforced here as well as in Redis so that ``WORKSPACE_TTL`` means
     the same thing in both modes and a test can prove it without a server.
     """
 

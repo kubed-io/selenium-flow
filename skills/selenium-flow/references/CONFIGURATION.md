@@ -177,9 +177,10 @@ only reason it needs a volume at all.
 
 ## Two lifetimes that are easy to confuse
 
-- **The browser** is expired by the Grid, on its own idle timeout
-  (`SE_NODE_SESSION_TIMEOUT`, set on the Grid node, not here).
-- **The mapping** from a caller to its browser is expired by `SESSION_TTL`.
+- **The session** (the live browser) is expired by the Grid, on its own idle
+  timeout (`SE_NODE_SESSION_TIMEOUT`, set on the Grid node, not here).
+- **The workspace** (what the server remembers about a caller) is expired by
+  `WORKSPACE_TTL`, sliding forward on every call.
 
 Neither is a cleanup loop in this server, and there should never be one. If the
 Grid has reaped a browser we remembered, the next call notices and reopens it at
