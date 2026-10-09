@@ -36,7 +36,7 @@ test('workspacePath encodes the key', () => {
 
 test('a refusal carries its status, so a 403 can be told from the rest', async () => {
   fakeFetch({ 'GET /x': { status: 403, body: { error: 'this sign-in does not hold an admin role' } } })
-  const failed = await createApi({ base: '', token: () => 't', onUnauthorized: () => {} })('/x').catch((e) => e)
+  const failed = await createApi({ base: '', token: () => 't', onUnauthorized: () => {} })('/x').catch((e) => e) as ApiError
   expect(failed).toBeInstanceOf(ApiError)
   expect(failed.status).toBe(403)
   expect(failed.message).toBe('this sign-in does not hold an admin role')
