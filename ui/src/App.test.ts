@@ -17,6 +17,7 @@ const host = vi.hoisted(() => ({
   applyDocumentTheme: vi.fn(),
   applyHostStyleVariables: vi.fn(),
   applyHostFonts: vi.fn(),
+  openLink: vi.fn(),
 }))
 vi.mock('@modelcontextprotocol/ext-apps', () => ({
   App: class {
@@ -30,6 +31,7 @@ vi.mock('@modelcontextprotocol/ext-apps', () => ({
     callServerTool(p: unknown) { return host.callServerTool(p) }
     updateModelContext(p: unknown) { return host.updateModelContext(p) }
     requestDisplayMode(p: unknown) { return host.requestDisplayMode(p) }
+    openLink(p: unknown) { return host.openLink(p) }
   },
   applyDocumentTheme: (t: unknown) => host.applyDocumentTheme(t),
   applyHostStyleVariables: (v: unknown) => host.applyHostStyleVariables(v),
@@ -57,7 +59,7 @@ beforeEach(() => {
   host.caps0 = undefined
   host.caps = { serverTools: {} }
   host.ctx = {}
-  for (const fn of [host.callServerTool, host.updateModelContext, host.requestDisplayMode, host.applyDocumentTheme, host.applyHostStyleVariables, host.applyHostFonts]) fn.mockReset()
+  for (const fn of [host.callServerTool, host.updateModelContext, host.requestDisplayMode, host.applyDocumentTheme, host.applyHostStyleVariables, host.applyHostFonts, host.openLink]) fn.mockReset()
   host.updateModelContext.mockResolvedValue({})
   document.documentElement.style.height = ''
 })
@@ -352,4 +354,24 @@ test('a fresh show result starts its view fresh', async () => {
   await shown(secrets(['alpha', 'beta']))
   await vi.waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(2))
   expect(screen.queryByRole('button', { name: '← All secrets' })).not.toBeInTheDocument()
+})
+
+test('Back names the view it returns to', async () => {
+  host.callServerTool.mockResolvedValue({ content: [], structuredContent: FLOW })
+  render(App)
+  await shown(FLOWS)
+  await fireEvent.click(await screen.findByRole('button', { name: 'login' }))
+  const back = await screen.findByRole('button', { name: 'Back' })
+  expect(back).toHaveTextContent('← Flows')
+})
+
+test('Back under the files root says Files', async () => {
+  host.callServerTool.mockResolvedValue({ content: [], structuredContent: {
+    component: 'folder', uri: 'workspace://files/screenshots',
+    data: { workspace: 's', folder: 'screenshots', uri: 'workspace://files/screenshots', count: 0, files: [] },
+  } })
+  render(App)
+  await shown({ component: 'files', uri: 'workspace://files', data: { workspace: 's', count: 0, files: [], folders: [{ name: 'screenshots', uri: 'workspace://files/screenshots', count: 0 }] } })
+  await fireEvent.click(await screen.findByRole('button', { name: /Screenshots/ }))
+  expect(await screen.findByRole('button', { name: 'Back' })).toHaveTextContent('← Files')
 })
