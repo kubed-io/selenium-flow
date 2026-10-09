@@ -124,8 +124,19 @@ class OidcSettings(Section):
     roles_claim: str = Field(
         "roles", description="The claim holding the roles; dots walk into objects."
     )
+    client_id: str | None = Field(
+        None,
+        description=(
+            "The admin UI's public client; setting it offers Sign in with OIDC."
+        ),
+    )
+    # NoDecode, like `roles`: comma-separated in env.
+    admin_roles: Annotated[list[str], NoDecode] = Field(
+        default_factory=list,
+        description="A JWT from the admin UI holding one of these is the admin.",
+    )
 
-    @field_validator("roles", mode="before")
+    @field_validator("roles", "admin_roles", mode="before")
     @classmethod
     def _split(cls, value):
         if isinstance(value, str):
@@ -384,7 +395,10 @@ class Settings(Section):
     )
     oidc: OidcSettings = Field(
         default_factory=OidcSettings,
-        description="Accept a JWT from an OIDC issuer beside the token.",
+        description=(
+            "Accept a JWT from an OIDC issuer beside the token, "
+            "on /mcp and in the admin UI."
+        ),
     )
     grid: GridSettings = Field(
         default_factory=GridSettings, description="The Selenium Grid it drives."
@@ -719,8 +733,16 @@ def _explain(exc: ValidationError, sources: dict[str, str], path: str | None) ->
 def oidc_problem(settings: Settings) -> str | None:
     """Why this server's OIDC cannot run, or None. Checked after every layer merges."""
     oidc = settings.oidc
+    if bool(oidc.client_id) != bool(oidc.admin_roles):
+        # An empty list would let nobody in — or, read the other way, everybody.
+        return "oidc.client_id and oidc.admin_roles are set together or not at all"
     named = [oidc.issuer, oidc.audience, oidc.jwks_uri]
     if not any(named):
+        if oidc.client_id:
+            return (
+                "oidc.client_id needs oidc.issuer, oidc.audience and "
+                "oidc.jwks_uri: the admin UI signs in with the issuer /mcp trusts"
+            )
         return None
     if not all(named):
         # An issuer without an audience accepts any token that issuer ever minted.
