@@ -129,20 +129,33 @@ jobs:
       run: python scripts/generate_wiki.py
 
     # Two separate questions. `changed`: did regenerating alter the pages.
-    # `unpublished`: is the commit the submodule pins missing from the wiki's
-    # master. The second matters because tests/test_wiki.py forces the pinned
-    # commit to equal the generator's output, so a merge whose wiki commit was
-    # only ever pushed to a branch regenerates nothing and would publish nothing.
-    # Asked of the remote with ls-remote, not of history: the submodule checkout
-    # may be shallow. It has to run before any regeneration commit moves HEAD.
+    # `unpublished`: is the commit the submodule pins ahead of the wiki's master.
+    # The second matters because tests/test_wiki.py forces the pinned commit to
+    # equal the generator's output, so a merge whose wiki commit was only ever
+    # pushed to a branch regenerates nothing and would publish nothing.
+    #
+    # Only a pin that fast-forwards master is published. If the wiki was edited
+    # in the browser, master is ahead of or beside the pin; pushing would be
+    # rejected on every merge, so that case warns instead of failing. The
+    # submodule checkout is shallow and the wiki is small, so its history is
+    # fetched to answer. When `changed` is also true the regeneration commit sits
+    # on top of the pin, so that push is as fast-forward-sensitive as it ever was.
+    # This has to run before any regeneration commit moves HEAD.
     - name: Diff
       id: diff
       working-directory: wiki
       run: |
         remote=$(git ls-remote origin refs/heads/master | cut -f1)
-        if [ "$(git rev-parse HEAD)" != "$remote" ]; then
-          echo "unpublished=true" >> "$GITHUB_OUTPUT"
-          echo "The pinned wiki commit is not on the wiki's master yet." >> "$GITHUB_STEP_SUMMARY"
+        if [ -n "$remote" ] && [ "$(git rev-parse HEAD)" != "$remote" ]; then
+          git fetch --quiet --unshallow origin 2>/dev/null || git fetch --quiet origin
+          git fetch --quiet origin master
+          if git merge-base --is-ancestor FETCH_HEAD HEAD; then
+            echo "unpublished=true" >> "$GITHUB_OUTPUT"
+            echo "The pinned wiki commit is ahead of the wiki's master; publishing it." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::The wiki's master has moved past or beside the pinned commit (edited in the browser?). Not publishing the pin; bump wiki/ to include master's changes."
+            echo "The wiki's master is not behind the pinned commit; nothing published from the pin." >> "$GITHUB_STEP_SUMMARY"
+          fi
         fi
         git add -A
         if git diff --cached --quiet; then
