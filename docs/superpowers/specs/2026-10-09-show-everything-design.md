@@ -470,6 +470,11 @@ and again at the end; over budget stops the task.
    not, the file view's Open is the way to watch.
 6. **Claude advertises `openLinks`.** *Unverified*; without it Open is a plain
    link (Ruling 11).
+7. **A PDF draws inside Claude's app frame.** *Unverified* — Dr K's live
+   check. The app is already in the host's sandboxed iframe, and Chrome's PDF
+   viewer does not load under a sandbox (AGENTS.md, why a PDF link gets no
+   `sandbox`), so the file view's `<iframe>` may stay blank. If it does, a PDF
+   takes the glyph card with Open like any other non-media file.
 
 ## Next round
 
