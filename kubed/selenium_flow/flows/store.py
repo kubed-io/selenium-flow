@@ -9,7 +9,7 @@ document is as text — parsing it once, saying where it broke, summarising it �
 is ``flows.library``.
 
 **The codebase sees a directory and nothing else.** ``DATA_DIR`` points at
-one (sessions live under ``DATA_DIR/sessions``) and the installer decides what is
+one (workspaces live under ``DATA_DIR/workspaces``) and the installer decides what is
 behind it: a folder on a laptop, an
 ``emptyDir`` in this cluster, a PVC, an NFS mount. That choice is deliberately
 not ours, and it is why the backend is two small method sets rather than a
@@ -868,11 +868,11 @@ def old_layout(root: Path, inbox: str | os.PathLike | None = None) -> list[str]:
     """Session folders still at the top of the data directory, sorted.
 
     Before the recordings release a session lived at ``DATA_DIR/<name>``; it
-    lives at ``DATA_DIR/sessions/<name>`` now. One left behind would make every
+    lives at ``DATA_DIR/workspaces/<name>`` now. One left behind would make every
     flow and file it holds silently vanish, so the boot refuses and names them.
     The recordings inbox is never a session, whatever it holds: ``INBOX_DIR``
     always, and the configured ``inbox`` (``recording.dir``) when it is, or lies
-    beneath, a top-level entry. ``sessions`` and ``recordings`` are now reserved
+    beneath, a top-level entry. ``workspaces`` and ``recordings`` are now reserved
     names: either is reported as an old session only when it holds the old
     shape (regular files directly in its ``flows/``, ``files/`` or
     ``screenshots/``), and is otherwise the new layout or the inbox.
@@ -903,6 +903,31 @@ def old_layout(root: Path, inbox: str | os.PathLike | None = None) -> list[str]:
     return sorted(found)
 
 
+# The folder workspaces lived in before they were called workspaces (spec
+# 2026-10-09-workspaces-rename, ruling 3). Moved once, at boot.
+_OLD_DIR = "sessions"
+
+
+def _move_old_folder(root: Path) -> None:
+    """Rename DATA_DIR/sessions to DATA_DIR/workspaces when only the old exists.
+
+    One rename on one filesystem, so a crash leaves one name or the other,
+    never half of each. Both present is a merge only a person can do.
+    """
+    from ..config import ConfigError  # local: config imports names, not us
+
+    old, new = root / _OLD_DIR, root / WORKSPACES_DIR
+    if not _is_dir(old):
+        return
+    if os.path.lexists(new):
+        raise ConfigError(
+            f"{old} and {new} both exist: merge {_OLD_DIR}/ into "
+            f"{WORKSPACES_DIR}/ by hand, then remove {_OLD_DIR}/"
+        )
+    old.rename(new)
+    log.info("data: moved %s to %s", old, new)
+
+
 def from_settings(
     data: DataSettings, inbox: str | os.PathLike | None = None
 ) -> LocalFlowStore | None:
@@ -914,6 +939,7 @@ def from_settings(
     from ..config import ConfigError  # local: config imports names, not us
 
     try:
+        _move_old_folder(root)
         stranded = old_layout(root, inbox)
     except OSError as exc:
         # Configured and unusable stops the boot (§F4.12): a data directory
@@ -926,13 +952,13 @@ def from_settings(
         if name in stranded:
             raise ConfigError(
                 f"`{name}` in {root} is a session folder from before the "
-                f"sessions/ layout, and `{name}` is now reserved: rename it "
+                f"workspaces/ layout, and `{name}` is now reserved: rename it "
                 f"(e.g. to `{name}-old`), then move it into {root / WORKSPACES_DIR}/"
             )
     if stranded:
         raise ConfigError(
             f"{', '.join(stranded)} in {root} are session folders from before "
-            f"the sessions/ layout: move them into {root / WORKSPACES_DIR}/"
+            f"the workspaces/ layout: move them into {root / WORKSPACES_DIR}/"
         )
     log.info("flows: local, under %s", root / WORKSPACES_DIR)
     return LocalFlowStore(root / WORKSPACES_DIR)

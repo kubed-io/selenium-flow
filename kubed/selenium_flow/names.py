@@ -35,10 +35,10 @@ GLOBAL_WORKSPACE = "global"
 STDIO_WORKSPACE = "stdio"
 
 # The data directory is a root with two homes in it (recordings spec, ruling 6):
-# every session's own folder under `sessions/`, and the inbox the Grid's
+# every workspace's own folder under `workspaces/`, and the inbox the Grid's
 # recordings arrive in. Neither can collide with a session's name, because a
 # session is one level further down.
-WORKSPACES_DIR = "sessions"
+WORKSPACES_DIR = "workspaces"
 INBOX_DIR = "recordings"
 
 # Where a session's own files land. `files` IS the Files section — a print, and

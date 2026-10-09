@@ -221,7 +221,7 @@ def test_a_config_error_while_building_the_server_stops_the_boot(tmp_path, liste
     (tmp_path / "old" / "flows").mkdir(parents=True)
     with pytest.raises(SystemExit) as exc:
         main_module.main(["--data-dir", str(tmp_path)])
-    assert "move" in str(exc.value) and "sessions/" in str(exc.value)
+    assert "move" in str(exc.value) and "workspaces/" in str(exc.value)
 
 
 def test_an_unreadable_data_dir_exits_naming_it_not_a_traceback(tmp_path, listened, levels, monkeypatch):

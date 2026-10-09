@@ -28,7 +28,7 @@ class Clock:
 
 @pytest.fixture
 def parts(tmp_path):
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     alive = {GID}
@@ -118,7 +118,7 @@ async def test_a_discarded_video_settles_before_it_is_deleted(parts):
 async def test_a_settling_file_in_a_quiet_inbox_is_filed_without_waiting_a_tick(tmp_path):
     """Nothing changes in the inbox once a file is finished, so the watch has
     to time out to look again: after ``settle``, not after a tick."""
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     filed = []
@@ -365,7 +365,7 @@ async def test_one_listing_a_tick_however_many_are_owed(tmp_path):
     """Liveness comes from the Grid's status, never from touching a session (a
     command a node counts as activity, so asking would keep it alive forever),
     and one listing serves every owed browser and both branches for a tick."""
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     ids = [f"{n:032x}" for n in range(1, 5)]
@@ -394,7 +394,7 @@ async def test_a_cut_off_file_whose_browser_is_gone_marks_it_ended(parts):
 
 
 async def test_a_grid_that_cannot_list_means_every_browser_lives(tmp_path, caplog):
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     live, clock = Listing(fails=True), Clock()
@@ -411,7 +411,7 @@ async def test_a_grid_that_cannot_list_means_every_browser_lives(tmp_path, caplo
 
 
 async def test_a_failed_sweep_is_retried_a_tick_later(tmp_path, caplog):
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     filed = []
@@ -443,7 +443,7 @@ async def test_a_failed_sweep_is_retried_a_tick_later(tmp_path, caplog):
 
 
 async def test_a_note_that_cannot_be_read_is_skipped_by_workspace(tmp_path, caplog):
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     other = "0123456789abcdef0123456789abcdef"
@@ -488,7 +488,7 @@ async def test_an_inbox_copy_that_cannot_be_removed_is_filed_once(parts, caplog)
 async def test_a_note_with_an_impossible_time_is_skipped_not_fatal(tmp_path, caplog, field):
     """Overflow at boot would stop the lifespan; a year past gmtime's range
     would fail every sweep and starve every other recording."""
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     other = "0123456789abcdef0123456789abcdef"
@@ -713,7 +713,7 @@ async def test_a_note_that_cannot_be_deleted_stays_owed_until_it_is(parts, caplo
 async def test_a_filed_note_after_a_restart_is_only_deleted(tmp_path):
     """A note that says it was filed, and the inbox copy that could not be
     removed: the next process deletes the note and files nothing."""
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     store.write_note("bot", GID, {
@@ -761,7 +761,7 @@ async def test_notes_that_cannot_be_read_at_boot_are_read_on_a_later_tick(
     skipped."""
     from pathlib import Path
 
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     store.write_note("bot", GID, {"opened": 1_791_500_000_000, "browser": "chrome"})
@@ -815,7 +815,7 @@ def _eio_on(path, monkeypatch):
 
 
 async def test_one_workspace_that_cannot_be_read_does_not_block_another(tmp_path, monkeypatch, caplog):
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     other = "0123456789abcdef0123456789abcdef"
@@ -847,7 +847,7 @@ async def test_one_workspace_that_cannot_be_read_does_not_block_another(tmp_path
 async def test_a_stop_during_a_filing_lets_it_finish_and_mark_its_note(tmp_path):
     """A rolling deploy mid-copy: the move completes in its thread, so its note
     must be settled too, or the next process files the inbox copy again."""
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     store.write_note("bot", GID, {"opened": 1_791_500_000_000, "browser": "chrome"})
@@ -878,7 +878,7 @@ async def test_a_stop_during_a_filing_lets_it_finish_and_mark_its_note(tmp_path)
 
 
 async def test_a_note_found_done_that_cannot_be_deleted_is_logged_once(tmp_path, caplog):
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     store.write_note("bot", GID, {"opened": 1_791_500_000_000, "filed": "rec.mp4"})
@@ -898,7 +898,7 @@ async def test_a_note_found_done_that_cannot_be_deleted_is_logged_once(tmp_path,
 
 
 async def test_a_failed_sweep_with_only_notes_unread_says_so(tmp_path, monkeypatch, caplog):
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
 
@@ -928,7 +928,7 @@ async def test_a_stale_read_of_the_notes_never_brings_a_filed_one_back(tmp_path)
     it back, unmarked, when it lands after."""
     import threading
 
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     filed = []

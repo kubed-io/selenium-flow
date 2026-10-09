@@ -434,7 +434,7 @@ def test_an_explicit_directory_is_used_and_trimmed(tmp_path):
     ))
     assert server.flows is not None
     server.flows.save("bot", "login", {"steps": []})
-    assert (tmp_path / "sessions" / "bot" / "flows" / "login.yaml").is_file()
+    assert (tmp_path / "workspaces" / "bot" / "flows" / "login.yaml").is_file()
 
 
 # ---- what the second review caught ------------------------------------------
@@ -773,7 +773,7 @@ def test_a_replaced_document_keeps_its_mode(store, tmp_path):
 def test_workspaces_live_under_sessions(tmp_path):
     store = flowstore.from_settings(DataSettings(dir=str(tmp_path)))
     store.write_file("bot", "a.txt", b"x")
-    assert (tmp_path / "sessions" / "bot" / "files" / "a.txt").read_bytes() == b"x"
+    assert (tmp_path / "workspaces" / "bot" / "files" / "a.txt").read_bytes() == b"x"
 
 
 def test_an_old_layout_stops_the_boot_and_names_what_to_move(tmp_path):
@@ -783,7 +783,7 @@ def test_an_old_layout_stops_the_boot_and_names_what_to_move(tmp_path):
     with pytest.raises(ConfigError) as exc:
         flowstore.from_settings(DataSettings(dir=str(tmp_path)))
     assert "claudecode, global" in str(exc.value)
-    assert "sessions/" in str(exc.value)
+    assert "workspaces/" in str(exc.value)
 
 
 @pytest.mark.parametrize("inner", ["files", "flows", "screenshots", "x/files"])
@@ -819,13 +819,13 @@ def _touch(path):
 
 
 def test_an_old_workspace_named_sessions_is_refused(tmp_path):
-    _touch(tmp_path / "sessions" / "flows" / "a.yaml")
-    with pytest.raises(ConfigError, match=r"`sessions`.*reserved.*sessions-old"):
+    _touch(tmp_path / "workspaces" / "flows" / "a.yaml")
+    with pytest.raises(ConfigError, match=r"`workspaces`.*reserved.*workspaces-old"):
         flowstore.from_settings(DataSettings(dir=str(tmp_path)))
 
 
 def test_a_new_workspace_named_flows_boots(tmp_path):
-    _touch(tmp_path / "sessions" / "flows" / "flows" / "a.yaml")
+    _touch(tmp_path / "workspaces" / "flows" / "flows" / "a.yaml")
     assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
 
 
@@ -848,21 +848,21 @@ def test_an_image_under_recordings_screenshots_is_an_old_workspace(tmp_path):
 
 @pytest.mark.parametrize("folder", ["files", "screenshots"])
 def test_an_old_sessions_folder_holding_a_file_is_refused(tmp_path, folder):
-    _touch(tmp_path / "sessions" / folder / "a.bin")
-    with pytest.raises(ConfigError, match=r"`sessions`"):
+    _touch(tmp_path / "workspaces" / folder / "a.bin")
+    with pytest.raises(ConfigError, match=r"`workspaces`"):
         flowstore.from_settings(DataSettings(dir=str(tmp_path)))
 
 
 def test_a_symlinked_sessions_flows_is_skipped(tmp_path):
     _touch(tmp_path / "elsewhere" / "a.yaml")
-    (tmp_path / "sessions").mkdir()
-    (tmp_path / "sessions" / "flows").symlink_to(tmp_path / "elsewhere")
+    (tmp_path / "workspaces").mkdir()
+    (tmp_path / "workspaces" / "flows").symlink_to(tmp_path / "elsewhere")
     assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
 
 
 @pytest.mark.parametrize("fn_name", ["stat", "scandir"])
 def test_a_fault_reading_a_reserved_folder_stops_the_boot(tmp_path, monkeypatch, fn_name):
-    _touch(tmp_path / "sessions" / "flows" / "a.yaml")
+    _touch(tmp_path / "workspaces" / "flows" / "a.yaml")
     _stat_eio_on(monkeypatch, fn_name, "flows")
     with pytest.raises(ConfigError, match="OSError"):
         flowstore.from_settings(DataSettings(dir=str(tmp_path)))
@@ -919,3 +919,31 @@ def test_a_recording_dir_nothing_collects_from_hides_no_old_workspace(tmp_path):
             data={"dir": str(tmp_path)},
             recording={"dir": str(tmp_path / "bot" / "inbox")},
         ))
+
+
+def test_the_sessions_folder_becomes_the_workspaces_folder_once(tmp_path):
+    flows = tmp_path / "sessions" / "desk" / "flows"
+    flows.mkdir(parents=True)
+    (flows / "login.yaml").write_text("steps: []\n")
+    store = flowstore.from_settings(DataSettings(dir=str(tmp_path)))
+    assert store is not None
+    assert not (tmp_path / "sessions").exists()
+    assert (tmp_path / "workspaces" / "desk" / "flows" / "login.yaml").is_file()
+    # A second boot finds nothing to move and stays up.
+    assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
+
+
+def test_both_folders_stop_the_boot_naming_both(tmp_path):
+    (tmp_path / "sessions" / "a").mkdir(parents=True)
+    (tmp_path / "workspaces" / "b").mkdir(parents=True)
+    with pytest.raises(ConfigError) as exc:
+        flowstore.from_settings(DataSettings(dir=str(tmp_path)))
+    message = str(exc.value)
+    assert str(tmp_path / "sessions") in message
+    assert str(tmp_path / "workspaces") in message
+    assert (tmp_path / "sessions" / "a").is_dir()  # nothing was moved
+
+
+def test_a_fresh_data_directory_has_nothing_to_move(tmp_path):
+    assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
+    assert not (tmp_path / "sessions").exists()

@@ -120,7 +120,7 @@ def test_a_reap_replays_record_and_expects_the_new_browser():
 def test_a_note_that_cannot_be_written_keeps_the_browser_and_says_why():
     class Broken(Recorder):
         def expect(self, session, grid_id, browser, *, discard=False):
-            raise PermissionError(13, "denied", "/data/sessions/bot/recordings")
+            raise PermissionError(13, "denied", "/data/workspaces/bot/recordings")
 
     m = manager(Broken())
     result = m.open_browser(caller(), record=True)
@@ -161,42 +161,42 @@ def recording_at(data_dir, inbox=None):
 
 
 @pytest.mark.parametrize("inbox", [
-    "sessions/bot/recordings",  # inside: half-written videos listed as files
-    "sessions",
+    "workspaces/bot/recordings",  # inside: half-written videos listed as files
+    "workspaces",
     ".",  # above: the collector would sweep every session folder
     "/",
 ])
 def test_an_inbox_overlapping_the_workspaces_does_not_boot(tmp_path, inbox):
     problem = recording_at(tmp_path, tmp_path / inbox)
     assert problem and "must not overlap" in problem
-    assert str((tmp_path / "sessions").resolve()) in problem
+    assert str((tmp_path / "workspaces").resolve()) in problem
 
 
 def test_a_relative_inbox_is_compared_where_the_server_opens_it(
     tmp_path, monkeypatch
 ):
     monkeypatch.chdir(tmp_path)
-    assert "must not overlap" in recording_at(tmp_path, "sessions/bot/inbox")
+    assert "must not overlap" in recording_at(tmp_path, "workspaces/bot/inbox")
     assert recording_at(tmp_path, "inbox") is None
 
 
 def test_the_default_inbox_and_a_sibling_are_apart_from_the_workspaces(tmp_path):
     assert recording_at(tmp_path) is None
     assert recording_at(tmp_path, tmp_path / "videos") is None
-    assert recording_at(tmp_path, tmp_path / "sessions-inbox") is None
+    assert recording_at(tmp_path, tmp_path / "workspaces-inbox") is None
 
 
 def test_a_disabled_recorder_may_name_any_inbox(tmp_path):
     assert config.recording_problem(config.Settings(
         data={"dir": str(tmp_path)},
-        recording={"dir": str(tmp_path / "sessions")},
+        recording={"dir": str(tmp_path / "workspaces")},
     )) is None
 
 
 def test_a_reap_survives_a_note_that_cannot_be_written():
     class Broken(Recorder):
         def expect(self, session, grid_id, browser, *, discard=False):
-            raise PermissionError(13, "denied", "/data/sessions/bot/recordings")
+            raise PermissionError(13, "denied", "/data/workspaces/bot/recordings")
 
     m = manager(Recorder())
     m.open_browser(caller(), record=True)
@@ -295,7 +295,7 @@ def test_an_unrecorded_open_notes_nothing():
 def test_a_discard_that_cannot_be_noted_never_fails_the_open(caplog):
     class Broken(Recorder):
         def expect(self, session, grid_id, browser, *, discard=False):
-            raise PermissionError(13, "denied", "/data/sessions/bot/recordings")
+            raise PermissionError(13, "denied", "/data/workspaces/bot/recordings")
 
     m = manager(Broken())
     real = m.actions.open_session

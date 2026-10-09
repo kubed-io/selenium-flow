@@ -1,6 +1,6 @@
 """The collector: files each owed recording into its session as it finishes.
 
-**The queue is the notes on disk** (``sessions/<name>/recordings/.pending/
+**The queue is the notes on disk** (``workspaces/<name>/recordings/.pending/
 <gridId>.json``), written when a recorded browser opens; **the engine is one
 task per process**, which runs only while a recording is owed and ends when
 none is — the shape the admin broadcast has (AGENTS.md: a bounded wait for

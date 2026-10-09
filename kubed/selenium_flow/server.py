@@ -79,7 +79,7 @@ class SeleniumMCP:
             dict(sources) if sources is not None else config.sources_for(settings)
         )
         self.grid = Grid(settings.grid.url)
-        # Redis or memory per session.store. The store is only ever a
+        # Redis or memory per workspace.store. The store is only ever a
         # key -> session record map; the browser is on the Grid either way.
         # Resolved before the actions, because the pointer store is derived
         # from it.

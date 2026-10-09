@@ -200,7 +200,7 @@ class DataSettings(Section):
     dir: str | None = Field(
         None,
         description=(
-            "Where sessions and recordings live. Unset turns flows, kept files "
+            "Where workspaces and recordings live. Unset turns flows, kept files "
             "and recordings off."
         ),
     )
@@ -403,7 +403,7 @@ class Settings(Section):
     )
     data: DataSettings = Field(
         default_factory=DataSettings,
-        description="Where sessions, their flows and files, and recordings live.",
+        description="Where workspaces, their flows and files, and recordings live.",
     )
     recording: RecordingSettings = Field(
         default_factory=RecordingSettings,
@@ -736,8 +736,8 @@ def oidc_problem(settings: Settings) -> str | None:
 
 
 RETIRED_FLOW = (
-    "FLOW_DATA_DIR is now DATA_DIR, and session folders live under "
-    "DATA_DIR/sessions/ — move them there once, then set DATA_DIR"
+    "FLOW_DATA_DIR is now DATA_DIR, and workspace folders live under "
+    "DATA_DIR/workspaces/ — move them there once, then set DATA_DIR"
 )
 
 
@@ -858,16 +858,23 @@ def load(
 def recording_problem(settings: Settings) -> str | None:
     """Why recording cannot run, or None. Checked after every layer merges."""
     if settings.recording.enabled and not settings.data.dir:
-        return "recording.enabled needs data.dir: a recording is filed into its session"
+        return (
+            "recording.enabled needs data.dir: a recording is filed into its "
+            "workspace"
+        )
     if settings.recording.enabled:
         # Resolved as the server opens them: relative to the working directory.
         inbox = Path(recording_dir(settings)).resolve()
-        sessions = (Path(settings.data.dir) / WORKSPACES_DIR).resolve()
-        if inbox == sessions or sessions in inbox.parents or inbox in sessions.parents:
+        workspaces = (Path(settings.data.dir) / WORKSPACES_DIR).resolve()
+        if (
+            inbox == workspaces
+            or workspaces in inbox.parents
+            or inbox in workspaces.parents
+        ):
             return (
-                f"recording.dir {inbox} must not overlap {sessions}: inside it, "
-                "unfinished videos show as a session's files; above it, the "
-                "collector sweeps every session"
+                f"recording.dir {inbox} must not overlap {workspaces}: inside it, "
+                "unfinished videos show as a workspace's files; above it, the "
+                "collector sweeps every workspace"
             )
     return None
 

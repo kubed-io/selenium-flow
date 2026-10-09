@@ -19,7 +19,7 @@ Both backends honour ``ttl`` so that swapping one for the other cannot change
 behaviour. Redis does it natively with ``EX``; memory keeps an expiry stamp and
 treats a lapsed entry as absent.
 
-Selection is explicit via ``session.store`` in the config. Left unset it infers
+Selection is explicit via ``workspace.store`` in the config. Left unset it infers
 redis from ``redis.host`` or ``redis.url`` being set, so an existing deployment
 keeps working.
 """

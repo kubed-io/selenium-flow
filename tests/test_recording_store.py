@@ -24,7 +24,7 @@ GID = "8f3d6dc2a1b04e6f9c1d2e3f4a5b6c7d"
 
 @pytest.fixture
 def store(tmp_path):
-    return flows.LocalFlowStore(tmp_path / "sessions")
+    return flows.LocalFlowStore(tmp_path / "workspaces")
 
 
 def test_recordings_is_a_folder(store):
