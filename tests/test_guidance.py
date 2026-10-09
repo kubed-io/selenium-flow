@@ -1,8 +1,8 @@
 """Pointing a caller at the manual, in one shape and at the right moment.
 
 Two emitters build a `skill://` URI: a failed flow run says which reference
-explains that kind of failure, and the session status says which explains
-sessions. They built the same URI two different ways — one from a `REFERENCES`
+explains that kind of failure, and the workspace status says which explains
+workspaces. They built the same URI two different ways — one from a `REFERENCES`
 constant, one as a hardcoded literal — which is two places for the same string
 to be wrong.
 
@@ -80,18 +80,18 @@ def test_the_session_status_omits_guidance_when_no_skill_is_served():
     """Same rule, the other emitter."""
     from kubed.selenium_flow.core.actions import Actions
     from kubed.selenium_flow.core.browser import Grid
-    from kubed.selenium_flow.session.sessions import Caller, SessionManager
+    from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
     actions = Actions(Grid("http://grid.invalid:4444"))
-    served = SessionManager(actions, skill_available=True)
-    silent = SessionManager(actions, skill_available=False)
-    assert "SESSIONS.md" in served.describe(Caller("someone"))["guidance"]
+    served = Workspaces(actions, skill_available=True)
+    silent = Workspaces(actions, skill_available=False)
+    assert "WORKSPACES.md" in served.describe(Caller("someone"))["guidance"]
     assert "guidance" not in silent.describe(Caller("someone"))
 
 
 def test_the_emitted_shapes_are_exactly_what_they_were():
     """The contract does not move: a run's hint is an object with `read`, the
-    session status's guidance is a bare string. Sharing the construction must
+    workspace status's guidance is a bare string. Sharing the construction must
     not change either, and this is the test that says so."""
     from kubed.selenium_flow.flows.report import hint_for
 

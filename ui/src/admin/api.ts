@@ -22,5 +22,5 @@ export function createApi(opts: { base: string; token: () => string; onUnauthori
   }
 }
 
-export const sessionPath = (key: string, rest = ''): string =>
-  '/admin/sessions/' + encodeURIComponent(key) + rest
+export const workspacePath = (key: string, rest = ''): string =>
+  '/admin/workspaces/' + encodeURIComponent(key) + rest

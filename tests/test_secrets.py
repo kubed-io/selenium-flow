@@ -398,7 +398,7 @@ def test_the_endpoint_serves_the_catalogue_and_needs_the_token(secret_server):
     client = TestClient(secret_server.mcp.http_app())
     assert client.get("/secrets").status_code == 401
     response = client.get(
-        "/secrets", headers={"Authorization": f"Bearer {TOKEN}", "X-Session-Key": NAMED}
+        "/secrets", headers={"Authorization": f"Bearer {TOKEN}", "X-Workspace": NAMED}
     )
     assert response.status_code == 200
     assert response.json()["secrets"][0]["name"] == "nextcloud-admin"
@@ -543,7 +543,7 @@ def test_an_unrestricted_secret_binds_anywhere(bindable):
 @pytest.mark.parametrize("tool", ["execute_script", "navigate", "press_key", "extract"])
 def test_only_write_may_receive_a_secret(bindable, tool):
     """A script is arbitrary code; a URL lands in history, the referrer and our
-    own session record. Neither may carry a credential (§F1.28)."""
+    own workspace record. Neither may carry a credential (§F1.28)."""
     with pytest.raises(secrets.Refused, match="cannot be bound into"):
         secrets.bind(
             bindable, {"name": "anywhere", "key": "token"},
@@ -743,10 +743,10 @@ def bound_http(tmp_path, monkeypatch):
         auth={"token": TOKEN},
         secrets={"dirs": str(tmp_path)},
     ))
-    # A named session holding a browser: this surface addresses one by naming
+    # A named workspace holding a browser: this surface addresses one by naming
     # itself now, so there is no id to put in the body (§F2.13).
-    monkeypatch.setattr(server.sessions, "resolve", lambda name: "b1")
-    client = TestClient(server.mcp.http_app(), headers={"X-Session-Key": "desktop"})
+    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "b1")
+    client = TestClient(server.mcp.http_app(), headers={"X-Workspace": "desktop"})
     return client, typed
 
 
@@ -857,7 +857,7 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
 ):
     """The third surface of the same rule. It decided by comparing the URL with
     its scrubbed form, so a secret whose value is the marker compared equal and
-    the credential URL went into the session record — from where a reattach
+    the credential URL went into the workspace record — from where a reattach
     would have navigated back to it.
     """
     from kubed.selenium_flow.flows import run as flowrun
@@ -877,7 +877,7 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
         secrets={"dirs": str(tmp_path)},
     ))
     calling_as(monkeypatch, NAMED)
-    monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "browser-1")
     monkeypatch.setattr(
         server.actions, "page",
         lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
@@ -893,7 +893,7 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
     )
     touched = []
     monkeypatch.setattr(
-        server.sessions, "touch",
+        server.workspaces, "touch",
         lambda name, url, browser=None: touched.append((url, browser)),
     )
 
@@ -903,8 +903,8 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
         secret={"name": "nextcloud", "key": "password"},
     )
     # The page the value reached is never remembered, whatever the value is —
-    # but the session is still touched, because withholding the page must not
-    # also stop the clock that keeps the session alive.
+    # but the workspace is still touched, because withholding the page must not
+    # also stop the clock that keeps the workspace alive.
     assert touched == [(None, "browser-1")], "touched as the browser it resolved"
     assert result["url"] == f"https://nc.example.com/?q={flowrun.HIDDEN}"
 
@@ -913,7 +913,7 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
     tmp_path, monkeypatch
 ):
     """The other half: refusing to remember every bound write would lose the
-    session's page for the ordinary case, where the value never reaches the URL.
+    workspace's page for the ordinary case, where the value never reaches the URL.
     """
     from kubed.selenium_flow.server import SeleniumMCP
 
@@ -931,7 +931,7 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
         secrets={"dirs": str(tmp_path)},
     ))
     calling_as(monkeypatch, NAMED)
-    monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "browser-1")
     monkeypatch.setattr(
         server.actions, "page",
         lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
@@ -944,7 +944,7 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
     )
     touched = []
     monkeypatch.setattr(
-        server.sessions, "touch", lambda name, url, browser=None: touched.append((url, browser))
+        server.workspaces, "touch", lambda name, url, browser=None: touched.append((url, browser))
     )
 
     write = await server.mcp.get_tool("write")
@@ -975,7 +975,7 @@ def _direct(tmp_path, monkeypatch, write):
         secrets={"dirs": str(tmp_path)},
     ))
     calling_as(monkeypatch, NAMED)
-    monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "browser-1")
     monkeypatch.setattr(
         server.actions, "page",
         lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
@@ -983,7 +983,7 @@ def _direct(tmp_path, monkeypatch, write):
     monkeypatch.setattr(server.actions, "write", write)
     touched = []
     monkeypatch.setattr(
-        server.sessions, "touch",
+        server.workspaces, "touch",
         lambda name, url, browser=None: touched.append((url, browser)),
     )
     return server, touched
@@ -1051,7 +1051,7 @@ async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
         secrets={"dirs": str(tmp_path)},
     ))
     calling_as(monkeypatch, NAMED)
-    monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "browser-1")
     monkeypatch.setattr(
         server.actions, "page",
         lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
@@ -1062,8 +1062,8 @@ async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
             "value": None, "url": "https://nc.example.com/home", "title": "Home",
         },
     )
-    report = {"restored": ["nc.example.com"], "skipped": [], "uri": "session://site-data"}
-    monkeypatch.setattr(server.sessions, "touch", lambda name, url, browser=None: report)
+    report = {"restored": ["nc.example.com"], "skipped": [], "uri": "workspace://site-data"}
+    monkeypatch.setattr(server.workspaces, "touch", lambda name, url, browser=None: report)
 
     write = await server.mcp.get_tool("write")
     result = write.fn(
@@ -1094,35 +1094,35 @@ def test_an_http_binding_naming_two_sources_is_refused(bound_http, monkeypatch):
     assert typed == []
 
 
-def test_a_session_in_use_is_kept_alive_even_when_its_page_is_withheld():
+def test_a_workspace_in_use_is_kept_alive_even_when_its_page_is_withheld():
     """`touch` slides the TTL as well as recording the page, and the two are
     separate facts. A login flow binding a secret every few minutes — the exact
     thing secrets exist for — expired out of the store *because* its URL was
     correctly kept out of it.
 
-    Driven through `touch` rather than the store: `SessionRecord.at` has always
+    Driven through `touch` rather than the store: `Workspace.at` has always
     kept the old page when given nothing, and it was `touch`'s own early return
     that threw the refresh away. A test on the store would have passed
     throughout.
     """
-    from kubed.selenium_flow.session.store import MemoryStore, SessionRecord
+    from kubed.selenium_flow.workspace.store import MemoryStore, Workspace
 
     from .conftest import NAMED, manager
 
     clock = [1000.0]
     store = MemoryStore(ttl=60, clock=lambda: clock[0])
     store.set(
-        NAMED, SessionRecord(session_id="browser-1").visited("https://nc.test/home")
+        NAMED, Workspace(session_id="browser-1").visited("https://nc.test/home")
     )
-    sessions = manager(store=store)
+    workspaces = manager(store=store)
 
     clock[0] += 50
     # The page is withheld, the way a bound write withholds it.
-    sessions.touch(NAMED, None)
+    workspaces.touch(NAMED, None)
 
     clock[0] += 50  # past the original expiry, inside the slid one
     kept = store.get(NAMED)
-    assert kept is not None, "the session expired while it was being used"
+    assert kept is not None, "the workspace expired while it was being used"
     # And the page it already knew survives being touched with nothing.
     assert kept.url == "https://nc.test/home"
 
@@ -1229,7 +1229,7 @@ async def test_the_http_catalogue_is_in_the_published_contract(secret_server):
     assert operation["x-mcp-resource"] == secrets.LIST_URI
 
     body = TestClient(secret_server.mcp.http_app()).get(
-        "/secrets", headers={"Authorization": f"Bearer {TOKEN}", "X-Session-Key": NAMED}
+        "/secrets", headers={"Authorization": f"Bearer {TOKEN}", "X-Workspace": NAMED}
     ).json()
     schemas = spec["components"]["schemas"]
     assert not set(body) - set(schemas["SecretList"]["properties"])

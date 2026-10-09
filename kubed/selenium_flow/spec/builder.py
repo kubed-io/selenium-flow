@@ -11,14 +11,14 @@ row in ``core/capabilities.py``, so an action cannot be declared without one.
 
 **No transform is applied on the way through, and that is new.** There used to
 be three sanctioned differences, all of them consequences of the HTTP surface
-having no session of its own: ``session_id`` became required, ``fresh`` was
-dropped because there was no session to be fresh *from*, and ``upload_file``
+having no workspace of its own: ``session_id`` became required, ``fresh`` was
+dropped because there was no workspace to be fresh *from*, and ``upload_file``
 gained a ``session`` field so a kept file could name a library. §F2.12 and
 §F2.13 removed the cause rather than the symptoms — both surfaces now name a
-session the same way — so a request body here is exactly the tool's schema, and
-a test asserts it.
+workspace the same way — so a request body here is exactly the tool's schema,
+and a test asserts it.
 
-What is described here and not in a tool schema is the session itself, as the
+What is described here and not in a tool schema is the workspace itself, as the
 header and query parameter every operation takes. That is not a body field on
 either surface, which is the whole point of it.
 
@@ -49,9 +49,9 @@ from .schemas import (
     READY,
     RESPONSES,
     SECRET_SCHEMAS,
-    SESSION_PARAMETERS,
     SITE_DATA_SCHEMAS,
     STARTED,
+    WORKSPACE_PARAMETERS,
 )
 
 # One schema per question, because the ops endpoints answer different ones.
@@ -62,11 +62,10 @@ Every operation here is also an MCP tool at `{mount}/mcp`, backed by the same co
 the request schemas in this document are generated from those tools, so the two
 surfaces cannot describe different things.
 
-Name your session on every request — an `X-Session-Key` header (or
-`X-Workspace`, the same header by another name) or `?session=` — and every
-call is about that session's browser. Sending both is a 400, and so is
-sending neither on anything that touches a browser. There is no browser id
-in this API.
+Name your workspace on every request — an `X-Workspace` header or
+`?workspace=` — and every call is about that workspace's browser. Sending both
+is a 400, and so is sending neither on anything that touches a browser. There
+is no browser id in this API.
 
 `POST {mount}/browser` opens yours, `DELETE {mount}/browser` ends it when you
 are finished — do that even after a failure, or it holds a Grid slot until it
@@ -85,8 +84,10 @@ PLACEHOLDER_VERSION = "0.0.0"
 # a model rather than as what the operation is. Keyed by capability, so a new
 # row on the resource without one fails the build rather than going unnamed.
 RESOURCE_SUMMARIES = {
-    "open_session": "Open this session's browser, or pick up the one it was using.",
-    "end_browser": "Quit the browser, keeping the session and its context.",
+    "open_session": (
+        "Open a session in this workspace, or pick up the one it was using."
+    ),
+    "end_browser": "Quit the browser, keeping the workspace and its context.",
 }
 
 
@@ -143,7 +144,7 @@ async def build_spec(
         schemas[response_name] = row.response
 
         route = f"{browser_root}/{path}" + ("/{action}" if row.in_path else "")
-        parameters = list(SESSION_PARAMETERS)
+        parameters = list(WORKSPACE_PARAMETERS)
         if row.in_path:
             # The mouse action is the path, not a field: /browser/interact/click
             # reads as the thing it does, and the enum is already closed.
@@ -233,7 +234,7 @@ async def build_spec(
         paths.setdefault(browser_root, {})[row.http_method.lower()] = {
             "operationId": action,
             "x-mcp-tool": action,
-            "parameters": list(SESSION_PARAMETERS),
+            "parameters": list(WORKSPACE_PARAMETERS),
             "summary": summary,
             "description": tool.description or "",
             "tags": ["browser"],
@@ -255,7 +256,7 @@ async def build_spec(
                     },
                 },
                 "400": _error(
-                    "The request cannot succeed as sent — no session named, two "
+                    "The request cannot succeed as sent — no workspace named, two "
                     "names given, or a setting that was rejected."
                 ),
                 "401": _error("Missing or wrong bearer token."),
@@ -269,24 +270,24 @@ async def build_spec(
 
     from ..mcp import resources as status
 
-    schemas["SessionStatus"] = RESPONSES["current_session"]
+    schemas["WorkspaceStatus"] = RESPONSES["current_workspace"]
     paths.setdefault(browser_root, {})["get"] = {
-        "operationId": "currentSession",
+        "operationId": "currentWorkspace",
         "x-mcp-resource": status.RESOURCE_URI,
-        "parameters": list(SESSION_PARAMETERS),
-        "summary": "What this session is, and whether it holds a browser.",
+        "parameters": list(WORKSPACE_PARAMETERS),
+        "summary": "What this workspace is, and whether it holds a browser.",
         "description": status.DESCRIPTION,
         "tags": ["browser"],
         "responses": {
             "200": {
-                "description": "The session's current state. Opens nothing.",
+                "description": "The workspace's current state. Opens nothing.",
                 "content": {
                     "application/json": {
-                        "schema": {"$ref": "#/components/schemas/SessionStatus"}
+                        "schema": {"$ref": "#/components/schemas/WorkspaceStatus"}
                     }
                 },
             },
-            "400": _error("No session named, or two names given."),
+            "400": _error("No workspace named, or two names given."),
             "401": _error("Missing or wrong bearer token."),
         },
     }
@@ -413,7 +414,7 @@ async def build_spec(
             {
                 "name": "files",
                 "description": (
-                    "What a session has downloaded, and what it has kept "
+                    "What a workspace has downloaded, and what it has kept "
                     "beyond the browser that downloaded it."
                 ),
             },
@@ -497,7 +498,7 @@ def _request_content(action: str, request_name: str) -> dict:
                     "file": {
                         "type": "string",
                         "description": (
-                            "The uri of a file this session has — a screenshot, "
+                            "The uri of a file this workspace has — a screenshot, "
                             "a download, or a file in Files — instead of "
                             "sending any bytes at all. Exactly one source: a "
                             "content part, text, file, or path."
@@ -508,7 +509,7 @@ def _request_content(action: str, request_name: str) -> dict:
                 },
                 # Nothing is required: the input is addressed by EITHER xpath
                 # OR css, which this hand-written schema cannot say without a
-                # oneOf, and the session is a header rather than a field.
+                # oneOf, and the workspace is a header rather than a field.
                 # `browser.locator` enforces the selector rule at the boundary
                 # and returns a 400 naming both, exactly as it does for a JSON
                 # body.
@@ -517,10 +518,10 @@ def _request_content(action: str, request_name: str) -> dict:
     return content
 
 
-# The session every operation is about, named the way §F2.13 says: a header, or
+# The workspace every operation is about, named the way §F2.13 says: a header, or
 # a query parameter, and never a body field or a path segment. Published on
 # every operation because it is how a caller says who it is, and a generated
-# client that cannot see it cannot hold a session at all.
+# client that cannot see it cannot name a workspace at all.
 def _named_in_path(template: str) -> list[dict]:
     """The path parameters a route template declares, in order.
 
@@ -592,19 +593,19 @@ def _camel(name: str) -> str:
 # The /flows surface, written by hand.
 #
 # Unlike the browser endpoints, these are not derived from tool schemas: their
-# request bodies are a document plus a session name, not an action's arguments.
+# request bodies are a document plus a workspace name, not an action's arguments.
 # That makes them the same kind of liability `_request_content`'s multipart form
 # turned out to be — a hand-written schema next to derived ones drifts, quietly,
 # and only a test notices. `test_openapi.py` holds the path list to
 # `flowapi.FLOW_ENDPOINTS` for exactly that reason.
 
-# A session name is optional everywhere and defaults to the shared library, the
+# A workspace name is optional everywhere and defaults to the shared library, the
 # same way it does on the MCP surface for a caller with no name of its own.
 # The write endpoints need a different sentence. Falling back to `global` is
 # right for a read and is a *refusal* for a write, so advertising the same
 # default on both would hand a generated client a 400 it had no way to see
 # coming. It is still not `required`, because a caller naming itself through
-# the X-Session-Key or X-Workspace header legitimately omits it.
+# the X-Workspace header legitimately omits it.
 def _mcp_tools() -> tuple[dict, dict]:
     """The MCP side of each ``/flows`` and ``/files`` endpoint.
 
@@ -666,14 +667,14 @@ def _flow_paths(prefix: str = "") -> dict:
             if response
             else {"type": "object"}
         )
-        # `name` is the path and the session is a header, so neither is a body
+        # `name` is the path and the workspace is a header, so neither is a body
         # field any more.
-        request = _without(request, "name", "session", "session_id")
+        request = _without(request, "name", "workspace", "session_id")
         has_body = method in ("post", "put")
         operation = {
             "operationId": op,
             tools[path][0]: tools[path][1],
-            "parameters": [*_named_in_path(template), *SESSION_PARAMETERS],
+            "parameters": [*_named_in_path(template), *WORKSPACE_PARAMETERS],
             "summary": summary,
             "description": description,
             "tags": ["flows"],
@@ -704,7 +705,7 @@ def _flow_paths(prefix: str = "") -> dict:
 
 # ---------------------------------------------------------------------------
 # The /files surface, written by hand for the same reason /flows is: these take
-# a file name and a session, not an action's arguments, so there is no tool
+# a file name and a workspace, not an action's arguments, so there is no tool
 # schema to derive them from. `test_kept_files.py` holds the path list to
 # `files.FILE_ENDPOINTS` so a new one cannot go undocumented.
 
@@ -713,7 +714,7 @@ def _flow_paths(prefix: str = "") -> dict:
 # file never leaves this server, and is deliberately not here — it is an
 # operator action on the admin surface, with no tool and so no endpoint.
 def _file_paths(prefix: str = "") -> dict:
-    """A session's files as resources, from `files.FILE_ROUTES`."""
+    """A workspace's files as resources, from `files.FILE_ROUTES`."""
     from ..http.files import FILE_ROUTES
 
     _, tools = _mcp_tools()
@@ -750,7 +751,7 @@ def _file_paths(prefix: str = "") -> dict:
         operation = {
             "operationId": op,
             tools[path][0]: tools[path][1],
-            "parameters": [*_named_in_path(template), *SESSION_PARAMETERS],
+            "parameters": [*_named_in_path(template), *WORKSPACE_PARAMETERS],
             "summary": summary,
             "description": description,
             "tags": ["files"],
@@ -762,7 +763,7 @@ def _file_paths(prefix: str = "") -> dict:
                 "required": False,
                 "content": {
                     "application/json": {
-                        "schema": _without(request, "name", "session", "session_id")
+                        "schema": _without(request, "name", "workspace", "session_id")
                     }
                 },
             }
@@ -779,7 +780,7 @@ def _site_data_paths(prefix: str = "") -> dict:
             "get": {
                 "operationId": op,
                 "x-mcp-resource": uri,
-                "parameters": [*parameters, *SESSION_PARAMETERS],
+                "parameters": [*parameters, *WORKSPACE_PARAMETERS],
                 "summary": summary,
                 "description": description,
                 "tags": ["browser"],
@@ -793,7 +794,7 @@ def _site_data_paths(prefix: str = "") -> dict:
                         },
                     },
                     "400": _error(
-                        "No session named, two names given, or no saved data for "
+                        "No workspace named, two names given, or no saved data for "
                         "that site. Do not retry it unchanged."
                     ),
                     "401": _error("Missing or wrong bearer token."),
@@ -813,7 +814,7 @@ def _site_data_paths(prefix: str = "") -> dict:
         f"{prefix}/site-data": operation(
             "listSiteData",
             resources.site_data.LIST_URI,
-            "The sites this session has saved data for.",
+            "The sites this workspace has saved data for.",
             resources.SITE_DESCRIPTION,
             "SiteList",
         ),
@@ -842,7 +843,7 @@ def _secret_paths(prefix: str = "") -> dict:
             "get": {
                 "operationId": "listSecrets",
                 "x-mcp-resource": secrets.LIST_URI,
-                "parameters": list(SESSION_PARAMETERS),
+                "parameters": list(WORKSPACE_PARAMETERS),
                 "summary": "The secrets this caller may bind.",
                 "description": secrets.LIST_DESCRIPTION,
                 "tags": ["secrets"],
@@ -856,7 +857,7 @@ def _secret_paths(prefix: str = "") -> dict:
                         },
                     },
                     "400": _error(
-                        "No session named, two names given, or a server started "
+                        "No workspace named, two names given, or a server started "
                         "with no secrets.dirs and no secrets.entries, so there "
                         "are no secrets to list."
                     ),

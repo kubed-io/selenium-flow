@@ -73,7 +73,7 @@ def test_a_broken_store_answers_through_errors_not_a_bare_500(
         data={"dir": str(tmp_path / "flows")}, secrets={"dirs": str(secrets_dir)},
     ))
 
-    def boom(self, session=""):
+    def boom(self, workspace=""):
         raise OSError("secrets store is unmounted")
 
     monkeypatch.setattr(secrets_module.Catalogue, "listing", boom)

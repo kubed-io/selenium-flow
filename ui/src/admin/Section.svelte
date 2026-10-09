@@ -16,7 +16,7 @@
   } = $props()
   // Persisted across remounts by id, in `folds` — the static page's sections
   // never remounted at all, so a fold stayed closed for the page's life; a
-  // remounted Section (SessionDetail keys on the session) must start exactly
+  // remounted Section (WorkspaceDetail keys on the workspace) must start exactly
   // as it was left, not reopened. `untrack`: read once, at mount, on purpose
   // — `id` doesn't change under a live Section, and reopening later must go
   // through `toggle()`, not a re-read of `folds` chasing some other tab's fold.

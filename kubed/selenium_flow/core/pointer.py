@@ -18,8 +18,9 @@ Chrome and Firefox alike: the second hover of the same element delivers no
 `mouseover` and the action still reports success, which cost one pilot the same
 menu twice (saga §F2.10).
 
-Keyed by the Grid's session id rather than by a caller key, so a browser opened
-through the HTTP surface — which has no flow session at all — has a pointer too.
+Keyed by the Grid's session id rather than by a workspace name, because the
+pointer belongs to the browser: a new session in the same workspace is a new
+browser, with a pointer of its own.
 Kept in Redis when Redis is configured, for the same reason the window size is:
 this process restarts and the browser does not.
 """
@@ -130,12 +131,12 @@ class RedisPointers:
 
 
 def matching(store):
-    """A pointer store on the same backend as the session ``store``.
+    """A pointer store on the same backend as the workspace ``store``.
 
     Built from the store object rather than from the environment, which is the
     only way the two can be guaranteed to agree: a caller that injects a shared
-    session store while the environment says memory would otherwise get shared
-    session mappings and process-local pointers, so a glide on another replica
+    workspace store while the environment says memory would otherwise get shared
+    workspace records and process-local pointers, so a glide on another replica
     silently starts as a jump (Copilot, #31).
 
     Anything that is not the shared backend is process-local, which is exactly
@@ -149,7 +150,7 @@ def matching(store):
     through a one-word typo in the property. A store that says it is redis and
     then cannot produce a client should raise.
     """
-    # `ttl` is in the `SessionStore` protocol, and the fallback is for a store
+    # `ttl` is in the `WorkspaceStore` protocol, and the fallback is for a store
     # written before it was - `SeleniumMCP` takes an injected store, and a
     # direct read turned a store that merely predates this into a server that
     # will not start (Copilot, #32).
@@ -161,7 +162,7 @@ def matching(store):
     ttl = getattr(store, "ttl", DEFAULT_TTL_SECONDS)
     if store.kind != "redis":
         return MemoryPointers(ttl=ttl)
-    from ..session.store import POINTER_NAMESPACE
+    from ..workspace.store import POINTER_NAMESPACE
 
     return RedisPointers(
         store.client, prefix=store.prefix + POINTER_NAMESPACE, ttl=ttl

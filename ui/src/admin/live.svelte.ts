@@ -1,12 +1,12 @@
 import type { Api } from './api'
-import type { SessionsPayload } from '../lib/types'
+import type { WorkspacesPayload } from '../lib/types'
 
-/* The session list is pushed, not polled. EventSource cannot send an
+/* The workspace list is pushed, not polled. EventSource cannot send an
    Authorization header, so the URL it opens is signed and comes back from an
    authenticated call. */
 export class Live {
-  // Raw: replaced wholesale, and SessionDetail compares it by identity.
-  data = $state.raw<SessionsPayload | null>(null)
+  // Raw: replaced wholesale, and WorkspaceDetail compares it by identity.
+  data = $state.raw<WorkspacesPayload | null>(null)
   error = $state<string | null>(null)
   badge = $state({ text: 'connecting…', cls: '' })
   watching = $state(false)
@@ -25,10 +25,10 @@ export class Live {
     this.#root = root
   }
 
-  async load(): Promise<SessionsPayload | undefined> {
+  async load(): Promise<WorkspacesPayload | undefined> {
     const generation = this.#generation
     try {
-      const data = await this.#api<SessionsPayload>('/admin/sessions')
+      const data = await this.#api<WorkspacesPayload>('/admin/workspaces')
       if (generation !== this.#generation) return
       this.#apply(data)
       if (data.events_url) this.#watch(data.events_url)
@@ -47,7 +47,7 @@ export class Live {
     this.watching = false
   }
 
-  #apply(data: SessionsPayload) { this.data = data; this.error = null }
+  #apply(data: WorkspacesPayload) { this.data = data; this.error = null }
 
   #beat() { this.#lastBeat = Date.now(); this.badge = { text: 'live', cls: 'live' } }
 
@@ -71,7 +71,7 @@ export class Live {
       if (Date.now() - this.#lastBeat < 45000) return
       this.badge = { text: 'polling', cls: '' }
       try {
-        const data = await this.#api<SessionsPayload>('/admin/sessions')
+        const data = await this.#api<WorkspacesPayload>('/admin/workspaces')
         if (generation !== this.#generation) return
         this.#apply(data)
         // The stream URL is signed and expires: a reconnect after that 401s

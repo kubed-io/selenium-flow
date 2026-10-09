@@ -42,8 +42,8 @@ test('data-open follows the outro ending, not the click that starts it', async (
 })
 
 // The static admin page's sections were markup that never left the DOM: a
-// fold stayed closed for the page's life. SessionDetail remounts a Section
-// per session ({#key route.key}); without folds.svelte.ts a fresh instance
+// fold stayed closed for the page's life. WorkspaceDetail remounts a Section
+// per workspace ({#key route.key}); without folds.svelte.ts a fresh instance
 // always starts open, undoing the operator's fold on every switch (parity,
 // live deploy).
 test('a folded section stays folded across a remount, by id', async () => {

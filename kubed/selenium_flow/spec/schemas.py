@@ -18,17 +18,17 @@ from ..core.capabilities import CAPABILITIES, SITE_DATA_HINT
 
 # What each capability answers is a column of its row in `core.capabilities`,
 # so a row cannot be written without one. This is that column by name, plus
-# the one answer that belongs to no capability: the session status.
+# the one answer that belongs to no capability: the workspace status.
 RESPONSES = {
     **{row.name: row.response for row in CAPABILITIES},
-    # What `GET /browser` and `session://current` answer with. Hand-written like
+    # What `GET /browser` and `workspace://current` answer with. Hand-written like
     # every capability's answer, and it was missing — so the published status
     # operation was an empty object and a generated client could not read it
     # (Copilot, #34).
-    "current_session": {
+    "current_workspace": {
         "type": "object",
         "properties": {
-            "session": {"type": "string", "description": "The name you called with."},
+            "workspace": {"type": "string", "description": "The name you called with."},
             "named_by": {
                 "type": "string",
                 "enum": ["header", "query", "stdio", "request"],
@@ -50,12 +50,12 @@ RESPONSES = {
             "url": {"type": ["string", "null"], "description": "The page it is on."},
             "live": {
                 "type": "boolean",
-                "description": "Whether a browser is open for this session.",
+                "description": "Whether a session is open in this workspace.",
             },
             "recording": {
                 "type": "boolean",
                 "description": (
-                    "Whether the browser this session holds is being recorded."
+                    "Whether the browser this workspace holds is being recorded."
                 ),
             },
             "in_frame": {"type": ["boolean", "null"]},
@@ -68,7 +68,7 @@ RESPONSES = {
             "site_data": {
                 "type": "object",
                 "description": (
-                    "Present only when the session has saved site data."
+                    "Present only when the workspace has saved site data."
                 ),
                 "properties": {
                     "sites": {
@@ -83,7 +83,7 @@ RESPONSES = {
             },
             "guidance": {
                 "type": "string",
-                "description": "The skill reference that explains sessions.",
+                "description": "The skill reference that explains workspaces.",
             },
         },
     },
@@ -115,10 +115,10 @@ READY = {
         },
         "grid_ready": {"type": "boolean"},
         "browsers": {"type": "integer", "description": "Browsers held Grid-wide."},
-        "sessions": {
+        "workspaces": {
             "type": "string",
             "enum": ["memory", "redis"],
-            "description": "Where session records are kept.",
+            "description": "Where workspace records are kept.",
         },
         "error": {"type": "string", "description": "Only present when degraded."},
     },
@@ -135,43 +135,33 @@ INFO = {
         },
         "mcp": {"type": "string", "description": "Path of the MCP endpoint."},
         "grid": {"type": "string"},
-        "sessions": {"type": "string", "enum": ["memory", "redis"]},
+        "workspaces": {"type": "string", "enum": ["memory", "redis"]},
     },
 }
 
-SESSION_PARAMETERS = [
-    {
-        "name": "X-Session-Key",
-        "in": "header",
-        "required": False,
-        "schema": {"type": "string"},
-        "description": (
-            "Which session this call is about. What an admin pins inside a "
-            "credential when one credential should mean one session. Sending "
-            "this AND ?session= is a 400: two names is two ideas about who is "
-            "calling."
-        ),
-    },
+WORKSPACE_PARAMETERS = [
     {
         "name": "X-Workspace",
         "in": "header",
         "required": False,
         "schema": {"type": "string"},
         "description": (
-            "The same as X-Session-Key, by the name Claude.ai custom connectors "
-            "may send. Both headers with one value are one name; two values, or "
-            "a header AND ?session=, is a 400."
+            "Which workspace this call is about. What an admin pins inside a "
+            "credential when one credential should mean one workspace. Sending "
+            "this AND ?workspace= is a 400: two names is two ideas about who is "
+            "calling. Its old name, X-Session-Key, is refused with a 400."
         ),
     },
     {
-        "name": "session",
+        "name": "workspace",
         "in": "query",
         "required": False,
         "schema": {"type": "string"},
         "description": (
             "The same thing on the URL, for a caller that cannot set a header. "
             "Anything touching a browser needs one of the two; the flow library "
-            "falls back to the shared 'global' one, which is read-only."
+            "falls back to the shared 'global' one, which is read-only. Its old "
+            "name, ?session=, is refused with a 400."
         ),
     },
 ]
@@ -217,7 +207,7 @@ FLOW_SCHEMAS = {
         "required": ["name", "steps"],
         "properties": {
             "name": {"type": "string"},
-            "session": {
+            "workspace": {
                 "type": "string",
                 "description": "The library it was read from.",
             },
@@ -243,7 +233,7 @@ FLOW_SCHEMAS = {
         "description": "One entry in a listing. Never carries the steps.",
         "properties": {
             "name": {"type": "string"},
-            "session": {"type": "string"},
+            "workspace": {"type": "string"},
             "description": {"type": "string"},
             "parameters": {"type": "object"},
             "step_count": {"type": "integer"},
@@ -256,7 +246,7 @@ FLOW_SCHEMAS = {
     "FlowList": {
         "type": "object",
         "properties": {
-            "session": {"type": "string"},
+            "workspace": {"type": "string"},
             "count": {"type": "integer"},
             "flows": {
                 "type": "array",
@@ -268,7 +258,7 @@ FLOW_SCHEMAS = {
         "type": "object",
         "properties": {
             "saved": {"type": "boolean"},
-            "session": {"type": "string"},
+            "workspace": {"type": "string"},
             "name": {"type": "string"},
             "description": {"type": "string"},
             "parameters": {"type": "object"},
@@ -293,7 +283,7 @@ FLOW_SCHEMAS = {
         "type": "object",
         "properties": {
             "flow": {"type": "string"},
-            "session": {"type": "string"},
+            "workspace": {"type": "string"},
             "status": {"type": "string", "enum": ["ok", "failed"]},
             "hint": {
                 "type": "object",
@@ -389,30 +379,30 @@ FLOW_SCHEMAS = {
                     "False when there was no such flow, which is not an error."
                 ),
             },
-            "session": {"type": "string"},
+            "workspace": {"type": "string"},
             "name": {"type": "string"},
         },
     },
 }
 
-_SESSION = {
-    "session": {
+_WORKSPACE = {
+    "workspace": {
         "type": "string",
         "description": (
-            "Whose library. Defaults to the caller's session name if the "
+            "Whose library. Defaults to the caller's workspace name if the "
             "request carries one, else the shared 'global' library."
         ),
     }
 }
 
-_WRITE_SESSION = {
-    "session": {
+_WRITE_WORKSPACE = {
+    "workspace": {
         "type": "string",
         "description": (
             "Whose library to write to. Needed unless the request names a "
-            "session another way, with the X-Session-Key or X-Workspace "
-            "header: the shared 'global' library is read-only, so a write that "
-            "resolves to it is refused rather than defaulted."
+            "workspace another way, with the X-Workspace header: the shared "
+            "'global' library is read-only, so a write that resolves to it is "
+            "refused rather than defaulted."
         ),
     }
 }
@@ -420,21 +410,21 @@ _WRITE_SESSION = {
 _FLOW_OPERATIONS = {
     "list": (
         "listFlows",
-        "Every flow this session can run.",
+        "Every flow this workspace can run.",
         "Its own, plus the shared global library. A flow of its own wins a name "
         "collision, and each entry says which library it came from.",
-        {"type": "object", "properties": dict(_SESSION)},
+        {"type": "object", "properties": dict(_WORKSPACE)},
         "FlowList",
     ),
     "get": (
         "getFlow",
         "One saved flow, with its steps.",
-        "Falls back to the shared library when this session has no flow of that "
+        "Falls back to the shared library when this workspace has no flow of that "
         "name.",
         {
             "type": "object",
             "required": ["name"],
-            "properties": {**_SESSION, "name": {"type": "string"}},
+            "properties": {**_WORKSPACE, "name": {"type": "string"}},
         },
         "Flow",
     ),
@@ -442,15 +432,15 @@ _FLOW_OPERATIONS = {
         "saveFlow",
         "Create or replace a flow.",
         "The same name updates, a new one creates. Always writes to this "
-        "session's own library, never the shared one — so `session` is required "
-        "in practice: the shared `global` library is read-only, because every "
-        "session lists and runs what is in it. The document is validated "
+        "workspace's own library, never the shared one — so `workspace` is "
+        "required in practice: the shared `global` library is read-only, because "
+        "every workspace lists and runs what is in it. The document is validated "
         "against the live tools and a refusal lists every problem at once.",
         {
             "type": "object",
             "required": ["name", "steps"],
             "properties": {
-                **_WRITE_SESSION,
+                **_WRITE_WORKSPACE,
                 "name": {"type": "string"},
                 "description": {"type": "string"},
                 "parameters": {"type": "object"},
@@ -466,22 +456,22 @@ _FLOW_OPERATIONS = {
     ),
     "delete": (
         "deleteFlow",
-        "Delete one of this session's flows.",
+        "Delete one of this workspace's flows.",
         "Deleting one that is not there is not an error. A flow in the shared "
-        "`global` library is not yours to delete — every session runs those, so "
+        "`global` library is not yours to delete — every workspace runs those, so "
         "one vanishing mid-run would break somebody else's work — and asking is "
         "refused rather than silently ignored.",
         {
             "type": "object",
             "required": ["name"],
-            "properties": {**_WRITE_SESSION, "name": {"type": "string"}},
+            "properties": {**_WRITE_WORKSPACE, "name": {"type": "string"}},
         },
         "FlowDeleted",
     ),
     "run": (
         "runFlow",
         "Run a saved flow.",
-        "Every step, in order, server-side, against this session's browser. "
+        "Every step, in order, server-side, against this workspace's browser. "
         "Stops at the first failing step unless that step says "
         "onError: continue, and reports which step stopped it and what page the "
         "browser was on. Returns a line per step; pass verbose for every step's "
@@ -596,7 +586,7 @@ SECRET_SCHEMAS = {
         "type": "object",
         "properties": {
             "count": {"type": "integer"},
-            "session": {"type": "string"},
+            "workspace": {"type": "string"},
             "secrets": {
                 "type": "array",
                 "items": {"$ref": "#/components/schemas/SecretEntry"},
@@ -653,11 +643,11 @@ FILE_SCHEMAS = {
     },
     "FileList": {
         "type": "object",
-        "description": "session://files: Files' own listing, and its three folders.",
+        "description": "workspace://files: Files' own listing, and its three folders.",
         "properties": {
-            "session": {
+            "workspace": {
                 "type": ["string", "null"],
-                "description": "The session these files belong to.",
+                "description": "The workspace these files belong to.",
             },
             "count": {"type": "integer"},
             "files": {
@@ -692,11 +682,11 @@ FILE_SCHEMAS = {
     "FolderList": {
         "type": "object",
         "description": (
-            "One folder's own listing: session://files/screenshots, /recordings "
+            "One folder's own listing: workspace://files/screenshots, /recordings "
             "or /downloads."
         ),
         "properties": {
-            "session": {"type": ["string", "null"]},
+            "workspace": {"type": ["string", "null"]},
             "folder": {
                 "type": "string",
                 "enum": ["screenshots", "recordings", "downloads"],
@@ -756,8 +746,8 @@ SITE_DATA_SCHEMAS = {
     "SiteList": {
         "type": "object",
         "description": (
-            "session://site-data: one entry per site the last save holds data "
-            "for, counts only, the sites the session went to first."
+            "workspace://site-data: one entry per site the last save holds data "
+            "for, counts only, the sites the workspace went to first."
         ),
         "properties": {
             "sites": {
@@ -789,7 +779,7 @@ SITE_DATA_SCHEMAS = {
     "SiteData": {
         "type": "object",
         "description": (
-            "session://site-data/{site}: one site in full. An httpOnly cookie's "
+            "workspace://site-data/{site}: one site in full. An httpOnly cookie's "
             "value is shown as \u2022\u2022\u2022."
         ),
         "properties": {
@@ -844,8 +834,8 @@ _FILE_OPERATIONS = {
         "listFiles",
         "Files' own listing, and its three folders.",
         "Everything kept in Files, newest first, plus a count for "
-        "session://files/screenshots, session://files/recordings and "
-        "session://files/downloads — each its "
+        "workspace://files/screenshots, workspace://files/recordings and "
+        "workspace://files/downloads — each its "
         "own listing, fetched separately so a caller who only wants to know "
         "whether there is anything to look at need not pay for either.",
         {"type": "object", "properties": {}},
@@ -853,7 +843,7 @@ _FILE_OPERATIONS = {
     ),
     "screenshots": (
         "listScreenshots",
-        "This session's saved screenshots, not yet kept.",
+        "This workspace's saved screenshots, not yet kept.",
         "Newest first. Works after the browser that took them is gone, because "
         "they are already ours.",
         {"type": "object", "properties": {}},
@@ -861,7 +851,7 @@ _FILE_OPERATIONS = {
     ),
     "recordings": (
         "listRecordings",
-        "This session's recordings, not yet kept.",
+        "This workspace's recordings, not yet kept.",
         "Newest first. One video per browser opened with record=true, filed "
         "shortly after it ended. Works after the browser is gone.",
         {"type": "object", "properties": {}},
@@ -869,7 +859,7 @@ _FILE_OPERATIONS = {
     ),
     "downloads": (
         "listDownloads",
-        "This session's browser downloads.",
+        "The downloads of the session open in this workspace.",
         "Newest first, read from the browser itself. Answers empty rather than "
         "failing when there is no browser open; a Grid failure from one that is "
         "open is a real fault and is not hidden.",

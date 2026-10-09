@@ -63,7 +63,7 @@ def test_a_client_can_declare_it_cannot_read_resources(monkeypatch, value):
 
 
 def test_the_header_wins_here_too(monkeypatch):
-    """Same precedence rule as session names, for the same reason."""
+    """The header wins, as it does for every client default, for the same reason."""
     monkeypatch.setattr(
         clients_module, "request_values", lambda: http({"resources": "on"}, {"x-mcp-resources": "off"})
     )
@@ -138,7 +138,7 @@ async def test_the_app_shell_is_refused_rather_than_read(reader):
 
 
 def _serving(reader, data: bytes):
-    reader.sessions.browser = lambda name: "abc"
+    reader.workspaces.browser = lambda name: "abc"
     reader.actions.grid.read_file = lambda session, name: data
 
 
@@ -147,7 +147,7 @@ async def test_an_image_comes_back_as_an_image(reader):
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAMAASsJTYQAAAAASUVORK5CYII="
     )
     _serving(reader, png)
-    result = await read(reader, "session://files/downloads/shot.png")
+    result = await read(reader, "workspace://files/downloads/shot.png")
     assert result.content[0].type == "image"
     assert result.content[0].mimeType == "image/png"
 
@@ -157,11 +157,11 @@ async def test_any_other_binary_is_described_not_dumped(reader):
     with, spent out of its own context."""
     pdf = b"%PDF-1.4" + b"x" * 50_000
     _serving(reader, pdf)
-    result = await read(reader, "session://files/downloads/report.pdf")
+    result = await read(reader, "workspace://files/downloads/report.pdf")
     said = json.loads(result.content[0].text)
     assert said["binary"] is True and said["bytes"] == len(pdf)
     assert said["mime_type"] == "application/pdf"
-    assert "session://files" in said["read"]
+    assert "workspace://files" in said["read"]
     assert len(result.content[0].text) < 1_000
 
 
@@ -183,7 +183,7 @@ async def test_the_status_resource_is_always_offered(server):
 
 def named(monkeypatch):
     monkeypatch.setattr(
-        "kubed.selenium_flow.mcp.clients.request_values", lambda: http({"session": "d"})
+        "kubed.selenium_flow.mcp.clients.request_values", lambda: http({"workspace": "d"})
     )
 
 
@@ -239,7 +239,7 @@ async def test_a_person_picking_a_flow_is_offered_the_names_they_can_read(reader
 async def test_resources_are_named_for_a_person_to_read(reader):
     names = {str(r.uri): r.name for r in await reader.mcp.list_resources()}
     assert names["flow://flows"] == "Saved Flows"
-    assert names[RESOURCE_URI] == "Current Session"
+    assert names[RESOURCE_URI] == "Current Workspace"
     assert not any(n.endswith("_resource") for n in names.values())
 
 
@@ -251,7 +251,7 @@ async def test_a_person_picking_a_file_is_offered_their_own_files(reader):
     reader.flows.write_file("someone-else", "report-secret.pdf", b"%PDF")
     async with Client(reader.mcp) as c:
         offered = await c.complete(
-            ResourceTemplateReference(type="ref/resource", uri="session://files/{name}"),
+            ResourceTemplateReference(type="ref/resource", uri="workspace://files/{name}"),
             {"name": "name", "value": "rep"},
         )
     assert offered.values == ["report.pdf"]
@@ -261,7 +261,7 @@ async def test_an_svg_reads_back_as_the_text_it_is(reader):
     """An image to a browser, XML to a model — which cannot view it as a picture
     (Copilot, #39)."""
     _serving(reader, b"<svg xmlns='http://www.w3.org/2000/svg'><rect/></svg>")
-    result = await read(reader, "session://files/downloads/chart.svg")
+    result = await read(reader, "workspace://files/downloads/chart.svg")
     assert result.content[0].type == "text"
     assert result.content[0].text.startswith("<svg")
 
@@ -282,3 +282,10 @@ async def test_the_listing_publishes_both_row_shapes(reader):
     tool = await reader.mcp.get_tool(mirror.LIST_TOOL)
     schema = json.dumps(tool.output_schema)
     assert "uri_template" in schema and "mime_type" in schema
+
+
+async def test_the_mirror_refuses_an_old_uri_naming_the_new_one(reader):
+    from fastmcp.exceptions import ToolError
+
+    with pytest.raises(ToolError, match="`session://current` is now `workspace://current`"):
+        await read(reader, "session://current")

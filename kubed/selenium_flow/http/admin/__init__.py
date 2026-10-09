@@ -1,4 +1,4 @@
-"""A small web UI for the sessions the Grid is running, and their files.
+"""A small web UI for the workspaces and the sessions open in them, and their files.
 
 Two audiences, one set of routes. ``/admin`` is the page itself and
 ``/admin/<thing>`` is its data, for a person holding the token: live browsers,
@@ -15,7 +15,7 @@ anyone holding the token can already drive every browser through the API.
 
 The files themselves are the Grid's, not ours — see ``Grid.files``.
 
-One module per tab: ``page`` (the shell), ``sessions`` (the list and its live
+One module per tab: ``page`` (the shell), ``workspaces`` (the list and its live
 stream), ``site_data`` (history and saved site data), ``files``, ``flows``, and
 ``signed`` (the links that carry their own authority).
 """
@@ -30,7 +30,7 @@ from starlette.responses import JSONResponse
 
 from .. import answer, links
 from . import files, flows, page, signed, site_data
-from . import sessions as session_list
+from . import workspaces as workspace_list
 
 log = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def register(
     actions,
     token: str | None,
     console_url: str | None = None,
-    sessions=None,
+    workspaces=None,
     flow_store=None,
     schemas=None,
     catalogue=None,
@@ -48,15 +48,15 @@ def register(
     settings_payload=None,
     link_ttl: int = links.DEFAULT_TTL,
     frame_ancestors: list[str] | None = None,
-) -> session_list.Broadcast:
+) -> workspace_list.Broadcast:
     """Mount the admin pages, their JSON API, and the signed file routes.
 
-    Returns the session list's ``Broadcast``, so the server can tell open pages
+    Returns the workspace list's ``Broadcast``, so the server can tell open pages
     a recording was filed.
 
     ``flow_store`` is the *documents and kept files* store — what
     ``DATA_DIR`` points at — and is deliberately not spelled ``store``:
-    ``sessions.store`` is a different thing entirely, holding session records,
+    ``Workspaces.store`` is a different thing entirely, holding workspace records,
     and the two sat one scope apart with the same name until one shadowed the
     other and a listing died on ``MemoryStore.files``.
     """
@@ -97,12 +97,12 @@ def register(
             return JSONResponse({"sections": []})
         return JSONResponse(settings_payload())
 
-    broadcast = session_list.mount(
-        mcp, actions, sessions, flow_store, token, prefix, guarded
+    broadcast = workspace_list.mount(
+        mcp, actions, workspaces, flow_store, token, prefix, guarded
     )
-    site_data.mount(mcp, sessions, catalogue, prefix, guarded, broadcast.changes)
+    site_data.mount(mcp, workspaces, catalogue, prefix, guarded, broadcast.changes)
     files.mount(
-        mcp, actions, sessions, flow_store, token, prefix, link_ttl,
+        mcp, actions, workspaces, flow_store, token, prefix, link_ttl,
         broadcast.compute, guarded, broadcast.changes,
     )
     flows.mount(mcp, flow_store, schemas, prefix, guarded, broadcast.changes)

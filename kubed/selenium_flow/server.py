@@ -41,10 +41,10 @@ from .mcp import (
 )
 from .recordings import collector as recording_collector
 from .recordings import mounts
-from .session import settings as session_settings
-from .session import store as store_module
-from .session.sessions import SessionManager
-from .session.store import SessionStore
+from .workspace import settings as workspace_settings
+from .workspace import store as store_module
+from .workspace.store import WorkspaceStore
+from .workspace.workspaces import Workspaces
 
 log = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ class SeleniumMCP:
     functions, so the surfaces cannot drift.
 
     The server holds no browser state — a browser lives on the Grid and the
-    caller's session name leads back to it. What it *does* hold is the MCP
+    caller's workspace name leads back to it. What it *does* hold is the MCP
     transport session, in this process's memory, and it relies on it: that is
     where a client's `initialize` — who it is, what it can do — is remembered.
     So it runs as one replica.
@@ -68,7 +68,7 @@ class SeleniumMCP:
         settings: Settings | None = None,
         *,
         sources: dict[str, str] | None = None,
-        store: SessionStore | None = None,
+        store: WorkspaceStore | None = None,
         pointers=None,
     ):
         settings = settings if settings is not None else Settings()
@@ -79,19 +79,19 @@ class SeleniumMCP:
             dict(sources) if sources is not None else config.sources_for(settings)
         )
         self.grid = Grid(settings.grid.url)
-        # Redis or memory per session.store. The store is only ever a
-        # key -> session record map; the browser is on the Grid either way.
+        # Redis or memory per workspace.store. The store is only ever a
+        # key -> workspace record map; the browser is on the Grid either way.
         # Resolved before the actions, because the pointer store is derived
         # from it.
         self.store = (
             store if store is not None
-            else store_module.from_settings(settings.session, settings.redis)
+            else store_module.from_settings(settings.workspace, settings.redis)
         )
         # Where the pointer is in each browser, on the same backend as the
-        # session record (§F2.3) - built FROM that store rather than from a
+        # workspace record (§F2.3) - built FROM that store rather than from a
         # second reading of the environment, which is the only way the two are
         # guaranteed to agree. An injected Redis store with a memory
-        # environment would otherwise share session mappings and keep pointers
+        # environment would otherwise share workspace records and keep pointers
         # process-local, so a glide on another replica silently started as a
         # jump (Copilot, #31). Still injectable, for a caller that wants a
         # third thing.
@@ -108,22 +108,22 @@ class SeleniumMCP:
         self.prefix = routes.mount(settings.route_prefix)
         self.mcp_path = f"{self.prefix}/mcp"
         # Loaded before anything is told about it: the instructions and the
-        # session status both name the skill, and neither may name a resource
+        # workspace status both name the skill, and neither may name a resource
         # this server is not serving (Copilot, #36).
         self.skill = skill.load() if settings.mcp.skill else None
 
         # Saved flows, or None when no data directory was named — which is the
         # default, and is the feature being off rather than a degraded mode.
-        # Built before the sessions: the recordings are filed into it. A
+        # Built before the workspaces: the recordings are filed into it. A
         # recording.dir nothing collects from is no inbox, and must not hide an
-        # old session from the move the boot asks for (Copilot, #59).
+        # old workspace from the move the boot asks for (Copilot, #59).
         self.flows = flowstore.from_settings(
             settings.data,
             config.recording_dir(settings) if settings.recording.enabled else None,
         )
 
         # Recordings (recordings spec): the Grid films, the operator delivers to
-        # the inbox, the collector files. Built before the sessions, which tell
+        # the inbox, the collector files. Built before the workspaces, which tell
         # it about every recorded browser; None when recording is off.
         self.collector = None
         problem = config.recording_problem(settings)
@@ -155,11 +155,11 @@ class SeleniumMCP:
                 inbox, "polling" if self.collector.polling else "events",
             )
 
-        self.sessions = SessionManager(
+        self.workspaces = Workspaces(
             self.actions,
             store=self.store,
             skill_available=self.skill is not None,
-            defaults=session_settings.from_settings(settings.session),
+            defaults=workspace_settings.from_settings(settings.session),
             recordings=self.collector,
         )
 
@@ -192,7 +192,7 @@ class SeleniumMCP:
             auth=auth,
             lifespan=lifespan,
         )
-        tools.register(self.mcp, self.actions, self.sessions, self.secrets)
+        tools.register(self.mcp, self.actions, self.workspaces, self.secrets)
 
         # Everything to read is a resource. A client that cannot read them gets
         # `mirror`'s two tools, which read the same URIs (§F3.6).
@@ -201,13 +201,13 @@ class SeleniumMCP:
         # invoke a prompt still points somebody at the right one (§F2.6).
         self.prompts = prompts.register(self.mcp)
 
-        resources.register(self.mcp, self.sessions)
+        resources.register(self.mcp, self.workspaces)
         if self.skill is not None:
             skill.register(self.mcp, self.skill)
         mirror.register(self.mcp)
         completions.register(self.mcp)
 
-        # A session's files are resources; `show` draws them, and any other
+        # A workspace's files are resources; `show` draws them, and any other
         # showable resource, for a host that renders MCP Apps — and is listed
         # for no other client.
         # Where the server's own root is publicly reachable, or "" when nobody
@@ -228,7 +228,7 @@ class SeleniumMCP:
         app_tools = files.register(
             self.mcp,
             self.actions,
-            self.sessions,
+            self.workspaces,
             self.flows,
             auth_token,
             base,
@@ -250,16 +250,16 @@ class SeleniumMCP:
             self.prefix, folder, ttl=settings.link_ttl,
         )
         # And how it reads one back, for `upload_file(file=...)`. Wired here for
-        # the same reason: which flow session owns a file is a question about
+        # the same reason: which workspace owns a file is a question about
         # the caller, which the behaviour layer deliberately cannot see.
-        self.actions.read_file = lambda uri, session=None: files.read_file(
-            self.actions, self.sessions, self.flows, uri,
-            session or clients.caller().name,
+        self.actions.read_file = lambda uri, workspace=None: files.read_file(
+            self.actions, self.workspaces, self.flows, uri,
+            workspace or clients.caller().name,
         )
-        # And where the caller's session has been, so one save reads every
-        # site's storage. Wired here for the same reason: which session is
+        # And where the caller's workspace has been, so one save reads every
+        # site's storage. Wired here for the same reason: which workspace is
         # calling is a question about the caller.
-        self.actions.visited = lambda: self.sessions.visited(clients.caller().name)
+        self.actions.visited = lambda: self.workspaces.visited(clients.caller().name)
         self.apps = (
             apps.register(self.mcp, self.actions, auth_token, base)
             if apps_enabled
@@ -277,7 +277,7 @@ class SeleniumMCP:
         flowapi.register(
             self.mcp,
             self.flows,
-            self.sessions,
+            self.workspaces,
             self.actions,
             auth_token,
             prefix=self.prefix,
@@ -291,12 +291,12 @@ class SeleniumMCP:
         self.mcp.add_middleware(mirror.HideMirrors(app_tools, apps_enabled))
         self.mcp.add_middleware(tools.InstructionsFor(self.skill is not None))
         failures.install(self.mcp)
-        # The same sessions the MCP surface uses: one contract, one resolver,
+        # The same workspaces the MCP surface uses: one contract, one resolver,
         # and the HTTP surface inherits the reopen-after-reap it never had.
         routes.register(
             self.mcp,
             self.actions,
-            self.sessions,
+            self.workspaces,
             auth_token,
             self.prefix,
             catalogue=self.secrets,
@@ -311,7 +311,7 @@ class SeleniumMCP:
             auth_token,
             console_url=settings.grid.console_url,
             prefix=self.prefix,
-            sessions=self.sessions,
+            workspaces=self.workspaces,
             flow_store=self.flows,
             schemas=schemas,
             catalogue=self.secrets,

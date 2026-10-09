@@ -1,26 +1,26 @@
-"""Where a session's saved flows and files live.
+"""Where a workspace's saved flows and files live.
 
 A **flow** is a sequence of tool calls, saved under a name and run later without
 the model deciding what to call between the steps. This module is only the
-*storage* for them: the naming rules, which session a caller's flows belong to,
+*storage* for them: the naming rules, which workspace a caller's flows belong to,
 and reading and writing the documents and files. Nothing here knows what a step
 is or how to run one — see the saga's Chapter 1, §F1.1 through §F1.4. What a
 document is as text — parsing it once, saying where it broke, summarising it —
 is ``flows.library``.
 
 **The codebase sees a directory and nothing else.** ``DATA_DIR`` points at
-one (sessions live under ``DATA_DIR/sessions``) and the installer decides what is
+one (workspaces live under ``DATA_DIR/workspaces``) and the installer decides what is
 behind it: a folder on a laptop, an
 ``emptyDir`` in this cluster, a PVC, an NFS mount. That choice is deliberately
 not ours, and it is why the backend is two small method sets rather than a
 module full of ``open()`` calls — a WebDAV implementation is the next one, so
 Nextcloud can hold these (§F1.12). `FlowStore` holds documents and `FileStore`
-holds bytes, over one `SessionLayout`; `LocalFlowStore` is both under one root.
+holds bytes, over one `WorkspaceLayout`; `LocalFlowStore` is both under one root.
 
 Two rules that exist for the backend that does not exist yet:
 
 - **No path arithmetic outside this module.** Callers ask for "the flows of
-  session X" and get documents. The moment something elsewhere joins a path with
+  workspace X" and get documents. The moment something elsewhere joins a path with
   ``/``, the WebDAV backend has to reimplement it.
 - **No assumption that a read is cheap or local.** ``summaries`` returns names
   and descriptions rather than whole documents precisely so a listing stays one
@@ -56,7 +56,7 @@ from ..names import (
     INBOX_DIR,
     RECORDINGS_DIR,
     RESERVED_IN_FILES,
-    SESSIONS_DIR,
+    WORKSPACES_DIR,
     InvalidName,
     candidates,
     valid_file_name,
@@ -218,8 +218,8 @@ def _shaped(name: str, info: os.stat_result) -> dict:
     }
 
 
-class SessionLayout:
-    """Where everything a session keeps lives: one directory per session.
+class WorkspaceLayout:
+    """Where everything a workspace keeps lives: one directory per workspace.
 
     The only place a path is built. Both stores below ask this for their
     directories, so the link and traversal rules are written once.
@@ -234,14 +234,14 @@ class SessionLayout:
         ``valid_name`` has already refused anything with a separator in it, so a
         caller cannot traverse out with a name alone. This is the second half,
         and it is not redundant: ``resolve()`` follows **symlinks at every
-        level**, so a link left at ``<session>/flows`` pointing somewhere else
-        is caught here and nowhere else. Checking only the session directory
+        level**, so a link left at ``<workspace>/flows`` pointing somewhere else
+        is caught here and nowhere else. Checking only the workspace directory
         would have let a pre-existing link redirect every read and write under
         it while the boundary still looked guarded.
 
         "Inside the data directory" turned out to be too weak a guarantee:
         ``bot/flows -> ../research-bot/flows`` resolves to somewhere perfectly
-        legal by that rule and still hands one session another's flows, which
+        legal by that rule and still hands one workspace another's flows, which
         breaks the ownership rule this module's whole layout exists to enforce.
 
         So the check is equality, not containment: the resolved path must be
@@ -260,40 +260,40 @@ class SessionLayout:
             )
         return path
 
-    def _session_dir(self, session: str, *parts: str) -> Path:
-        """Somewhere inside one session's directory, with the name validated.
+    def _workspace_dir(self, workspace: str, *parts: str) -> Path:
+        """Somewhere inside one workspace's directory, with the name validated.
 
         Every path this store builds starts here. The three below each repeated
-        `valid_name(session, "session name")`, which is the kind of duplication
+        `valid_name(workspace, "workspace name")`, which is the kind of duplication
         that survives until one copy is left out — and the one left out is a
         path built from an unchecked name.
         """
-        return self._resolved(valid_name(session, "session name"), *parts)
+        return self._resolved(valid_name(workspace, "workspace name"), *parts)
 
-    def sessions(self) -> list[str]:
-        """Every session with a directory, for the admin view."""
+    def workspaces(self) -> list[str]:
+        """Every workspace with a directory, for the admin view."""
         if not self.root.is_dir():
             return []
         return sorted(p.name for p in self.root.iterdir() if p.is_dir())
 
 
-class FlowStore(SessionLayout):
-    """A session's flow documents: YAML files under ``<session>/flows``."""
+class FlowStore(WorkspaceLayout):
+    """A workspace's flow documents: YAML files under ``<workspace>/flows``."""
 
-    def _flows_dir(self, session: str) -> Path:
-        return self._session_dir(session, FLOWS_DIR)
+    def _flows_dir(self, workspace: str) -> Path:
+        return self._workspace_dir(workspace, FLOWS_DIR)
 
-    def _path(self, session: str, name: str) -> Path:
-        return self._session_dir(
-            session, FLOWS_DIR, f"{valid_name(name, 'flow name')}{SUFFIX}"
+    def _path(self, workspace: str, name: str) -> Path:
+        return self._workspace_dir(
+            workspace, FLOWS_DIR, f"{valid_name(name, 'flow name')}{SUFFIX}"
         )
 
     # -- reads ---------------------------------------------------------------
 
-    def names(self, session: str) -> list[str]:
-        return sorted(name for name, _ in self._flow_entries(session))
+    def names(self, workspace: str) -> list[str]:
+        return sorted(name for name, _ in self._flow_entries(workspace))
 
-    def _flow_entries(self, session: str) -> list[tuple[str, os.stat_result]]:
+    def _flow_entries(self, workspace: str) -> list[tuple[str, os.stat_result]]:
         """Each flow's name and stat, from one pass over the directory.
 
         Anything this store would refuse to address is skipped rather than
@@ -314,10 +314,10 @@ class FlowStore(SessionLayout):
                 log.warning("ignoring %s: not a usable flow name", filename)
                 return None
 
-        return _listed(self._flows_dir(session), usable)
+        return _listed(self._flows_dir(workspace), usable)
 
-    def revision(self, session: str) -> str:
-        """A token that changes whenever this session's flows do.
+    def revision(self, workspace: str) -> str:
+        """A token that changes whenever this workspace's flows do.
 
         Names *and* modification times, because the two answer different
         questions and the admin page needs both: a name appearing or leaving is
@@ -333,11 +333,11 @@ class FlowStore(SessionLayout):
         # atomic replace always brings a new inode (§F4.19).
         stamps = [
             f"{name}:{info.st_ino}:{info.st_size}:{info.st_mtime_ns}"
-            for name, info in sorted(self._flow_entries(session))
+            for name, info in sorted(self._flow_entries(workspace))
         ]
         return ";".join(stamps) or "0"
 
-    def summaries(self, session: str) -> list[dict]:
+    def summaries(self, workspace: str) -> list[dict]:
         """Name, description and parameters for each flow — never the steps.
 
         A listing exists so a caller can choose one, and the steps are the bulk
@@ -348,11 +348,11 @@ class FlowStore(SessionLayout):
         # small fields and a count, and copying every document whole to find
         # them was most of what a warm listing cost.
         return [
-            summary(name, session, self._loaded(session, name) or {})
-            for name in self.names(session)
+            summary(name, workspace, self._loaded(workspace, name) or {})
+            for name in self.names(workspace)
         ]
 
-    def get(self, session: str, name: str) -> dict | None:
+    def get(self, workspace: str, name: str) -> dict | None:
         """One flow, or None if there is no such flow.
 
         A file that is not readable as a YAML mapping reads as absent rather
@@ -360,7 +360,7 @@ class FlowStore(SessionLayout):
         that flow missing, not every listing that walks past it fail.
         """
         flow = valid_name(name, "flow name")
-        loaded = self._loaded(session, name)
+        loaded = self._loaded(workspace, name)
         if loaded is None:
             return None
         # The name on disk wins over any name inside the document: the file is
@@ -370,13 +370,13 @@ class FlowStore(SessionLayout):
         # listing gives, rather than the caller's spelling of it.
         return {**copy.deepcopy(loaded), "name": flow}
 
-    def _loaded(self, session: str, name: str) -> dict | None:
+    def _loaded(self, workspace: str, name: str) -> dict | None:
         """The document stored as ``name``, as the parse cache holds it.
 
         Shared with the cache (`library.view`): read it, never change it, and
         copy any part that leaves. None for anything `get` reads as absent.
         """
-        path = self._path(session, name)
+        path = self._path(workspace, name)
         try:
             loaded = view(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
@@ -389,44 +389,44 @@ class FlowStore(SessionLayout):
             # Sanitised, because the parser's own message quotes the line it
             # choked on and this goes to the log. See `yaml_complaint`.
             log.warning(
-                "flow %s/%s could not be read: %s", session, name, yaml_complaint(exc)
+                "flow %s/%s could not be read: %s", workspace, name, yaml_complaint(exc)
             )
             return None
         except (OSError, UnicodeDecodeError) as exc:
-            log.warning("flow %s/%s could not be read: %s", session, name, exc)
+            log.warning("flow %s/%s could not be read: %s", workspace, name, exc)
             return None
         if not isinstance(loaded, dict):
-            log.warning("flow %s/%s is not a mapping", session, name)
+            log.warning("flow %s/%s is not a mapping", workspace, name)
             return None
         return loaded
 
     # -- writes --------------------------------------------------------------
 
-    def save(self, session: str, name: str, document: dict) -> dict:
+    def save(self, workspace: str, name: str, document: dict) -> dict:
         """Create or replace one flow. Returns what was stored.
 
         One verb for both, as §F1.5 has it: an agent does not know whether a
         name is taken until it lists, and if it listed then it already knows.
         """
         flow = valid_name(name, "flow name")
-        path = self._path(session, flow)
+        path = self._path(workspace, flow)
         # The validated name, not the caller's: writing `name: " login "` into
         # login.yaml would put an identifier in the file that no lookup returns.
         stored = {**document, "name": flow}
         _replace(path, dump(stored))
         return stored
 
-    def delete(self, session: str, name: str) -> bool:
+    def delete(self, workspace: str, name: str) -> bool:
         """Remove one flow. False if it was not there."""
         try:
-            self._path(session, name).unlink()
+            self._path(workspace, name).unlink()
         except FileNotFoundError:
             return False
         return True
 
     # -- the document as text, for the editor --------------------------------
 
-    def read_text(self, session: str, name: str) -> str | None:
+    def read_text(self, workspace: str, name: str) -> str | None:
         """One flow exactly as it sits on disk, or None if it is not there.
 
         The editor edits **YAML**, not a re-dump of a parsed dict (§F1.14). A
@@ -435,11 +435,11 @@ class FlowStore(SessionLayout):
         first time anybody opened the editor and saved.
         """
         try:
-            return self._path(session, name).read_text(encoding="utf-8")
+            return self._path(workspace, name).read_text(encoding="utf-8")
         except FileNotFoundError:
             return None
 
-    def write_text(self, session: str, name: str, text: str) -> None:
+    def write_text(self, workspace: str, name: str, text: str) -> None:
         """Store one flow's YAML verbatim.
 
         Verbatim for the same reason ``read_text`` exists: what a person typed
@@ -447,11 +447,11 @@ class FlowStore(SessionLayout):
         it is handed, and an invalid document reaching disk is how a listing
         starts skipping a flow nobody can see is broken.
         """
-        _replace(self._path(session, name), text)
+        _replace(self._path(workspace, name), text)
 
 
-class FileStore(SessionLayout):
-    """A session's own files: bytes, in the folders :data:`FOLDERS` names.
+class FileStore(WorkspaceLayout):
+    """A workspace's own files: bytes, in the folders :data:`FOLDERS` names.
 
     Bytes rather than documents, and deliberately the whole of what a file
     store needs: the Grid supplies the only other operations there are, and it
@@ -459,22 +459,22 @@ class FileStore(SessionLayout):
     Files is curated while screenshots and recordings are disposable until kept.
     """
 
-    def _files_dir(self, session: str, folder: str = FILES_DIR) -> Path:
-        return self._session_dir(session, valid_folder(folder))
+    def _files_dir(self, workspace: str, folder: str = FILES_DIR) -> Path:
+        return self._workspace_dir(workspace, valid_folder(folder))
 
-    def _file_path(self, session: str, name: str, folder: str = FILES_DIR) -> Path:
+    def _file_path(self, workspace: str, name: str, folder: str = FILES_DIR) -> Path:
         return self._resolved(
-            valid_name(session, "session name"),
+            valid_name(workspace, "workspace name"),
             valid_folder(folder),
             valid_file_name(name),
         )
 
-    def file_path(self, session: str, name: str, folder: str = FILES_DIR) -> Path:
+    def file_path(self, workspace: str, name: str, folder: str = FILES_DIR) -> Path:
         """Where one file lives, checked: for a route that streams it from disk."""
-        return self._file_path(session, name, folder)
+        return self._file_path(workspace, name, folder)
 
     def move_in(
-        self, session: str, source: Path, name: str, folder: str,
+        self, workspace: str, source: Path, name: str, folder: str,
         *, strict: bool = False,
     ) -> dict:
         """Take ``source`` into a folder under the first free name, and remove it.
@@ -498,7 +498,7 @@ class FileStore(SessionLayout):
             for candidate in candidates(valid_file_name(name)):
                 if folder == FILES_DIR and candidate in RESERVED_IN_FILES:
                     continue
-                target = self._file_path(session, candidate, folder)
+                target = self._file_path(workspace, candidate, folder)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 if staged is None:
                     try:
@@ -529,11 +529,11 @@ class FileStore(SessionLayout):
                             with contextlib.suppress(OSError):
                                 target.unlink()
                             raise OSError(errno.EINVAL, "not a regular file")
-                        self._release(session, source, target, strict, held_stat)
+                        self._release(workspace, source, target, strict, held_stat)
                         return self._entry(target)
                 if self._claim_staged(staged, target):
                     staged = None
-                    self._release(session, source, target, strict, held_stat)
+                    self._release(workspace, source, target, strict, held_stat)
                     return self._entry(target)
             raise AssertionError("unreachable")  # candidates is infinite
         finally:
@@ -544,7 +544,7 @@ class FileStore(SessionLayout):
 
     @staticmethod
     def _release(
-        session: str, source: Path, target: Path, strict: bool = False,
+        workspace: str, source: Path, target: Path, strict: bool = False,
         held_stat: os.stat_result | None = None,
     ) -> None:
         """Remove the moved file's source. If a racing move took it first, this
@@ -573,7 +573,7 @@ class FileStore(SessionLayout):
                     log.warning(
                         "%s/%s/%s is in place, but its original name now holds "
                         "a different file, which was left alone",
-                        session, target.parent.name, target.name,
+                        workspace, target.parent.name, target.name,
                     )
                     return
             source.unlink()
@@ -589,7 +589,7 @@ class FileStore(SessionLayout):
             log.warning(
                 "%s/%s/%s is in place, but its original could not be removed "
                 "(%s) and was left where it was",
-                session, target.parent.name, target.name, type(exc).__name__,
+                workspace, target.parent.name, target.name, type(exc).__name__,
             )
 
     @staticmethod
@@ -618,36 +618,36 @@ class FileStore(SessionLayout):
         staged.unlink()
         return True
 
-    def _note_path(self, session: str, grid_id: str) -> Path:
+    def _note_path(self, workspace: str, grid_id: str) -> Path:
         return self._resolved(
-            valid_name(session, "session name"),
+            valid_name(workspace, "workspace name"),
             RECORDINGS_DIR,
             PENDING_DIR,
             f"{valid_grid_id(grid_id)}.json",
         )
 
-    def write_note(self, session: str, grid_id: str, note: dict) -> None:
+    def write_note(self, workspace: str, grid_id: str, note: dict) -> None:
         """Write a recording's note whole: a temp file, then a rename."""
-        path = self._note_path(session, grid_id)
+        path = self._note_path(workspace, grid_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         _replace(path, json.dumps(note))
 
-    def delete_note(self, session: str, grid_id: str) -> bool:
+    def delete_note(self, workspace: str, grid_id: str) -> bool:
         try:
-            self._note_path(session, grid_id).unlink()
+            self._note_path(workspace, grid_id).unlink()
         except FileNotFoundError:
             return False
         return True
 
     def notes(self, on_error=None) -> list[tuple[str, str, dict]]:
-        """Every owed recording, as ``(session, grid_id, note)``. A note that is
+        """Every owed recording, as ``(workspace, grid_id, note)``. A note that is
         not JSON, or names no usable id, is skipped with a warning.
 
         A storage error is not a broken note, and only a note or folder that is
-        gone counts as absent. One inside a session raises, or, given
-        ``on_error(session, exc)``, is handed to it and the other sessions are
+        gone counts as absent. One inside a workspace raises, or, given
+        ``on_error(workspace, exc)``, is handed to it and the other workspaces are
         read on, so one folder that cannot be read never holds back the rest.
-        The data directory itself unreadable always raises. Not `sessions()`,
+        The data directory itself unreadable always raises. Not `workspaces()`,
         whose ``is_dir`` reads an unreadable folder as no folder (Python 3.14:
         any OSError).
         """
@@ -658,24 +658,24 @@ class FileStore(SessionLayout):
         found = []
         for child in children:
             try:
-                found.extend(self._session_notes(child))
+                found.extend(self._workspace_notes(child))
             except OSError as exc:
                 if on_error is None:
                     raise
                 on_error(child.name, exc)
         return found
 
-    def _session_notes(self, folder: Path) -> list[tuple[str, str, dict]]:
-        """One session's notes, for `notes`; raises a storage error."""
-        session = folder.name
+    def _workspace_notes(self, folder: Path) -> list[tuple[str, str, dict]]:
+        """One workspace's notes, for `notes`; raises a storage error."""
+        workspace = folder.name
         try:
-            valid_name(session)
+            valid_name(workspace)
         except InvalidName:
             return []
         try:
             if not stat.S_ISDIR(folder.lstat().st_mode):
                 return []  # a file, or a link: nothing below the root is one
-            pending = self._resolved(session, RECORDINGS_DIR, PENDING_DIR)
+            pending = self._resolved(workspace, RECORDINGS_DIR, PENDING_DIR)
             entries = sorted(p for p in pending.iterdir() if p.suffix == ".json")
         except (FileNotFoundError, NotADirectoryError, InvalidName):
             return []
@@ -695,10 +695,10 @@ class FileStore(SessionLayout):
                 continue
             except (InvalidName, ValueError):
                 # The file is named by the Grid's id; the log never is.
-                log.warning("ignoring a recording note in session %s", session)
+                log.warning("ignoring a recording note in workspace %s", workspace)
                 continue
             if isinstance(note, dict):
-                found.append((session, grid_id, note))
+                found.append((workspace, grid_id, note))
         return found
 
     def _entry(self, path: Path) -> dict:
@@ -712,8 +712,8 @@ class FileStore(SessionLayout):
         """
         return _shaped(path.name, path.stat())
 
-    def files(self, session: str, folder: str = FILES_DIR) -> list[dict]:
-        """Every file in one folder of this session, newest first.
+    def files(self, workspace: str, folder: str = FILES_DIR) -> list[dict]:
+        """Every file in one folder of this workspace, newest first.
 
         Newest first because that is the order the Grid uses, and Files is
         shown interleaved with its entries.
@@ -734,16 +734,16 @@ class FileStore(SessionLayout):
 
         found = [
             _shaped(name, info)
-            for name, info in _listed(self._files_dir(session, folder), usable)
+            for name, info in _listed(self._files_dir(workspace, folder), usable)
         ]
         return sorted(found, key=lambda f: f["creationTime"], reverse=True)
 
-    def read_file(self, session: str, name: str, folder: str = FILES_DIR) -> bytes:
+    def read_file(self, workspace: str, name: str, folder: str = FILES_DIR) -> bytes:
         """One file's bytes. Raises FileNotFoundError if it is not there."""
-        return self._file_path(session, name, folder).read_bytes()
+        return self._file_path(workspace, name, folder).read_bytes()
 
     def write_file(
-        self, session: str, name: str, data: bytes, folder: str = FILES_DIR
+        self, workspace: str, name: str, data: bytes, folder: str = FILES_DIR
     ) -> dict:
         """Keep one file, creating it or replacing it. Returns its entry.
 
@@ -753,33 +753,33 @@ class FileStore(SessionLayout):
         A new file renamed over the old, never a rewrite: a link already
         streaming the old file keeps its bytes.
         """
-        path = self._file_path(session, name, folder)
+        path = self._file_path(workspace, name, folder)
         _replace(path, data, sync=True)
         return self._entry(path)
 
     def create_file(
-        self, session: str, name: str, data: bytes, folder: str = FILES_DIR
+        self, workspace: str, name: str, data: bytes, folder: str = FILES_DIR
     ) -> dict:
         """Keep one file under a name nothing has. `FileExistsError` if taken.
 
         The claim is the create itself (`O_EXCL`), so two saves racing for one
         name cannot both win and the second silently replace the first.
         """
-        path = self._file_path(session, name, folder)
+        path = self._file_path(workspace, name, folder)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("xb") as file:
             file.write(data)
         return self._entry(path)
 
-    def delete_file(self, session: str, name: str, folder: str = FILES_DIR) -> bool:
+    def delete_file(self, workspace: str, name: str, folder: str = FILES_DIR) -> bool:
         """Remove one file. False if it was not there."""
         try:
-            self._file_path(session, name, folder).unlink()
+            self._file_path(workspace, name, folder).unlink()
         except FileNotFoundError:
             return False
         return True
 
-    def clear_folder(self, session: str, folder: str) -> int:
+    def clear_folder(self, workspace: str, folder: str) -> int:
         """Delete every file in one folder, returning how many went.
 
         Files is refused: everything in it was put there on purpose, so it is
@@ -789,8 +789,8 @@ class FileStore(SessionLayout):
         if valid_folder(folder) == FILES_DIR:
             raise InvalidName("Files is never cleared wholesale; delete one file")
         removed = 0
-        for entry in self.files(session, folder):
-            if self.delete_file(session, entry["name"], folder):
+        for entry in self.files(workspace, folder):
+            if self.delete_file(workspace, entry["name"], folder):
                 removed += 1
         return removed
 
@@ -798,7 +798,7 @@ class FileStore(SessionLayout):
 class LocalFlowStore(FlowStore, FileStore):
     """Flows and files as plain files under one directory.
 
-    A session's files live in the same session directory as its flows rather
+    A workspace's files live in the same workspace directory as its flows rather
     than under a root of their own — one root, one env var, one thing to point
     at Nextcloud. Whatever is mounted there is the installer's business — a
     folder, an ``emptyDir``, a PVC, NFS. This class only ever sees a path.
@@ -807,8 +807,8 @@ class LocalFlowStore(FlowStore, FileStore):
     kind = "local"
 
 
-# Folders that mark a directory as a session's, for the old-layout check.
-_SESSION_MARKS = (FLOWS_DIR, FILES_DIR, "screenshots")
+# Folders that mark a directory as a workspace's, for the old-layout check.
+_WORKSPACE_MARKS = (FLOWS_DIR, FILES_DIR, "screenshots")
 
 
 def _is_dir(path: Path) -> bool:
@@ -846,12 +846,12 @@ def _holds_file(folder: Path, suffix: str | tuple[str, ...] = "") -> bool:
 
 
 def _old_reserved(entry: Path) -> bool:
-    """Whether a folder named like a newly reserved name is an old session.
+    """Whether a folder named like a newly reserved name is an old workspace.
 
     Only an unmistakable old shape counts: in the new layout these paths hold
     sub-folders only, so a regular file directly in them is the old layout.
     """
-    if entry.name == SESSIONS_DIR:
+    if entry.name == WORKSPACES_DIR:
         return (
             _holds_file(entry / FLOWS_DIR, ".yaml")
             or _holds_file(entry / FILES_DIR)
@@ -865,21 +865,21 @@ def _old_reserved(entry: Path) -> bool:
 
 
 def old_layout(root: Path, inbox: str | os.PathLike | None = None) -> list[str]:
-    """Session folders still at the top of the data directory, sorted.
+    """Workspace folders still at the top of the data directory, sorted.
 
-    Before the recordings release a session lived at ``DATA_DIR/<name>``; it
-    lives at ``DATA_DIR/sessions/<name>`` now. One left behind would make every
+    Before the recordings release a workspace lived at ``DATA_DIR/<name>``; it
+    lives at ``DATA_DIR/workspaces/<name>`` now. One left behind would make every
     flow and file it holds silently vanish, so the boot refuses and names them.
-    The recordings inbox is never a session, whatever it holds: ``INBOX_DIR``
+    The recordings inbox is never a workspace, whatever it holds: ``INBOX_DIR``
     always, and the configured ``inbox`` (``recording.dir``) when it is, or lies
-    beneath, a top-level entry. ``sessions`` and ``recordings`` are now reserved
-    names: either is reported as an old session only when it holds the old
+    beneath, a top-level entry. ``workspaces`` and ``recordings`` are now reserved
+    names: either is reported as an old workspace only when it holds the old
     shape (regular files directly in its ``flows/``, ``files/`` or
     ``screenshots/``), and is otherwise the new layout or the inbox.
     """
     if not _is_dir(root):
         return []
-    reserved = {SESSIONS_DIR, INBOX_DIR}
+    reserved = {WORKSPACES_DIR, INBOX_DIR}
     configured = Path(inbox).resolve() if inbox else None
     base = root.resolve()
     found = []
@@ -898,9 +898,49 @@ def old_layout(root: Path, inbox: str | os.PathLike | None = None) -> list[str]:
             valid_name(entry.name)
         except InvalidName:
             continue
-        if any(_is_dir(entry / mark) for mark in _SESSION_MARKS):
+        if any(_is_dir(entry / mark) for mark in _WORKSPACE_MARKS):
             found.append(entry.name)
     return sorted(found)
+
+
+# The folder workspaces lived in before they were called workspaces (spec
+# 2026-10-09-workspaces-rename, ruling 3). Moved once, at boot.
+_OLD_DIR = "sessions"
+
+
+def _move_old_folder(root: Path) -> None:
+    """Rename DATA_DIR/sessions to DATA_DIR/workspaces when only the old exists.
+
+    One rename on one filesystem, so a crash leaves one name or the other,
+    never half of each. Both present is a merge only a person can do. A
+    `sessions` that has the old flat shape is a workspace, and stays put.
+    """
+    from ..config import ConfigError  # local: config imports names, not us
+
+    old, new = root / _OLD_DIR, root / WORKSPACES_DIR
+    if not _is_dir(old):
+        return
+    if (
+        _holds_file(old / FLOWS_DIR, ".yaml")
+        or _holds_file(old / FILES_DIR)
+        or _holds_file(old / "screenshots")
+    ):
+        # A flat-layout workspace named `sessions` (released 0.3.0 shape), not
+        # the unreleased sessions/ folder: leave it for old_layout to report.
+        return
+    if os.path.lexists(new):
+        raise ConfigError(
+            f"{old} and {new} both exist: merge {_OLD_DIR}/ into "
+            f"{WORKSPACES_DIR}/ by hand, then remove {_OLD_DIR}/"
+        )
+    try:
+        old.rename(new)
+    except OSError as exc:
+        raise ConfigError(
+            f"could not move {old} to {new} ({type(exc).__name__}: "
+            f"{exc.strerror or 'I/O error'}): rename it by hand, then restart"
+        ) from None
+    log.info("data: moved %s to %s", old, new)
 
 
 def from_settings(
@@ -914,6 +954,7 @@ def from_settings(
     from ..config import ConfigError  # local: config imports names, not us
 
     try:
+        _move_old_folder(root)
         stranded = old_layout(root, inbox)
     except OSError as exc:
         # Configured and unusable stops the boot (§F4.12): a data directory
@@ -922,17 +963,17 @@ def from_settings(
             f"data directory {root} cannot be read ({type(exc).__name__}: "
             f"{exc.strerror or 'I/O error'})"
         ) from None
-    for name in (SESSIONS_DIR, INBOX_DIR):
+    for name in (WORKSPACES_DIR, INBOX_DIR):
         if name in stranded:
             raise ConfigError(
-                f"`{name}` in {root} is a session folder from before the "
-                f"sessions/ layout, and `{name}` is now reserved: rename it "
-                f"(e.g. to `{name}-old`), then move it into {root / SESSIONS_DIR}/"
+                f"`{name}` in {root} is a workspace folder from before the "
+                f"workspaces/ layout, and `{name}` is now reserved: rename it "
+                f"(e.g. to `{name}-old`), then move it into {root / WORKSPACES_DIR}/"
             )
     if stranded:
         raise ConfigError(
-            f"{', '.join(stranded)} in {root} are session folders from before "
-            f"the sessions/ layout: move them into {root / SESSIONS_DIR}/"
+            f"{', '.join(stranded)} in {root} are workspace folders from before "
+            f"the workspaces/ layout: move them into {root / WORKSPACES_DIR}/"
         )
-    log.info("flows: local, under %s", root / SESSIONS_DIR)
-    return LocalFlowStore(root / SESSIONS_DIR)
+    log.info("flows: local, under %s", root / WORKSPACES_DIR)
+    return LocalFlowStore(root / WORKSPACES_DIR)

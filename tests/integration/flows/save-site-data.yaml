@@ -1,13 +1,13 @@
 description: >-
-  Sign in to the admin UI, save the session's site data, and see the sign-in
+  Sign in to the admin UI, save the workspace's site data, and see the sign-in
   arrive in the Site data tab — save_site_data through the real browser, and
   the admin pane that shows it.
 parameters:
   type: object
-  required: [admin, session]
+  required: [admin, workspace]
   properties:
     admin: {type: string, description: The origin the browser reaches this server at}
-    session: {type: string, description: The name the caller running this flow gave its session}
+    workspace: {type: string, description: The name the caller running this flow gave its workspace}
 steps:
 - tool: navigate
   args: {url: "${admin}/"}
@@ -24,12 +24,12 @@ steps:
 - tool: assert
   args:
     script: >-
-      return [...document.querySelectorAll('#sessions .pill.name')]
-      .some((pill) => pill.textContent === '${session}')
+      return [...document.querySelectorAll('#workspaces .pill.name')]
+      .some((pill) => pill.textContent === '${workspace}')
     message: The sign-in did not land, so there is nothing worth saving yet.
 - tool: save_site_data
 - tool: navigate
-  args: {url: "${admin}/#/sessions/${session}/site-data"}
+  args: {url: "${admin}/#/workspaces/${workspace}/site-data"}
 - tool: assert
   args:
     script: >-

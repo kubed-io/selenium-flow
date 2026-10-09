@@ -1,16 +1,16 @@
 import type { Api } from './api'
-import { sessionPath } from './api'
+import { workspacePath } from './api'
 import { Latest } from './latest'
-import type { FileEntry, FilesData, FilesResponse, FlowDoc, FlowsListing, HistoryPayload, SessionRow, SiteDataPayload, SessionsPayload } from '../lib/types'
+import type { FileEntry, FilesData, FilesResponse, FlowDoc, FlowsListing, HistoryPayload, WorkspaceRow, SiteDataPayload, WorkspacesPayload } from '../lib/types'
 
-/* Handed to a session that has not answered yet, or whose load failed: the
-   clears must never act on a previous session's names. */
+/* Handed to a workspace that has not answered yet, or whose load failed: the
+   clears must never act on a previous workspace's names. */
 export const NO_FILES: FilesData = Object.freeze({ downloads: [], screenshots: [], recordings: [], files: [], browser: false }) as FilesData
 
 /* Not a count: deleting the kept copy of a name that is also a download leaves
    the count alone while the tile changes. The browser id is in it because a
    different browser is a different file store. */
-export const filesStamp = (row: SessionRow) => (row.session_id || '-') + ':' + row.files_rev
+export const filesStamp = (row: WorkspaceRow) => (row.session_id || '-') + ':' + row.files_rev
 
 const downloadsEmpty = (hasBrowser: boolean) => (hasBrowser ? 'No downloads.' : 'No browser — downloads go with it.')
 
@@ -25,12 +25,12 @@ export interface FilesView {
   counts: { downloads: number; screenshots: number; recordings: number; files: number }
 }
 
-/* One session on screen. Created by SessionDetail and disposed with it, so
-   nothing it loads can land on another session's page. */
-export class SessionModel {
+/* One workspace on screen. Created by WorkspaceDetail and disposed with it, so
+   nothing it loads can land on another workspace's page. */
+export class WorkspaceModel {
   // Raw state throughout: every value is replaced wholesale, and `files` is
   // compared by identity with NO_FILES — a deep proxy would never be equal.
-  row = $state.raw<SessionRow>({ key: '' })
+  row = $state.raw<WorkspaceRow>({ key: '' })
   /* The header stays blank until a row arrives, from a load or a push. */
   headed = $state(false)
   /* What the actions act on: the clears' lists, the lightbox's list. */
@@ -80,9 +80,9 @@ export class SessionModel {
     // Both clears are off for the life of the request, not only once it fails.
     this.loadingFiles = true
     return this.#fileLoads.run(
-      (signal) => this.#api<FilesResponse>(sessionPath(this.key, '/files'), 'GET', undefined, signal),
+      (signal) => this.#api<FilesResponse>(workspacePath(this.key, '/files'), 'GET', undefined, signal),
       (data) => {
-        const row = data.session || { key: this.key }
+        const row = data.workspace || { key: this.key }
         this.#showRow(row)
         this.#shownFiles = filesStamp(row)
         this.#shownBrowser = row.session_id || null
@@ -109,7 +109,7 @@ export class SessionModel {
         this.filesBlanked = true
         this.flowsBlanked = true
         this.loadingFiles = false
-        // Site data and History read the session store, not the Grid: a
+        // Site data and History read the workspace store, not the Grid: a
         // Files failure must not leave them on Loading… (Copilot, #51).
         if (this.siteData === null && this.siteDataError === null) void this.loadSiteData()
         if (this.history === null && this.historyError === null) void this.loadHistory()
@@ -128,7 +128,7 @@ export class SessionModel {
   loadFlows(currentFlow: () => string | null, vanished: () => void): Promise<void> {
     if (this.#disposed) return Promise.resolve()
     return this.#flowLoads.run(
-      (signal) => this.#api<FlowsListing>(sessionPath(this.key, '/flows'), 'GET', undefined, signal),
+      (signal) => this.#api<FlowsListing>(workspacePath(this.key, '/flows'), 'GET', undefined, signal),
       (data) => {
         this.flows = data
         this.flowsError = null
@@ -154,7 +154,7 @@ export class SessionModel {
   loadSiteData(): Promise<void> {
     if (this.#disposed) return Promise.resolve()
     return this.#siteLoads.run(
-      (signal) => this.#api<SiteDataPayload>(sessionPath(this.key, '/site-data'), 'GET', undefined, signal),
+      (signal) => this.#api<SiteDataPayload>(workspacePath(this.key, '/site-data'), 'GET', undefined, signal),
       (data) => { this.siteData = data; this.siteDataError = null },
       (e) => {
         this.siteDataError = e.message
@@ -167,7 +167,7 @@ export class SessionModel {
   loadHistory(): Promise<void> {
     if (this.#disposed) return Promise.resolve()
     return this.#historyLoads.run(
-      (signal) => this.#api<HistoryPayload>(sessionPath(this.key, '/history'), 'GET', undefined, signal),
+      (signal) => this.#api<HistoryPayload>(workspacePath(this.key, '/history'), 'GET', undefined, signal),
       (data) => { this.history = data; this.historyError = null },
       (e) => {
         this.historyError = e.message
@@ -180,15 +180,15 @@ export class SessionModel {
   loadFlow(name: string): Promise<void> {
     if (this.#disposed) return Promise.resolve()
     return this.#docLoads.run(
-      (signal) => this.#api<FlowDoc>(sessionPath(this.key, '/flows/' + encodeURIComponent(name)), 'GET', undefined, signal),
+      (signal) => this.#api<FlowDoc>(workspacePath(this.key, '/flows/' + encodeURIComponent(name)), 'GET', undefined, signal),
       (doc) => { this.flowDoc = doc; this.flowDocError = null },
       (e) => { this.flowDocError = { name, message: e.message } },
     )
   }
 
-  /* A pushed session list, applied to this session. */
-  onPushed(data: SessionsPayload, currentFlow: () => string | null, vanished: () => void, browserChanged: () => void) {
-    const row = (data.sessions || []).find((s) => s.key === this.key)
+  /* A pushed workspace list, applied to this workspace. */
+  onPushed(data: WorkspacesPayload, currentFlow: () => string | null, vanished: () => void, browserChanged: () => void) {
+    const row = (data.workspaces || []).find((s) => s.key === this.key)
     // Gone from the store means expired: what is on screen is still a true record.
     if (!row) return
     // A different browser is a different download store, and the Grid deletes
@@ -208,7 +208,7 @@ export class SessionModel {
     if ((row.flows_rev ?? null) !== this.#shownFlows) void this.loadFlows(currentFlow, vanished)
   }
 
-  #showRow(row: SessionRow) {
+  #showRow(row: WorkspaceRow) {
     this.row = row
     this.headed = true
     const siteMoved = (row.site_data_rev ?? null) !== this.#shownSiteData
@@ -224,7 +224,7 @@ export class SessionModel {
     this.filesBlanked = false
   }
 
-  /* Final: a caller still holding the model after its session left loads nothing. */
+  /* Final: a caller still holding the model after its workspace left loads nothing. */
   dispose() {
     this.#disposed = true
     this.#fileLoads.abort()

@@ -60,7 +60,7 @@
       "read_only_hint": false,
       "title": "Delete a flow"
     },
-    "description": "Delete one of your saved flows. Deleting one that is not there is not an error.\n\nA flow in the shared 'global' library cannot be deleted here, and a caller that named no session has no library of its own to delete from.",
+    "description": "Delete one of your saved flows. Deleting one that is not there is not an error.\n\nA flow in the shared 'global' library cannot be deleted here, and a caller that named no workspace has no library of its own to delete from.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -261,7 +261,7 @@
       "read_only_hint": false,
       "title": "End browser"
     },
-    "description": "Quit this session's browser and free its Grid slot.\n\nCall it when finished, and on failure paths too: browsers are scarce, and an\nabandoned one holds its slot until the Grid reaps it. The session survives,\nso a later open_session() comes back to the same page. Files the browser had\nand you did not keep go with it.",
+    "description": "Quit this workspace's browser and free its Grid slot.\n\nCall it when finished, and on failure paths too: browsers are scarce, and an\nabandoned one holds its slot until the Grid reaps it. The workspace survives,\nso a later open_session() comes back to the same page. Files the browser had\nand you did not keep go with it.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {},
@@ -382,7 +382,7 @@
       "read_only_hint": false,
       "title": "Switch into or out of an iframe"
     },
-    "description": "Move into an iframe (switch, with a selector or an index), up one level (parent), or back to the page (default).\n\nElements inside a frame are invisible to every tool until you switch in, and the switch sticks for every later call. If a selector that should work keeps failing, read session://current: in_frame says where you are.",
+    "description": "Move into an iframe (switch, with a selector or an index), up one level (parent), or back to the page (default).\n\nElements inside a frame are invisible to every tool until you switch in, and the switch sticks for every later call. If a selector that should work keeps failing, read workspace://current: in_frame says where you are.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -550,7 +550,7 @@
       "read_only_hint": false,
       "title": "Keep a file in Files"
     },
-    "description": "Keep one file in Files, where it stays until a person deletes it.\n\nuri is as session://files and its folders list it. A screenshot or a recording moves out of its folder and lands beside a same-named file as name (1); a download is copied, since the browser keeps its own until it ends, and REPLACES a same-named file in Files. The result is the file's new uri. upload_file(file=uri) puts any file back into a page.",
+    "description": "Keep one file in Files, where it stays until a person deletes it.\n\nuri is as workspace://files and its folders list it. A screenshot or a recording moves out of its folder and lands beside a same-named file as name (1); a download is copied, since the browser keeps its own until it ends, and REPLACES a same-named file in Files. The result is the file's new uri. upload_file(file=uri) puts any file back into a page.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -596,7 +596,7 @@
       "read_only_hint": false,
       "title": "Open browser session"
     },
-    "description": "Start this session's browser, or come back to the one it had. Call it before\nanything else: nothing opens a browser for you.\n\nWith no arguments it returns to the same browser, window and page, which is\nthe right call after a browser was reaped or ended. Calling it while you\nhold a browser ends that one first, which is how you switch:\nopen_session(browser=\"firefox\"). Files that browser had and you did not keep\ngo with it.\n\nSet width and height when layout matters; the headless default is narrow.\nfresh=true starts on about:blank. Saved site data comes back by default;\nrestore_site_data=false opens without it and deletes it, which is how you\nstart as a new user. page_load_timeout bounds a navigation that\nhangs. insecure=true accepts a self-signed certificate; use it only for a site\nyou know has one. An insecure browser gets no saved site data.\nrecord=true films this browser's whole life as a video, from now until it\nends; it appears under session://files/recordings shortly after. A person\nwatches it, so only when one will — it costs the Grid. Not inherited: ask\nagain for the next browser.",
+    "description": "Start a session in this workspace, or come back to the one it had. Call it\nbefore anything else: nothing opens a browser for you.\n\nWith no arguments it returns to the same browser, window and page, which is\nthe right call after a browser was reaped or ended. Calling it while you\nhold a browser ends that one first, which is how you switch:\nopen_session(browser=\"firefox\"). Files that browser had and you did not keep\ngo with it.\n\nSet width and height when layout matters; the headless default is narrow.\nfresh=true starts on about:blank. Saved site data comes back by default;\nrestore_site_data=false opens without it and deletes it, which is how you\nstart as a new user. page_load_timeout bounds a navigation that\nhangs. insecure=true accepts a self-signed certificate; use it only for a site\nyou know has one. An insecure browser gets no saved site data.\nrecord=true films this browser's whole life as a video, from now until it\nends; it appears under workspace://files/recordings shortly after. A person\nwatches it, so only when one will — it costs the Grid. Not inherited: ask\nagain for the next browser.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -880,7 +880,7 @@
       "read_only_hint": false,
       "title": "Print the page"
     },
-    "description": "Print the page into the session's files, kept past the browser.\n\nformat=\"pdf\" is the browser's own print: selectable text, the whole\ndocument. landscape turns the page and background keeps colours and images\na print drops. format=\"html\" is the page as it stands now, after its\nscripts ran.\n\nTo give it to a person, give them the file's url: it opens in any browser\nwithout a token. A server with no public address configured returns it\nrelative instead.",
+    "description": "Print the page into the workspace's files, kept past the browser.\n\nformat=\"pdf\" is the browser's own print: selectable text, the whole\ndocument. landscape turns the page and background keeps colours and images\na print drops. format=\"html\" is the page as it stands now, after its\nscripts ran.\n\nTo give it to a person, give them the file's url: it opens in any browser\nwithout a token. A server with no public address configured returns it\nrelative instead.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -935,7 +935,7 @@
       "read_only_hint": false,
       "title": "Resize window"
     },
-    "description": "Resize the browser window.\n\nSet a size before judging anything visual: the headless default is small and\nvaries between Grid nodes. The size sticks to the session, so a browser\nreopened after the Grid reaps it comes back at this size.",
+    "description": "Resize the browser window.\n\nSet a size before judging anything visual: the headless default is small and\nvaries between Grid nodes. The size sticks to the workspace, so a browser\nreopened after the Grid reaps it comes back at this size.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1068,7 +1068,7 @@
       "read_only_hint": false,
       "title": "Save site data"
     },
-    "description": "Save this session's site data, so a new browser comes back signed in.\n\nIt keeps every cookie the browser holds, the localStorage of the sites it has\nbeen to, and the sessionStorage of the page it is on. Call it right after a\nsign-in is confirmed, and after changing a setting you want kept; never before\nchecking you landed, or you keep a failed sign-in.\n\nOne save covers every site a call ended on, while the session keeps its\nhistory (a day by default, 100 sites): one passed through inside a call is not\nread, and one last visited longer ago loses its storage at the next save, its\ncookies staying. Each save replaces the last, so a save after signing out\nsaves you signed out. Every browser opened for this session has it back before\nopen_session returns, the one that replaces a reaped browser included. Values\nare never returned; session://site-data lists what is saved.",
+    "description": "Save this workspace's site data, so a new browser comes back signed in.\n\nIt keeps every cookie the browser holds, the localStorage of the sites it has\nbeen to, and the sessionStorage of the page it is on. Call it right after a\nsign-in is confirmed, and after changing a setting you want kept; never before\nchecking you landed, or you keep a failed sign-in.\n\nOne save covers every site a call ended on, while the workspace keeps its\nhistory (a day by default, 100 sites): one passed through inside a call is not\nread, and one last visited longer ago loses its storage at the next save, its\ncookies staying. Each save replaces the last, so a save after signing out\nsaves you signed out. Every browser opened for this workspace has it back before\nopen_session returns, the one that replaces a reaped browser included. Values\nare never returned; workspace://site-data lists what is saved.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1096,7 +1096,7 @@
       "read_only_hint": false,
       "title": "Capture a screenshot"
     },
-    "description": "Capture a PNG of the viewport, of one element (selector), or of the whole\npage (full_page), returned as an image. Use it only when the look is the\nanswer; extract reads content far more cheaply.\n\nBy default the capture is also kept with the session's files. To show a\nperson what you saw, give them the file's url: it opens in any\nbrowser without a token, and ![](url) works. Do not describe the\nimage instead.\n\nsave=false stores nothing; file_error says why a save failed, and the image\nstill comes back.",
+    "description": "Capture a PNG of the viewport, of one element (selector), or of the whole\npage (full_page), returned as an image. Use it only when the look is the\nanswer; extract reads content far more cheaply.\n\nBy default the capture is also kept with the workspace's files. To show a\nperson what you saw, give them the file's url: it opens in any\nbrowser without a token, and ![](url) works. Do not describe the\nimage instead.\n\nsave=false stores nothing; file_error says why a save failed, and the image\nstill comes back.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1208,7 +1208,7 @@
       "read_only_hint": false,
       "title": "Attach a file to a file input"
     },
-    "description": "Attach a file to a file input (selector). Give exactly one source:\n\n- text, for anything you wrote (JSON, CSV, markdown), with a filename;\n- file, any file this session has, by its uri from session://files — a\n  screenshot, a download or a file in Files — without its bytes passing\n  through you;\n- content, base64, for other binary.\n\nThe page reads the type from the filename's extension, so name it\nreport.csv, not report; without one, mime_type picks it.",
+    "description": "Attach a file to a file input (selector). Give exactly one source:\n\n- text, for anything you wrote (JSON, CSV, markdown), with a filename;\n- file, any file this workspace has, by its uri from workspace://files — a\n  screenshot, a download or a file in Files — without its bytes passing\n  through you;\n- content, base64, for other binary.\n\nThe page reads the type from the filename's extension, so name it\nreport.csv, not report; without one, mime_type picks it.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

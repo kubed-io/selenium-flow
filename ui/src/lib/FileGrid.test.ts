@@ -12,7 +12,7 @@ test('an empty grid says so (F6)', () => {
 
 test('the default empty text', () => {
   render(FileGrid, { files: [] })
-  expect(screen.getByText('No files in this session yet.')).toBeInTheDocument()
+  expect(screen.getByText('No files in this workspace yet.')).toBeInTheDocument()
 })
 
 test('a tile: thumbnail or glyph, name with an exact class, size and age (F5, frozen selector)', () => {

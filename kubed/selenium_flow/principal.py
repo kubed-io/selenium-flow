@@ -41,7 +41,7 @@ class Principal:
         return self.kind == "admin"
 
     def status(self) -> dict:
-        """What `session://current` shows. Roles are an input, not news."""
+        """What `workspace://current` shows. Roles are an input, not news."""
         if self.admin:
             return {"kind": "admin"}
         return {"kind": "oidc", "subject": self.subject, "username": self.username}

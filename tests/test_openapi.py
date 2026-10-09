@@ -52,18 +52,20 @@ async def test_the_browser_resource_carries_its_three_methods(spec):
     assert set(spec["paths"]["/browser"]) == {"post", "get", "delete"}
 
 
-async def test_every_operation_says_how_to_name_a_session(spec):
+async def test_every_operation_says_how_to_name_a_workspace(spec):
     """It is the one thing a caller must supply and the only thing that is not
     a body field, so an operation that does not publish it cannot be called by
     a generated client."""
     ops = {"/health", "/started", "/ready", "/info"}
     for path, operations in spec["paths"].items():
-        # The ops endpoints are about the process, not about a session.
+        # The ops endpoints are about the process, not about a workspace.
         if path in ops:
             continue
         for method, operation in operations.items():
             names = {p["name"] for p in operation.get("parameters", [])}
-            assert {"X-Session-Key", "session"} <= names, f"{method} {path}"
+            assert {"X-Workspace", "workspace"} <= names, f"{method} {path}"
+            # The old names are refused, so they are not published (ruling 1).
+            assert not {"X-Session-Key", "session"} & names, f"{method} {path}"
 
 
 async def test_request_schemas_are_the_tool_schemas(server, spec):
@@ -71,7 +73,7 @@ async def test_request_schemas_are_the_tool_schemas(server, spec):
     plain equality.
 
     There used to be three sanctioned transforms on the way through, all of them
-    consequences of the HTTP surface having no session of its own. §F2.12 and
+    consequences of the HTTP surface having no workspace of its own. §F2.12 and
     §F2.13 removed the cause, so a request body here IS the tool's schema.
 
     The only thing still applied is `_hoisted`, which is presentation rather
@@ -122,7 +124,7 @@ async def test_a_nested_model_is_published_as_its_own_schema(spec):
 async def test_no_endpoint_publishes_a_browser_id(server, spec):
     """The inversion of what this file used to assert, and the whole of E18: the
     Grid's session id is how a browser is reached and is not part of the
-    contract. A caller names a session; it never holds an id."""
+    contract. A caller names a workspace; it never holds an id."""
     for action in ENDPOINTS.values():
         schema = spec["components"]["schemas"][
             "".join(p.capitalize() for p in action.split("_")) + "Request"
@@ -131,7 +133,7 @@ async def test_no_endpoint_publishes_a_browser_id(server, spec):
 
 
 async def test_tools_leave_session_id_optional(server):
-    """The mirror of the above: saved sessions can fill it in for an agent."""
+    """The mirror of the above: the workspace fills it in for an agent."""
     click = await server.mcp.get_tool("interact")
     assert "session_id" not in click.parameters["required"]
 
@@ -212,7 +214,7 @@ async def test_the_multipart_schema_does_not_require_a_named_selector(spec):
     schema = spec["paths"]["/browser/upload"]["post"]["requestBody"]["content"][
         "multipart/form-data"
     ]["schema"]
-    assert "required" not in schema, "the session is a header, not a form field"
+    assert "required" not in schema, "the workspace is a header, not a form field"
 
 
 async def test_every_multipart_field_is_one_the_action_accepts(actions, spec):
@@ -291,10 +293,10 @@ async def test_every_flow_response_schema_it_references_exists(spec):
                     assert ref.split("/")[-1] in defined, f"{method} {path} -> {ref}"
 
 
-async def test_the_http_surface_has_a_session_to_be_fresh_from_now(spec, server):
-    """`fresh` says "do not go back to the page my session was last on". It used
+async def test_the_http_surface_has_a_workspace_to_be_fresh_from_now(spec, server):
+    """`fresh` says "do not go back to the page my workspace was last on". It used
     to be dropped from this contract because `routes.py` never touched
-    `SessionManager` and there was no session to go back to — the difference
+    `Workspaces` and there was no workspace to go back to — the difference
     §F2.13 removed by giving both surfaces the same one."""
     published = spec["components"]["schemas"]["OpenSessionRequest"]["properties"]
     assert "fresh" in published
@@ -333,15 +335,18 @@ async def test_uploading_a_kept_file_needs_no_library_field_on_either_surface(
     spec, server
 ):
     """`upload_file(session=...)` existed because an HTTP caller had no other
-    way to say which library a kept file came from. It names its session like
+    way to say which library a kept file came from. It names its workspace like
     everything else now, so the field is gone from both surfaces rather than
-    published on one (Copilot, #31; §F2.13)."""
+    published on one (Copilot, #31; §F2.13). The action's own `workspace`
+    argument is a flow run's injection, and is published nowhere either."""
     upload = spec["paths"]["/browser/upload"]["post"]["requestBody"]["content"]
     published = spec["components"]["schemas"]["UploadFileRequest"]["properties"]
-    assert "session" not in published
-    assert "session" not in upload["multipart/form-data"]["schema"]["properties"]
+    multipart = upload["multipart/form-data"]["schema"]["properties"]
     tool = await server.mcp.get_tool("upload_file")
-    assert "session" not in tool.parameters["properties"]
+    for field in ("session", "workspace"):
+        assert field not in published
+        assert field not in multipart
+        assert field not in tool.parameters["properties"]
 
 
 async def test_a_flow_run_declares_the_site_data_it_reports(spec):
@@ -354,7 +359,7 @@ async def test_a_flow_run_declares_the_site_data_it_reports(spec):
 
 
 async def test_the_session_status_declares_its_site_data_summary(spec):
-    declared = spec["components"]["schemas"]["SessionStatus"]["properties"]["site_data"]
+    declared = spec["components"]["schemas"]["WorkspaceStatus"]["properties"]["site_data"]
     assert declared["properties"]["sites"]["type"] == "integer"
     assert declared["properties"]["uri"]["type"] == "string"
     assert "only" in declared["description"]

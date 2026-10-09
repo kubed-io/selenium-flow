@@ -28,7 +28,7 @@ class Clock:
 
 @pytest.fixture
 def parts(tmp_path):
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     alive = {GID}
@@ -118,7 +118,7 @@ async def test_a_discarded_video_settles_before_it_is_deleted(parts):
 async def test_a_settling_file_in_a_quiet_inbox_is_filed_without_waiting_a_tick(tmp_path):
     """Nothing changes in the inbox once a file is finished, so the watch has
     to time out to look again: after ``settle``, not after a tick."""
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     filed = []
@@ -209,7 +209,7 @@ async def test_a_file_that_never_comes_is_dropped_after_wait_with_a_warning(part
 
 async def test_a_discarded_browsers_video_is_deleted_not_filed(parts):
     """Its browser lost the race to bind and was quit: the video is no
-    session's, so it neither joins this one nor sits in the inbox forever."""
+    workspace's, so it neither joins this one nor sits in the inbox forever."""
     c, store, inbox, _alive, filed, _clock = parts
     c.expect("bot", GID, "chrome", discard=True)
     assert store.notes()[0][2]["discard"] is True
@@ -300,7 +300,7 @@ async def test_the_task_runs_only_while_something_is_owed_and_survives_a_restart
     await c2.stop()
 
 
-async def test_two_sessions_never_claim_each_others_files(parts):
+async def test_two_workspaces_never_claim_each_others_files(parts):
     c, store, inbox, alive, _filed, _clock = parts
     other = "0123456789abcdef0123456789abcdef"
     alive.add(other)
@@ -334,7 +334,7 @@ def test_a_server_with_recording_on_needs_a_usable_inbox(tmp_path):
         SeleniumMCP(settings)
     (tmp_path / "recordings").mkdir()
     server = SeleniumMCP(settings)
-    assert server.collector is not None and server.sessions.recordings is server.collector
+    assert server.collector is not None and server.workspaces.recordings is server.collector
 
 
 class Listing:
@@ -365,7 +365,7 @@ async def test_one_listing_a_tick_however_many_are_owed(tmp_path):
     """Liveness comes from the Grid's status, never from touching a session (a
     command a node counts as activity, so asking would keep it alive forever),
     and one listing serves every owed browser and both branches for a tick."""
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     ids = [f"{n:032x}" for n in range(1, 5)]
@@ -394,7 +394,7 @@ async def test_a_cut_off_file_whose_browser_is_gone_marks_it_ended(parts):
 
 
 async def test_a_grid_that_cannot_list_means_every_browser_lives(tmp_path, caplog):
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     live, clock = Listing(fails=True), Clock()
@@ -411,7 +411,7 @@ async def test_a_grid_that_cannot_list_means_every_browser_lives(tmp_path, caplo
 
 
 async def test_a_failed_sweep_is_retried_a_tick_later(tmp_path, caplog):
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     filed = []
@@ -442,8 +442,8 @@ async def test_a_failed_sweep_is_retried_a_tick_later(tmp_path, caplog):
     await c.stop()
 
 
-async def test_a_note_that_cannot_be_read_is_skipped_by_session(tmp_path, caplog):
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+async def test_a_note_that_cannot_be_read_is_skipped_by_workspace(tmp_path, caplog):
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     other = "0123456789abcdef0123456789abcdef"
@@ -488,7 +488,7 @@ async def test_an_inbox_copy_that_cannot_be_removed_is_filed_once(parts, caplog)
 async def test_a_note_with_an_impossible_time_is_skipped_not_fatal(tmp_path, caplog, field):
     """Overflow at boot would stop the lifespan; a year past gmtime's range
     would fail every sweep and starve every other recording."""
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     other = "0123456789abcdef0123456789abcdef"
@@ -576,10 +576,10 @@ async def test_note_writes_never_run_on_the_loop(parts):
 
 
 async def test_a_poke_forgets_the_last_broadcast_and_ticks_now():
-    from kubed.selenium_flow.http.admin.sessions import Broadcast
+    from kubed.selenium_flow.http.admin.workspaces import Broadcast
 
     b = Broadcast(compute=dict)
-    b._latest = (time.monotonic(), {"sessions": []}, "{}")
+    b._latest = (time.monotonic(), {"workspaces": []}, "{}")
     assert b.fresh() is not None and not b._nudge.is_set()
     b.poke()
     assert b.fresh() is None and b._nudge.is_set()
@@ -587,7 +587,7 @@ async def test_a_poke_forgets_the_last_broadcast_and_ticks_now():
 
 def test_a_filed_recording_pokes_the_admin_broadcast(tmp_path):
     from kubed.selenium_flow import config
-    from kubed.selenium_flow.http.admin.sessions import Broadcast
+    from kubed.selenium_flow.http.admin.workspaces import Broadcast
     from kubed.selenium_flow.server import SeleniumMCP
 
     (tmp_path / "recordings").mkdir()
@@ -713,7 +713,7 @@ async def test_a_note_that_cannot_be_deleted_stays_owed_until_it_is(parts, caplo
 async def test_a_filed_note_after_a_restart_is_only_deleted(tmp_path):
     """A note that says it was filed, and the inbox copy that could not be
     removed: the next process deletes the note and files nothing."""
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     store.write_note("bot", GID, {
@@ -761,7 +761,7 @@ async def test_notes_that_cannot_be_read_at_boot_are_read_on_a_later_tick(
     skipped."""
     from pathlib import Path
 
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     store.write_note("bot", GID, {"opened": 1_791_500_000_000, "browser": "chrome"})
@@ -814,8 +814,8 @@ def _eio_on(path, monkeypatch):
         monkeypatch.setattr(os, name, failing(getattr(os, name)))
 
 
-async def test_one_session_that_cannot_be_read_does_not_block_another(tmp_path, monkeypatch, caplog):
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+async def test_one_workspace_that_cannot_be_read_does_not_block_another(tmp_path, monkeypatch, caplog):
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     other = "0123456789abcdef0123456789abcdef"
@@ -847,7 +847,7 @@ async def test_one_session_that_cannot_be_read_does_not_block_another(tmp_path, 
 async def test_a_stop_during_a_filing_lets_it_finish_and_mark_its_note(tmp_path):
     """A rolling deploy mid-copy: the move completes in its thread, so its note
     must be settled too, or the next process files the inbox copy again."""
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     store.write_note("bot", GID, {"opened": 1_791_500_000_000, "browser": "chrome"})
@@ -878,7 +878,7 @@ async def test_a_stop_during_a_filing_lets_it_finish_and_mark_its_note(tmp_path)
 
 
 async def test_a_note_found_done_that_cannot_be_deleted_is_logged_once(tmp_path, caplog):
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     store.write_note("bot", GID, {"opened": 1_791_500_000_000, "filed": "rec.mp4"})
@@ -898,7 +898,7 @@ async def test_a_note_found_done_that_cannot_be_deleted_is_logged_once(tmp_path,
 
 
 async def test_a_failed_sweep_with_only_notes_unread_says_so(tmp_path, monkeypatch, caplog):
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
 
@@ -928,7 +928,7 @@ async def test_a_stale_read_of_the_notes_never_brings_a_filed_one_back(tmp_path)
     it back, unmarked, when it lands after."""
     import threading
 
-    store = flows.LocalFlowStore(tmp_path / "sessions")
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
     filed = []
@@ -1181,7 +1181,7 @@ async def _settled(c):
 
 async def test_a_provisional_discard_expected_again_is_owed_once_and_filed(parts):
     """A recorded browser is noted for discard the moment it exists and again,
-    ordinarily, once its session holds it: one owed recording, timed from the
+    ordinarily, once its workspace holds it: one owed recording, timed from the
     first, and a note that says so across a restart (Copilot, #59)."""
     c, store, inbox, _alive, _filed, clock = parts
     await c.start()
@@ -1244,7 +1244,7 @@ async def test_an_upgrade_lands_after_a_write_of_the_provisional_note(parts):
 
 
 async def test_an_upgrade_that_cannot_be_written_still_keeps_the_video(parts):
-    """Told it cannot be filed, the session's video is not deleted on the
+    """Told it cannot be filed, the workspace's video is not deleted on the
     strength of a provisional note: the collector owes it ordinarily and
     writes the note again."""
     c, store, inbox, _alive, filed, _clock = parts

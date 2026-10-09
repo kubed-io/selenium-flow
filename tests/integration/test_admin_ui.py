@@ -6,7 +6,7 @@ adding one.
 
 import pytest
 
-from .conftest import ADMIN_ORIGIN, FLOWS, SESSION
+from .conftest import ADMIN_ORIGIN, FLOWS, WORKSPACE
 
 # In the module, not the conftest: `pytestmark` in a conftest marks nothing.
 pytestmark = pytest.mark.integration
@@ -23,7 +23,7 @@ def test_there_are_flows_to_run():
 async def test_the_flow_runs(browser, flow):
     result = await browser.call_tool(
         "run_flow",
-        {"name": flow, "params": {"admin": ADMIN_ORIGIN, "session": SESSION}},
+        {"name": flow, "params": {"admin": ADMIN_ORIGIN, "workspace": WORKSPACE}},
         raise_on_error=False,
     )
     report = result.structured_content or {}

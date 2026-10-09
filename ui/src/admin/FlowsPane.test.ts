@@ -4,7 +4,7 @@ import { deferred, FakeEventSource, fakeFetch } from '../test/helpers'
 import Admin from './Admin.svelte'
 import { createApi } from './api'
 import { Live } from './live.svelte'
-import SessionDetail from './SessionDetail.svelte'
+import WorkspaceDetail from './WorkspaceDetail.svelte'
 
 const api = createApi({ base: '', token: () => 't', onUnauthorized: () => {} })
 const DOC = {
@@ -19,20 +19,20 @@ const DOC = {
   uses: { user: [1] },
   yaml: '# comments survive\nsteps: []\n',
 }
-const LIST = { enabled: true, session: 'k', rev: 1, flows: [{ name: 'login', step_count: 4 }, { name: 'shared-one', step_count: 1, shared: true }] }
+const LIST = { enabled: true, workspace: 'k', rev: 1, flows: [{ name: 'login', step_count: 4 }, { name: 'shared-one', step_count: 1, shared: true }] }
 
 function setup(routes = {}, flow: string | undefined = 'login') {
   const net = fakeFetch({
-    'GET /admin/sessions/k/files': { body: { session: { key: 'k', flows_rev: 1 }, downloads: [], screenshots: [], files: [] } },
-    'GET /admin/sessions/k/flows': { body: LIST },
-    'GET /admin/sessions/k/flows/login': { body: DOC },
+    'GET /admin/workspaces/k/files': { body: { workspace: { key: 'k', flows_rev: 1 }, downloads: [], screenshots: [], files: [] } },
+    'GET /admin/workspaces/k/flows': { body: LIST },
+    'GET /admin/workspaces/k/flows/login': { body: DOC },
     ...routes,
   })
   const live = new Live(api, '')
-  const r = render(SessionDetail, { key: 'k', tab: 'flows', flow, api, live, root: '' })
+  const r = render(WorkspaceDetail, { key: 'k', tab: 'flows', flow, api, live, root: '' })
   return { ...r, ...net, live }
 }
-beforeEach(() => { history.replaceState(null, '', '/#/sessions/k/flows/login'); vi.stubGlobal('alert', vi.fn()) })
+beforeEach(() => { history.replaceState(null, '', '/#/workspaces/k/flows/login'); vi.stubGlobal('alert', vi.fn()) })
 
 const tick = () => new Promise((r) => setTimeout(r, 0))
 /* `vi.waitFor` retries only on a throw; a null return would pass at once. */
@@ -56,16 +56,16 @@ test('the list: names, step counts, a globe only when shared, the open one selec
 })
 
 test('flows off, and none yet (W1)', async () => {
-  const off = setup({ 'GET /admin/sessions/k/flows': { body: { enabled: false } } }, undefined)
+  const off = setup({ 'GET /admin/workspaces/k/flows': { body: { enabled: false } } }, undefined)
   await vi.waitFor(() => expect(off.container).toHaveTextContent('Flows are off: this server was started with no DATA_DIR.'))
   expect(off.container.querySelector('#flowsTotal')).toHaveTextContent('off')
   off.unmount()
-  const none = setup({ 'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [] } } }, undefined)
+  const none = setup({ 'GET /admin/workspaces/k/flows': { body: { enabled: true, flows: [] } } }, undefined)
   await vi.waitFor(() => expect(none.container).toHaveTextContent('No flows yet.'))
 })
 
 test('a listing that fails shows its error in place of the tab (W1)', async () => {
-  const { container } = setup({ 'GET /admin/sessions/k/flows': { status: 500, body: { error: 'boom' } } }, undefined)
+  const { container } = setup({ 'GET /admin/workspaces/k/flows': { status: 500, body: { error: 'boom' } } }, undefined)
   await vi.waitFor(() => expect(within(container.querySelector('#flows')!).getByText('boom')).toHaveClass('empty', 'error'))
 })
 
@@ -160,7 +160,7 @@ test('param detail: required, description, default, used-by rows that jump (W3)'
 })
 
 test('a step index repeated in `uses` is cited twice, not thrown on (W8)', async () => {
-  const { container } = setup({ 'GET /admin/sessions/k/flows/login': { body: { ...DOC, uses: { user: [1, 1] } } } })
+  const { container } = setup({ 'GET /admin/workspaces/k/flows/login': { body: { ...DOC, uses: { user: [1, 1] } } } })
   await vi.waitFor(() => found(container, '[data-param="user"]'))
   await fireEvent.click(container.querySelector('.outline [data-param="user"]')!)
   expect(container.querySelectorAll('.pane .rows [data-step="1"]')).toHaveLength(2)
@@ -168,7 +168,7 @@ test('a step index repeated in `uses` is cited twice, not thrown on (W8)', async
 
 test('a parameter declared empty and a step that is an empty object are shown, not gone (W8)', async () => {
   const doc = { name: 'login', parameters: { properties: { term: null } }, steps: [{}], uses: { term: [] } }
-  const { container } = setup({ 'GET /admin/sessions/k/flows/login': { body: doc } })
+  const { container } = setup({ 'GET /admin/workspaces/k/flows/login': { body: doc } })
   await vi.waitFor(() => found(container, '.outline [data-param="term"]'))
   expect(container.querySelector('[data-param="term"] .icon')).toHaveAttribute('aria-label', 'any type')
   expect(container.querySelector('[data-param="term"] .icon')).toHaveTextContent('·')
@@ -191,11 +191,11 @@ test('a refresh keeps the selection, shows no Loading…, and says a removed pic
     () => ({ body: { ...DOC, steps: [DOC.steps[0]] } }),
   ]
   let n = 0
-  const { container, live } = setup({ 'GET /admin/sessions/k/flows/login': () => replies[n++]() })
+  const { container, live } = setup({ 'GET /admin/workspaces/k/flows/login': () => replies[n++]() })
   await vi.waitFor(() => found(container, '.outline [data-step="1"]'))
   await fireEvent.click(container.querySelector('.outline [data-step="1"]')!)
   // A heartbeat: the library moved.
-  live.data = { sessions: [{ key: 'k', flows_rev: 2 }] }
+  live.data = { workspaces: [{ key: 'k', flows_rev: 2 }] }
   await vi.waitFor(() => expect(n).toBe(2))
   await tick()
   expect(container.querySelector('#flowpanel')).not.toHaveTextContent('Loading…')
@@ -204,13 +204,13 @@ test('a refresh keeps the selection, shows no Loading…, and says a removed pic
   await vi.waitFor(() => expect(container.querySelector('.pane .dhead')).toHaveTextContent('typed'))
   expect(container.querySelector('.outline [data-step="1"]')).toHaveAttribute('aria-selected', 'true')
   // The next edit removes the picked step: the pane says so, and the pick stands.
-  live.data = { sessions: [{ key: 'k', flows_rev: 3 }] }
+  live.data = { workspaces: [{ key: 'k', flows_rev: 3 }] }
   await vi.waitFor(() => expect(container.querySelector('.pane')).toHaveTextContent('That step is gone.'))
 })
 
 test('picking a flow clears the selection, shows Loading…, and replaces the hash before the document lands (W2)', async () => {
   const shared = deferred<{ body: unknown }>()
-  const { container } = setup({ 'GET /admin/sessions/k/flows/shared-one': () => shared.promise })
+  const { container } = setup({ 'GET /admin/workspaces/k/flows/shared-one': () => shared.promise })
   await vi.waitFor(() => found(container, '.outline [data-step="1"]'))
   await fireEvent.click(container.querySelector('.outline [data-step="1"]')!)
   const pushed = vi.spyOn(history, 'pushState')
@@ -218,7 +218,7 @@ test('picking a flow clears the selection, shows Loading…, and replaces the ha
   const depth = history.length
   await fireEvent.click(container.querySelectorAll('.flowlist .item')[1])
   expect(container.querySelector('#flowpanel')).toHaveTextContent('Loading…')
-  expect(location.hash).toBe('#/sessions/k/flows/shared-one')
+  expect(location.hash).toBe('#/workspaces/k/flows/shared-one')
   expect(replaced).toHaveBeenCalled()
   expect(pushed).not.toHaveBeenCalled()
   expect(history.length).toBe(depth)
@@ -247,7 +247,7 @@ test('an error is repainted away as today: a pick reads Loading…, a listing th
     () => ({ status: 500, body: { error: 'unreadable' } }),
     () => held.promise,
   ]
-  const { container, live } = setup({ 'GET /admin/sessions/k/flows/login': () => replies[n++]() })
+  const { container, live } = setup({ 'GET /admin/workspaces/k/flows/login': () => replies[n++]() })
   await vi.waitFor(() => expect(within(container.querySelector('#flowpanel')!).getByText('unreadable')).toHaveClass('empty', 'error'))
   // Picking it again.
   await fireEvent.click(container.querySelectorAll('.flowlist .item')[0])
@@ -255,9 +255,9 @@ test('an error is repainted away as today: a pick reads Loading…, a listing th
   again.resolve({ body: DOC })
   await vi.waitFor(() => found(container, '.outline'))
   // A refresh that fails, then a listing that lands while the next load is out.
-  live.data = { sessions: [{ key: 'k', flows_rev: 2 }] }
+  live.data = { workspaces: [{ key: 'k', flows_rev: 2 }] }
   await vi.waitFor(() => expect(container.querySelector('#flowpanel')).toHaveTextContent('unreadable'))
-  live.data = { sessions: [{ key: 'k', flows_rev: 3 }] }
+  live.data = { workspaces: [{ key: 'k', flows_rev: 3 }] }
   await vi.waitFor(() => expect(n).toBe(4))
   expect(container.querySelector('#flowpanel .outline')).not.toBeNull()
   expect(container.querySelector('#flowpanel')).not.toHaveTextContent('unreadable')
@@ -266,11 +266,11 @@ test('an error is repainted away as today: a pick reads Loading…, a listing th
 test('a listing that failed on a refresh is repainted away by a flow opened from the hash (D5)', async () => {
   let n = 0
   const { container, live, rerender } = setup({
-    'GET /admin/sessions/k/flows': () => (++n === 2 ? { status: 500, body: { error: 'boom' } } : { body: LIST }),
-    'GET /admin/sessions/k/flows/shared-one': { body: { name: 'shared-one', shared: true, steps: [] } },
+    'GET /admin/workspaces/k/flows': () => (++n === 2 ? { status: 500, body: { error: 'boom' } } : { body: LIST }),
+    'GET /admin/workspaces/k/flows/shared-one': { body: { name: 'shared-one', shared: true, steps: [] } },
   })
   await vi.waitFor(() => found(container, '.outline'))
-  live.data = { sessions: [{ key: 'k', flows_rev: 2 }] }
+  live.data = { workspaces: [{ key: 'k', flows_rev: 2 }] }
   await vi.waitFor(() => expect(container.querySelector('#flows')).toHaveTextContent('boom'))
   await rerender({ flow: 'shared-one' })
   expect(container.querySelector('#flows')).not.toHaveTextContent('boom')
@@ -279,7 +279,7 @@ test('a listing that failed on a refresh is repainted away by a flow opened from
 
 test('a flow opened from the hash clears the selection too; it is a different document (W2, D5)', async () => {
   const { container, rerender } = setup({
-    'GET /admin/sessions/k/flows/shared-one': { body: { name: 'shared-one', shared: true, steps: [{ tool: 'navigate' }] } },
+    'GET /admin/workspaces/k/flows/shared-one': { body: { name: 'shared-one', shared: true, steps: [{ tool: 'navigate' }] } },
   })
   await vi.waitFor(() => found(container, '.outline [data-step="0"]'))
   await fireEvent.click(container.querySelector('.outline [data-step="0"]')!)
@@ -291,7 +291,7 @@ test('a flow opened from the hash clears the selection too; it is a different do
 })
 
 test('a deep-linked flow the listing does not have is never fetched or opened (D5)', async () => {
-  history.replaceState(null, '', '/#/sessions/k/flows/ghost')
+  history.replaceState(null, '', '/#/workspaces/k/flows/ghost')
   const { container, calls } = setup({}, 'ghost')
   await vi.waitFor(() => expect(container.querySelectorAll('.flowlist .item')).toHaveLength(2))
   await tick()
@@ -301,9 +301,9 @@ test('a deep-linked flow the listing does not have is never fetched or opened (D
 })
 
 test('Edit reads the file again, shows it raw, and saves it (W4)', async () => {
-  const { container, calls } = setup({ 'PUT /admin/sessions/k/flows/login': { body: {} } })
+  const { container, calls } = setup({ 'PUT /admin/workspaces/k/flows/login': { body: {} } })
   await vi.waitFor(() => found(container, '[data-edit]'))
-  const reads = () => calls.filter((c) => c.method === 'GET' && c.path === '/admin/sessions/k/flows/login').length
+  const reads = () => calls.filter((c) => c.method === 'GET' && c.path === '/admin/workspaces/k/flows/login').length
   const before = reads()
   await fireEvent.click(container.querySelector('[data-edit]')!)
   const sheet = await vi.waitFor(() => found(document, '.modal'))
@@ -315,16 +315,16 @@ test('Edit reads the file again, shows it raw, and saves it (W4)', async () => {
   await fireEvent.input(area, { target: { value: 'steps: [x]' } })
   await fireEvent.click(within(sheet).getByText('Save'))
   await vi.waitFor(() => expect(calls.find((c) => c.method === 'PUT')?.body).toEqual({ yaml: 'steps: [x]' }))
-  // Then the listing again, for the session it was saved in.
+  // Then the listing again, for the workspace it was saved in.
   await vi.waitFor(() => expect(document.querySelector('.modal')).toBeNull())
-  expect(calls.filter((c) => c.path === '/admin/sessions/k/flows')).toHaveLength(2)
+  expect(calls.filter((c) => c.path === '/admin/workspaces/k/flows')).toHaveLength(2)
 })
 
 test('Edit: a failed read alerts and opens nothing; a failed save alerts and stays open (W4)', async () => {
   let reads = 0
   const { container } = setup({
-    'GET /admin/sessions/k/flows/login': () => (++reads === 2 ? { status: 500, body: { error: 'gone away' } } : { body: DOC }),
-    'PUT /admin/sessions/k/flows/login': { status: 400, body: { error: 'not a flow' } },
+    'GET /admin/workspaces/k/flows/login': () => (++reads === 2 ? { status: 500, body: { error: 'gone away' } } : { body: DOC }),
+    'PUT /admin/workspaces/k/flows/login': { status: 400, body: { error: 'not a flow' } },
   })
   await vi.waitFor(() => found(container, '[data-edit]'))
   await fireEvent.click(container.querySelector('[data-edit]')!)
@@ -338,19 +338,19 @@ test('Edit: a failed read alerts and opens nothing; a failed save alerts and sta
 })
 
 test('Move and Delete say where, act, and close the flow (W5, W6)', async () => {
-  const { container, calls } = setup({ 'POST /admin/sessions/k/flows/login/move': { body: {} }, 'DELETE /admin/sessions/k/flows/login': { body: {} } })
+  const { container, calls } = setup({ 'POST /admin/workspaces/k/flows/login/move': { body: {} }, 'DELETE /admin/workspaces/k/flows/login': { body: {} } })
   await vi.waitFor(() => found(container, '[data-move]'))
   expect(container.querySelector('[data-move]')).toHaveAttribute('title', 'Move to global')
   expect(container.querySelector('[data-move]')).toHaveAttribute('aria-label', 'Move to global')
   await fireEvent.click(container.querySelector('[data-move]')!)
   const sheet = container.ownerDocument.querySelector('.modal') as HTMLElement
   expect(sheet.querySelector('.head')).toHaveTextContent('Move to global')
-  expect(sheet).toHaveTextContent('It moves into the shared global library, where every session can list and run it. No agent can change what is in there — only an operator, here.')
+  expect(sheet).toHaveTextContent('It moves into the shared global library, where every workspace can list and run it. No agent can change what is in there — only an operator, here.')
   await fireEvent.click(within(sheet).getByText('Move'))
   await vi.waitFor(() => expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ to: 'global' }))
-  await vi.waitFor(() => expect(location.hash).toBe('#/sessions/k/flows'))
+  await vi.waitFor(() => expect(location.hash).toBe('#/workspaces/k/flows'))
   await vi.waitFor(() => expect(container.querySelector('#flowpanel')).toHaveTextContent('Pick a flow.'))
-  expect(calls.filter((c) => c.path === '/admin/sessions/k/flows')).toHaveLength(2)
+  expect(calls.filter((c) => c.path === '/admin/workspaces/k/flows')).toHaveLength(2)
 
   // Delete, from a reopened flow.
   await fireEvent.click(container.querySelectorAll('.flowlist .item')[0])
@@ -358,46 +358,46 @@ test('Move and Delete say where, act, and close the flow (W5, W6)', async () => 
   await fireEvent.click(container.querySelector('[data-drop]')!)
   const drop = document.querySelector('.modal') as HTMLElement
   expect(drop.querySelector('.head')).toHaveTextContent('Delete this flow?')
-  expect(drop).toHaveTextContent('It is removed from the folder it lives in. A flow in the global folder goes for every session, not just this one.')
+  expect(drop).toHaveTextContent('It is removed from the folder it lives in. A flow in the global folder goes for every workspace, not just this one.')
   expect(drop.querySelector('ul.names li')).toHaveTextContent(/^login$/)
   expect(within(drop).getByText('Delete')).toHaveClass('danger')
   await fireEvent.click(within(drop).getByText('Delete'))
-  await vi.waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.path === '/admin/sessions/k/flows/login')).toBe(true))
-  await vi.waitFor(() => expect(location.hash).toBe('#/sessions/k/flows'))
+  await vi.waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.path === '/admin/workspaces/k/flows/login')).toBe(true))
+  await vi.waitFor(() => expect(location.hash).toBe('#/workspaces/k/flows'))
   await vi.waitFor(() => expect(container.querySelector('#flowpanel')).toHaveTextContent('Pick a flow.'))
 })
 
-test('a shared flow moves home to the session, and deletes as "global / name" (W5, W6)', async () => {
-  history.replaceState(null, '', '/#/sessions/k/flows/shared-one')
+test('a shared flow moves home to the workspace, and deletes as "global / name" (W5, W6)', async () => {
+  history.replaceState(null, '', '/#/workspaces/k/flows/shared-one')
   const { container, calls } = setup({
-    'GET /admin/sessions/k/flows/shared-one': { body: { name: 'shared-one', shared: true, steps: [] } },
-    'POST /admin/sessions/k/flows/shared-one/move': { body: {} },
+    'GET /admin/workspaces/k/flows/shared-one': { body: { name: 'shared-one', shared: true, steps: [] } },
+    'POST /admin/workspaces/k/flows/shared-one/move': { body: {} },
   }, 'shared-one')
   await vi.waitFor(() => found(container, '[data-move]'))
   const move = container.querySelector('[data-move]')!
-  expect(move).toHaveAttribute('title', 'Move to this session')
+  expect(move).toHaveAttribute('title', 'Move to this workspace')
   expect(move).toHaveTextContent('🏠')
   await fireEvent.click(container.querySelector('[data-drop]')!)
   expect(document.querySelector('.modal ul.names li')).toHaveTextContent('global / shared-one')
   await fireEvent.click(within(document.querySelector('.modal') as HTMLElement).getByText('Cancel'))
   await fireEvent.click(move)
   const sheet = document.querySelector('.modal') as HTMLElement
-  expect(sheet.querySelector('.head')).toHaveTextContent('Move to this session')
-  expect(sheet).toHaveTextContent('It moves out of the shared library into k. Other sessions stop seeing it.')
+  expect(sheet.querySelector('.head')).toHaveTextContent('Move to this workspace')
+  expect(sheet).toHaveTextContent('It moves out of the shared library into k. Other workspaces stop seeing it.')
   expect(sheet.querySelector('strong')).toHaveTextContent('k')
   await fireEvent.click(within(sheet).getByText('Move'))
   await vi.waitFor(() => expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ to: 'k' }))
 })
 
-test('there is no Move button in the global session: both ends are the same folder (W5)', async () => {
-  const { container } = setup({ 'GET /admin/sessions/k/flows': { body: { ...LIST, session: 'global' } } })
+test('there is no Move button in the global workspace: both ends are the same folder (W5)', async () => {
+  const { container } = setup({ 'GET /admin/workspaces/k/flows': { body: { ...LIST, workspace: 'global' } } })
   await vi.waitFor(() => found(container, '[data-edit]'))
   expect(container.querySelector('[data-move]')).toBeNull()
   expect(container.querySelector('[data-drop]')).not.toBeNull()
 })
 
 test('a malformed flow never breaks the panel (W8)', async () => {
-  const { container } = setup({ 'GET /admin/sessions/k/flows/login': { body: { name: 'login', steps: {}, parameters: 1, uses: [] } } })
+  const { container } = setup({ 'GET /admin/workspaces/k/flows/login': { body: { name: 'login', steps: {}, parameters: 1, uses: [] } } })
   await vi.waitFor(() => expect(container).toHaveTextContent('This flow takes nothing.'))
 })
 
@@ -408,7 +408,7 @@ test('a prototype key names nothing: no tool, no type, no uses (W8)', async () =
     steps: [{ tool: 'constructor', args: { a: 1 } }],
     uses: {},
   }
-  const { container } = setup({ 'GET /admin/sessions/k/flows/login': { body: doc } })
+  const { container } = setup({ 'GET /admin/workspaces/k/flows/login': { body: doc } })
   await vi.waitFor(() => found(container, '.outline [data-step="0"]'))
   expect(container.querySelector('[data-step="0"] .icon')).toHaveTextContent('❓')
   expect(container.querySelector('[data-param="toString"] .icon')).toHaveTextContent('·')
@@ -416,28 +416,28 @@ test('a prototype key names nothing: no tool, no type, no uses (W8)', async () =
   expect(container.querySelector('.pane')).toHaveTextContent('No step reads ${toString}.')
 })
 
-test('moving from session A to B with a flow in the hash never acts on A for B (D5)', async () => {
+test('moving from workspace A to B with a flow in the hash never acts on A for B (D5)', async () => {
   sessionStorage.setItem('sf-token', 't')
   vi.stubGlobal('EventSource', FakeEventSource)
-  history.replaceState(null, '', '/#/sessions/a/flows/login')
-  const files = (key: string) => ({ body: { session: { key, flows_rev: 1 }, downloads: [], screenshots: [], files: [] } })
+  history.replaceState(null, '', '/#/workspaces/a/flows/login')
+  const files = (key: string) => ({ body: { workspace: { key, flows_rev: 1 }, downloads: [], screenshots: [], files: [] } })
   const { calls } = fakeFetch({
-    'GET /admin/sessions': { body: { sessions: [], events_url: '/e' } },
-    'GET /admin/sessions/a/files': files('a'),
-    'GET /admin/sessions/a/flows': { body: { ...LIST, session: 'a' } },
-    'GET /admin/sessions/a/flows/login': { body: DOC },
-    'GET /admin/sessions/b/files': files('b'),
-    'GET /admin/sessions/b/flows': { body: { ...LIST, session: 'b' } },
-    'GET /admin/sessions/b/flows/shared-one': { body: { name: 'shared-one', shared: true, steps: [] } },
+    'GET /admin/workspaces': { body: { workspaces: [], events_url: '/e' } },
+    'GET /admin/workspaces/a/files': files('a'),
+    'GET /admin/workspaces/a/flows': { body: { ...LIST, workspace: 'a' } },
+    'GET /admin/workspaces/a/flows/login': { body: DOC },
+    'GET /admin/workspaces/b/files': files('b'),
+    'GET /admin/workspaces/b/flows': { body: { ...LIST, workspace: 'b' } },
+    'GET /admin/workspaces/b/flows/shared-one': { body: { name: 'shared-one', shared: true, steps: [] } },
   })
   const { container } = render(Admin, { mount: '', console: '/grid' })
   await vi.waitFor(() => found(container, '.panel'))
   const before = calls.length
   // A flow A also has, so an old instance acting on it would find it.
-  location.hash = '#/sessions/b/flows/shared-one'
+  location.hash = '#/workspaces/b/flows/shared-one'
   await vi.waitFor(() => expect(container.querySelector('.panel .head .nm')).toHaveTextContent('shared-one'))
   await tick()
-  expect(calls.slice(before).filter((c) => c.path.startsWith('/admin/sessions/a/'))).toEqual([])
-  expect(location.hash).toBe('#/sessions/b/flows/shared-one')
+  expect(calls.slice(before).filter((c) => c.path.startsWith('/admin/workspaces/a/'))).toEqual([])
+  expect(location.hash).toBe('#/workspaces/b/flows/shared-one')
   sessionStorage.clear()
 })

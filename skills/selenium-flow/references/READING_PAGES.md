@@ -146,7 +146,7 @@ Over MCP you get an image block you can see. Over HTTP you get base64 plus real
 pixel dimensions and a `bytes` count — a `bytes` value near zero means a blank
 capture, which almost always means the page had not rendered yet.
 
-**A screenshot is kept** with the session's files by default, on any page, and
+**A screenshot is kept** with the workspace's files by default, on any page, and
 the result carries that file's link. `save=false` opts out; a server with
 nowhere to keep files says `file_error` instead, and you still get the image.
 

@@ -33,8 +33,8 @@ from kubed.selenium_flow.flows import run as flowrun
 from kubed.selenium_flow.flows.run import run
 from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.session.store import MemoryStore, SessionRecord
 from kubed.selenium_flow.spec import build_spec
+from kubed.selenium_flow.workspace.store import MemoryStore, Workspace
 
 from .conftest import NAMED, TOKEN, RecordingActions, calling_as
 from .fakes import FakeActions, FakeClock, FakeGrid
@@ -182,7 +182,7 @@ def test_the_flow_run_reports_are_what_they_were(monkeypatch):
     compare("flow-reports.json", normalised(got))
 
 
-# ---- the admin session listing -----------------------------------------------
+# ---- the admin workspace listing -----------------------------------------------
 
 NOW = 1_790_800_000.0
 
@@ -194,7 +194,7 @@ class Listing(FakeGrid):
         return [{"session_id": sid} for sid in sorted(self.alive)]
 
 
-def test_the_admin_session_listing_is_what_it_was(tmp_path):
+def test_the_admin_workspace_listing_is_what_it_was(tmp_path):
     server = SeleniumMCP(
         Settings(**SETTINGS, data={"dir": str(tmp_path)}),
         store=MemoryStore(),
@@ -209,34 +209,34 @@ def test_the_admin_session_listing_is_what_it_was(tmp_path):
         "session": {},
         "saved_at": NOW - 30,
     }
-    store = server.sessions.store
+    store = server.workspaces.store
     store.set(
         "live",
-        SessionRecord(session_id="live-1", opened_at=NOW - 600).visited(
+        Workspace(session_id="live-1", opened_at=NOW - 600).visited(
             "https://app.example.com/x", now=NOW - 60
         ),
     )
     store.set(
         "detached",
-        SessionRecord(session_id="", opened_at=NOW - 7200).visited(
+        Workspace(session_id="", opened_at=NOW - 7200).visited(
             "https://mail.example.org/inbox", now=NOW - 3600
         ),
     )
     store.set(
         "sited",
-        SessionRecord(session_id="", opened_at=NOW - 1800)
+        Workspace(session_id="", opened_at=NOW - 1800)
         .visited("https://app.example.com/x", now=NOW - 90)
         .with_site_data(site_data),
     )
-    reopened = SessionRecord(
+    reopened = Workspace(
         session_id="live-1",
         opened_at=NOW - 300,
         reopened={"browser": "live-1", "report": {"restored": 1, "skipped": 0}},
     ).visited("https://app.example.com/y", now=NOW - 20)
     store.set("reopened", reopened)
-    body = TestClient(server.mcp.http_app(), headers=AUTH).get("/admin/sessions")
+    body = TestClient(server.mcp.http_app(), headers=AUTH).get("/admin/workspaces")
     assert body.status_code == 200
-    compare("admin-sessions.json", normalised(body.json()))
+    compare("admin-workspaces.json", normalised(body.json()))
 
 
 # ---- every error envelope ----------------------------------------------------
@@ -287,7 +287,7 @@ def test_every_error_envelope_is_what_it_was(monkeypatch):
     current = [None]
     monkeypatch.setattr(Actions, "navigate", lambda self, s, url: fail(s, url))
     server = SeleniumMCP(Settings(**SETTINGS))
-    server.sessions.store.set(NAMED, SessionRecord(session_id="b-1"))
+    server.workspaces.store.set(NAMED, Workspace(session_id="b-1"))
     server.actions.grid = FakeGrid()
     server.actions.grid.alive.add("b-1")
     client = TestClient(server.mcp.http_app(), headers=AUTH)
@@ -295,7 +295,7 @@ def test_every_error_envelope_is_what_it_was(monkeypatch):
     for name, exc in raised().items():
         current[0] = exc
         response = client.post(
-            f"/browser/navigate?session={NAMED}", json={"url": "https://x.test/"}
+            f"/browser/navigate?workspace={NAMED}", json={"url": "https://x.test/"}
         )
         got[name] = {"status": response.status_code, "body": response.json()}
     compare("errors.json", normalised(got))
@@ -355,7 +355,7 @@ def twin(monkeypatch):
 
     The routes bind their action when the server is built, and the tools look
     it up per call, so the double goes onto the class: both surfaces then
-    reach it through the real `SessionManager.act`.
+    reach it through the real `Workspaces.act`.
     """
     double = Acting()
     for name in ("navigate", "extract", "write", "interact", "screenshot",
@@ -364,7 +364,7 @@ def twin(monkeypatch):
     server = SeleniumMCP(Settings(**SETTINGS))
     server.actions.grid = double.grid
     calling_as(monkeypatch, NAMED)
-    server.sessions.store.set(NAMED, SessionRecord(session_id="b-1"))
+    server.workspaces.store.set(NAMED, Workspace(session_id="b-1"))
     double.grid.alive.add("b-1")
     return server, double
 
@@ -393,7 +393,7 @@ async def test_the_tool_and_the_endpoint_answer_alike(twin, tool, route, args):
         called = await client.call_tool(tool, args)
     tool_calls, double.calls = list(double.calls), []
     http = TestClient(server.mcp.http_app(), headers=AUTH).post(
-        f"/browser/{route}?session={NAMED}", json=args
+        f"/browser/{route}?workspace={NAMED}", json=args
     )
     assert http.status_code == 200, http.text
     assert [c[:2] for c in tool_calls] == [c[:2] for c in double.calls]

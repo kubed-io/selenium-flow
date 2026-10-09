@@ -192,8 +192,8 @@ def test_the_runtime_list_is_what_pyproject_declares():
 
 
 def test_an_extra_is_appended_whole():
-    """`[redis]` is baked into the image so that turning on shared saved
-    sessions is a config change rather than a different build."""
+    """`[redis]` is baked into the image so that keeping workspaces across a
+    restart is a config change rather than a different build."""
     data = tomllib.loads(PYPROJECT.read_text())
     extra = data["project"]["optional-dependencies"]["redis"]
     assert requirements.runtime(data, ["redis"])[-len(extra):] == extra
@@ -284,7 +284,7 @@ def test_the_copied_venv_is_proved_to_work_at_build_time():
 
 
 def test_the_project_is_installed_with_its_extra():
-    """`[redis]` is what lets shared saved sessions be an env var rather than a
+    """`[redis]` is what lets workspaces survive a restart by an env var rather than a
     different image. `--no-deps` would silently drop it."""
     builder = dockerfile_stages()["builder"]
     install = next(ln for ln in builder if ln.startswith("pip install --no-cache-dir ."))

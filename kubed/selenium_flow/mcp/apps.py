@@ -6,9 +6,9 @@ sandboxed iframe next to the tool call. The admin page composes those same
 components into something a person browses; this is the other end of the same
 library.
 
-**Nothing here lists other people's sessions.** An MCP client sees its own
-session and nothing else, so the session list is an admin view over HTTP and
-never a tool or a resource. See AGENTS.md, "A client owns one session".
+**Nothing here lists other people's workspaces.** An MCP client sees its own
+workspace and nothing else, so the workspace list is an admin view over HTTP and
+never a tool or a resource. See AGENTS.md, "A client owns one workspace".
 
 Support is uneven and the degradation is the interesting part. `show` hands
 back a resource's own JSON, with absolute, signed URLs in it, and the

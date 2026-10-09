@@ -53,7 +53,7 @@ the tool takes directly.
 **Not steps:** `open_session` and `end_browser`. A flow runs in the browser the
 caller already holds, which is what lets the same flow run on Firefox unedited.
 There is no `session_id` to put in a step: a run happens in the browser your
-session already holds.
+workspace already holds.
 
 ## How long a run may take
 
@@ -299,11 +299,11 @@ flow except where it started. Give it a first step that navigates, or an
 
 ## Whose flows you see
 
-This depends on your session name, and it is not guessable from any schema.
+This depends on your workspace name, and it is not guessable from any schema.
 
 | You are | You save into | You can run |
 |---|---|---|
-| **named** (`?session=` / `X-Session-Key`) | your own library | yours, plus the shared library |
+| **named** (`?workspace=` / `X-Workspace`) | your own library | yours, plus the shared library |
 | **stdio** | its own `stdio` library | its own, plus the shared library |
 | **unnamed**, or named `global` | nowhere — you cannot save | the shared library |
 
@@ -311,12 +311,12 @@ A name must be usable as a folder name — letters, digits, `.`, `-` and `_`,
 starting with a letter or digit. One that is not still keys your browser, but
 the flow tools refuse it rather than quietly putting your flows somewhere shared.
 
-**`global` is read-only.** Every session lists and runs what is in it, and no
-session may change it: `save_flow` and `delete_flow` refuse. That is not
+**`global` is read-only.** Every workspace lists and runs what is in it, and no
+workspace may change it: `save_flow` and `delete_flow` refuse. That is not
 tidiness — the shared library is *live*, so a flow you rewrote or deleted would
 change or vanish underneath another agent part-way through running it.
 
-**So name your session before you save anything.** Without a name you have no
+**So name your workspace before you save anything.** Without a name you have no
 library of your own, and `save_flow` says so rather than writing somewhere you
 would never look again. Over stdio you already have one — a stdio server is one
 process serving one client, so it gets its own library without asking. Only an

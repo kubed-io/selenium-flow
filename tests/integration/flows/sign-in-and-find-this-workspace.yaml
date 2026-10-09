@@ -1,17 +1,17 @@
 description: >-
-  Sign in to the admin page and find the session running this flow in its list.
+  Sign in to the admin page and find the workspace running this flow in its list.
   This is the admin UI's whole front door: the list went blank in production
   while every unit test stayed green.
 parameters:
   type: object
-  required: [admin, session]
+  required: [admin, workspace]
   properties:
     admin:
       type: string
       description: The origin the browser reaches this server at
-    session:
+    workspace:
       type: string
-      description: The name the caller running this flow gave its session
+      description: The name the caller running this flow gave its workspace
 steps:
 - tool: navigate
   args:
@@ -31,8 +31,8 @@ steps:
 - tool: assert
   args:
     script: >-
-      return [...document.querySelectorAll('#sessions .pill.name')]
-      .some((pill) => pill.textContent === '${session}')
+      return [...document.querySelectorAll('#workspaces .pill.name')]
+      .some((pill) => pill.textContent === '${workspace}')
     message: >-
-      Signed in, but the session running this flow is not in the list. Either
-      /admin/sessions came back empty or the page did not render what it got.
+      Signed in, but the workspace running this flow is not in the list. Either
+      /admin/workspaces came back empty or the page did not render what it got.

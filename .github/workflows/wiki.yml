@@ -128,10 +128,35 @@ jobs:
     - name: Generate
       run: python scripts/generate_wiki.py
 
+    # Two separate questions. `changed`: did regenerating alter the pages.
+    # `unpublished`: is the commit the submodule pins ahead of the wiki's master.
+    # The second matters because tests/test_wiki.py forces the pinned commit to
+    # equal the generator's output, so a merge whose wiki commit was only ever
+    # pushed to a branch regenerates nothing and would publish nothing.
+    #
+    # Only a pin that fast-forwards master is published. If the wiki was edited
+    # in the browser, master is ahead of or beside the pin; pushing would be
+    # rejected on every merge, so that case warns instead of failing. The
+    # submodule checkout is shallow and the wiki is small, so its history is
+    # fetched to answer. When `changed` is also true the regeneration commit sits
+    # on top of the pin, so that push is as fast-forward-sensitive as it ever was.
+    # This has to run before any regeneration commit moves HEAD.
     - name: Diff
       id: diff
       working-directory: wiki
       run: |
+        remote=$(git ls-remote origin refs/heads/master | cut -f1)
+        if [ -n "$remote" ] && [ "$(git rev-parse HEAD)" != "$remote" ]; then
+          git fetch --quiet --unshallow origin 2>/dev/null || git fetch --quiet origin
+          git fetch --quiet origin master
+          if git merge-base --is-ancestor FETCH_HEAD HEAD; then
+            echo "unpublished=true" >> "$GITHUB_OUTPUT"
+            echo "The pinned wiki commit is ahead of the wiki's master; publishing it." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::The wiki's master has moved past or beside the pinned commit (edited in the browser?). Not publishing the pin; bump wiki/ to include master's changes."
+            echo "The wiki's master is not behind the pinned commit; nothing published from the pin." >> "$GITHUB_STEP_SUMMARY"
+          fi
+        fi
         git add -A
         if git diff --cached --quiet; then
           echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -152,14 +177,20 @@ jobs:
         } >> "$GITHUB_STEP_SUMMARY"
 
     - name: Push
-      if: env.PUSH == 'true' && steps.diff.outputs.changed == 'true'
+      if: env.PUSH == 'true' && (steps.diff.outputs.changed == 'true' || steps.diff.outputs.unpublished == 'true')
       working-directory: wiki
       env:
         SHA: ${{ github.sha }}
+        CHANGED: ${{ steps.diff.outputs.changed }}
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git commit -m "Regenerate from ${SHA:0:8}"
+        # Only regeneration makes a commit; an unpublished pin is pushed as it
+        # is. A non-fast-forward (the wiki was edited in the browser) is
+        # rejected here, loudly, which is the right answer.
+        if [ "$CHANGED" = "true" ]; then
+          git commit -m "Regenerate from ${SHA:0:8}"
+        fi
         # The wiki's default branch is master, not main — GitHub creates it that
         # way and does not follow the repository's own default.
         git push origin HEAD:master

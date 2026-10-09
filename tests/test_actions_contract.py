@@ -788,7 +788,7 @@ def _staged(folder: Path):
 
 def test_an_upload_takes_no_file_from_the_servers_disk(actions, untouched):
     """Ruling 3: `path` read any file the server user could, its config and
-    mounted secrets included. A file comes as content or from the session's
+    mounted secrets included. A file comes as content or from the workspace's
     store; a server path is not an argument at all."""
     with pytest.raises(TypeError, match="path"):
         actions.upload_file("abc", selector={"css": "input"}, path="/etc/passwd")

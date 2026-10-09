@@ -1,6 +1,6 @@
-"""The session list: its payload, its live stream, and ending a browser.
+"""The workspace list: its payload, its live stream, and ending a browser.
 
-Flow sessions, not Grid sessions. ``sessions_payload`` is built once per
+Workspaces, not Grid sessions. ``workspaces_payload`` is built once per
 registration (it remembers whether the store was failing, so an outage warns
 once) and handed to whatever else needs a row — the files tab's header.
 
@@ -23,15 +23,15 @@ from starlette.responses import JSONResponse, Response
 
 from ...core.defaults import DEFAULT_BROWSER
 from ...names import (
-    GLOBAL_SESSION,
+    GLOBAL_WORKSPACE,
     RECORDINGS_DIR,
     SCREENSHOTS_DIR,
-    STDIO_SESSION,
+    STDIO_WORKSPACE,
     InvalidName,
     library_of,
 )
-from ...session.sessions import Caller
 from ...site_data import snapshot as site_data
+from ...workspace.workspaces import Caller
 from .. import auth, links
 
 log = logging.getLogger(__name__)
@@ -43,27 +43,27 @@ POLL_SECONDS = 2.0
 # Seconds of no change before a keepalive comment goes out.
 HEARTBEAT = 20.0
 # How old the last broadcast may be and still be handed out as "now": to a
-# page that has just connected, and to `GET /admin/sessions`.
+# page that has just connected, and to `GET /admin/workspaces`.
 FRESH_SECONDS = 1.0
 
 
 def owner_label(key: str) -> dict:
-    """A store key turned into something worth showing next to a session.
+    """A store key turned into something worth showing next to a workspace.
 
     There is one key shape now: the name its caller chose (§F2.12). This used to
     unpick four — a name, a negotiated transport id, stdio, and a caller with
     nothing stable to key on — and report the last three as kinds because none
     of them was worth printing. The function survives the collapse because the
-    admin page still wants to say where a session came from, and `stdio` is
-    still a session nobody typed.
+    admin page still wants to say where a workspace came from, and `stdio` is
+    still a workspace nobody typed.
     """
-    if key == STDIO_SESSION:
+    if key == STDIO_WORKSPACE:
         return {"name": key, "owner": "stdio"}
     return {"name": key, "owner": "named"}
 
 
 def _recency(item) -> float:
-    """Newest first, so the session someone just used is at the top."""
+    """Newest first, so the workspace someone just used is at the top."""
     return getattr(item[1], "opened_at", 0.0) or 0.0
 
 
@@ -74,8 +74,8 @@ def _grid_facts(session: dict) -> dict:
     return {"version": session.get("version"), "node": session.get("node")}
 
 
-def named(call, session: str) -> list[str]:
-    """What a session has, by name, or nothing if the store cannot say.
+def named(call, workspace: str) -> list[str]:
+    """What a workspace has, by name, or nothing if the store cannot say.
 
     Names rather than a count, because two of these lists overlap: keeping a
     file copies it, so a kept file and its download share a name and adding
@@ -83,14 +83,14 @@ def named(call, session: str) -> list[str]:
     """
     try:
         return [str(item.get("name", item)) if isinstance(item, dict) else str(item)
-                for item in call(session)]
+                for item in call(workspace)]
     except Exception:  # noqa: BLE001 - a count is not worth failing a listing
-        log.info("could not list %s for %s", call.__name__, session)
+        log.info("could not list %s for %s", call.__name__, workspace)
         return []
 
 
-def revision(flow_store, session: str) -> str:
-    """A token that changes whenever this session's flows do.
+def revision(flow_store, workspace: str) -> str:
+    """A token that changes whenever this workspace's flows do.
 
     A *count* cannot see an edit — the YAML changes and the number does not
     — and editing is what the flows panel is for, so a page watching the
@@ -98,51 +98,51 @@ def revision(flow_store, session: str) -> str:
     The store answers this; a backend that cannot is free to return its
     count, and the panel degrades to what the file list already does.
     """
-    if flow_store is None or session is None:
+    if flow_store is None or workspace is None:
         return ""
     try:
-        return str(flow_store.revision(session))
+        return str(flow_store.revision(workspace))
     except AttributeError:
         # A backend that does not implement one. Falling back to the count
         # is what makes the sentence above true: a constant here would make
         # the page's stamp constant too, and it would never repaint again —
         # which is the very bug this helper exists to fix, reintroduced
         # silently for anyone whose store is not the local one.
-        return str(len(named(flow_store.names, session)))
+        return str(len(named(flow_store.names, workspace)))
     except Exception:  # noqa: BLE001 - never worth failing a listing
-        log.info("could not read the flow revision for %s", session)
+        log.info("could not read the flow revision for %s", workspace)
         return ""
 
 
 def library(key: str) -> str:
-    """The session directory this key owns, or refuse.
+    """The workspace directory this key owns, or refuse.
 
     The write paths cannot fall back to ``global`` the way a browser lookup
-    does: that would put one session's file in the shared library. An
+    does: that would put one workspace's file in the shared library. An
     ``InvalidName`` is a ValueError, so ``errors.py`` already answers 400.
     """
-    session = library_of(key)
-    if session is None:
+    workspace = library_of(key)
+    if workspace is None:
         raise InvalidName(
-            f"session {key!r} cannot keep files: its name is not one it may "
+            f"workspace {key!r} cannot keep files: its name is not one it may "
             "own a library under — either not a usable directory name, or "
             "reserved. Use letters, digits, dots, dashes and underscores, "
             "starting with a letter or digit."
         )
-    return session
+    return workspace
 
 
-def attached_id(sessions, key: str) -> str:
-    """The browser a flow session currently holds, or "" if none."""
-    store = getattr(sessions, "store", None)
+def attached_id(workspaces, key: str) -> str:
+    """The Grid id of the session a workspace holds open, or "" if none."""
+    store = getattr(workspaces, "store", None)
     if store is None:
         return ""
     record = store.get(key)
     return record.session_id if record and record.attached else ""
 
 
-async def header(sessions_payload, key: str, session_id: str) -> dict:
-    """The session facts the detail view leads with.
+async def header(workspaces_payload, key: str, session_id: str) -> dict:
+    """The workspace facts the detail view leads with.
 
     Sent alongside the files rather than fetched separately, and
     best-effort: the files are what was asked for, and losing the header is
@@ -154,10 +154,10 @@ async def header(sessions_payload, key: str, session_id: str) -> dict:
         "attached": bool(session_id),
     }
     try:
-        listing = await run_in_threadpool(sessions_payload)
-        return next((s for s in listing["sessions"] if s["key"] == key), detail)
+        listing = await run_in_threadpool(workspaces_payload)
+        return next((s for s in listing["workspaces"] if s["key"] == key), detail)
     except Exception as exc:  # noqa: BLE001 - a Grid blip, not a failure
-        log.info("session header for %s unavailable: %s", key, exc)
+        log.info("workspace header for %s unavailable: %s", key, exc)
         return detail
 
 
@@ -195,7 +195,7 @@ class _Page:
 
 
 class Broadcast:
-    """The session list, computed once a tick for every connected page.
+    """The workspace list, computed once a tick for every connected page.
 
     Each page used to run its own loop, so N open tabs asked the Grid and the
     store N times a tick for the same answer. One task does it now, and only
@@ -208,7 +208,7 @@ class Broadcast:
     """
 
     def __init__(self, compute):
-        # `sessions_payload`, for a caller that wants the list computed now.
+        # `workspaces_payload`, for a caller that wants the list computed now.
         self.compute = compute
         self._pages: set[_Page] = set()
         self._task: asyncio.Task | None = None
@@ -328,9 +328,9 @@ class _Stream(EventSourceResponse):
 
 
 def mount(
-    mcp, actions, sessions, flow_store, token, prefix, guarded
+    mcp, actions, workspaces, flow_store, token, prefix, guarded
 ):
-    """Mount the session list, its event stream and the end-a-browser route.
+    """Mount the workspace list, its event stream and the end-a-session route.
 
     Returns the :class:`Broadcast`: the files tab reads its header from its
     ``compute``, and every route that changes the list wears its ``changes``.
@@ -340,40 +340,40 @@ def mount(
     # than on every two-second poll of every open page.
     store_failing = [False]
 
-    def sessions_payload() -> dict:
-        """Every flow session, and the browser each one currently holds.
+    def workspaces_payload() -> dict:
+        """Every workspace, and the session (browser) each one currently holds.
 
-        Flow sessions, not Grid sessions. The Grid is the superset — it runs
+        Workspaces, not Grid sessions. The Grid is the superset — it runs
         browsers put there by anything at all — and listing those would be
         showing somebody else's work as though it were ours. What matters here
-        is the session: who holds it, what it was doing, and whether it still
+        is the workspace: who holds it, what it was doing, and whether it still
         has a browser attached.
 
         Blocking — it talks to the Grid for liveness and file counts — so
         callers on the event loop must run it in a worker thread.
         """
-        sessions_store = getattr(sessions, "store", None)
-        if sessions_store is None or not hasattr(sessions_store, "records"):
-            # A store that cannot enumerate is not an error: sessions still
-            # work, there is simply no history to show.
-            return {"sessions": []}
+        workspaces_store = getattr(workspaces, "store", None)
+        if workspaces_store is None or not hasattr(workspaces_store, "records"):
+            # A store that cannot enumerate is not an error: workspaces still
+            # work, there is simply no list to show.
+            return {"workspaces": []}
         try:
-            records = sessions_store.records()
+            records = workspaces_store.records()
         except Exception as exc:  # noqa: BLE001 - a Redis blip is not an outage
-            # A warning, because the page renders this as "no sessions" and that
+            # A warning, because the page renders this as "no workspaces" and that
             # looks exactly like an empty install - at info it hid a store that
             # failed on every poll for a day. Once, because every open page
             # polls every two seconds (Copilot, #33).
             report = log.debug if store_failing[0] else log.warning
-            report("could not read the session store: %s", exc)
+            report("could not read the workspace store: %s", exc)
             store_failing[0] = True
-            return {"sessions": []}
+            return {"workspaces": []}
         if store_failing[0]:
-            log.info("the session store is readable again")
+            log.info("the workspace store is readable again")
             store_failing[0] = False
 
         # One Grid listing for the whole payload rather than a liveness call per
-        # row: the answer for every session is in it, and it is one round trip.
+        # row: the answer for every workspace is in it, and it is one round trip.
         running: dict = {}
         try:
             running = {s["session_id"]: s for s in actions.grid.sessions()}
@@ -381,11 +381,11 @@ def mount(
             log.info("could not read the grid: %s", exc)
 
         # Once per payload, not once per row: it is the same answer for every
-        # session, and inside the loop it made each heartbeat walk and stat the
-        # whole shared library once per session — O(sessions x shared flows) on
+        # workspace, and inside the loop it made each heartbeat walk and stat the
+        # whole shared library once per workspace — O(workspaces x shared flows) on
         # a two-second poll.
         shared_rev = (
-            revision(flow_store, GLOBAL_SESSION) if flow_store is not None else ""
+            revision(flow_store, GLOBAL_WORKSPACE) if flow_store is not None else ""
         )
 
         rows = []
@@ -395,38 +395,38 @@ def mount(
             downloads = None
             if live:
                 # A file count per row is worth one call each: it is the reason
-                # to click into a session, so a list without it is guesswork.
+                # to click into a workspace, so a list without it is guesswork.
                 try:
                     downloads = [f.get("name", "") for f in actions.grid.files(sid)]
                 except Exception:  # noqa: BLE001 - a session can end mid-call
                     downloads = []
             # Downloads are countable only while a browser is attached; kept
-            # files and flows belong to the session and are countable always.
-            # So a detached session still reports a number, which is the whole
-            # reason keeping exists — a count that emptied when the Grid reaped
-            # a browser would make the durable half look lost.
-            # None when the session named itself something no directory can be
-            # called. Such a session keeps nothing, and must not be shown the
+            # files and flows belong to the workspace and are countable always.
+            # So a workspace with no session open still reports a number, which
+            # is the whole reason keeping exists — a count that emptied when the
+            # Grid reaped a browser would make the durable half look lost.
+            # None when the workspace was named something no directory can be
+            # called. Such a workspace keeps nothing, and must not be shown the
             # shared library's counts as though they were its own.
-            session = library_of(key)
-            stores = flow_store is not None and session is not None
-            flow_names = named(flow_store.names, session) if stores else []
-            # Screenshots and Files are the session's own — countable whenever
+            workspace = library_of(key)
+            stores = flow_store is not None and workspace is not None
+            flow_names = named(flow_store.names, workspace) if stores else []
+            # Screenshots and Files are the workspace's own — countable whenever
             # there is a store and a usable name, independent of whether a
             # browser is attached. Downloads are the Grid's and countable only
             # while one is live, which is why that count alone can be None for
             # a reason `stores` never causes.
             shots = (
-                named(lambda s: flow_store.files(s, SCREENSHOTS_DIR), session)
+                named(lambda s: flow_store.files(s, SCREENSHOTS_DIR), workspace)
                 if stores
                 else []
             )
             recs = (
-                named(lambda s: flow_store.files(s, RECORDINGS_DIR), session)
+                named(lambda s: flow_store.files(s, RECORDINGS_DIR), workspace)
                 if stores
                 else []
             )
-            kept = named(flow_store.files, session) if stores else []
+            kept = named(flow_store.files, workspace) if stores else []
             counts = {
                 "downloads": len(downloads) if downloads is not None else None,
                 "screenshots": len(shots) if stores else None,
@@ -450,7 +450,7 @@ def mount(
             # deliberately, since the site's Content-Disposition picked it. A
             # file called `a:d;b` in one folder and the pair (`a`, `b`) split
             # across two would both flatten to the same joined string, so two
-            # different sessions shared one token and the later one would not
+            # different workspaces shared one token and the later one would not
             # repaint. Flow names cannot do this — `NAME` has no punctuation to
             # collide with — which is why `revision` may join and this may not.
             files_rev = json.dumps(
@@ -473,7 +473,7 @@ def mount(
             visited = site_data.history_hosts(record.history)
             rows.append(
                 {
-                    # The store key addresses the session on this API. It is not
+                    # The store key addresses the workspace on this API. It is not
                     # the browser id, which comes and goes underneath it.
                     "key": key,
                     **owner_label(key),
@@ -505,34 +505,34 @@ def mount(
                     # number that means both.
                     "counts": counts,
                     # Beside the file count because it is the same kind of fact:
-                    # what this session has accumulated, and the other reason to
+                    # what this workspace has accumulated, and the other reason to
                     # click into it. None when flows are off, which is not zero.
                     "flows_count": (len(flow_names) if stores else None),
                     # What the flows panel watches. A count cannot see an edit —
                     # the YAML changes and the number does not — and editing is
                     # the thing the panel is for, so a page keyed off the count
                     # would sit there showing the old document. The revision
-                    # covers this session's library and the shared one, because
+                    # covers this workspace's library and the shared one, because
                     # the panel lists both.
                     "flows_rev": (
-                        revision(flow_store, session) + "+" + shared_rev
+                        revision(flow_store, workspace) + "+" + shared_rev
                         if stores
                         else None
                     ),
                     **_grid_facts(running.get(sid, {})),
                 }
             )
-        return {"sessions": rows}
+        return {"workspaces": rows}
 
-    broadcast = Broadcast(sessions_payload)
+    broadcast = Broadcast(workspaces_payload)
 
     @mcp.custom_route(
-        f"{prefix}/admin/sessions", methods=["GET"], name="admin_sessions")
+        f"{prefix}/admin/workspaces", methods=["GET"], name="admin_workspaces")
     @guarded
-    async def admin_sessions(request: Request) -> JSONResponse:
+    async def admin_workspaces(request: Request) -> JSONResponse:
         # What the open pages were just sent, when that is recent: a page loads
         # this and opens the stream together, and both are the same answer.
-        payload = broadcast.fresh() or await run_in_threadpool(sessions_payload)
+        payload = broadcast.fresh() or await run_in_threadpool(workspaces_payload)
         # A signed URL for the event stream, because EventSource cannot send an
         # Authorization header — the same reason the file route is signed. It is
         # minted here so it is only ever handed to a caller that had the token.
@@ -549,7 +549,7 @@ def mount(
     @mcp.custom_route(
         f"{prefix}/admin/events", methods=["GET"], name="admin_events")
     async def admin_events(request: Request) -> Response:
-        """The session list, pushed when it changes.
+        """The workspace list, pushed when it changes.
 
         There is nothing to subscribe to — a browser appears on the Grid, put
         there by anything at all — so the change has to be discovered by asking.
@@ -599,19 +599,19 @@ def mount(
         )
 
     @mcp.custom_route(
-        f"{prefix}/admin/sessions/{{key}}",
+        f"{prefix}/admin/workspaces/{{key}}/session",
         methods=["DELETE"],
         name="admin_end_session",
     )
     @guarded
     @broadcast.changes
     async def admin_end_session(request: Request) -> JSONResponse:
-        """End the browser a flow session holds, keeping the session itself.
+        """End the browser session a workspace holds, keeping the workspace itself.
 
-        **This does not delete the session.** It detaches the browser and leaves
+        **This does not delete the workspace.** It detaches the browser and leaves
         the record — its browser choice and the page it was on — so the caller's
         next ``open_session`` carries on where it left off rather than starting
-        from the server's defaults. A flow session is only ever removed by
+        from the server's defaults. A workspace is only ever removed by
         expiring, which is what makes all of this safe to click.
 
         The Grid reaps an idle browser on its own timeout, so this is not the
@@ -619,16 +619,16 @@ def mount(
         Grid slot while somebody waits.
         """
         key = request.path_params["key"]
-        session_id = attached_id(sessions, key)
+        session_id = attached_id(workspaces, key)
         if not session_id:
             # Nothing attached is success, not a failure: the button's whole
-            # job is "make sure this session is not holding a browser".
+            # job is "make sure no session is open in this workspace".
             return JSONResponse({"success": True, "key": key, "session_id": None})
         # Through the same command the tool uses, so the button and the tool
-        # cannot mean different things: the admin names the session by its
+        # cannot mean different things: the admin names the workspace by its
         # key. Blocking HTTP to the Grid, so off the event loop — a slow Grid
         # would stall every connected dashboard.
-        await run_in_threadpool(sessions.end_browser, Caller(key, "admin"))
+        await run_in_threadpool(workspaces.end_browser, Caller(key, "admin"))
         return JSONResponse({"success": True, "key": key, "session_id": session_id})
 
     return broadcast

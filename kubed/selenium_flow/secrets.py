@@ -50,8 +50,8 @@ from urllib.parse import urlsplit
 
 from .config import FromEnv, FromFile, FromValue, SecretEntry, SecretsSettings
 from .names import InvalidName, valid_name
-from .session import locks
 from .urls import host_of
+from .workspace import locks
 
 log = logging.getLogger(__name__)
 
@@ -375,9 +375,9 @@ class Catalogue:
     from, because "why am I getting the wrong password" is otherwise
     unanswerable.
 
-    Filesystem secrets are visible to every session: a directory carries no
+    Filesystem secrets are visible to every workspace: a directory carries no
     labels, and inventing a scoping convention for it would mean two mechanisms
-    doing one job (§F1.22). Session scoping arrives with Kubernetes in E8.
+    doing one job (§F1.22). Workspace scoping arrives with Kubernetes in E8.
     """
 
     def __init__(self, sources: list[SecretSource], ttl: int = CACHE_SECONDS,
@@ -463,12 +463,12 @@ class Catalogue:
     def _entries(self) -> dict:
         return self._snapshot()[0]
 
-    def listing(self, session: str = "") -> dict:
+    def listing(self, workspace: str = "") -> dict:
         """The catalogue, as a caller may see it. Names and keys, never values."""
         entries = self._entries()
         return {
             "count": len(entries),
-            "session": session,
+            "workspace": workspace,
             "secrets": [entries[name] for name in sorted(entries)],
         }
 
@@ -567,7 +567,7 @@ def register(mcp, catalogue, token: str | None, prefix: str = "") -> None:
     from . import errors, faults
     from .http import auth
     from .mcp import clients
-    from .session.sessions import Caller, values_of
+    from .workspace.workspaces import Caller, values_of
 
     def listing(caller) -> dict:
         if catalogue is None:
@@ -603,7 +603,7 @@ def register(mcp, catalogue, token: str | None, prefix: str = "") -> None:
 # Not `execute_script`: a script is arbitrary code, and a bindable argument
 # there is an exfiltration API with extra steps. Not `navigate`: a secret in a
 # URL lands in browser history, the referrer header, and this server's own
-# session record, which is stored in Redis. Not `press_key`, which has no value
+# workspace record, which is stored in Redis. Not `press_key`, which has no value
 # to carry. `upload_file` says "not yet" rather than "never" — a credentials
 # file is a plausible later case.
 # Said by both surfaces that can meet a server with no catalogue — the listing
@@ -731,27 +731,27 @@ def bind(catalogue, reference, url: str | tuple[str, ...], tool: str = "write") 
     return value
 
 
-def perform_write(catalogue, actions, sessions, name: str, kwargs: dict) -> dict:
+def perform_write(catalogue, actions, workspaces, name: str, kwargs: dict) -> dict:
     """A whole bound write — resolve, type, redact, remember — on either surface.
 
-    Deliberately NOT routed through ``sessions.act``. That touches the session
+    Deliberately NOT routed through ``Workspaces.act``. That touches the workspace
     with the URL the action returned, and ``submit=True`` can land the browser
     on ``?q=<what was typed>`` — so the shared wrapper would persist the
-    credential into the session record before anything had a chance to redact
+    credential into the workspace record before anything had a chance to redact
     it. Everything else about a write is identical, which is exactly why this
     lives in one place: two copies of a redaction are one copy that is older.
-    It settles like any other action, through ``sessions.settle``, with the page
+    It settles like any other action, through ``Workspaces.settle``, with the page
     withheld when the value reached it.
 
     The page read, the leash check and the keystrokes are ONE turn on the
-    browser (`session.locks`): another call navigating or switching frames
+    browser (`workspace.locks`): another call navigating or switching frames
     between the check and the typing would type the value somewhere the leash
     never saw (Copilot, #52).
     """
     from . import binding
     from .flows import redact
 
-    resolved = sessions.resolve(name)
+    resolved = workspaces.resolve(name)
     with locks.driving(resolved):
         given, guarded = binding.bind_into(
             kwargs,
@@ -771,12 +771,12 @@ def perform_write(catalogue, actions, sessions, name: str, kwargs: dict) -> dict
     # Only remember a page the value never reached; a later reattach would
     # navigate to it. Touched either way. Withholding the page must not also
     # stop the clock: `touch` slides the TTL, and skipping it entirely let a
-    # session expire *because* its URL was correctly kept out of the store.
+    # workspace expire *because* its URL was correctly kept out of the store.
     #
     # The first call after a silent reopen says what came back: `settle` puts
     # that on `shown`.
     safe = binding.safe_url(result, hidden)
-    sessions.settle(name, shown, url=safe, browser=resolved)
+    workspaces.settle(name, shown, url=safe, browser=resolved)
     return shown
 
 

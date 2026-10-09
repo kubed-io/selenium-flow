@@ -54,7 +54,7 @@ def slow_server(tmp_path, tmp_path_factory, monkeypatch):
         )
     )
     calling_as(monkeypatch, NAMED)
-    monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "browser-1")
     server.ran = []
 
     def navigate(session_id, url=None, **_):
@@ -222,7 +222,7 @@ def test_a_budget_saved_over_http_is_kept_too(slow_server):
     response = client.put(
         "/flows/patient",
         json={"steps": STEPS[:1], "timeout": 900},
-        headers={"Authorization": f"Bearer {TOKEN}", "X-Session-Key": NAMED},
+        headers={"Authorization": f"Bearer {TOKEN}", "X-Workspace": NAMED},
     )
     assert response.status_code == 200, response.text
     assert slow_server.flows.get(NAMED, "patient")["timeout"] == 900
@@ -269,7 +269,7 @@ async def test_every_field_a_save_or_read_returns_is_published(
     from kubed.selenium_flow.spec import build_spec
 
     client = TestClient(slow_server.mcp.http_app())
-    headers = {"Authorization": f"Bearer {TOKEN}", "X-Session-Key": NAMED}
+    headers = {"Authorization": f"Bearer {TOKEN}", "X-Workspace": NAMED}
     document = {
         "description": "everything a flow may say",
         "parameters": {"type": "object", "properties": {"q": {"type": "string"}}},
@@ -349,7 +349,7 @@ def test_a_null_budget_over_http_means_unset_and_is_not_stored(slow_server):
     response = client.put(
         "/flows/patient",
         json={"steps": STEPS[:1], "timeout": None},
-        headers={"Authorization": f"Bearer {TOKEN}", "X-Session-Key": NAMED},
+        headers={"Authorization": f"Bearer {TOKEN}", "X-Workspace": NAMED},
     )
     assert response.status_code == 200, response.text
     assert "timeout" not in response.json()

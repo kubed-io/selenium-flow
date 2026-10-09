@@ -1,5 +1,5 @@
 """A save: the whole jar, the page's two storages, and the localStorage of
-every other origin the session has been to, read in a spare tab — one
+every other origin the workspace has been to, read in a spare tab — one
 snapshot that replaces the last (spec round 2, *save_site_data*)."""
 
 import json
@@ -9,9 +9,9 @@ from types import SimpleNamespace
 import pytest
 
 from kubed.selenium_flow import urls
-from kubed.selenium_flow.session.store import SessionRecord
 from kubed.selenium_flow.site_data import snapshot as sd
 from kubed.selenium_flow.site_data import transfer
+from kubed.selenium_flow.workspace.store import Workspace
 
 from .fakes import FakeBidi
 from .site_data_fakes import (
@@ -161,8 +161,8 @@ def test_the_cap_evicts_what_the_re_serialising_loop_did(monkeypatch):
 
 def test_the_record_round_trips_its_snapshot():
     data, _ = sd.snapshot({}, captured(local={"a": "1"}, session={"t": "1"}), [visit(APP)], NOW)
-    record = SessionRecord(session_id="s").visited(APP + "/x").with_site_data(data)
-    again = SessionRecord.from_json(record.to_json())
+    record = Workspace(session_id="s").visited(APP + "/x").with_site_data(data)
+    again = Workspace.from_json(record.to_json())
     assert again.site_data == data
     assert again.detached().site_data == data, "ending a browser keeps site data"
     assert again.visited("https://x.example.com/").site_data == data
@@ -245,7 +245,7 @@ def page():
     return SimpleNamespace(execute_script=lambda *a: dict(PAGE), current_url=APP + "/", title="App")
 
 
-def test_save_site_data_reads_the_origins_the_session_has_been_to(actions, monkeypatch, spare):
+def test_save_site_data_reads_the_origins_the_workspace_has_been_to(actions, monkeypatch, spare):
     monkeypatch.setattr(actions.grid, "reconnect", lambda sid: page())
     monkeypatch.setattr(actions.grid, "bidi", bidi_cm(FakeBidi()))
     actions.visited = lambda: [APP, SSO]
@@ -262,7 +262,7 @@ def test_save_site_data_without_a_history_reads_only_the_page(actions, monkeypat
     assert spare.tabs == []
 
 
-def test_one_save_through_the_server_keeps_every_site_the_session_went_to(monkeypatch, spare):
+def test_one_save_through_the_server_keeps_every_site_the_workspace_went_to(monkeypatch, spare):
     """The server hands `Actions` the caller's history: one save on the
     second app keeps the first's storage too (spec round 2)."""
     from starlette.testclient import TestClient
@@ -270,27 +270,27 @@ def test_one_save_through_the_server_keeps_every_site_the_session_went_to(monkey
     from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.core.browser import Grid
     from kubed.selenium_flow.server import SeleniumMCP
-    from kubed.selenium_flow.session.sessions import SessionManager
+    from kubed.selenium_flow.workspace.workspaces import Workspaces
 
     from .conftest import NAMED, TOKEN
 
     monkeypatch.setattr(Grid, "reconnect", lambda self, sid: page())
     monkeypatch.setattr(Grid, "bidi", lambda self, sid: bidi_cm(FakeBidi())(sid))
-    monkeypatch.setattr(SessionManager, "resolve", lambda self, name: "live-id")
+    monkeypatch.setattr(Workspaces, "resolve", lambda self, name: "live-id")
     server = SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}))
     # Stamped now, not at NOW: the save reads the history as the next write
     # would keep it, and a fixed stamp ages out of the store's TTL.
     now = time.time()
-    server.sessions.store.set(
-        NAMED, SessionRecord(session_id="live-id").visited(SSO + "/", now=now - 60).visited(APP + "/x", now=now)
+    server.workspaces.store.set(
+        NAMED, Workspace(session_id="live-id").visited(SSO + "/", now=now - 60).visited(APP + "/x", now=now)
     )
     response = TestClient(server.mcp.http_app()).post(
         "/browser/save-site-data", headers={"Authorization": f"Bearer {TOKEN}"},
-        params={"session": NAMED}, json={},
+        params={"workspace": NAMED}, json={},
     )
     assert response.status_code == 200, response.json()
     assert response.json()["saved"]["sites"] == [APP, SSO]
-    stored = server.sessions.store.get(NAMED).site_data
+    stored = server.workspaces.store.get(NAMED).site_data
     assert stored["origins"] == {APP: {"local": {"a": "1"}}, SSO: {"local": {"kc": "1"}}}
     assert stored["session"] == {"origin": APP, "items": {"t": "1"}}
 
@@ -341,19 +341,19 @@ def test_a_save_mid_flow_reads_the_sites_the_run_reached_before_it(
         {"tool": "save_site_data", "args": {}, "return": True},
         {"tool": "navigate", "args": {"url": c + "/"}},
     ]})
-    server.sessions.store.set(NAMED, SessionRecord(session_id="live-id"))
+    server.workspaces.store.set(NAMED, Workspace(session_id="live-id"))
     touched = []
-    real = server.sessions.touch
+    real = server.workspaces.touch
 
     def touch(name, *urls, browser=None):
         touched.append(urls)
         return real(name, *urls, browser=browser)
 
-    monkeypatch.setattr(server.sessions, "touch", touch)
-    report = flowapi.run_for(server.flows, server.actions, server.sessions, NAMED, "trip")
+    monkeypatch.setattr(server.workspaces, "touch", touch)
+    report = flowapi.run_for(server.flows, server.actions, server.workspaces, NAMED, "trip")
     assert spare.runs == [("spare", a)], "a is read in the spare tab; b is the page"
     assert report["steps"][2]["result"]["saved"]["sites"] == [b, a]
-    record = server.sessions.store.get(NAMED)
+    record = server.workspaces.store.get(NAMED)
     assert record.site_data["origins"] == {b: {"local": {"page": b}}, a: {"local": {"a": "1"}}}
     assert len(touched) == 2 and touched[0] == (a + "/", b + "/"), "flushed before the save, in order"
     assert a + "/" not in touched[1] and b + "/" not in touched[1], "the end writes only what came after"

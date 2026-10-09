@@ -39,7 +39,7 @@ venv/
 kubed/selenium_flow/http/static/
 node_modules/
 
-# Local compose data (sessions, recordings)
+# Local compose data (workspaces, recordings)
 data/
 
 # issue-agent thread files

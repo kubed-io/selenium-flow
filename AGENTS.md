@@ -4,30 +4,36 @@ Agent context for `selenium-flow`. Read this before working in this repo.
 
 ## Read first
 
-**The design record lives in [`saga/`](saga/).** This file is the operating
-manual — the rules and invariants you must not break. The saga is *why* they are
-what they are, plus the plan for what is being built next. Decisions there are
-cited as `§F1.n` and `§F2.n` and are the reference for anything in this file that
-says "see the saga".
+**The design record lives in [`docs/superpowers/`](docs/superpowers/)**: a
+spec per piece of work in [`specs/`](docs/superpowers/specs/) — the brief, the
+rulings and who made each one, the design — and the plan that built it in
+[`plans/`](docs/superpowers/plans/). This file is the operating manual — the
+rules and invariants you must not break. The specs are *why* they are what they
+are, and the newest ones are what is being built next. Read the latest spec
+before changing anything it covers;
+[the workspaces rename](docs/superpowers/specs/2026-10-09-workspaces-rename-design.md)
+is where the vocabulary below comes from.
 
-Start with [Chapter 1 — The Flight Plan](saga/Chapter_1_The_Flight_Plan.md) if
-you are picking up the **flows** feature: saved sequences of tool calls, run
-server-side on one clearance. It closed with `v0.1.0`.
+**[`docs/saga/`](docs/saga/) is deprecated** and kept as written: four chapters
+(flows, pilot reports, other clients, the Hangar) that came before the specs.
+Nothing new goes there, and nothing there is edited. It is still the reference
+for the decisions this file cites as `§F1.n`, `§F2.n` and `§F3.n` — "see the
+saga" means look the number up there — but where a spec and the saga disagree,
+the spec is later and wins. The saga calls the workspace a *session* throughout;
+read it in the vocabulary below.
 
-[Chapter 2 — Pilot Reports](saga/Chapter_2_Pilot_Reports.md) is still open for E17:
-what the first agent flying a real app reported — discoverable capabilities, a
-pointer that can glide, `drag`, `assert` steps that stop a run with instructions,
-and `outline`.
+**The vocabulary, because it is easy to get wrong:**
 
-[Chapter 3 — Other Aircraft](saga/Chapter_3_Other_Aircraft.md): what clients
-other than Claude Code can reach — VS Code Copilot above all, whose model
-cannot read resources — and why everything to read is named by URI, with two
-tools that read one for the clients that cannot.
-
-[Chapter 4 — The Hangar](saga/Chapter_4_The_Hangar.md) is the latest: Files,
-Screenshots and Downloads as three sections instead of one merged pile,
-`keep_file(uri)` and `upload_file(file=uri)`, and the admin UI's Files and
-Flows tabs.
+- A **workspace** is what a caller names (`?workspace=` / `X-Workspace`): the
+  persistent box holding its flows, files, site data, history and the settings
+  it opens browsers with. It is never deleted, only expires (`WORKSPACE_TTL`,
+  sliding).
+- A **session** is the live browser open in a workspace: at most one at a time,
+  started by `open_session`, ended by `end_browser`, the admin's End or the
+  Grid's reaper. It holds and controls the Grid's session (`session_id`). An idle
+  workspace has no session.
+- Otherwise *session* means only the Grid's session or the MCP transport
+  session, and the browser's sessionStorage keeps its name.
 
 
 This repo ships **an image and nothing else**. It does not deploy itself — unlike the
@@ -145,7 +151,7 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   routes `/mcp`.
 - **`oidc` without `auth.token` is a `ConfigError`**, checked after the layers merge
   (`config.oidc_problem`).
-- **Behind agentgateway, `X-Session-Key` / `X-Workspace` cross and `?session=` does not.**
+- **Behind agentgateway, `X-Workspace` crosses and `?workspace=` does not.**
 - **A JWT with an unknown `kid` makes `JWTVerifier` fetch the JWKS**, and FastMCP's bearer
   middleware runs on every path, so any request on a door that bypasses the gateway (the
   in-cluster Service, the ingress) can cause one. `OidcVerifier` floors that at one attempt
@@ -183,14 +189,14 @@ stages; none of them writes its own copy.
 
 | Stage | What it is | Where it lives |
 |---|---|---|
-| **Caller** | who is asking: name, library, client, declared flags, read once at the edge and handed in | `Caller` in `session/sessions.py`; the readers in `mcp/clients.py` and `http/` |
+| **Caller** | who is asking: name, library, client, declared flags, read once at the edge and handed in | `Caller` in `workspace/workspaces.py`; the readers in `mcp/clients.py` and `http/` |
 | **Capability** | what is being asked: name, arguments, route, annotations, the action | the `CAPABILITIES` table in `core/capabilities.py`, the actions in `core/actions.py`, annotations in `core/annotations.py` |
-| **Recipe** | how the browser does it: check, reattach, navigate, wait, act, report the page, under the session lock | `Recipe.run` in `core/recipe.py` |
-| **Settle** | what it leaves behind: one record write (history, capture, the reopen report) | `SessionManager.settle` in `session/sessions.py` |
+| **Recipe** | how the browser does it: check, reattach, navigate, wait, act, report the page, under the session's lock | `Recipe.run` in `core/recipe.py` |
+| **Settle** | what it leaves behind: one record write (history, capture, the reopen report) | `Workspaces.settle` in `workspace/workspaces.py` |
 | **Surface** | how it is answered: an MCP result, an HTTP response, a flow step's entry | `mcp/tools.py`, `routes.py` with `http/answer.py`, `flows/engine.py` |
 
 The layering is enforced, not remembered: `tests/test_boundaries.py` fails when
-`core/`, `session/`, `flows/` or `site_data/` imports the protocol layers
+`core/`, `workspace/`, `flows/`, `site_data/` or `recordings/` imports the protocol layers
 (`mcp/`, `http/`, `routes`, `server`, `spec`), and when the modules that are
 meant to be plain import `selenium`. Shared pure rules live in their own small
 modules — `names.py`, `urls.py`, `binding.py`, `faults.py`, `core/coerce.py` —
@@ -243,9 +249,9 @@ part that matters:
 So adding a *parameter* to a tool updates the spec on its own; adding a *return field* does
 not, and `test_every_action_declares_a_response_shape` is what stops that being forgotten.
 There is **no** transform any more. Three used to be applied, all consequences of
-the HTTP surface having no session of its own; §F2.12 and §F2.13 removed the
+the HTTP surface having no workspace of its own; §F2.12 and §F2.13 removed the
 cause, so a request body here is exactly the tool's schema. What this document
-adds that no tool schema carries is the session itself, as the header and query
+adds that no tool schema carries is the workspace itself, as the header and query
 parameter every operation takes.
 
 **`spec/` is where a change goes**, always. Both renderings come out of `build_spec`:
@@ -319,64 +325,75 @@ shape is a real risk. `tests/test_config_load.py` is what catches it.
 values are the wiki's job — the tab is a read-only view of what the server is
 actually running with (Dr K, 2026-09-26).
 
-## A client owns one session, and only its own
+## A client owns one workspace, and only its own
 
 This is a rule, not a preference.
 
-- **A client gets `open_session` and `end_browser`. That is its session.**
+- **A client names its workspace, and gets `open_session` and `end_browser` in
+  it.** That workspace, and the session open in it, are all it can reach.
 - **It can only ever control its own.** Nothing on the MCP surface enumerates
-  sessions, because a listing hands any client somebody else's session — and a
-  session name is now the entire credential for driving that browser.
-- **An orphan is invisible to it.** A client whose browser went simply has none,
-  and calls `open_session`. There is no "reclaim", no "take over".
+  workspaces, because a listing hands any client the names of everybody else's.
+  A name is an address, not a credential — the bearer token or the JWT is the
+  credential — but a client has no business learning addresses it was not given.
+- **An orphan is invisible to it.** A client whose browser went simply has no
+  session open, and calls `open_session`. There is no "reclaim", no "take over".
 - **The admin surface is HTTP endpoints and the UI, never tools or resources.**
-  It is the only thing that sees across sessions, and it is gated on the server
+  It is the only thing that sees across workspaces, and it is gated on the server
   token rather than on being an MCP client at all.
 - **Everything is ephemeral.** Stale entries are ignored and silently cleaned;
   nothing needs an operator to tidy up.
 
 `grid://sessions` and the `browser_sessions` tool existed and were removed for
-exactly this reason. `test_the_mcp_surface_never_lists_other_sessions` is the
-guard — if you find yourself adding a tool that returns more than one session,
+exactly this reason. `test_the_mcp_surface_never_lists_other_workspaces` is the
+guard — if you find yourself adding a tool that returns more than one workspace,
 that test is the design telling you no.
 
-`session://current` is the sanctioned shape: this caller's session, and nothing
-else in the process.
+`workspace://current` is the sanctioned shape: this caller's workspace and the
+session open in it, and nothing else in the process.
 
-## A session is the thing; a browser is something it holds
+## A workspace is the thing; a session is the browser it holds
 
-The two used to be one, and the split is what most of the session code is about.
+The two used to be one word, and the split is what most of `workspace/` is
+about.
 
-A **session** is a record in the store, keyed by **the name its caller chose**:
-the browser choice and window it was opened with, the page it was last on, and
-— when it has one — the id of a browser on the Grid.
+A **workspace** is a record in the store (`Workspace` in `workspace/store.py`),
+keyed by **the name its caller chose**: the browser choice and window it last
+opened with, where it has been, its saved site data, and — while a session is
+open — the Grid id of that session's browser (`session_id`). On disk it is also
+`DATA_DIR/workspaces/<name>/`: its flows, kept files, screenshots and
+recordings. `Workspaces` in `workspace/workspaces.py` is what every surface goes
+through to reach one.
 
-Detached is an **ordinary state**, not a broken one. It happens when the Grid
-reaps an idle browser, or an admin ends one. What survives is the context, and
-that is the point:
+A **session** is the live browser open in a workspace: at most one at a time,
+started by `open_session`, ended by `end_browser`, by the admin's End
+(`DELETE /admin/workspaces/{key}/session`) or by the Grid reaping it.
 
-- `resolve` reports a detached session exactly like an absent one, so the agent
-  takes the branch it already knows: call `open_session`.
+A workspace with no session is an **ordinary state**, not a broken one. What
+survives a session is the context, and that is the point:
+
+- `resolve` reports a workspace whose browser is gone exactly like one that
+  never had a session, so the agent takes the branch it already knows: call
+  `open_session`.
 - `open_session` with no arguments inherits that context — same browser, same
   window, back to the page it was on. The settings cascade is where this lives:
-  env < client default < **this session's last values** < explicit argument.
-- Ending a browser from the admin UI therefore costs the caller nothing but the
-  browser's live state. It never removes the session.
+  env < client default < **this workspace's last values** < explicit argument.
+- Ending a session from the admin UI therefore costs the caller nothing but the
+  browser's live state. It never removes the workspace.
 
-**A session is only ever removed by expiring.** `SESSION_TTL` slides on every
+**A workspace is only ever removed by expiring.** `WORKSPACE_TTL` slides on every
 use, so one in daily use never goes and one abandoned yesterday does. There is
 deliberately no delete button: nothing should be permanently lost by a misclick,
 and the store is a cache of intent, not a system of record. A name reappears the
 moment its caller calls again, because the name comes from the caller's own URL
 or header rather than from anything stored.
 
-**Both surfaces are the same session.** `routes.py` resolves a caller through
-the same `SessionManager` the tools use, so a browser opened over HTTP is in the
+**Both surfaces are the same workspace.** `routes.py` resolves a caller through
+the same `Workspaces` the tools use, so a browser opened over HTTP is in the
 admin list, slides its TTL, and is reopened after a reap exactly like one opened
 over MCP. That was not true before §F2.13 and the difference was invisible until
-a workflow's session expired underneath it.
+a workflow's workspace expired underneath it.
 
-**One browser-driving call at a time per session** (`session/locks.py`). The
+**One browser-driving call at a time per session** (`workspace/locks.py`). The
 record was always safe — every write is a compare-and-set — but two action
 sequences interleaved on one browser are not, so `Recipe.run` holds the
 session's lock from the reconnect to the page state and a second call waits its
@@ -395,20 +412,22 @@ and process-local — one replica (see "Scaling").
 A waiting call holds one of the 40 worker threads that FastMCP's sync tools and
 Starlette's routes share (anyio's default limiter), and it does not notice its
 client giving up: about 40 calls queued on one session would stall every other
-session, `end_browser` and `/ready`. A limiter of its own for `end_browser` is
+workspace, `end_browser` and `/ready`. A limiter of its own for `end_browser` is
 the fix when that becomes real.
 
-## Sessions: what is stateful and what is not
+## What is stateful and what is not
 
-Three different "sessions" are in play, and conflating them is the trap.
+Four things are in play, two of them called "session", and conflating them is
+the trap.
 
 | | Lives in | Survives a restart |
 |---|---|---|
-| Browser session | Selenium Grid | yes |
+| The session's browser (the Grid's session) | Selenium Grid | yes |
 | MCP transport session | this process's memory | no |
-| name -> browser mapping | the session store (memory, or Redis) | only with Redis |
+| The workspace record: name -> context and Grid id | the workspace store (memory, or Redis) | only with Redis |
+| The workspace's files: flows, kept files, screenshots, recordings | `DATA_DIR/workspaces/<name>/` | yes, on a volume |
 
-**The browser session is the one that matters, and this server does not hold it.**
+**The browser is the one that matters, and this server does not hold it.**
 It lives on the Grid, and the record naming it lives in the store, so a pod can
 restart, scale to zero, or be replaced mid-workflow without losing a browser.
 
@@ -427,7 +446,7 @@ The tell was the shape of the key: the server's real ids are undashed hex
 FastMCP had invented, not one the transport negotiated.
 
 `mcp/clients.py` therefore reads what the request carries itself, via
-`get_http_request()`, into a `Caller` (`session/sessions.py`) that the edge
+`get_http_request()`, into a `Caller` (`workspace/workspaces.py`) that the edge
 hands in. A missing name then shows up as a missing name, which is
 the whole point — and under §F2.12 it is an error with a message rather than a
 silent new identity.
@@ -436,17 +455,22 @@ silent new identity.
 
 **The caller names itself, and nothing is ever invented** (§F2.12):
 
-1. **`X-Session-Key`**, a header — what an admin pins inside a credential when
-   one credential should mean one session. **`X-Workspace`** is the same header
-   by another name, for clients that may only send approved headers (Claude.ai
-   custom connectors): both with one value are one name, two values are refused
-   like a repeated `X-Session-Key`, and either reports `named_by: header`.
-2. **`?session=<name>`** on the URL — the ergonomic path: one shared bearer
+1. **`X-Workspace`**, a header — what an admin pins inside a credential when
+   one credential should mean one workspace, and the one well-known header a
+   client that may only send approved headers (Claude.ai custom connectors) can
+   send. A repeated header with two values is refused; it reports
+   `named_by: header`.
+2. **`?workspace=<name>`** on the URL — the ergonomic path: one shared bearer
    credential, each caller naming itself in its own URL.
 3. **stdio**, where one process serves one client, so the constant `stdio` is
    correct and needs no configuration.
 
-**A header and `?session=` at once is a 400.** It used to be a precedence — the header won, on the
+**The old names are refused, not ignored** (spec 2026-10-09, ruling 1):
+`X-Session-Key` or `?session=` anywhere in a request is a 400 naming the new
+spelling, even beside a new name, so a client wired the old way finds out on its
+first call rather than as "name your workspace". There are no aliases.
+
+**A header and `?workspace=` at once is a 400.** It used to be a precedence — the header won, on the
 reasoning that an admin's credential outranks a caller's URL — and Dr K replaced
 that with a refusal: a request carrying two names has two ideas about who is
 calling, and quietly picking one hides that from whoever wired it up.
@@ -457,15 +481,15 @@ back to the shared `global` one — readable by everyone, writable by nobody, so
 an unnamed caller can list and run shared flows and can write nowhere.
 
 **The name is validated where it arrives**, by the same rule that validates a
-flow library's directory, because a session name *is* that directory. There is
-no longer a lenient answer for the browser and a strict one for storage: that
-split is what let `?session=my bot` drive a private browser while saving its
-flows into the shared library.
+flow library's directory, because a workspace name *is* that directory
+(`valid_workspace_name`). There is no longer a lenient answer for the browser and
+a strict one for storage: that split is what once let a name with a space in it
+drive a private browser while saving its flows into the shared library.
 
 If a new way to supply a name is ever added, it must be one the client controls,
 or the leak `caller_key` existed to prevent comes straight back.
 `test_a_request_that_names_nothing_names_nothing` and
-`test_repeated_calls_on_one_key_open_exactly_one_browser` are the guards.
+`test_two_first_opens_on_a_new_name_leave_exactly_one_browser` are the guards.
 
 ### Site data
 
@@ -473,11 +497,11 @@ or the leak `caller_key` existed to prevent comes straight back.
   that replaces the last whole (`site_data.snapshot`): the jar, the localStorage of every origin
   in the record's `history`, and the page's sessionStorage. An origin that cannot be read keeps
   its last storage; over 1 MB the oldest-visited origins go first.
-- `SessionRecord.history` is where the session has been: one entry per origin, newest first,
+- `Workspace.history` is where the workspace's sessions have been: one entry per origin, newest first,
   written by `touch` (a flow run: once at the end, every step's page in order — and, before a
   `save_site_data` step, the pages reached so far, so the save reads them). `record.url` is
   `history[0].url`. A withheld URL (§F1.24) or a page with no origin records nothing. Only pages
-  a call ended on are recorded; entries older than the session TTL go (the top one stays), at
+  a call ended on are recorded; entries older than the workspace TTL go (the top one stays), at
   most `HISTORY_CAP` (100), so a save never reads an origin that has aged out.
   Only the top entry keeps its whole URL; below it a URL keeps its origin and path, because a
   query string or fragment carries OAuth codes and reset tokens.
@@ -485,14 +509,14 @@ or the leak `caller_key` existed to prevent comes straight back.
   intercept answers with a marked blank page, so the site never loads. A save reads there; a
   restore writes there, then sets sessionStorage in the main tab the same way, all before the
   first page. A page without the marker is a service worker's and is never read. No CDP.
-- Kept on `SessionRecord` in the store, never on this server's disk (with the Redis store it is
+- Kept on `Workspace` in the store, never on this server's disk (with the Redis store it is
   as durable as Redis), never logged — `main.py` holds Selenium's wire loggers at INFO for that;
   it expires with the record. httpOnly values are shown as `•••` on every surface; a secret a
   site keeps in its localStorage is saved and shown as it is.
-- An action returns the capture under `CAPTURED`; `SessionManager.settle` stores it and strips
+- An action returns the capture under `CAPTURED`; `Workspaces.settle` stores it and strips
   it, so it is never returned. Every record write after an action goes through `settle`:
   `act`, every flow step and the run's pages, and a bound write (its URL withheld when tainted).
-- A silent reopen's report waits on `SessionRecord.reopened` until `touch` hands it to the first
+- A silent reopen's report waits on `Workspace.reopened` until `touch` hands it to the first
   result from that browser — for a flow, to the run.
 - The admin tabs keep the two apart: History (the history joined by host with secrets and the
   snapshot's counts) and Site data (the snapshot). Forget and both Clears change the store
@@ -525,10 +549,10 @@ tidies is still not.
 - The inbox (`recording.dir`) is the operator's; we never clean it. A file no
   note claims stays where it is; one a `discard` note claims is deleted, never
   filed. Every recorded browser is noted `discard` the moment it exists
-  (`open_session(on_created=)`) and noted again without it once its session
+  (`open_session(on_created=)`) and noted again without it once its workspace
   holds it, so an open that fails or loses a race to bind leaves no orphan.
-- The queue is the notes under `sessions/<name>/recordings/.pending/<gridId>.json`.
-  They are on disk, so they survive a restart whatever the session store is.
+- The queue is the notes under `workspaces/<name>/recordings/.pending/<gridId>.json`.
+  They are on disk, so they survive a restart whatever the workspace store is.
 - **A note leaves the queue only once it is gone from disk.** Filing (or the
   deadline) first marks the note `filed` / `dropped`, then deletes it; a delete
   that fails keeps it owed but done, and every sweep (and the next process)
@@ -537,13 +561,13 @@ tidies is still not.
   mid-copy finishes it; only a hard crash between the move and the mark leaves
   an unmarked note the next process can file again.
 - A storage error reading the notes is a fault, not a broken note, and it is a
-  session's: `notes(on_error=)` reads every other session on (only the data
+  workspace's: `notes(on_error=)` reads every other workspace on (only the data
   directory itself unreadable raises), walking the root with `lstat` rather
-  than `sessions()`, whose `is_dir` reads an unreadable folder as none. The
+  than `workspaces()`, whose `is_dir` reads an unreadable folder as none. The
   collector owes what it read, logs the rest once a streak and reads again each
   tick, holding the notes lock across the read and the merge; the boot carries
   on. Only bad JSON, a bad id or a non-file is skipped.
-- Matching is never by session name (the recorder strips `.`). The Grid id stays on disk, in the note only.
+- Matching is never by workspace name (the recorder strips `.`). The Grid id stays on disk, in the note only.
 - A file is complete when it ends in `mfro`, and filed once it has also sat
   unchanged for `recording.settle` seconds: a transport may still be finishing
   (rclone checks an upload after writing it and uploads one that vanished
@@ -559,18 +583,25 @@ tidies is still not.
 - Recordings follow the screenshot lifecycle: kept into Files or cleared.
 - `record` is never inherited by an explicit open, but a reap replays it, and
   only while `recording.enabled`; with recording off it is dropped from the reopen.
-- Layout: `DATA_DIR/sessions/<name>/{flows,files,screenshots,recordings}`, and
-  the inbox `DATA_DIR/recordings/` by default, never in or above `sessions/`
-  (refused at boot). `data` and `recording` are config sections;
-  `FLOW_DATA_DIR` is the one retired name refused at boot.
+- Layout: `DATA_DIR/workspaces/<name>/{flows,files,screenshots,recordings}`, and
+  the inbox `DATA_DIR/recordings/` by default, never in or above `workspaces/`
+  (refused at boot). `data` and `recording` are config sections. A
+  `DATA_DIR/sessions/` from before the rename becomes `DATA_DIR/workspaces/`
+  with one rename at boot (`flows/store.from_settings`), and both present stops
+  the boot naming both. Retired names refused at boot: `FLOW_DATA_DIR`,
+  `SESSION_STORE`, `SESSION_TTL`, and `session.store` / `session.ttl` in the file.
 
 ### Everything to read is a resource, named by its URI
 
-`session://current` is the natural shape for "what browser am I holding" — state to read,
+`workspace://current` is the natural shape for "what browser am I holding" — state to read,
 not an action, so a client can pull it into context without spending a tool call. It must
 stay side-effect free: `describe()` peeks at the store rather than going through `resolve`,
 because a status read that opens a browser would be the original leak wearing a hat. It
-reports the session **name** and never the Grid's id.
+reports the workspace **name** and whether a session is open, and never the Grid's id.
+
+A `session://` URI from before the rename — in a saved flow's `upload_file` step,
+say — is refused with its `workspace://` spelling, by every tool that takes a URI.
+Saved flows are not rewritten; the error names the fix.
 
 The same goes for the skill, the flow library, Files, Screenshots, Downloads and
 the secrets catalogue: each is a resource, and **every piece of text an agent
@@ -591,18 +622,19 @@ only be made when someone asks. The handshake's instructions vary the same way (
 `open_session` is the only place a browser is created. It was briefly implicit —
 `resolve` opened one on first use — and that was removed because it hid the one
 place a session's settings can be chosen. Do not reintroduce it. A refresh after
-the Grid reaps a session is the *only* other open, and it replays the stored
-settings so the browser cannot change shape underneath a task.
+the Grid reaps a session is the *only* other open, and it replays the
+workspace's stored settings so the browser cannot change shape underneath a task.
 
 There used to be two modes — **saved**, where the server held your browser, and
 **stateless**, where you passed an id — with a middleware rewriting every tool
 schema per request so a caller could see which rules applied. All of it is gone
 (§F2.12). There is no `session_id` on any tool, in any body, or in any result;
 `SAVED_SESSIONS` is gone. **Sharing is by
-session name**, which is then the single way to do it — and worth writing down,
-because a name is guarded by nothing but the bearer token.
+workspace name**, which is then the single way to do it — and worth writing
+down, because a name is an address and guards nothing: whoever holds the bearer
+token (or a valid JWT) and knows the name drives that workspace's browser.
 
-## The HTTP surface is REST, and the session is not in the path
+## The HTTP surface is REST, and the workspace is not in the path
 
 Paths and methods are **declared** per capability — the `route` and
 `http_method` columns of its row in `core/capabilities.py` — never derived from
@@ -610,13 +642,15 @@ tool names (§F2.13). What the two surfaces share is bodies and
 results — a request body *is* the tool's schema, asserted by
 `test_request_schemas_are_the_tool_schemas` — not shape.
 
-The session is who is calling, so it is a header or a query parameter and never
+The workspace is who is calling, so it is a header or a query parameter and never
 a path segment. `POST /browser` opens *yours*; there is no `/browser/{id}`,
 because addressing a browser by id is exactly what E18 removed.
 
-**The one place a session is in a path is `/admin`**, and that is the same rule
-from the other side: the token holder looking across sessions is the only role
-that addresses them as resources.
+**The one place a workspace is in a path is `/admin/workspaces/{key}`**, and
+that is the same rule from the other side: the token holder looking across
+workspaces is the only role that addresses them as resources. Its End is
+`DELETE /admin/workspaces/{key}/session` — it ends the session, never the
+workspace, which only expires.
 
 ## `ROUTE_PREFIX` mounts the whole server
 
@@ -683,7 +717,7 @@ flow is YAML somebody may have written by hand.
 this process, so it survives every reconnect and keeps applying until something
 switches back — verified, since our architecture reconnects per call. That makes
 a forgotten switch a nasty failure: locators on the main page fail for a reason
-that looks nothing like the cause. `session://current` reports `in_frame` for
+that looks nothing like the cause. `workspace://current` reports `in_frame` for
 exactly that, detected with `window !== window.top` because WebDriver has no
 "which frame am I in" command. Never `window.self`: a page can run `self = top`
 and forge it. A secret's leash does not ask whether it is in a frame at all: it
@@ -790,13 +824,14 @@ JSON) is still served as resources but not offered. agentgateway 1.6 refuses bot
 declaration and gets an error; in-cluster they work. Delete the module when
 FastMCP ships its own (#5016).
 
-**SKILL.md is an index, not the manual.** It carries the two facts that shape
-everything, the session-mode branch every caller has to take, and a routing table
-into `references/`. Detail belongs in a reference so an agent loads only what its
-task needs. Three tests hold that line: every `references/...` path the index
-names must exist, every file on disk must be linked from the index, and both
-session modes must have a reference — an unlinked file is never lazily loaded, so
-it may as well not ship.
+**SKILL.md is an index, not the manual.** It carries the facts that shape
+everything — the workspace is not the browser, and naming one is step 0 — and a
+routing table into `references/`. Detail belongs in a reference so an agent
+loads only what its task needs. Three tests hold that line: every
+`references/...` path the index names must exist, every file on disk must be
+linked from the index, and the one naming contract has its reference
+(`references/WORKSPACES.md`) — an unlinked file is never lazily loaded, so it
+may as well not ship.
 
 Write for a model deciding what to do next, not for a developer reading reference
 docs; the tool descriptions already say what each tool takes.
@@ -809,11 +844,11 @@ is shown (§F3.1) — is remembered there. A second replica would answer a clien
 it never met. There used to be a `--stateless` flag trading that away; it was
 removed rather than kept for a scaling nobody runs.
 
-The browser is unaffected: its session lives on the Grid, and the record naming
-it lives in the session store. Use Redis for that record if the pod should come
+The browser is unaffected: its session lives on the Grid, and the workspace
+record naming it lives in the workspace store. Use Redis for that record if the pod should come
 back from a restart holding its callers' browsers.
 
-The per-session lock (`session/locks.py`) is process memory too, with Redis or
+The per-session lock (`workspace/locks.py`) is process memory too, with Redis or
 without: a second replica would let two calls drive one browser at once.
 
 ## Gotchas
@@ -885,12 +920,16 @@ what the resource serves.
   nothing to call. `SecretCard` and `lib/secrets.ts` are shared with the admin
   pane, so both read a catalogue entry the same way, and neither ever has a value.
 
-## Session lifetime: who owns what
+## Two lifetimes: the session and the workspace
 
 | | Who owns it | Default here |
 |---|---|---|
-| **How long a browser lives** | the Grid — `SE_NODE_SESSION_TIMEOUT` on the node | `300s` idle, in the cluster repo |
-| **How long we remember a caller** | `SESSION_TTL` | `86400s` (a day), slid forward on every call |
-| **Where we remember it** | `SESSION_STORE` | `memory` (or `redis` to share it) |
+| **How long a session's browser lives idle** | the Grid — `SE_NODE_SESSION_TIMEOUT` on the node | `300s` idle, in the cluster repo |
+| **How long a workspace is remembered** | `WORKSPACE_TTL` | `86400s` (a day), slid forward on every call |
+| **Where it is remembered** | `WORKSPACE_STORE` | `memory` (or `redis` to share it) |
+
+The `session` config section is what is left: how a session opens a browser
+(`SESSION_BROWSER`, `SESSION_WIDTH`, `SESSION_HEIGHT`,
+`SESSION_PAGE_LOAD_TIMEOUT`, `SESSION_SCRIPT_TIMEOUT`).
 
 **Nothing runs a cleanup loop, and nothing should** — the Grid expires idle browsers, the store expires its own keys. If the Grid reaped one we remembered, the next call notices and reopens it at the page it was last on. 🪄

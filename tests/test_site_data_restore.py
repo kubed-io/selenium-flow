@@ -22,7 +22,7 @@ from .site_data_fakes import (
 
 pytestmark = pytest.mark.unit
 
-LIST = "session://site-data"
+LIST = "workspace://site-data"
 APP = "https://app.example.com"
 
 

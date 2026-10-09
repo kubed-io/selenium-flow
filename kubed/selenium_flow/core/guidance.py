@@ -1,7 +1,7 @@
 """Where to send a caller that needs the manual.
 
 Two emitters point at the skill: a failed flow run says which reference explains
-that kind of failure, and the session status says which explains sessions. They
+that kind of failure, and the workspace status says which explains workspaces. They
 built the same URI two different ways — one from a constant, one as a hardcoded
 literal — and a third place was one copy-paste away.
 
@@ -31,7 +31,7 @@ PAGES = (
     "INTERACTION.md",
     "READING_PAGES.md",
     "SECRETS.md",
-    "SESSIONS.md",
+    "WORKSPACES.md",
     "SITE_DATA.md",
     "TROUBLESHOOTING.md",
 )

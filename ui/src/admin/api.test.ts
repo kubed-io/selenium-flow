@@ -1,11 +1,11 @@
 import { expect, test, vi } from 'vitest'
 import { fakeFetch } from '../test/helpers'
-import { createApi, sessionPath } from './api'
+import { createApi, workspacePath } from './api'
 
 test('every call carries the bearer token and hangs off BASE', async () => {
-  const { calls } = fakeFetch({ 'GET /flow/admin/sessions': { body: { sessions: [] } } })
+  const { calls } = fakeFetch({ 'GET /flow/admin/workspaces': { body: { workspaces: [] } } })
   const api = createApi({ base: '/flow', token: () => 'tok', onUnauthorized: () => {} })
-  expect(await api('/admin/sessions')).toEqual({ sessions: [] })
+  expect(await api('/admin/workspaces')).toEqual({ workspaces: [] })
   expect(calls[0].headers.get('Authorization')).toBe('Bearer tok')
 })
 
@@ -30,6 +30,6 @@ test("a failure says the server's own words, else the status (A5)", async () => 
   await expect(api('/b')).rejects.toThrow('request failed (502)')
 })
 
-test('sessionPath encodes the key', () => {
-  expect(sessionPath('a b/c', '/files')).toBe('/admin/sessions/a%20b%2Fc/files')
+test('workspacePath encodes the key', () => {
+  expect(workspacePath('a b/c', '/files')).toBe('/admin/workspaces/a%20b%2Fc/files')
 })

@@ -6,7 +6,7 @@ the model sees anything. Different primitive, different module.
 
 This is why a failed run's `hint` names one: an agent cannot invoke a prompt, but
 it can tell a person which to pick, and that person picks it in their own client
-(saga §F2.6). The admin page has no run view and no picker — it shows sessions,
+(saga §F2.6). The admin page has no run view and no picker — it shows workspaces,
 files and flows — so the hint reaches a person through whoever ran the flow.
 
 The file format and this loader follow `kubed-io/skills-mcp`, which has run them

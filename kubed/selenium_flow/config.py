@@ -32,7 +32,7 @@ from pydantic.fields import FieldInfo
 from pydantic_settings import EnvSettingsSource, NoDecode
 
 from .core.defaults import DEFAULT_GRID_URL, normalize_browser
-from .names import INBOX_DIR, SESSIONS_DIR, valid_name
+from .names import INBOX_DIR, WORKSPACES_DIR, valid_name
 from .urls import without_userinfo
 
 # Marks a field that only the config file may set: structure, not a value.
@@ -153,12 +153,17 @@ class GridSettings(Section):
     )
 
 
-class SessionSettings(Section):
+class WorkspaceSettings(Section):
     store: Literal["memory", "redis"] = Field(
         "memory",
         description="memory; redis.host or redis.url switches it to redis.",
     )
-    ttl: int = Field(86400, description="Seconds a session is kept after its last use.")
+    ttl: int = Field(
+        86400, description="Seconds a workspace is kept after its last use."
+    )
+
+
+class SessionSettings(Section):
     browser: Literal["chrome", "firefox"] | None = Field(
         None, description="chrome or firefox, for new sessions."
     )
@@ -186,7 +191,7 @@ class RedisSettings(Section):
     password: SecretStr | None = Field(None, description="Redis password.")
     ssl: bool = Field(False, description="Connect to Redis over TLS.")
     prefix: str = Field(
-        "selenium-flow:session:",
+        "selenium-flow:workspace:",
         description="Prefix on every key, so a shared database is safe.",
     )
 
@@ -195,7 +200,7 @@ class DataSettings(Section):
     dir: str | None = Field(
         None,
         description=(
-            "Where sessions and recordings live. Unset turns flows, kept files "
+            "Where workspaces and recordings live. Unset turns flows, kept files "
             "and recordings off."
         ),
     )
@@ -384,17 +389,21 @@ class Settings(Section):
     grid: GridSettings = Field(
         default_factory=GridSettings, description="The Selenium Grid it drives."
     )
+    workspace: WorkspaceSettings = Field(
+        default_factory=WorkspaceSettings,
+        description="How workspaces are kept.",
+    )
     session: SessionSettings = Field(
         default_factory=SessionSettings,
-        description="How sessions are kept, and how new browsers open.",
+        description="How a session opens a browser.",
     )
     redis: RedisSettings = Field(
         default_factory=RedisSettings,
-        description="The session store\u2019s connection.",
+        description="The workspace store\u2019s connection.",
     )
     data: DataSettings = Field(
         default_factory=DataSettings,
-        description="Where sessions, their flows and files, and recordings live.",
+        description="Where workspaces, their flows and files, and recordings live.",
     )
     recording: RecordingSettings = Field(
         default_factory=RecordingSettings,
@@ -727,9 +736,41 @@ def oidc_problem(settings: Settings) -> str | None:
 
 
 RETIRED_FLOW = (
-    "FLOW_DATA_DIR is now DATA_DIR, and session folders live under "
-    "DATA_DIR/sessions/ — move them there once, then set DATA_DIR"
+    "FLOW_DATA_DIR is now DATA_DIR, and workspace folders live under "
+    "DATA_DIR/workspaces/ — move them there once, then set DATA_DIR"
 )
+
+
+RETIRED_SESSION_KEYS = (
+    "the config file's `session.store` and `session.ttl` are now "
+    "`workspace.store` and `workspace.ttl`"
+)
+
+
+def _retired_session(environ: Mapping[str, str], file: dict) -> None:
+    """The `session` section's moved names, refused rather than dropped (spec
+    2026-10-09-workspaces-rename, ruling 2), for the two that moved. Only a
+    moved setting's own name counts: SESSION_PORT from a Service called
+    session is not one."""
+    prefix = "session_"
+    moved = ("store", "ttl")
+    old = sorted(
+        key.upper()
+        for key, value in environ.items()
+        if key.lower().startswith(prefix)
+        and key.lower()[len(prefix):] in moved
+        and not _is_blank(value)
+    )
+    if old:
+        new = ["WORKSPACE_" + key[len(prefix):] for key in old]
+        verb = "is" if len(old) == 1 else "are"
+        raise ConfigError(
+            f"{', '.join(old)} {verb} now {', '.join(new)}: "
+            "workspace settings moved out of session"
+        )
+    section = file.get("session")
+    if isinstance(section, dict) and any(key in section for key in moved):
+        raise ConfigError(RETIRED_SESSION_KEYS)
 
 
 def _retired(environ: Mapping[str, str], file: dict) -> None:
@@ -745,6 +786,7 @@ def _retired(environ: Mapping[str, str], file: dict) -> None:
         raise ConfigError(RETIRED_FLOW)
     if "flow" in file:
         raise ConfigError(RETIRED_FLOW)
+    _retired_session(environ, file)
 
 
 def load(
@@ -787,17 +829,17 @@ def load(
         for leaf in leaves()
     }
     merged = _merge(file, env, args)
-    if sources["session.store"] == "default":
+    if sources["workspace.store"] == "default":
         # Today's rule, kept: asking for Redis by naming it is asking for the
         # Redis store. Explicitly `memory` still wins.
         redis_sources = (sources["redis.url"], sources["redis.host"])
         wanted = any(name != "default" for name in redis_sources)
-        merged.setdefault("session", {})["store"] = "redis" if wanted else "memory"
+        merged.setdefault("workspace", {})["store"] = "redis" if wanted else "memory"
         if wanted:
             # Provenance follows whichever of redis.url/redis.host was set
             # with the highest precedence; memory needs no such update, since
             # memory IS the default.
-            sources["session.store"] = next(
+            sources["workspace.store"] = next(
                 name for name in precedence if name in redis_sources
             )
     try:
@@ -816,16 +858,23 @@ def load(
 def recording_problem(settings: Settings) -> str | None:
     """Why recording cannot run, or None. Checked after every layer merges."""
     if settings.recording.enabled and not settings.data.dir:
-        return "recording.enabled needs data.dir: a recording is filed into its session"
+        return (
+            "recording.enabled needs data.dir: a recording is filed into its "
+            "workspace"
+        )
     if settings.recording.enabled:
         # Resolved as the server opens them: relative to the working directory.
         inbox = Path(recording_dir(settings)).resolve()
-        sessions = (Path(settings.data.dir) / SESSIONS_DIR).resolve()
-        if inbox == sessions or sessions in inbox.parents or inbox in sessions.parents:
+        workspaces = (Path(settings.data.dir) / WORKSPACES_DIR).resolve()
+        if (
+            inbox == workspaces
+            or workspaces in inbox.parents
+            or inbox in workspaces.parents
+        ):
             return (
-                f"recording.dir {inbox} must not overlap {sessions}: inside it, "
-                "unfinished videos show as a session's files; above it, the "
-                "collector sweeps every session"
+                f"recording.dir {inbox} must not overlap {workspaces}: inside it, "
+                "unfinished videos show as a workspace's files; above it, the "
+                "collector sweeps every workspace"
             )
     return None
 

@@ -13,7 +13,7 @@ threading a flag through every action's signature would put it into every tool
 schema derived from them.
 
 Two things set one. A flow run carries its stop flag for the whole run, and a
-browser-driving call carries its browser's (`session.locks`), which
+browser-driving call carries its browser's (`workspace.locks`), which
 `end_browser` sets so a direct `assert` lets go instead of making the call that
 exists to interrupt it wait. Flags stack rather than replace each other, so a
 step inside a run answers to both, and each says what it raises: the first one

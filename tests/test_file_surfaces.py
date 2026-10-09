@@ -1,4 +1,4 @@
-"""What an agent and an HTTP caller can do with a session's files (§F4.6, §F4.7)."""
+"""What an agent and an HTTP caller can do with a workspace's files (§F4.6, §F4.7)."""
 
 import asyncio
 
@@ -14,7 +14,7 @@ from .conftest import TOKEN
 
 pytestmark = pytest.mark.unit
 S = "desktop"
-AUTH = {"Authorization": f"Bearer {TOKEN}", "X-Session-Key": S}
+AUTH = {"Authorization": f"Bearer {TOKEN}", "X-Workspace": S}
 
 
 @pytest.fixture
@@ -43,14 +43,14 @@ def test_the_resources_are_a_folder_and_three_sub_folders(srv):
             return listed, templated
     listed, templated = _run(go())
     assert {
-        "session://files", "session://files/screenshots",
-        "session://files/recordings", "session://files/downloads",
+        "workspace://files", "workspace://files/screenshots",
+        "workspace://files/recordings", "workspace://files/downloads",
     } <= listed
     assert {
-        "session://files/{name}",
-        "session://files/screenshots/{name}",
-        "session://files/recordings/{name}",
-        "session://files/downloads/{name}",
+        "workspace://files/{name}",
+        "workspace://files/screenshots/{name}",
+        "workspace://files/recordings/{name}",
+        "workspace://files/downloads/{name}",
     } <= templated
 
 
@@ -72,15 +72,15 @@ def test_the_rest_tree_mirrors_the_folders(http, srv, tmp_path):
     srv.flows.create_file(S, "shot.png", b"p", SCREENSHOTS_DIR)
     got = http.get("/files/screenshots").json()
     assert got["folder"] == "screenshots"
-    assert [f["uri"] for f in got["files"]] == ["session://files/screenshots/shot.png"]
-    assert http.get("/files").json()["folders"][0]["uri"] == "session://files/screenshots"
+    assert [f["uri"] for f in got["files"]] == ["workspace://files/screenshots/shot.png"]
+    assert http.get("/files").json()["folders"][0]["uri"] == "workspace://files/screenshots"
 
 
 def test_keeping_over_http_moves_a_screenshot(http, srv):
     srv.flows.create_file(S, "shot.png", b"p", SCREENSHOTS_DIR)
     got = http.put("/files/screenshots/shot.png/kept")
     assert got.status_code == 200, got.text
-    assert got.json()["uri"] == "session://files/shot.png"
+    assert got.json()["uri"] == "workspace://files/shot.png"
     assert srv.flows.files(S, SCREENSHOTS_DIR) == []
 
 
@@ -90,11 +90,11 @@ def test_keeping_over_http_names_only_the_two_keepable_folders(http, folder):
 
 
 def test_reading_a_screenshot_resource_returns_its_bytes(srv):
-    from kubed.selenium_flow.session.sessions import STDIO_NAME
+    from kubed.selenium_flow.workspace.workspaces import STDIO_NAME
     srv.flows.create_file(STDIO_NAME, "shot.png", b"\x89PNG", SCREENSHOTS_DIR)
 
     async def go():
-        async with Client(srv.mcp) as c:  # stdio-like: the session is `stdio`
-            return await c.read_resource("session://files/screenshots/shot.png")
+        async with Client(srv.mcp) as c:  # stdio-like: the workspace is `stdio`
+            return await c.read_resource("workspace://files/screenshots/shot.png")
     got = _run(go())
     assert got[0].blob or got[0].text

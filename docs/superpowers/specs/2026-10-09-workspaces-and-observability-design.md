@@ -6,7 +6,7 @@ so that each epic's own spec, written on its GitHub issue by an agent that can
 read this repo and the Penpot design and nothing else, neither repeats the
 research nor re-decides the rulings. Plan:
 `docs/superpowers/plans/2026-10-09-workspaces-and-observability.md`. Penpot:
-file *selenium-flow*, every page (the rename), the new pages *Workspace ·
+file *Admin UI*, every page (the rename), the new pages *Workspace ·
 Console* and *Workspace · Network*, and *Admin · login*.
 
 An epic's spec cites this one as `programme R<n>` for a ruling and `programme
@@ -78,10 +78,17 @@ Selenium Grid trunk, `LocalNode.java`, `ProxyNodeWebsockets.java`,
   (`DirectForwardingListener.onText/onBinary` → `sessionConsumer.accept` →
   `isSessionOwner` → `getIfPresent`). A BiDi *event* resets the timer as a
   click does.
-- So a held socket with **no subscriptions** is silent, changes nothing, and
-  closes when the Grid reaps — an instant "this browser ended". A socket with
-  **subscriptions on a busy page** (polling, analytics, chat heartbeats) keeps
-  the browser alive forever.
+- So a held socket with **no subscriptions** is silent and changes nothing. A
+  socket with **subscriptions on a busy page** (polling, analytics, chat
+  heartbeats) keeps the browser alive forever.
+- **Measured 2026-10-09** (E2's spec, cluster Grid 4.48.0, Chrome 152): a
+  subscribed socket on a page logging every 5 s kept its session alive past
+  660 s (2.2× the 300 s timeout); a pinged silent socket was reaped at ~330 s,
+  so **pings are not activity**. A silent socket is **not** closed by a
+  `DELETE` or a reap: the hub keeps answering pings and swallows commands. A
+  held socket is therefore a channel, never a liveness signal; "ended" comes
+  from the `/status` listing (E2's spec, its ruling 4). This corrects the
+  research above as first written.
 - **The timeout is reported, per node**: `GET /status` carries `sessionTimeout`
   (ms) on every node; GraphQL `nodesInfo { nodes { id sessionTimeout } }` and
   `session(id) { nodeId }`. Standalone (`docker compose up`) is a node too, 300 s
@@ -154,11 +161,17 @@ metric. Prometheus stores numbers over time; events belong to logs and traces.
 Dr K, 2026-10-09, unless marked *recommended* (Claude's, to be confirmed on the
 epic's issue):
 
-1. **Workspace, not session.** The named record a caller addresses is a
-   *workspace*. *Session* keeps its two real meanings — the Grid's browser
-   session, the MCP transport session — and nothing else. The rename reaches
-   every surface. *Recommended:* `X-Session-Key` and `?session=` go rather than
-   linger as aliases (spec 2026-10-02, no compatibility while there is one user).
+1. **Workspace, and session inside it.** The named record a caller addresses
+   is a *workspace*: the outer box, persistent, holding flows, files, site
+   data, history and settings. A *session* is the live browser open in a
+   workspace: at most one at a time, started by `open_session`, holding and
+   controlling the Grid's session (Dr K, 2026-10-09: *"the workspace is the
+   outer box and the session is the thing holding and controlling the grid
+   session"*). *Session* otherwise means only the Grid's and the MCP
+   transport's. The rename reaches every surface. *Recommended:*
+   `X-Session-Key` and `?session=` go rather than linger as aliases (spec
+   2026-10-02, no compatibility while there is one user). E1's spec rules the
+   details (`2026-10-09-workspaces-rename-design.md`, rulings 8–10).
 2. **A connection is held only for a browser that owes something.** The
    per-call BiDi socket for site data stays. The monitor holds a socket only
    while a browser is *owed* — capture on, a recording owed — and lets go when
@@ -454,9 +467,12 @@ The unknowns an epic's plan proves before building on them, each with the
 epic that owns it:
 
 1. (E2) A second BiDi socket on one Grid session, beside the per-call one.
+   *Measured: yes, two held plus the per-call one.*
 2. (E2) The reap closes a silent held socket; a subscribed socket on a polling
-   page is not reaped within 2× the timeout.
-3. (E2) `/status.sessionTimeout` on standalone and under KEDA.
+   page is not reaped within 2× the timeout. *Measured: the reap does **not**
+   close it; the subscribed socket outlived 2.2× the timeout.*
+3. (E2) `/status.sessionTimeout` on standalone and under KEDA. *Measured under
+   KEDA: 300000 ms; standalone unverified.*
 4. (E3) Chrome re-sends the console buffer to a new socket; Firefox replays
    only after an unsubscribe.
 5. (E3) Firefox data collectors with and without a network subscription.

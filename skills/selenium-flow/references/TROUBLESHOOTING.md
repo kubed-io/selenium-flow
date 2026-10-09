@@ -25,12 +25,12 @@ Check where you are, cheaply:
 extract(selector={"xpath": "//title"})
 ```
 
-or read `session://current`, which reports the URL without touching the browser.
+or read `workspace://current`, which reports the URL without touching the browser.
 
 If the URL is right and the element still is not found, in order of likelihood:
 
 1. **It is inside an iframe** — or you are *already* inside one and the element
-   is not. Check `in_frame` on `session://current`: a frame switch sticks until
+   is not. Check `in_frame` on `workspace://current`: a frame switch sticks until
    something switches back, so a locator on the main page fails while you are
    still in a frame. Use `frame(action="switch", ...)` to go in and
    `frame(action="default")` to come back.
@@ -40,21 +40,21 @@ If the URL is right and the element still is not found, in order of likelihood:
 4. **The XPath is brittle** — positional paths break on any layout change; match
    on an attribute or on visible text instead.
 
-## "name your session"
+## "name your workspace"
 
-You called without naming one. Add `?session=<name>` to the server URL, or send
-an `X-Session-Key` (or `X-Workspace`) header — whichever your client can set. Any name of letters,
+You called without naming one. Add `?workspace=<name>` to the server URL, or send
+an `X-Workspace` header — whichever your client can set. Any name of letters,
 digits, dots, dashes and underscores is fine except `stdio` and `global`, which
-are reserved. The same name always comes back to the same browser.
+are reserved. The same name always comes back to the same workspace.
 
-**"name your session once"** is the other half: the request carried *both*, and
+**"name your workspace once"** is the other half: the request carried *both*, and
 two names is two ideas about who is calling. Send whichever one you control and
 drop the other.
 
 Neither is transient; retrying unchanged will not help. There is no `session_id`
-to pass on any call — see `skill://selenium-flow/references/SESSIONS.md`.
+to pass on any call — see `skill://selenium-flow/references/WORKSPACES.md`.
 
-## "no browser is open for you yet"
+## "no session is open in workspace …"
 
 Nothing opens a browser implicitly — `open_session` is the only place that
 happens, because it is the only place window size and timeouts can be chosen.
@@ -69,10 +69,10 @@ and still signed out? The site ended its own session:
 
 ## An invalid or unknown session
 
-The Grid reaped the browser. Nothing to do: your session survives it, and the
-next call reopens a browser and returns to the last URL. Just retry.
+The Grid reaped the browser. Nothing to do: your workspace survives it, and the
+next call opens a new session and returns to the last URL. Just retry.
 
-`session://current` shows `live: false` in the meantime.
+`workspace://current` shows `live: false` in the meantime.
 
 ## "unexpected alert open", or a null url and title
 
@@ -142,13 +142,13 @@ itself is in `revealed_by`. Click that.
 
 The browser refuses a self-signed certificate. When you know the site is served
 with one, reopen with `open_session(insecure=true)`. It is remembered for the
-session, so do not use it for a site that does not need it.
+workspace, so do not use it for a site that does not need it.
 
 ## Everything is slow or a session will not open
 
 The Grid runs a small, fixed number of browsers. If they are all held, a new
 session waits for a slot. That is almost always abandoned sessions from earlier
-runs, not load. Close what you own, and remember that failure paths need to
+runs, not load. End what you own, and remember that failure paths need to
 reach `end_browser` too.
 
 **`"ready": false` with no nodes is not a broken Grid** when the Grid scales

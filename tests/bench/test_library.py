@@ -18,7 +18,7 @@ from kubed.selenium_flow.names import SCREENSHOTS_DIR
 
 pytestmark = pytest.mark.bench
 
-SESSION = "desktop"
+WORKSPACE = "desktop"
 FLOWS = 30
 SCREENSHOTS = 150
 
@@ -90,36 +90,36 @@ def store(tmp_path_factory):
     root = tmp_path_factory.mktemp("flows")
     store = LocalFlowStore(root)
     for index in range(FLOWS):
-        store.save(SESSION, f"flow-{index:02d}", flow(index))
+        store.save(WORKSPACE, f"flow-{index:02d}", flow(index))
     for index in range(SCREENSHOTS):
         entry = store.write_file(
-            SESSION,
+            WORKSPACE,
             f"screenshot-{index:03d}.png",
             bytes(2048),
             SCREENSHOTS_DIR,
         )
         # Distinct mtimes, so the newest-first sort has an order to find.
         stamp = 1_760_000_000 + index
-        os.utime(root / SESSION / SCREENSHOTS_DIR / entry["name"], (stamp, stamp))
+        os.utime(root / WORKSPACE / SCREENSHOTS_DIR / entry["name"], (stamp, stamp))
     return store
 
 
 def test_the_fixture_is_the_size_it_claims(store):
     """Guards the numbers below: a fixture that shrank would still be fast."""
-    names = store.names(SESSION)
+    names = store.names(WORKSPACE)
     assert len(names) == FLOWS
-    sizes = [len(store.read_text(SESSION, name)) for name in names]
+    sizes = [len(store.read_text(WORKSPACE, name)) for name in names]
     assert min(sizes) > 2000 and max(sizes) < 5000, sizes
-    assert len(store.files(SESSION, SCREENSHOTS_DIR)) == SCREENSHOTS
+    assert len(store.files(WORKSPACE, SCREENSHOTS_DIR)) == SCREENSHOTS
 
 
 def test_files(benchmark, store):
-    found = benchmark(store.files, SESSION, SCREENSHOTS_DIR)
+    found = benchmark(store.files, WORKSPACE, SCREENSHOTS_DIR)
     assert len(found) == SCREENSHOTS
 
 
 def test_revision(benchmark, store):
-    assert benchmark(store.revision, SESSION).count(";") == FLOWS - 1
+    assert benchmark(store.revision, WORKSPACE).count(";") == FLOWS - 1
 
 
 def warmed(cache: str):
@@ -134,8 +134,8 @@ def warmed(cache: str):
 
 @pytest.mark.parametrize("cache", ["cold", "warm"])
 def test_summaries(benchmark, store, cache):
-    store.summaries(SESSION)  # warm has to start warm
+    store.summaries(WORKSPACE)  # warm has to start warm
     found = benchmark.pedantic(
-        store.summaries, args=(SESSION,), setup=warmed(cache), rounds=30
+        store.summaries, args=(WORKSPACE,), setup=warmed(cache), rounds=30
     )
     assert len(found) == FLOWS

@@ -16,7 +16,7 @@ from kubed.selenium_flow.http import files, links
 from kubed.selenium_flow.http.admin import signed
 from kubed.selenium_flow.names import FILES_DIR, RECORDINGS_DIR
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.session.sessions import STDIO_NAME
+from kubed.selenium_flow.workspace.workspaces import STDIO_NAME
 
 pytestmark = pytest.mark.unit
 
@@ -35,7 +35,7 @@ class Actions:
     grid = Grid()
 
 
-class Sessions:
+class FakeWorkspaces:
     def browser(self, _name):
         return ""
 
@@ -48,29 +48,29 @@ def store(tmp_path):
 
 
 def test_addresses():
-    assert files.uri_of(RECORDINGS_DIR, "a.mp4") == "session://files/recordings/a.mp4"
-    assert files.parse_uri("session://files/recordings/a.mp4") == (RECORDINGS_DIR, "a.mp4")
+    assert files.uri_of(RECORDINGS_DIR, "a.mp4") == "workspace://files/recordings/a.mp4"
+    assert files.parse_uri("workspace://files/recordings/a.mp4") == (RECORDINGS_DIR, "a.mp4")
     assert "recordings" in files.RESERVED
 
 
 def test_the_root_names_a_third_folder(store):
-    root = files.root(Actions(), Sessions(), store, None, S)
+    root = files.root(Actions(), FakeWorkspaces(), store, None, S)
     named = {f["name"]: f for f in root["folders"]}
     assert named["recordings"]["count"] == 1
-    assert named["recordings"]["uri"] == "session://files/recordings"
+    assert named["recordings"]["uri"] == "workspace://files/recordings"
 
 
 def test_a_recording_entry_is_a_file_entry_with_keep_with(store):
-    listing = files.folder(Actions(), Sessions(), store, None, S, RECORDINGS_DIR)
+    listing = files.folder(Actions(), FakeWorkspaces(), store, None, S, RECORDINGS_DIR)
     entry = listing["files"][0]
     assert entry["content_type"] == "video/mp4" and entry["image"] is False
-    assert entry["keep_with"] == 'keep_file("session://files/recordings/rec-20261008-1403.mp4")'
+    assert entry["keep_with"] == 'keep_file("workspace://files/recordings/rec-20261008-1403.mp4")'
     assert entry["url"].startswith("/recordings/desktop/")
 
 
 def test_keeping_a_recording_moves_it_into_files(store):
-    kept = files.keep(Actions(), Sessions(), store, "session://files/recordings/rec-20261008-1403.mp4", S)
-    assert kept["uri"] == "session://files/rec-20261008-1403.mp4"
+    kept = files.keep(Actions(), FakeWorkspaces(), store, "workspace://files/recordings/rec-20261008-1403.mp4", S)
+    assert kept["uri"] == "workspace://files/rec-20261008-1403.mp4"
     assert store.files(S, RECORDINGS_DIR) == []
     assert [f["name"] for f in store.files(S, FILES_DIR)] == ["rec-20261008-1403.mp4"]
 
@@ -103,7 +103,7 @@ def test_a_video_is_served_from_disk_with_range_and_no_sandbox(store):
 def test_a_kept_video_in_files_is_served_the_same_way(store):
     from fastmcp import FastMCP
 
-    files.keep(Actions(), Sessions(), store, "session://files/recordings/rec-20261008-1403.mp4", S)
+    files.keep(Actions(), FakeWorkspaces(), store, "workspace://files/recordings/rec-20261008-1403.mp4", S)
     mcp = FastMCP("t")
     signed.mount(mcp, Actions(), store, None, "")
     resp = TestClient(mcp.http_app()).get(
@@ -135,14 +135,14 @@ def test_the_folder_and_its_template_are_resources(srv):
             templated = {t.uri_template for t in await c.list_resource_templates()}
             return listed, templated
     listed, templated = asyncio.run(go())
-    assert "session://files/recordings" in listed
-    assert "session://files/recordings/{name}" in templated
+    assert "workspace://files/recordings" in listed
+    assert "workspace://files/recordings/{name}" in templated
 
 
 def test_reading_one_recording_answers_its_entry_not_the_video(srv):
     async def go():
         async with Client(srv.mcp) as c:
-            return await c.read_resource("session://files/recordings/rec-20261008-1403.mp4")
+            return await c.read_resource("workspace://files/recordings/rec-20261008-1403.mp4")
     got = asyncio.run(go())
     entry = json.loads(got[0].text)
     assert entry["name"] == "rec-20261008-1403.mp4" and entry["url"]
@@ -152,9 +152,9 @@ def test_reading_one_recording_answers_its_entry_not_the_video(srv):
 def test_keep_file_moves_a_recording(srv):
     async def go():
         async with Client(srv.mcp) as c:
-            return await c.call_tool("keep_file", {"uri": "session://files/recordings/rec-20261008-1403.mp4"})
+            return await c.call_tool("keep_file", {"uri": "workspace://files/recordings/rec-20261008-1403.mp4"})
     result = asyncio.run(go())
-    assert result.structured_content["uri"] == "session://files/rec-20261008-1403.mp4"
+    assert result.structured_content["uri"] == "workspace://files/rec-20261008-1403.mp4"
     assert srv.flows.files(STDIO_NAME, RECORDINGS_DIR) == []
 
 
@@ -166,10 +166,10 @@ def test_a_kept_recording_read_from_files_answers_its_entry_not_the_video(srv):
     async def go():
         async with Client(srv.mcp) as c:
             await c.call_tool(
-                "keep_file", {"uri": "session://files/recordings/rec-20261008-1403.mp4"}
+                "keep_file", {"uri": "workspace://files/recordings/rec-20261008-1403.mp4"}
             )
-            video = await c.read_resource("session://files/rec-20261008-1403.mp4")
-            text = await c.read_resource("session://files/notes.txt")
+            video = await c.read_resource("workspace://files/rec-20261008-1403.mp4")
+            text = await c.read_resource("workspace://files/notes.txt")
             return video, text
 
     video, text = asyncio.run(go())
@@ -177,7 +177,7 @@ def test_a_kept_recording_read_from_files_answers_its_entry_not_the_video(srv):
     assert video[0].mime_type == "application/json"
     assert entry["name"] == "rec-20261008-1403.mp4" and entry["url"]
     assert entry["content_type"] == "video/mp4"
-    assert entry["uri"] == "session://files/rec-20261008-1403.mp4"
+    assert entry["uri"] == "workspace://files/rec-20261008-1403.mp4"
     assert text[0].blob  # anything else is still its bytes
 
 
@@ -197,12 +197,12 @@ def test_a_storage_fault_reading_the_recording_is_not_a_missing_recording(store,
     5xx), never the caller-fixable 'no recording called'."""
     _fault_on(monkeypatch, "stat", "rec-20261008-1403.mp4", OSError(errno.EIO, "EIO"))
     with pytest.raises(OSError):
-        files.keep(Actions(), Sessions(), store, "session://files/recordings/rec-20261008-1403.mp4", S)
+        files.keep(Actions(), FakeWorkspaces(), store, "workspace://files/recordings/rec-20261008-1403.mp4", S)
 
 
 def test_a_recording_that_is_not_there_is_still_a_no_recording_error(store):
     with pytest.raises(ValueError, match="no recording called"):
-        files.keep(Actions(), Sessions(), store, "session://files/recordings/gone.mp4", S)
+        files.keep(Actions(), FakeWorkspaces(), store, "workspace://files/recordings/gone.mp4", S)
 
 
 def test_keeping_a_recording_that_cannot_be_removed_leaves_it_where_it_was(store, monkeypatch):
@@ -215,7 +215,7 @@ def test_keeping_a_recording_that_cannot_be_removed_leaves_it_where_it_was(store
 
     monkeypatch.setattr(Path, "unlink", unlink)
     with pytest.raises(PermissionError):
-        files.keep(Actions(), Sessions(), store, "session://files/recordings/rec-20261008-1403.mp4", S)
+        files.keep(Actions(), FakeWorkspaces(), store, "workspace://files/recordings/rec-20261008-1403.mp4", S)
     assert store.files(S, FILES_DIR) == []
     assert [f["name"] for f in store.files(S, RECORDINGS_DIR)] == ["rec-20261008-1403.mp4"]
 

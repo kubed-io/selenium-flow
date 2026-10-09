@@ -1,7 +1,7 @@
 name: ⏱️ Bench
 
 # Times the read paths §F4.19 made fast — the flow and file listings, the
-# Secrets tab's backlinks, the Redis session list — in-process, with no Grid.
+# Secrets tab's backlinks, the Redis workspace list — in-process, with no Grid.
 # Every run writes a table against main's latest numbers into the job summary.
 #
 # The baseline is a JSON file in the Actions cache, not a gh-pages branch, so

@@ -1,6 +1,6 @@
-"""A session's history and saved site data, for a person to read and clear.
+"""A workspace's history and saved site data, for a person to read and clear.
 
-None of these touch the live browser: they read and rewrite the session
+None of these touch the live browser: they read and rewrite the workspace
 record, so a clear takes effect the next time a browser is opened for it.
 """
 
@@ -13,8 +13,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from ... import faults
-from ...session.store import SessionRecord
 from ...site_data import snapshot as site_data
+from ...workspace.store import Workspace
 from .. import answer
 
 log = logging.getLogger(__name__)
@@ -26,26 +26,26 @@ async def secret_rows(catalogue) -> list[dict]:
     return (await run_in_threadpool(catalogue.listing))["secrets"]
 
 
-def mount(mcp, sessions, catalogue, prefix, guarded, changes) -> None:
+def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
     """Mount history and site data: read, clear, and forget one site.
 
-    ``changes`` marks the routes that change what the session list shows.
+    ``changes`` marks the routes that change what the workspace list shows.
     """
 
     @mcp.custom_route(
-        f"{prefix}/admin/sessions/{{key}}/history",
+        f"{prefix}/admin/workspaces/{{key}}/history",
         methods=["GET"],
         name="admin_history",
     )
     @guarded
     async def admin_history(request: Request) -> JSONResponse:
-        """Where this session has been, by host, the current one first: each
+        """Where this workspace has been, by host, the current one first: each
         joined with the secrets allowed there and what the snapshot holds for
         it. Built per request; nothing is stored for it."""
         key = request.path_params["key"]
         try:
             secrets = await secret_rows(catalogue)
-            record = await run_in_threadpool(sessions.store.get, key)
+            record = await run_in_threadpool(workspaces.store.get, key)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"history for {key}", log)
         if record is None:
@@ -58,7 +58,7 @@ def mount(mcp, sessions, catalogue, prefix, guarded, changes) -> None:
         return JSONResponse({"key": key, **joined, "clears": clears})
 
     @mcp.custom_route(
-        f"{prefix}/admin/sessions/{{key}}/history",
+        f"{prefix}/admin/workspaces/{{key}}/history",
         methods=["DELETE"],
         name="admin_history_clear",
     )
@@ -69,29 +69,29 @@ def mount(mcp, sessions, catalogue, prefix, guarded, changes) -> None:
         browser are untouched, and the history expires on its own anyway."""
         key = request.path_params["key"]
 
-        def clear(record: SessionRecord) -> tuple[SessionRecord, list]:
+        def clear(record: Workspace) -> tuple[Workspace, list]:
             hosts = site_data.history_hosts(record.history)[1:]
             return record.history_cleared(), hosts
 
         try:
-            _, cleared = await run_in_threadpool(sessions.store.change, key, clear)
+            _, cleared = await run_in_threadpool(workspaces.store.change, key, clear)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"clearing the history of {key}", log)
         return JSONResponse({"cleared": cleared or []})
 
     @mcp.custom_route(
-        f"{prefix}/admin/sessions/{{key}}/site-data",
+        f"{prefix}/admin/workspaces/{{key}}/site-data",
         methods=["GET"],
         name="admin_site_data",
     )
     @guarded
     async def admin_site_data(request: Request) -> JSONResponse:
         """What a reopened browser gets back: the snapshot by host, each in
-        full, values masked, the hosts the session went to first. No secrets:
+        full, values masked, the hosts the workspace went to first. No secrets:
         those are History's."""
         key = request.path_params["key"]
         try:
-            record = await run_in_threadpool(sessions.store.get, key)
+            record = await run_in_threadpool(workspaces.store.get, key)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"site data for {key}", log)
         data, history = (record.site_data, record.history) if record else ({}, [])
@@ -99,7 +99,7 @@ def mount(mcp, sessions, catalogue, prefix, guarded, changes) -> None:
         return JSONResponse({"key": key, **listed, "details": details})
 
     @mcp.custom_route(
-        f"{prefix}/admin/sessions/{{key}}/site-data",
+        f"{prefix}/admin/workspaces/{{key}}/site-data",
         methods=["DELETE"],
         name="admin_site_data_clear",
     )
@@ -110,18 +110,18 @@ def mount(mcp, sessions, catalogue, prefix, guarded, changes) -> None:
         untouched; only the next browser opened comes back signed out."""
         key = request.path_params["key"]
 
-        def clear(record: SessionRecord) -> tuple[SessionRecord, list]:
+        def clear(record: Workspace) -> tuple[Workspace, list]:
             listed = site_data.view(record.site_data, record.history)
             return record.with_site_data({}), [s["site"] for s in listed["sites"]]
 
         try:
-            _, cleared = await run_in_threadpool(sessions.store.change, key, clear)
+            _, cleared = await run_in_threadpool(workspaces.store.change, key, clear)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"clearing site data for {key}", log)
         return JSONResponse({"cleared": cleared or []})
 
     @mcp.custom_route(
-        f"{prefix}/admin/sessions/{{key}}/site-data/{{site}}",
+        f"{prefix}/admin/workspaces/{{key}}/site-data/{{site}}",
         methods=["DELETE"],
         name="admin_site_data_forget",
     )
@@ -130,7 +130,7 @@ def mount(mcp, sessions, catalogue, prefix, guarded, changes) -> None:
     async def admin_site_data_forget(request: Request) -> JSONResponse:
         """Forget one site. Parent-domain cookies stay: other sites use them.
 
-        It changes the session's store and nothing else: the history stays,
+        It changes the workspace's record and nothing else: the history stays,
         and a browser open now keeps what it has — only the next one opened
         comes back without it. A save after this saves the site again.
         """
@@ -140,14 +140,14 @@ def mount(mcp, sessions, catalogue, prefix, guarded, changes) -> None:
 
         # Applied to the record as it is when written, so a save or an open
         # landing while this runs is kept rather than set back.
-        def forget(record: SessionRecord) -> tuple[SessionRecord, dict]:
+        def forget(record: Workspace) -> tuple[Workspace, dict]:
             left, removed = site_data.forget(record.site_data, host)
             if not (removed["cookies"] or removed["origins"]):
                 raise faults.NotFound(missing)
             return record.with_site_data(left), removed
 
         try:
-            write = sessions.store.change
+            write = workspaces.store.change
             stored, removed = await run_in_threadpool(write, key, forget)
             if stored is None:
                 raise faults.NotFound(missing)

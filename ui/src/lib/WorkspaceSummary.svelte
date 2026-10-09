@@ -1,14 +1,14 @@
 <script lang="ts">
   import { browserMark, safeHref } from './format'
-  import type { SessionRow } from './types'
+  import type { WorkspaceRow } from './types'
 
-  let { data }: { data: SessionRow | null } = $props()
-  const s = $derived(data ?? ({ key: '' } as SessionRow))
+  let { data }: { data: WorkspaceRow | null } = $props()
+  const s = $derived(data ?? ({ key: '' } as WorkspaceRow))
   const href = $derived(safeHref(s.url))
 
-  // Grouped by how long each fact lives: the session's survive its browser.
+  // Grouped by how long each fact lives: the workspace's survive its browser.
   const groups = $derived([
-    ['session', [
+    ['workspace', [
       ['key', s.name ? null : s.key],
       ['held by', s.name ? null : s.owner],
       ['browser', s.browser],
@@ -23,7 +23,7 @@
 <div class="card">
   <div class="row" style="margin-bottom:10px">
     <span class="bmark" title={s.browser || 'browser'}>{browserMark(s.browser)}</span>
-    <strong class="grow">{s.name || s.owner || 'Session'}</strong>
+    <strong class="grow">{s.name || s.owner || 'Workspace'}</strong>
     {#if s.live}<span class="pill live">live</span>{:else}<span class="pill">idle</span>{/if}
     {#if s.live && s.recording}<span class="pill rec">● REC</span>{/if}
   </div>

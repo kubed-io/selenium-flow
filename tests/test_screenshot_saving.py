@@ -1,10 +1,10 @@
-"""Every screenshot and print is kept with the session, straight to its files.
+"""Every screenshot and print is kept with the workspace, straight to its files.
 
 `save` made the agent decide, per screenshot, whether a person would ever want
 to look at it — and the answer was usually no, so the admin UI showed nothing
 and a human asking "what did it see?" had nothing to open (§F2.9).
 
-They used to reach the session's files by being handed back to the page as a
+They used to reach the workspace's files by being handed back to the page as a
 download, which put them at the mercy of every download Chrome refuses: a
 plain-http page, a page with no origin, a second save from `about:blank`. The
 bytes are this server's, so they are written where they are kept (§F3.8).
@@ -263,7 +263,7 @@ def test_two_saves_racing_for_one_name_do_not_overwrite_each_other(
     looks: the create is what claims it (Copilot, #40)."""
     first = keeping_server.actions.keep("shot.png", b"one", "files")
 
-    def unlisted(session):
+    def unlisted(workspace):
         raise AssertionError("a name is claimed by creating it, not by listing")
 
     monkeypatch.setattr(keeping_server.flows, "files", unlisted)
@@ -308,7 +308,7 @@ def test_a_mounted_server_hands_out_links_it_serves(tmp_path, public, expected):
     assert described["url"].startswith(expected)
 
 
-def test_print_over_http_keeps_the_file_for_the_session_that_asked(
+def test_print_over_http_keeps_the_file_for_the_workspace_that_asked(
     keeping_server, monkeypatch, tmp_path
 ):
     """The other surface, end to end: the alias, the body, the caller's name
@@ -317,10 +317,10 @@ def test_print_over_http_keeps_the_file_for_the_session_that_asked(
 
     driver = _Driver()
     monkeypatch.setattr(keeping_server.actions, "_at", lambda *a, **k: driver)
-    monkeypatch.setattr(keeping_server.sessions, "resolve", lambda name: "abc")
+    monkeypatch.setattr(keeping_server.workspaces, "resolve", lambda name: "abc")
     client = TestClient(
         keeping_server.mcp.http_app(),
-        headers={"Authorization": "Bearer tok", "X-Session-Key": "desk"},
+        headers={"Authorization": "Bearer tok", "X-Workspace": "desk"},
     )
     response = client.post(
         "/browser/print", json={"format": "pdf", "landscape": True, "filename": "q3"}
@@ -399,12 +399,12 @@ async def test_link_ttl_is_how_long_a_link_opens(tmp_path):
     assert day - 5 <= lasts(kept["url"]) < day + links.EXPIRY_STEP
 
     async with Client(server.mcp) as client:
-        listed = await client.read_resource("session://files/screenshots")
+        listed = await client.read_resource("workspace://files/screenshots")
     entry = json.loads(listed[0].text)["files"][0]
     assert day - 5 <= lasts(entry["url"]) < day + links.EXPIRY_STEP
 
     body = TestClient(server.mcp.http_app()).get(
-        "/admin/sessions/stdio/files", headers={"Authorization": "Bearer tok"}
+        "/admin/workspaces/stdio/files", headers={"Authorization": "Bearer tok"}
     ).json()
     assert [f["name"] for f in body["screenshots"]] == ["shot.png"]
     assert day - 5 <= lasts(body["screenshots"][0]["url"]) < day + links.EXPIRY_STEP
@@ -422,11 +422,11 @@ async def test_print_is_a_tool_that_keeps_the_file(keeping_server, monkeypatch):
 
     driver = _Driver()
     monkeypatch.setattr(keeping_server.actions, "_at", lambda *a, **k: driver)
-    monkeypatch.setattr(keeping_server.sessions, "resolve", lambda name: "abc")
+    monkeypatch.setattr(keeping_server.workspaces, "resolve", lambda name: "abc")
     async with Client(keeping_server.mcp) as client:
         result = await client.call_tool("print", {"format": "html"})
     assert result.structured_content["file"]["name"] == "page.html"
-    assert result.structured_content["file"]["uri"] == "session://files/page.html"
+    assert result.structured_content["file"]["uri"] == "workspace://files/page.html"
 
 
 @pytest.mark.parametrize("kept", [{}, {"file": {"name": "shot.png"}},
@@ -436,9 +436,9 @@ async def test_a_screenshot_carries_the_site_data_hint(keeping_server, monkeypat
     swallow the hint that says it was restored."""
     from fastmcp import Client
 
-    hint = {"restored": ["https://w.test"], "uri": "session://site-data/w.test"}
+    hint = {"restored": ["https://w.test"], "uri": "workspace://site-data/w.test"}
     png = base64.b64encode(b"\x89PNG\r\n\x1a\n").decode()
-    monkeypatch.setattr(keeping_server.sessions, "act", lambda name, call, **kw: {
+    monkeypatch.setattr(keeping_server.workspaces, "act", lambda name, call, **kw: {
         "image": png, "site_data": hint, **kept})
     calling_as(monkeypatch, "s")
     async with Client(keeping_server.mcp) as client:
@@ -523,7 +523,7 @@ def test_open_session_opens_insecure_only_when_asked_and_remembers_it(server, mo
     from fastmcp import Client
 
     from kubed.selenium_flow.config import SessionSettings, Settings, load
-    from kubed.selenium_flow.session import settings
+    from kubed.selenium_flow.workspace import settings
 
     # §F3.8, pinned at both ends: the config schema has no field for it at
     # all, so nothing in `session.*` can ever set a floor for it...

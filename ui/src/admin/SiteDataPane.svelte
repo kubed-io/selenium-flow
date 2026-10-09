@@ -2,14 +2,14 @@
   import { tick, untrack } from 'svelte'
   import { ago } from '../lib/format'
   import type { SiteCookie, SiteDetail, SiteRow, SiteStorage } from '../lib/types'
-  import { sessionPath, type Api } from './api'
+  import { workspacePath, type Api } from './api'
   import { folds } from './folds.svelte'
   import type { ModalSpec } from './modal'
   import Section from './Section.svelte'
-  import type { SessionModel } from './session.svelte'
+  import type { WorkspaceModel } from './workspace.svelte'
 
   let { m, api, ask, refuseIfGone, isGone, site, hidden }: {
-    m: SessionModel
+    m: WorkspaceModel
     api: Api
     ask: <T>(spec: ModalSpec<T>) => void
     refuseIfGone: () => void
@@ -80,7 +80,7 @@
       confirm: 'Forget', danger: true,
       onconfirm: async () => {
         refuseIfGone()
-        await api(sessionPath(m.key, '/site-data/' + encodeURIComponent(r.site)), 'DELETE')
+        await api(workspacePath(m.key, '/site-data/' + encodeURIComponent(r.site)), 'DELETE')
         // History's saved pills read this snapshot too.
         if (!isGone()) { void m.loadSiteData(); void m.loadHistory() }
       },
@@ -95,7 +95,7 @@
       confirm: 'Clear', danger: true,
       onconfirm: async () => {
         refuseIfGone()
-        await api(sessionPath(m.key, '/site-data'), 'DELETE')
+        await api(workspacePath(m.key, '/site-data'), 'DELETE')
         if (!isGone()) { void m.loadSiteData(); void m.loadHistory() }
       },
     })

@@ -1,4 +1,4 @@
-"""A session keeps files in two folders: Files, and its screenshots (§F4.7).
+"""A workspace keeps files in two folders: Files, and its screenshots (§F4.7).
 
 Downloads are not here — they are the Grid's. What is asserted is that the two
 folders are separate, that the folder is part of every address, and that the

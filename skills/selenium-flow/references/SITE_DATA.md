@@ -1,8 +1,8 @@
 # Site data — stay signed in across a reaped browser
 
 A new browser starts empty. `save_site_data` keeps this one's cookies and the
-storage of the sites this session has been to (see Limits), and every browser
-opened for the session afterwards has them back — the one that replaces a reaped
+storage of the sites this workspace has been to (see Limits), and every browser
+opened in the workspace afterwards has them back — the one that replaces a reaped
 browser, or the one after `end_browser()`.
 
 ## When to save
@@ -19,7 +19,7 @@ save_site_data()
 ```
 
 One save covers every site a call ended on — the identity provider you signed in
-at, and an app you signed in to earlier in the session. Save again after a
+at, and an app you signed in to earlier in the workspace. Save again after a
 setting you want kept.
 
 Each save **replaces** the last. A save after signing out saves you signed out.
@@ -30,7 +30,7 @@ The result names what was kept, never a value:
 {"saved": {"cookies": 14,
            "sites": ["https://app.example.com", "https://sso.example.com"],
            "skipped": []},
- "uri": "session://site-data"}
+ "uri": "workspace://site-data"}
 ```
 
 `skipped` names a site whose storage is not in this save, and why. One that could
@@ -48,7 +48,7 @@ says which sites, and never a value:
 
 ```json
 {"site_data": {"restored": ["app.example.com", "sso.example.com"], "skipped": [],
-               "uri": "session://site-data"}}
+               "uri": "workspace://site-data"}}
 ```
 
 No `site_data` key means nothing happened: nothing was saved, or only cookies that
@@ -73,7 +73,7 @@ open_session(restore_site_data=false)
 ```
 
 Opens with nothing **and deletes** what was saved, so the next open is empty too.
-Where the session has been is kept.
+Where the workspace has been is kept.
 
 ## Debugging with execute_script
 
@@ -87,13 +87,13 @@ open_session()
 execute_script(script="return localStorage.getItem('seen')")   # "1"
 ```
 
-`document.cookie` shows what the page can see. `session://site-data/app.example.com`
+`document.cookie` shows what the page can see. `workspace://site-data/app.example.com`
 shows what was saved, including httpOnly cookies the page cannot — their values
 read `•••`, here and in the admin UI.
 
 ## Limits
 
-- A save reads the sites a call **ended on**, for as long as the session keeps its
+- A save reads the sites a call **ended on**, for as long as the workspace keeps its
   history: a day by default, 100 sites at most, the page you are on always. A site
   passed through inside one call is not read, and an app last visited more than a
   day ago loses its saved storage at the next save — its cookies stay.
@@ -104,8 +104,8 @@ read `•••`, here and in the admin UI.
   saved is kept for the next secure browser.
 - A script cannot set an httpOnly cookie; it comes back through the browser's own
   channel.
-- Stored on the session and expires with it. Never on this server's disk; with the
+- Stored on the workspace and expires with it. Never on this server's disk; with the
   Redis store it is as durable as Redis.
 - A site that stores what you typed makes it readable in site data — a token typed
-  through a secret and kept in localStorage shows in `session://site-data/{site}`.
+  through a secret and kept in localStorage shows in `workspace://site-data/{site}`.
   httpOnly cookies stay masked.

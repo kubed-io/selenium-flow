@@ -1,7 +1,7 @@
 """The admin's flow API: the operator path §F1.2 reserves.
 
 `/flows/*` is scoped to whoever is calling and refuses the shared library.
-This surface addresses **any** session and is allowed into `global`, because a
+This surface addresses **any** workspace and is allowed into `global`, because a
 person is present who can see what a change affects. That difference is the
 whole point of these routes existing, so it is what is asserted hardest here.
 
@@ -18,16 +18,16 @@ from starlette.testclient import TestClient
 
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.flows import store as flows
-from kubed.selenium_flow.names import GLOBAL_SESSION
+from kubed.selenium_flow.names import GLOBAL_WORKSPACE
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.session.store import SessionRecord
+from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import TOKEN
 
 pytestmark = pytest.mark.unit
 
 KEY = "desktop"
-SESSION = "desktop"
+WORKSPACE = "desktop"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 # A comment and a deliberate key order, so "stored verbatim" is testable rather
@@ -53,7 +53,7 @@ def server(tmp_path, monkeypatch):
             data={"dir": str(tmp_path)},
         )
     )
-    built.sessions.store.set(KEY, SessionRecord(session_id=""))
+    built.workspaces.store.set(KEY, Workspace(session_id=""))
     return built
 
 
@@ -63,7 +63,7 @@ def client(server):
 
 
 def url(name: str = "", suffix: str = "") -> str:
-    base = f"/admin/sessions/{quote(KEY, safe='')}/flows"
+    base = f"/admin/workspaces/{quote(KEY, safe='')}/flows"
     return f"{base}/{quote(name, safe='')}{suffix}" if name else base
 
 
@@ -80,11 +80,11 @@ def test_every_route_needs_the_token(client):
 
 def test_the_listing_is_the_same_merge_the_agent_sees(client, server):
     """If the admin showed a different library from the one a run would use,
-    every answer it gave about "which login will this session run" would be a
+    every answer it gave about "which login will this workspace run" would be a
     guess. Each entry says which library it came from; the UI marks the shared
     ones with a globe."""
-    server.flows.save(SESSION, "mine", {"steps": [], "description": "mine"})
-    server.flows.save(GLOBAL_SESSION, "shared", {"steps": [], "description": "ours"})
+    server.flows.save(WORKSPACE, "mine", {"steps": [], "description": "mine"})
+    server.flows.save(GLOBAL_WORKSPACE, "shared", {"steps": [], "description": "ours"})
     body = client.get(url(), headers=AUTH).json()
     assert body["enabled"] is True
     assert {f["name"]: f["shared"] for f in body["flows"]} == {
@@ -100,24 +100,24 @@ def test_with_flows_off_the_panel_is_empty_rather_than_broken(tmp_path, monkeypa
     off = SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
     )
-    off.sessions.store.set(KEY, SessionRecord(session_id=""))
+    off.workspaces.store.set(KEY, Workspace(session_id=""))
     body = TestClient(off.mcp.http_app()).get(url(), headers=AUTH)
     assert body.status_code == 200
     assert body.json() == {
         "key": KEY,
-        "session": SESSION,
+        "workspace": WORKSPACE,
         "enabled": False,
         "flows": [],
     }
 
 
-def test_a_session_whose_name_is_not_a_directory_lists_nothing(client, server):
+def test_a_workspace_whose_name_is_not_a_directory_lists_nothing(client, server):
     """It has no library, and must not be shown the shared one as though it
     were its own — the same rule the file counts follow."""
-    server.sessions.store.set("my bot", SessionRecord(session_id=""))
-    server.flows.save(GLOBAL_SESSION, "shared", {"steps": []})
+    server.workspaces.store.set("my bot", Workspace(session_id=""))
+    server.flows.save(GLOBAL_WORKSPACE, "shared", {"steps": []})
     body = client.get(
-        f"/admin/sessions/{quote('my bot', safe='')}/flows", headers=AUTH
+        f"/admin/workspaces/{quote('my bot', safe='')}/flows", headers=AUTH
     ).json()
     assert body["enabled"] is False and body["flows"] == []
 
@@ -192,7 +192,7 @@ def test_an_undeclared_reference_is_not_invented_as_a_parameter(client, server):
     reference must not appear in Params as though it had been declared: that
     section lists the flow's interface, and a typo is not part of it."""
     server.flows.write_text(
-        SESSION, "stray", "name: stray\nsteps:\n- tool: navigate\n  args:\n    url: ${nowhere}\n"
+        WORKSPACE, "stray", "name: stray\nsteps:\n- tool: navigate\n  args:\n    url: ${nowhere}\n"
     )
     assert client.get(url("stray"), headers=AUTH).json()["uses"] == {}
 
@@ -207,7 +207,7 @@ def test_a_malformed_parameters_block_still_opens(client, server, parameters):
     list is an AttributeError and the route turns that into a 500, so the one
     flow you need to see is the one that will not open."""
     server.flows.write_text(
-        SESSION,
+        WORKSPACE,
         "wonky",
         f"name: wonky\nparameters: {parameters}\nsteps:\n- tool: navigate\n  args: {{url: x}}\n",
     )
@@ -223,7 +223,7 @@ def test_a_steps_block_that_is_not_a_list_still_opens(client, server, steps):
     the catalogue with a count of 0 rather than dropping it, so the listing
     offers a flow the detail route could not open."""
     server.flows.write_text(
-        SESSION,
+        WORKSPACE,
         "wonky",
         f"name: wonky\nparameters:\n  properties:\n    term: {{type: string}}\nsteps: {steps}\n",
     )
@@ -237,7 +237,7 @@ def test_a_step_that_is_not_a_mapping_does_not_stop_the_others(client, server):
     string, and losing the whole document to it would hide the rest of the
     flow that says where the mistake is."""
     server.flows.write_text(
-        SESSION,
+        WORKSPACE,
         "wonky",
         "name: wonky\nparameters:\n  properties:\n    term: {type: string}\n"
         "steps:\n- oops\n- tool: navigate\n  args: {url: 'https://x/${term}'}\n",
@@ -251,8 +251,8 @@ def test_a_save_keeps_the_comment_and_the_ordering(client, server):
     is invisible until someone opens the editor, saves, and finds the note they
     left themselves has gone."""
     assert client.put(url("login"), json={"yaml": YAML}, headers=AUTH).status_code == 200
-    assert server.flows.read_text(SESSION, "login") == YAML
-    assert "# the one that logs us in" in server.flows.read_text(SESSION, "login")
+    assert server.flows.read_text(WORKSPACE, "login") == YAML
+    assert "# the one that logs us in" in server.flows.read_text(WORKSPACE, "login")
 
 
 def test_a_document_that_would_not_run_is_refused(client, server):
@@ -260,7 +260,7 @@ def test_a_document_that_would_not_run_is_refused(client, server):
     response = client.put(url("bad"), json={"yaml": bad}, headers=AUTH)
     assert response.status_code == 400
     assert "no tool called" in response.json()["error"]
-    assert server.flows.get(SESSION, "bad") is None, "it was written anyway"
+    assert server.flows.get(WORKSPACE, "bad") is None, "it was written anyway"
 
 
 def test_text_that_is_not_yaml_is_refused_as_such(client):
@@ -297,8 +297,8 @@ def test_the_document_cannot_rename_the_flow(client, server):
     assert "login" in response.json()["error"], "it should say which name to put back"
     # And nothing was written: a refusal that half-applied would be worse than
     # the silent rename it replaced.
-    assert "name: login" in server.flows.read_text(SESSION, "login")
-    assert server.flows.get(SESSION, "something-else") is None
+    assert "name: login" in server.flows.read_text(WORKSPACE, "login")
+    assert server.flows.get(WORKSPACE, "something-else") is None
 
 
 def test_a_document_that_does_not_name_itself_is_still_saveable(client, server):
@@ -306,7 +306,7 @@ def test_a_document_that_does_not_name_itself_is_still_saveable(client, server):
     one is refused, or hand-writing a flow would mean repeating its name."""
     body = "steps:\n- tool: navigate\n  args: {url: https://example.test/}\n"
     assert client.put(url("login"), json={"yaml": body}, headers=AUTH).status_code == 200
-    assert server.flows.get(SESSION, "login")["name"] == "login"
+    assert server.flows.get(WORKSPACE, "login")["name"] == "login"
 
 
 def test_saving_an_untouched_document_is_not_a_rename(client, server):
@@ -315,36 +315,36 @@ def test_saving_an_untouched_document_is_not_a_rename(client, server):
     client.put(url("login"), json={"yaml": YAML}, headers=AUTH)
     edited = YAML.replace("https://example.test/login", "https://example.test/signin")
     assert client.put(url("login"), json={"yaml": edited}, headers=AUTH).status_code == 200
-    assert "signin" in server.flows.read_text(SESSION, "login")
+    assert "signin" in server.flows.read_text(WORKSPACE, "login")
 
 
 def test_editing_a_shared_flow_edits_the_shared_one(client, server):
     """Not a fork. An operator opening a global flow, changing a selector and
     saving means "fix the shared login" — silently writing a private copy would
-    leave every other session still running the broken one."""
-    server.flows.save(GLOBAL_SESSION, "login", {"steps": [], "description": "old"})
+    leave every other workspace still running the broken one."""
+    server.flows.save(GLOBAL_WORKSPACE, "login", {"steps": [], "description": "old"})
     assert client.put(url("login"), json={"yaml": YAML}, headers=AUTH).status_code == 200
-    assert server.flows.get(SESSION, "login") is None, "it forked into the session"
-    assert "sign in to the demo site" in server.flows.read_text(GLOBAL_SESSION, "login")
+    assert server.flows.get(WORKSPACE, "login") is None, "it forked into the workspace"
+    assert "sign in to the demo site" in server.flows.read_text(GLOBAL_WORKSPACE, "login")
 
 
 # ---- deleting ----------------------------------------------------------------
 
 
 def test_deleting_removes_it_from_the_folder_it_lives_in(client, server):
-    server.flows.save(SESSION, "login", {"steps": []})
+    server.flows.save(WORKSPACE, "login", {"steps": []})
     body = client.delete(url("login"), headers=AUTH).json()
-    assert body == {"deleted": True, "session": SESSION, "name": "login"}
-    assert server.flows.get(SESSION, "login") is None
+    assert body == {"deleted": True, "workspace": WORKSPACE, "name": "login"}
+    assert server.flows.get(WORKSPACE, "login") is None
 
 
 def test_deleting_a_shared_flow_is_allowed_here(client, server):
     """The agent surface refuses this; the operator surface is where it is
     permitted, which is the entire difference between the two."""
-    server.flows.save(GLOBAL_SESSION, "login", {"steps": []})
+    server.flows.save(GLOBAL_WORKSPACE, "login", {"steps": []})
     body = client.delete(url("login"), headers=AUTH).json()
-    assert body["deleted"] is True and body["session"] == GLOBAL_SESSION
-    assert server.flows.get(GLOBAL_SESSION, "login") is None
+    assert body["deleted"] is True and body["workspace"] == GLOBAL_WORKSPACE
+    assert server.flows.get(GLOBAL_WORKSPACE, "login") is None
 
 
 # ---- moving ------------------------------------------------------------------
@@ -353,65 +353,65 @@ def test_deleting_a_shared_flow_is_allowed_here(client, server):
 def test_a_flow_moves_to_the_shared_library(client, server):
     """Promotion is this verb with `global` as the target — there is no separate
     promote, because a flow lives in exactly one directory (§F1.2)."""
-    server.flows.write_text(SESSION, "login", YAML)
+    server.flows.write_text(WORKSPACE, "login", YAML)
     body = client.post(
-        url("login", "/move"), json={"to": GLOBAL_SESSION}, headers=AUTH
+        url("login", "/move"), json={"to": GLOBAL_WORKSPACE}, headers=AUTH
     ).json()
     assert body == {
         "moved": True,
-        "from": SESSION,
-        "session": GLOBAL_SESSION,
+        "from": WORKSPACE,
+        "workspace": GLOBAL_WORKSPACE,
         "name": "login",
     }
-    assert server.flows.get(SESSION, "login") is None, "it was copied, not moved"
-    assert server.flows.read_text(GLOBAL_SESSION, "login") == YAML
+    assert server.flows.get(WORKSPACE, "login") is None, "it was copied, not moved"
+    assert server.flows.read_text(GLOBAL_WORKSPACE, "login") == YAML
 
 
 def test_a_shared_flow_is_claimed_by_the_same_verb(client, server):
-    """The round trip, which is what makes the button reversible: To global on
-    an own flow, To this session on a shared one."""
-    server.flows.write_text(GLOBAL_SESSION, "login", YAML)
+    """The round trip, which is what makes the button reversible: Move to global on
+    an own flow, Move to this workspace on a shared one."""
+    server.flows.write_text(GLOBAL_WORKSPACE, "login", YAML)
     body = client.post(
-        url("login", "/move"), json={"to": SESSION}, headers=AUTH
+        url("login", "/move"), json={"to": WORKSPACE}, headers=AUTH
     ).json()
-    assert body["moved"] is True and body["from"] == GLOBAL_SESSION
-    assert server.flows.get(GLOBAL_SESSION, "login") is None
-    assert server.flows.read_text(SESSION, "login") == YAML
+    assert body["moved"] is True and body["from"] == GLOBAL_WORKSPACE
+    assert server.flows.get(GLOBAL_WORKSPACE, "login") is None
+    assert server.flows.read_text(WORKSPACE, "login") == YAML
 
 
-def test_moving_between_two_sessions_needs_no_new_mechanism(client, server):
+def test_moving_between_two_workspaces_needs_no_new_mechanism(client, server):
     """Push to global from one, claim from the other. The design leans on this,
     so it is worth proving rather than assuming."""
     server.flows.write_text("other", "login", YAML)
-    other = f"/admin/sessions/{quote('other', safe='')}/flows/login/move"
-    server.sessions.store.set("other", SessionRecord(session_id=""))
-    client.post(other, json={"to": GLOBAL_SESSION}, headers=AUTH)
-    client.post(url("login", "/move"), json={"to": SESSION}, headers=AUTH)
-    assert server.flows.read_text(SESSION, "login") == YAML
+    other = f"/admin/workspaces/{quote('other', safe='')}/flows/login/move"
+    server.workspaces.store.set("other", Workspace(session_id=""))
+    client.post(other, json={"to": GLOBAL_WORKSPACE}, headers=AUTH)
+    client.post(url("login", "/move"), json={"to": WORKSPACE}, headers=AUTH)
+    assert server.flows.read_text(WORKSPACE, "login") == YAML
     assert server.flows.get("other", "login") is None
 
 
 def test_moving_somewhere_it_already_is_changes_nothing(client, server):
-    server.flows.write_text(SESSION, "login", YAML)
+    server.flows.write_text(WORKSPACE, "login", YAML)
     body = client.post(
-        url("login", "/move"), json={"to": SESSION}, headers=AUTH
+        url("login", "/move"), json={"to": WORKSPACE}, headers=AUTH
     ).json()
     assert body["moved"] is False
-    assert server.flows.read_text(SESSION, "login") == YAML
+    assert server.flows.read_text(WORKSPACE, "login") == YAML
 
 
 def test_moving_somewhere_unusable_is_refused(client, server):
-    server.flows.write_text(SESSION, "login", YAML)
+    server.flows.write_text(WORKSPACE, "login", YAML)
     response = client.post(
         url("login", "/move"), json={"to": "../etc"}, headers=AUTH
     )
     assert response.status_code == 400
-    assert server.flows.read_text(SESSION, "login") == YAML, "it moved anyway"
+    assert server.flows.read_text(WORKSPACE, "login") == YAML, "it moved anyway"
 
 
 def test_moving_a_flow_that_is_not_there_says_where_to_look(client):
     response = client.post(
-        url("nope", "/move"), json={"to": GLOBAL_SESSION}, headers=AUTH
+        url("nope", "/move"), json={"to": GLOBAL_WORKSPACE}, headers=AUTH
     )
     assert response.status_code == 400
     assert "no flow called" in response.json()["error"]
@@ -442,10 +442,10 @@ def test_the_revision_changes_when_a_flow_is_edited_in_place(client, server):
 
 
 def test_the_revision_follows_the_shared_library_too(client, server):
-    """The panel lists this session's flows AND the shared ones, so a change an
+    """The panel lists this workspace's flows AND the shared ones, so a change an
     operator makes to `global` in another tab has to reach this page."""
     before = client.get(url(), headers=AUTH).json()["rev"]
-    server.flows.save(GLOBAL_SESSION, "cookie-banner", {"steps": []})
+    server.flows.save(GLOBAL_WORKSPACE, "cookie-banner", {"steps": []})
     assert client.get(url(), headers=AUTH).json()["rev"] != before
 
 
@@ -460,15 +460,15 @@ def test_a_store_with_no_revision_falls_back_to_its_count(client, server):
     afterwards left the route using the real one and the test passed without
     ever reaching the branch it names.
     """
-    server.flows.save(SESSION, "one", {"steps": []})
+    server.flows.save(WORKSPACE, "one", {"steps": []})
     with patch.object(
         flows.LocalFlowStore, "revision", side_effect=AttributeError("revision")
     ):
         one = client.get(url(), headers=AUTH).json()["rev"]
-        server.flows.save(SESSION, "two", {"steps": []})
+        server.flows.save(WORKSPACE, "two", {"steps": []})
         two = client.get(url(), headers=AUTH).json()["rev"]
 
-    # The count, twice — this session's and the shared library's — which is what
+    # The count, twice — this workspace's and the shared library's — which is what
     # the fallback returns, and proof the branch was taken rather than the real
     # revision being read.
     assert one == "1+0"
@@ -476,17 +476,17 @@ def test_a_store_with_no_revision_falls_back_to_its_count(client, server):
 
 def test_the_shared_revision_is_read_once_per_payload(client, server, monkeypatch):
     """It is the same answer for every row, and inside the loop each heartbeat
-    walked and stat-ed the whole shared library once per session — O(sessions x
+    walked and stat-ed the whole shared library once per workspace — O(workspaces x
     shared flows) on a two-second poll."""
     for n in range(3):
-        server.sessions.store.set(f"s{n}", SessionRecord(session_id=""))
+        server.workspaces.store.set(f"s{n}", Workspace(session_id=""))
     seen = []
     real = server.flows.revision
     monkeypatch.setattr(
         server.flows, "revision", lambda s: (seen.append(s), real(s))[1], raising=False
     )
-    client.get("/admin/sessions", headers=AUTH)
-    assert seen.count(GLOBAL_SESSION) == 1, seen
+    client.get("/admin/workspaces", headers=AUTH)
+    assert seen.count(GLOBAL_WORKSPACE) == 1, seen
 
 
 def test_the_revision_is_read_before_the_listing(client, server, monkeypatch):

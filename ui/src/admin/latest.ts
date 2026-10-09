@@ -1,4 +1,4 @@
-/* One panel's loads. Two can overlap for the same session — a slow answer for
+/* One panel's loads. Two can overlap for the same workspace — a slow answer for
    revision A landing after a fast one for B — so only the newest may paint, and
    the older one is aborted rather than left to finish for nothing. */
 export class Latest {

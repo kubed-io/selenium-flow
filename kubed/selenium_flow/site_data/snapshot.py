@@ -1,9 +1,9 @@
-"""Site data: the cookies and storage a session keeps for the sites it uses.
+"""Site data: the cookies and storage a workspace keeps for the sites it uses.
 
-A session outlives its browser, and used to come back signed out: the page it
+A workspace outlives its sessions, and used to come back signed out: the page it
 was on survived a reap, the sign-in did not. An agent saves when it knows the
 browser is worth keeping — after a sign-in is confirmed — and every browser
-opened for the session gets it back (spec 2026-09-30, rounds 1 and 2).
+opened in the workspace gets it back (spec 2026-09-30, rounds 1 and 2).
 
 Saved, not captured: every call paying for a snapshot was rejected, and a reap
 gives no warning, so only an explicit save is dependable.
@@ -17,7 +17,7 @@ them back before the first page loads.
 **A site is a host.** Cookies carry a domain and no scheme or port, so the view
 groups by host. Storage is kept per origin, as ``location.origin`` spells it.
 
-Values are credentials. They live in the session store and nowhere else, are
+Values are credentials. They live in the workspace store and nowhere else, are
 never logged, and an httpOnly cookie's value is never shown on any surface.
 """
 
@@ -29,7 +29,7 @@ import json
 from ..secrets import matching_secrets
 from ..urls import host_of
 
-# The private key an action hands its capture back under. `SessionManager.settle`
+# The private key an action hands its capture back under. `Workspaces.settle`
 # removes it and stores it as the snapshot; no caller ever sees it.
 CAPTURED = "_site_data_captured"
 MAX_BYTES = 1_000_000
@@ -37,7 +37,7 @@ MASK = "•••"
 # Why an origin's storage was not read: its own service worker answered the
 # spare tab (spec round 2, *Service workers at save time*).
 SW_REASON = "a service worker answered: save while on this site"
-LIST_URI = "session://site-data"
+LIST_URI = "workspace://site-data"
 
 
 def site_uri(host: str) -> str:
@@ -129,7 +129,7 @@ def _joined(entry_sizes) -> int:
 
 def live_cookies(cookies: list[dict], now: float) -> list[dict]:
     """Every cookie a restore should set: expired ones dropped, session
-    cookies (no expiry) kept, because the session they belong to is ours and
+    cookies (no expiry) kept, because the workspace they belong to is ours and
     outlived the browser."""
     return [c for c in cookies if c.get("expiry") is None or c["expiry"] > now]
 
@@ -282,7 +282,7 @@ def history_hosts(history) -> list[str]:
 
 
 def _ordered(jar: _Jar, history=()) -> list[str]:
-    """Every host the snapshot holds data for, once: the hosts the session went
+    """Every host the snapshot holds data for, once: the hosts the workspace went
     to first, most recent first, then the rest alphabetically."""
     hosts = jar.hosts()
     stored = set(hosts)
@@ -346,11 +346,11 @@ def site_view(data: dict, site: str) -> dict | None:
 
 
 def history_view(history, data: dict, secrets: list[dict] | None = None) -> dict:
-    """The History tab: one row per host the session landed on, the current
+    """The History tab: one row per host the workspace landed on, the current
     one first, each with its latest URL and when, what the snapshot holds for
     it (None when nothing), and the secrets allowed there.
 
-    Secrets join a row and never make one: a host the session never reached
+    Secrets join a row and never make one: a host the workspace never reached
     is not listed, whatever a secret allows.
     """
     saved = {r["site"]: r for r in view(data, history)["sites"]}

@@ -149,7 +149,7 @@ def failing(server, exc):
     def act(*_args, **_kwargs):
         raise exc
 
-    server.sessions.act = act
+    server.workspaces.act = act
 
 
 async def test_a_caller_reads_the_failure_not_seleniums_stack_dump(server):

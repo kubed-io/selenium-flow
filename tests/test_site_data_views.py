@@ -1,4 +1,4 @@
-"""The snapshot by host: the Site data tab, session://site-data, and Forget.
+"""The snapshot by host: the Site data tab, workspace://site-data, and Forget.
 Pure, over round 2's snapshot shape."""
 
 import pytest
@@ -26,10 +26,10 @@ def test_one_row_per_host_with_counts_and_both_storages_in_full():
         session={"origin": APP, "items": {"token": "t"}},
     )
     listing = sd.view(data)
-    assert listing["saved_at"] == NOW and listing["uri"] == "session://site-data"
+    assert listing["saved_at"] == NOW and listing["uri"] == "workspace://site-data"
     rows = {r["site"]: r for r in listing["sites"]}
     assert rows["app.example.com"] == {
-        "site": "app.example.com", "uri": "session://site-data/app.example.com", "cookies": 2,
+        "site": "app.example.com", "uri": "workspace://site-data/app.example.com", "cookies": 2,
         "storage": [{"origin": APP, "local_storage": 2, "session_storage": 1}],
     }
     assert rows["sso.example.com"]["storage"] == [], "cookies only"
@@ -74,7 +74,7 @@ def test_session_storage_alone_makes_a_row():
     assert sd.view(data)["sites"][0]["storage"] == [
         {"origin": "https://app.test", "local_storage": 0, "session_storage": 1},
     ]
-    assert sd.summary(data) == {"sites": 1, "uri": "session://site-data"}
+    assert sd.summary(data) == {"sites": 1, "uri": "workspace://site-data"}
 
 
 def test_one_host_on_two_ports_keeps_each_origins_storage_apart():
@@ -173,7 +173,7 @@ def test_forgetting_a_parent_only_row_removes_its_dotted_cookie():
 def test_summary_is_none_when_empty():
     assert sd.summary({}) is None
     assert sd.summary(snapshot(cookies=[cookie("sid", "app.test")])) == {
-        "sites": 1, "uri": "session://site-data",
+        "sites": 1, "uri": "workspace://site-data",
     }
 
 

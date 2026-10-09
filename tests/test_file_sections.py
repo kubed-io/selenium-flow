@@ -1,4 +1,4 @@
-"""A session's files as three sections, addressed by path (§F4.6, §F4.7)."""
+"""A workspace's files as three sections, addressed by path (§F4.6, §F4.7)."""
 
 import json
 
@@ -37,7 +37,7 @@ class Actions:
         self.grid = grid or Grid()
 
 
-class Sessions:
+class FakeWorkspaces:
     def __init__(self, browser="abc"):
         self._browser = browser
 
@@ -62,10 +62,10 @@ def store(tmp_path):
 @pytest.mark.parametrize(
     ("folder", "name", "uri"),
     [
-        ("files", "report.pdf", "session://files/report.pdf"),
-        ("screenshots", "shot.png", "session://files/screenshots/shot.png"),
-        ("downloads", "export.csv", "session://files/downloads/export.csv"),
-        ("files", "Q3 summary (1).csv", "session://files/Q3%20summary%20%281%29.csv"),
+        ("files", "report.pdf", "workspace://files/report.pdf"),
+        ("screenshots", "shot.png", "workspace://files/screenshots/shot.png"),
+        ("downloads", "export.csv", "workspace://files/downloads/export.csv"),
+        ("files", "Q3 summary (1).csv", "workspace://files/Q3%20summary%20%281%29.csv"),
     ],
 )
 def test_a_uri_round_trips(folder, name, uri):
@@ -74,7 +74,7 @@ def test_a_uri_round_trips(folder, name, uri):
 
 
 def test_a_literal_space_parses_like_its_escape():
-    assert files.parse_uri("session://files/screenshots/shot (1).png") == (
+    assert files.parse_uri("workspace://files/screenshots/shot (1).png") == (
         "screenshots",
         "shot (1).png",
     )
@@ -83,17 +83,17 @@ def test_a_literal_space_parses_like_its_escape():
 @pytest.mark.parametrize(
     "uri",
     [
-        "session://files",
-        "session://files/screenshots",
-        "session://files/downloads",
-        "session://files/a/b",
-        "session://files/flows/x",
+        "workspace://files",
+        "workspace://files/screenshots",
+        "workspace://files/downloads",
+        "workspace://files/a/b",
+        "workspace://files/flows/x",
         "flow://flows/x",
         "",
     ],
 )
 def test_a_uri_that_names_no_file_is_refused_with_the_shapes(uri):
-    with pytest.raises(ValueError, match="session://files/screenshots/"):
+    with pytest.raises(ValueError, match="workspace://files/screenshots/"):
         files.parse_uri(uri)
 
 
@@ -103,20 +103,20 @@ def test_a_uri_that_names_no_file_is_refused_with_the_shapes(uri):
 def test_the_root_lists_files_and_names_three_folders(store):
     store.write_file(S, "report.pdf", b"p")
     store.create_file(S, "shot.png", b"s", SCREENSHOTS_DIR)
-    got = files.root(Actions(), Sessions(), store, TOKEN, S)
+    got = files.root(Actions(), FakeWorkspaces(), store, TOKEN, S)
     assert [f["name"] for f in got["files"]] == ["report.pdf"]
     assert got["count"] == 1
     assert got["folders"] == [
-        {"name": "screenshots", "uri": "session://files/screenshots", "count": 1},
-        {"name": "recordings", "uri": "session://files/recordings", "count": 0},
-        {"name": "downloads", "uri": "session://files/downloads", "count": 2, "browser": True},
+        {"name": "screenshots", "uri": "workspace://files/screenshots", "count": 1},
+        {"name": "recordings", "uri": "workspace://files/recordings", "count": 0},
+        {"name": "downloads", "uri": "workspace://files/downloads", "count": 2, "browser": True},
     ]
 
 
 def test_with_no_browser_the_downloads_folder_says_so(store):
-    got = files.root(Actions(), Sessions(browser=""), store, TOKEN, S)
+    got = files.root(Actions(), FakeWorkspaces(browser=""), store, TOKEN, S)
     assert got["folders"][2] == {
-        "name": "downloads", "uri": "session://files/downloads", "count": 0, "browser": False,
+        "name": "downloads", "uri": "workspace://files/downloads", "count": 0, "browser": False,
     }
 
 
@@ -124,7 +124,7 @@ def test_the_root_counts_downloads_without_describing_them(store, monkeypatch):
     """Copilot: the root listing must count downloads from the Grid's own
     listing, not by describing (and signing) every one of them just to throw
     the descriptions away. A session with many downloads pays for that on
-    every ``session://files`` read, and it is real work: content-type
+    every ``workspace://files`` read, and it is real work: content-type
     guessing, a folder-count, and an HMAC signature per entry.
 
     The in-flight file also proves the count still applies the partial-file
@@ -155,30 +155,30 @@ def test_the_root_counts_downloads_without_describing_them(store, monkeypatch):
     real_describe = files.describe
     monkeypatch.setattr(files, "describe", describe_must_not_see_downloads)
 
-    got = files.root(Actions(PartialAwareGrid()), Sessions(), store, TOKEN, S)
+    got = files.root(Actions(PartialAwareGrid()), FakeWorkspaces(), store, TOKEN, S)
     assert got["folders"][2]["count"] == 1
 
 
 def test_every_entry_carries_its_own_uri_and_no_kept_flag(store):
     store.create_file(S, "shot.png", b"s", SCREENSHOTS_DIR)
-    shot = files.folder(Actions(), Sessions(), store, TOKEN, S, "screenshots")["files"][0]
-    assert shot["uri"] == "session://files/screenshots/shot.png"
+    shot = files.folder(Actions(), FakeWorkspaces(), store, TOKEN, S, "screenshots")["files"][0]
+    assert shot["uri"] == "workspace://files/screenshots/shot.png"
     assert "kept" not in shot
-    assert shot["keep_with"] == 'keep_file("session://files/screenshots/shot.png")'
+    assert shot["keep_with"] == 'keep_file("workspace://files/screenshots/shot.png")'
 
 
 def test_a_file_in_files_has_nothing_to_keep(store):
     store.write_file(S, "report.pdf", b"p")
-    entry = files.root(Actions(), Sessions(), store, TOKEN, S)["files"][0]
+    entry = files.root(Actions(), FakeWorkspaces(), store, TOKEN, S)["files"][0]
     assert "keep_with" not in entry
 
 
 def test_the_same_name_in_two_folders_is_two_entries(store):
     store.write_file(S, "shot.png", b"kept")
     store.create_file(S, "shot.png", b"new", SCREENSHOTS_DIR)
-    got = files.sections(Actions(), Sessions(), store, TOKEN, S)
-    assert [f["uri"] for f in got["files"]] == ["session://files/shot.png"]
-    assert [f["uri"] for f in got["screenshots"]] == ["session://files/screenshots/shot.png"]
+    got = files.sections(Actions(), FakeWorkspaces(), store, TOKEN, S)
+    assert [f["uri"] for f in got["files"]] == ["workspace://files/shot.png"]
+    assert [f["uri"] for f in got["screenshots"]] == ["workspace://files/screenshots/shot.png"]
 
 
 def test_sections_are_newest_first_and_name_the_app_component(store, tmp_path):
@@ -187,7 +187,7 @@ def test_sections_are_newest_first_and_name_the_app_component(store, tmp_path):
     for i, n in enumerate(["old.png", "new.png"]):
         store.create_file(S, n, b"x", SCREENSHOTS_DIR)
         os.utime(tmp_path / S / "screenshots" / n, (1_700_000_000 + i, 1_700_000_000 + i))
-    got = files.sections(Actions(), Sessions(), store, TOKEN, S)
+    got = files.sections(Actions(), FakeWorkspaces(), store, TOKEN, S)
     assert got["component"] == "fileSections"
     assert [f["name"] for f in got["screenshots"]] == ["new.png", "old.png"]
     assert [f["name"] for f in got["downloads"]] == ["export.csv", "screenshots"]
@@ -196,7 +196,7 @@ def test_sections_are_newest_first_and_name_the_app_component(store, tmp_path):
 def test_each_folder_signs_its_own_route(store):
     store.write_file(S, "a.pdf", b"1")
     store.create_file(S, "b.png", b"2", SCREENSHOTS_DIR)
-    got = files.sections(Actions(), Sessions(), store, TOKEN, S)
+    got = files.sections(Actions(), FakeWorkspaces(), store, TOKEN, S)
     assert got["files"][0]["url"].startswith("/kept/desktop/a.pdf?")
     assert got["screenshots"][0]["url"].startswith("/screenshots/desktop/b.png?")
     assert got["downloads"][0]["url"].startswith("/files/abc/export.csv?")
@@ -207,9 +207,9 @@ def test_each_folder_signs_its_own_route(store):
 
 def test_keeping_a_screenshot_moves_it_into_files(store):
     store.create_file(S, "shot.png", b"png", SCREENSHOTS_DIR)
-    got = files.keep(Actions(), Sessions(), store, "session://files/screenshots/shot.png", S)
-    assert got["uri"] == "session://files/shot.png"
-    assert got["from"] == "session://files/screenshots/shot.png"
+    got = files.keep(Actions(), FakeWorkspaces(), store, "workspace://files/screenshots/shot.png", S)
+    assert got["uri"] == "workspace://files/shot.png"
+    assert got["from"] == "workspace://files/screenshots/shot.png"
     assert store.read_file(S, "shot.png") == b"png"
     assert store.files(S, SCREENSHOTS_DIR) == []
 
@@ -217,7 +217,7 @@ def test_keeping_a_screenshot_moves_it_into_files(store):
 def test_a_moved_screenshot_never_overwrites_a_kept_file(store):
     store.write_file(S, "shot.png", b"kept earlier")
     store.create_file(S, "shot.png", b"new", SCREENSHOTS_DIR)
-    got = files.keep(Actions(), Sessions(), store, "session://files/screenshots/shot.png", S)
+    got = files.keep(Actions(), FakeWorkspaces(), store, "workspace://files/screenshots/shot.png", S)
     assert got["name"] == "shot (1).png"
     assert store.read_file(S, "shot.png") == b"kept earlier"
     assert store.read_file(S, "shot (1).png") == b"new"
@@ -226,37 +226,37 @@ def test_a_moved_screenshot_never_overwrites_a_kept_file(store):
 def test_keeping_a_download_copies_it_and_replaces_a_same_named_file(store):
     store.write_file(S, "export.csv", b"old copy")
     grid = Grid(data=b"fresh")
-    got = files.keep(Actions(grid), Sessions(), store, "session://files/downloads/export.csv", S)
-    assert got["uri"] == "session://files/export.csv"
+    got = files.keep(Actions(grid), FakeWorkspaces(), store, "workspace://files/downloads/export.csv", S)
+    assert got["uri"] == "workspace://files/export.csv"
     assert store.read_file(S, "export.csv") == b"fresh"
     assert grid.read == [("abc", "export.csv")]
 
 
 @pytest.mark.parametrize("name", ["screenshots", "downloads"])
 def test_a_reserved_name_lands_beside_itself(store, name):
-    got = files.keep(Actions(), Sessions(), store, f"session://files/downloads/{name}", S)
+    got = files.keep(Actions(), FakeWorkspaces(), store, f"workspace://files/downloads/{name}", S)
     assert got["name"] == f"{name} (1)"
 
 
 def test_keeping_a_file_already_in_files_answers_with_it(store):
     store.write_file(S, "report.pdf", b"p")
-    got = files.keep(Actions(), Sessions(), store, "session://files/report.pdf", S)
-    assert got["uri"] == "session://files/report.pdf"
+    got = files.keep(Actions(), FakeWorkspaces(), store, "workspace://files/report.pdf", S)
+    assert got["uri"] == "workspace://files/report.pdf"
 
 
 def test_keeping_a_screenshot_that_is_gone_says_where_to_look(store):
-    with pytest.raises(ValueError, match="session://files/screenshots"):
-        files.keep(Actions(), Sessions(), store, "session://files/screenshots/nope.png", S)
+    with pytest.raises(ValueError, match="workspace://files/screenshots"):
+        files.keep(Actions(), FakeWorkspaces(), store, "workspace://files/screenshots/nope.png", S)
 
 
 def test_keeping_a_download_with_no_browser_is_refused(store):
     with pytest.raises(ValueError, match="browser"):
-        files.keep(Actions(), Sessions(browser=""), store, "session://files/downloads/export.csv", S)
+        files.keep(Actions(), FakeWorkspaces(browser=""), store, "workspace://files/downloads/export.csv", S)
 
 
 def test_keeping_refuses_when_there_is_nowhere_to_keep():
     with pytest.raises(ValueError, match="DATA_DIR"):
-        files.keep(Actions(), Sessions(), None, "session://files/screenshots/a.png", S)
+        files.keep(Actions(), FakeWorkspaces(), None, "workspace://files/screenshots/a.png", S)
 
 
 def test_a_screenshot_that_cannot_be_removed_leaves_no_copy_behind(store, monkeypatch):
@@ -267,15 +267,15 @@ def test_a_screenshot_that_cannot_be_removed_leaves_no_copy_behind(store, monkey
 
     original = flows.LocalFlowStore.delete_file
 
-    def refuse(self, session, name, folder=FILES_DIR):
+    def refuse(self, workspace, name, folder=FILES_DIR):
         if folder == SCREENSHOTS_DIR:
             raise PermissionError("read-only screenshots")
-        return original(self, session, name, folder)
+        return original(self, workspace, name, folder)
 
     monkeypatch.setattr(flows.LocalFlowStore, "delete_file", refuse)
 
     with pytest.raises(PermissionError):
-        files.keep(Actions(), Sessions(), store, "session://files/screenshots/shot.png", S)
+        files.keep(Actions(), FakeWorkspaces(), store, "workspace://files/screenshots/shot.png", S)
     assert store.files(S) == []
     assert [f["name"] for f in store.files(S, SCREENSHOTS_DIR)] == ["shot.png"]
 
@@ -293,16 +293,16 @@ def test_a_screenshot_removed_by_someone_else_during_the_move_leaves_no_copy_beh
 
     original = flows.LocalFlowStore.delete_file
 
-    def raced(self, session, name, folder=FILES_DIR):
+    def raced(self, workspace, name, folder=FILES_DIR):
         if folder == SCREENSHOTS_DIR:
-            original(self, session, name, folder)  # a concurrent clear wins the race
+            original(self, workspace, name, folder)  # a concurrent clear wins the race
             return False
-        return original(self, session, name, folder)
+        return original(self, workspace, name, folder)
 
     monkeypatch.setattr(flows.LocalFlowStore, "delete_file", raced)
 
     with pytest.raises(ValueError, match="no screenshot called"):
-        files.keep(Actions(), Sessions(), store, "session://files/screenshots/shot.png", S)
+        files.keep(Actions(), FakeWorkspaces(), store, "workspace://files/screenshots/shot.png", S)
     assert store.files(S) == []
     assert store.files(S, SCREENSHOTS_DIR) == []
 
@@ -312,14 +312,14 @@ def test_a_screenshot_removed_by_someone_else_during_the_move_leaves_no_copy_beh
 
 def test_a_screenshot_is_kept_in_screenshots_with_a_link(store):
     got = files.keep_made(S, store, "screenshot.png", b"p", TOKEN, folder="screenshots")
-    assert got["uri"] == "session://files/screenshots/screenshot.png"
+    assert got["uri"] == "workspace://files/screenshots/screenshot.png"
     again = files.keep_made(S, store, "screenshot.png", b"q", TOKEN, folder="screenshots")
     assert again["name"] == "screenshot (1).png"
 
 
 def test_a_print_is_kept_in_files(store):
     got = files.keep_made(S, store, "page.pdf", b"p", TOKEN)
-    assert got["uri"] == "session://files/page.pdf"
+    assert got["uri"] == "workspace://files/page.pdf"
 
 
 # ---- reading back, clearing, deleting ------------------------------------------
@@ -328,31 +328,31 @@ def test_a_print_is_kept_in_files(store):
 @pytest.mark.parametrize(
     ("uri", "expected"),
     [
-        ("session://files/report.pdf", ("report.pdf", b"kept")),
-        ("session://files/screenshots/shot.png", ("shot.png", b"png")),
-        ("session://files/downloads/export.csv", ("export.csv", b"from-grid")),
+        ("workspace://files/report.pdf", ("report.pdf", b"kept")),
+        ("workspace://files/screenshots/shot.png", ("shot.png", b"png")),
+        ("workspace://files/downloads/export.csv", ("export.csv", b"from-grid")),
     ],
 )
 def test_any_file_can_be_read_back_by_its_uri(store, uri, expected):
     store.write_file(S, "report.pdf", b"kept")
     store.create_file(S, "shot.png", b"png", SCREENSHOTS_DIR)
-    assert files.read_file(Actions(), Sessions(), store, uri, S) == expected
+    assert files.read_file(Actions(), FakeWorkspaces(), store, uri, S) == expected
 
 
 def test_reading_a_name_nobody_has_is_the_callers_mistake(store):
-    with pytest.raises(ValueError, match=r"session://files"):
-        files.read_file(Actions(), Sessions(), store, "session://files/nope.pdf", S)
+    with pytest.raises(ValueError, match=r"workspace://files"):
+        files.read_file(Actions(), FakeWorkspaces(), store, "workspace://files/nope.pdf", S)
 
 
 def test_clearing_screenshots_reports_how_many(store):
     store.create_file(S, "a.png", b"1", SCREENSHOTS_DIR)
     store.write_file(S, "keep.pdf", b"2")
-    assert files.clear_screenshots(store, S) == {"cleared": 1, "session": S}
+    assert files.clear_screenshots(store, S) == {"cleared": 1, "workspace": S}
     assert store.read_file(S, "keep.pdf") == b"2"
 
 
 def test_json_for_keep_with_survives_a_quote_in_a_name(store):
     store.create_file(S, 'Q4 "final".png', b"1", SCREENSHOTS_DIR)
-    entry = files.folder(Actions(), Sessions(), store, TOKEN, S, "screenshots")["files"][0]
+    entry = files.folder(Actions(), FakeWorkspaces(), store, TOKEN, S, "screenshots")["files"][0]
     call = entry["keep_with"]
     assert json.loads(call[len("keep_file("):-1]) == entry["uri"]

@@ -3,7 +3,7 @@
 Served alongside ``/mcp`` so a caller that is not an MCP client — an n8n HTTP
 Request node, a shell script, a health probe — can drive the browser without
 speaking JSON-RPC. The handlers call ``actions.py`` through the same
-``SessionManager`` the tools use, so the two surfaces cannot disagree about what
+``Workspaces`` the tools use, so the two surfaces cannot disagree about what
 an operation does *or* about whose browser it does it to.
 
 **Paths and methods are declared, not derived** (§F2.13). Generating this
@@ -15,15 +15,15 @@ here. What the two surfaces still share is what matters: the bodies and the
 results come from the same action signatures, so neither can accept something
 the other refuses.
 
-**The session is who is calling, never a body field and never a path segment**
-— ``X-Session-Key`` (or ``X-Workspace``) or ``?session=``, read by
+**The workspace is who is calling, never a body field and never a path
+segment** — ``X-Workspace`` or ``?workspace=``, read by
 ``Caller.from_request``. A browser is addressed by naming yourself, which is why
 there is one browser resource here rather than one per id: ``POST /browser``
 opens *yours*.
 
-The one place a session appears in a path is ``/admin``, which is the same rule
-from the other side: the token holder looking across sessions is the only role
-that addresses them as resources.
+The one place a workspace appears in a path is ``/admin``, which is the same
+rule from the other side: the token holder looking across workspaces is the
+only role that addresses them as resources.
 """
 
 from __future__ import annotations
@@ -45,9 +45,9 @@ from .core.capabilities import CAPABILITIES, ENDPOINTS, Capability
 from .http import answer as answer_module
 from .mcp import resources
 from .principal import ADMIN
-from .session import settings
-from .session.sessions import Caller, SessionManager
 from .spec import build_spec
+from .workspace import settings
+from .workspace.workspaces import Caller, Workspaces
 
 log = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ def mount(value: str | None) -> str:
 def register(
     mcp: FastMCP,
     actions: Actions,
-    sessions: SessionManager,
+    workspaces: Workspaces,
     token: str | None,
     prefix: str = "",
     catalogue=None,
@@ -175,7 +175,7 @@ def register(
                 "grid": grid,
                 "grid_ready": ready,
                 "browsers": running,
-                "sessions": sessions.kind,
+                "workspaces": workspaces.kind,
             }, (200 if ready else 503)
         # Measured after the dial, so a slow Grid does not use up its own window.
         answered[:] = [clock(), body, code]
@@ -198,7 +198,7 @@ def register(
                 "mount": prefix or "/",
                 "mcp": f"{prefix}/mcp",
                 "grid": urls.public_url(actions.grid.url),
-                "sessions": sessions.kind,
+                "workspaces": workspaces.kind,
             }
         )
 
@@ -236,13 +236,13 @@ def register(
     # who is asking, and the answer is in the header or the query string.
     #
     # Opening and ending it are the two capabilities with no path of their own.
-    # The session manager serves them rather than `sessions.act`, because it is
+    # The workspace manager serves them rather than `workspaces.act`, because it is
     # where a browser is made and let go, so their calls are written here; they
     # are mounted with every other row, at the method the row declares.
 
     def opened(caller, body):
-        """Open this session's browser, or pick up the one it was using."""
-        return sessions.open_browser(
+        """Open a session in this workspace, or pick up the one it was using."""
+        return workspaces.open_browser(
             caller,
             url=body.get("url"),
             fresh=body.get("fresh", False),
@@ -251,12 +251,12 @@ def register(
         )
 
     def ended(caller, _body):
-        """Quit the browser, keeping the session and what it was doing."""
+        """Quit the browser, keeping the workspace and what it was doing."""
         # The browser that was ended is deliberately NOT reported: the Grid's
         # id is how a browser is reached, not part of what a caller is told
         # (E18). Returning it here was the one place that leaked (Copilot, #34).
-        sessions.end_browser(caller)
-        return {"success": True, "session": caller.name}
+        workspaces.end_browser(caller)
+        return {"success": True, "workspace": caller.name}
 
     on_the_resource = {
         "open_session": ("open", "browser_open", opened),
@@ -265,13 +265,13 @@ def register(
 
     @mcp.custom_route(browser_root, methods=["GET"], name="browser_status")
     async def browser_status(request: Request) -> JSONResponse:
-        """What this session is and whether it holds a browser. Opens nothing."""
+        """What this workspace is and whether it holds a browser. Opens nothing."""
         # Reported as named by `request` on this surface, as it always has been,
         # where MCP says `query` or `header` (M36): a divergence to settle on
         # its own, not inside a refactor. With a token configured only a token
         # holder gets here, so it is the admin; an open server has no principal.
         return await _answer(request, token, "status", lambda caller, _body: (
-            sessions.describe(
+            workspaces.describe(
                 Caller(caller.name, "request", principal=ADMIN if token else None)
             )
         ))
@@ -280,10 +280,10 @@ def register(
     # beside its own. Literal route first, so the listing is never the template.
     @mcp.custom_route(f"{prefix}/site-data", methods=["GET"], name="site_data_list")
     async def site_data_list(request: Request) -> JSONResponse:
-        """The sites this session has saved data for. Never a value."""
+        """The sites this workspace has saved data for. Never a value."""
         return await answer_module.answer(
             request, token, "site-data/list",
-            lambda caller, _body: resources.site_listing(sessions, caller.name), log,
+            lambda caller, _body: resources.site_listing(workspaces, caller.name), log,
         )
 
     @mcp.custom_route(
@@ -294,7 +294,7 @@ def register(
         site = request.path_params["site"]
         return await answer_module.answer(
             request, token, "site-data/get",
-            lambda caller, _body: resources.one_site(sessions, caller.name, site),
+            lambda caller, _body: resources.one_site(workspaces, caller.name, site),
             log,
         )
 
@@ -302,14 +302,14 @@ def register(
     # resource has no call for is a KeyError at startup, not a missing route.
     for row in CAPABILITIES:
         if row.route:
-            _add(mcp, actions, sessions, token, browser_root, row, catalogue)
+            _add(mcp, actions, workspaces, token, browser_root, row, catalogue)
             continue
         what, name, call = on_the_resource[row.name]
         _bind(mcp, token, browser_root, row.http_method, name, what, call)
 
 
 async def _answer(request, token, what, call) -> JSONResponse:
-    """Authorise, name the session, run ``call``, and turn a failure into JSON.
+    """Authorise, name the workspace, run ``call``, and turn a failure into JSON.
 
     The decision itself lives in ``http.answer``, shared with the flows and
     files trees so a refusal reads the same whichever one produced it. This
@@ -326,16 +326,16 @@ def _bind(mcp, token, route, http_method, name, what, call) -> None:
         return await _answer(request, token, what, call)
 
 
-def _add(mcp, actions, sessions, token, prefix, row: Capability, catalogue) -> None:
+def _add(mcp, actions, workspaces, token, prefix, row: Capability, catalogue) -> None:
     """Bind one action to ``<prefix>/<route>``, at the method its row declares."""
     method = getattr(actions, row.method)
-    # `session_id` is the Grid's, supplied by the session manager. It was never
+    # `session_id` is the Grid's, supplied by the workspace manager. It was never
     # a field a caller filled in and now it is not one it could.
     #
     # `library_arg` is the same story for a different reason: it names the
     # *caller*, not the action, and only a flow run is allowed to supply it
     # (Copilot, #41). Dropped the same way an unknown field is — silently,
-    # below — rather than refused, so a request naming another session's
+    # below — rather than refused, so a request naming another workspace's
     # library over HTTP just falls back to its own, the way naming none at
     # all always has.
     accepted = set(inspect.signature(method).parameters) - {
@@ -370,10 +370,10 @@ def _add(mcp, actions, sessions, token, prefix, row: Capability, catalogue) -> N
                 # Its own path, because a bound write must not let the shared
                 # wrapper store the page it landed on. See secrets.perform_write.
                 return secrets_module.perform_write(
-                    catalogue, actions, sessions, caller.name, kwargs
+                    catalogue, actions, workspaces, caller.name, kwargs
                 )
             kwargs.pop("secret", None)
-            return sessions.act(
+            return workspaces.act(
                 caller,
                 lambda s: method(s, **kwargs),
                 reshapes=row.reshapes,

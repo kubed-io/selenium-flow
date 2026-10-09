@@ -18,8 +18,8 @@ flow runner and the wiki need to know about one is a column of its row here:
   dicts, so there is nothing to introspect: this is the hand-written half of the
   published document, and a row cannot be written without it;
 * ``in_path`` puts the action's choice in the path (``/browser/interact/click``);
-* ``reshapes`` marks the action that changes what the session record stores
-  rather than only the page, so every surface asks ``sessions.reshape``;
+* ``reshapes`` marks the action that changes what the workspace record stores
+  rather than only the page, so every surface asks ``Workspaces.reshape``;
 * ``library_arg`` names an argument that carries the caller's own library: a
   flow run injects it, and no request may set it.
 
@@ -126,8 +126,8 @@ def _page(**extra) -> dict:
 CAPABILITIES: tuple[Capability, ...] = (
     # The browser resource's own two: POST and DELETE on /browser itself,
     # because which browser is a question about who is asking (§F2.13). Both
-    # are served by `SessionManager`, which is where a browser is made and
-    # ended, rather than through `sessions.act`.
+    # are served by `Workspaces`, which is where a browser is made and
+    # ended, rather than through `Workspaces.act`.
     Capability(
         name="open_session",
         method="open_session",
@@ -137,11 +137,11 @@ CAPABILITIES: tuple[Capability, ...] = (
         response={
             "type": "object",
             "properties": {
-                "session": {
+                "workspace": {
                     "type": "string",
                     "description": (
-                        "The session this browser belongs to — the name you called "
-                        "with. There is no browser id to keep."
+                        "The workspace this browser belongs to — the name you "
+                        "called with. There is no browser id to keep."
                     ),
                 },
                 "browser": {
@@ -451,7 +451,7 @@ CAPABILITIES: tuple[Capability, ...] = (
             },
         ),
     ),
-    # `session` names the caller, not the action: a flow run injects it so a
+    # `workspace` names the caller, not the action: a flow run injects it so a
     # step reads from the library the *run* belongs to, and only works as a
     # guard because no request body can set it too (Copilot, #31, #41).
     Capability(
@@ -459,7 +459,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         method="upload_file",
         route="upload",
         http_method="POST",
-        library_arg="session",
+        library_arg="workspace",
         annotations=hints("Attach a file to a file input"),
         response=_page(
             filename={
@@ -522,7 +522,7 @@ CAPABILITIES: tuple[Capability, ...] = (
             },
             uri={
                 "type": "string",
-                "description": "session://site-data, which lists what is saved.",
+                "description": "workspace://site-data, which lists what is saved.",
             },
         ),
     ),
@@ -536,7 +536,7 @@ CAPABILITIES: tuple[Capability, ...] = (
             "type": "object",
             "properties": {
                 "success": {"type": "boolean"},
-                "session": {"type": "string"},
+                "workspace": {"type": "string"},
             },
         },
     ),

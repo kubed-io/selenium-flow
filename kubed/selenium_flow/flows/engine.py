@@ -10,8 +10,8 @@ is everything *around* the steps (saga §F1.1):
 |---|---|
 | a model inference — the dominant cost | 1 |
 | an MCP round trip | 1 |
-| an `is_alive` GET, from `sessions.resolve` | 1 |
-| a session-store read and write | 1 |
+| an `is_alive` GET, from `Workspaces.resolve` | 1 |
+| a workspace-store read and write | 1 |
 
 So the browser is resolved **once**, by the caller, and this calls the ordinary
 action methods in a loop. It deliberately does *not* thread one driver through
@@ -39,7 +39,7 @@ from typing import Protocol
 from .. import binding, faults, secrets
 from ..binding import SECRET_ARG
 from ..core import cancel
-from ..session import locks
+from ..workspace import locks
 from .document import ARGS, ASSERTION, declared_timeout
 from .redact import scrub, scrub_values, taints
 from .report import OUT_OF_TIME, clean, refused, summarise, with_hint
@@ -55,7 +55,7 @@ from .template import (
 # The runner's old logger name, kept: operators filter Loki by it.
 log = logging.getLogger("kubed.selenium_flow.flows.run")
 
-# The step that reads every site in the session's history (`before_save`).
+# The step that reads every site in the workspace's history (`before_save`).
 SAVE_SITE_DATA = "save_site_data"
 
 
@@ -86,15 +86,15 @@ class Hooks(Protocol):
     long run; it must not change anything.
 
     ``after_step(tool, result)`` after each step that succeeds. It exists
-    because a step can change something the *session record* stores rather than
+    because a step can change something the *workspace record* stores rather than
     just the page: `resize` is the one, and a flow that resized without telling
-    the session would come back the old size the next time the Grid reaped the
-    browser — exactly the silent shape change `sessions.reshape` was written to
+    the workspace would come back the old size the next time the Grid reaped the
+    browser — exactly the silent shape change `Workspaces.reshape` was written to
     prevent.
 
     ``before_save(pages)`` with the pages this run has reached so far, in order
     — exactly the step URLs its report shows — just before a ``save_site_data``
-    step acts. A save reads every site in the session's history, and the history
+    step acts. A save reads every site in the workspace's history, and the history
     is otherwise written once, after the run.
     """
 
@@ -209,7 +209,7 @@ class Run:
         # page this run *reports* — the last one — not the run's history. A
         # flow that types a password and then navigates away ends somewhere
         # perfectly ordinary, and a sticky flag threw that page away and
-        # left the session pointing at whatever it knew before.
+        # left the workspace pointing at whatever it knew before.
         self.redacted_url = isinstance(raw, dict) and taints(raw.get("url"), self.seen)
         # Where this step went, and only when it went somewhere. Silence
         # means the page did not change, which is what makes a navigation
@@ -344,7 +344,7 @@ def page_state(actions, session_id: str) -> dict:
     A step that carries `url` navigates *before* it waits for its element, so a
     failed wait leaves the browser on the new page while the last successful
     step's URL is the newest one recorded. Reporting that stale URL is
-    misleading; letting `sessions.touch` store it is worse, because a later
+    misleading; letting `Workspaces.touch` store it is worse, because a later
     reopen would land on the wrong page.
 
     Goes through `actions.page` rather than reaching for the Grid itself, so
@@ -472,7 +472,7 @@ def execute(
 
     ``stop`` is a `threading.Event`. Once it is set no further step starts, and
     a step that is waiting gives up at its next poll (see `core.cancel`).
-    Ending the browser does the same (`session.locks`).
+    Ending the browser does the same (`workspace.locks`).
 
     Each step has the browser to itself, from reading the page a secret is
     checked against to the action's last page read; the run as a whole does
@@ -605,7 +605,7 @@ def _drive(
     # built from the MCP tool, which deliberately omits it - so a document
     # carrying one was hand-edited on disk and never passed validation. A
     # step that could name a library would be a step that reads another
-    # session's kept files, which is not a feature (Copilot, #32).
+    # workspace's kept files, which is not a feature (Copilot, #32).
     holder = toolbox.library_arg.get(tool)
     if holder and call.library:
         kwargs[holder] = call.library

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { ago, browserMark, bytes, countsText, flowParams, glyphFor, metaLine, plural, safeHref, sessionLabel, stepSummary } from './format'
+import { ago, browserMark, bytes, countsText, flowParams, glyphFor, metaLine, plural, safeHref, workspaceLabel, stepSummary } from './format'
 
 describe('format', () => {
   test('counts name recordings, singular and plural (R8)', () => {
@@ -47,10 +47,10 @@ test('bytes', () => {
     expect(metaLine({ key: 'k', browser: 'chrome', version: '140', counts: { downloads: 0, screenshots: 1, files: 0 }, started: (now - 60_000) / 1000, node: 'n1' }, now))
       .toBe('chrome 140 · 1 screenshot · 1m ago · n1')
   })
-  test('sessionLabel', () => {
-    expect(sessionLabel({ key: 'k', name: 'mine' })).toBe('mine')
-    expect(sessionLabel({ key: 'k', owner: 'stdio' })).toBe('stdio')
-    expect(sessionLabel({ key: 'k' })).toBe('session')
+  test('workspaceLabel', () => {
+    expect(workspaceLabel({ key: 'k', name: 'mine' })).toBe('mine')
+    expect(workspaceLabel({ key: 'k', owner: 'stdio' })).toBe('stdio')
+    expect(workspaceLabel({ key: 'k' })).toBe('workspace')
   })
   test('stepSummary is the first string argument, cut at 60', () => {
     expect(stepSummary({ url: 'https://example.com/a' })).toBe('https://example.com/a')

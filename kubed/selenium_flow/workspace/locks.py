@@ -9,9 +9,9 @@ not. So a call that drives the browser holds its session's `Hold` while it does,
 and a second one **waits** for it: no refusal, and no timeout of its own, since
 the call holding it is bounded by its own.
 
-**Keyed by the browser a session holds**, its Grid id - which is what
-`Recipe.run` is handed. A session holds one browser at a time, so that is one
-hold per session; and a browser that was ended takes its hold with it, cancel
+**Keyed by the session's browser**, its Grid id - which is what `Recipe.run`
+is handed. A workspace holds one session at a time, so that is one hold per
+workspace at any moment; and a browser that was ended takes its hold with it, cancel
 flag set, rather than leaving a flag behind that a later browser would have to
 clear.
 
@@ -20,7 +20,7 @@ so it never queues behind them: it sets the hold's ``ending`` flag, which the
 holder is watching through `core.cancel`, and a running `assert` raises its
 existing cancellation at its next poll and lets go. `open_session` takes none
 either - it makes a browser rather than driving one - and nothing that only
-reads (`session://current`) does.
+reads (`workspace://current`) does.
 
 **Reentrant**, because the units nest: a flow step and a bound write each hold
 it around the page read *and* the action, and the action's own `Recipe.run`

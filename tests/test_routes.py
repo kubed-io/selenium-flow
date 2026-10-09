@@ -35,28 +35,28 @@ pytestmark = pytest.mark.unit
 GRID_DOWN = 503
 
 
-# Every request names its session the way the surface says to (§F2.13). It is a
+# Every request names its workspace the way the surface says to (§F2.13). It is a
 # default header on the client rather than a keyword on each call, because it is
 # a property of the caller, not of the request.
-SESSION = "desktop"
+WORKSPACE = "desktop"
 
 
 @pytest.fixture
 def client(server, monkeypatch):
-    monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
-    return TestClient(server.mcp.http_app(), headers={"X-Session-Key": SESSION})
+    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "browser-1")
+    return TestClient(server.mcp.http_app(), headers={"X-Workspace": WORKSPACE})
 
 
 @pytest.fixture
 def open_client(open_server, monkeypatch):
-    """A client with auth off, whose session already holds a browser.
+    """A client with auth off, whose workspace already holds a browser.
 
     These tests are about this surface's own validation, so the browser is
     resolved out of the way: the Grid address is unroutable, and reaching it is
     the sentinel for "the input was accepted".
     """
-    monkeypatch.setattr(open_server.sessions, "resolve", lambda name: "browser-1")
-    return TestClient(open_server.mcp.http_app(), headers={"X-Session-Key": SESSION})
+    monkeypatch.setattr(open_server.workspaces, "resolve", lambda name: "browser-1")
+    return TestClient(open_server.mcp.http_app(), headers={"X-Workspace": WORKSPACE})
 
 
 @pytest.mark.parametrize(
@@ -150,8 +150,8 @@ def test_a_browser_action_runs_off_the_event_loop(server, monkeypatch):
         seen.append(_on_the_loop())
         return {"success": True}
 
-    monkeypatch.setattr(server.sessions, "act", act)
-    client = TestClient(server.mcp.http_app(), headers={"X-Session-Key": SESSION})
+    monkeypatch.setattr(server.workspaces, "act", act)
+    client = TestClient(server.mcp.http_app(), headers={"X-Workspace": WORKSPACE})
     response = client.post(
         "/browser/navigate",
         json={"url": "https://example.com"},
@@ -172,7 +172,7 @@ def test_a_flow_run_runs_off_the_event_loop(server, monkeypatch):
         return {"success": True}
 
     monkeypatch.setattr(flow_api, "run_for", run_for)
-    client = TestClient(server.mcp.http_app(), headers={"X-Session-Key": SESSION})
+    client = TestClient(server.mcp.http_app(), headers={"X-Workspace": WORKSPACE})
     response = client.post(
         "/flows/login/runs", json={}, headers={"Authorization": f"Bearer {TOKEN}"}
     )
@@ -449,20 +449,20 @@ def test_the_browser_is_one_resource_addressed_by_naming_yourself(open_client):
     assert open_client.delete("/browser").status_code == 200
 
 
-def test_a_request_that_names_no_session_is_refused(open_server):
+def test_a_request_that_names_no_workspace_is_refused(open_server):
     """The one contract, on this surface too: there is no browser to act on
     until a caller says who it is."""
     bare = TestClient(open_server.mcp.http_app())
     response = bare.post("/browser/navigate", json={"url": "https://example.test"})
     assert response.status_code == 400
-    assert "name your session" in response.json()["error"]
+    assert "name your workspace" in response.json()["error"]
 
 
-def test_naming_the_session_twice_is_refused(open_client):
+def test_naming_the_workspace_twice_is_refused(open_client):
     response = open_client.post(
         "/browser/navigate",
         json={"url": "https://example.test"},
-        params={"session": "from-url"},
+        params={"workspace": "from-url"},
     )
     assert response.status_code == 400
     assert "once" in response.json()["error"]
@@ -551,7 +551,7 @@ def test_every_tree_moves_with_the_prefix():
     app = server.mcp.http_app(path=server.mcp_path)  # what `run` serves
     paths = {r.path for r in app.routes if hasattr(r, "path")}
     for tree in (
-        "/flow/browser", "/flow/flows", "/flow/files", "/flow/admin/sessions",
+        "/flow/browser", "/flow/flows", "/flow/files", "/flow/admin/workspaces",
         "/flow/mcp", "/flow/openapi.yaml",
     ):
         assert tree in paths, tree
@@ -654,7 +654,7 @@ def test_every_failure_class_is_the_status_it_means_over_http(
     def fails(*_args, **_kwargs):
         raise exc
 
-    monkeypatch.setattr(open_server.sessions, "act", fails)
+    monkeypatch.setattr(open_server.workspaces, "act", fails)
     response = open_client.post("/browser/navigate", json={"url": "https://a.test/"})
     assert response.status_code == expected
     assert response.json() == {"error": faults.message(exc)}
@@ -680,42 +680,42 @@ def test_a_store_that_kept_losing_to_other_writers_is_a_500(open_server, open_cl
     """S12: `StoreConflict` is a RuntimeError nothing classifies, so the caller
     is told it is our fault and to retry — which is true. Pinned so that moving
     the classification is a visible choice."""
-    from kubed.selenium_flow.session.store import RedisStore, SessionRecord
+    from kubed.selenium_flow.workspace.store import RedisStore, Workspace
 
     from .fakes import FakeRedis
 
     fake = FakeRedis()
     store = RedisStore(fake, prefix="p:")
-    store.set(SESSION, SessionRecord(session_id="abc"))
+    store.set(WORKSPACE, Workspace(session_id="abc"))
     n = [0]
 
     def always():
         n[0] += 1
         # Still this browser, so the detach has work to do, but never the same
         # bytes, so the transaction never lands.
-        record = SessionRecord(session_id="abc", opened_at=float(n[0]))
-        fake.set(f"p:{SESSION}", record.to_json())
+        record = Workspace(session_id="abc", opened_at=float(n[0]))
+        fake.set(f"p:{WORKSPACE}", record.to_json())
 
     fake.interfere = always
-    monkeypatch.setattr(open_server.sessions, "store", store)
+    monkeypatch.setattr(open_server.workspaces, "store", store)
     monkeypatch.setattr(open_server.actions, "end_browser", lambda sid: {})
     response = open_client.delete("/browser")
     assert response.status_code == 500
     assert "kept changing" in response.json()["error"]
 
 
-def test_a_record_with_a_non_numeric_opened_at_is_a_session_with_no_history(
+def test_a_record_with_a_non_numeric_opened_at_is_a_workspace_with_no_history(
     open_server, open_client, monkeypatch
 ):
     """S5: the whole record is a miss, so the caller is told it holds nothing —
     a 200, not a 500 from `float()`."""
-    from kubed.selenium_flow.session.store import RedisStore
+    from kubed.selenium_flow.workspace.store import RedisStore
 
     from .fakes import FakeRedis
 
     fake = FakeRedis()
-    fake.set(f"p:{SESSION}", '{"session_id": "abc", "opened_at": "yesterday"}')
-    monkeypatch.setattr(open_server.sessions, "store", RedisStore(fake, prefix="p:"))
+    fake.set(f"p:{WORKSPACE}", '{"session_id": "abc", "opened_at": "yesterday"}')
+    monkeypatch.setattr(open_server.workspaces, "store", RedisStore(fake, prefix="p:"))
     response = open_client.get("/browser")
     assert response.status_code == 200
     body = response.json()
@@ -725,23 +725,24 @@ def test_a_record_with_a_non_numeric_opened_at_is_a_session_with_no_history(
 def test_the_browser_resource_says_the_name_came_from_the_request(open_client):
     """M36 over HTTP: MCP says `query` or `header`, this surface says `request`."""
     body = open_client.get("/browser").json()
-    assert body["session"] == SESSION
+    assert body["workspace"] == WORKSPACE
     assert body["named_by"] == "request"
     assert body["principal"] is None, "an open server has no principal"
 
 
-def test_x_workspace_names_the_session_over_http(open_server, monkeypatch):
-    """A Claude.ai custom connector can send X-Workspace but not X-Session-Key."""
-    monkeypatch.setattr(open_server.sessions, "resolve", lambda name: "browser-1")
+def test_x_workspace_names_the_workspace_over_http(open_server, monkeypatch):
+    """A Claude.ai custom connector can send X-Workspace, and only approved
+    headers, which is why it is the one header that names a workspace."""
+    monkeypatch.setattr(open_server.workspaces, "resolve", lambda name: "browser-1")
     bare = TestClient(open_server.mcp.http_app())
     body = bare.get("/browser", headers={"X-Workspace": "claude-web"}).json()
-    assert body["session"] == "claude-web"
+    assert body["workspace"] == "claude-web"
 
 
 def test_x_workspace_and_a_query_name_is_a_400(open_server, monkeypatch):
-    monkeypatch.setattr(open_server.sessions, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(open_server.workspaces, "resolve", lambda name: "browser-1")
     bare = TestClient(open_server.mcp.http_app())
-    response = bare.get("/browser?session=b", headers={"X-Workspace": "a"})
+    response = bare.get("/browser?workspace=b", headers={"X-Workspace": "a"})
     assert response.status_code == 400
     assert "X-Workspace" in response.json()["error"]
 

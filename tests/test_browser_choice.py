@@ -12,7 +12,7 @@ from selenium import webdriver
 from kubed.selenium_flow.config import SessionSettings
 from kubed.selenium_flow.core.browser import Grid, is_partial
 from kubed.selenium_flow.core.defaults import BROWSERS, normalize_browser
-from kubed.selenium_flow.session import settings as settings_module
+from kubed.selenium_flow.workspace import settings as settings_module
 
 pytestmark = pytest.mark.unit
 
@@ -143,7 +143,7 @@ def test_a_download_in_flight_is_not_offered_to_the_caller(name, partial):
 class TestTheSettingsCascade:
     """`browser` rides the same cascade as the window size, deliberately.
 
-    What comes out of `resolve` is what gets stored against the session, and the
+    What comes out of `resolve` is what gets stored against the workspace, and the
     stored settings are what a refresh replays — so a browser kept beside the
     cascade rather than in it would be dropped on every refresh.
     """
@@ -274,7 +274,7 @@ async def test_a_rejected_browser_does_not_cost_you_the_one_you_have(
     open_session = (await server.mcp.get_tool("open_session")).fn
     ended = []
     calling_as(monkeypatch, NAMED)
-    monkeypatch.setattr(server.sessions, "end_browser", lambda *a: ended.append(a))
+    monkeypatch.setattr(server.workspaces, "end_browser", lambda *a: ended.append(a))
 
     with pytest.raises(ValueError, match="safari"):
         open_session(browser="safari")

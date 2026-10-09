@@ -76,7 +76,7 @@ GROUPS = [
         "Everything you can do to a page.",
         [
             "open_session",
-            "current_session",
+            "current_workspace",
             "navigate",
             "interact",
             "drag",
@@ -110,8 +110,8 @@ GROUPS = [
     ),
     (
         "Files",
-        "What a session has produced, and how to keep one past the browser "
-        "that made it. See [Files](Files).",
+        "What a workspace's browsers have produced, and how to keep one past "
+        "the browser that made it. See [Files](Files).",
         [
             "list_files", "list_screenshots", "list_recordings",
             "list_downloads", "keep_file",
@@ -125,8 +125,8 @@ GROUPS = [
     ),
     (
         "Site data",
-        "The cookies and storage a session keeps, so a browser that replaces "
-        "another comes back signed in. See [Sessions](Sessions).",
+        "The cookies and storage a workspace keeps, so a browser that replaces "
+        "another comes back signed in. See [Workspaces](Workspaces).",
         ["save_site_data", "list_site_data", "get_site_data"],
     ),
 ]
@@ -318,8 +318,6 @@ def example(
     # `repr` then emitted Python — True, single quotes — into a JSON body.
     # ensure_ascii=False or the placeholder renders as `"…"`, which is a
     # perfectly valid JSON string and reads like a mistake.
-    # The session is a header on both surfaces — never a body field and never a
-    # path segment — so every example shows it (§F2.13).
     url = (
         path.replace("{name}", "my-flow")
         .replace("{action}", "click")
@@ -328,9 +326,9 @@ def example(
     lines = [
         f"curl -X {method} $SELENIUM_FLOW{url} \\",
         '  -H "Authorization: Bearer $TOKEN" \\',
-        # The session is a header on both surfaces — never a body field and
+        # The workspace is a header on both surfaces — never a body field and
         # never a path segment — so every example shows it (§F2.13).
-        '  -H "X-Session-Key: $SESSION"',
+        '  -H "X-Workspace: $WORKSPACE"',
     ]
     if body:
         encoded = json.dumps(body, indent=2, ensure_ascii=False)
@@ -376,7 +374,7 @@ def failures(op: dict) -> str:
 def render(spec: dict, tool: str, method: str, path: str, op: dict) -> str:
     uri = op.get("x-mcp-resource", "")
     # A GET or a DELETE has no body: what it takes is in the path and the
-    # session header, so there is nothing to resolve.
+    # workspace header, so there is nothing to resolve.
     body = op.get("requestBody")
     request = (
         resolve(spec, body["content"]["application/json"]["schema"]) if body else {}
@@ -430,8 +428,8 @@ def render(spec: dict, tool: str, method: str, path: str, op: dict) -> str:
 
 {parameters(spec, request)}
 
-Every call names its session: an `X-Session-Key` header (or `X-Workspace`), or
-`?session=<name>`. Sending both is refused. See [Sessions](Sessions).
+Every call names its workspace: an `X-Workspace` header, or
+`?workspace=<name>`. Sending both is refused. See [Workspaces](Workspaces).
 
 ## Returns
 
@@ -563,8 +561,8 @@ the same URIs with `read_resource`.
 
 {body}
 
-Every call names its session — an `X-Session-Key` (or `X-Workspace`) header or
-`?session=` on the URL. There is no session id anywhere; see [Sessions](Sessions).
+Every call names its workspace — an `X-Workspace` header or `?workspace=` on
+the URL. There is no session id anywhere; see [Workspaces](Workspaces).
 
 ---
 

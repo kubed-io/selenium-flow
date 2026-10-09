@@ -10,7 +10,7 @@ page load before it was refused.
 
 `Recipe.run` is the one copy. An action is its own argument checks plus a body,
 and anything that must hold for every action - one call at a time per session
-(`session.locks`), a deadline per call - has one place to attach.
+(`workspace.locks`), a deadline per call - has one place to attach.
 """
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ from typing import Any, NamedTuple
 
 from selenium.common.exceptions import StaleElementReferenceException
 
-from ..session import locks
 from ..urls import allowed_navigation
+from ..workspace import locks
 from . import browser
 from .coerce import as_int
 
@@ -114,7 +114,7 @@ class Recipe:
         failing an action that succeeded (AGENTS.md "Dialogs").
 
         From the reconnect to that page state the session's browser is this
-        call's alone (`session.locks`): another waits its turn, and the checks
+        call's alone (`workspace.locks`): another waits its turn, and the checks
         above are made before it does, so a refused call never waits.
         """
         target = browser.locator(selector) if self.wait or selector else None
@@ -153,7 +153,7 @@ class Recipe:
         and WebDriver reports that as a stale reference. It is not a mistake by
         the caller and there is nothing to fix in the selector: the element it
         found is simply not the one on the page any more. Found by the admin UI,
-        whose session list repaints on a two-second poll — a click on a row was
+        whose workspace list repaints on a two-second poll — a click on a row was
         racy on every page that refreshes itself, which is a great many of them.
 
         Retried **once**, and the wait is part of the retry: retrying the act

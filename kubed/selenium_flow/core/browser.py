@@ -5,7 +5,7 @@ session someone else opened, waiting for elements, and the small coercions that
 keep a caller's loose JSON from crashing a handler.
 
 The browser is stateful, this process is not. A browser lives on the Grid and
-the caller's session name leads back to it, which is what lets this server
+the caller's workspace name leads back to it, which is what lets this server
 scale to zero, restart mid-workflow, or run behind more than one replica without
 losing a browser.
 """
@@ -224,7 +224,7 @@ class Grid:
         # `open_session(record=true)`: the Grid's own recorder films this
         # browser's whole life (recordings spec). The name only makes the
         # operator's inbox readable; nothing matches on it, because the
-        # recorder strips `.` from names and two sessions could collide.
+        # recorder strips `.` from names and two workspace names could collide.
         if record:
             options.set_capability("se:recordVideo", True)
             if video_name:

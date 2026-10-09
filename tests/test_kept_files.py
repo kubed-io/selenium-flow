@@ -1,4 +1,4 @@
-"""Files kept in a session's own store, and the admin/HTTP surfaces over them.
+"""Files kept in a workspace's own store, and the admin/HTTP surfaces over them.
 
 The Grid's file API is **list, read-one, delete-all** — there is no write and no
 per-file delete, which is why keeping a download is a **copy**: the original
@@ -27,10 +27,10 @@ from kubed.selenium_flow.core.capabilities import ENDPOINTS
 from kubed.selenium_flow.flows import store as flows
 from kubed.selenium_flow.http import files, links
 from kubed.selenium_flow.http.admin import signed as admin
-from kubed.selenium_flow.names import FILES_DIR, GLOBAL_SESSION, InvalidName
+from kubed.selenium_flow.names import FILES_DIR, GLOBAL_WORKSPACE, InvalidName
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.session.store import SessionRecord
 from kubed.selenium_flow.spec import build_spec
+from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import NAMED, TOKEN
 from .fakes import FakeActions, FakeGrid
@@ -38,7 +38,7 @@ from .fakes import FakeActions, FakeGrid
 pytestmark = pytest.mark.unit
 
 KEY = "desktop"
-SESSION = "desktop"
+WORKSPACE = "desktop"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 # Newest last, deliberately: the Grid sorts its own listing, and a merged list
@@ -66,23 +66,23 @@ def kept_server(tmp_path):
 
 @pytest.fixture
 def client(kept_server):
-    """Every request names its session, the way this surface says to (§F2.13)."""
+    """Every request names its workspace, the way this surface says to (§F2.13)."""
     return TestClient(
-        kept_server.mcp.http_app(), headers={"X-Session-Key": SESSION}
+        kept_server.mcp.http_app(), headers={"X-Workspace": WORKSPACE}
     )
 
 
 @pytest.fixture
 def live(kept_server):
-    """A flow session holding a browser, which is what the admin API addresses."""
-    kept_server.sessions.store.set(
-        KEY, SessionRecord(session_id="abc").visited("https://x/")
+    """A workspace holding a browser, which is what the admin API addresses."""
+    kept_server.workspaces.store.set(
+        KEY, Workspace(session_id="abc").visited("https://x/")
     )
     return kept_server
 
 
-class Sessions:
-    """A session manager double: only what `listing` actually reads.
+class FakeWorkspaces:
+    """A workspace manager double: only what `listing` actually reads.
 
     `browser` is what a listing asks for — the Grid id of a LIVE browser, or ""
     — because a listing must keep answering after the browser is gone, which is
@@ -106,9 +106,9 @@ class Sessions:
 
 
 def test_a_kept_file_round_trips(store):
-    store.write_file(SESSION, "report.pdf", b"PDF bytes")
-    assert store.read_file(SESSION, "report.pdf") == b"PDF bytes"
-    assert [f["name"] for f in store.files(SESSION)] == ["report.pdf"]
+    store.write_file(WORKSPACE, "report.pdf", b"PDF bytes")
+    assert store.read_file(WORKSPACE, "report.pdf") == b"PDF bytes"
+    assert [f["name"] for f in store.files(WORKSPACE)] == ["report.pdf"]
 
 
 def test_a_kept_entry_is_shaped_like_the_grids(store):
@@ -117,8 +117,8 @@ def test_a_kept_entry_is_shaped_like_the_grids(store):
     the units. Milliseconds, because that is what the Grid reports — a
     seconds-based timestamp beside it sorts every kept file to 1970 while
     nothing looks wrong."""
-    store.write_file(SESSION, "report.pdf", b"x")
-    entry = store.files(SESSION)[0]
+    store.write_file(WORKSPACE, "report.pdf", b"x")
+    entry = store.files(WORKSPACE)[0]
     assert set(entry) == {"name", "size", "creationTime"}
     assert entry["size"] == 1
     # 2001-09-09 in ms. A seconds value would be ~1.7e9, which is 1970 in ms.
@@ -128,52 +128,52 @@ def test_a_kept_entry_is_shaped_like_the_grids(store):
 def test_keeping_the_same_name_replaces_it(store):
     """The create-or-update rule `save_flow` uses. The alternative is a second
     copy under a name nobody chose."""
-    store.write_file(SESSION, "report.pdf", b"first")
-    store.write_file(SESSION, "report.pdf", b"second")
-    assert store.read_file(SESSION, "report.pdf") == b"second"
-    assert len(store.files(SESSION)) == 1
+    store.write_file(WORKSPACE, "report.pdf", b"first")
+    store.write_file(WORKSPACE, "report.pdf", b"second")
+    assert store.read_file(WORKSPACE, "report.pdf") == b"second"
+    assert len(store.files(WORKSPACE)) == 1
 
 
 def test_a_re_keep_never_changes_a_file_already_being_read(store):
     """A signed link streams the inode it opened, with its length already sent:
     a re-keep is a new file renamed over the name, not a rewrite of that one."""
-    store.write_file(SESSION, "report.pdf", b"first")
-    with store.file_path(SESSION, "report.pdf").open("rb") as streaming:
-        store.write_file(SESSION, "report.pdf", b"second, and longer")
+    store.write_file(WORKSPACE, "report.pdf", b"first")
+    with store.file_path(WORKSPACE, "report.pdf").open("rb") as streaming:
+        store.write_file(WORKSPACE, "report.pdf", b"second, and longer")
         assert streaming.read() == b"first"
-    assert store.read_file(SESSION, "report.pdf") == b"second, and longer"
+    assert store.read_file(WORKSPACE, "report.pdf") == b"second, and longer"
 
 
 def test_a_re_keep_that_fails_leaves_the_kept_file_and_no_temporary(
     store, monkeypatch
 ):
-    store.write_file(SESSION, "report.pdf", b"first")
+    store.write_file(WORKSPACE, "report.pdf", b"first")
 
     def broken(fd):
         raise OSError(5, "Input/output error")
 
     monkeypatch.setattr(flows.os, "fsync", broken)
     with pytest.raises(OSError):
-        store.write_file(SESSION, "report.pdf", b"second")
-    assert store.read_file(SESSION, "report.pdf") == b"first"
-    folder = store.file_path(SESSION, "report.pdf").parent
+        store.write_file(WORKSPACE, "report.pdf", b"second")
+    assert store.read_file(WORKSPACE, "report.pdf") == b"first"
+    folder = store.file_path(WORKSPACE, "report.pdf").parent
     assert [p.name for p in folder.iterdir()] == ["report.pdf"]
 
 
 def test_deleting_reports_whether_there_was_anything_there(store):
-    store.write_file(SESSION, "report.pdf", b"x")
-    assert store.delete_file(SESSION, "report.pdf") is True
-    assert store.delete_file(SESSION, "report.pdf") is False
+    store.write_file(WORKSPACE, "report.pdf", b"x")
+    assert store.delete_file(WORKSPACE, "report.pdf") is True
+    assert store.delete_file(WORKSPACE, "report.pdf") is False
 
 
-def test_one_session_cannot_see_anothers_kept_files(store):
-    store.write_file(SESSION, "report.pdf", b"x")
+def test_one_workspace_cannot_see_anothers_kept_files(store):
+    store.write_file(WORKSPACE, "report.pdf", b"x")
     assert store.files("other") == []
 
 
 def test_nothing_is_created_until_something_is_kept(tmp_path):
     store = flows.LocalFlowStore(tmp_path / "data")
-    assert store.files(SESSION) == []
+    assert store.files(WORKSPACE) == []
     assert not (tmp_path / "data").exists()
 
 
@@ -194,8 +194,8 @@ def test_nothing_is_created_until_something_is_kept(tmp_path):
     ],
 )
 def test_a_download_named_the_way_browsers_name_them_is_keepable(store, name):
-    store.write_file(SESSION, name, b"x")
-    assert [f["name"] for f in store.files(SESSION)] == [name]
+    store.write_file(WORKSPACE, name, b"x")
+    assert [f["name"] for f in store.files(WORKSPACE)] == [name]
 
 
 @pytest.mark.parametrize(
@@ -203,39 +203,39 @@ def test_a_download_named_the_way_browsers_name_them_is_keepable(store, name):
 )
 def test_a_file_name_that_is_not_one_segment_is_refused(store, name):
     with pytest.raises(InvalidName):
-        store.write_file(SESSION, name, b"x")
+        store.write_file(WORKSPACE, name, b"x")
 
 
 def test_a_file_name_is_not_trimmed(store):
     """Nobody typed this name — the site's Content-Disposition or Chrome chose
     it — so a surrounding space is part of the name rather than a typo. Trimming
-    it (as a *session* name is trimmed, correctly) made `keep_one` ask the Grid
+    it (as a *workspace* name is trimmed, correctly) made `keep_one` ask the Grid
     for a name it does not have, and the stored copy could then round-trip
     through neither read nor delete."""
     name = " report.pdf "
-    store.write_file(SESSION, name, b"x")
-    assert [f["name"] for f in store.files(SESSION)] == [name]
-    assert store.read_file(SESSION, name) == b"x"
-    assert store.delete_file(SESSION, name) is True
+    store.write_file(WORKSPACE, name, b"x")
+    assert [f["name"] for f in store.files(WORKSPACE)] == [name]
+    assert store.read_file(WORKSPACE, name) == b"x"
+    assert store.delete_file(WORKSPACE, name) is True
 
 
 def test_a_kept_file_cannot_escape_the_data_directory(store, tmp_path):
     """The name arrives from a URL path parameter as well as from the Grid, so
     traversal is refused by the name rule and again by `_resolved`."""
     with pytest.raises(InvalidName):
-        store.write_file(SESSION, "../../etc/passwd", b"x")
+        store.write_file(WORKSPACE, "../../etc/passwd", b"x")
     assert not (tmp_path.parent / "etc").exists()
 
 
 def test_a_name_on_disk_that_could_not_be_addressed_is_skipped(store, tmp_path):
     """Every caller of the listing turns a name back into a path. An entry that
     cannot round-trip would be handed to `read_file`, raise, and take the whole
-    listing down with it — hiding every other file in the session."""
-    directory = tmp_path / SESSION / FILES_DIR
+    listing down with it — hiding every other file in the workspace."""
+    directory = tmp_path / WORKSPACE / FILES_DIR
     directory.mkdir(parents=True)
     (directory / ".hidden").write_bytes(b"x")
     (directory / "real.pdf").write_bytes(b"x")
-    assert [f["name"] for f in store.files(SESSION)] == ["real.pdf"]
+    assert [f["name"] for f in store.files(WORKSPACE)] == ["real.pdf"]
 
 
 # ---- three sections, not one list --------------------------------------------
@@ -244,14 +244,14 @@ def test_a_name_on_disk_that_could_not_be_addressed_is_skipped(store, tmp_path):
 # order, keeping being a copy — is `test_file_sections.py` territory now: two
 # folders never merge, so "which one wins a collision" is not a question
 # `sections` is ever asked. What is still this module's to prove is the part
-# that only makes sense with a session record in front of it: a Grid failure
+# that only makes sense with a workspace record in front of it: a Grid failure
 # is surfaced, a reaped browser is never dialled, and a live one still is.
 
 
 def test_a_grid_failure_is_not_hidden(store):
     """The browser being gone costs no Grid call at all, so an error from one we
     were told is live is a real fault. Swallowing it would make a broken Grid
-    look like an empty session."""
+    look like an empty workspace."""
 
     class Broken(FakeGrid):
         def files(self, session_id):
@@ -259,23 +259,23 @@ def test_a_grid_failure_is_not_hidden(store):
 
     with pytest.raises(RuntimeError):
         files.sections(
-            FakeActions(Broken()), Sessions(session_id="abc", live=True), store, TOKEN, SESSION
+            FakeActions(Broken()), FakeWorkspaces(session_id="abc", live=True), store, TOKEN, WORKSPACE
         )
 
 
 def test_the_listing_ignores_a_browser_the_grid_has_reaped(store):
-    """A reaped browser stays in the session record until something refreshes
+    """A reaped browser stays in the workspace record until something refreshes
     it, and `describe` reports that id beside `live: false`. Trusting it dials
     the Grid for a browser that is gone and fails the whole listing — in exactly
     the state a kept file exists to survive."""
-    store.write_file(SESSION, "kept.pdf", b"x")
+    store.write_file(WORKSPACE, "kept.pdf", b"x")
 
     class Reaped(FakeGrid):
         def files(self, session_id):
             raise AssertionError(f"dialled the Grid for reaped {session_id!r}")
 
     got = files.sections(
-        FakeActions(Reaped()), Sessions(session_id="dead", live=False), store, TOKEN, SESSION
+        FakeActions(Reaped()), FakeWorkspaces(session_id="dead", live=False), store, TOKEN, WORKSPACE
     )
     assert [f["name"] for f in got["files"]] == ["kept.pdf"]
     assert got["downloads"] == []
@@ -284,10 +284,10 @@ def test_the_listing_ignores_a_browser_the_grid_has_reaped(store):
 def test_the_listing_still_uses_a_browser_that_is_live(store):
     got = files.sections(
         FakeActions(FakeGrid(DOWNLOADS)),
-        Sessions(session_id="abc", live=True),
+        FakeWorkspaces(session_id="abc", live=True),
         store,
         TOKEN,
-        SESSION,
+        WORKSPACE,
     )
     assert [f["name"] for f in got["downloads"]] == ["report.pdf", "shot.png"]
 
@@ -295,10 +295,10 @@ def test_the_listing_still_uses_a_browser_that_is_live(store):
 def test_with_no_store_only_downloads_are_listed():
     got = files.sections(
         FakeActions(FakeGrid(DOWNLOADS)),
-        Sessions(session_id="abc", live=True),
+        FakeWorkspaces(session_id="abc", live=True),
         None,
         TOKEN,
-        SESSION,
+        WORKSPACE,
     )
     assert got["files"] == []
     assert [f["name"] for f in got["downloads"]] == ["report.pdf", "shot.png"]
@@ -308,9 +308,9 @@ def test_with_no_store_only_downloads_are_listed():
 
 
 def test_deleting_a_kept_file_is_idempotent(store):
-    store.write_file(SESSION, "report.pdf", b"x")
-    assert files.delete_one(store, SESSION, "report.pdf")["deleted"] is True
-    assert files.delete_one(store, SESSION, "report.pdf")["deleted"] is False
+    store.write_file(WORKSPACE, "report.pdf", b"x")
+    assert files.delete_one(store, WORKSPACE, "report.pdf")["deleted"] is True
+    assert files.delete_one(store, WORKSPACE, "report.pdf")["deleted"] is False
 
 
 def test_deleting_refuses_when_keeping_is_off():
@@ -338,7 +338,7 @@ async def test_every_file_action_is_reachable_from_both_surfaces(
     """The promise `test_surfaces.py` makes for browser actions, kept for these.
 
     They are subtracted from that module's assertions because they are not
-    browser actions — they act on a session's files, live under /files, and have
+    browser actions — they act on a workspace's files, live under /files, and have
     their own route table. So this is where the one-to-one is actually held, and
     subtracting them there is a narrowing rather than an excuse.
 
@@ -364,7 +364,7 @@ async def test_every_file_action_is_reachable_from_both_surfaces(
 
 
 async def test_the_file_actions_are_not_counted_as_browser_actions(kept_server):
-    """They are a layer above /browser, like flows: about a session's files
+    """They are a layer above /browser, like flows: about a workspace's files
     rather than about driving a page. The browser route table must not grow."""
     assert files.KEEP_TOOL not in ENDPOINTS.values()
 
@@ -420,11 +420,11 @@ def test_keep_then_list_over_http(client, live):
     ):
         kept = client.put("/files/downloads/report.pdf/kept", headers=AUTH)
         assert kept.status_code == 200, kept.text
-        assert kept.json()["uri"] == "session://files/report.pdf"
+        assert kept.json()["uri"] == "workspace://files/report.pdf"
 
         body = client.get("/files", headers=AUTH).json()
     assert [f["name"] for f in body["files"]] == ["report.pdf"]
-    assert body["session"] == SESSION
+    assert body["workspace"] == WORKSPACE
     # The Grid still reports both — keeping a download is a copy, so the
     # original stays exactly where it was until the browser ends (§F1.10).
     downloads = next(f for f in body["folders"] if f["name"] == "downloads")
@@ -561,18 +561,18 @@ async def test_an_mcp_caller_is_told_why_the_file_is_missing(live, named_caller)
 # Keeping, deleting, clearing, the three-section listing and the file stamp are
 # `tests/test_admin_files.py` territory now — one module per HTTP surface, the
 # way `test_file_sections.py` already split the domain functions out of here.
-# What is still this module's to prove is what only makes sense with a session
+# What is still this module's to prove is what only makes sense with a workspace
 # record and the Grid's own opinion in front of it: a reaped browser, a Grid
-# outage, and a session whose name cannot own a library at all.
+# outage, and a workspace whose name cannot own a library at all.
 
 
 def test_the_admin_listing_survives_a_reaped_browser(client, live):
     """The record still names a browser; the Grid no longer has it. That is an
-    ordinary state — the Grid reaps idle browsers — and the session header is
+    ordinary state — the Grid reaps idle browsers — and the workspace header is
     the thing that actually checked, so the listing follows its verdict rather
     than the record's optimism. Dialling the dead id would 502 the whole view
     in the exact case kept files exist for."""
-    live.flows.write_file(SESSION, "kept.pdf", b"x")
+    live.flows.write_file(WORKSPACE, "kept.pdf", b"x")
     with (
         patch.object(browser.Grid, "is_alive", return_value=False),
         patch.object(browser.Grid, "sessions", return_value=[]),
@@ -582,9 +582,9 @@ def test_the_admin_listing_survives_a_reaped_browser(client, live):
             side_effect=AssertionError("dialled a browser the Grid had reaped"),
         ),
     ):
-        body = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH).json()
+        body = client.get(f"/admin/workspaces/{KEY}/files", headers=AUTH).json()
     assert [f["name"] for f in body["files"]] == ["kept.pdf"]
-    assert body["session"]["live"] is False
+    assert body["workspace"]["live"] is False
 
 
 def test_a_grid_outage_is_an_error_not_an_empty_download_list(client, live):
@@ -596,7 +596,7 @@ def test_a_grid_outage_is_an_error_not_an_empty_download_list(client, live):
 
     503, not a bare 500: `errors.status_for` calls a `ConnectionError` worth
     retrying after a wait, the same as every other route on this surface."""
-    live.flows.write_file(SESSION, "kept.pdf", b"x")
+    live.flows.write_file(WORKSPACE, "kept.pdf", b"x")
     with (
         patch.object(browser.Grid, "is_alive", return_value=True),
         patch.object(browser.Grid, "sessions", return_value=[]),
@@ -604,7 +604,7 @@ def test_a_grid_outage_is_an_error_not_an_empty_download_list(client, live):
             browser.Grid, "files", side_effect=requests.ConnectionError("grid down")
         ),
     ):
-        response = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH)
+        response = client.get(f"/admin/workspaces/{KEY}/files", headers=AUTH)
     assert response.status_code == 503
 
 
@@ -629,7 +629,7 @@ def test_a_grid_refusal_over_the_admin_surface_does_not_echo_the_grid_url(
             ),
         ),
     ):
-        response = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH)
+        response = client.get(f"/admin/workspaces/{KEY}/files", headers=AUTH)
     assert "secret" not in response.text and "grid.internal" not in response.text
     assert response.status_code == 503
 
@@ -637,32 +637,32 @@ def test_a_grid_refusal_over_the_admin_surface_does_not_echo_the_grid_url(
 BAD_KEY = "my bot"
 
 
-def test_a_session_whose_name_is_not_a_directory_keeps_nothing(client, kept_server):
+def test_a_workspace_whose_name_is_not_a_directory_keeps_nothing(client, kept_server):
     """`library_of` hands such a caller nothing to write into rather than the
     shared one — the same mistake E6 fixed for flows, arriving on the file side
     through the admin surface. Every write path here refuses through
     `library(key)`, so nothing can land in `global` for a key that cannot own a
     directory of its own."""
-    kept_server.sessions.store.set(BAD_KEY, SessionRecord(session_id="abc"))
+    kept_server.workspaces.store.set(BAD_KEY, Workspace(session_id="abc"))
     response = client.delete(
-        f"/admin/sessions/{quote(BAD_KEY, safe='')}/files/report.pdf", headers=AUTH
+        f"/admin/workspaces/{quote(BAD_KEY, safe='')}/files/report.pdf", headers=AUTH
     )
     assert response.status_code == 400
     assert "cannot keep files" in response.json()["error"]
-    assert kept_server.flows.files(GLOBAL_SESSION) == [], "it leaked to global"
+    assert kept_server.flows.files(GLOBAL_WORKSPACE) == [], "it leaked to global"
 
 
-def test_such_a_session_shows_unknown_counts_not_the_shared_librarys(
+def test_such_a_workspace_shows_unknown_counts_not_the_shared_librarys(
     client, kept_server
 ):
-    """Borrowing `global`'s numbers would tell an operator this session has a
+    """Borrowing `global`'s numbers would tell an operator this workspace has a
     file and a flow it has no way to reach."""
-    kept_server.flows.write_file(GLOBAL_SESSION, "shared.pdf", b"x")
-    kept_server.flows.save(GLOBAL_SESSION, "shared", {"steps": []})
-    kept_server.sessions.store.set(BAD_KEY, SessionRecord(session_id=""))
+    kept_server.flows.write_file(GLOBAL_WORKSPACE, "shared.pdf", b"x")
+    kept_server.flows.save(GLOBAL_WORKSPACE, "shared", {"steps": []})
+    kept_server.workspaces.store.set(BAD_KEY, Workspace(session_id=""))
     with patch.object(browser.Grid, "sessions", return_value=[]):
-        body = client.get("/admin/sessions", headers=AUTH).json()
-    row = next(r for r in body["sessions"] if r["key"] == BAD_KEY)
+        body = client.get("/admin/workspaces", headers=AUTH).json()
+    row = next(r for r in body["workspaces"] if r["key"] == BAD_KEY)
     assert row["counts"] == {"downloads": None, "screenshots": None, "recordings": None, "files": None}
     assert row["files_count"] is None and row["flows_count"] is None
 
@@ -674,15 +674,15 @@ def test_a_kept_link_is_bound_to_its_own_route(client):
     """A link to a download is not a link to a kept file of the same name, and
     the reverse. They are different bytes under different lifetimes."""
     download = links.file_url("abc", "report.pdf", TOKEN)
-    kept = links.kept_url(SESSION, "report.pdf", TOKEN)
+    kept = links.kept_url(WORKSPACE, "report.pdf", TOKEN)
     assert download != kept
     query = kept.split("?", 1)[1]
     assert client.get(f"/files/abc/report.pdf?{query}").status_code == 403
 
 
 def test_the_kept_route_serves_a_signed_file(client, live):
-    live.flows.write_file(SESSION, "shot.png", b"\x89PNG\r\n\x1a\n")
-    response = client.get(links.kept_url(SESSION, "shot.png", TOKEN))
+    live.flows.write_file(WORKSPACE, "shot.png", b"\x89PNG\r\n\x1a\n")
+    response = client.get(links.kept_url(WORKSPACE, "shot.png", TOKEN))
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/png")
     assert "inline" in response.headers["content-disposition"]
@@ -701,8 +701,8 @@ def test_the_disposition_folds_what_a_header_cannot_carry():
 
 def test_a_name_no_header_could_carry_is_still_fetchable(client, live):
     name = 'emoji😊 "q".txt'
-    live.flows.write_file(SESSION, name, b"x")
-    response = client.get(links.kept_url(SESSION, name, TOKEN))
+    live.flows.write_file(WORKSPACE, name, b"x")
+    response = client.get(links.kept_url(WORKSPACE, name, TOKEN))
     assert response.status_code == 200
     value = response.headers["content-disposition"]
     assert "filename*=UTF-8''" in value
@@ -718,12 +718,12 @@ def test_a_control_character_cannot_reach_the_header(client, live):
 
 
 def test_the_kept_route_refuses_without_a_signature(client):
-    assert client.get(f"/kept/{SESSION}/shot.png").status_code == 403
-    assert client.get(f"/kept/{SESSION}/shot.png?exp=1&sig=x").status_code == 403
+    assert client.get(f"/kept/{WORKSPACE}/shot.png").status_code == 403
+    assert client.get(f"/kept/{WORKSPACE}/shot.png?exp=1&sig=x").status_code == 403
 
 
 def test_a_kept_file_that_is_not_there_is_a_404(client, live):
-    response = client.get(links.kept_url(SESSION, "missing.pdf", TOKEN))
+    response = client.get(links.kept_url(WORKSPACE, "missing.pdf", TOKEN))
     assert response.status_code == 404
 
 
@@ -740,7 +740,7 @@ def test_a_broken_kept_store_is_a_5xx_not_a_404(client, live):
             13, "Permission denied", "/data/flows/desktop/files/report.pdf"
         ),
     ):
-        response = client.get(links.kept_url(SESSION, "report.pdf", TOKEN))
+        response = client.get(links.kept_url(WORKSPACE, "report.pdf", TOKEN))
     assert response.status_code >= 500
     assert response.status_code < 600
     assert "/data/flows" not in response.text
@@ -827,7 +827,7 @@ async def test_every_file_operation_declares_the_grids_failure_modes(spec):
 
 @pytest.mark.parametrize(
     "uri",
-    ["session://files/export.csv", "session://files/screenshots/shot.png"],
+    ["workspace://files/export.csv", "workspace://files/screenshots/shot.png"],
 )
 def test_upload_sends_any_file_named_by_its_uri(actions, uri, monkeypatch):
     """Through `upload_file`, not through the helper: the action is where the
@@ -857,8 +857,8 @@ def test_upload_sends_any_file_named_by_its_uri(actions, uri, monkeypatch):
     )
     asked = {}
 
-    def reader(given_uri, session=None):
-        asked["uri"], asked["session"] = given_uri, session
+    def reader(given_uri, workspace=None):
+        asked["uri"], asked["workspace"] = given_uri, workspace
         return "x.png", b"..."
 
     actions.read_file = reader
@@ -868,7 +868,7 @@ def test_upload_sends_any_file_named_by_its_uri(actions, uri, monkeypatch):
     assert sent["bytes"] == b"..."
     assert sent["name"] == "x.png", "the file's own name is the default filename"
     assert result["filename"] == "x.png"
-    assert asked == {"uri": uri, "session": None}, (
+    assert asked == {"uri": uri, "workspace": None}, (
         "an MCP caller names no library - its own key answers"
     )
 
@@ -891,7 +891,7 @@ def _stage_upload(server, monkeypatch):
         def execute_script(self, *_a, **_k):
             return None
 
-    monkeypatch.setattr(server.sessions, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "browser-1")
     monkeypatch.setattr(server.actions, "_at", lambda *a, **k: _Driver())
     monkeypatch.setattr(browser, "accept_local_files", lambda _d: None)
     monkeypatch.setattr(
@@ -900,22 +900,22 @@ def _stage_upload(server, monkeypatch):
     return sent
 
 
-def test_a_session_field_on_the_upload_body_never_reaches_the_action(
+def test_a_workspace_field_on_the_upload_body_never_reaches_the_action(
     kept_server, client, monkeypatch
 ):
-    """`session` is `LIBRARY_ARG`'s injection point — a flow run's own way of
+    """`workspace` is `LIBRARY_ARG`'s injection point — a flow run's own way of
     saying which library a step reads from — and `routes._add` used to derive
     the accepted body straight off `Actions.upload_file`'s signature, which
     cannot tell that argument apart from an ordinary one. An HTTP caller could
-    POST `session=<another session>` and read a file it never kept (Copilot,
+    POST `workspace=<another workspace>` and read a file it never kept (Copilot,
     #41). It is now excluded from `accepted` the same way `session_id` always
     was, so it is dropped like any other field the route does not know, never
     forwarded to the action."""
     _stage_upload(kept_server, monkeypatch)
     asked = {}
 
-    def reader(uri, session=None):
-        asked["session"] = session
+    def reader(uri, workspace=None):
+        asked["workspace"] = workspace
         return "export.csv", b"x"
 
     monkeypatch.setattr(kept_server.actions, "read_file", reader)
@@ -924,26 +924,26 @@ def test_a_session_field_on_the_upload_body_never_reaches_the_action(
         "/browser/upload",
         json={
             "selector": {"css": "input"},
-            "file": "session://files/export.csv",
-            "session": "someone-elses-session",
+            "file": "workspace://files/export.csv",
+            "workspace": "someone-elses-workspace",
         },
         headers=AUTH,
     )
     assert response.status_code == 200, response.json()
-    assert asked["session"] is None, (
-        "the body's session field must never reach the action"
+    assert asked["workspace"] is None, (
+        "the body's workspace field must never reach the action"
     )
 
 
-def test_upload_over_http_reads_the_file_from_the_callers_own_session(
+def test_upload_over_http_reads_the_file_from_the_callers_own_workspace(
     kept_server, client, monkeypatch
 ):
     """The vulnerability closed above, proved end to end with the real store
-    rather than a stub: two sessions keep a file of the same name, the request
+    rather than a stub: two workspaces keep a file of the same name, the request
     names a third in its body, and the bytes that land on the page must be the
     caller's own — the ones its header actually names — never the other
-    session's (Copilot, #41)."""
-    kept_server.flows.write_file(SESSION, "export.csv", b"mine")
+    workspace's (Copilot, #41)."""
+    kept_server.flows.write_file(WORKSPACE, "export.csv", b"mine")
     kept_server.flows.write_file("victim", "export.csv", b"not-mine")
     sent = _stage_upload(kept_server, monkeypatch)
 
@@ -951,8 +951,8 @@ def test_upload_over_http_reads_the_file_from_the_callers_own_session(
         "/browser/upload",
         json={
             "selector": {"css": "input"},
-            "file": "session://files/export.csv",
-            "session": "victim",
+            "file": "workspace://files/export.csv",
+            "workspace": "victim",
         },
         headers=AUTH,
     )
@@ -960,22 +960,22 @@ def test_upload_over_http_reads_the_file_from_the_callers_own_session(
     assert sent["bytes"] == b"mine"
 
 
-def test_a_session_naming_nobody_in_the_upload_body_does_not_400(
+def test_a_workspace_naming_nobody_in_the_upload_body_does_not_400(
     kept_server, client, monkeypatch
 ):
-    """If `session` reached the action, a value naming no library at all would
+    """If `workspace` reached the action, a value naming no library at all would
     fail to find the file and 400. A successful upload with a nonsense value
     there is proof the field was dropped outright, not merely resolved kindly
     (Copilot, #41)."""
-    kept_server.flows.write_file(SESSION, "export.csv", b"mine")
+    kept_server.flows.write_file(WORKSPACE, "export.csv", b"mine")
     _stage_upload(kept_server, monkeypatch)
 
     response = client.post(
         "/browser/upload",
         json={
             "selector": {"css": "input"},
-            "file": "session://files/export.csv",
-            "session": "nobody-has-this-session",
+            "file": "workspace://files/export.csv",
+            "workspace": "nobody-has-this-workspace",
         },
         headers=AUTH,
     )
@@ -987,7 +987,7 @@ def test_a_kept_upload_is_refused_when_there_is_nowhere_to_keep(actions):
     exist. Refused with the three sources that do work."""
     with pytest.raises(ValueError, match="not available"):
         actions.upload_file(
-            "abc", selector={"css": "input"}, file="session://files/export.csv"
+            "abc", selector={"css": "input"}, file="workspace://files/export.csv"
         )
 
 
@@ -997,7 +997,7 @@ def test_only_one_source_may_be_given(actions):
             "abc",
             selector={"css": "input"},
             text="hi",
-            file="session://files/export.csv",
+            file="workspace://files/export.csv",
         )
 
 

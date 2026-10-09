@@ -1,4 +1,4 @@
-"""Session files: the signed links, the admin surface, and the three renderings.
+"""Workspace files: the signed links, the admin surface, and the three renderings.
 
 The Grid owns the file store, so nothing here dials a browser. What is asserted
 is the part this server actually decides: who may fetch a file, which shape a
@@ -18,7 +18,7 @@ from kubed.selenium_flow.core import browser
 from kubed.selenium_flow.http import files, links
 from kubed.selenium_flow.mcp import apps
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.session.store import SessionRecord
+from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import TOKEN
 
@@ -40,12 +40,12 @@ KEY = "desktop"
 
 @pytest.fixture
 def flow_session(server):
-    """A flow session holding a browser, which is what the admin API addresses.
+    """A workspace holding a browser, which is what the admin API addresses.
 
-    The admin surface lists *our* sessions, not the Grid's, so a test that does
+    The admin surface lists *our* workspaces, not the Grid's, so a test that does
     not put one in the store is asking about an empty server.
     """
-    server.sessions.store.set(KEY, SessionRecord(session_id="abc").visited("https://x/"))
+    server.workspaces.store.set(KEY, Workspace(session_id="abc").visited("https://x/"))
     return server
 
 
@@ -182,26 +182,26 @@ def test_describe_marks_images_and_types():
 
 
 def test_the_admin_api_requires_the_token(client):
-    assert client.get("/admin/sessions").status_code == 401
-    assert client.get("/admin/sessions/x/files").status_code == 401
+    assert client.get("/admin/workspaces").status_code == 401
+    assert client.get("/admin/workspaces/x/files").status_code == 401
     bad = {"Authorization": "Bearer nope"}
-    assert client.get("/admin/sessions", headers=bad).status_code == 401
+    assert client.get("/admin/workspaces", headers=bad).status_code == 401
 
 
 # --- ending a session -----------------------------------------------------
 
 
-def test_ending_a_session_requires_the_token(client):
+def test_ending_a_workspace_requires_the_token(client):
     """It quits somebody's browser, so it is the last route to leave open."""
-    assert client.delete("/admin/sessions/abc").status_code == 401
+    assert client.delete("/admin/workspaces/abc/session").status_code == 401
     bad = {"Authorization": "Bearer nope"}
-    assert client.delete("/admin/sessions/abc", headers=bad).status_code == 401
+    assert client.delete("/admin/workspaces/abc/session", headers=bad).status_code == 401
 
 
-def test_ending_a_session_quits_the_browser(client, flow_session):
+def test_ending_a_workspace_quits_the_browser(client, flow_session):
     with patch.object(browser.Grid, "quit") as quit_:
         response = client.delete(
-            f"/admin/sessions/{KEY}", headers={"Authorization": f"Bearer {TOKEN}"}
+            f"/admin/workspaces/{KEY}/session", headers={"Authorization": f"Bearer {TOKEN}"}
         )
     assert response.status_code == 200
     assert response.json() == {"success": True, "key": KEY, "session_id": "abc"}
@@ -213,37 +213,37 @@ def test_a_grid_that_refuses_to_quit_is_still_a_200(client, flow_session):
     Grid does not stop that being true — the record is detached either way. So
     the operator sees success rather than a 500 for something already handled.
 
-    That the detach happens is SessionManager's contract, asserted directly in
-    test_sessions.py; the route's contract is the status code."""
+    That the detach happens is the Workspaces manager's contract, asserted directly in
+    test_workspaces.py; the route's contract is the status code."""
     with patch.object(browser.Grid, "quit", side_effect=RuntimeError("gone")):
         response = client.delete(
-            f"/admin/sessions/{KEY}", headers={"Authorization": f"Bearer {TOKEN}"}
+            f"/admin/workspaces/{KEY}/session", headers={"Authorization": f"Bearer {TOKEN}"}
         )
     assert response.status_code == 200
 
 
-def test_ending_a_session_with_no_browser_is_a_no_op(client, server):
+def test_ending_a_workspace_with_no_browser_is_a_no_op(client, server):
     """The button's job is "make sure this holds no browser", which is already
     true — so it succeeds rather than erroring."""
-    server.sessions.store.set("idle", SessionRecord(session_id=""))
+    server.workspaces.store.set("idle", Workspace(session_id=""))
     with patch.object(browser.Grid, "quit") as quit_:
         response = client.delete(
-            "/admin/sessions/idle", headers={"Authorization": f"Bearer {TOKEN}"}
+            "/admin/workspaces/idle/session", headers={"Authorization": f"Bearer {TOKEN}"}
         )
     assert response.status_code == 200
     assert response.json()["session_id"] is None
     quit_.assert_not_called()
 
 
-def test_ending_a_session_does_not_disturb_the_files_route(client, flow_session):
-    """`/admin/sessions/<key>` and `/admin/sessions/<key>/files` are different
+def test_ending_a_workspace_does_not_disturb_the_files_route(client, flow_session):
+    """`/admin/workspaces/<key>/session` and `/admin/workspaces/<key>/files` are different
     routes, and a DELETE to one must not be routed to the other."""
     with (
         patch.object(browser.Grid, "clear_files") as clear,
         patch.object(browser.Grid, "quit") as quit_,
     ):
         client.delete(
-            f"/admin/sessions/{KEY}", headers={"Authorization": f"Bearer {TOKEN}"}
+            f"/admin/workspaces/{KEY}/session", headers={"Authorization": f"Bearer {TOKEN}"}
         )
     quit_.assert_called_once()
     clear.assert_not_called()
@@ -356,7 +356,7 @@ def test_the_admin_api_lists_files_with_signed_urls(client, flow_session):
         patch.object(browser.Grid, "files", return_value=ENTRIES),
     ):
         body = client.get(
-            f"/admin/sessions/{KEY}/files",
+            f"/admin/workspaces/{KEY}/files",
             headers={"Authorization": f"Bearer {TOKEN}"},
         ).json()
     # Newest first — the Grid's own listing has no order of its own to inherit,
@@ -366,13 +366,13 @@ def test_the_admin_api_lists_files_with_signed_urls(client, flow_session):
     assert body["files"] == [], "no store, nothing to keep into"
 
 
-def test_the_listing_shows_flow_sessions_not_grid_sessions(client, server):
+def test_the_listing_shows_workspaces_not_grid_sessions(client, server):
     """The Grid is the superset — it runs browsers put there by anything at all.
     Listing those would be showing somebody else's work as though it were ours,
     and handing whoever holds the admin token a browser id they never opened."""
-    server.sessions.store.set(
+    server.workspaces.store.set(
         "mine",
-        SessionRecord(session_id="mine", settings={"browser": "firefox"}).visited("https://x/"),
+        Workspace(session_id="mine", settings={"browser": "firefox"}).visited("https://x/"),
     )
     grid_rows = [
         {"session_id": "mine", "browser": "firefox", "version": "155", "node": "n1"},
@@ -383,24 +383,24 @@ def test_the_listing_shows_flow_sessions_not_grid_sessions(client, server):
         patch.object(browser.Grid, "files", return_value=[]),
     ):
         body = client.get(
-            "/admin/sessions", headers={"Authorization": f"Bearer {TOKEN}"}
+            "/admin/workspaces", headers={"Authorization": f"Bearer {TOKEN}"}
         ).json()
-    keys = [row["key"] for row in body["sessions"]]
+    keys = [row["key"] for row in body["workspaces"]]
     assert keys == ["mine"]
     assert "somebody-else" not in str(body)
 
 
-def test_a_detached_session_is_listed_as_idle_with_its_context(client, server):
-    """The point of the split: no browser, but still a session worth seeing."""
-    server.sessions.store.set(
+def test_a_detached_workspace_is_listed_as_idle_with_its_context(client, server):
+    """The point of the split: no browser, but still a workspace worth seeing."""
+    server.workspaces.store.set(
         "idle",
-        SessionRecord(session_id="", settings={"browser": "firefox"}).visited("https://x/"),
+        Workspace(session_id="", settings={"browser": "firefox"}).visited("https://x/"),
     )
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get(
-            "/admin/sessions", headers={"Authorization": f"Bearer {TOKEN}"}
+            "/admin/workspaces", headers={"Authorization": f"Bearer {TOKEN}"}
         ).json()
-    row = body["sessions"][0]
+    row = body["workspaces"][0]
     assert row["attached"] is False
     assert row["live"] is False
     assert row["session_id"] is None
@@ -408,24 +408,24 @@ def test_a_detached_session_is_listed_as_idle_with_its_context(client, server):
     assert row["browser"] == "firefox", "the context outlives the browser"
 
 
-def test_the_stdio_session_is_listed_and_labelled(client, server):
+def test_the_stdio_workspace_is_listed_and_labelled(client, server):
     """One key shape survives — the name a caller chose — and `stdio` is the one
     nobody typed, so it is still worth saying where it came from (§F2.12)."""
-    server.sessions.store.set("stdio", SessionRecord(session_id="abc"))
+    server.workspaces.store.set("stdio", Workspace(session_id="abc"))
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get(
-            "/admin/sessions", headers={"Authorization": f"Bearer {TOKEN}"}
+            "/admin/workspaces", headers={"Authorization": f"Bearer {TOKEN}"}
         ).json()
-    assert body["sessions"][0]["owner"] == "stdio"
+    assert body["workspaces"][0]["owner"] == "stdio"
 
 
-def test_a_detached_session_has_no_files_rather_than_an_error(client, server):
+def test_a_detached_workspace_has_no_files_rather_than_an_error(client, server):
     """It had them; the Grid deleted them with the browser. That is not a
     fault — and neither is having no store at all, which `server` also has
     none of."""
-    server.sessions.store.set("idle", SessionRecord(session_id=""))
+    server.workspaces.store.set("idle", Workspace(session_id=""))
     body = client.get(
-        "/admin/sessions/idle/files",
+        "/admin/workspaces/idle/files",
         headers={"Authorization": f"Bearer {TOKEN}"},
     )
     assert body.status_code == 200
@@ -438,17 +438,18 @@ def test_a_detached_session_has_no_files_rather_than_an_error(client, server):
 
 async def test_files_are_a_resource_and_a_template(server):
     uris = {str(r.uri) for r in await server.mcp.list_resources()}
-    assert "session://files" in uris
+    assert "workspace://files" in uris
     templates = {t.uri_template for t in await server.mcp.list_resource_templates()}
-    assert "session://files/{name}" in templates
+    assert "workspace://files/{name}" in templates
 
 
-async def test_the_mcp_surface_never_lists_other_sessions(built_ui, server):
-    """A client owns one session and may only ever see that one.
+async def test_the_mcp_surface_never_lists_other_workspaces(built_ui, server):
+    """A client owns one workspace and may only ever see that one.
 
-    The session list is an admin view over HTTP, deliberately not a tool and not
-    a resource: a tool that enumerated every session would hand any MCP client
-    somebody else's browser id, which is the whole credential for driving it.
+    The workspace list is an admin view over HTTP, deliberately not a tool and not
+    a resource: a tool that enumerated every workspace would hand any MCP client
+    somebody else's workspace name, the address of a browser it could then drive
+    with the same token.
     """
     uris = {str(r.uri) for r in await server.mcp.list_resources()}
     assert "grid://sessions" not in uris
@@ -456,7 +457,7 @@ async def test_the_mcp_surface_never_lists_other_sessions(built_ui, server):
         names = {t.name for t in await server.mcp.list_tools()}
     assert "browser_sessions" not in names
     # What a client does get is its own, and only its own.
-    assert "session://current" in uris
+    assert "workspace://current" in uris
 
 
 async def test_the_app_shell_is_a_ui_resource(built_ui, server):
@@ -472,7 +473,7 @@ async def test_apps_can_be_turned_off(built_ui):
     uris = {str(r.uri) for r in await off.mcp.list_resources()}
     assert apps.RESOURCE_URI not in uris
     # The listing survives as a resource: it never depended on apps.
-    assert "session://files" in uris
+    assert "workspace://files" in uris
     # Off means off, whatever the client says it can render.
     with patch.object(apps, "supported", return_value=True):
         names = {t.name for t in await off.mcp.list_tools()}
@@ -487,11 +488,11 @@ def test_the_app_csp_omits_an_origin_it_does_not_have():
 # --- the live event stream ------------------------------------------------
 
 
-def test_the_sessions_call_hands_back_a_signed_stream_url(client):
+def test_the_workspaces_call_hands_back_a_signed_stream_url(client):
     """EventSource cannot send a header, so it is given a URL it can just open."""
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get(
-            "/admin/sessions", headers={"Authorization": f"Bearer {TOKEN}"}
+            "/admin/workspaces", headers={"Authorization": f"Bearer {TOKEN}"}
         ).json()
     assert body["events_url"].startswith("/admin/events?exp=")
     assert "sig=" in body["events_url"]
@@ -513,7 +514,7 @@ def test_the_event_stream_signature_is_bound_to_its_own_path(client):
     """
     with patch.object(browser.Grid, "sessions", return_value=[]):
         url = client.get(
-            "/admin/sessions", headers={"Authorization": f"Bearer {TOKEN}"}
+            "/admin/workspaces", headers={"Authorization": f"Bearer {TOKEN}"}
         ).json()["events_url"]
     query = url.split("?", 1)[1]
     assert client.get(f"/files/abc/shot.png?{query}").status_code == 403
@@ -583,7 +584,7 @@ async def test_every_connected_page_is_sent_the_same_events(server, monkeypatch)
     import asyncio
     import threading
 
-    from kubed.selenium_flow.http.admin import sessions as admin
+    from kubed.selenium_flow.http.admin import workspaces as admin
 
     monkeypatch.setattr(admin, "POLL_SECONDS", 0.05)
     gate = threading.Semaphore(0)
@@ -595,7 +596,7 @@ async def test_every_connected_page_is_sent_the_same_events(server, monkeypatch)
         return {"value": {"nodes": []}}
 
     monkeypatch.setattr(server.actions.grid, "status", status)
-    server.sessions.store.set("one", SessionRecord(session_id=""))
+    server.workspaces.store.set("one", Workspace(session_id=""))
 
     app = server.mcp.http_app()
     stop = asyncio.Event()
@@ -618,12 +619,12 @@ async def test_every_connected_page_is_sent_the_same_events(server, monkeypatch)
         assert all(len(s) == 1 for s in sinks), "a tick that found no change spoke"
 
         # Tick three is blocked having already read the store; this lands in four.
-        server.sessions.store.set("two", SessionRecord(session_id=""))
+        server.workspaces.store.set("two", Workspace(session_id=""))
         await tick(4)
         await _until(lambda: all(len(s) == 2 for s in sinks), "the change")
         assert sinks[0] == sinks[1] == sinks[2]
         assert sinks[0][0] != sinks[0][1]
-        assert [r["key"] for r in json.loads(sinks[0][1])["sessions"]] != []
+        assert [r["key"] for r in json.loads(sinks[0][1])["workspaces"]] != []
 
         late = []
         tasks.append(asyncio.create_task(_listen(app, late, stop)))

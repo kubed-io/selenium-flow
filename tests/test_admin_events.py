@@ -1,6 +1,6 @@
 """One broadcaster behind every open admin page.
 
-The session list is computed once a tick however many pages are connected, and
+The workspace list is computed once a tick however many pages are connected, and
 only while one is. What each page sees is what it saw when every page polled on
 its own: its first event on connect, one event per change, none when nothing
 changed, and a failed tick that says nothing.
@@ -15,8 +15,8 @@ import threading
 
 import pytest
 
-from kubed.selenium_flow.http.admin import sessions as admin
-from kubed.selenium_flow.session.store import SessionRecord
+from kubed.selenium_flow.http.admin import workspaces as admin
+from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import TOKEN
 from .test_files_and_admin import _listen, _until
@@ -97,7 +97,7 @@ async def _close(stop, tasks, gate=None):
 
 async def test_three_pages_cost_one_grid_listing_a_tick(server, gated):
     gate, entered = gated
-    server.sessions.store.set("one", SessionRecord(session_id=""))
+    server.workspaces.store.set("one", Workspace(session_id=""))
     app = server.mcp.http_app()
     stop = asyncio.Event()
     sinks = [[], [], []]
@@ -144,7 +144,7 @@ async def test_a_page_joining_mid_tick_is_sent_each_state_once(
     sends a page the same state twice."""
     monkeypatch.setattr(admin, "FRESH_SECONDS", 60.0)
     gate, entered = gated
-    server.sessions.store.set("one", SessionRecord(session_id=""))
+    server.workspaces.store.set("one", Workspace(session_id=""))
     app = server.mcp.http_app()
     stop = asyncio.Event()
     first, second, third = [], [], []
@@ -169,7 +169,7 @@ async def test_a_page_joining_mid_tick_is_sent_each_state_once(
         assert len(entered) == 3, "a fresh join is not a Grid call"
 
         # Tick 3 read the store before it blocked; the change lands in tick 4.
-        server.sessions.store.set("two", SessionRecord(session_id=""))
+        server.workspaces.store.set("two", Workspace(session_id=""))
         gate.release(1)
         await _until(lambda: len(entered) >= 4, "tick 4")
         gate.release(1)
@@ -185,7 +185,7 @@ async def test_the_listing_is_the_last_broadcast_while_it_is_fresh(
 ):
     monkeypatch.setattr(admin, "POLL_SECONDS", 60.0)
     monkeypatch.setattr(admin, "FRESH_SECONDS", 60.0)
-    server.sessions.store.set("one", SessionRecord(session_id="abc"))
+    server.workspaces.store.set("one", Workspace(session_id="abc"))
     app = server.mcp.http_app()
     stop = asyncio.Event()
     sink = []
@@ -194,23 +194,23 @@ async def test_the_listing_is_the_last_broadcast_while_it_is_fresh(
         await _until(lambda: len(sink) == 1, "the first event")
         asked = len(counted)
 
-        listing = await _request(app, "GET", "/admin/sessions")
+        listing = await _request(app, "GET", "/admin/workspaces")
         assert len(counted) == asked, "a fresh broadcast was computed again"
-        assert {"sessions": listing["sessions"]} == json.loads(sink[0])
+        assert {"workspaces": listing["workspaces"]} == json.loads(sink[0])
 
         # Ending a browser changes the list, so the listing after it is new.
         def end_browser(caller):
-            server.sessions.store.set(caller.name, SessionRecord(session_id=""))
+            server.workspaces.store.set(caller.name, Workspace(session_id=""))
 
-        monkeypatch.setattr(server.sessions, "end_browser", end_browser)
-        await _request(app, "DELETE", "/admin/sessions/one")
-        listing = await _request(app, "GET", "/admin/sessions")
+        monkeypatch.setattr(server.workspaces, "end_browser", end_browser)
+        await _request(app, "DELETE", "/admin/workspaces/one/session")
+        listing = await _request(app, "GET", "/admin/workspaces")
         assert len(counted) == asked + 1
-        assert listing["sessions"][0]["attached"] is False
+        assert listing["workspaces"][0]["attached"] is False
 
         # And a stale one is never served.
         monkeypatch.setattr(admin, "FRESH_SECONDS", 0.0)
-        await _request(app, "GET", "/admin/sessions")
+        await _request(app, "GET", "/admin/workspaces")
         assert len(counted) == asked + 2
     finally:
         await _close(stop, [task])
@@ -220,7 +220,7 @@ async def test_a_failed_tick_sends_nothing_and_the_stream_carries_on(
     server, counted, monkeypatch
 ):
     monkeypatch.setattr(admin, "POLL_SECONDS", 0.02)
-    server.sessions.store.set("one", SessionRecord(session_id=""))
+    server.workspaces.store.set("one", Workspace(session_id=""))
     failures = []
     real = admin.owner_label
 
@@ -238,7 +238,7 @@ async def test_a_failed_tick_sends_nothing_and_the_stream_carries_on(
     try:
         await _until(lambda: len(sink) == 1, "the event after the blips")
         assert len(failures) == 2
-        assert [r["key"] for r in json.loads(sink[0])["sessions"]] == ["one"]
+        assert [r["key"] for r in json.loads(sink[0])["workspaces"]] == ["one"]
     finally:
         await _close(stop, [task])
 
@@ -295,9 +295,9 @@ async def test_a_forget_with_a_page_open_is_in_the_next_listing(
                      "path": "/"}],
         "origins": {}, "session": {}, "saved_at": 1.0,
     }
-    server.sessions.store.set(
+    server.workspaces.store.set(
         "one",
-        SessionRecord(session_id="").visited("https://app.example.com/").with_site_data(jar),
+        Workspace(session_id="").visited("https://app.example.com/").with_site_data(jar),
     )
     app = server.mcp.http_app()
     stop = asyncio.Event()
@@ -305,11 +305,11 @@ async def test_a_forget_with_a_page_open_is_in_the_next_listing(
     task = asyncio.create_task(_listen(app, sink, stop))
     try:
         await _until(lambda: len(sink) == 1, "the first event")
-        before = (await _request(app, "GET", "/admin/sessions"))["sessions"][0]
+        before = (await _request(app, "GET", "/admin/workspaces"))["workspaces"][0]
         assert before["site_data_count"] == 1
 
-        await _request(app, "DELETE", "/admin/sessions/one/site-data/app.example.com")
-        after = (await _request(app, "GET", "/admin/sessions"))["sessions"][0]
+        await _request(app, "DELETE", "/admin/workspaces/one/site-data/app.example.com")
+        after = (await _request(app, "GET", "/admin/workspaces"))["workspaces"][0]
         assert after["site_data_count"] == 0
         assert after["site_data_rev"] != before["site_data_rev"]
     finally:

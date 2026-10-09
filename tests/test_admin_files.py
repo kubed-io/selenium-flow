@@ -1,4 +1,4 @@
-"""The admin surface over a session's three file sections.
+"""The admin surface over a workspace's three file sections.
 
 Downloads, Screenshots and Files never merge into one list (§F4.6): each has
 its own address, its own listing, and — for Screenshots and Downloads — its
@@ -24,14 +24,14 @@ from kubed.selenium_flow.flows import store as flows
 from kubed.selenium_flow.http import links
 from kubed.selenium_flow.names import RECORDINGS_DIR, SCREENSHOTS_DIR
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.session.store import SessionRecord
+from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import TOKEN
 
 pytestmark = pytest.mark.unit
 
 KEY = "desktop"
-SESSION = "desktop"
+WORKSPACE = "desktop"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
@@ -47,17 +47,17 @@ def kept_server(tmp_path):
 
 @pytest.fixture
 def client(kept_server):
-    """Every request names its session, the way this surface says to (§F2.13)."""
+    """Every request names its workspace, the way this surface says to (§F2.13)."""
     return TestClient(
-        kept_server.mcp.http_app(), headers={"X-Session-Key": SESSION}
+        kept_server.mcp.http_app(), headers={"X-Workspace": WORKSPACE}
     )
 
 
 @pytest.fixture
 def live(kept_server):
-    """A flow session holding a browser, which is what the admin API addresses."""
-    kept_server.sessions.store.set(
-        KEY, SessionRecord(session_id="abc").visited("https://x/")
+    """A workspace holding a browser, which is what the admin API addresses."""
+    kept_server.workspaces.store.set(
+        KEY, Workspace(session_id="abc").visited("https://x/")
     )
     return kept_server
 
@@ -66,8 +66,8 @@ def live(kept_server):
 
 
 def test_the_listing_is_three_sections(client, live, tmp_path):
-    live.flows.write_file(SESSION, "shot.png", b"\x89PNG", SCREENSHOTS_DIR)
-    live.flows.write_file(SESSION, "report.pdf", b"PDF")
+    live.flows.write_file(WORKSPACE, "shot.png", b"\x89PNG", SCREENSHOTS_DIR)
+    live.flows.write_file(WORKSPACE, "report.pdf", b"PDF")
     with (
         patch.object(browser.Grid, "is_alive", return_value=True),
         patch.object(
@@ -76,7 +76,7 @@ def test_the_listing_is_three_sections(client, live, tmp_path):
             return_value=[{"name": "movie.mp4", "size": 10, "creationTime": 1}],
         ),
     ):
-        body = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH).json()
+        body = client.get(f"/admin/workspaces/{KEY}/files", headers=AUTH).json()
     assert [f["name"] for f in body["downloads"]] == ["movie.mp4"]
     assert [f["name"] for f in body["screenshots"]] == ["shot.png"]
     assert [f["name"] for f in body["files"]] == ["report.pdf"]
@@ -84,27 +84,27 @@ def test_the_listing_is_three_sections(client, live, tmp_path):
 
 
 def test_clearing_screenshots_leaves_files(client, live):
-    live.flows.write_file(SESSION, "shot.png", b"x", SCREENSHOTS_DIR)
-    live.flows.write_file(SESSION, "report.pdf", b"x")
-    response = client.delete(f"/admin/sessions/{KEY}/files/screenshots", headers=AUTH)
+    live.flows.write_file(WORKSPACE, "shot.png", b"x", SCREENSHOTS_DIR)
+    live.flows.write_file(WORKSPACE, "report.pdf", b"x")
+    response = client.delete(f"/admin/workspaces/{KEY}/files/screenshots", headers=AUTH)
     assert response.status_code == 200, response.text
     assert response.json()["cleared"] == 1
-    assert live.flows.files(SESSION, SCREENSHOTS_DIR) == []
-    assert [f["name"] for f in live.flows.files(SESSION)] == ["report.pdf"]
+    assert live.flows.files(WORKSPACE, SCREENSHOTS_DIR) == []
+    assert [f["name"] for f in live.flows.files(WORKSPACE)] == ["report.pdf"]
 
 
 def test_clearing_downloads_empties_the_grid_store(client, live):
-    live.flows.write_file(SESSION, "shot.png", b"x", SCREENSHOTS_DIR)
+    live.flows.write_file(WORKSPACE, "shot.png", b"x", SCREENSHOTS_DIR)
     with (
         patch.object(browser.Grid, "is_alive", return_value=True),
         patch.object(browser.Grid, "clear_files") as clear,
     ):
-        response = client.delete(f"/admin/sessions/{KEY}/files/downloads", headers=AUTH)
+        response = client.delete(f"/admin/workspaces/{KEY}/files/downloads", headers=AUTH)
     assert response.status_code == 200, response.text
     clear.assert_called_once_with("abc")
     # Screenshots are ours and elsewhere, so clearing the Grid's store leaves
     # them exactly where they were (§F1.10).
-    assert [f["name"] for f in live.flows.files(SESSION, SCREENSHOTS_DIR)] == [
+    assert [f["name"] for f in live.flows.files(WORKSPACE, SCREENSHOTS_DIR)] == [
         "shot.png"
     ]
 
@@ -113,12 +113,12 @@ def test_a_reaped_browser_has_no_downloads_to_clear(client, kept_server):
     """The record still names a browser; the Grid no longer has it. Dialling
     `clear_files` for an id the Grid has reaped would be a call for nothing,
     so this is success without ever making it."""
-    kept_server.sessions.store.set(KEY, SessionRecord(session_id="abc"))
+    kept_server.workspaces.store.set(KEY, Workspace(session_id="abc"))
     with (
         patch.object(browser.Grid, "is_alive", return_value=False),
         patch.object(browser.Grid, "clear_files") as clear,
     ):
-        response = client.delete(f"/admin/sessions/{KEY}/files/downloads", headers=AUTH)
+        response = client.delete(f"/admin/workspaces/{KEY}/files/downloads", headers=AUTH)
     assert response.status_code == 200, response.text
     clear.assert_not_called()
 
@@ -147,7 +147,7 @@ def test_a_grid_500_on_clear_is_not_reported_as_success(client, live):
             return_value=_FakeGridResponse(500),
         ),
     ):
-        response = client.delete(f"/admin/sessions/{KEY}/files/downloads", headers=AUTH)
+        response = client.delete(f"/admin/workspaces/{KEY}/files/downloads", headers=AUTH)
     assert response.status_code >= 500, response.text
     # The Grid's own error text never reaches the caller verbatim; only the
     # errors.py-decided message does.
@@ -164,43 +164,43 @@ def test_a_grid_404_on_clear_is_success(client, live):
             return_value=_FakeGridResponse(404),
         ),
     ):
-        response = client.delete(f"/admin/sessions/{KEY}/files/downloads", headers=AUTH)
+        response = client.delete(f"/admin/workspaces/{KEY}/files/downloads", headers=AUTH)
     assert response.status_code == 200, response.text
 
 
 def test_deleting_one_file_in_files(client, live):
-    live.flows.write_file(SESSION, "report.pdf", b"x")
-    response = client.delete(f"/admin/sessions/{KEY}/files/report.pdf", headers=AUTH)
+    live.flows.write_file(WORKSPACE, "report.pdf", b"x")
+    response = client.delete(f"/admin/workspaces/{KEY}/files/report.pdf", headers=AUTH)
     assert response.status_code == 200
     assert response.json()["deleted"] is True
-    assert live.flows.files(SESSION) == []
+    assert live.flows.files(WORKSPACE) == []
 
 
 def test_there_is_no_delete_for_one_screenshot(client, live):
-    live.flows.write_file(SESSION, "shot.png", b"x", SCREENSHOTS_DIR)
+    live.flows.write_file(WORKSPACE, "shot.png", b"x", SCREENSHOTS_DIR)
     response = client.delete(
-        f"/admin/sessions/{KEY}/files/screenshots/shot.png", headers=AUTH
+        f"/admin/workspaces/{KEY}/files/screenshots/shot.png", headers=AUTH
     )
     assert response.status_code in (404, 405)
-    assert [f["name"] for f in live.flows.files(SESSION, SCREENSHOTS_DIR)] == [
+    assert [f["name"] for f in live.flows.files(WORKSPACE, SCREENSHOTS_DIR)] == [
         "shot.png"
     ]
 
 
 def test_keeping_from_the_admin_moves_a_screenshot(client, live):
-    live.flows.write_file(SESSION, "shot.png", b"x", SCREENSHOTS_DIR)
+    live.flows.write_file(WORKSPACE, "shot.png", b"x", SCREENSHOTS_DIR)
     response = client.post(
-        f"/admin/sessions/{KEY}/files/screenshots/shot.png/keep", headers=AUTH
+        f"/admin/workspaces/{KEY}/files/screenshots/shot.png/keep", headers=AUTH
     )
     assert response.status_code == 200, response.text
-    assert live.flows.files(SESSION, SCREENSHOTS_DIR) == []
-    assert [f["name"] for f in live.flows.files(SESSION)] == ["shot.png"]
+    assert live.flows.files(WORKSPACE, SCREENSHOTS_DIR) == []
+    assert [f["name"] for f in live.flows.files(WORKSPACE)] == ["shot.png"]
 
 
 @pytest.mark.parametrize("folder", ["files", "flows"])
 def test_the_admin_keeps_only_out_of_a_folder_a_file_leaves(client, live, folder):
     response = client.post(
-        f"/admin/sessions/{KEY}/files/{folder}/whatever.pdf/keep", headers=AUTH
+        f"/admin/workspaces/{KEY}/files/{folder}/whatever.pdf/keep", headers=AUTH
     )
     assert response.status_code == 400
 
@@ -210,9 +210,9 @@ def test_the_admin_keep_refuses_a_key_that_owns_no_library(client, kept_server, 
     clear handlers do, so a stored key that cannot be a directory is refused
     with that reason rather than reaching the store as a raw name."""
     stale = "named:desktop"
-    kept_server.sessions.store.set(stale, SessionRecord(session_id="").visited("https://x/"))
+    kept_server.workspaces.store.set(stale, Workspace(session_id="").visited("https://x/"))
     response = client.post(
-        f"/admin/sessions/{stale}/files/screenshots/shot.png/keep", headers=AUTH
+        f"/admin/workspaces/{stale}/files/screenshots/shot.png/keep", headers=AUTH
     )
     assert response.status_code == 400
     assert "cannot keep files" in response.json()["error"]
@@ -221,13 +221,13 @@ def test_the_admin_keep_refuses_a_key_that_owns_no_library(client, kept_server, 
 
 def test_the_screenshot_route_serves_a_signed_file(client, live):
     live.flows.write_file(
-        SESSION, "shot.png", b"\x89PNG\r\n\x1a\n", SCREENSHOTS_DIR
+        WORKSPACE, "shot.png", b"\x89PNG\r\n\x1a\n", SCREENSHOTS_DIR
     )
     with (
         patch.object(browser.Grid, "is_alive", return_value=True),
         patch.object(browser.Grid, "files", return_value=[]),
     ):
-        listing = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH).json()
+        listing = client.get(f"/admin/workspaces/{KEY}/files", headers=AUTH).json()
     url = listing["screenshots"][0]["url"]
     response = client.get(url)
     assert response.status_code == 200
@@ -237,7 +237,7 @@ def test_the_screenshot_route_serves_a_signed_file(client, live):
 
 
 def test_a_screenshot_that_is_not_there_is_a_404(client, live):
-    response = client.get(links.screenshot_url(SESSION, "missing.png", TOKEN))
+    response = client.get(links.screenshot_url(WORKSPACE, "missing.png", TOKEN))
     assert response.status_code == 404
 
 
@@ -254,7 +254,7 @@ def test_a_broken_screenshot_store_is_a_5xx_not_a_404(client, live):
             13, "Permission denied", "/data/flows/desktop/screenshots/shot.png"
         ),
     ):
-        response = client.get(links.screenshot_url(SESSION, "shot.png", TOKEN))
+        response = client.get(links.screenshot_url(WORKSPACE, "shot.png", TOKEN))
     assert response.status_code >= 500
     assert response.status_code < 600
     assert "/data/flows" not in response.text
@@ -265,9 +265,9 @@ def test_a_broken_screenshot_store_is_a_5xx_not_a_404(client, live):
 # ---- the counts -----------------------------------------------------------
 
 
-def test_the_session_row_counts_each_section(client, live):
-    live.flows.write_file(SESSION, "shot.png", b"x", SCREENSHOTS_DIR)
-    live.flows.write_file(SESSION, "report.pdf", b"x")
+def test_the_workspace_row_counts_each_section(client, live):
+    live.flows.write_file(WORKSPACE, "shot.png", b"x", SCREENSHOTS_DIR)
+    live.flows.write_file(WORKSPACE, "report.pdf", b"x")
     with (
         patch.object(browser.Grid, "sessions", return_value=[{"session_id": "abc"}]),
         patch.object(
@@ -276,22 +276,22 @@ def test_the_session_row_counts_each_section(client, live):
             return_value=[{"name": "movie.mp4", "size": 1, "creationTime": 1}],
         ),
     ):
-        row = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
+        row = client.get("/admin/workspaces", headers=AUTH).json()["workspaces"][0]
     assert row["counts"] == {"downloads": 1, "screenshots": 1, "recordings": 0, "files": 1}
     assert row["files_count"] == 3
 
 
 def test_the_file_stamp_changes_when_a_screenshot_is_kept(client, live):
-    live.flows.write_file(SESSION, "shot.png", b"x", SCREENSHOTS_DIR)
+    live.flows.write_file(WORKSPACE, "shot.png", b"x", SCREENSHOTS_DIR)
     with patch.object(browser.Grid, "sessions", return_value=[]):
-        before = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
+        before = client.get("/admin/workspaces", headers=AUTH).json()["workspaces"][0]
     client.post(
-        f"/admin/sessions/{KEY}/files/screenshots/shot.png/keep", headers=AUTH
+        f"/admin/workspaces/{KEY}/files/screenshots/shot.png/keep", headers=AUTH
     )
     with patch.object(browser.Grid, "sessions", return_value=[]):
-        after = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
+        after = client.get("/admin/workspaces", headers=AUTH).json()["workspaces"][0]
     # The name moved from Screenshots to Files, so the stamp changes even
-    # though the total count of files this session holds did not.
+    # though the total count of files this workspace holds did not.
     assert before["files_count"] == after["files_count"] == 1
     assert before["files_rev"] != after["files_rev"]
 
@@ -302,13 +302,13 @@ def test_the_file_stamp_changes_when_a_screenshot_is_kept(client, live):
 @pytest.mark.parametrize(
     "method,path",
     [
-        ("get", "/admin/sessions/{key}/files"),
-        ("delete", "/admin/sessions/{key}/files/downloads"),
-        ("delete", "/admin/sessions/{key}/files/screenshots"),
-        ("delete", "/admin/sessions/{key}/files/report.pdf"),
-        ("post", "/admin/sessions/{key}/files/screenshots/shot.png/keep"),
-        ("delete", "/admin/sessions/{key}/files/recordings"),
-        ("post", "/admin/sessions/{key}/files/recordings/a.mp4/keep"),
+        ("get", "/admin/workspaces/{key}/files"),
+        ("delete", "/admin/workspaces/{key}/files/downloads"),
+        ("delete", "/admin/workspaces/{key}/files/screenshots"),
+        ("delete", "/admin/workspaces/{key}/files/report.pdf"),
+        ("post", "/admin/workspaces/{key}/files/screenshots/shot.png/keep"),
+        ("delete", "/admin/workspaces/{key}/files/recordings"),
+        ("post", "/admin/workspaces/{key}/files/recordings/a.mp4/keep"),
     ],
 )
 def test_every_files_endpoint_needs_the_token(client, method, path):
@@ -320,35 +320,35 @@ def test_every_files_endpoint_needs_the_token(client, method, path):
 
 
 def test_recordings_are_listed_counted_cleared_and_kept(client, live):
-    live.sessions.store.set(
+    live.workspaces.store.set(
         KEY,
-        SessionRecord(session_id="abc", settings={"record": True}).visited("https://x/"),
+        Workspace(session_id="abc", settings={"record": True}).visited("https://x/"),
     )
-    live.flows.write_file(SESSION, "rec-1.mp4", b"v", RECORDINGS_DIR)
-    live.flows.write_file(SESSION, "rec-2.mp4", b"w", RECORDINGS_DIR)
-    live.flows.write_file(SESSION, "report.pdf", b"p")
-    live.flows.write_note(SESSION, "8f3d6dc2a1b04e6f9c1d2e3f4a5b6c7d", {"opened": 1})
+    live.flows.write_file(WORKSPACE, "rec-1.mp4", b"v", RECORDINGS_DIR)
+    live.flows.write_file(WORKSPACE, "rec-2.mp4", b"w", RECORDINGS_DIR)
+    live.flows.write_file(WORKSPACE, "report.pdf", b"p")
+    live.flows.write_note(WORKSPACE, "8f3d6dc2a1b04e6f9c1d2e3f4a5b6c7d", {"opened": 1})
     with (
         patch.object(browser.Grid, "sessions", return_value=[{"session_id": "abc"}]),
         patch.object(browser.Grid, "is_alive", return_value=True),
         patch.object(browser.Grid, "files", return_value=[]),
     ):
-        row = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
-        body = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH).json()
+        row = client.get("/admin/workspaces", headers=AUTH).json()["workspaces"][0]
+        body = client.get(f"/admin/workspaces/{KEY}/files", headers=AUTH).json()
     assert row["counts"]["recordings"] == 2 and row["recording"] is True
     assert sorted(f["name"] for f in body["recordings"]) == ["rec-1.mp4", "rec-2.mp4"]
 
     kept = client.post(
-        f"/admin/sessions/{KEY}/files/recordings/rec-1.mp4/keep", headers=AUTH
+        f"/admin/workspaces/{KEY}/files/recordings/rec-1.mp4/keep", headers=AUTH
     )
     assert kept.status_code == 200, kept.text
-    assert kept.json()["uri"] == "session://files/rec-1.mp4"
-    assert [f["name"] for f in live.flows.files(SESSION, RECORDINGS_DIR)] == ["rec-2.mp4"]
+    assert kept.json()["uri"] == "workspace://files/rec-1.mp4"
+    assert [f["name"] for f in live.flows.files(WORKSPACE, RECORDINGS_DIR)] == ["rec-2.mp4"]
 
-    cleared = client.delete(f"/admin/sessions/{KEY}/files/recordings", headers=AUTH)
+    cleared = client.delete(f"/admin/workspaces/{KEY}/files/recordings", headers=AUTH)
     assert cleared.status_code == 200 and cleared.json()["cleared"] == 1
-    assert live.flows.files(SESSION, RECORDINGS_DIR) == []
-    assert sorted(f["name"] for f in live.flows.files(SESSION)) == [
+    assert live.flows.files(WORKSPACE, RECORDINGS_DIR) == []
+    assert sorted(f["name"] for f in live.flows.files(WORKSPACE)) == [
         "rec-1.mp4", "report.pdf",
     ]
     assert len(live.flows.notes()) == 1
@@ -358,7 +358,7 @@ def test_a_storage_fault_keeping_a_recording_is_a_5xx(client, live, monkeypatch)
     import errno
     import os
 
-    live.flows.write_file(SESSION, "rec-1.mp4", b"v", RECORDINGS_DIR)
+    live.flows.write_file(WORKSPACE, "rec-1.mp4", b"v", RECORDINGS_DIR)
     real = os.stat
 
     def faulty(path, *a, **k):
@@ -368,6 +368,6 @@ def test_a_storage_fault_keeping_a_recording_is_a_5xx(client, live, monkeypatch)
 
     monkeypatch.setattr(os, "stat", faulty)
     response = client.post(
-        f"/admin/sessions/{KEY}/files/recordings/rec-1.mp4/keep", headers=AUTH
+        f"/admin/workspaces/{KEY}/files/recordings/rec-1.mp4/keep", headers=AUTH
     )
     assert 500 <= response.status_code < 600

@@ -485,7 +485,7 @@ def test_a_failure_reports_the_page_the_browser_is_actually_on():
 
     assert report["status"] == "failed"
     assert report["steps"][-1]["url"] == "https://example.test/two"
-    # And the run-level URL, which is what sessions.touch stores.
+    # And the run-level URL, which is what Workspaces.touch stores.
     assert report["url"] == "https://example.test/two"
 
 
@@ -533,7 +533,7 @@ def test_a_guarded_value_does_not_come_back_in_the_result():
 
 
 def test_a_guarded_value_never_reaches_the_top_level_report():
-    """Which is what sessions.touch stores — a secret URL in Redis outlives the
+    """Which is what Workspaces.touch stores — a secret URL in Redis outlives the
     run, and a later reopen would navigate straight back to it."""
     steps = [
         {
@@ -1294,14 +1294,14 @@ def test_a_flow_reads_a_kept_file_from_the_library_the_run_belongs_to():
         library="desktop",
     )
     assert report["status"] == "ok"
-    assert seen["session"] == "desktop"
+    assert seen["workspace"] == "desktop"
 
 
 def test_a_step_can_never_name_another_callers_library():
-    """The run OVERWRITES rather than filling a gap. `session` is not part of
+    """The run OVERWRITES rather than filling a gap. `workspace` is not part of
     the saved-flow schema — `step_schemas` comes from the MCP tool, which omits
     it — so a document carrying one was hand-edited on disk and never validated.
-    A step that could name a library would read another session's kept files
+    A step that could name a library would read another workspace's kept files
     (Copilot, #32)."""
     seen = {}
 
@@ -1318,13 +1318,13 @@ def test_a_step_can_never_name_another_callers_library():
         flow([
             {
                 "tool": "upload_file",
-                "args": {"selector": {"css": "input"}, "file": "x.csv", "session": "somebody-else"},
+                "args": {"selector": {"css": "input"}, "file": "x.csv", "workspace": "somebody-else"},
             }
         ]),
         "b",
         library="desktop",
     )
-    assert seen["session"] == "desktop"
+    assert seen["workspace"] == "desktop"
 
 
 def test_a_saved_flow_cannot_carry_a_library_selector():
@@ -1344,13 +1344,13 @@ def test_a_saved_flow_cannot_carry_a_library_selector():
                 "steps": [
                     {
                         "tool": "upload_file",
-                        "args": {"selector": {"css": "input"}, "file": "x.csv", "session": "other"},
+                        "args": {"selector": {"css": "input"}, "file": "x.csv", "workspace": "other"},
                     }
                 ]
             },
             schemas,
         )
-    assert "session" in " ".join(refused.value.problems)
+    assert "workspace" in " ".join(refused.value.problems)
 
 
 def test_a_step_that_makes_a_file_says_where_it_went():

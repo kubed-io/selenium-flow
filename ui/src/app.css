@@ -121,7 +121,7 @@ input[type=password], input[type=text] {
 
 .tabs button[aria-selected=true] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
 
-/* The session's own Files/Flows tabs sit under the header rather than flush
+/* The workspace's own Files/Flows tabs sit under the header rather than flush
    against the top bar's tabs, so the two levels read as nested rather than as
    one long row. */
 .subtabs { margin-top: var(--gap); }
@@ -153,7 +153,7 @@ input[type=password], input[type=text] {
 
 /* Polish only (spec, difference 3): a soft pulse on the live badge's dot.
    Global, not a component <style> block — a scoped `@keyframes` here would
-   force Svelte to scope every element in SessionsView.svelte, not just this
+   force Svelte to scope every element in WorkspacesView.svelte, not just this
    one, which is worse than one more rule in the shared sheet. */
 .dot {
   display: inline-block;
@@ -214,15 +214,15 @@ iframe.console { width: 100%; height: 72vh; border: 1px solid var(--line); borde
 
 .login { max-width: 420px; margin: 12vh auto; }
 
-/* Session rows carry a name when a caller claimed one. */
+/* Workspace rows carry a name when a caller claimed one. */
 .pill.name { color: var(--accent); border-color: currentColor; }
 
 /* The browser mark. Sized to sit level with a pill rather than tower over it,
-   and non-selectable so dragging across a session id does not pick it up. */
+   and non-selectable so dragging across a workspace id does not pick it up. */
 .bmark { font-size: 15px; line-height: 1; user-select: none; }
 
-/* The page a session was last on. One line, clipped — it is context for
-   recognising the session, not something to read in full here. */
+/* The page a workspace was last on. One line, clipped — it is context for
+   recognising the workspace, not something to read in full here. */
 .card .url {
   margin-top: 3px;
   overflow: hidden;
@@ -230,7 +230,7 @@ iframe.console { width: 100%; height: 72vh; border: 1px solid var(--line); borde
   white-space: nowrap;
 }
 
-/* Detail header: what this session is, above what it produced. */
+/* Detail header: what this workspace is, above what it produced. */
 .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--gap); }
 .fact .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .fact .v { font-size: 13px; word-break: break-all; }
@@ -281,10 +281,10 @@ iframe.console { width: 100%; height: 72vh; border: 1px solid var(--line); borde
 .lightbox .nopreview .glyph { font-size: 48px; }
 .lightbox .nopreview a { color: #cfe0ff; }
 
-/* ---- the session header, grouped by lifetime ----------------------------
+/* ---- the workspace header, grouped by lifetime ----------------------------
    The old header put seven facts in one row and buried the two that matter.
    These are two groups because they have two different lifetimes: what the
-   SESSION keeps, and what belongs to the BROWSER it currently holds and goes
+   WORKSPACE keeps, and what belongs to the BROWSER it currently holds and goes
    when that does. */
 
 .groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--gap); }
@@ -299,7 +299,7 @@ iframe.console { width: 100%; height: 72vh; border: 1px solid var(--line); borde
 }
 
 /* The last page gets a full row of its own: a URL is twenty characters or two
-   hundred, and it is the single most useful thing about a live session. */
+   hundred, and it is the single most useful thing about a live workspace. */
 .lastpage { padding: 9px 0 12px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
 .lastpage a { word-break: break-all; }
 
@@ -377,7 +377,7 @@ iframe.console { width: 100%; height: 72vh; border: 1px solid var(--line); borde
 .flowlist .item .nm { font-size: 14px; word-break: break-all; }
 .flowlist .item .ct { font-size: 12px; color: var(--muted); }
 /* The globe marks only the shared ones. A badge on everything says nothing,
-   and a session's own flows are the unremarkable case. */
+   and a workspace's own flows are the unremarkable case. */
 .flowlist .item .globe { font-size: 14px; flex: none; }
 
 .panel { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 16px; display: flex; flex-direction: column; gap: var(--gap); }
@@ -520,6 +520,6 @@ textarea.yaml {
 
 /* ---- secrets ---------------------------------------------------------------
    One card per secret. Narrower than `.fact .k` elsewhere on the page — these
-   labels (keys, allowed, from) are shorter than the session header's. */
+   labels (keys, allowed, from) are shorter than the workspace header's. */
 .card.secret .fact { display: flex; gap: var(--gap); margin-top: 6px; }
 .card.secret .fact .k { width: 72px; flex: none; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }

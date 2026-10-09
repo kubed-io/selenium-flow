@@ -1,6 +1,6 @@
 {
   "events_url": "/admin/events?<signed>",
-  "sessions": [
+  "workspaces": [
     {
       "attached": true,
       "browser": "chrome",

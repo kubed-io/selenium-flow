@@ -10,9 +10,9 @@ what a model sees and fills in.
 Docstrings are prompt. They are written for a model deciding whether to call the
 tool, not for a developer reading the source.
 
-No tool takes a ``session_id``. A caller names its session — ``?session=``,
-``X-Session-Key`` or ``X-Workspace`` — and ``sessions.py`` turns that name
-into the browser it holds. The Grid's own id is never a parameter and never a
+No tool takes a ``session_id``. A caller names its workspace — ``?workspace=``
+or ``X-Workspace`` — and ``workspaces.py`` turns that name into the browser it
+holds. The Grid's own id is never a parameter and never a
 result (§F2.12).
 """
 
@@ -43,7 +43,7 @@ from ..core.capabilities import CAPABILITIES, Capability, capability
 from ..core.defaults import BROWSERS
 from ..core.probe import DEFAULT_LIMIT as OUTLINE_LIMIT
 from ..core.recipe import DIALOG_TIMEOUT, WAIT_TIMEOUT
-from ..session.sessions import NAME_PARAM, SessionManager
+from ..workspace.workspaces import NAME_PARAM, Workspaces
 from . import clients
 
 
@@ -151,18 +151,18 @@ Drives a real Chrome or Firefox browser on Selenium Grid. The browser is \
 persistent: it stays alive between tool calls and keeps its page, cookies and \
 scroll position.
 
-Name your session first: add ?{NAME_PARAM}=<name> to the MCP URL, or send an \
-X-Session-Key (or X-Workspace) header. Every call is then about that session, \
-and no call takes a session id — calling again with the same name is how you \
-get the same browser back, after a reconnect or a restart.
+Name your workspace first: add ?{NAME_PARAM}=<name> to the MCP URL, or send \
+an X-Workspace header. Every call is then about that workspace, and no call \
+takes a session id — calling again with the same name is how you get the same \
+browser back, after a reconnect or a restart.
 
 Lifecycle:
 1. Call open_session to start a browser. Pass browser="firefox" for Firefox; \
 the default is Chrome. Every other tool behaves identically on both.
-2. Call the other tools. They act on your session's browser.
+2. Call the other tools. They act on your workspace's browser.
 3. Call end_browser when finished, including after a failure. Browsers are a \
 scarce resource and an abandoned one holds a slot until the Grid reaps it. Your \
-session survives it, so open_session picks up where you left off.
+workspace survives it, so open_session picks up where you left off.
 
 Elements are addressed by XPath or by CSS - pass one or the other, never \
 both: selector={{"xpath": "//input[@name='q']"}} or \
@@ -192,7 +192,7 @@ with this server, so it describes this version of it.
 # still named by URI, so it is told how to read one rather than handed a
 # different vocabulary.
 READING_POINTER = """
-Everything this server has to read is a URI — session://current, flow://flows, \
+Everything this server has to read is a URI — workspace://current, flow://flows, \
 secret://secrets and the like, wherever a hint or an error names one. Read one \
 with read_resource(uri); list_resources shows them all.
 """
@@ -263,7 +263,7 @@ def _as_image(result: dict) -> Image | ToolResult:
     # - `file_error`: the capture survived and the file did not, and an MCP
     #   caller given only the image would look for a name never coming;
     # - `site_data`: the first call after a silent reopen says what came
-    #   back (``sessions.settle``) — dropped here, it is never said at all.
+    #   back (``Workspaces.settle``) — dropped here, it is never said at all.
     told = {
         k: result[k] for k in ("file", "file_error", "site_data")
         if result.get(k) is not None
@@ -274,7 +274,7 @@ def _as_image(result: dict) -> Image | ToolResult:
 
 
 def register(
-    mcp: FastMCP, actions: Actions, sessions: SessionManager, catalogue=None
+    mcp: FastMCP, actions: Actions, workspaces: Workspaces, catalogue=None
 ) -> None:
     """Register every capability as an MCP tool on ``mcp``.
 
@@ -295,7 +295,7 @@ def register(
         )(fn)
 
     def act(row: Capability, arguments: dict):
-        """Whose browser this is, then act on it. See ``sessions.act``, which
+        """Whose browser this is, then act on it. See ``Workspaces.act``, which
         the HTTP surface calls too so the two cannot drift."""
         if "secret" in arguments:
             # A capability that can type a secret (`write`) types one through
@@ -305,10 +305,10 @@ def register(
                 raise ValueError(f"{row.name} needs text, or a secret to supply it")
             if arguments["secret"] is not None:
                 return secrets_module.perform_write(
-                    catalogue, actions, sessions, clients.caller().name, arguments
+                    catalogue, actions, workspaces, clients.caller().name, arguments
                 )
             del arguments["secret"]
-        return sessions.act(
+        return workspaces.act(
             clients.caller(),
             lambda s: getattr(actions, row.method)(s, **arguments),
             reshapes=row.reshapes,
@@ -354,8 +354,8 @@ def register(
         fresh: bool = False,
         restore_site_data: bool = True,
     ) -> dict:
-        """Start this session's browser, or come back to the one it had. Call it before
-        anything else: nothing opens a browser for you.
+        """Start a session in this workspace, or come back to the one it had. Call it
+        before anything else: nothing opens a browser for you.
 
         With no arguments it returns to the same browser, window and page, which is
         the right call after a browser was reaped or ended. Calling it while you
@@ -370,11 +370,11 @@ def register(
         hangs. insecure=true accepts a self-signed certificate; use it only for a site
         you know has one. An insecure browser gets no saved site data.
         record=true films this browser's whole life as a video, from now until it
-        ends; it appears under session://files/recordings shortly after. A person
+        ends; it appears under workspace://files/recordings shortly after. A person
         watches it, so only when one will — it costs the Grid. Not inherited: ask
         again for the next browser.
         """
-        return sessions.open_browser(
+        return workspaces.open_browser(
             clients.caller(),
             url=url,
             fresh=fresh,
@@ -390,34 +390,34 @@ def register(
 
     @action("save_site_data")
     def save_site_data(url: str | None = None) -> dict:
-        """Save this session's site data, so a new browser comes back signed in.
+        """Save this workspace's site data, so a new browser comes back signed in.
 
         It keeps every cookie the browser holds, the localStorage of the sites it has
         been to, and the sessionStorage of the page it is on. Call it right after a
         sign-in is confirmed, and after changing a setting you want kept; never before
         checking you landed, or you keep a failed sign-in.
 
-        One save covers every site a call ended on, while the session keeps its
+        One save covers every site a call ended on, while the workspace keeps its
         history (a day by default, 100 sites): one passed through inside a call is not
         read, and one last visited longer ago loses its storage at the next save, its
         cookies staying. Each save replaces the last, so a save after signing out
-        saves you signed out. Every browser opened for this session has it back before
+        saves you signed out. Every browser opened for this workspace has it back before
         open_session returns, the one that replaces a reaped browser included. Values
-        are never returned; session://site-data lists what is saved.
+        are never returned; workspace://site-data lists what is saved.
         """
 
     @own("end_browser")
     def end_browser() -> dict:
-        """Quit this session's browser and free its Grid slot.
+        """Quit this workspace's browser and free its Grid slot.
 
         Call it when finished, and on failure paths too: browsers are scarce, and an
-        abandoned one holds its slot until the Grid reaps it. The session survives,
+        abandoned one holds its slot until the Grid reaps it. The workspace survives,
         so a later open_session() comes back to the same page. Files the browser had
         and you did not keep go with it.
         """
         caller = clients.caller()
-        sessions.end_browser(caller)
-        return {"success": True, "session": caller.name}
+        workspaces.end_browser(caller)
+        return {"success": True, "workspace": caller.name}
 
     @action("navigate")
     def navigate(url: str) -> dict:
@@ -482,7 +482,7 @@ def register(
             "one level (parent), or back to the page (default).\n\n"
             "Elements inside a frame are invisible to every tool until you "
             "switch in, and the switch sticks for every later call. If a "
-            "selector that should work keeps failing, read session://current: "
+            "selector that should work keeps failing, read workspace://current: "
             "in_frame says where you are."
         ),
     )
@@ -501,7 +501,7 @@ def register(
         """Resize the browser window.
 
         Set a size before judging anything visual: the headless default is small and
-        varies between Grid nodes. The size sticks to the session, so a browser
+        varies between Grid nodes. The size sticks to the workspace, so a browser
         reopened after the Grid reaps it comes back at this size.
         """
 
@@ -535,7 +535,7 @@ def register(
         """Attach a file to a file input (selector). Give exactly one source:
 
         - text, for anything you wrote (JSON, CSV, markdown), with a filename;
-        - file, any file this session has, by its uri from session://files — a
+        - file, any file this workspace has, by its uri from workspace://files — a
           screenshot, a download or a file in Files — without its bytes passing
           through you;
         - content, base64, for other binary.
@@ -680,7 +680,7 @@ def register(
         page (full_page), returned as an image. Use it only when the look is the
         answer; extract reads content far more cheaply.
 
-        By default the capture is also kept with the session's files. To show a
+        By default the capture is also kept with the workspace's files. To show a
         person what you saw, give them the file's url: it opens in any
         browser without a token, and ![](url) works. Do not describe the
         image instead.
@@ -697,7 +697,7 @@ def register(
         landscape: bool = False,
         background: bool = False,
     ) -> dict:
-        """Print the page into the session's files, kept past the browser.
+        """Print the page into the workspace's files, kept past the browser.
 
         format="pdf" is the browser's own print: selectable text, the whole
         document. landscape turns the page and background keeps colours and images

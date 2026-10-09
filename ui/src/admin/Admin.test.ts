@@ -3,7 +3,7 @@ import { beforeEach, expect, test, vi } from 'vitest'
 import { FakeEventSource, fakeFetch } from '../test/helpers'
 import Admin from './Admin.svelte'
 
-const SESSIONS = { sessions: [{ key: 'k1', name: 'claudecode', live: true }], events_url: '/e' }
+const WORKSPACES = { workspaces: [{ key: 'k1', name: 'claudecode', live: true }], events_url: '/e' }
 beforeEach(() => {
   sessionStorage.clear(); localStorage.clear()
   history.replaceState(null, '', '/#/')
@@ -21,7 +21,7 @@ test('signed out: the sign-in card, and no Sign out (A1, A2)', async () => {
 
 test('a refused token says so; an accepted one is kept in sessionStorage only (A2)', async () => {
   let ok = false
-  fakeFetch({ 'GET /admin/sessions': () => (ok ? { body: SESSIONS } : { status: 401 }) })
+  fakeFetch({ 'GET /admin/workspaces': () => (ok ? { body: WORKSPACES } : { status: 401 }) })
   const { container } = render(Admin, { mount: '', console: '/grid' })
   await fireEvent.input(container.querySelector('#token')!, { target: { value: ' bad ' } })
   await fireEvent.submit(container.querySelector('#loginForm')!)
@@ -37,7 +37,7 @@ test('a refused token says so; an accepted one is kept in sessionStorage only (A
 
 test('a stored token is probed; a dead one lands on sign-in (A3)', async () => {
   sessionStorage.setItem('sf-token', 'old')
-  fakeFetch({ 'GET /admin/sessions': { status: 401 } })
+  fakeFetch({ 'GET /admin/workspaces': { status: 401 } })
   const { container } = render(Admin, { mount: '', console: '/grid' })
   await vi.waitFor(() => expect(container.querySelector('#login')).toBeVisible())
   expect(sessionStorage.getItem('sf-token')).toBeNull()
@@ -46,27 +46,27 @@ test('a stored token is probed; a dead one lands on sign-in (A3)', async () => {
 test('BASE is the page path and server URLs resolve against ROOT (A6)', async () => {
   history.replaceState(null, '', '/base/flow/#/')
   sessionStorage.setItem('sf-token', 't')
-  const { calls } = fakeFetch({ 'GET /base/flow/admin/sessions': { body: { ...SESSIONS, events_url: '/flow/admin/events?s=1' } } })
+  const { calls } = fakeFetch({ 'GET /base/flow/admin/workspaces': { body: { ...WORKSPACES, events_url: '/flow/admin/events?s=1' } } })
   render(Admin, { mount: '/flow', console: '/grid' })
   await vi.waitFor(() => expect(FakeEventSource.last?.url).toBe('/base/flow/admin/events?s=1'))
-  expect(calls[0].path).toBe('/base/flow/admin/sessions')
+  expect(calls[0].path).toBe('/base/flow/admin/workspaces')
 })
 
 test('three top tabs, one pane at a time; the live badge (R1, L1)', async () => {
   sessionStorage.setItem('sf-token', 't')
-  fakeFetch({ 'GET /admin/sessions': { body: SESSIONS } })
+  fakeFetch({ 'GET /admin/workspaces': { body: WORKSPACES } })
   const { container } = render(Admin, { mount: '', console: '/grid' })
-  await vi.waitFor(() => expect(screen.getByText('Live sessions')).toBeInTheDocument())
-  expect(container.querySelector('#tabSessions')).toHaveAttribute('aria-selected', 'true')
+  await vi.waitFor(() => expect(screen.getByText('Live workspaces')).toBeInTheDocument())
+  expect(container.querySelector('#tabWorkspaces')).toHaveAttribute('aria-selected', 'true')
   expect(container.querySelector('#live')).toHaveTextContent('connecting…')
   expect(container.querySelector('#paneSecrets')).toBeNull()
 })
 
 test('the console tab hides itself when it would frame this page (R3, C1)', async () => {
   sessionStorage.setItem('sf-token', 't')
-  fakeFetch({ 'GET /admin/sessions': { body: SESSIONS } })
+  fakeFetch({ 'GET /admin/workspaces': { body: WORKSPACES } })
   const self = render(Admin, { mount: '', console: '/' })
-  await vi.waitFor(() => expect(screen.getByText('Live sessions')).toBeInTheDocument())
+  await vi.waitFor(() => expect(screen.getByText('Live workspaces')).toBeInTheDocument())
   expect(self.container.querySelector('#tabConsole')).not.toBeVisible()
   self.unmount()
   history.replaceState(null, '', '/#/console')
@@ -77,9 +77,9 @@ test('the console tab hides itself when it would frame this page (R3, C1)', asyn
 
 test('the console iframe is created at sign-in and keeps its place across tab switches (fix round 1, parity)', async () => {
   sessionStorage.setItem('sf-token', 't')
-  fakeFetch({ 'GET /admin/sessions': { body: SESSIONS } })
+  fakeFetch({ 'GET /admin/workspaces': { body: WORKSPACES } })
   const { container } = render(Admin, { mount: '', console: '/grid' })
-  await vi.waitFor(() => expect(screen.getByText('Live sessions')).toBeInTheDocument())
+  await vi.waitFor(() => expect(screen.getByText('Live workspaces')).toBeInTheDocument())
 
   // Present — and already carrying its `src` — while still on `#/`, not
   // created lazily on first visit to the console tab.
@@ -91,7 +91,7 @@ test('the console iframe is created at sign-in and keeps its place across tab sw
   await vi.waitFor(() => expect(container.querySelector('#paneConsole')).toBeVisible())
   expect(container.querySelector('iframe.console')).toBe(iframe)
 
-  await fireEvent.click(screen.getByText('Sessions'))
+  await fireEvent.click(screen.getByText('Workspaces'))
   await vi.waitFor(() => expect(container.querySelector('#paneConsole')).not.toBeVisible())
   expect(container.querySelector('iframe.console')).toBe(iframe)
 
@@ -100,18 +100,18 @@ test('the console iframe is created at sign-in and keeps its place across tab sw
   expect(container.querySelector('iframe.console')).toBe(iframe)
 })
 
-test('picking a session routes through the hash (L3, R2)', async () => {
+test('picking a workspace routes through the hash (L3, R2)', async () => {
   sessionStorage.setItem('sf-token', 't')
-  fakeFetch({ 'GET /admin/sessions': { body: SESSIONS } })
+  fakeFetch({ 'GET /admin/workspaces': { body: WORKSPACES } })
   render(Admin, { mount: '', console: '/grid' })
   await vi.waitFor(() => screen.getByText('claudecode'))
   await fireEvent.click(screen.getByText('claudecode'))
-  expect(location.hash).toBe('#/sessions/k1')
+  expect(location.hash).toBe('#/workspaces/k1')
 })
 
 test('Sign out stops the stream and forgets the token (A4)', async () => {
   sessionStorage.setItem('sf-token', 't')
-  fakeFetch({ 'GET /admin/sessions': { body: SESSIONS } })
+  fakeFetch({ 'GET /admin/workspaces': { body: WORKSPACES } })
   const { container } = render(Admin, { mount: '', console: '/grid' })
   await vi.waitFor(() => screen.getByText('Sign out'))
   await fireEvent.click(screen.getByText('Sign out'))
@@ -122,44 +122,44 @@ test('Sign out stops the stream and forgets the token (A4)', async () => {
 
 // --- extra, from the traceability table ---------------------------------
 
-test('the top tabs read Sessions, Secrets, Settings, Grid console left to right; #/secrets swaps the pane', async () => {
+test('the top tabs read Workspaces, Secrets, Settings, Grid console left to right; #/secrets swaps the pane', async () => {
   sessionStorage.setItem('sf-token', 't')
-  fakeFetch({ 'GET /admin/sessions': { body: SESSIONS } })
+  fakeFetch({ 'GET /admin/workspaces': { body: WORKSPACES } })
   const { container } = render(Admin, { mount: '', console: '/grid' })
-  await vi.waitFor(() => expect(screen.getByText('Live sessions')).toBeInTheDocument())
+  await vi.waitFor(() => expect(screen.getByText('Live workspaces')).toBeInTheDocument())
   const tabs = [...container.querySelectorAll('.tabs button')]
-  expect(tabs.map((b) => b.textContent?.trim())).toEqual(['Sessions', 'Secrets', 'Settings', 'Grid console'])
+  expect(tabs.map((b) => b.textContent?.trim())).toEqual(['Workspaces', 'Secrets', 'Settings', 'Grid console'])
 
   await fireEvent.click(screen.getByText('Secrets'))
   await vi.waitFor(() => expect(container.querySelector('#paneSecrets')).toBeTruthy())
   expect(container.querySelector('#paneSecrets')?.closest('#app')).toBe(container.querySelector('#app'))
-  expect(container.querySelector('#paneSessions')).toBeNull()
+  expect(container.querySelector('#paneWorkspaces')).toBeNull()
 })
 
 test('clicking the Settings tab routes through the hash', async () => {
   sessionStorage.setItem('sf-token', 't')
-  fakeFetch({ 'GET /admin/sessions': { body: SESSIONS } })
+  fakeFetch({ 'GET /admin/workspaces': { body: WORKSPACES } })
   const { container } = render(Admin, { mount: '', console: '/grid' })
-  await vi.waitFor(() => expect(screen.getByText('Live sessions')).toBeInTheDocument())
+  await vi.waitFor(() => expect(screen.getByText('Live workspaces')).toBeInTheDocument())
   await fireEvent.click(container.querySelector('#tabSettings')!)
   expect(location.hash).toBe('#/settings')
 })
 
-test('a deep link straight to a session (not the list) still opens the live stream (R5)', async () => {
+test('a deep link straight to a workspace (not the list) still opens the live stream (R5)', async () => {
   sessionStorage.setItem('sf-token', 't')
-  history.replaceState(null, '', '/#/sessions/k1')
-  fakeFetch({ 'GET /admin/sessions': { body: SESSIONS } })
+  history.replaceState(null, '', '/#/workspaces/k1')
+  fakeFetch({ 'GET /admin/workspaces': { body: WORKSPACES } })
   render(Admin, { mount: '', console: '/grid' })
   await vi.waitFor(() => expect(FakeEventSource.last).toBeTruthy())
   expect(FakeEventSource.last!.url).toBe('/e')
 })
 
-test('#/console with a self-framing console URL shows the session list, not the frame (ruling 3)', async () => {
+test('#/console with a self-framing console URL shows the workspace list, not the frame (ruling 3)', async () => {
   sessionStorage.setItem('sf-token', 't')
   history.replaceState(null, '', '/#/console')
-  fakeFetch({ 'GET /admin/sessions': { body: SESSIONS } })
+  fakeFetch({ 'GET /admin/workspaces': { body: WORKSPACES } })
   const { container } = render(Admin, { mount: '', console: '/' })
-  await vi.waitFor(() => expect(screen.getByText('Live sessions')).toBeInTheDocument())
-  expect(container.querySelector('#paneSessions')).toBeInTheDocument()
+  await vi.waitFor(() => expect(screen.getByText('Live workspaces')).toBeInTheDocument())
+  expect(container.querySelector('#paneWorkspaces')).toBeInTheDocument()
   expect(container.querySelector('iframe.console')).toBeNull()
 })

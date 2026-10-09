@@ -30,13 +30,13 @@ from .conftest import TOKEN
 
 pytestmark = pytest.mark.integration
 
-SESSION = "responsive"
+WORKSPACE = "responsive"
 # Long enough that a stalled loop cannot hide inside it, short enough to keep
 # the job quick. An assert that can never pass waits exactly this long.
 BUSY_SECONDS = 8
 # Generous: a shared runner is slow, and a stalled loop is BUSY_SECONDS.
 BUDGET_SECONDS = 1.0
-HEADERS = {"Authorization": f"Bearer {TOKEN}", "X-Session-Key": SESSION}
+HEADERS = {"Authorization": f"Bearer {TOKEN}", "X-Workspace": WORKSPACE}
 
 
 # A slow answer must be recorded as a number, not raised as a TimeoutError.
@@ -102,22 +102,22 @@ async def test_the_server_answers_while_a_browser_is_busy(server):
         # Paid here, outside the budget: lazy imports, the first MCP session.
         await asyncio.gather(
             asyncio.to_thread(_request, f"{server}/health"),
-            asyncio.to_thread(_request, f"{server}/admin/sessions"),
+            asyncio.to_thread(_request, f"{server}/admin/workspaces"),
             _list_tools(server),
         )
         timings: dict[str, list[float]] = {
             "GET /health": [],
-            "GET /admin/sessions": [],
+            "GET /admin/workspaces": [],
             "MCP tools/list": [],
         }
         while not busy.done() and len(timings["GET /health"]) < 10:
             health, admin, tools = await asyncio.gather(
                 asyncio.to_thread(_request, f"{server}/health"),
-                asyncio.to_thread(_request, f"{server}/admin/sessions"),
+                asyncio.to_thread(_request, f"{server}/admin/workspaces"),
                 _list_tools(server),
             )
             timings["GET /health"].append(health)
-            timings["GET /admin/sessions"].append(admin)
+            timings["GET /admin/workspaces"].append(admin)
             timings["MCP tools/list"].append(tools)
             await asyncio.sleep(0.3)
         took = await busy

@@ -20,14 +20,14 @@ from kubed.selenium_flow.core.browser import Grid
 from kubed.selenium_flow.http.admin import page as _admin_page
 from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.session.sessions import SessionManager
-from kubed.selenium_flow.session.store import MemoryStore
+from kubed.selenium_flow.workspace.store import MemoryStore
+from kubed.selenium_flow.workspace.workspaces import Workspaces
 
 from .fakes import FakeGrid, ScriptedDriver
 
 TOKEN = "test-token-abc123"
 
-# Two sessions that are stable and distinct, which is the whole premise: the
+# Two workspaces that are stable and distinct, which is the whole premise: the
 # same name must always resolve to the same browser, and two different names
 # must never see each other's. A name is the store key, so a test can read and
 # write `store[NAMED]` directly.
@@ -105,8 +105,8 @@ def http(params=None, headers=None):
 
 
 def manager(actions=None, store=None):
-    """A SessionManager over doubles, which is how nearly every test wants one."""
-    return SessionManager(actions or RecordingActions(), store or MemoryStore())
+    """A Workspaces manager over doubles, which is how nearly every test wants one."""
+    return Workspaces(actions or RecordingActions(), store or MemoryStore())
 
 
 @pytest.fixture
@@ -136,26 +136,26 @@ def calling_as(monkeypatch, name):
     monkeypatch.setattr(
         clients_module,
         "request_values",
-        lambda: http({"session": name} if name is not None else None),
+        lambda: http({"workspace": name} if name is not None else None),
     )
 
 
 @pytest.fixture
 def named_caller(monkeypatch):
-    """Make the ambient request look like a client that named its session.
+    """Make the ambient request look like a client that named its workspace.
 
-    This is the `NAMED` session, so a test using this fixture can read and write
+    This is the `NAMED` workspace, so a test using this fixture can read and write
     `store[NAMED]` directly.
     """
     monkeypatch.setattr(
-        clients_module, "request_values", lambda: http({"session": NAMED})
+        clients_module, "request_values", lambda: http({"workspace": NAMED})
     )
     return NAMED
 
 
 @pytest.fixture
 def unnamed_caller(monkeypatch):
-    """Make the ambient request name no session at all.
+    """Make the ambient request name no workspace at all.
 
     There is one contract now, and this is the caller that has not met it: every
     call is refused with the message that says how to name yourself (§F2.12).

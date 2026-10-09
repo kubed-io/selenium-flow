@@ -10,7 +10,7 @@ export interface ModalSpec<T = unknown> {
   confirm?: string
   danger?: boolean
   /* 'downloads' when it acts on the browser's downloads: a browser change
-     closes it without touching session-scoped dialogs (§F4.9). */
+     closes it without touching workspace-scoped dialogs (§F4.9). */
   scope?: 'downloads' | null
   onconfirm: () => Promise<void> | void
   oncancel?: () => void

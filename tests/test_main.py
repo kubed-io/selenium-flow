@@ -178,26 +178,26 @@ def test_the_access_log_drops_the_query_string_and_keeps_the_rest(tmp_path, list
     main_module.main(config(tmp_path))  # once, however often it boots
     access = logging.getLogger("uvicorn.access")
     assert sum(isinstance(f, access_log.RouteTemplates) for f in access.filters) == 1
-    line = access_line("/files/abc/x.png?session=s3cr3t&exp=1&sig=abc")
+    line = access_line("/files/abc/x.png?workspace=s3cr3t&exp=1&sig=abc")
     assert line == '1.2.3.4:5 - "GET /files/{session_id}/{name} HTTP/1.1" 200'
-    assert "session=" not in line and "sig=" not in line
+    assert "workspace=" not in line and "sig=" not in line
 
 
 SESSION_PATHS = [
-    ("/admin/sessions/s3cr3t/history", "/admin/sessions/{key}/history"),
-    ("/kept/s3cr3t/x.pdf", "/kept/{session}/{name}"),
-    ("/screenshots/s3cr3t/shot.png", "/screenshots/{session}/{name}"),
+    ("/admin/workspaces/s3cr3t/history", "/admin/workspaces/{key}/history"),
+    ("/kept/s3cr3t/x.pdf", "/kept/{workspace}/{name}"),
+    ("/screenshots/s3cr3t/shot.png", "/screenshots/{workspace}/{name}"),
     ("/files/s3cr3t/report.pdf", "/files/{session_id}/{name}"),
 ]
 
 
 @pytest.mark.parametrize("prefix", ["", "/flow"])
 @pytest.mark.parametrize(("path", "template"), SESSION_PATHS)
-def test_the_access_log_names_the_route_never_the_session(
+def test_the_access_log_names_the_route_never_the_workspace(
     tmp_path, listened, prefix, path, template
 ):
-    """Copilot, review 2: a session name is the credential past the token, and
-    dropping the query still left it in the path. The line names the route."""
+    """Copilot, review 2: a workspace name is the address of a browser anyone
+    with the token can drive, and dropping the query still left it in the path. The line names the route."""
     main_module.main(config(tmp_path, f"route_prefix: {prefix or '/'}\n"))
     line = access_line(f"{prefix}{path}")
     assert line == f'1.2.3.4:5 - "GET {prefix}{template} HTTP/1.1" 200'
@@ -221,7 +221,7 @@ def test_a_config_error_while_building_the_server_stops_the_boot(tmp_path, liste
     (tmp_path / "old" / "flows").mkdir(parents=True)
     with pytest.raises(SystemExit) as exc:
         main_module.main(["--data-dir", str(tmp_path)])
-    assert "move" in str(exc.value) and "sessions/" in str(exc.value)
+    assert "move" in str(exc.value) and "workspaces/" in str(exc.value)
 
 
 def test_an_unreadable_data_dir_exits_naming_it_not_a_traceback(tmp_path, listened, levels, monkeypatch):

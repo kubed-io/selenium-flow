@@ -18,21 +18,30 @@ from fastmcp.tools import ToolResult
 from mcp.types import TextContent
 
 from ..core.annotations import reads
+from ..names import retired_uri
 
 TOOL = "show"
 
 # The only place a URI is tied to a view: what the tool names, what it matches,
 # what draws it. First match wins.
 VIEWS: tuple[tuple[str, re.Pattern[str], str], ...] = (
-    ("session://current", re.compile(r"session://current"), "context"),
-    ("session://files", re.compile(r"session://files"), "files"),
+    ("workspace://current", re.compile(r"workspace://current"), "context"),
+    ("workspace://files", re.compile(r"workspace://files"), "files"),
     (
-        "session://files/screenshots",
-        re.compile(r"session://files/screenshots"),
+        "workspace://files/screenshots",
+        re.compile(r"workspace://files/screenshots"),
         "folder",
     ),
-    ("session://files/recordings", re.compile(r"session://files/recordings"), "folder"),
-    ("session://files/downloads", re.compile(r"session://files/downloads"), "folder"),
+    (
+        "workspace://files/recordings",
+        re.compile(r"workspace://files/recordings"),
+        "folder",
+    ),
+    (
+        "workspace://files/downloads",
+        re.compile(r"workspace://files/downloads"),
+        "folder",
+    ),
     ("flow://flows", re.compile(r"flow://flows"), "flows"),
     ("flow://flows/{name}", re.compile(r"flow://flows/[^/]+"), "flow"),
     # One secret is a closer look inside the app, not a URI: there is no
@@ -49,6 +58,7 @@ NOUNS = {"files": "kept file", "folder": "file", "flows": "flow", "secrets": "se
 
 
 def view_for(uri: str) -> str:
+    retired_uri(uri)
     for _, pattern, component in VIEWS:
         if pattern.fullmatch(uri):
             return component

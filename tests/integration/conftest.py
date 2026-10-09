@@ -47,13 +47,13 @@ import pytest
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
-from kubed.selenium_flow.names import SESSIONS_DIR
+from kubed.selenium_flow.names import WORKSPACES_DIR
 
 GRID_URL = os.environ.get("GRID_URL", "")
 ADMIN_ORIGIN = os.environ.get("ADMIN_ORIGIN", "").rstrip("/")
 TOKEN = "integration-token"
-# The session every flow runs in, and the name it must find on the admin page.
-SESSION = "integration"
+# The workspace every flow runs in, and the name it must find on the admin page.
+WORKSPACE = "integration"
 FLOWS = Path(__file__).parent / "flows"
 
 def pytest_collection_modifyitems(items):
@@ -117,7 +117,7 @@ def server(tmp_path_factory):
     """``selenium-flow`` on ADMIN_ORIGIN's port, with the flows in the shared
     library and the token as a secret leashed to the admin origin."""
     root = tmp_path_factory.mktemp("server")
-    shutil.copytree(FLOWS, root / "data" / SESSIONS_DIR / "global" / "flows")
+    shutil.copytree(FLOWS, root / "data" / WORKSPACES_DIR / "global" / "flows")
     secret = root / "secrets" / "admin"
     secret.mkdir(parents=True)
     (secret / "token").write_text(TOKEN)
@@ -162,13 +162,13 @@ def server(tmp_path_factory):
 
 @pytest.fixture
 async def browser(server):
-    """An MCP client holding a named session with a fresh browser.
+    """An MCP client holding a named workspace with a fresh browser.
 
     Fresh per test, because the admin page keeps its token in sessionStorage and
     a flow that signs in must find the sign-in form."""
     transport = StreamableHttpTransport(
         f"{server}/mcp",
-        headers={"Authorization": f"Bearer {TOKEN}", "X-Session-Key": SESSION},
+        headers={"Authorization": f"Bearer {TOKEN}", "X-Workspace": WORKSPACE},
     )
     async with Client(transport) as client:
         await client.call_tool("open_session", {"width": 1280, "height": 900, "restore_site_data": False})

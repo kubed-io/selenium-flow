@@ -385,11 +385,11 @@
       },
       "EndBrowserResponse": {
         "properties": {
-          "session": {
-            "type": "string"
-          },
           "success": {
             "type": "boolean"
+          },
+          "workspace": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -684,7 +684,7 @@
         "type": "object"
       },
       "FileList": {
-        "description": "session://files: Files' own listing, and its three folders.",
+        "description": "workspace://files: Files' own listing, and its three folders.",
         "properties": {
           "count": {
             "type": "integer"
@@ -701,8 +701,8 @@
             },
             "type": "array"
           },
-          "session": {
-            "description": "The session these files belong to.",
+          "workspace": {
+            "description": "The workspace these files belong to.",
             "type": [
               "string",
               "null"
@@ -723,10 +723,6 @@
             "description": "JSON Schema for the values a run accepts.",
             "type": "object"
           },
-          "session": {
-            "description": "The library it was read from.",
-            "type": "string"
-          },
           "shared": {
             "description": "True when it came from the shared global library.",
             "type": "boolean"
@@ -742,6 +738,10 @@
             "description": "Seconds the whole run may take before no further step starts. Defaults to 120; a step already running is bounded by its own wait_timeout.",
             "minimum": 1,
             "type": "integer"
+          },
+          "workspace": {
+            "description": "The library it was read from.",
+            "type": "string"
           }
         },
         "required": [
@@ -759,7 +759,7 @@
           "name": {
             "type": "string"
           },
-          "session": {
+          "workspace": {
             "type": "string"
           }
         },
@@ -776,7 +776,7 @@
             },
             "type": "array"
           },
-          "session": {
+          "workspace": {
             "type": "string"
           }
         },
@@ -806,9 +806,6 @@
               }
             },
             "type": "object"
-          },
-          "session": {
-            "type": "string"
           },
           "site_data": {
             "description": "Present only when site data was restored, skipped or forgotten in this call.",
@@ -925,6 +922,9 @@
           "url_redacted": {
             "description": "Present, and true, only when the page the run ended on carried a value typed from a secret: `url` is scrubbed, is not a real address, and must not be navigated back to.",
             "type": "boolean"
+          },
+          "workspace": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -943,9 +943,6 @@
           "saved": {
             "type": "boolean"
           },
-          "session": {
-            "type": "string"
-          },
           "steps": {
             "items": {
               "$ref": "#/components/schemas/FlowStep"
@@ -963,6 +960,9 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "workspace": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -1018,21 +1018,21 @@
           "parameters": {
             "type": "object"
           },
-          "session": {
-            "type": "string"
-          },
           "shared": {
             "description": "True when it came from the shared global library.",
             "type": "boolean"
           },
           "step_count": {
             "type": "integer"
+          },
+          "workspace": {
+            "type": "string"
           }
         },
         "type": "object"
       },
       "FolderList": {
-        "description": "One folder's own listing: session://files/screenshots, /recordings or /downloads.",
+        "description": "One folder's own listing: workspace://files/screenshots, /recordings or /downloads.",
         "properties": {
           "browser": {
             "description": "Present on downloads only: whether a browser is open to read them from.",
@@ -1055,14 +1055,14 @@
             ],
             "type": "string"
           },
-          "session": {
+          "uri": {
+            "type": "string"
+          },
+          "workspace": {
             "type": [
               "string",
               "null"
             ]
-          },
-          "uri": {
-            "type": "string"
           }
         },
         "type": "object"
@@ -1202,14 +1202,14 @@
           "name": {
             "type": "string"
           },
-          "sessions": {
+          "version": {
+            "type": "string"
+          },
+          "workspaces": {
             "enum": [
               "memory",
               "redis"
             ],
-            "type": "string"
-          },
-          "version": {
             "type": "string"
           }
         },
@@ -1525,10 +1525,6 @@
             "description": "Why this recording cannot be filed, when it cannot.",
             "type": "string"
           },
-          "session": {
-            "description": "The session this browser belongs to — the name you called with. There is no browser id to keep.",
-            "type": "string"
-          },
           "settings": {
             "description": "The settings this session actually opened with, after the server default / client default / explicit cascade.",
             "type": "object"
@@ -1592,6 +1588,10 @@
           "width": {
             "description": "Window width in use.",
             "type": "integer"
+          },
+          "workspace": {
+            "description": "The workspace this browser belongs to — the name you called with. There is no browser id to keep.",
+            "type": "string"
           }
         },
         "type": "object"
@@ -2005,18 +2005,18 @@
           "grid_ready": {
             "type": "boolean"
           },
-          "sessions": {
-            "description": "Where session records are kept.",
-            "enum": [
-              "memory",
-              "redis"
-            ],
-            "type": "string"
-          },
           "status": {
             "enum": [
               "ok",
               "degraded"
+            ],
+            "type": "string"
+          },
+          "workspaces": {
+            "description": "Where workspace records are kept.",
+            "enum": [
+              "memory",
+              "redis"
             ],
             "type": "string"
           }
@@ -2227,7 +2227,7 @@
             "type": "string"
           },
           "uri": {
-            "description": "session://site-data, which lists what is saved.",
+            "description": "workspace://site-data, which lists what is saved.",
             "type": "string"
           },
           "url": {
@@ -2497,7 +2497,7 @@
             },
             "type": "array"
           },
-          "session": {
+          "workspace": {
             "type": "string"
           }
         },
@@ -2553,117 +2553,8 @@
         },
         "type": "object"
       },
-      "SessionStatus": {
-        "properties": {
-          "browser": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "guidance": {
-            "description": "The skill reference that explains sessions.",
-            "type": "string"
-          },
-          "in_frame": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "live": {
-            "description": "Whether a browser is open for this session.",
-            "type": "boolean"
-          },
-          "named_by": {
-            "description": "Which mechanism supplied the name.",
-            "enum": [
-              "header",
-              "query",
-              "stdio",
-              "request"
-            ],
-            "type": "string"
-          },
-          "principal": {
-            "description": "Who the credential says you are: kind admin or oidc, with subject and username for oidc. Null on an open server.",
-            "properties": {
-              "kind": {
-                "enum": [
-                  "admin",
-                  "oidc"
-                ],
-                "type": "string"
-              },
-              "subject": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "username": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              }
-            },
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "recording": {
-            "description": "Whether the browser this session holds is being recorded.",
-            "type": "boolean"
-          },
-          "session": {
-            "description": "The name you called with.",
-            "type": "string"
-          },
-          "settings": {
-            "type": "object"
-          },
-          "site_data": {
-            "description": "Present only when the session has saved site data.",
-            "properties": {
-              "sites": {
-                "description": "How many sites have saved data.",
-                "type": "integer"
-              },
-              "uri": {
-                "description": "Where to read what is saved.",
-                "type": "string"
-              }
-            },
-            "type": "object"
-          },
-          "store": {
-            "enum": [
-              "memory",
-              "redis"
-            ],
-            "type": "string"
-          },
-          "url": {
-            "description": "The page it is on.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "window": {
-            "description": "Window size as WxH, when one is known.",
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "type": "object"
-      },
       "SiteData": {
-        "description": "session://site-data/{site}: one site in full. An httpOnly cookie's value is shown as •••.",
+        "description": "workspace://site-data/{site}: one site in full. An httpOnly cookie's value is shown as •••.",
         "properties": {
           "cookies": {
             "items": {
@@ -2769,7 +2660,7 @@
         "type": "object"
       },
       "SiteList": {
-        "description": "session://site-data: one entry per site the last save holds data for, counts only, the sites the session went to first.",
+        "description": "workspace://site-data: one entry per site the last save holds data for, counts only, the sites the workspace went to first.",
         "properties": {
           "saved_at": {
             "description": "When the snapshot was saved, in epoch seconds.",
@@ -2997,6 +2888,115 @@
         },
         "type": "object"
       },
+      "WorkspaceStatus": {
+        "properties": {
+          "browser": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "guidance": {
+            "description": "The skill reference that explains workspaces.",
+            "type": "string"
+          },
+          "in_frame": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "live": {
+            "description": "Whether a session is open in this workspace.",
+            "type": "boolean"
+          },
+          "named_by": {
+            "description": "Which mechanism supplied the name.",
+            "enum": [
+              "header",
+              "query",
+              "stdio",
+              "request"
+            ],
+            "type": "string"
+          },
+          "principal": {
+            "description": "Who the credential says you are: kind admin or oidc, with subject and username for oidc. Null on an open server.",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "admin",
+                  "oidc"
+                ],
+                "type": "string"
+              },
+              "subject": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "username": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "recording": {
+            "description": "Whether the browser this workspace holds is being recorded.",
+            "type": "boolean"
+          },
+          "settings": {
+            "type": "object"
+          },
+          "site_data": {
+            "description": "Present only when the workspace has saved site data.",
+            "properties": {
+              "sites": {
+                "description": "How many sites have saved data.",
+                "type": "integer"
+              },
+              "uri": {
+                "description": "Where to read what is saved.",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "store": {
+            "enum": [
+              "memory",
+              "redis"
+            ],
+            "type": "string"
+          },
+          "url": {
+            "description": "The page it is on.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "window": {
+            "description": "Window size as WxH, when one is known.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "workspace": {
+            "description": "The name you called with.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "WriteRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3141,7 +3141,7 @@
     }
   },
   "info": {
-    "description": "Drive a persistent browser on Selenium Grid over plain HTTP.\n\nEvery operation here is also an MCP tool at `/mcp`, backed by the same code —\nthe request schemas in this document are generated from those tools, so the two\nsurfaces cannot describe different things.\n\nName your session on every request — an `X-Session-Key` header (or\n`X-Workspace`, the same header by another name) or `?session=` — and every\ncall is about that session's browser. Sending both is a 400, and so is\nsending neither on anything that touches a browser. There is no browser id\nin this API.\n\n`POST /browser` opens yours, `DELETE /browser` ends it when you\nare finished — do that even after a failure, or it holds a Grid slot until it\ntimes out.\n",
+    "description": "Drive a persistent browser on Selenium Grid over plain HTTP.\n\nEvery operation here is also an MCP tool at `/mcp`, backed by the same code —\nthe request schemas in this document are generated from those tools, so the two\nsurfaces cannot describe different things.\n\nName your workspace on every request — an `X-Workspace` header or\n`?workspace=` — and every call is about that workspace's browser. Sending both\nis a 400, and so is sending neither on anything that touches a browser. There\nis no browser id in this API.\n\n`POST /browser` opens yours, `DELETE /browser` ends it when you\nare finished — do that even after a failure, or it holds a Grid slot until it\ntimes out.\n",
     "license": {
       "identifier": "MIT",
       "name": "MIT"
@@ -3153,20 +3153,11 @@
   "paths": {
     "/browser": {
       "delete": {
-        "description": "Quit this session's browser and free its Grid slot.\n\nCall it when finished, and on failure paths too: browsers are scarce, and an\nabandoned one holds its slot until the Grid reaps it. The session survives,\nso a later open_session() comes back to the same page. Files the browser had\nand you did not keep go with it.",
+        "description": "Quit this workspace's browser and free its Grid slot.\n\nCall it when finished, and on failure paths too: browsers are scarce, and an\nabandoned one holds its slot until the Grid reaps it. The workspace survives,\nso a later open_session() comes back to the same page. Files the browser had\nand you did not keep go with it.",
         "operationId": "end_browser",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -3175,9 +3166,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -3203,7 +3194,7 @@
                 }
               }
             },
-            "description": "Quit the browser, keeping the session and its context."
+            "description": "Quit the browser, keeping the workspace and its context."
           },
           "400": {
             "content": {
@@ -3213,7 +3204,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — no session named, two names given, or a setting that was rejected."
+            "description": "The request cannot succeed as sent — no workspace named, two names given, or a setting that was rejected."
           },
           "401": {
             "content": {
@@ -3246,27 +3237,18 @@
             "description": "The Grid could not serve this — unreachable, or no free slot for a new browser. Worth retrying after a wait."
           }
         },
-        "summary": "Quit the browser, keeping the session and its context.",
+        "summary": "Quit the browser, keeping the workspace and its context.",
         "tags": [
           "browser"
         ],
         "x-mcp-tool": "end_browser"
       },
       "get": {
-        "description": "The browser session this client is currently using.\n\nReturns the session name, which browser it is, the page it is on, the window size as WxH, whether it is inside a frame, and whether a browser is currently open (live). Read it before judging anything about layout — the window is not a fixed size and is what decides whether something is off-screen.\n\nReading this never opens a browser: live is false when none is held yet.",
-        "operationId": "currentSession",
+        "description": "The workspace this client named, and the session (browser) open in it.\n\nReturns the workspace name, which browser it is, the page it is on, the window size as WxH, whether it is inside a frame, and whether a session is currently open (live). Read it before judging anything about layout — the window is not a fixed size and is what decides whether something is off-screen.\n\nReading this never opens a browser: live is false when no session is open.",
+        "operationId": "currentWorkspace",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -3275,9 +3257,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -3289,11 +3271,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionStatus"
+                  "$ref": "#/components/schemas/WorkspaceStatus"
                 }
               }
             },
-            "description": "The session's current state. Opens nothing."
+            "description": "The workspace's current state. Opens nothing."
           },
           "400": {
             "content": {
@@ -3303,7 +3285,7 @@
                 }
               }
             },
-            "description": "No session named, or two names given."
+            "description": "No workspace named, or two names given."
           },
           "401": {
             "content": {
@@ -3316,27 +3298,18 @@
             "description": "Missing or wrong bearer token."
           }
         },
-        "summary": "What this session is, and whether it holds a browser.",
+        "summary": "What this workspace is, and whether it holds a browser.",
         "tags": [
           "browser"
         ],
-        "x-mcp-resource": "session://current"
+        "x-mcp-resource": "workspace://current"
       },
       "post": {
-        "description": "Start this session's browser, or come back to the one it had. Call it before\nanything else: nothing opens a browser for you.\n\nWith no arguments it returns to the same browser, window and page, which is\nthe right call after a browser was reaped or ended. Calling it while you\nhold a browser ends that one first, which is how you switch:\nopen_session(browser=\"firefox\"). Files that browser had and you did not keep\ngo with it.\n\nSet width and height when layout matters; the headless default is narrow.\nfresh=true starts on about:blank. Saved site data comes back by default;\nrestore_site_data=false opens without it and deletes it, which is how you\nstart as a new user. page_load_timeout bounds a navigation that\nhangs. insecure=true accepts a self-signed certificate; use it only for a site\nyou know has one. An insecure browser gets no saved site data.\nrecord=true films this browser's whole life as a video, from now until it\nends; it appears under session://files/recordings shortly after. A person\nwatches it, so only when one will — it costs the Grid. Not inherited: ask\nagain for the next browser.",
+        "description": "Start a session in this workspace, or come back to the one it had. Call it\nbefore anything else: nothing opens a browser for you.\n\nWith no arguments it returns to the same browser, window and page, which is\nthe right call after a browser was reaped or ended. Calling it while you\nhold a browser ends that one first, which is how you switch:\nopen_session(browser=\"firefox\"). Files that browser had and you did not keep\ngo with it.\n\nSet width and height when layout matters; the headless default is narrow.\nfresh=true starts on about:blank. Saved site data comes back by default;\nrestore_site_data=false opens without it and deletes it, which is how you\nstart as a new user. page_load_timeout bounds a navigation that\nhangs. insecure=true accepts a self-signed certificate; use it only for a site\nyou know has one. An insecure browser gets no saved site data.\nrecord=true films this browser's whole life as a video, from now until it\nends; it appears under workspace://files/recordings shortly after. A person\nwatches it, so only when one will — it costs the Grid. Not inherited: ask\nagain for the next browser.",
         "operationId": "open_session",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -3345,9 +3318,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -3373,7 +3346,7 @@
                 }
               }
             },
-            "description": "Open this session's browser, or pick up the one it was using."
+            "description": "Open a session in this workspace, or pick up the one it was using."
           },
           "400": {
             "content": {
@@ -3383,7 +3356,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — no session named, two names given, or a setting that was rejected."
+            "description": "The request cannot succeed as sent — no workspace named, two names given, or a setting that was rejected."
           },
           "401": {
             "content": {
@@ -3416,7 +3389,7 @@
             "description": "The Grid could not serve this — unreachable, or no free slot for a new browser. Worth retrying after a wait."
           }
         },
-        "summary": "Open this session's browser, or pick up the one it was using.",
+        "summary": "Open a session in this workspace, or pick up the one it was using.",
         "tags": [
           "browser"
         ],
@@ -3429,16 +3402,7 @@
         "operationId": "assert",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -3447,9 +3411,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -3551,16 +3515,7 @@
         "operationId": "dialog",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -3569,9 +3524,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -3673,16 +3628,7 @@
         "operationId": "drag",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -3691,9 +3637,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -3795,16 +3741,7 @@
         "operationId": "extract",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -3813,9 +3750,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -3913,20 +3850,11 @@
     },
     "/browser/frame": {
       "post": {
-        "description": "Move into an iframe (switch, with a selector or an index), up one level (parent), or back to the page (default).\n\nElements inside a frame are invisible to every tool until you switch in, and the switch sticks for every later call. If a selector that should work keeps failing, read session://current: in_frame says where you are.",
+        "description": "Move into an iframe (switch, with a selector or an index), up one level (parent), or back to the page (default).\n\nElements inside a frame are invisible to every tool until you switch in, and the switch sticks for every later call. If a selector that should work keeps failing, read workspace://current: in_frame says where you are.",
         "operationId": "frame",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -3935,9 +3863,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -4055,16 +3983,7 @@
             }
           },
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -4073,9 +3992,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -4177,16 +4096,7 @@
         "operationId": "navigate",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -4195,9 +4105,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -4299,16 +4209,7 @@
         "operationId": "outline",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -4317,9 +4218,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -4421,16 +4322,7 @@
         "operationId": "press_key",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -4439,9 +4331,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -4539,20 +4431,11 @@
     },
     "/browser/print": {
       "post": {
-        "description": "Print the page into the session's files, kept past the browser.\n\nformat=\"pdf\" is the browser's own print: selectable text, the whole\ndocument. landscape turns the page and background keeps colours and images\na print drops. format=\"html\" is the page as it stands now, after its\nscripts ran.\n\nTo give it to a person, give them the file's url: it opens in any browser\nwithout a token. A server with no public address configured returns it\nrelative instead.",
+        "description": "Print the page into the workspace's files, kept past the browser.\n\nformat=\"pdf\" is the browser's own print: selectable text, the whole\ndocument. landscape turns the page and background keeps colours and images\na print drops. format=\"html\" is the page as it stands now, after its\nscripts ran.\n\nTo give it to a person, give them the file's url: it opens in any browser\nwithout a token. A server with no public address configured returns it\nrelative instead.",
         "operationId": "print",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -4561,9 +4444,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -4652,7 +4535,7 @@
             "description": "The Grid could not serve this — unreachable, or no free slot for a new browser. Worth retrying after a wait."
           }
         },
-        "summary": "Print the page into the session's files, kept past the browser.",
+        "summary": "Print the page into the workspace's files, kept past the browser.",
         "tags": [
           "browser"
         ],
@@ -4661,20 +4544,11 @@
     },
     "/browser/resize": {
       "post": {
-        "description": "Resize the browser window.\n\nSet a size before judging anything visual: the headless default is small and\nvaries between Grid nodes. The size sticks to the session, so a browser\nreopened after the Grid reaps it comes back at this size.",
+        "description": "Resize the browser window.\n\nSet a size before judging anything visual: the headless default is small and\nvaries between Grid nodes. The size sticks to the workspace, so a browser\nreopened after the Grid reaps it comes back at this size.",
         "operationId": "resize",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -4683,9 +4557,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -4783,20 +4657,11 @@
     },
     "/browser/save-site-data": {
       "post": {
-        "description": "Save this session's site data, so a new browser comes back signed in.\n\nIt keeps every cookie the browser holds, the localStorage of the sites it has\nbeen to, and the sessionStorage of the page it is on. Call it right after a\nsign-in is confirmed, and after changing a setting you want kept; never before\nchecking you landed, or you keep a failed sign-in.\n\nOne save covers every site a call ended on, while the session keeps its\nhistory (a day by default, 100 sites): one passed through inside a call is not\nread, and one last visited longer ago loses its storage at the next save, its\ncookies staying. Each save replaces the last, so a save after signing out\nsaves you signed out. Every browser opened for this session has it back before\nopen_session returns, the one that replaces a reaped browser included. Values\nare never returned; session://site-data lists what is saved.",
+        "description": "Save this workspace's site data, so a new browser comes back signed in.\n\nIt keeps every cookie the browser holds, the localStorage of the sites it has\nbeen to, and the sessionStorage of the page it is on. Call it right after a\nsign-in is confirmed, and after changing a setting you want kept; never before\nchecking you landed, or you keep a failed sign-in.\n\nOne save covers every site a call ended on, while the workspace keeps its\nhistory (a day by default, 100 sites): one passed through inside a call is not\nread, and one last visited longer ago loses its storage at the next save, its\ncookies staying. Each save replaces the last, so a save after signing out\nsaves you signed out. Every browser opened for this workspace has it back before\nopen_session returns, the one that replaces a reaped browser included. Values\nare never returned; workspace://site-data lists what is saved.",
         "operationId": "save_site_data",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -4805,9 +4670,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -4896,7 +4761,7 @@
             "description": "The Grid could not serve this — unreachable, or no free slot for a new browser. Worth retrying after a wait."
           }
         },
-        "summary": "Save this session's site data, so a new browser comes back signed in.",
+        "summary": "Save this workspace's site data, so a new browser comes back signed in.",
         "tags": [
           "browser"
         ],
@@ -4905,20 +4770,11 @@
     },
     "/browser/screenshot": {
       "post": {
-        "description": "Capture a PNG of the viewport, of one element (selector), or of the whole\npage (full_page), returned as an image. Use it only when the look is the\nanswer; extract reads content far more cheaply.\n\nBy default the capture is also kept with the session's files. To show a\nperson what you saw, give them the file's url: it opens in any\nbrowser without a token, and ![](url) works. Do not describe the\nimage instead.\n\nsave=false stores nothing; file_error says why a save failed, and the image\nstill comes back.",
+        "description": "Capture a PNG of the viewport, of one element (selector), or of the whole\npage (full_page), returned as an image. Use it only when the look is the\nanswer; extract reads content far more cheaply.\n\nBy default the capture is also kept with the workspace's files. To show a\nperson what you saw, give them the file's url: it opens in any\nbrowser without a token, and ![](url) works. Do not describe the\nimage instead.\n\nsave=false stores nothing; file_error says why a save failed, and the image\nstill comes back.",
         "operationId": "screenshot",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -4927,9 +4783,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -5031,16 +4887,7 @@
         "operationId": "execute_script",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -5049,9 +4896,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -5149,20 +4996,11 @@
     },
     "/browser/upload": {
       "post": {
-        "description": "Attach a file to a file input (selector). Give exactly one source:\n\n- text, for anything you wrote (JSON, CSV, markdown), with a filename;\n- file, any file this session has, by its uri from session://files — a\n  screenshot, a download or a file in Files — without its bytes passing\n  through you;\n- content, base64, for other binary.\n\nThe page reads the type from the filename's extension, so name it\nreport.csv, not report; without one, mime_type picks it.",
+        "description": "Attach a file to a file input (selector). Give exactly one source:\n\n- text, for anything you wrote (JSON, CSV, markdown), with a filename;\n- file, any file this workspace has, by its uri from workspace://files — a\n  screenshot, a download or a file in Files — without its bytes passing\n  through you;\n- content, base64, for other binary.\n\nThe page reads the type from the filename's extension, so name it\nreport.csv, not report; without one, mime_type picks it.",
         "operationId": "upload_file",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -5171,9 +5009,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -5196,7 +5034,7 @@
                     "type": "string"
                   },
                   "file": {
-                    "description": "The uri of a file this session has — a screenshot, a download, or a file in Files — instead of sending any bytes at all. Exactly one source: a content part, text, file, or path.",
+                    "description": "The uri of a file this workspace has — a screenshot, a download, or a file in Files — instead of sending any bytes at all. Exactly one source: a content part, text, file, or path.",
                     "type": "string"
                   },
                   "filename": {
@@ -5313,16 +5151,7 @@
         "operationId": "write",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -5331,9 +5160,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -5431,20 +5260,11 @@
     },
     "/files": {
       "get": {
-        "description": "Everything kept in Files, newest first, plus a count for session://files/screenshots, session://files/recordings and session://files/downloads — each its own listing, fetched separately so a caller who only wants to know whether there is anything to look at need not pay for either.",
+        "description": "Everything kept in Files, newest first, plus a count for workspace://files/screenshots, workspace://files/recordings and workspace://files/downloads — each its own listing, fetched separately so a caller who only wants to know whether there is anything to look at need not pay for either.",
         "operationId": "listFiles",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -5453,9 +5273,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -5528,7 +5348,7 @@
         "tags": [
           "files"
         ],
-        "x-mcp-resource": "session://files"
+        "x-mcp-resource": "workspace://files"
       }
     },
     "/files/downloads": {
@@ -5537,16 +5357,7 @@
         "operationId": "listDownloads",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -5555,9 +5366,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -5573,7 +5384,7 @@
                 }
               }
             },
-            "description": "This session's browser downloads."
+            "description": "The downloads of the session open in this workspace."
           },
           "400": {
             "content": {
@@ -5626,11 +5437,11 @@
             "description": "The Grid could not serve this — unreachable, or failing. Worth retrying after a wait."
           }
         },
-        "summary": "This session's browser downloads.",
+        "summary": "The downloads of the session open in this workspace.",
         "tags": [
           "files"
         ],
-        "x-mcp-resource": "session://files/downloads"
+        "x-mcp-resource": "workspace://files/downloads"
       }
     },
     "/files/recordings": {
@@ -5639,16 +5450,7 @@
         "operationId": "listRecordings",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -5657,9 +5459,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -5675,7 +5477,7 @@
                 }
               }
             },
-            "description": "This session's recordings, not yet kept."
+            "description": "This workspace's recordings, not yet kept."
           },
           "400": {
             "content": {
@@ -5728,11 +5530,11 @@
             "description": "The Grid could not serve this — unreachable, or failing. Worth retrying after a wait."
           }
         },
-        "summary": "This session's recordings, not yet kept.",
+        "summary": "This workspace's recordings, not yet kept.",
         "tags": [
           "files"
         ],
-        "x-mcp-resource": "session://files/recordings"
+        "x-mcp-resource": "workspace://files/recordings"
       }
     },
     "/files/screenshots": {
@@ -5741,16 +5543,7 @@
         "operationId": "listScreenshots",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -5759,9 +5552,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -5777,7 +5570,7 @@
                 }
               }
             },
-            "description": "This session's saved screenshots, not yet kept."
+            "description": "This workspace's saved screenshots, not yet kept."
           },
           "400": {
             "content": {
@@ -5830,11 +5623,11 @@
             "description": "The Grid could not serve this — unreachable, or failing. Worth retrying after a wait."
           }
         },
-        "summary": "This session's saved screenshots, not yet kept.",
+        "summary": "This workspace's saved screenshots, not yet kept.",
         "tags": [
           "files"
         ],
-        "x-mcp-resource": "session://files/screenshots"
+        "x-mcp-resource": "workspace://files/screenshots"
       }
     },
     "/files/{folder}/{name}/kept": {
@@ -5864,16 +5657,7 @@
             }
           },
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -5882,9 +5666,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -5987,16 +5771,7 @@
         "operationId": "listFlows",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -6005,9 +5780,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -6023,7 +5798,7 @@
                 }
               }
             },
-            "description": "Every flow this session can run."
+            "description": "Every flow this workspace can run."
           },
           "400": {
             "content": {
@@ -6056,7 +5831,7 @@
             "description": "Something failed that this server did not expect."
           }
         },
-        "summary": "Every flow this session can run.",
+        "summary": "Every flow this workspace can run.",
         "tags": [
           "flows"
         ],
@@ -6065,7 +5840,7 @@
     },
     "/flows/{name}": {
       "delete": {
-        "description": "Deleting one that is not there is not an error. A flow in the shared `global` library is not yours to delete — every session runs those, so one vanishing mid-run would break somebody else's work — and asking is refused rather than silently ignored.",
+        "description": "Deleting one that is not there is not an error. A flow in the shared `global` library is not yours to delete — every workspace runs those, so one vanishing mid-run would break somebody else's work — and asking is refused rather than silently ignored.",
         "operationId": "deleteFlow",
         "parameters": [
           {
@@ -6077,16 +5852,7 @@
             }
           },
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -6095,9 +5861,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -6113,7 +5879,7 @@
                 }
               }
             },
-            "description": "Delete one of this session's flows."
+            "description": "Delete one of this workspace's flows."
           },
           "400": {
             "content": {
@@ -6146,14 +5912,14 @@
             "description": "Something failed that this server did not expect."
           }
         },
-        "summary": "Delete one of this session's flows.",
+        "summary": "Delete one of this workspace's flows.",
         "tags": [
           "flows"
         ],
         "x-mcp-tool": "delete_flow"
       },
       "get": {
-        "description": "Falls back to the shared library when this session has no flow of that name.",
+        "description": "Falls back to the shared library when this workspace has no flow of that name.",
         "operationId": "getFlow",
         "parameters": [
           {
@@ -6165,16 +5931,7 @@
             }
           },
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -6183,9 +5940,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -6241,7 +5998,7 @@
         "x-mcp-resource": "flow://flows/{name}"
       },
       "put": {
-        "description": "The same name updates, a new one creates. Always writes to this session's own library, never the shared one — so `session` is required in practice: the shared `global` library is read-only, because every session lists and runs what is in it. The document is validated against the live tools and a refusal lists every problem at once.",
+        "description": "The same name updates, a new one creates. Always writes to this workspace's own library, never the shared one — so `workspace` is required in practice: the shared `global` library is read-only, because every workspace lists and runs what is in it. The document is validated against the live tools and a refusal lists every problem at once.",
         "operationId": "saveFlow",
         "parameters": [
           {
@@ -6253,16 +6010,7 @@
             }
           },
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -6271,9 +6019,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -6374,7 +6122,7 @@
     },
     "/flows/{name}/runs": {
       "post": {
-        "description": "Every step, in order, server-side, against this session's browser. Stops at the first failing step unless that step says onError: continue, and reports which step stopped it and what page the browser was on. Returns a line per step; pass verbose for every step's full result.",
+        "description": "Every step, in order, server-side, against this workspace's browser. Stops at the first failing step unless that step says onError: continue, and reports which step stopped it and what page the browser was on. Returns a line per step; pass verbose for every step's full result.",
         "operationId": "runFlow",
         "parameters": [
           {
@@ -6386,16 +6134,7 @@
             }
           },
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -6404,9 +6143,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -6577,16 +6316,7 @@
         "operationId": "flowSchema",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -6595,9 +6325,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -6659,16 +6389,7 @@
         "operationId": "listSecrets",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -6677,9 +6398,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -6705,7 +6426,7 @@
                 }
               }
             },
-            "description": "No session named, two names given, or a server started with no secrets.dirs and no secrets.entries, so there are no secrets to list."
+            "description": "No workspace named, two names given, or a server started with no secrets.dirs and no secrets.entries, so there are no secrets to list."
           },
           "401": {
             "content": {
@@ -6737,20 +6458,11 @@
     },
     "/site-data": {
       "get": {
-        "description": "What this session's last save_site_data holds: one entry per site with counts, never a value; the sites the session went to come first. Every browser this session opens has it back before open_session returns.\n\nsession://site-data/{site} shows one site in full. Reading this never opens a browser.",
+        "description": "What this workspace's last save_site_data holds: one entry per site with counts, never a value; the sites the workspace went to come first. Every browser this workspace opens has it back before open_session returns.\n\nworkspace://site-data/{site} shows one site in full. Reading this never opens a browser.",
         "operationId": "listSiteData",
         "parameters": [
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -6759,9 +6471,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -6777,7 +6489,7 @@
                 }
               }
             },
-            "description": "The sites this session has saved data for."
+            "description": "The sites this workspace has saved data for."
           },
           "400": {
             "content": {
@@ -6787,7 +6499,7 @@
                 }
               }
             },
-            "description": "No session named, two names given, or no saved data for that site. Do not retry it unchanged."
+            "description": "No workspace named, two names given, or no saved data for that site. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -6810,16 +6522,16 @@
             "description": "Something failed that this server did not expect."
           }
         },
-        "summary": "The sites this session has saved data for.",
+        "summary": "The sites this workspace has saved data for.",
         "tags": [
           "browser"
         ],
-        "x-mcp-resource": "session://site-data"
+        "x-mcp-resource": "workspace://site-data"
       }
     },
     "/site-data/{site}": {
       "get": {
-        "description": "One site's saved data: its cookies, and the localStorage and sessionStorage of each of its origins. An httpOnly cookie's value is shown as •••; nothing else is hidden. The site is a host from the session://site-data listing.",
+        "description": "One site's saved data: its cookies, and the localStorage and sessionStorage of each of its origins. An httpOnly cookie's value is shown as •••; nothing else is hidden. The site is a host from the workspace://site-data listing.",
         "operationId": "getSiteData",
         "parameters": [
           {
@@ -6832,16 +6544,7 @@
             }
           },
           {
-            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
-            "in": "header",
-            "name": "X-Session-Key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
             "in": "header",
             "name": "X-Workspace",
             "required": false,
@@ -6850,9 +6553,9 @@
             }
           },
           {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
             "in": "query",
-            "name": "session",
+            "name": "workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -6878,7 +6581,7 @@
                 }
               }
             },
-            "description": "No session named, two names given, or no saved data for that site. Do not retry it unchanged."
+            "description": "No workspace named, two names given, or no saved data for that site. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -6905,7 +6608,7 @@
         "tags": [
           "browser"
         ],
-        "x-mcp-resource": "session://site-data/{site}"
+        "x-mcp-resource": "workspace://site-data/{site}"
       }
     },
     "/started": {
@@ -6957,7 +6660,7 @@
       "name": "flows"
     },
     {
-      "description": "What a session has downloaded, and what it has kept beyond the browser that downloaded it.",
+      "description": "What a workspace has downloaded, and what it has kept beyond the browser that downloaded it.",
       "name": "files"
     },
     {

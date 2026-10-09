@@ -3,14 +3,14 @@
 import pytest
 
 from kubed.selenium_flow import config
-from kubed.selenium_flow.session import sessions as sessions_module
-from kubed.selenium_flow.session.sessions import Caller, SessionManager
+from kubed.selenium_flow.workspace import workspaces as workspaces_module
+from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
 pytestmark = pytest.mark.unit
 
 
 class Recorder:
-    """The hook SessionManager calls; records what it was told."""
+    """The hook Workspaces calls; records what it was told."""
 
     def __init__(self):
         self.expected, self.finished, self.discarded = [], [], []
@@ -18,9 +18,9 @@ class Recorder:
         # a second expect for one browser replaces the first.
         self.notes = {}
 
-    def expect(self, session, grid_id, browser, *, discard=False):
+    def expect(self, workspace, grid_id, browser, *, discard=False):
         (self.discarded if discard else self.expected).append(
-            (session, grid_id, browser)
+            (workspace, grid_id, browser)
         )
         self.notes[grid_id] = discard
 
@@ -37,7 +37,7 @@ class Grid:
 
 
 class Actions:
-    """Answers the two calls SessionManager makes when opening and ending."""
+    """Answers the two calls Workspaces makes when opening and ending."""
 
     def __init__(self):
         self.grid = Grid()
@@ -67,7 +67,7 @@ class Actions:
 
 
 def manager(recorder=None):
-    return SessionManager(Actions(), recordings=recorder)
+    return Workspaces(Actions(), recordings=recorder)
 
 
 def caller(name="bot"):
@@ -78,7 +78,7 @@ def test_record_without_recording_set_up_is_a_400_and_opens_nothing():
     m = manager(None)
     with pytest.raises(ValueError) as exc:
         m.open_browser(caller(), record=True)
-    assert str(exc.value) == sessions_module.RECORDING_OFF
+    assert str(exc.value) == workspaces_module.RECORDING_OFF
     assert m.actions.calls == []
 
 
@@ -119,8 +119,8 @@ def test_a_reap_replays_record_and_expects_the_new_browser():
 
 def test_a_note_that_cannot_be_written_keeps_the_browser_and_says_why():
     class Broken(Recorder):
-        def expect(self, session, grid_id, browser, *, discard=False):
-            raise PermissionError(13, "denied", "/data/sessions/bot/recordings")
+        def expect(self, workspace, grid_id, browser, *, discard=False):
+            raise PermissionError(13, "denied", "/data/workspaces/bot/recordings")
 
     m = manager(Broken())
     result = m.open_browser(caller(), record=True)
@@ -161,42 +161,42 @@ def recording_at(data_dir, inbox=None):
 
 
 @pytest.mark.parametrize("inbox", [
-    "sessions/bot/recordings",  # inside: half-written videos listed as files
-    "sessions",
-    ".",  # above: the collector would sweep every session folder
+    "workspaces/bot/recordings",  # inside: half-written videos listed as files
+    "workspaces",
+    ".",  # above: the collector would sweep every workspace folder
     "/",
 ])
-def test_an_inbox_overlapping_the_sessions_does_not_boot(tmp_path, inbox):
+def test_an_inbox_overlapping_the_workspaces_does_not_boot(tmp_path, inbox):
     problem = recording_at(tmp_path, tmp_path / inbox)
     assert problem and "must not overlap" in problem
-    assert str((tmp_path / "sessions").resolve()) in problem
+    assert str((tmp_path / "workspaces").resolve()) in problem
 
 
 def test_a_relative_inbox_is_compared_where_the_server_opens_it(
     tmp_path, monkeypatch
 ):
     monkeypatch.chdir(tmp_path)
-    assert "must not overlap" in recording_at(tmp_path, "sessions/bot/inbox")
+    assert "must not overlap" in recording_at(tmp_path, "workspaces/bot/inbox")
     assert recording_at(tmp_path, "inbox") is None
 
 
-def test_the_default_inbox_and_a_sibling_are_apart_from_the_sessions(tmp_path):
+def test_the_default_inbox_and_a_sibling_are_apart_from_the_workspaces(tmp_path):
     assert recording_at(tmp_path) is None
     assert recording_at(tmp_path, tmp_path / "videos") is None
-    assert recording_at(tmp_path, tmp_path / "sessions-inbox") is None
+    assert recording_at(tmp_path, tmp_path / "workspaces-inbox") is None
 
 
 def test_a_disabled_recorder_may_name_any_inbox(tmp_path):
     assert config.recording_problem(config.Settings(
         data={"dir": str(tmp_path)},
-        recording={"dir": str(tmp_path / "sessions")},
+        recording={"dir": str(tmp_path / "workspaces")},
     )) is None
 
 
 def test_a_reap_survives_a_note_that_cannot_be_written():
     class Broken(Recorder):
-        def expect(self, session, grid_id, browser, *, discard=False):
-            raise PermissionError(13, "denied", "/data/sessions/bot/recordings")
+        def expect(self, workspace, grid_id, browser, *, discard=False):
+            raise PermissionError(13, "denied", "/data/workspaces/bot/recordings")
 
     m = manager(Recorder())
     m.open_browser(caller(), record=True)
@@ -265,7 +265,7 @@ def test_an_open_that_loses_the_race_notes_its_video_for_discard():
 
 def test_an_open_that_fails_once_the_browser_exists_leaves_a_discard_note():
     """The Grid made the browser and the restore or first page failed: the
-    session never held it, so its video is no one's (Copilot, #59)."""
+    workspace never held it, so its video is no one's (Copilot, #59)."""
     rec = Recorder()
     m = manager(rec)
     m.actions.fail = TimeoutError("first page")
@@ -294,8 +294,8 @@ def test_an_unrecorded_open_notes_nothing():
 
 def test_a_discard_that_cannot_be_noted_never_fails_the_open(caplog):
     class Broken(Recorder):
-        def expect(self, session, grid_id, browser, *, discard=False):
-            raise PermissionError(13, "denied", "/data/sessions/bot/recordings")
+        def expect(self, workspace, grid_id, browser, *, discard=False):
+            raise PermissionError(13, "denied", "/data/workspaces/bot/recordings")
 
     m = manager(Broken())
     real = m.actions.open_session
@@ -306,7 +306,7 @@ def test_a_discard_that_cannot_be_noted_never_fails_the_open(caplog):
         return real(**kwargs)
 
     m.actions.open_session = open_while_another_binds
-    assert m.open_browser(caller(), record=True)["session"] == "bot"
+    assert m.open_browser(caller(), record=True)["workspace"] == "bot"
     assert "cannot be noted" in caplog.text and "/data" not in caplog.text
 
 
@@ -315,7 +315,7 @@ def test_a_note_path_that_is_refused_never_fails_the_open(where):
     from kubed.selenium_flow.names import InvalidName
 
     class Refused(Recorder):
-        def expect(self, session, grid_id, browser, *, discard=False):
+        def expect(self, workspace, grid_id, browser, *, discard=False):
             raise InvalidName("'recordings' is a link")
 
     if where == "open":

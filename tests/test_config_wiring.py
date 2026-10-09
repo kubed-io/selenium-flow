@@ -28,16 +28,16 @@ def test_the_environment_is_read_in_two_modules_only():
 def test_a_server_built_from_settings_uses_them(tmp_path):
     s = Settings(grid=GRID, auth={"token": "t"}, route_prefix="/flow",
                  data={"dir": str(tmp_path)}, mcp={"skill": False},
-                 session={"browser": "firefox", "ttl": 42})
+                 session={"browser": "firefox"}, workspace={"ttl": 42})
     server = SeleniumMCP(s)
     assert server.settings is s
     assert server.auth_token == "t"
     assert server.prefix == "/flow"
     assert server.flows is not None
     assert server.skill is None
-    assert server.sessions.defaults == {"browser": "firefox"}
+    assert server.workspaces.defaults == {"browser": "firefox"}
     assert server.store._ttl == 42
-    assert server.sources["session.ttl"] == "args"
+    assert server.sources["workspace.ttl"] == "args"
 
 
 def test_no_settings_is_every_default(monkeypatch):

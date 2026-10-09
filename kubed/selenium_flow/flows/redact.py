@@ -24,7 +24,7 @@ HIDDEN = "<hidden>"
 #
 # Both routes have to be closed. Redacting only `value` left a magic-link token
 # bound to `url` coming straight back in the result, in the run's top-level
-# `url`, and — worst of the three — in `sessions.touch`, which persists it to
+# `url`, and — worst of the three — in `Workspaces.touch`, which persists it to
 # Redis as the page a later reopen should return to.
 RESULT_FROM_ARGUMENT = {"text": "value", "script": "result"}
 
