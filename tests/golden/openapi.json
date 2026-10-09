@@ -2896,6 +2896,13 @@
               "null"
             ]
           },
+          "grid_timeout": {
+            "description": "Seconds the Grid lets a session in this workspace sit idle before it ends it, read from its node at the last open. Null when the Grid did not say.",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "guidance": {
             "description": "The skill reference that explains workspaces.",
             "type": "string"
@@ -3244,7 +3251,7 @@
         "x-mcp-tool": "end_browser"
       },
       "get": {
-        "description": "The workspace this client named, and the session (browser) open in it.\n\nReturns the workspace name, which browser it is, the page it is on, the window size as WxH, whether it is inside a frame, and whether a session is currently open (live). Read it before judging anything about layout — the window is not a fixed size and is what decides whether something is off-screen.\n\nReading this never opens a browser: live is false when no session is open.",
+        "description": "The workspace this client named, and the session (browser) open in it.\n\nReturns the workspace name, which browser it is, the page it is on, the window size as WxH, whether it is inside a frame, and whether a session is currently open (live). Read it before judging anything about layout — the window is not a fixed size and is what decides whether something is off-screen.\n\ngrid_timeout is how many seconds the Grid lets a session in this workspace sit idle before it ends it; every call starts that clock again.\n\nReading this never opens a browser: live is false when no session is open.",
         "operationId": "currentWorkspace",
         "parameters": [
           {

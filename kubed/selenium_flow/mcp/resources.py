@@ -22,6 +22,9 @@ DESCRIPTION = (
     "currently open (live). Read it before judging anything about layout — the "
     "window is not a fixed size and is what decides whether something is "
     "off-screen.\n\n"
+    "grid_timeout is how many seconds the Grid lets a session in this "
+    "workspace sit idle before it ends it; every call starts that clock "
+    "again.\n\n"
     "Reading this never opens a browser: live is false when no session is open."
 )
 
