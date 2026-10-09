@@ -488,6 +488,8 @@ def mount(
                     # what this session is running, and how big.
                     "window": record.window,
                     "started": record.opened_at or None,
+                    # Who opened this browser, for the meta line ("by drk").
+                    "opened_by": record.opened_by,
                     "files_count": files_count,
                     "files_rev": files_rev,
                     "site_data_count": len(listed["sites"]),

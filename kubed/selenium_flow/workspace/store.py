@@ -123,6 +123,9 @@ class Workspace:
     # A silent reopen's site data report, held until the first result from
     # that browser carries it: {"browser": id, "report": {...}}, or {}.
     reopened: dict = field(default_factory=dict)
+    # Who opened the browser this workspace holds — {"kind", "username"} — for
+    # the admin list. Shown, never consulted (spec 2026-10-09-admin-oidc).
+    opened_by: dict | None = None
 
     @property
     def url(self) -> str:
@@ -170,6 +173,7 @@ class Workspace:
                 history=_visits(data.get("history")),
                 site_data=site_data if isinstance(site_data, dict) else {},
                 reopened=reopened if isinstance(reopened, dict) else {},
+                opened_by=_opener(data.get("opened_by")),
             )
         except (ValueError, TypeError):
             # A malformed entry is a cache miss, not an outage.
@@ -240,6 +244,14 @@ class Workspace:
         open is meant to inherit, so ending a browser must not take them.
         """
         return replace(self, session_id="")
+
+
+def _opener(value) -> dict | None:
+    """A stored `opened_by`, or None for anything that is not one."""
+    if not isinstance(value, dict) or value.get("kind") not in ("admin", "oidc"):
+        return None
+    name = value.get("username")
+    return {"kind": value["kind"], "username": name if isinstance(name, str) else None}
 
 
 def _visits(raw) -> list[dict]:

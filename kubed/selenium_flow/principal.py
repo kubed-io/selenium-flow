@@ -46,6 +46,11 @@ class Principal:
             return {"kind": "admin"}
         return {"kind": "oidc", "subject": self.subject, "username": self.username}
 
+    def opener(self) -> dict:
+        """What a workspace keeps about who opened its browser. Shown, never
+        consulted (spec 2026-10-09-admin-oidc, ruling 11)."""
+        return {"kind": self.kind, "username": self.username}
+
     @classmethod
     def from_claims(cls, claims: Mapping[str, Any], roles_claim: str) -> Principal:
         sub = claims.get("sub")

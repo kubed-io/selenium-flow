@@ -76,6 +76,10 @@ RECORDING_OFF = (
 # `settle`'s default page: the one the result itself reports.
 FROM_RESULT = object()
 
+# `remember`'s "leave who opened it alone": a silent reopen after a reap is the
+# same caller's browser coming back, not a new opener.
+KEEP = object()
+
 REPLACED_BEFORE_SAVE = (
     "another session took over this workspace before the save landed: nothing was saved"
 )
@@ -674,6 +678,7 @@ class Workspaces:
         kept = self.remember(
             name, opened["session_id"], opened.get("url", ""), resolved,
             replacing=ended, forget_site_data=forgotten is not None,
+            opened_by=caller.principal.opener() if caller.principal else None,
         )
         if kept != opened["session_id"]:
             # A concurrent open bound first and this browser was quit: describe
@@ -735,6 +740,7 @@ class Workspaces:
         replacing: str | None = None,
         forget_site_data: bool = False,
         report: dict | None = None,
+        opened_by: dict | object | None = KEEP,
     ) -> str:
         """Bind a browser to this workspace, and say which browser it holds.
 
@@ -775,6 +781,7 @@ class Workspaces:
                 site_data={} if forget_site_data or r is None else dict(r.site_data),
                 # Reset explicitly: any other bind drops an earlier reopen's report.
                 reopened={"browser": session_id, "report": report} if report else {},
+                **({} if opened_by is KEEP else {"opened_by": opened_by}),
             )
             return fresh.visited(url, ttl=ttl), None
 

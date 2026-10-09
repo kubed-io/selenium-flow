@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import replace
 from functools import wraps
 
 from starlette.concurrency import run_in_threadpool
@@ -27,6 +28,7 @@ from starlette.responses import JSONResponse
 
 from .. import errors, faults
 from ..faults import TooLarge
+from ..principal import ADMIN
 from ..workspace.workspaces import Caller, values_of
 from . import auth
 
@@ -198,6 +200,9 @@ async def answer(
         return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
     try:
         caller = Caller.from_request(*values_of(request))
+        if token:
+            # Only a token holder gets this far, so the caller is the admin.
+            caller = replace(caller, principal=ADMIN)
         if named:
             _ = caller.name  # its refusal, if it has one, before the call
         # In a worker thread: almost every call here is synchronous Selenium,
