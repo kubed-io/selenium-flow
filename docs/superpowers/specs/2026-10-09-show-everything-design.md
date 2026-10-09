@@ -194,8 +194,11 @@ Claude, 2026-10-09, unattended — each for Dr K to overturn on #63:
     tools; the Lightbox stays for a host that cannot.** Cost if wrong: the
     drill path loses the Lightbox's Prev/Next.
 11. **Open uses the host's `openLink` when it offers `openLinks`, else a plain
-    link** (`target="_blank" rel="noopener"`). Cost if wrong: on a host with
-    neither, Open does nothing; the URL is still in the entry the model holds.
+    link** (`target="_blank" rel="noopener"`). A host that refuses
+    (`isError`, e.g. a blocked domain) or fails puts *"The host would not open
+    this link: <url>"* in the shell's error line, since the view has already
+    cancelled the anchor. Cost if wrong: on a host with neither, Open does
+    nothing; the URL is still in the entry the model holds.
 12. **Back names the view it returns to** (*← Site data*, as drawn), from the
     component below it on the stack: `files` *Files*, `folder` its folder,
     `flows` *Flows*, `sites` *Site data*, `context` *Workspace*, `secrets`

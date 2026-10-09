@@ -109,6 +109,19 @@ test('the file view opens its link through the host when the host offers it', as
   expect(host.openLink).toHaveBeenCalledWith({ url: 'https://flow.example.com/f/x.csv' })
 })
 
+test.each([
+  ['refuses it', () => host.openLink.mockResolvedValue({ isError: true })],
+  ['fails', () => host.openLink.mockRejectedValue(new Error('gone'))],
+])('a link the host %s says so above the view', async (_, how) => {
+  host.caps = { serverTools: {}, openLinks: {} }
+  how()
+  render(App)
+  await shown({ component: 'file', uri: 'workspace://files/x.csv', data: { name: 'x.csv', size: 1, url: 'https://flow.example.com/f/x.csv', content_type: 'text/csv' } })
+  await fireEvent.click(await screen.findByRole('link', { name: 'Open' }))
+  await vi.waitFor(() => expect(screen.getByText('The host would not open this link: https://flow.example.com/f/x.csv')).toHaveClass('error'))
+  expect(screen.getByText('x.csv', { selector: 'strong' })).toBeInTheDocument()
+})
+
 test('Back under a folder names the folder', async () => {
   host.callServerTool.mockResolvedValue({ content: [], structuredContent: {
     component: 'file', uri: 'workspace://files/screenshots/a.png',

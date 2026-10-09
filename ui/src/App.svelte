@@ -171,8 +171,13 @@
         if (gone) return
         adopt(h.getHostContext())
         onshow = h.getHostCapabilities()?.serverTools ? push : undefined
+        // The view has already cancelled the anchor, so a host that says no
+        // (a blocked domain resolves isError) would otherwise leave a dead click.
+        const denied = (url: string) => { error = `The host would not open this link: ${url}` }
         onlink = h.getHostCapabilities()?.openLinks
-          ? (url: string) => { h.openLink({ url }).catch(() => {}) }
+          ? (url: string) => {
+              h.openLink({ url }).then((r) => { if (r?.isError) denied(url) }, () => denied(url))
+            }
           : undefined
       } catch (err) {
         if (!gone) failed = err instanceof Error ? err.message : String(err)
