@@ -152,7 +152,7 @@ def test_every_reference_is_reachable_from_the_index():
 def test_the_one_session_contract_has_a_reference():
     """There is one contract now — name yourself — where there were two modes,
     so there is one reference rather than a branch to take first (§F2.12)."""
-    assert (SKILL_DIR / "references/SESSIONS.md").is_file()
+    assert (SKILL_DIR / "references/WORKSPACES.md").is_file()
     for gone in ("STATELESS.md", "SAVED_SESSIONS.md"):
         assert not (SKILL_DIR / "references" / gone).is_file(), gone
 

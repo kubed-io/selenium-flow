@@ -1,6 +1,6 @@
 ---
 name: selenium-flow
-description: Drive a real Chrome or Firefox browser on Selenium Grid through the selenium-flow MCP server. Use when a task needs a live browser - logging in, filling and submitting a form, clicking through a multi-step flow, reading a page that only renders under JavaScript, capturing how something looks, checking a page in a second browser, saving a sequence to replay in one call, or logging in with a stored secret you are never shown. Start here to name your session, then read the one reference that matches what you are doing.
+description: Drive a real Chrome or Firefox browser on Selenium Grid through the selenium-flow MCP server. Use when a task needs a live browser - logging in, filling and submitting a form, clicking through a multi-step flow, reading a page that only renders under JavaScript, capturing how something looks, checking a page in a second browser, saving a sequence to replay in one call, or logging in with a stored secret you are never shown. Start here to name your workspace, then read the one reference that matches what you are doing.
 ---
 
 # Driving a browser with selenium-flow
@@ -18,16 +18,17 @@ Three consequences drive everything else:
 - **Slots are scarce.** The Grid runs a handful of browsers in total. An
   abandoned one holds its slot until it is reaped, so ending one is capacity,
   not politeness.
-- **Your session is not your browser.** The session outlives it, keeping your
-  browser choice and the page you were on. So a browser going away — reaped for
-  being idle, ended by you, ended by an operator — is never something to recover
-  from: `open_session()` with no arguments puts you back where you were.
+- **Your workspace is not your browser.** The workspace is the named box that
+  lasts; the session is the live browser open in it, and there is at most one.
+  The workspace keeps your browser choice and the page you were on, so a
+  session going away — reaped for being idle, ended by you, ended by an
+  operator — is never something to recover from: `open_session()` with no
+  arguments puts you back where you were.
 
-## Step 0: name your session
+## Step 0: name your workspace
 
-Every session is named by whoever calls, and the name is the whole contract:
-add `?session=<name>` to the server URL, or send an `X-Session-Key` header
-(`X-Workspace` is the same header, for clients that may only send approved ones).
+Every workspace is named by whoever calls, and the name is the whole contract:
+add `?workspace=<name>` to the server URL, or send an `X-Workspace` header.
 Sending both is an error. Over stdio you are named `stdio` already.
 
 There is **no session id anywhere** — no tool takes one, no result carries one.
@@ -35,8 +36,8 @@ Call again with the same name and you get the same browser back, after a
 reconnect or a restart.
 
 Read `workspace://current` before your first action if you want to know what you
-are holding. It reports the session name, the browser, the page and whether one
-is open. `skill://selenium-flow/references/SESSIONS.md` has the rest.
+are holding. It reports the workspace name, the browser, the page and whether a
+session is open. `skill://selenium-flow/references/WORKSPACES.md` has the rest.
 
 **Everything here to read is a URI** — `workspace://`, `flow://`, `secret://`,
 `skill://` — whether this page, a hint in a failed run or an error names it. Read
@@ -58,20 +59,20 @@ leave it alone.
 To switch, just call `open_session(browser="firefox")` again — the browser you
 are holding is ended for you first, so do not close and reopen. **The files it
 had go with it** — the downloads, which the Grid deletes with the browser.
-Screenshots and prints are your session's already: `workspace://files` lists
+Screenshots and prints are your workspace's already: `workspace://files` lists
 what is in Files and names three folders, `workspace://files/screenshots`,
 `workspace://files/recordings` and `workspace://files/downloads`. `keep_file(uri)`
 moves a screenshot or a recording into Files, or copies a download there before
 the browser goes.
 
-One session holds one browser. To use both at once, use two session names;
+A workspace holds one session at a time. To use both browsers at once, use two workspace names;
 `workspace://current` reports which browser the one you are holding is.
 
 ## If you are told you have no browser
 
-That is an ordinary state, not an error to work around. The Grid expires idle
-browsers, and an operator can end one — either way your session survives with
-its context.
+That is an ordinary state, not an error to work around: no session is open. The
+Grid expires idle browsers, and an operator can end one — either way your
+workspace survives with its context.
 
 **Call `open_session()` with no arguments.** It comes back on the same browser,
 the same window size, and the page you were last on. Pass arguments only to
@@ -103,8 +104,8 @@ ancestor. Giving both is an error rather than a preference — see
 `skill://selenium-flow/references/READING_PAGES.md`.
 
 **5. Always end the browser.** Including on failure paths. `end_browser()`
-frees the slot; skipping it makes the next person wait. It ends the *browser*,
-not your session — the session keeps your browser choice and last page, so this
+frees the slot; skipping it makes the next person wait. It ends the *session*,
+not your workspace — the workspace keeps your browser choice and last page, so this
 costs you nothing.
 
 ## Where to go next
@@ -113,7 +114,7 @@ Load only what the task needs.
 
 | Doing | Read |
 |---|---|
-| Naming a session, sharing one, or recovering a dead browser | `skill://selenium-flow/references/SESSIONS.md` |
+| Naming a workspace, sharing one, or recovering a dead browser | `skill://selenium-flow/references/WORKSPACES.md` |
 | Getting content out of a page, choosing a selector | `skill://selenium-flow/references/READING_PAGES.md` |
 | Clicking, hovering, typing, uploading, dialogs, scrolling, waiting | `skill://selenium-flow/references/INTERACTION.md` |
 | A timeout, an empty screenshot, a click that did nothing | `skill://selenium-flow/references/TROUBLESHOOTING.md` |
@@ -124,7 +125,7 @@ Load only what the task needs.
 
 ## A whole task, minimally
 
-Name your session once in the URL or the header, then `open_session` once:
+Name your workspace once in the URL or the header, then `open_session` once:
 
 ```
 open_session(width=1400, height=900)
@@ -152,7 +153,7 @@ check this table twice before reaching for it.
 | Tool | Does | Key arguments |
 |---|---|---|
 | `open_session` | start a browser, or come back to the one you had | `browser`: `chrome` \| `firefox`, `width`, `height`, `url`, `fresh`, `restore_site_data` |
-| `end_browser` | free the Grid slot; your session survives | — |
+| `end_browser` | free the Grid slot; your workspace survives | — |
 | `navigate` | go to a URL | `url` |
 | `interact` | a mouse gesture on an element | `selector`, `action`: `click` \| `double_click` \| `right_click` \| `hover` \| `scroll_to`, `glide` |
 | `drag` | drag an element onto another, or by an offset | `selector`, then `to` or `by_x`/`by_y`, `glide` |
@@ -184,9 +185,9 @@ And everything to read:
 | `workspace://files/{name}` | one kept file, as bytes; a video (a kept recording) is described instead — its link plays it |
 | `workspace://files/screenshots` | saved screenshots not yet kept |
 | `workspace://files/screenshots/{name}` | one of those, as bytes |
-| `workspace://files/recordings` | this session's recordings not yet kept, each with a link that plays it |
+| `workspace://files/recordings` | this workspace's recordings not yet kept, each with a link that plays it |
 | `workspace://files/recordings/{name}` | one of those, described — its link plays it; not the video's bytes |
-| `workspace://files/downloads` | this session's browser downloads |
+| `workspace://files/downloads` | this workspace's browser downloads |
 | `workspace://files/downloads/{name}` | one of those, as bytes, while the browser is open |
 | `workspace://site-data` | the sites you have saved cookies or storage for — never a value |
 | `workspace://site-data/{site}` | one site's saved cookies and storage; httpOnly values are masked |

@@ -61,7 +61,7 @@ mount** when `ROUTE_PREFIX` is set, so `/flow/mcp` and `/flow/browser/*` for
     "url": "http://selenium-flow.<namespace>.svc.cluster.local:8000/mcp",
     "headers": {
       "Authorization": "Bearer <token>",
-      "X-Session-Key": "my-client"
+      "X-Workspace": "my-client"
     }
   }
 }
@@ -81,17 +81,17 @@ bare token as the header value for clients that cannot express a scheme.
 
 ## The three per-client switches
 
-These go on the MCP URL as query parameters, or as headers. **A header beats the
-parameter**, because the header lives in the credential an admin controls while
-the URL is written by whoever wires up the call.
+These go on the MCP URL as query parameters, or as headers. Sending the same switch both ways is an
+error, not a contest: the header lives in the credential an admin controls and
+the URL is written by whoever wires up the call, so two values mean two ideas.
 
 | Switch | Header | Parameter | Does |
 |---|---|---|---|
-| Session name | `X-Session-Key` or `X-Workspace` | `?session=<name>` | Lets the server hold your browser, and survive a reconnect |
+| Workspace name | `X-Workspace` | `?workspace=<name>` | Names your workspace, so it holds your browser and survives a reconnect |
 | Resources | `X-MCP-Resources: off` or `on` | `?resources=off` or `on` | Whether this client is given `list_resources` and `read_resource`. Unset, VS Code gets them and other clients do not |
 
-Setting a session name is what turns on the ergonomic mode described in
-`skill://selenium-flow/references/SESSIONS.md`. Without a name a caller is refused, with a message
+Setting a workspace name is what gives you a browser and a library of your own, described in
+`skill://selenium-flow/references/WORKSPACES.md`. Without a name a caller is refused, with a message
 saying how to set one.
 
 ## Server settings worth knowing
@@ -103,18 +103,18 @@ page; these are the ones that change behaviour you will notice.
 | Env | Default | Why you would change it |
 |---|---|---|
 | `AUTH_TOKEN` | unset | Sets the bearer token for both surfaces. Unset means **no auth** |
-| `SESSION_STORE` | `memory` | `redis` to share a caller's browser across replicas or a restart |
-| `SESSION_TTL` | `86400` | How long a caller's mapping is kept. Not the browser's lifetime |
-| `DATA_DIR` | unset | The data root: sessions (flows, kept files, screenshots, recordings) live under `DATA_DIR/sessions/<name>/`. Unset means none of them |
+| `WORKSPACE_STORE` | `memory` | `redis` to share a caller's workspace across replicas or a restart |
+| `WORKSPACE_TTL` | `86400` | How long a workspace is kept after its last use. Not the browser's lifetime |
+| `DATA_DIR` | unset | The data root: workspaces (flows, kept files, screenshots, recordings) live under `DATA_DIR/workspaces/<name>/`. Unset means none of them |
 | `RECORDING_ENABLED` | `false` | The operator says the Grid's recordings reach `RECORDING_DIR`; without it `open_session(record=true)` is refused |
-| `RECORDING_DIR` | `$DATA_DIR/recordings` | Where the Grid's recordings arrive; the server moves each finished one into its session. The recorder must keep `SE_VIDEO_FILE_NAME=auto` and `SE_VIDEO_FILE_NAME_SUFFIX=true` (or `SE_VIDEO_SESSION_SUBFOLDER=true`) so the Grid session id is in the path |
+| `RECORDING_DIR` | `$DATA_DIR/recordings` | Where the Grid's recordings arrive; the server moves each finished one into its workspace. The recorder must keep `SE_VIDEO_FILE_NAME=auto` and `SE_VIDEO_FILE_NAME_SUFFIX=true` (or `SE_VIDEO_SESSION_SUBFOLDER=true`) so the Grid session id is in the path |
 | `RECORDING_WAIT` | `600` | Seconds after a browser ends to wait for its recording before giving up |
 | `RECORDING_WATCH` / `RECORDING_POLL` | `auto` / `1000` | `auto`, `events` or `poll` for watching that folder, and the poll interval in ms |
 | `SECRETS_DIRS` | unset | Colon-separated directories of secrets. Unset means none to bind |
 | `MCP_SKILL` | `true` | `false` serves only the bare tools, no guidance |
 | `LOG_LEVEL` | `INFO` | `DEBUG` logs which key each call resolved to, and how |
 
-## Session defaults, and the three places they come from
+## Session settings, and the three places they come from
 
 The browser, the window size and the two timeouts resolve in order of
 increasing specificity:
@@ -136,7 +136,7 @@ in the credential an admin controls.
 
 `insecure` has no default anywhere: only `open_session(insecure=true)` sets it,
 for that session's browser. It accepts a self-signed certificate, and because
-that browser would accept any certificate, it gets none of the session's saved
+that browser would accept any certificate, it gets none of the workspace's saved
 site data: sign in there afresh. Use it for the site that needs it.
 
 **`SESSION_PAGE_LOAD_TIMEOUT` is the one worth setting.** Without it a
@@ -156,8 +156,8 @@ fails rather than quietly handing back Chrome. Note the env var is `SESSION_BROW
 command and plenty of environments already set it to a shell script, and as a
 *section* name `browser` would swallow it outright.
 
-Whichever browser a session opened with is stored with it, so when the Grid
-reaps an idle session and the next call transparently reopens it, it comes back
+Whichever browser a workspace opened with is stored with it, so when the Grid
+reaps an idle session and the next call transparently reopens one, it comes back
 as the same browser rather than the default one.
 
 The Grid must actually offer the browser you ask for. If it has no Firefox
@@ -189,5 +189,5 @@ the last known URL.
 
 The Grid runs a small, fixed number of browsers — five is typical. That is the
 real constraint, and the reason every task should end in `end_browser`. If
-sessions will not open, it is almost always abandoned browsers from earlier runs
+sessions will not open, it is almost always abandoned sessions from earlier runs
 rather than load. `GET /ready` reports the live count.

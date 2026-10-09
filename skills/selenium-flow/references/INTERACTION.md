@@ -170,7 +170,7 @@ Exactly one source is required:
 |---|---|
 | `text` | content you have as text |
 | `content` | base64, for binary — the only shape a tool argument can carry |
-| `file` | any file this session has, by its `workspace://files` uri |
+| `file` | any file this workspace has, by its `workspace://files` uri |
 
 There is no way to upload a file from the server's own disk.
 

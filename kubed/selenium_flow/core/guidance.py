@@ -31,7 +31,7 @@ PAGES = (
     "INTERACTION.md",
     "READING_PAGES.md",
     "SECRETS.md",
-    "SESSIONS.md",
+    "WORKSPACES.md",
     "SITE_DATA.md",
     "TROUBLESHOOTING.md",
 )

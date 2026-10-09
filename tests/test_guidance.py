@@ -85,7 +85,7 @@ def test_the_session_status_omits_guidance_when_no_skill_is_served():
     actions = Actions(Grid("http://grid.invalid:4444"))
     served = Workspaces(actions, skill_available=True)
     silent = Workspaces(actions, skill_available=False)
-    assert "SESSIONS.md" in served.describe(Caller("someone"))["guidance"]
+    assert "WORKSPACES.md" in served.describe(Caller("someone"))["guidance"]
     assert "guidance" not in silent.describe(Caller("someone"))
 
 

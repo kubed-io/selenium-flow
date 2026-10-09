@@ -326,7 +326,7 @@ class Workspaces:
             "settings": {},
         }
         if self.skill_available:
-            status["guidance"] = guidance.pointer("SESSIONS.md")
+            status["guidance"] = guidance.pointer("WORKSPACES.md")
         record = self.store.get(name)
         if record is None:
             return status

@@ -121,5 +121,5 @@ by `save_site_data` and shown in `workspace://site-data/{site}` and the admin UI
 httpOnly cookies stay masked
 (`skill://selenium-flow/references/SITE_DATA.md`).
 
-Filesystem secrets are visible to every session on the server. The listing is
+Filesystem secrets are visible to every workspace on the server. The listing is
 not scoped to you, so treat every name you see as shared.

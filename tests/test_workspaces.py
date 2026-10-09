@@ -330,7 +330,7 @@ def test_the_backend_in_use_is_reported():
 def test_describe_reports_the_workspace_and_where_to_read_about_it(named_caller):
     status = manager().describe(clients_module.caller())
     assert status["workspace"] == NAMED
-    assert "SESSIONS.md" in status["guidance"]
+    assert "WORKSPACES.md" in status["guidance"]
 
 
 def test_describe_never_names_the_grid_id(named_caller):
