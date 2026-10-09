@@ -11,8 +11,8 @@ from .builder import DESCRIPTION, PLACEHOLDER_VERSION, build_spec
 from .schemas import (
     _FILE_OPERATIONS,
     _FLOW_OPERATIONS,
-    _SESSION,
-    _WRITE_SESSION,
+    _WORKSPACE,
+    _WRITE_WORKSPACE,
     ERROR,
     FILE_SCHEMAS,
     FLOW_SCHEMAS,
@@ -21,8 +21,8 @@ from .schemas import (
     INFO,
     READY,
     RESPONSES,
-    SESSION_PARAMETERS,
     STARTED,
+    WORKSPACE_PARAMETERS,
 )
 
 __all__ = [
@@ -36,11 +36,11 @@ __all__ = [
     "PLACEHOLDER_VERSION",
     "READY",
     "RESPONSES",
-    "SESSION_PARAMETERS",
     "STARTED",
+    "WORKSPACE_PARAMETERS",
     "_FILE_OPERATIONS",
     "_FLOW_OPERATIONS",
-    "_SESSION",
-    "_WRITE_SESSION",
+    "_WORKSPACE",
+    "_WRITE_WORKSPACE",
     "build_spec",
 ]

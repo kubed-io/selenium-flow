@@ -295,7 +295,7 @@ def test_every_error_envelope_is_what_it_was(monkeypatch):
     for name, exc in raised().items():
         current[0] = exc
         response = client.post(
-            f"/browser/navigate?session={NAMED}", json={"url": "https://x.test/"}
+            f"/browser/navigate?workspace={NAMED}", json={"url": "https://x.test/"}
         )
         got[name] = {"status": response.status_code, "body": response.json()}
     compare("errors.json", normalised(got))
@@ -393,7 +393,7 @@ async def test_the_tool_and_the_endpoint_answer_alike(twin, tool, route, args):
         called = await client.call_tool(tool, args)
     tool_calls, double.calls = list(double.calls), []
     http = TestClient(server.mcp.http_app(), headers=AUTH).post(
-        f"/browser/{route}?session={NAMED}", json=args
+        f"/browser/{route}?workspace={NAMED}", json=args
     )
     assert http.status_code == 200, http.text
     assert [c[:2] for c in tool_calls] == [c[:2] for c in double.calls]

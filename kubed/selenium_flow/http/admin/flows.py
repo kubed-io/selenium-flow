@@ -1,7 +1,7 @@
 """Flows, for a person rather than an agent.
 
 The agent-facing ``/flows/*`` surface is scoped to whoever is calling. This one
-addresses any session, and it is the **operator** path §F1.2 reserves: it
+addresses any workspace, and it is the **operator** path §F1.2 reserves: it
 deliberately does not go through ``flowapi.writable``, because that gate exists
 to keep agents out of the live shared library and this is the surface where a
 person is present and allowed in.
@@ -63,7 +63,7 @@ def _uses(document: dict) -> dict[str, list[int]]:
 def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
     """Mount the flow catalogue, the editor's read/write/delete, and move.
 
-    ``changes`` marks the routes that change what the session list shows.
+    ``changes`` marks the routes that change what the workspace list shows.
     """
 
     def enabled() -> None:
@@ -75,7 +75,7 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
     )
     @guarded
     async def admin_flows(request: Request) -> JSONResponse:
-        """What this session can run: its own flows, plus the shared library.
+        """What this workspace can run: its own flows, plus the shared library.
 
         The same merge the agent sees, so the admin cannot show a different
         library from the one a run would actually use — each entry says which
@@ -83,11 +83,11 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
         """
         key = request.path_params["key"]
         workspace = library_of(key)
-        # Flows off, or a session whose name cannot be a directory: an empty
+        # Flows off, or a workspace whose name cannot be a directory: an empty
         # list with a reason, rather than an error that blanks the whole panel.
         if flow_store is None or workspace is None:
             return JSONResponse(
-                {"key": key, "session": workspace, "enabled": False, "flows": []}
+                {"key": key, "workspace": workspace, "enabled": False, "flows": []}
             )
         # Read BEFORE the listing, deliberately. An edit landing between the two
         # would otherwise pair the old summaries with the new revision — the
@@ -138,13 +138,13 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
             workspace = library(key)
             enabled()
             if request.method in ("GET", "DELETE"):
-                # Both act on the flow *as resolved* — this session's if it has
+                # Both act on the flow *as resolved* — this workspace's if it has
                 # one, else the shared library's — so the panel and the buttons
                 # address the same document the reader is looking at.
                 found = await run_in_threadpool(
                     flowapi.read_one, flow_store, workspace, name
                 )
-                where = found["session"]
+                where = found["workspace"]
                 if request.method == "GET":
                     text = await run_in_threadpool(
                         flow_store.read_text, where, name
@@ -156,7 +156,7 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
                 # one. That is the operator's call to make, and the UI says so.
                 removed = await run_in_threadpool(flow_store.delete, where, name)
                 return JSONResponse(
-                    {"deleted": removed, "session": where, "name": name}
+                    {"deleted": removed, "workspace": where, "name": name}
                 )
 
             body = await answer.read_body(request)
@@ -180,8 +180,8 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
         There is no separate "promote" (§F1.2): a flow lives in exactly one
         directory, so the only action is *which one*. `global` is a folder like
         any other here — promoting is this verb with `global` as the target, and
-        claiming a shared flow is the same verb with a session's name. Moving a
-        flow between two sessions therefore needs no new mechanism: push it to
+        claiming a shared flow is the same verb with a workspace's name. Moving a
+        flow between two workspaces therefore needs no new mechanism: push it to
         `global` from one and claim it from the other.
         """
         key = request.path_params["key"]
@@ -191,15 +191,15 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
             enabled()
             body = await answer.read_body(request)
             target = valid_name(
-                body.get("to") if isinstance(body, dict) else None, "session name"
+                body.get("to") if isinstance(body, dict) else None, "workspace name"
             )
             found = await run_in_threadpool(
                 flowapi.read_one, flow_store, workspace, name
             )
-            source = found["session"]
+            source = found["workspace"]
             if source == target:
                 return JSONResponse(
-                    {"moved": False, "session": target, "name": name}
+                    {"moved": False, "workspace": target, "name": name}
                 )
             text = await run_in_threadpool(flow_store.read_text, source, name)
             if text is None:  # pragma: no cover - read_one just found it
@@ -211,7 +211,7 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
             await run_in_threadpool(flow_store.delete, source, name)
             log.info("flow %s moved from %s to %s", name, source, target)
             return JSONResponse(
-                {"moved": True, "from": source, "session": target, "name": name}
+                {"moved": True, "from": source, "workspace": target, "name": name}
             )
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"moving {name} for {key}", log)

@@ -93,7 +93,7 @@ async def test_the_reads_are_resources_and_the_writes_are_tools(flow_server):
     uris = {str(r.uri) for r in await flow_server.mcp.list_resources()}
     assert {flowapi.LIST_URI, flowapi.SCHEMA_URI} <= uris
     assert await resource(flow_server, flowapi.LIST_URI) == {
-        "session": "desktop",
+        "workspace": "desktop",
         "count": 0,
         "flows": [],
     }
@@ -291,7 +291,7 @@ async def test_the_write_tool_prompts_do_not_lie_to_a_stdio_caller(flow_server):
     its transport, so the advice was wrong as well as impossible."""
     for name in (flowapi.SAVE_TOOL, flowapi.DELETE_TOOL):
         description = (await flow_server.mcp.get_tool(name)).description
-        assert "?session=" not in description, f"{name} tells stdio to name itself"
+        assert "?workspace=" not in description, f"{name} tells stdio to name itself"
 
 
 async def test_the_schema_is_derived_from_the_live_tools(flow_server):
@@ -344,8 +344,8 @@ AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
 def named(session: str | None = None) -> dict:
-    """Headers for a caller that names its session, the way every surface does."""
-    return AUTH if session is None else {**AUTH, "X-Session-Key": session}
+    """Headers for a caller that names its workspace, the way every surface does."""
+    return AUTH if session is None else {**AUTH, "X-Workspace": session}
 
 
 def test_the_endpoints_need_the_token(client):
@@ -367,14 +367,14 @@ def test_save_then_list_then_get_over_http(client):
 
 
 def test_the_workspace_can_be_named_in_the_query_string_too(client):
-    """Whichever one a caller can set. `?session=` is what an n8n HTTP node has;
+    """Whichever one a caller can set. `?workspace=` is what an n8n HTTP node has;
     the header is what an admin pins inside a credential."""
     client.put(
-        "/flows/theirs", json={"steps": GOOD}, params={"session": "workflow"},
+        "/flows/theirs", json={"steps": GOOD}, params={"workspace": "workflow"},
         headers=AUTH,
     )
-    listing = client.get("/flows", params={"session": "workflow"}, headers=AUTH)
-    assert listing.json()["session"] == "workflow"
+    listing = client.get("/flows", params={"workspace": "workflow"}, headers=AUTH)
+    assert listing.json()["workspace"] == "workflow"
     assert [f["name"] for f in listing.json()["flows"]] == ["theirs"]
 
 
@@ -383,8 +383,8 @@ def test_naming_the_workspace_twice_is_refused(client):
     two ideas about who is calling, and picking one hides that (§F2.13)."""
     response = client.get(
         "/flows",
-        params={"session": "from-url"},
-        headers={**AUTH, "X-Session-Key": "from-credential"},
+        params={"workspace": "from-url"},
+        headers={**AUTH, "X-Workspace": "from-credential"},
     )
     assert response.status_code == 400
     assert "once" in response.json()["error"]
@@ -401,7 +401,7 @@ def test_an_http_caller_that_names_nothing_reads_global_but_cannot_write_it(
     assert saved.status_code == 400
     assert "read-only" in saved.json()["error"]
     listing = unkeyed_client.get("/flows", headers=AUTH)
-    assert listing.json()["session"] == GLOBAL_WORKSPACE
+    assert listing.json()["workspace"] == GLOBAL_WORKSPACE
     assert listing.json()["flows"] == []
 
 
@@ -410,7 +410,7 @@ def test_the_refusal_says_how_to_get_a_library_of_your_own(client):
     and this one is reachable by a caller that did nothing wrong except not name
     itself."""
     error = client.delete("/flows/x", headers=AUTH).json()["error"]
-    assert "session=" in error, "it does not say how to get a library"
+    assert "workspace=" in error, "it does not say how to get a library"
     assert "admin" in error, "it does not say who can change global"
 
 
@@ -468,7 +468,7 @@ def test_the_shared_library_is_what_naming_nothing_gets_you(unkeyed_client):
     way to it — which is also what makes the reservation safe to widen."""
     listing = unkeyed_client.get("/flows", headers=AUTH)
     assert listing.status_code == 200
-    assert listing.json()["session"] == GLOBAL_WORKSPACE
+    assert listing.json()["workspace"] == GLOBAL_WORKSPACE
 
 
 # ---- running one ------------------------------------------------------------
@@ -521,7 +521,7 @@ async def test_running_a_shared_flow_works_and_says_it_was_shared(ran):
     )
     report = await call(server, flowapi.RUN_TOOL, name="banner")
     assert report["status"] == "ok"
-    assert report["session"] == GLOBAL_WORKSPACE
+    assert report["workspace"] == GLOBAL_WORKSPACE
 
 
 async def test_running_a_flow_that_is_not_there_says_where_to_look(ran):
@@ -562,7 +562,7 @@ def test_running_over_http_needs_a_named_workspace(client):
     client.put("/flows/f", json={"steps": GOOD}, headers=named("workflow"))
     response = client.post("/flows/f/runs", headers=AUTH)
     assert response.status_code == 400
-    assert "name your session" in response.json()["error"]
+    assert "name your workspace" in response.json()["error"]
 
 
 def test_verbose_false_over_http_does_not_turn_verbose_on(client, flow_server,
@@ -683,8 +683,8 @@ async def test_a_run_reads_a_kept_file_from_the_callers_own_library(
     how that call site could regress on its own (Copilot, #32)."""
     asked = {}
 
-    def reader(uri, session=None):
-        asked["uri"], asked["session"] = uri, session
+    def reader(uri, workspace=None):
+        asked["uri"], asked["workspace"] = uri, workspace
         return "export.csv", b"id,name\n1,a\n"
 
     monkeypatch.setattr(flow_server.actions, "read_file", reader)
@@ -714,7 +714,7 @@ async def test_a_run_reads_a_kept_file_from_the_callers_own_library(
     monkeypatch.setattr(flow_server.workspaces, "resolve", lambda *a, **k: "browser-1")
 
     # Seeded in the SHARED library, deliberately. If the flow were saved into
-    # this caller's own, `document["session"]` and the caller's library would
+    # this caller's own, `document["workspace"]` and the caller's library would
     # both be `desktop` and a regression forwarding the wrong one would pass
     # unnoticed (Copilot, #32). Here they differ, so only the right one can
     # produce the expected answer.
@@ -737,8 +737,8 @@ async def test_a_run_reads_a_kept_file_from_the_callers_own_library(
     report = await call(flow_server, flowapi.RUN_TOOL, name="send-export")
 
     assert report["status"] == "ok", report
-    assert report["session"] == GLOBAL_WORKSPACE, "the flow came from global"
+    assert report["workspace"] == GLOBAL_WORKSPACE, "the flow came from global"
     assert asked["uri"] == "session://files/export.csv"
     # The CALLER's library, not the one the flow was read from.
-    assert asked["session"] == "desktop"
+    assert asked["workspace"] == "desktop"
     assert sent["name"] == "export.csv"

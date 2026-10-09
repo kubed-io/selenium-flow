@@ -68,7 +68,7 @@ def kept_server(tmp_path):
 def client(kept_server):
     """Every request names its session, the way this surface says to (§F2.13)."""
     return TestClient(
-        kept_server.mcp.http_app(), headers={"X-Session-Key": SESSION}
+        kept_server.mcp.http_app(), headers={"X-Workspace": SESSION}
     )
 
 
@@ -424,7 +424,7 @@ def test_keep_then_list_over_http(client, live):
 
         body = client.get("/files", headers=AUTH).json()
     assert [f["name"] for f in body["files"]] == ["report.pdf"]
-    assert body["session"] == SESSION
+    assert body["workspace"] == SESSION
     # The Grid still reports both — keeping a download is a copy, so the
     # original stays exactly where it was until the browser ends (§F1.10).
     downloads = next(f for f in body["folders"] if f["name"] == "downloads")
@@ -857,8 +857,8 @@ def test_upload_sends_any_file_named_by_its_uri(actions, uri, monkeypatch):
     )
     asked = {}
 
-    def reader(given_uri, session=None):
-        asked["uri"], asked["session"] = given_uri, session
+    def reader(given_uri, workspace=None):
+        asked["uri"], asked["workspace"] = given_uri, workspace
         return "x.png", b"..."
 
     actions.read_file = reader
@@ -868,7 +868,7 @@ def test_upload_sends_any_file_named_by_its_uri(actions, uri, monkeypatch):
     assert sent["bytes"] == b"..."
     assert sent["name"] == "x.png", "the file's own name is the default filename"
     assert result["filename"] == "x.png"
-    assert asked == {"uri": uri, "session": None}, (
+    assert asked == {"uri": uri, "workspace": None}, (
         "an MCP caller names no library - its own key answers"
     )
 
@@ -900,22 +900,22 @@ def _stage_upload(server, monkeypatch):
     return sent
 
 
-def test_a_session_field_on_the_upload_body_never_reaches_the_action(
+def test_a_workspace_field_on_the_upload_body_never_reaches_the_action(
     kept_server, client, monkeypatch
 ):
-    """`session` is `LIBRARY_ARG`'s injection point — a flow run's own way of
+    """`workspace` is `LIBRARY_ARG`'s injection point — a flow run's own way of
     saying which library a step reads from — and `routes._add` used to derive
     the accepted body straight off `Actions.upload_file`'s signature, which
     cannot tell that argument apart from an ordinary one. An HTTP caller could
-    POST `session=<another session>` and read a file it never kept (Copilot,
+    POST `workspace=<another workspace>` and read a file it never kept (Copilot,
     #41). It is now excluded from `accepted` the same way `session_id` always
     was, so it is dropped like any other field the route does not know, never
     forwarded to the action."""
     _stage_upload(kept_server, monkeypatch)
     asked = {}
 
-    def reader(uri, session=None):
-        asked["session"] = session
+    def reader(uri, workspace=None):
+        asked["workspace"] = workspace
         return "export.csv", b"x"
 
     monkeypatch.setattr(kept_server.actions, "read_file", reader)
@@ -925,13 +925,13 @@ def test_a_session_field_on_the_upload_body_never_reaches_the_action(
         json={
             "selector": {"css": "input"},
             "file": "session://files/export.csv",
-            "session": "someone-elses-session",
+            "workspace": "someone-elses-workspace",
         },
         headers=AUTH,
     )
     assert response.status_code == 200, response.json()
-    assert asked["session"] is None, (
-        "the body's session field must never reach the action"
+    assert asked["workspace"] is None, (
+        "the body's workspace field must never reach the action"
     )
 
 
@@ -939,10 +939,10 @@ def test_upload_over_http_reads_the_file_from_the_callers_own_workspace(
     kept_server, client, monkeypatch
 ):
     """The vulnerability closed above, proved end to end with the real store
-    rather than a stub: two sessions keep a file of the same name, the request
+    rather than a stub: two workspaces keep a file of the same name, the request
     names a third in its body, and the bytes that land on the page must be the
     caller's own — the ones its header actually names — never the other
-    session's (Copilot, #41)."""
+    workspace's (Copilot, #41)."""
     kept_server.flows.write_file(SESSION, "export.csv", b"mine")
     kept_server.flows.write_file("victim", "export.csv", b"not-mine")
     sent = _stage_upload(kept_server, monkeypatch)
@@ -952,7 +952,7 @@ def test_upload_over_http_reads_the_file_from_the_callers_own_workspace(
         json={
             "selector": {"css": "input"},
             "file": "session://files/export.csv",
-            "session": "victim",
+            "workspace": "victim",
         },
         headers=AUTH,
     )
@@ -960,10 +960,10 @@ def test_upload_over_http_reads_the_file_from_the_callers_own_workspace(
     assert sent["bytes"] == b"mine"
 
 
-def test_a_session_naming_nobody_in_the_upload_body_does_not_400(
+def test_a_workspace_naming_nobody_in_the_upload_body_does_not_400(
     kept_server, client, monkeypatch
 ):
-    """If `session` reached the action, a value naming no library at all would
+    """If `workspace` reached the action, a value naming no library at all would
     fail to find the file and 400. A successful upload with a nonsense value
     there is proof the field was dropped outright, not merely resolved kindly
     (Copilot, #41)."""
@@ -975,7 +975,7 @@ def test_a_session_naming_nobody_in_the_upload_body_does_not_400(
         json={
             "selector": {"css": "input"},
             "file": "session://files/export.csv",
-            "session": "nobody-has-this-session",
+            "workspace": "nobody-has-this-workspace",
         },
         headers=AUTH,
     )

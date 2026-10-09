@@ -115,16 +115,16 @@ def revision(flow_store, workspace: str) -> str:
 
 
 def library(key: str) -> str:
-    """The session directory this key owns, or refuse.
+    """The workspace directory this key owns, or refuse.
 
     The write paths cannot fall back to ``global`` the way a browser lookup
-    does: that would put one session's file in the shared library. An
+    does: that would put one workspace's file in the shared library. An
     ``InvalidName`` is a ValueError, so ``errors.py`` already answers 400.
     """
     workspace = library_of(key)
     if workspace is None:
         raise InvalidName(
-            f"session {key!r} cannot keep files: its name is not one it may "
+            f"workspace {key!r} cannot keep files: its name is not one it may "
             "own a library under — either not a usable directory name, or "
             "reserved. Use letters, digits, dots, dashes and underscores, "
             "starting with a letter or digit."
@@ -341,12 +341,12 @@ def mount(
     store_failing = [False]
 
     def workspaces_payload() -> dict:
-        """Every flow session, and the browser each one currently holds.
+        """Every workspace, and the session (browser) each one currently holds.
 
-        Flow sessions, not Grid sessions. The Grid is the superset — it runs
+        Workspaces, not Grid sessions. The Grid is the superset — it runs
         browsers put there by anything at all — and listing those would be
         showing somebody else's work as though it were ours. What matters here
-        is the session: who holds it, what it was doing, and whether it still
+        is the workspace: who holds it, what it was doing, and whether it still
         has a browser attached.
 
         Blocking — it talks to the Grid for liveness and file counts — so

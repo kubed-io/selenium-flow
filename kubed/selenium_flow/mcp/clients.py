@@ -6,7 +6,7 @@ this order:
 
 1. **What the caller said.** ``?resources=off`` on the MCP URL, or an
    ``X-MCP-Resources: off`` header, which wins for the same reason it does for
-   session names: the header is set in a credential, by an admin.
+   workspace names: the header is set in a credential, by an admin.
 2. **Who the caller is.** A client known not to hand resources to its model is
    treated as saying off. VS Code is the one measured: its model has no way to
    list or read a resource, which a user can only attach by hand (saga §F3.1).

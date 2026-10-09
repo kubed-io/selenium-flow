@@ -84,9 +84,9 @@ class Actions:
     def __init__(self, grid: Grid, keep=None, pointers=None, read_file=None):
         self.grid = grid
         # How bytes this server made — a screenshot, a print — are kept with the
-        # caller's session: `keep(name, data, folder)` writes them and returns
+        # caller's workspace: `keep(name, data, folder)` writes them and returns
         # the file as every listing describes it, link included. A function
-        # rather than the store and the token, because which session owns the
+        # rather than the store and the token, because which workspace owns the
         # file is a question about the caller, and this layer should hand out a
         # link without holding the key that signs one (§F2.9). Absent, nothing
         # can be kept, and a save says so.
@@ -96,20 +96,20 @@ class Actions:
         # so this class is still usable on its own.
         self.pointers = pointers if pointers is not None else pointer.MemoryPointers()
         # Reads a file by its uri, for `upload_file(file=...)`. A function for
-        # the same reason as `describe_file`: which flow session owns a file
+        # the same reason as `describe_file`: which workspace owns a file
         # is a question about the *caller*, and this layer deliberately cannot
         # see one. Absent, naming a file is refused with a reason.
         self.read_file = read_file
-        # Where the caller's session has been, newest first, so one save reads
+        # Where the caller's workspace has been, newest first, so one save reads
         # every site's localStorage and not only the page's. A function for
-        # the reason `keep` is one: which session is calling is not this
+        # the reason `keep` is one: which workspace is calling is not this
         # layer's to see. Absent, a save reads only the page it is on.
         self.visited = None
 
     def _kept(self, name: str, data: bytes, folder=FILES_DIR) -> dict:
-        """Keep bytes this server made with the caller's session.
+        """Keep bytes this server made with the caller's workspace.
 
-        Straight to the session's files, never through the browser. They used to
+        Straight to the workspace's files, never through the browser. They used to
         be handed back to the page as a download so they would land in the
         Grid's store beside the site's own downloads, and every refusal Chrome
         has for a download became a lost screenshot: plain-http pages, pages
@@ -675,19 +675,19 @@ class Actions:
         url=None,
         wait_timeout=WAIT_TIMEOUT,
         file=None,
-        session=None,
+        workspace=None,
     ) -> dict:
         """Attach a file to a file input.
 
-        ``session`` names which library ``file`` is read from, for a **flow
+        ``workspace`` names which library ``file`` is read from, for a **flow
         run** only — the flow engine injects it, named by
         ``capabilities.LIBRARY_ARG``, so a step reads the library the flow
         itself belongs to. Neither the MCP
         tool nor the HTTP dispatcher exposes it as a field a caller can set:
         `routes._add` excludes it from the accepted body, so a request naming
-        another session here is dropped like any other unknown field rather
+        another workspace here is dropped like any other unknown field rather
         than honoured (Copilot, #41). Passed as anything but that internal
-        injection, it is ignored and the calling session answers instead.
+        injection, it is ignored and the calling workspace answers instead.
 
         The file arrives one of three ways, and exactly one is required:
 
@@ -696,9 +696,9 @@ class Actions:
           Base64-encoding text it just wrote is a wasted step it can get wrong.
         - ``content`` — base64, which binary needs and which is the only shape
           MCP tool arguments can carry.
-        - ``file`` — any file this session has, by its ``session://files`` uri
+        - ``file`` — any file this workspace has, by its ``session://files`` uri
           — a screenshot, a download, or a file in Files — from the library
-          ``session`` names. This closes the loop the file store never had: a
+          ``workspace`` names. This closes the loop the file store never had: a
           browser could download a file or take a screenshot and there was no
           way to give it back to a page. Now a flow can download an export and
           upload it somewhere else, without the bytes ever passing through a
@@ -728,7 +728,7 @@ class Actions:
         if not sources:
             raise ValueError(
                 "the file is required: pass text for a text file, content for "
-                "base64 bytes, or file for any file this session has, by its "
+                "base64 bytes, or file for any file this workspace has, by its "
                 "session://files uri"
             )
         if len(sources) > 1:
@@ -753,13 +753,15 @@ class Actions:
                     "off, so there is nowhere for keep_file to have kept one. "
                     "Pass text or content instead"
                 )
-            # `session` names WHICH library, and is not `session_id`, which
+            # `workspace` names WHICH library, and is not `session_id`, which
             # names the browser. Both appear on `/files/list` for the same
             # reason: a file store outlives the browser that filled it, so the
             # two are different questions. Neither an MCP caller nor an HTTP
             # caller can pass this one - its key answers the first and the
             # server the second; only a flow run's own injection does.
-            name, raw = self.read_file(str(file), str(session) if session else None)
+            name, raw = self.read_file(
+                str(file), str(workspace) if workspace else None
+            )
             # The file's own name is the default, because its extension is
             # what the page reads the type from and a caller uploading
             # `export.csv` back should not have to say so twice.

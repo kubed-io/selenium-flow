@@ -44,7 +44,7 @@ SESSION = "desktop"
 @pytest.fixture
 def client(server, monkeypatch):
     monkeypatch.setattr(server.workspaces, "resolve", lambda name: "browser-1")
-    return TestClient(server.mcp.http_app(), headers={"X-Session-Key": SESSION})
+    return TestClient(server.mcp.http_app(), headers={"X-Workspace": SESSION})
 
 
 @pytest.fixture
@@ -56,7 +56,7 @@ def open_client(open_server, monkeypatch):
     the sentinel for "the input was accepted".
     """
     monkeypatch.setattr(open_server.workspaces, "resolve", lambda name: "browser-1")
-    return TestClient(open_server.mcp.http_app(), headers={"X-Session-Key": SESSION})
+    return TestClient(open_server.mcp.http_app(), headers={"X-Workspace": SESSION})
 
 
 @pytest.mark.parametrize(
@@ -151,7 +151,7 @@ def test_a_browser_action_runs_off_the_event_loop(server, monkeypatch):
         return {"success": True}
 
     monkeypatch.setattr(server.workspaces, "act", act)
-    client = TestClient(server.mcp.http_app(), headers={"X-Session-Key": SESSION})
+    client = TestClient(server.mcp.http_app(), headers={"X-Workspace": SESSION})
     response = client.post(
         "/browser/navigate",
         json={"url": "https://example.com"},
@@ -172,7 +172,7 @@ def test_a_flow_run_runs_off_the_event_loop(server, monkeypatch):
         return {"success": True}
 
     monkeypatch.setattr(flow_api, "run_for", run_for)
-    client = TestClient(server.mcp.http_app(), headers={"X-Session-Key": SESSION})
+    client = TestClient(server.mcp.http_app(), headers={"X-Workspace": SESSION})
     response = client.post(
         "/flows/login/runs", json={}, headers={"Authorization": f"Bearer {TOKEN}"}
     )
@@ -455,14 +455,14 @@ def test_a_request_that_names_no_workspace_is_refused(open_server):
     bare = TestClient(open_server.mcp.http_app())
     response = bare.post("/browser/navigate", json={"url": "https://example.test"})
     assert response.status_code == 400
-    assert "name your session" in response.json()["error"]
+    assert "name your workspace" in response.json()["error"]
 
 
 def test_naming_the_workspace_twice_is_refused(open_client):
     response = open_client.post(
         "/browser/navigate",
         json={"url": "https://example.test"},
-        params={"session": "from-url"},
+        params={"workspace": "from-url"},
     )
     assert response.status_code == 400
     assert "once" in response.json()["error"]
@@ -725,23 +725,24 @@ def test_a_record_with_a_non_numeric_opened_at_is_a_workspace_with_no_history(
 def test_the_browser_resource_says_the_name_came_from_the_request(open_client):
     """M36 over HTTP: MCP says `query` or `header`, this surface says `request`."""
     body = open_client.get("/browser").json()
-    assert body["session"] == SESSION
+    assert body["workspace"] == SESSION
     assert body["named_by"] == "request"
     assert body["principal"] is None, "an open server has no principal"
 
 
 def test_x_workspace_names_the_workspace_over_http(open_server, monkeypatch):
-    """A Claude.ai custom connector can send X-Workspace but not X-Session-Key."""
+    """A Claude.ai custom connector can send X-Workspace, and only approved
+    headers, which is why it is the one header that names a workspace."""
     monkeypatch.setattr(open_server.workspaces, "resolve", lambda name: "browser-1")
     bare = TestClient(open_server.mcp.http_app())
     body = bare.get("/browser", headers={"X-Workspace": "claude-web"}).json()
-    assert body["session"] == "claude-web"
+    assert body["workspace"] == "claude-web"
 
 
 def test_x_workspace_and_a_query_name_is_a_400(open_server, monkeypatch):
     monkeypatch.setattr(open_server.workspaces, "resolve", lambda name: "browser-1")
     bare = TestClient(open_server.mcp.http_app())
-    response = bare.get("/browser?session=b", headers={"X-Workspace": "a"})
+    response = bare.get("/browser?workspace=b", headers={"X-Workspace": "a"})
     assert response.status_code == 400
     assert "X-Workspace" in response.json()["error"]
 

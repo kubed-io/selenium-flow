@@ -1,4 +1,4 @@
-"""Sessions: the name a caller gives, and which browser that resolves to.
+"""Workspaces: the name a caller gives, and which browser that resolves to.
 
 Naming is the whole contract now (§F2.12). The tests that matter most are the
 ones proving a request that names nothing — or names two things — is *refused*
@@ -19,7 +19,12 @@ from kubed.selenium_flow.workspace.store import (
     Workspace,
     from_settings,
 )
-from kubed.selenium_flow.workspace.workspaces import Caller, values_of
+from kubed.selenium_flow.workspace.workspaces import (
+    OLD_HEADER,
+    OLD_QUERY,
+    Caller,
+    values_of,
+)
 
 from .conftest import NAMED, OTHER, RecordingActions, calling_as, http, manager
 from .fakes import FakeRedis
@@ -27,7 +32,7 @@ from .fakes import FakeRedis
 pytestmark = pytest.mark.unit
 
 
-# ---- naming the session ----------------------------------------------------
+# ---- naming the workspace --------------------------------------------------
 
 
 def caller_of(params=None, headers=None) -> Caller:
@@ -36,30 +41,21 @@ def caller_of(params=None, headers=None) -> Caller:
 
 
 def test_a_name_in_the_query_string_is_the_workspace():
-    caller = caller_of({"session": "research"})
+    caller = caller_of({"workspace": "research"})
     assert (caller.name, caller.named_by) == ("research", "query")
 
 
 def test_a_name_in_the_header_is_the_workspace_too():
-    caller = caller_of(headers={"x-session-key": "desk"})
+    caller = caller_of(headers={"x-workspace": "desk"})
     assert (caller.name, caller.named_by) == ("desk", "header")
 
 
-def test_x_workspace_names_the_workspace_like_x_session_key():
-    """Claude.ai custom connectors only send headers on an approved list, and
-    X-Session-Key is not on it. X-Workspace is the same header by another name."""
-    caller = caller_of(headers={"x-workspace": "claude-web"})
-    assert (caller.name, caller.named_by) == ("claude-web", "header")
-
-
-def test_both_headers_with_one_value_are_one_name():
+def test_the_old_header_beside_x_workspace_is_refused_not_merged():
+    """X-Session-Key used to be the same header as X-Workspace by another name.
+    It names nothing now (ruling 1), so even with one value the pair is refused
+    rather than read as one name."""
     caller = caller_of(headers={"x-session-key": "desk", "x-workspace": "desk"})
-    assert caller.name == "desk"
-
-
-def test_both_headers_with_two_values_are_two_names():
-    caller = caller_of(headers={"x-session-key": "a", "x-workspace": "b"})
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="`X-Session-Key` is now `X-Workspace`"):
         caller.name  # noqa: B018 - the refusal is the point
 
 
@@ -68,8 +64,8 @@ def test_naming_it_twice_is_refused_rather_than_resolved():
     carrying both has two ideas about who is calling, and picking one hides that
     from whoever wired it up — including an admin who pinned a name in a
     credential and a caller that overrode it from the URL."""
-    caller = caller_of({"session": "from-url"}, {"x-session-key": "from-credential"})
-    with pytest.raises(ValueError, match="name your session once"):
+    caller = caller_of({"workspace": "from-url"}, {"x-workspace": "from-credential"})
+    with pytest.raises(ValueError, match="name your workspace once"):
         caller.name  # noqa: B018 - the refusal is the point
 
 
@@ -86,19 +82,19 @@ def test_stdio_is_one_client_so_a_constant_is_correct(monkeypatch):
 
 
 def test_an_unusable_name_is_refused_where_it_arrives():
-    """A session name IS a directory name, so it is validated once, here. It used
-    to be accepted for the browser and refused later for the library, which meant
-    `?session=my bot` drove a private browser while saving its flows into the
-    shared library."""
-    with pytest.raises(ValueError, match="not a usable session name"):
-        caller_of({"session": "my bot"}).name  # noqa: B018
+    """A workspace name IS a directory name, so it is validated once, here. It
+    used to be accepted for the browser and refused later for the library, which
+    meant `?session=my bot` drove a private browser while saving its flows into
+    the shared library."""
+    with pytest.raises(ValueError, match="not a usable workspace name"):
+        caller_of({"workspace": "my bot"}).name  # noqa: B018
 
 
 def test_the_shared_library_cannot_be_claimed_as_a_name():
     """`global` is read-only to everyone, so a caller that could name itself that
-    would own every session's shared flows."""
+    would own every workspace's shared flows."""
     with pytest.raises(ValueError, match="reserved"):
-        caller_of({"session": "global"}).name  # noqa: B018
+        caller_of({"workspace": "global"}).name  # noqa: B018
 
 
 # ---- one contract, and it is "say who you are" -----------------------------
@@ -106,9 +102,9 @@ def test_the_shared_library_cannot_be_claimed_as_a_name():
 
 def test_a_caller_that_named_nothing_is_told_how_to():
     actions = RecordingActions()
-    with pytest.raises(ValueError, match=r"\?session=") as raised:
+    with pytest.raises(ValueError, match=r"\?workspace=") as raised:
         manager(actions).open_browser(caller_of())
-    assert "X-Session-Key" in str(raised.value)
+    assert "X-Workspace" in str(raised.value)
     assert actions.opened == 0, "an unnamed caller must never open a browser"
 
 
@@ -132,7 +128,7 @@ def test_the_shared_library_is_the_one_thing_an_unnamed_caller_gets():
 
 
 def test_a_named_caller_owns_its_own_library():
-    assert caller_of({"session": "research"}).library == "research"
+    assert caller_of({"workspace": "research"}).library == "research"
 
 
 # ---- resolving, without any magic ------------------------------------------
@@ -333,7 +329,7 @@ def test_the_backend_in_use_is_reported():
 
 def test_describe_reports_the_workspace_and_where_to_read_about_it(named_caller):
     status = manager().describe(clients_module.caller())
-    assert status["session"] == NAMED
+    assert status["workspace"] == NAMED
     assert "SESSIONS.md" in status["guidance"]
 
 
@@ -352,7 +348,7 @@ def test_describe_never_opens_a_browser(named_caller):
     actions = RecordingActions()
     status = manager(actions).describe(clients_module.caller())
     assert status["live"] is False
-    assert status["session"] == NAMED
+    assert status["workspace"] == NAMED
     assert actions.opened == 0
 
 
@@ -1093,7 +1089,7 @@ def test_context_is_what_a_reopen_should_inherit(monkeypatch):
         Workspace(session_id="", settings={"browser": "firefox"}).visited("https://x/"),
     )
     monkeypatch.setattr(
-        clients_module, "request_values", lambda: http({"session": "desktop"})
+        clients_module, "request_values", lambda: http({"workspace": "desktop"})
     )
     assert workspaces.context(NAMED) == {
         "settings": {"browser": "firefox"},
@@ -1103,7 +1099,7 @@ def test_context_is_what_a_reopen_should_inherit(monkeypatch):
 
 def test_context_is_empty_when_there_is_nothing_to_inherit(monkeypatch):
     monkeypatch.setattr(
-        clients_module, "request_values", lambda: http({"session": "desktop"})
+        clients_module, "request_values", lambda: http({"workspace": "desktop"})
     )
     assert manager().context(NAMED) == {}
 
@@ -1320,7 +1316,7 @@ def test_a_failed_quit_never_logs_the_grids_credentials(caplog):
 
 
 def named_in(request) -> str:
-    """The session a Starlette request names, as a route reads it."""
+    """The workspace a Starlette request names, as a route reads it."""
     return Caller.from_request(*values_of(request)).name
 
 
@@ -1347,7 +1343,7 @@ def request_with(query: str = "", headers: dict | None = None):
 
 @pytest.mark.parametrize(
     "query",
-    ["session=%20desk%20", "session=desk", "session=%09desk%0A"],
+    ["workspace=%20desk%20", "workspace=desk", "workspace=%09desk%0A"],
     ids=["spaces", "plain", "tab and newline"],
 )
 def test_surrounding_whitespace_is_not_part_of_a_name(query):
@@ -1357,72 +1353,72 @@ def test_surrounding_whitespace_is_not_part_of_a_name(query):
 def test_a_blank_name_is_no_name_at_all():
     """Blank after stripping counts as absent: there is nothing to refuse for
     being malformed, so the caller is told to name itself."""
-    with pytest.raises(ValueError, match="name your session"):
-        named_in(request_with("session=%20%20"))
-    assert library_in(request_with("session=%20%20")) == "global"
+    with pytest.raises(ValueError, match="name your workspace"):
+        named_in(request_with("workspace=%20%20"))
+    assert library_in(request_with("workspace=%20%20")) == "global"
 
 
 def test_a_blank_header_does_not_make_two_names_of_a_query():
-    request = request_with("session=desk", {"X-Session-Key": "   "})
+    request = request_with("workspace=desk", {"X-Workspace": "   "})
     assert named_in(request) == "desk"
 
 
 def test_the_header_name_is_matched_whatever_its_case():
-    for header in ("X-Session-Key", "x-session-key", "X-SESSION-KEY"):
+    for header in ("X-Workspace", "x-workspace", "X-WORKSPACE"):
         assert named_in(request_with(headers={header: "desk"})) == "desk"
 
 
 def test_a_name_keeps_its_case_so_two_cases_are_two_workspaces():
-    assert named_in(request_with("session=Desk")) == "Desk"
-    assert named_in(request_with("session=desk")) == "desk"
+    assert named_in(request_with("workspace=Desk")) == "Desk"
+    assert named_in(request_with("workspace=desk")) == "desk"
 
 
 def test_a_header_and_a_query_are_two_names_even_over_http_requests():
-    request = request_with("session=a", {"x-session-key": "b"})
-    with pytest.raises(ValueError, match="name your session once"):
+    request = request_with("workspace=a", {"x-workspace": "b"})
+    with pytest.raises(ValueError, match="name your workspace once"):
         named_in(request)
-    with pytest.raises(ValueError, match="name your session once"):
+    with pytest.raises(ValueError, match="name your workspace once"):
         library_in(request)
 
 
 def test_library_from_a_request_is_the_callers_or_the_shared_one():
-    assert library_in(request_with("session=desk")) == "desk"
+    assert library_in(request_with("workspace=desk")) == "desk"
     assert library_in(request_with()) == "global"
 
 
 def test_a_query_that_names_two_workspaces_is_refused():
     try:
-        named = named_in(request_with("session=a&session=b"))
+        named = named_in(request_with("workspace=a&workspace=b"))
     except ValueError as exc:
-        assert str(exc) == "the request names two sessions: a, b"
+        assert str(exc) == "the request names two workspaces: a, b"
         return
     raise AssertionError(f"resolved to {named!r} without a word")
 
 
 def test_a_repeated_header_names_two_workspaces_too():
-    request = request_with(headers={"x-session-key": "a"})
-    request.scope["headers"].append((b"x-session-key", b"b"))
+    request = request_with(headers={"x-workspace": "a"})
+    request.scope["headers"].append((b"x-workspace", b"b"))
     with pytest.raises(ValueError) as raised:
         named_in(request)
-    assert str(raised.value) == "the request names two sessions: a, b"
+    assert str(raised.value) == "the request names two workspaces: a, b"
 
 
 def test_a_name_repeated_with_the_same_value_is_one_name():
-    assert named_in(request_with("session=a&session=a")) == "a"
+    assert named_in(request_with("workspace=a&workspace=a")) == "a"
 
 
 def test_a_repeated_name_is_refused_on_the_library_path_too():
-    """A flow read that names two sessions has two ideas about whose library
+    """A flow read that names two workspaces has two ideas about whose library
     it is, the same as a browser call."""
-    with pytest.raises(ValueError, match="names two sessions"):
-        library_in(request_with("session=a&session=b"))
+    with pytest.raises(ValueError, match="names two workspaces"):
+        library_in(request_with("workspace=a&workspace=b"))
 
 
 def test_a_header_beside_a_repeated_query_is_still_naming_it_twice():
     """No precedence: the header does not settle which of the two queries
     counts, it is one more name, and the refusal is the existing one."""
-    request = request_with("session=a&session=b", {"x-session-key": "c"})
-    with pytest.raises(ValueError, match="name your session once"):
+    request = request_with("workspace=a&workspace=b", {"x-workspace": "c"})
+    with pytest.raises(ValueError, match="name your workspace once"):
         named_in(request)
 
 
@@ -1434,20 +1430,20 @@ def test_a_repeated_name_is_a_400_over_http(server):
     client = TestClient(
         server.mcp.http_app(), headers={"Authorization": f"Bearer {TOKEN}"}
     )
-    response = client.get("/browser?session=a&session=b")
+    response = client.get("/browser?workspace=a&workspace=b")
     assert response.status_code == 400
-    assert response.json() == {"error": "the request names two sessions: a, b"}
+    assert response.json() == {"error": "the request names two workspaces: a, b"}
 
 
 def test_a_client_setting_repeated_is_the_later_one():
-    """Only a session name became a refusal; a client default reads as it
+    """Only a workspace name became a refusal; a client default reads as it
     always has."""
     caller = Caller.from_request({"width": ["800", "1400"]}, {})
     assert caller.defaults == {"width": 1400}
 
 
 def test_a_caller_carries_its_clients_defaults():
-    caller = caller_of({"session": "a", "width": "1400"}, {"x-browser": "firefox"})
+    caller = caller_of({"workspace": "a", "width": "1400"}, {"x-browser": "firefox"})
     assert caller.defaults == {"width": 1400, "browser": "firefox"}
     assert Caller.stdio().defaults == {}
 
@@ -1464,7 +1460,7 @@ def test_off_http_resolve_applies_no_client_defaults():
 def test_an_open_uses_the_defaults_its_caller_brought():
     actions = RecordingActions()
     manager(actions).open_browser(
-        Caller.from_request({"session": ["a"]}, {"x-window-width": ["1400"]})
+        Caller.from_request({"workspace": ["a"]}, {"x-window-width": ["1400"]})
     )
     assert actions.opened_settings == [{"width": 1400}]
 
@@ -1479,9 +1475,9 @@ def test_off_the_request_object_the_headers_still_name_a_caller(monkeypatch):
 
     monkeypatch.setattr(dependencies, "get_http_request", no_request)
     monkeypatch.setattr(
-        dependencies, "get_http_headers", lambda: {"X-Session-Key": " desk "}
+        dependencies, "get_http_headers", lambda: {"X-Workspace": " desk "}
     )
-    assert clients_module.request_values() == ({}, {"x-session-key": [" desk "]})
+    assert clients_module.request_values() == ({}, {"x-workspace": [" desk "]})
     caller = clients_module.caller()
     assert (caller.name, caller.named_by) == ("desk", "header")
 
@@ -1489,11 +1485,11 @@ def test_off_the_request_object_the_headers_still_name_a_caller(monkeypatch):
     assert clients_module.request_values() is None, "no headers is not HTTP at all"
 
 
-# ---- how each surface says who named the session (M36) ----------------------
+# ---- how each surface says who named the workspace (M36) ----------------------
 
 
 def test_describe_says_header_when_the_header_named_it():
-    caller = caller_of(headers={"x-session-key": "desk"})
+    caller = caller_of(headers={"x-workspace": "desk"})
     assert manager().describe(caller)["named_by"] == "header"
 
 
@@ -1508,8 +1504,8 @@ def test_describe_says_request_when_a_route_names_it(server):
     client = TestClient(
         server.mcp.http_app(), headers={"Authorization": f"Bearer {TOKEN}"}
     )
-    status = client.get("/browser", params={"session": "desk"}).json()
-    assert status["session"] == "desk"
+    status = client.get("/browser", params={"workspace": "desk"}).json()
+    assert status["workspace"] == "desk"
     assert status["named_by"] == "request"
 
 
@@ -1614,5 +1610,40 @@ def test_two_concurrent_calls_on_one_workspace_run_one_after_the_other():
 
 
 def test_describe_has_no_principal_on_an_open_server():
-    caller = Caller.from_request({}, {"x-session-key": ["desk"]})
+    caller = Caller.from_request({}, {"x-workspace": ["desk"]})
     assert manager().describe(caller)["principal"] is None
+
+
+# ---- the names from before the rename are refused (ruling 1) ----------------
+
+def test_the_old_query_name_is_refused_naming_the_new_one():
+    caller = caller_of({"session": "desk"})
+    with pytest.raises(ValueError) as exc:
+        caller.name  # noqa: B018 - the refusal is the point
+    assert str(exc.value) == OLD_QUERY == (
+        "`?session=` is now `?workspace=`: rename it in the URL"
+    )
+
+
+def test_the_old_header_is_refused_naming_the_new_one():
+    caller = caller_of(headers={"x-session-key": "desk"})
+    with pytest.raises(ValueError) as exc:
+        caller.library  # noqa: B018
+    assert str(exc.value) == OLD_HEADER == (
+        "`X-Session-Key` is now `X-Workspace`: rename the header"
+    )
+
+
+def test_the_old_name_is_refused_even_beside_the_new_one():
+    caller = caller_of({"workspace": "desk", "session": "desk"})
+    with pytest.raises(ValueError, match="is now `\\?workspace=`"):
+        caller.name  # noqa: B018
+
+
+def test_a_blank_old_name_is_no_name_at_all():
+    assert caller_of({"session": "", "workspace": "desk"}).name == "desk"
+
+
+def test_the_new_names_name_the_workspace():
+    assert caller_of({"workspace": "desk"}).name == "desk"
+    assert caller_of(headers={"x-workspace": "desk"}).name == "desk"

@@ -398,7 +398,7 @@ def test_the_endpoint_serves_the_catalogue_and_needs_the_token(secret_server):
     client = TestClient(secret_server.mcp.http_app())
     assert client.get("/secrets").status_code == 401
     response = client.get(
-        "/secrets", headers={"Authorization": f"Bearer {TOKEN}", "X-Session-Key": NAMED}
+        "/secrets", headers={"Authorization": f"Bearer {TOKEN}", "X-Workspace": NAMED}
     )
     assert response.status_code == 200
     assert response.json()["secrets"][0]["name"] == "nextcloud-admin"
@@ -746,7 +746,7 @@ def bound_http(tmp_path, monkeypatch):
     # A named session holding a browser: this surface addresses one by naming
     # itself now, so there is no id to put in the body (§F2.13).
     monkeypatch.setattr(server.workspaces, "resolve", lambda name: "b1")
-    client = TestClient(server.mcp.http_app(), headers={"X-Session-Key": "desktop"})
+    client = TestClient(server.mcp.http_app(), headers={"X-Workspace": "desktop"})
     return client, typed
 
 
@@ -1229,7 +1229,7 @@ async def test_the_http_catalogue_is_in_the_published_contract(secret_server):
     assert operation["x-mcp-resource"] == secrets.LIST_URI
 
     body = TestClient(secret_server.mcp.http_app()).get(
-        "/secrets", headers={"Authorization": f"Bearer {TOKEN}", "X-Session-Key": NAMED}
+        "/secrets", headers={"Authorization": f"Bearer {TOKEN}", "X-Workspace": NAMED}
     ).json()
     schemas = spec["components"]["schemas"]
     assert not set(body) - set(schemas["SecretList"]["properties"])

@@ -108,7 +108,7 @@ def summary(name: str, workspace: str, document: dict) -> dict:
     """
     return {
         "name": name,
-        "session": workspace,
+        "workspace": workspace,
         "description": copy.deepcopy(document.get("description", "")),
         "parameters": copy.deepcopy(document.get("parameters", {})),
         # Named for what it is. Calling it `steps` would put an int where the

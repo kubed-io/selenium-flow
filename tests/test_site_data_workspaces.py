@@ -397,5 +397,5 @@ def test_a_corrupt_record_never_fails_the_clean_open_that_throws_it_away(named_c
     m.store.update(NAMED, lambda r: r.with_site_data(corrupt))
     m.end_browser(Caller(NAMED))
     told = m.open_browser(Caller(NAMED), restore_site_data=False)
-    assert told["session"] == NAMED
+    assert told["workspace"] == NAMED
     assert m.store.get(NAMED).site_data == {}

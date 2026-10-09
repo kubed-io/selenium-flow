@@ -178,9 +178,9 @@ def test_the_access_log_drops_the_query_string_and_keeps_the_rest(tmp_path, list
     main_module.main(config(tmp_path))  # once, however often it boots
     access = logging.getLogger("uvicorn.access")
     assert sum(isinstance(f, access_log.RouteTemplates) for f in access.filters) == 1
-    line = access_line("/files/abc/x.png?session=s3cr3t&exp=1&sig=abc")
+    line = access_line("/files/abc/x.png?workspace=s3cr3t&exp=1&sig=abc")
     assert line == '1.2.3.4:5 - "GET /files/{session_id}/{name} HTTP/1.1" 200'
-    assert "session=" not in line and "sig=" not in line
+    assert "workspace=" not in line and "sig=" not in line
 
 
 SESSION_PATHS = [

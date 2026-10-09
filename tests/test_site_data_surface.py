@@ -77,7 +77,7 @@ async def test_the_resources_list_and_show_one_site_masking_httponly(saved):
 
 async def test_the_http_routes_answer_the_same(saved):
     client = TestClient(saved.mcp.http_app())
-    params = {"session": NAMED}
+    params = {"workspace": NAMED}
     listed = client.get("/site-data", headers=AUTH, params=params)
     one = client.get(f"/site-data/{SITE}", headers=AUTH, params=params)
     assert listed.json() == await read(saved, "session://site-data")
@@ -116,7 +116,7 @@ def test_the_capture_never_leaves_the_server(monkeypatch):
     )
     client = TestClient(server.mcp.http_app())
     response = client.post(
-        "/browser/save-site-data", headers=AUTH, params={"session": NAMED}, json={}
+        "/browser/save-site-data", headers=AUTH, params={"workspace": NAMED}, json={}
     )
     body = response.json()
     assert response.status_code == 200, body
@@ -180,7 +180,7 @@ def test_save_with_bidi_unreachable_is_a_scrubbed_503(monkeypatch):
     server.workspaces.store.set(NAMED, Workspace().visited(f"https://{SITE}/"))
     client = TestClient(server.mcp.http_app())
     response = client.post(
-        "/browser/save-site-data", headers=AUTH, params={"session": NAMED}, json={}
+        "/browser/save-site-data", headers=AUTH, params={"workspace": NAMED}, json={}
     )
     assert response.status_code == 503, response.json()
     error = response.json()["error"]
@@ -216,7 +216,7 @@ def test_an_unexpected_cookie_read_failure_stays_a_500(monkeypatch):
     server.workspaces.store.set(NAMED, Workspace().visited(f"https://{SITE}/"))
     client = TestClient(server.mcp.http_app())
     response = client.post(
-        "/browser/save-site-data", headers=AUTH, params={"session": NAMED}, json={}
+        "/browser/save-site-data", headers=AUTH, params={"workspace": NAMED}, json={}
     )
     assert response.status_code == 500, response.json()
 

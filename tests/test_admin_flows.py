@@ -105,7 +105,7 @@ def test_with_flows_off_the_panel_is_empty_rather_than_broken(tmp_path, monkeypa
     assert body.status_code == 200
     assert body.json() == {
         "key": KEY,
-        "session": SESSION,
+        "workspace": SESSION,
         "enabled": False,
         "flows": [],
     }
@@ -334,7 +334,7 @@ def test_editing_a_shared_flow_edits_the_shared_one(client, server):
 def test_deleting_removes_it_from_the_folder_it_lives_in(client, server):
     server.flows.save(SESSION, "login", {"steps": []})
     body = client.delete(url("login"), headers=AUTH).json()
-    assert body == {"deleted": True, "session": SESSION, "name": "login"}
+    assert body == {"deleted": True, "workspace": SESSION, "name": "login"}
     assert server.flows.get(SESSION, "login") is None
 
 
@@ -343,7 +343,7 @@ def test_deleting_a_shared_flow_is_allowed_here(client, server):
     permitted, which is the entire difference between the two."""
     server.flows.save(GLOBAL_WORKSPACE, "login", {"steps": []})
     body = client.delete(url("login"), headers=AUTH).json()
-    assert body["deleted"] is True and body["session"] == GLOBAL_WORKSPACE
+    assert body["deleted"] is True and body["workspace"] == GLOBAL_WORKSPACE
     assert server.flows.get(GLOBAL_WORKSPACE, "login") is None
 
 
@@ -360,7 +360,7 @@ def test_a_flow_moves_to_the_shared_library(client, server):
     assert body == {
         "moved": True,
         "from": SESSION,
-        "session": GLOBAL_WORKSPACE,
+        "workspace": GLOBAL_WORKSPACE,
         "name": "login",
     }
     assert server.flows.get(SESSION, "login") is None, "it was copied, not moved"

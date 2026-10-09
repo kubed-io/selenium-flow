@@ -1,8 +1,8 @@
 """Which refusal an unnamed caller is given by the file tools.
 
 Two refusals can apply to one call and only one is the true answer. With Files
-off, or a URI that is not a file, naming the session would not help, so those
-sentences come first and the "name your session" one only when the call could
+off, or a URI that is not a file, naming the workspace would not help, so those
+sentences come first and the "name your workspace" one only when the call could
 otherwise have gone ahead.
 """
 
@@ -54,5 +54,5 @@ async def test_a_good_call_still_asks_an_unnamed_caller_to_name_itself(
 ):
     server = server_for(monkeypatch, tmp_path, files_on=True)
     keep = await server.mcp.get_tool(files.KEEP_TOOL)
-    with pytest.raises(ValueError, match="session"):
+    with pytest.raises(ValueError, match="name your workspace"):
         keep.fn(uri="session://files/a.txt")

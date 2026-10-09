@@ -164,7 +164,7 @@ async def answer(
     *,
     named: bool = True,
 ) -> JSONResponse:
-    """Authorise, read the body, name the session, run ``call``, shape a failure.
+    """Authorise, read the body, name the workspace, run ``call``, shape a failure.
 
     ``call`` takes the :class:`Caller` this request describes, read here once,
     and the body. One signature is what lets one wrapper serve every tree.
@@ -173,7 +173,7 @@ async def answer(
     file belongs to a caller, so naming none is a refusal, before ``call`` runs.
     A **flow** does not: an unnamed caller reads the shared ``global`` library,
     which is deliberate (``caller.library``, not ``caller.name``). Demanding a
-    name for them turned "here is the shared library" into "name your session"
+    name for them turned "here is the shared library" into "name your workspace"
     — a refusal in place of an answer.
 
     Naming happens inside the try on purpose: an unnamed request and one

@@ -58,12 +58,14 @@ async def test_every_operation_says_how_to_name_a_workspace(spec):
     a generated client."""
     ops = {"/health", "/started", "/ready", "/info"}
     for path, operations in spec["paths"].items():
-        # The ops endpoints are about the process, not about a session.
+        # The ops endpoints are about the process, not about a workspace.
         if path in ops:
             continue
         for method, operation in operations.items():
             names = {p["name"] for p in operation.get("parameters", [])}
-            assert {"X-Session-Key", "session"} <= names, f"{method} {path}"
+            assert {"X-Workspace", "workspace"} <= names, f"{method} {path}"
+            # The old names are refused, so they are not published (ruling 1).
+            assert not {"X-Session-Key", "session"} & names, f"{method} {path}"
 
 
 async def test_request_schemas_are_the_tool_schemas(server, spec):
@@ -333,15 +335,18 @@ async def test_uploading_a_kept_file_needs_no_library_field_on_either_surface(
     spec, server
 ):
     """`upload_file(session=...)` existed because an HTTP caller had no other
-    way to say which library a kept file came from. It names its session like
+    way to say which library a kept file came from. It names its workspace like
     everything else now, so the field is gone from both surfaces rather than
-    published on one (Copilot, #31; §F2.13)."""
+    published on one (Copilot, #31; §F2.13). The action's own `workspace`
+    argument is a flow run's injection, and is published nowhere either."""
     upload = spec["paths"]["/browser/upload"]["post"]["requestBody"]["content"]
     published = spec["components"]["schemas"]["UploadFileRequest"]["properties"]
-    assert "session" not in published
-    assert "session" not in upload["multipart/form-data"]["schema"]["properties"]
+    multipart = upload["multipart/form-data"]["schema"]["properties"]
     tool = await server.mcp.get_tool("upload_file")
-    assert "session" not in tool.parameters["properties"]
+    for field in ("session", "workspace"):
+        assert field not in published
+        assert field not in multipart
+        assert field not in tool.parameters["properties"]
 
 
 async def test_a_flow_run_declares_the_site_data_it_reports(spec):

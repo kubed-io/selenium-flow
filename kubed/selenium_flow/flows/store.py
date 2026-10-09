@@ -1,8 +1,8 @@
-"""Where a session's saved flows and files live.
+"""Where a workspace's saved flows and files live.
 
 A **flow** is a sequence of tool calls, saved under a name and run later without
 the model deciding what to call between the steps. This module is only the
-*storage* for them: the naming rules, which session a caller's flows belong to,
+*storage* for them: the naming rules, which workspace a caller's flows belong to,
 and reading and writing the documents and files. Nothing here knows what a step
 is or how to run one — see the saga's Chapter 1, §F1.1 through §F1.4. What a
 document is as text — parsing it once, saying where it broke, summarising it —
@@ -20,7 +20,7 @@ holds bytes, over one `WorkspaceLayout`; `LocalFlowStore` is both under one root
 Two rules that exist for the backend that does not exist yet:
 
 - **No path arithmetic outside this module.** Callers ask for "the flows of
-  session X" and get documents. The moment something elsewhere joins a path with
+  workspace X" and get documents. The moment something elsewhere joins a path with
   ``/``, the WebDAV backend has to reimplement it.
 - **No assumption that a read is cheap or local.** ``summaries`` returns names
   and descriptions rather than whole documents precisely so a listing stays one
@@ -234,14 +234,14 @@ class WorkspaceLayout:
         ``valid_name`` has already refused anything with a separator in it, so a
         caller cannot traverse out with a name alone. This is the second half,
         and it is not redundant: ``resolve()`` follows **symlinks at every
-        level**, so a link left at ``<session>/flows`` pointing somewhere else
-        is caught here and nowhere else. Checking only the session directory
+        level**, so a link left at ``<workspace>/flows`` pointing somewhere else
+        is caught here and nowhere else. Checking only the workspace directory
         would have let a pre-existing link redirect every read and write under
         it while the boundary still looked guarded.
 
         "Inside the data directory" turned out to be too weak a guarantee:
         ``bot/flows -> ../research-bot/flows`` resolves to somewhere perfectly
-        legal by that rule and still hands one session another's flows, which
+        legal by that rule and still hands one workspace another's flows, which
         breaks the ownership rule this module's whole layout exists to enforce.
 
         So the check is equality, not containment: the resolved path must be
@@ -264,11 +264,11 @@ class WorkspaceLayout:
         """Somewhere inside one workspace's directory, with the name validated.
 
         Every path this store builds starts here. The three below each repeated
-        `valid_name(workspace, "session name")`, which is the kind of duplication
+        `valid_name(workspace, "workspace name")`, which is the kind of duplication
         that survives until one copy is left out — and the one left out is a
         path built from an unchecked name.
         """
-        return self._resolved(valid_name(workspace, "session name"), *parts)
+        return self._resolved(valid_name(workspace, "workspace name"), *parts)
 
     def workspaces(self) -> list[str]:
         """Every workspace with a directory, for the admin view."""
@@ -278,7 +278,7 @@ class WorkspaceLayout:
 
 
 class FlowStore(WorkspaceLayout):
-    """A session's flow documents: YAML files under ``<session>/flows``."""
+    """A workspace's flow documents: YAML files under ``<workspace>/flows``."""
 
     def _flows_dir(self, workspace: str) -> Path:
         return self._workspace_dir(workspace, FLOWS_DIR)
@@ -317,7 +317,7 @@ class FlowStore(WorkspaceLayout):
         return _listed(self._flows_dir(workspace), usable)
 
     def revision(self, workspace: str) -> str:
-        """A token that changes whenever this session's flows do.
+        """A token that changes whenever this workspace's flows do.
 
         Names *and* modification times, because the two answer different
         questions and the admin page needs both: a name appearing or leaving is
@@ -451,7 +451,7 @@ class FlowStore(WorkspaceLayout):
 
 
 class FileStore(WorkspaceLayout):
-    """A session's own files: bytes, in the folders :data:`FOLDERS` names.
+    """A workspace's own files: bytes, in the folders :data:`FOLDERS` names.
 
     Bytes rather than documents, and deliberately the whole of what a file
     store needs: the Grid supplies the only other operations there are, and it
@@ -464,7 +464,7 @@ class FileStore(WorkspaceLayout):
 
     def _file_path(self, workspace: str, name: str, folder: str = FILES_DIR) -> Path:
         return self._resolved(
-            valid_name(workspace, "session name"),
+            valid_name(workspace, "workspace name"),
             valid_folder(folder),
             valid_file_name(name),
         )
@@ -620,7 +620,7 @@ class FileStore(WorkspaceLayout):
 
     def _note_path(self, workspace: str, grid_id: str) -> Path:
         return self._resolved(
-            valid_name(workspace, "session name"),
+            valid_name(workspace, "workspace name"),
             RECORDINGS_DIR,
             PENDING_DIR,
             f"{valid_grid_id(grid_id)}.json",
@@ -640,12 +640,12 @@ class FileStore(WorkspaceLayout):
         return True
 
     def notes(self, on_error=None) -> list[tuple[str, str, dict]]:
-        """Every owed recording, as ``(session, grid_id, note)``. A note that is
+        """Every owed recording, as ``(workspace, grid_id, note)``. A note that is
         not JSON, or names no usable id, is skipped with a warning.
 
         A storage error is not a broken note, and only a note or folder that is
-        gone counts as absent. One inside a session raises, or, given
-        ``on_error(session, exc)``, is handed to it and the other sessions are
+        gone counts as absent. One inside a workspace raises, or, given
+        ``on_error(workspace, exc)``, is handed to it and the other workspaces are
         read on, so one folder that cannot be read never holds back the rest.
         The data directory itself unreadable always raises. Not `workspaces()`,
         whose ``is_dir`` reads an unreadable folder as no folder (Python 3.14:
@@ -666,7 +666,7 @@ class FileStore(WorkspaceLayout):
         return found
 
     def _workspace_notes(self, folder: Path) -> list[tuple[str, str, dict]]:
-        """One session's notes, for `notes`; raises a storage error."""
+        """One workspace's notes, for `notes`; raises a storage error."""
         workspace = folder.name
         try:
             valid_name(workspace)
@@ -695,7 +695,7 @@ class FileStore(WorkspaceLayout):
                 continue
             except (InvalidName, ValueError):
                 # The file is named by the Grid's id; the log never is.
-                log.warning("ignoring a recording note in session %s", workspace)
+                log.warning("ignoring a recording note in workspace %s", workspace)
                 continue
             if isinstance(note, dict):
                 found.append((workspace, grid_id, note))
@@ -713,7 +713,7 @@ class FileStore(WorkspaceLayout):
         return _shaped(path.name, path.stat())
 
     def files(self, workspace: str, folder: str = FILES_DIR) -> list[dict]:
-        """Every file in one folder of this session, newest first.
+        """Every file in one folder of this workspace, newest first.
 
         Newest first because that is the order the Grid uses, and Files is
         shown interleaved with its entries.
@@ -798,7 +798,7 @@ class FileStore(WorkspaceLayout):
 class LocalFlowStore(FlowStore, FileStore):
     """Flows and files as plain files under one directory.
 
-    A session's files live in the same session directory as its flows rather
+    A workspace's files live in the same workspace directory as its flows rather
     than under a root of their own — one root, one env var, one thing to point
     at Nextcloud. Whatever is mounted there is the installer's business — a
     folder, an ``emptyDir``, a PVC, NFS. This class only ever sees a path.
@@ -846,7 +846,7 @@ def _holds_file(folder: Path, suffix: str | tuple[str, ...] = "") -> bool:
 
 
 def _old_reserved(entry: Path) -> bool:
-    """Whether a folder named like a newly reserved name is an old session.
+    """Whether a folder named like a newly reserved name is an old workspace.
 
     Only an unmistakable old shape counts: in the new layout these paths hold
     sub-folders only, so a regular file directly in them is the old layout.
@@ -865,15 +865,15 @@ def _old_reserved(entry: Path) -> bool:
 
 
 def old_layout(root: Path, inbox: str | os.PathLike | None = None) -> list[str]:
-    """Session folders still at the top of the data directory, sorted.
+    """Workspace folders still at the top of the data directory, sorted.
 
-    Before the recordings release a session lived at ``DATA_DIR/<name>``; it
+    Before the recordings release a workspace lived at ``DATA_DIR/<name>``; it
     lives at ``DATA_DIR/workspaces/<name>`` now. One left behind would make every
     flow and file it holds silently vanish, so the boot refuses and names them.
-    The recordings inbox is never a session, whatever it holds: ``INBOX_DIR``
+    The recordings inbox is never a workspace, whatever it holds: ``INBOX_DIR``
     always, and the configured ``inbox`` (``recording.dir``) when it is, or lies
     beneath, a top-level entry. ``workspaces`` and ``recordings`` are now reserved
-    names: either is reported as an old session only when it holds the old
+    names: either is reported as an old workspace only when it holds the old
     shape (regular files directly in its ``flows/``, ``files/`` or
     ``screenshots/``), and is otherwise the new layout or the inbox.
     """
@@ -951,13 +951,13 @@ def from_settings(
     for name in (WORKSPACES_DIR, INBOX_DIR):
         if name in stranded:
             raise ConfigError(
-                f"`{name}` in {root} is a session folder from before the "
+                f"`{name}` in {root} is a workspace folder from before the "
                 f"workspaces/ layout, and `{name}` is now reserved: rename it "
                 f"(e.g. to `{name}-old`), then move it into {root / WORKSPACES_DIR}/"
             )
     if stranded:
         raise ConfigError(
-            f"{', '.join(stranded)} in {root} are session folders from before "
+            f"{', '.join(stranded)} in {root} are workspace folders from before "
             f"the workspaces/ layout: move them into {root / WORKSPACES_DIR}/"
         )
     log.info("flows: local, under %s", root / WORKSPACES_DIR)

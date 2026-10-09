@@ -14,7 +14,7 @@ from .conftest import TOKEN
 
 pytestmark = pytest.mark.unit
 S = "desktop"
-AUTH = {"Authorization": f"Bearer {TOKEN}", "X-Session-Key": S}
+AUTH = {"Authorization": f"Bearer {TOKEN}", "X-Workspace": S}
 
 
 @pytest.fixture

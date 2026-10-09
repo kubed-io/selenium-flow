@@ -15,15 +15,15 @@ here. What the two surfaces still share is what matters: the bodies and the
 results come from the same action signatures, so neither can accept something
 the other refuses.
 
-**The session is who is calling, never a body field and never a path segment**
-— ``X-Session-Key`` (or ``X-Workspace``) or ``?session=``, read by
+**The workspace is who is calling, never a body field and never a path
+segment** — ``X-Workspace`` or ``?workspace=``, read by
 ``Caller.from_request``. A browser is addressed by naming yourself, which is why
 there is one browser resource here rather than one per id: ``POST /browser``
 opens *yours*.
 
-The one place a session appears in a path is ``/admin``, which is the same rule
-from the other side: the token holder looking across sessions is the only role
-that addresses them as resources.
+The one place a workspace appears in a path is ``/admin``, which is the same
+rule from the other side: the token holder looking across workspaces is the
+only role that addresses them as resources.
 """
 
 from __future__ import annotations
@@ -241,7 +241,7 @@ def register(
     # are mounted with every other row, at the method the row declares.
 
     def opened(caller, body):
-        """Open this session's browser, or pick up the one it was using."""
+        """Open this workspace's browser, or pick up the one it was using."""
         return workspaces.open_browser(
             caller,
             url=body.get("url"),
@@ -251,12 +251,12 @@ def register(
         )
 
     def ended(caller, _body):
-        """Quit the browser, keeping the session and what it was doing."""
+        """Quit the browser, keeping the workspace and what it was doing."""
         # The browser that was ended is deliberately NOT reported: the Grid's
         # id is how a browser is reached, not part of what a caller is told
         # (E18). Returning it here was the one place that leaked (Copilot, #34).
         workspaces.end_browser(caller)
-        return {"success": True, "session": caller.name}
+        return {"success": True, "workspace": caller.name}
 
     on_the_resource = {
         "open_session": ("open", "browser_open", opened),
@@ -265,7 +265,7 @@ def register(
 
     @mcp.custom_route(browser_root, methods=["GET"], name="browser_status")
     async def browser_status(request: Request) -> JSONResponse:
-        """What this session is and whether it holds a browser. Opens nothing."""
+        """What this workspace is and whether it holds a browser. Opens nothing."""
         # Reported as named by `request` on this surface, as it always has been,
         # where MCP says `query` or `header` (M36): a divergence to settle on
         # its own, not inside a refactor. With a token configured only a token
@@ -280,7 +280,7 @@ def register(
     # beside its own. Literal route first, so the listing is never the template.
     @mcp.custom_route(f"{prefix}/site-data", methods=["GET"], name="site_data_list")
     async def site_data_list(request: Request) -> JSONResponse:
-        """The sites this session has saved data for. Never a value."""
+        """The sites this workspace has saved data for. Never a value."""
         return await answer_module.answer(
             request, token, "site-data/list",
             lambda caller, _body: resources.site_listing(workspaces, caller.name), log,
@@ -309,7 +309,7 @@ def register(
 
 
 async def _answer(request, token, what, call) -> JSONResponse:
-    """Authorise, name the session, run ``call``, and turn a failure into JSON.
+    """Authorise, name the workspace, run ``call``, and turn a failure into JSON.
 
     The decision itself lives in ``http.answer``, shared with the flows and
     files trees so a refusal reads the same whichever one produced it. This
@@ -335,7 +335,7 @@ def _add(mcp, actions, workspaces, token, prefix, row: Capability, catalogue) ->
     # `library_arg` is the same story for a different reason: it names the
     # *caller*, not the action, and only a flow run is allowed to supply it
     # (Copilot, #41). Dropped the same way an unknown field is — silently,
-    # below — rather than refused, so a request naming another session's
+    # below — rather than refused, so a request naming another workspace's
     # library over HTTP just falls back to its own, the way naming none at
     # all always has.
     accepted = set(inspect.signature(method).parameters) - {

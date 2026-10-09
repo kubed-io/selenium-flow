@@ -23,8 +23,8 @@ browser actions is untouched (§F1.7, question #7).
 
 Two rules from the chapter show up here as code:
 
-- **Reads merge your session with `global`, writes never do** (§F1.2). Your own
-  flow wins a name collision, so a session can shadow a shared one without
+- **Reads merge your workspace with `global`, writes never do** (§F1.2). Your
+  own flow wins a name collision, so a workspace can shadow a shared one without
   disturbing it, and nothing an agent does can publish to the shared library —
   including a caller that has no name of its own, which used to be the one
   exception and is now refused like any other. `writable` is where that is
@@ -109,11 +109,11 @@ OFF = (
 )
 
 LIST_DESCRIPTION = (
-    "The flows this session can run: saved sequences of tool calls that run "
+    "The flows this workspace can run: saved sequences of tool calls that run "
     "server-side in one call.\n\n"
     "Each entry has a name, a description, the parameters it takes and how many "
     "steps it has — never the steps themselves, which flow://flows/{name} returns.\n\n"
-    "Flows named by this session come first; anything in the shared 'global' "
+    "Flows saved in this workspace come first; anything in the shared 'global' "
     "library is also listed, and a flow of your own with the same name wins."
 )
 
@@ -135,9 +135,9 @@ def _context():
 
 
 def catalogue(store, workspace: str) -> dict:
-    """Every flow this session can run: its own, plus the shared library.
+    """Every flow this workspace can run: its own, plus the shared library.
 
-    A name defined in both resolves to this session's, and the entry says which
+    A name defined in both resolves to this workspace's, and the entry says which
     library it came from — "why am I running the wrong login" is otherwise
     unanswerable.
     """
@@ -155,14 +155,14 @@ def catalogue(store, workspace: str) -> dict:
     for summary in store.summaries(workspace):
         entries[summary["name"]] = {**summary, "shared": own_are_shared}
     return {
-        "session": workspace,
+        "workspace": workspace,
         "count": len(entries),
         "flows": [entries[name] for name in sorted(entries)],
     }
 
 
 def read_one(store, workspace: str, name: str) -> dict:
-    """One flow: this session's if it has one, else the shared library's."""
+    """One flow: this workspace's if it has one, else the shared library's."""
     store = _require(store)
     flow = store.get(workspace, name)
     # A caller whose library is the shared one reads a shared flow. See
@@ -178,22 +178,22 @@ def read_one(store, workspace: str, name: str) -> dict:
         )
     return {
         **flow,
-        "session": GLOBAL_WORKSPACE if shared else workspace,
+        "workspace": GLOBAL_WORKSPACE if shared else workspace,
         "shared": shared,
     }
 
 
 def writable(workspace: str) -> str:
-    """``session`` if an agent may write to it, else refuse (§F1.2).
+    """``workspace`` if an agent may write to it, else refuse (§F1.2).
 
     **`global` is read-and-run only on this surface**, and the argument is
     concurrency rather than tidiness: the shared library is *live*. Every
-    session lists and runs what is in it, so a flow rewritten or deleted by one
+    workspace lists and runs what is in it, so a flow rewritten or deleted by one
     agent changes or vanishes underneath another that is part-way through using
     it — a race with no error message and nothing recording who did it.
 
     This used to have an exception that swallowed the rule: a caller with no
-    session name *is* `global`, so unnamed callers could write to the shared
+    workspace name *is* `global`, so unnamed callers could write to the shared
     library while named ones could not. That was written down and apologised
     for; now it is simply closed.
 
@@ -203,18 +203,18 @@ def writable(workspace: str) -> str:
     """
     if workspace == GLOBAL_WORKSPACE:
         raise ValueError(
-            "the shared 'global' library is read-only: every session can list "
+            "the shared 'global' library is read-only: every workspace can list "
             "and run what is in it, so a flow you changed or deleted would "
-            "change or vanish under another session mid-run. Name your session "
-            "and save into your own library — ?session=<name> on the URL or the "
-            "X-Session-Key (or X-Workspace) header. An operator moves a flow into "
+            "change or vanish under another workspace mid-run. Name your "
+            "workspace and save into your own library — ?workspace=<name> on the "
+            "URL or the X-Workspace header. An operator moves a flow into "
             "global from the admin UI."
         )
     return workspace
 
 
 def save_one(store, workspace: str, name: str, document: dict, schemas: dict) -> dict:
-    """Create or replace one of *this session's* flows.
+    """Create or replace one of *this workspace's* flows.
 
     Never the shared library, even when a flow of that name was read from it:
     a save is a copy into your own, which is the copy-on-write half of §F1.2.
@@ -222,13 +222,13 @@ def save_one(store, workspace: str, name: str, document: dict, schemas: dict) ->
     """
     # `_require` first, deliberately. With flows switched off there is nowhere
     # to keep one, and that is the true answer for every caller; telling an
-    # unnamed one to go and name its session would send it to fix the wrong
+    # unnamed one to go and name its workspace would send it to fix the wrong
     # thing entirely. A named caller already got OFF here, so this ordering is
     # also what makes the two consistent.
     store = _require(store)
     workspace = writable(workspace)
     document = dict(document or {})
-    document.pop("session", None)
+    document.pop("workspace", None)
     document.pop("shared", None)
     # `null` means unset, as it does for every optional argument an MCP caller
     # leaves out. Kept, it would be saved and read back as a null where the
@@ -245,7 +245,7 @@ def save_one(store, workspace: str, name: str, document: dict, schemas: dict) ->
     stored = store.save(workspace, name, document)
     steps = len(stored.get("steps") or [])
     log.info("flow %s/%s saved (%s steps)", workspace, name, steps)
-    saved = {"saved": True, "session": workspace, **stored}
+    saved = {"saved": True, "workspace": workspace, **stored}
     # Said on the way out rather than refused on the way in: the flow is valid
     # and has been kept. See `flowdoc.concerns`.
     concerns = flowdoc.concerns(document)
@@ -255,11 +255,11 @@ def save_one(store, workspace: str, name: str, document: dict, schemas: dict) ->
 
 
 def delete_one(store, workspace: str, name: str) -> dict:
-    """Remove one of *this session's* flows. Never the shared library."""
+    """Remove one of *this workspace's* flows. Never the shared library."""
     store = _require(store)  # see save_one: the disabled answer comes first
     workspace = writable(workspace)
     removed = store.delete(workspace, name)
-    return {"deleted": removed, "session": workspace, "name": name}
+    return {"deleted": removed, "workspace": workspace, "name": name}
 
 
 async def save_text(
@@ -277,7 +277,7 @@ async def save_text(
     out of the live shared library, and this is the surface where a person is
     present and allowed in. A flow is written back where it already lives, so
     editing a shared one edits the shared one; a new one is created in
-    ``session``.
+    ``workspace``.
     """
     if not isinstance(text, str) or not text.strip():
         raise ValueError("yaml is required")
@@ -310,7 +310,7 @@ async def save_text(
     flowdoc.validate(document, await schemas.get())
     # Written back where it already lives, so editing a shared flow
     # edits the shared one rather than silently forking a copy into
-    # this session. A flow that does not exist yet is created here.
+    # this workspace. A flow that does not exist yet is created here.
     existing = await run_in_threadpool(store.get, workspace, name)
     where = workspace
     if existing is None:
@@ -320,7 +320,7 @@ async def save_text(
         if shared is not None:
             where = GLOBAL_WORKSPACE
     await run_in_threadpool(store.write_text, where, name, text)
-    return {"saved": True, "session": where, "name": name}
+    return {"saved": True, "workspace": where, "name": name}
 
 
 class Schemas:
@@ -377,11 +377,11 @@ def run_one(
         before_save=before_save,
         catalogue=secrets_catalogue,
         skill_available=skill_available,
-        # The CALLER's library, not `document["session"]`: a flow read from the
+        # The CALLER's library, not `document["workspace"]`: a flow read from the
         # shared `global` library still uploads a file this caller kept.
         library=workspace,
     )
-    return {"session": document["session"], **report}
+    return {"workspace": document["workspace"], **report}
 
 
 def register(
@@ -524,7 +524,7 @@ def register(
             "Delete one of your saved flows. Deleting one that is not there is "
             "not an error.\n\n"
             "A flow in the shared 'global' library cannot be deleted here, and "
-            "a caller that named no session has no library of its own to delete "
+            "a caller that named no workspace has no library of its own to delete "
             "from."
         ),
         annotations=hints("Delete a flow", destructive=True, idempotent=True),
@@ -636,7 +636,7 @@ def run_for(
     secrets_catalogue=None, skill_available: bool = True,
     before_step=None, stop=None,
 ) -> dict:
-    """Run a saved flow in ``session``'s browser, and keep the record honest.
+    """Run a saved flow in ``workspace``'s browser, and keep the record honest.
 
     Shared by the tool and the endpoint. The bookkeeping either side of the run
     is the part that used to be duplicated, and the HTTP surface simply did not
@@ -646,8 +646,8 @@ def run_for(
     resolved = workspaces.resolve(workspace)
 
     def remember(tool, result):
-        # The same post-action work a single call gets from `sessions.act`:
-        # `resize` changes something the session RECORD stores, and a save's
+        # The same post-action work a single call gets from `Workspaces.act`:
+        # `resize` changes something the workspace RECORD stores, and a save's
         # capture is stored as the snapshot and stripped from the result. The
         # touch is left to `before_save` and the one at the end of the run.
         workspaces.settle(
@@ -693,11 +693,11 @@ def run_for(
     # the step moved and the page was safe to show, so a failed step's — the
     # scrubbed one, a URL that does not exist — is left out. And the run's own
     # page is withheld when redaction had to touch it: a submitting bound
-    # write lands on `?q=<what was typed>`, and `sessions.resolve` would
+    # write lands on `?q=<what was typed>`, and `Workspaces.resolve` would
     # reopen the browser there after the Grid reaped it.
     #
     # The touch happens regardless: it slides the TTL, and a run is the
-    # clearest evidence there is that a session is in use.
+    # clearest evidence there is that a workspace is in use.
     visited = [
         step["url"] for step in report.get("steps") or []
         if step.get("ok") and step.get("url")
@@ -726,8 +726,8 @@ def _routes(
     POST to a sub-collection rather than a verb in the path.
 
     Which library is a question about who is calling, so it comes from the
-    header or ``?session=`` like everything else — and a caller that names no
-    session gets the shared one, which it may read and may not write.
+    header or ``?workspace=`` like everything else — and a caller that names no
+    workspace gets the shared one, which it may read and may not write.
     """
 
     flows_root = f"{prefix}/flows"
@@ -736,7 +736,7 @@ def _routes(
         """One request, answered the way every other tree answers one.
 
         Unnamed is allowed here: a flow belongs to a library, and ``caller.library``
-        is the shared one when the request named no session. A run asks for
+        is the shared one when the request named no workspace. A run asks for
         ``caller.name``, because it drives a browser.
         """
         return await answer_module.answer(
@@ -745,7 +745,7 @@ def _routes(
 
     @mcp.custom_route(flows_root, methods=["GET"], name="flows_list")
     async def list_flows(request: Request) -> JSONResponse:
-        """This session's flows, and the shared ones it can run."""
+        """This workspace's flows, and the shared ones it can run."""
         return await answer(
             request,
             "list",
@@ -796,7 +796,7 @@ def _routes(
 
     @mcp.custom_route(flows_root + "/{name}", methods=["DELETE"], name="flows_delete")
     async def delete_flow(request: Request) -> JSONResponse:
-        """Remove one of this session's flows."""
+        """Remove one of this workspace's flows."""
         return await answer(
             request,
             "delete",
@@ -807,7 +807,7 @@ def _routes(
 
     @mcp.custom_route(flows_root + "/{name}/runs", methods=["POST"], name="flows_run")
     async def run_flow(request: Request) -> JSONResponse:
-        """Run a flow in this session's browser. A run is created, not fetched."""
+        """Run a flow in this workspace's browser. A run is created, not fetched."""
         return await answer(
             request,
             "run",

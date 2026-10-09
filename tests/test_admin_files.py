@@ -49,7 +49,7 @@ def kept_server(tmp_path):
 def client(kept_server):
     """Every request names its session, the way this surface says to (§F2.13)."""
     return TestClient(
-        kept_server.mcp.http_app(), headers={"X-Session-Key": SESSION}
+        kept_server.mcp.http_app(), headers={"X-Workspace": SESSION}
     )
 
 

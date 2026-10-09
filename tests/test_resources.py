@@ -183,7 +183,7 @@ async def test_the_status_resource_is_always_offered(server):
 
 def named(monkeypatch):
     monkeypatch.setattr(
-        "kubed.selenium_flow.mcp.clients.request_values", lambda: http({"session": "d"})
+        "kubed.selenium_flow.mcp.clients.request_values", lambda: http({"workspace": "d"})
     )
 
 

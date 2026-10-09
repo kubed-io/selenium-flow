@@ -306,7 +306,7 @@ def test_a_discard_that_cannot_be_noted_never_fails_the_open(caplog):
         return real(**kwargs)
 
     m.actions.open_session = open_while_another_binds
-    assert m.open_browser(caller(), record=True)["session"] == "bot"
+    assert m.open_browser(caller(), record=True)["workspace"] == "bot"
     assert "cannot be noted" in caplog.text and "/data" not in caplog.text
 
 

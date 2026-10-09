@@ -250,14 +250,14 @@ class SeleniumMCP:
             self.prefix, folder, ttl=settings.link_ttl,
         )
         # And how it reads one back, for `upload_file(file=...)`. Wired here for
-        # the same reason: which flow session owns a file is a question about
+        # the same reason: which workspace owns a file is a question about
         # the caller, which the behaviour layer deliberately cannot see.
-        self.actions.read_file = lambda uri, session=None: files.read_file(
+        self.actions.read_file = lambda uri, workspace=None: files.read_file(
             self.actions, self.workspaces, self.flows, uri,
-            session or clients.caller().name,
+            workspace or clients.caller().name,
         )
-        # And where the caller's session has been, so one save reads every
-        # site's storage. Wired here for the same reason: which session is
+        # And where the caller's workspace has been, so one save reads every
+        # site's storage. Wired here for the same reason: which workspace is
         # calling is a question about the caller.
         self.actions.visited = lambda: self.workspaces.visited(clients.caller().name)
         self.apps = (

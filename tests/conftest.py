@@ -136,26 +136,26 @@ def calling_as(monkeypatch, name):
     monkeypatch.setattr(
         clients_module,
         "request_values",
-        lambda: http({"session": name} if name is not None else None),
+        lambda: http({"workspace": name} if name is not None else None),
     )
 
 
 @pytest.fixture
 def named_caller(monkeypatch):
-    """Make the ambient request look like a client that named its session.
+    """Make the ambient request look like a client that named its workspace.
 
-    This is the `NAMED` session, so a test using this fixture can read and write
+    This is the `NAMED` workspace, so a test using this fixture can read and write
     `store[NAMED]` directly.
     """
     monkeypatch.setattr(
-        clients_module, "request_values", lambda: http({"session": NAMED})
+        clients_module, "request_values", lambda: http({"workspace": NAMED})
     )
     return NAMED
 
 
 @pytest.fixture
 def unnamed_caller(monkeypatch):
-    """Make the ambient request name no session at all.
+    """Make the ambient request name no workspace at all.
 
     There is one contract now, and this is the caller that has not met it: every
     call is refused with the message that says how to name yourself (§F2.12).

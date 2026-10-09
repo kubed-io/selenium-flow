@@ -286,7 +286,7 @@ def test_one_save_through_the_server_keeps_every_site_the_workspace_went_to(monk
     )
     response = TestClient(server.mcp.http_app()).post(
         "/browser/save-site-data", headers={"Authorization": f"Bearer {TOKEN}"},
-        params={"session": NAMED}, json={},
+        params={"workspace": NAMED}, json={},
     )
     assert response.status_code == 200, response.json()
     assert response.json()["saved"]["sites"] == [APP, SSO]

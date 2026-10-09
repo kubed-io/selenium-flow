@@ -231,7 +231,7 @@ async def test_the_session_status_shows_through_the_client(flow_server):
     assert shown["component"] == "context"
     assert shown["uri"] == "session://current"
     # Only the stable keys: liveness fields may differ between two probes.
-    for key in ("session", "named_by", "browser", "store", "principal"):
+    for key in ("workspace", "named_by", "browser", "store", "principal"):
         assert shown["data"][key] == read[key]
 
 

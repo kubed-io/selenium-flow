@@ -347,7 +347,7 @@ def test_reading_a_name_nobody_has_is_the_callers_mistake(store):
 def test_clearing_screenshots_reports_how_many(store):
     store.create_file(S, "a.png", b"1", SCREENSHOTS_DIR)
     store.write_file(S, "keep.pdf", b"2")
-    assert files.clear_screenshots(store, S) == {"cleared": 1, "session": S}
+    assert files.clear_screenshots(store, S) == {"cleared": 1, "workspace": S}
     assert store.read_file(S, "keep.pdf") == b"2"
 
 

@@ -100,7 +100,7 @@ async def current(server, bearer):
 
     transport = StreamableHttpTransport(
         "http://test/mcp",
-        headers={"Authorization": f"Bearer {bearer}", "X-Session-Key": "desk"},
+        headers={"Authorization": f"Bearer {bearer}", "X-Workspace": "desk"},
         httpx_client_factory=factory,
     )
     async with app.router.lifespan_context(app), Client(transport) as client:
@@ -111,7 +111,7 @@ async def current(server, bearer):
 async def test_session_current_names_the_jwt_subject(oidc_server, issuer):
     status = await current(oidc_server, issuer.mint())
     assert status["principal"] == {"kind": "oidc", "subject": "6b0f", "username": "drk"}
-    assert status["session"] == "desk"
+    assert status["workspace"] == "desk"
 
 
 async def test_session_current_names_the_admin_for_the_token(oidc_server):

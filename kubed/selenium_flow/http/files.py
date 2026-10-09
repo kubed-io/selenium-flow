@@ -1,4 +1,4 @@
-"""A session's files as four sections, addressed by path (§F4.6, §F4.7).
+"""A workspace's files as four sections, addressed by path (§F4.6, §F4.7).
 
 **Downloads, Screenshots, Recordings and Files never merge into one list.** The first
 draft of this feature merged everything so a caller only had to ask once
@@ -16,7 +16,7 @@ was right even though the merge built on top of it was not:
   store, created with the browser and deleted with it. The Grid's API over
   that store is *list, read-one, delete-all* — there is no write and no
   per-file delete — so those are the only operations offered for them.
-- **Screenshots and Files belong to the session**, which outlives any
+- **Screenshots and Files belong to the workspace**, which outlives any
   browser. They are ours, under ``DATA_DIR``. Screenshots pile up until
   kept or cleared in bulk; Files holds only what somebody chose to keep, or a
   print, and gets no bulk delete because everything in it is there on purpose
@@ -38,8 +38,8 @@ exists. Removing a file, or clearing a section in bulk, is an *operator*
 action through the admin UI, where a person can see what they are deleting.
 
 **A listing never opens a browser.** ``root``, ``folder`` and ``sections`` all
-read the session's record with ``sessions.browser(name)``, never
-``sessions.resolve``: ``resolve`` would start a browser to answer a question
+read the workspace's record with ``Workspaces.browser(name)``, never
+``Workspaces.resolve``: ``resolve`` would start a browser to answer a question
 about files, and a listing that did that would be the leak the status
 resource already refuses to be. With no browser attached, Downloads answers
 empty rather than failing, because that is the ordinary case and costs no
@@ -212,7 +212,7 @@ def describe(folder: str, entry: dict, url: str, base: str = "") -> dict:
     """One file, as every surface needs it: named, sized, fetchable, and placed.
 
     One builder for every folder so they cannot describe a file differently —
-    the URL is built by the caller, because which id signs it (a session name
+    the URL is built by the caller, because which id signs it (a workspace name
     for Files and Screenshots, a browser id for Downloads) is a fact about the
     folder that this function does not need to know.
     """
@@ -258,7 +258,7 @@ def url_for(
     """The signed link for one entry, keyed by whichever id its folder uses.
 
     Downloads are the Grid's, reached by a browser id; Files and Screenshots
-    are ours, reached by the session name that outlives any browser (§F1.10).
+    are ours, reached by the workspace name that outlives any browser (§F1.10).
     """
     if folder == DOWNLOADS:
         return links.file_url(session_id, name, token, mount, ttl)
@@ -270,10 +270,10 @@ def url_for(
 
 
 def owner(store, name: str) -> str:
-    """The session name whose files these are, or "" when keeping is off.
+    """The workspace name whose files these are, or "" when keeping is off.
 
     The name is also the flow library's directory: a file and a flow land in
-    the same place because they are the same session.
+    the same place because they are the same workspace.
     """
     return name if store is not None else ""
 
@@ -294,14 +294,14 @@ def listing_of(
 
     Downloads come from the Grid, and only when there is a browser to ask —
     ``session_id`` empty costs no call at all, which is the ordinary case for a
-    session whose browser has gone. ``downloads`` lets a caller that already
+    workspace whose browser has gone. ``downloads`` lets a caller that already
     has the Grid's listing (the admin, reporting what "clear" would remove)
     pass it in rather than pay for it twice.
 
     A Grid failure is *not* swallowed here. The browser being gone is free;
     an error from a browser the caller was told is live is a real fault, and
     hiding it behind a short list would make a broken Grid look like an empty
-    session.
+    workspace.
     """
     if folder == DOWNLOADS:
         if downloads is None:
@@ -364,7 +364,7 @@ def root(
         len(store.files(owned, RECORDINGS)) if store is not None and owned else 0
     )
     return {
-        "session": owned or None,
+        "workspace": owned or None,
         "count": len(file_list),
         "files": file_list,
         "folders": [
@@ -411,7 +411,7 @@ def folder(
         actions, store, which, owned, target, token, base, mount, ttl=ttl
     )
     result = {
-        "session": owned or None,
+        "workspace": owned or None,
         "folder": which,
         "uri": ROOT_URI if which == FILES else FOLDER_URI[which],
         "count": len(entries),
@@ -449,7 +449,7 @@ def sections(
         raise ValueError(NOTHING)
     return {
         "component": "fileSections",
-        "session": owned or None,
+        "workspace": owned or None,
         "browser": bool(target),
         "downloads": listing_of(
             actions, store, DOWNLOADS, owned, target, token, base, mount, downloads, ttl
@@ -550,8 +550,8 @@ def keep(actions, workspaces, store, uri, name: str, session_id=None) -> dict:
     else:
         # `session_id`, when given, is the browser to read from and is never
         # resolved — the caller (the admin) can then ask for a specific
-        # browser without this ever opening one. `sessions.browser`, not
-        # `sessions.resolve`, for the same reason when it is not given: a
+        # browser without this ever opening one. `Workspaces.browser`, not
+        # `Workspaces.resolve`, for the same reason when it is not given: a
         # reopened browser cannot hold a download it never took, so resolving
         # would only spend a Grid slot to answer the same refusal.
         if session_id is None:
@@ -591,7 +591,7 @@ def keep_made(
     `screenshot (1).png`, the way a browser names a second download, because
     overwriting would silently take away a file somebody was handed a link to.
     The name that was used comes back, and it is the one to pass on.
-    ``session`` is the caller's, which the file is kept for.
+    ``workspace`` is the caller's, which the file is kept for.
     """
     if store is None:
         raise ValueError(OFF)
@@ -606,7 +606,7 @@ def read_file(actions, workspaces, store, uri, name: str) -> tuple[str, bytes]:
     """The bytes of one file, by its address, for a caller that wants to send
     it somewhere. ``name`` names the library explicitly, the way a **flow**
     does: the run supplies the library it was loaded from, so a flow in the
-    shared library reads a file from the session that is running, not from
+    shared library reads a file from the workspace that is running it, not from
     `global` (Copilot, #31). Otherwise it is the caller's own name.
     """
     folder_of, leaf = parse_uri(uri)
@@ -629,7 +629,8 @@ def clear_screenshots(store, workspace: str) -> dict:
     this, the same as clearing downloads (§F4.1)."""
     if store is None:
         raise ValueError(OFF)
-    return {"cleared": store.clear_folder(workspace, SCREENSHOTS), "session": workspace}
+    cleared = store.clear_folder(workspace, SCREENSHOTS)
+    return {"cleared": cleared, "workspace": workspace}
 
 
 def clear_recordings(store, workspace: str) -> dict:
@@ -637,7 +638,8 @@ def clear_recordings(store, workspace: str) -> dict:
     notes for recordings still to come are not in it and are left alone."""
     if store is None:
         raise ValueError(OFF)
-    return {"cleared": store.clear_folder(workspace, RECORDINGS), "session": workspace}
+    cleared = store.clear_folder(workspace, RECORDINGS)
+    return {"cleared": cleared, "workspace": workspace}
 
 
 def delete_one(store, workspace: str, name: str) -> dict:
@@ -653,7 +655,7 @@ def delete_one(store, workspace: str, name: str) -> dict:
     if store is None:
         raise ValueError(OFF)
     removed = store.delete_file(workspace, valid_file_name(name))
-    return {"deleted": removed, "session": workspace, "name": name}
+    return {"deleted": removed, "workspace": workspace, "name": name}
 
 
 FOLDER_NAME = {
@@ -662,12 +664,12 @@ FOLDER_NAME = {
 
 FOLDER_DESCRIPTION = {
     SCREENSHOTS: (
-        "This session's saved screenshots, not yet kept. "
+        "This workspace's saved screenshots, not yet kept. "
         f"{KEEP_TOOL}(uri) moves one into {ROOT_URI}, where it stays until a "
         "person deletes it. Prints land in Files directly, not here."
     ),
     RECORDINGS: (
-        "This session's recordings: one video per browser opened with "
+        "This workspace's recordings: one video per browser opened with "
         "open_session(record=true), filed shortly after that browser ends. "
         f"{KEEP_TOOL}(uri) moves one into {ROOT_URI}. Each entry's url plays it; "
         "reading one by its uri answers that entry, not the video."
@@ -756,7 +758,7 @@ def register(
     def _item_resource(which: str):
         def read(name: str) -> bytes | ResourceResult:
             # The caller is named last: with Files off, or a URI that is not
-            # one, naming the session would not fix the call, so those say so
+            # one, naming the workspace would not fix the call, so those say so
             # first, as they did before the caller was read at the edge.
             folder_of, leaf = parse_uri(uri_of(which, name))
             if folder_of != DOWNLOADS and store is None:
@@ -841,8 +843,8 @@ def _routes(mcp, actions, workspaces, store, token, base, prefix, ttl) -> None:
     are not browser actions, and counting them as such would break the
     one-to-one promise ``test_surfaces.py`` guards over those.
 
-    A file belongs to a session, so all of these name one the way everything
-    else does — a header or ``?session=`` — and none takes an id.
+    A file belongs to a workspace, so all of these name one the way everything
+    else does — a header or ``?workspace=`` — and none takes an id.
 
     The two literal GETs are registered before the one route with a path
     parameter, so `/files/screenshots` and `/files/downloads` are never at the
@@ -871,7 +873,7 @@ def _routes(mcp, actions, workspaces, store, token, base, prefix, ttl) -> None:
         files_root + "/screenshots", methods=["GET"], name="files_screenshots"
     )
     async def list_screenshots(request: Request) -> JSONResponse:
-        """This session's saved screenshots, not yet kept."""
+        """This workspace's saved screenshots, not yet kept."""
         return await answer(
             request,
             "screenshots",
@@ -899,7 +901,7 @@ def _routes(mcp, actions, workspaces, store, token, base, prefix, ttl) -> None:
         files_root + "/recordings", methods=["GET"], name="files_recordings"
     )
     async def list_recordings(request: Request) -> JSONResponse:
-        """This session's recordings, not yet kept."""
+        """This workspace's recordings, not yet kept."""
         return await answer(
             request,
             "recordings",

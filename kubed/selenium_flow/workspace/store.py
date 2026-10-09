@@ -260,7 +260,8 @@ def _visits(raw) -> list[dict]:
 
 
 class WorkspaceStore(Protocol):
-    """Maps a caller key to the browser session it is using."""
+    """Maps a caller key to its workspace: the record of what it was doing, and
+    the session (the live browser) it holds, if any."""
 
     kind: str
     # How long an entry is kept. Part of the contract because things derived
@@ -601,6 +602,6 @@ def redis_client(conn: RedisSettings):
         raise StoreUnavailable(
             f"Redis is configured but unreachable at {where} "
             f"({type(exc).__name__}: {faults.message(exc)}); "
-            "refusing to start on in-memory sessions"
+            "refusing to start on in-memory workspaces"
         ) from None
     return client
