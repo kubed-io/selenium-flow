@@ -26,25 +26,39 @@ class Clock:
         return self.now
 
 
+class Watcher:
+    """Stands in for the monitor: what the collector asked it to watch."""
+
+    def __init__(self):
+        self.watched, self.released = [], []
+
+    def watch(self, grid_id, workspace, reason, *, browser=""):
+        self.watched.append((grid_id, workspace, reason, browser))
+
+    def release(self, grid_id, reason):
+        self.released.append((grid_id, reason))
+
+
 @pytest.fixture
 def parts(tmp_path):
     store = flows.LocalFlowStore(tmp_path / "workspaces")
     inbox = tmp_path / "recordings"
     inbox.mkdir()
-    alive = {GID}
+    monitor = Watcher()
     filed = []
     clock = Clock()
     c = collector_module.Collector(
-        store, inbox, live=lambda: set(alive), wait=600, polling=True,
-        poll_ms=50, on_filed=lambda: filed.append(1), clock=clock, tick=0.1,
+        store, inbox, wait=600, polling=True, poll_ms=50,
+        on_filed=lambda: filed.append(1), monitor=monitor, clock=clock,
+        tick=0.1,
         # Filed at once: the settle has tests of its own, below.
         idle_after=60.0, settle=0,
     )
-    return c, store, inbox, alive, filed, clock
+    return c, store, inbox, monitor, filed, clock
 
 
 async def test_nothing_is_filed_while_the_file_grows(parts):
-    c, store, inbox, _alive, filed, _clock = parts
+    c, store, inbox, _monitor, filed, _clock = parts
     c.expect("bot", GID, "chrome")
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY)
     await c.sweep()
@@ -52,7 +66,7 @@ async def test_nothing_is_filed_while_the_file_grows(parts):
 
 
 async def test_a_file_that_ends_in_mfro_is_filed_and_its_note_goes(parts):
-    c, store, inbox, _alive, filed, clock = parts
+    c, store, inbox, _monitor, filed, clock = parts
     c.expect("bot", GID, "chrome")
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
     await c.sweep()  # settle 0 (the fixture's): the first sweep that sees it
@@ -66,7 +80,7 @@ async def test_a_finished_file_is_filed_only_once_it_has_settled(parts):
     """rclone checks an upload after writing it, and uploads one it finds gone
     again: filed the moment it ended in mfro, it came back as a copy no note
     claimed, in the inbox for good."""
-    c, store, inbox, _alive, filed, clock = parts
+    c, store, inbox, _monitor, filed, clock = parts
     c.settle = 10
     c.expect("bot", GID, "chrome")
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
@@ -82,7 +96,7 @@ async def test_a_finished_file_is_filed_only_once_it_has_settled(parts):
 
 @pytest.mark.parametrize("change", ["size", "mtime"])
 async def test_a_finished_file_that_changes_while_settling_starts_again(parts, change):
-    c, _store, inbox, _alive, filed, clock = parts
+    c, _store, inbox, _monitor, filed, clock = parts
     c.settle = 10
     c.expect("bot", GID, "chrome")
     video = inbox / f"bot_{GID}.mp4"
@@ -103,7 +117,7 @@ async def test_a_finished_file_that_changes_while_settling_starts_again(parts, c
 
 
 async def test_a_discarded_video_settles_before_it_is_deleted(parts):
-    c, store, inbox, _alive, _filed, clock = parts
+    c, store, inbox, _monitor, _filed, clock = parts
     c.settle = 10
     c.expect("bot", GID, "chrome", discard=True)
     video = inbox / f"bot_{GID}.mp4"
@@ -123,7 +137,7 @@ async def test_a_settling_file_in_a_quiet_inbox_is_filed_without_waiting_a_tick(
     inbox.mkdir()
     filed = []
     c = collector_module.Collector(
-        store, inbox, live=lambda: {GID}, wait=600, polling=True, poll_ms=50,
+        store, inbox, wait=600, polling=True, poll_ms=50,
         on_filed=lambda: filed.append(1), tick=100.0, settle=0.3,
     )
     await c.start()
@@ -145,7 +159,7 @@ async def test_a_settling_file_in_a_quiet_inbox_is_filed_without_waiting_a_tick(
 )
 def test_the_watch_looks_again_within_a_settle(tmp_path, tick, settle, look):
     c = collector_module.Collector(
-        None, tmp_path, live=set, wait=600, polling=True, poll_ms=50,
+        None, tmp_path, wait=600, polling=True, poll_ms=50,
         tick=tick, settle=settle,
     )
     assert c._look == look
@@ -165,7 +179,7 @@ def test_the_server_passes_the_settle_to_the_collector(tmp_path):
 
 
 async def test_a_match_deep_in_the_inbox_is_found_and_partials_are_not(parts):
-    c, _store, inbox, _alive, filed, _clock = parts
+    c, _store, inbox, _monitor, filed, _clock = parts
     c.expect("bot", GID, "chrome")
     deep = inbox / "a" / GID
     deep.mkdir(parents=True)
@@ -178,25 +192,24 @@ async def test_a_match_deep_in_the_inbox_is_found_and_partials_are_not(parts):
 
 
 async def test_a_cut_off_file_waits_for_the_browser_and_a_minute_of_quiet(parts):
-    c, _store, inbox, alive, filed, clock = parts
+    c, _store, inbox, _monitor, filed, clock = parts
     c.expect("bot", GID, "chrome")
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY)
     await c.sweep()
     clock.now += 61
     await c.sweep()  # quiet, but the browser lives: never early
     assert filed == []
-    alive.clear()
+    c.ended(GID)
     clock.now += 61
     await c.sweep()
     assert filed == [1]
 
 
 async def test_a_file_that_never_comes_is_dropped_after_wait_with_a_warning(parts, caplog):
-    c, store, _inbox, alive, _filed, clock = parts
+    c, store, _inbox, _monitor, _filed, clock = parts
     c.expect("bot", GID, "chrome")
     c.ended(GID)
     await asyncio.sleep(0)
-    alive.clear()
     clock.now += 599
     await c.sweep()
     assert store.notes() != []
@@ -210,7 +223,7 @@ async def test_a_file_that_never_comes_is_dropped_after_wait_with_a_warning(part
 async def test_a_discarded_browsers_video_is_deleted_not_filed(parts):
     """Its browser lost the race to bind and was quit: the video is no
     workspace's, so it neither joins this one nor sits in the inbox forever."""
-    c, store, inbox, _alive, filed, _clock = parts
+    c, store, inbox, _monitor, filed, _clock = parts
     c.expect("bot", GID, "chrome", discard=True)
     assert store.notes()[0][2]["discard"] is True
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
@@ -224,7 +237,7 @@ async def test_a_discard_survives_a_restart(parts):
     c, store, inbox, *_ = parts
     c.expect("bot", GID, "chrome", discard=True)
     c2 = collector_module.Collector(
-        store, inbox, live=set, wait=600, polling=True, poll_ms=50, settle=0,
+        store, inbox, wait=600, polling=True, poll_ms=50, settle=0,
     )
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
     await c2._load()
@@ -256,9 +269,9 @@ async def test_a_discard_that_cannot_delete_keeps_its_note(parts, monkeypatch, c
 
 
 async def test_a_discard_whose_video_never_comes_goes_quietly(parts, caplog):
-    c, store, _inbox, alive, _filed, clock = parts
+    c, store, _inbox, _monitor, _filed, clock = parts
     c.expect("bot", GID, "chrome", discard=True)
-    alive.clear()
+    c.ended(GID)
     with caplog.at_level(logging.WARNING):
         await c.sweep()
         clock.now += 601
@@ -267,17 +280,16 @@ async def test_a_discard_whose_video_never_comes_goes_quietly(parts, caplog):
     assert caplog.records == []
 
 
-async def test_a_reap_is_noticed_by_the_tick(parts):
-    c, store, _inbox, alive, _filed, clock = parts
+async def test_an_end_the_monitor_announces_is_written_to_the_note(parts):
+    c, store, _inbox, _monitor, _filed, clock = parts
     c.expect("bot", GID, "chrome")
-    alive.clear()
-    await c.sweep()
+    c.ended(GID)  # the monitor's session.ended: any cause
     assert c.owed[GID].ended == int(clock.now * 1000)
     assert store.notes()[0][2]["ended"] == int(clock.now * 1000)
 
 
 async def test_the_task_runs_only_while_something_is_owed_and_survives_a_restart(parts):
-    c, store, inbox, _alive, _filed, clock = parts
+    c, store, inbox, _monitor, _filed, clock = parts
     await c.start()
     assert c.running is False
     c.expect("bot", GID, "chrome")
@@ -286,7 +298,7 @@ async def test_the_task_runs_only_while_something_is_owed_and_survives_a_restart
     await c.stop()
     # A new process: the note is the queue.
     c2 = collector_module.Collector(
-        store, inbox, live=set, wait=600, polling=True, poll_ms=50,
+        store, inbox, wait=600, polling=True, poll_ms=50,
         clock=clock, tick=0.1, settle=0,
     )
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
@@ -301,9 +313,8 @@ async def test_the_task_runs_only_while_something_is_owed_and_survives_a_restart
 
 
 async def test_two_workspaces_never_claim_each_others_files(parts):
-    c, store, inbox, alive, _filed, _clock = parts
+    c, store, inbox, _monitor, _filed, _clock = parts
     other = "0123456789abcdef0123456789abcdef"
-    alive.add(other)
     c.expect("a.b", GID, "chrome")
     c.expect("ab", other, "chrome")
     # The recorder strips "." from names: both files start "ab_".
@@ -335,79 +346,16 @@ def test_a_server_with_recording_on_needs_a_usable_inbox(tmp_path):
     (tmp_path / "recordings").mkdir()
     server = SeleniumMCP(settings)
     assert server.collector is not None and server.workspaces.recordings is server.collector
+    assert server.collector.monitor is server.monitor
 
 
-class Listing:
-    """The Grid's running sessions, counting how often it is asked."""
-
-    def __init__(self, ids=(), fails=False):
-        self.ids = set(ids)
-        self.fails = fails
-        self.calls = 0
-
-    def __call__(self):
-        self.calls += 1
-        if self.fails:
-            raise ConnectionError("grid down")
-        return set(self.ids)
-
-
-def collector(store, inbox, live, clock, **kw):
+def collector(store, inbox, clock, **kw):
     kw.setdefault("tick", 100.0)
     kw.setdefault("settle", 0)
     return collector_module.Collector(
-        store, inbox, live=live, wait=600, polling=True, poll_ms=50,
+        store, inbox, wait=600, polling=True, poll_ms=50,
         clock=clock, **kw,
     )
-
-
-async def test_one_listing_a_tick_however_many_are_owed(tmp_path):
-    """Liveness comes from the Grid's status, never from touching a session (a
-    command a node counts as activity, so asking would keep it alive forever),
-    and one listing serves every owed browser and both branches for a tick."""
-    store = flows.LocalFlowStore(tmp_path / "workspaces")
-    inbox = tmp_path / "recordings"
-    inbox.mkdir()
-    ids = [f"{n:032x}" for n in range(1, 5)]
-    live, clock = Listing(ids), Clock()
-    c = collector(store, inbox, live, clock)
-    for n, gid in enumerate(ids):
-        c.expect(f"s{n}", gid, "chrome")
-    (inbox / f"s0_{ids[0]}.mp4").write_bytes(BODY)  # cut off: the quiet branch
-    for step in (0, 10, 61, 70, 99):
-        clock.now = 1_791_500_000.0 + step
-        await c.sweep()
-    assert live.calls == 1 and set(c.owed) == set(ids)
-    clock.now += 2  # a tick on: one more listing, for all of them
-    await c.sweep()
-    assert live.calls == 2
-
-
-async def test_a_cut_off_file_whose_browser_is_gone_marks_it_ended(parts):
-    c, store, inbox, alive, filed, clock = parts
-    c.expect("bot", GID, "chrome")
-    (inbox / f"bot_{GID}.mp4").write_bytes(BODY)
-    alive.clear()
-    await c.sweep()  # not quiet yet, so not filed: but known to have ended
-    assert filed == [] and c.owed[GID].ended == int(clock.now * 1000)
-    assert store.notes()[0][2]["ended"] == int(clock.now * 1000)
-
-
-async def test_a_grid_that_cannot_list_means_every_browser_lives(tmp_path, caplog):
-    store = flows.LocalFlowStore(tmp_path / "workspaces")
-    inbox = tmp_path / "recordings"
-    inbox.mkdir()
-    live, clock = Listing(fails=True), Clock()
-    c = collector(store, inbox, live, clock, tick=0.1)
-    c.expect("bot", GID, "chrome")
-    (inbox / f"bot_{GID}.mp4").write_bytes(BODY)
-    with caplog.at_level(logging.INFO):
-        for _ in range(3):
-            clock.now += 61
-            await c.sweep()
-    assert live.calls == 3 and c.owed[GID].ended is None
-    assert store.files("bot", RECORDINGS_DIR) == []
-    assert GID not in caplog.text
 
 
 async def test_a_failed_sweep_is_retried_a_tick_later(tmp_path, caplog):
@@ -416,7 +364,7 @@ async def test_a_failed_sweep_is_retried_a_tick_later(tmp_path, caplog):
     inbox.mkdir()
     filed = []
     c = collector(
-        store, inbox, Listing([GID]), Clock(), tick=0.1,
+        store, inbox, Clock(), tick=0.1,
         on_filed=lambda: filed.append(1),
     )
     real, failures = c._inbox_files, []
@@ -449,7 +397,7 @@ async def test_a_note_that_cannot_be_read_is_skipped_by_workspace(tmp_path, capl
     other = "0123456789abcdef0123456789abcdef"
     store.write_note("good", GID, {"opened": "1791500000000", "ended": 5.0})
     store.write_note("bad", other, {"opened": ["no"], "browser": "chrome"})
-    c = collector(store, inbox, Listing([GID]), Clock())
+    c = collector(store, inbox, Clock())
     with caplog.at_level(logging.WARNING):
         await c.start()
     assert set(c.owed) == {GID}
@@ -461,7 +409,7 @@ async def test_a_note_that_cannot_be_read_is_skipped_by_workspace(tmp_path, capl
 async def test_an_inbox_copy_that_cannot_be_removed_is_filed_once(parts, caplog):
     """A recorder-owned or sticky inbox folder: the link lands, the unlink is
     refused. Filed, the note goes, the inbox copy stays — and never a (1)."""
-    c, store, inbox, _alive, filed, _clock = parts
+    c, store, inbox, _monitor, filed, _clock = parts
     c.expect("bot", GID, "chrome")
     sub = inbox / "node"
     sub.mkdir()
@@ -496,7 +444,7 @@ async def test_a_note_with_an_impossible_time_is_skipped_not_fatal(tmp_path, cap
     pending = store.root / "bad" / RECORDINGS_DIR / ".pending"
     pending.mkdir(parents=True)
     (pending / f"{other}.json").write_text("{" + field + "}")
-    c = collector(store, inbox, Listing([GID, other]), Clock())
+    c = collector(store, inbox, Clock())
     with caplog.at_level(logging.WARNING):
         await c.start()
     assert set(c.owed) == {GID}
@@ -509,11 +457,11 @@ async def test_a_note_with_an_impossible_time_is_skipped_not_fatal(tmp_path, cap
 
 async def test_only_an_mp4_is_ever_filed(parts):
     """A recorder's sidecar names the same id; it is not a recording."""
-    c, store, inbox, alive, filed, clock = parts
+    c, store, inbox, _monitor, filed, clock = parts
     c.expect("bot", GID, "chrome")
     (inbox / f"bot_{GID}.log").write_bytes(b"ffmpeg says hello")
     (inbox / f"bot_{GID}.json").write_bytes(b"{}")
-    alive.clear()
+    c.ended(GID)
     for _ in range(3):
         clock.now += 61
         await c.sweep()
@@ -523,29 +471,11 @@ async def test_only_an_mp4_is_ever_filed(parts):
     assert filed == [1] and (inbox / f"bot_{GID}.log").exists()
 
 
-async def test_a_browser_seen_running_again_is_no_longer_ended(parts):
-    """An empty listing from a hub that restarted reads as every browser gone;
-    a later listing that shows it running takes the deadline back."""
-    c, store, _inbox, alive, _filed, clock = parts
-    c.expect("bot", GID, "chrome")
-    alive.clear()
-    await c.sweep()
-    assert c.owed[GID].ended is not None
-    alive.add(GID)
-    clock.now += 1  # a tick on: a fresh listing
-    await c.sweep()
-    assert c.owed[GID].ended is None
-    assert store.notes()[0][2]["ended"] is None
-    clock.now += 700  # past RECORDING_WAIT from the blip: still owed
-    await c.sweep()
-    assert GID in c.owed
-
-
 async def test_note_writes_never_run_on_the_loop(parts):
     """DATA_DIR is NFS in the cluster: a write on the loop stalls every request."""
     import threading
 
-    c, store, _inbox, alive, _filed, clock = parts
+    c, store, _inbox, _monitor, _filed, clock = parts
     real, threads = store.write_note, []
 
     def write_note(*a, **kw):
@@ -559,10 +489,9 @@ async def test_note_writes_never_run_on_the_loop(parts):
         await asyncio.to_thread(c.expect, "bot", GID, "chrome")
         other = "0123456789abcdef0123456789abcdef"
         await asyncio.to_thread(c.expect, "two", other, "chrome")
-        alive.add(other)
         threads.clear()
         await asyncio.to_thread(c.ended, other)  # end_browser's path
-        alive.clear()  # GID reaped: the sweep's path
+        c.ended(GID)  # the monitor's session.ended, on the loop
         clock.now += 1
         await c.sweep()
         for _ in range(50):
@@ -601,11 +530,10 @@ def test_a_filed_recording_pokes_the_admin_broadcast(tmp_path):
 
 
 async def test_an_unreadable_inbox_keeps_every_note_past_wait(parts, monkeypatch, caplog):
-    c, store, inbox, alive, _filed, clock = parts
+    c, store, inbox, _monitor, _filed, clock = parts
     c.expect("bot", GID, "chrome")
     c.ended(GID)
     await asyncio.sleep(0)
-    alive.clear()
     real = collector_module.os.scandir
 
     def denied(path="."):
@@ -625,7 +553,7 @@ async def test_an_unreadable_inbox_keeps_every_note_past_wait(parts, monkeypatch
 
 
 async def test_an_unreadable_inbox_is_logged_without_the_grid_id(parts, monkeypatch, caplog):
-    c, store, inbox, _alive, _filed, _clock = parts
+    c, store, inbox, _monitor, _filed, _clock = parts
     c.expect("bot", GID, "chrome")
 
     real = collector_module.os.scandir
@@ -648,12 +576,11 @@ async def test_an_unreadable_inbox_is_logged_without_the_grid_id(parts, monkeypa
 
 
 async def test_an_unreadable_subfolder_does_not_starve_others_nor_drop_notes(parts, monkeypatch, caplog):
-    c, store, inbox, alive, _filed, clock = parts
+    c, store, inbox, _monitor, _filed, clock = parts
     (inbox / "bad").mkdir()
     c.expect("bot", GID, "chrome")
     c.ended(GID)
     await asyncio.sleep(0)
-    alive.clear()
     bad = str(inbox / "bad")
     real = collector_module.os.scandir
 
@@ -687,7 +614,7 @@ def _failing_once(real, failures):
 async def test_a_note_that_cannot_be_deleted_stays_owed_until_it_is(parts, caplog):
     """Filed, but its note survives a delete: it stays owed only to be deleted
     — never matched again, so the inbox copy left behind is not a (1)."""
-    c, store, inbox, _alive, filed, clock = parts
+    c, store, inbox, _monitor, filed, clock = parts
     c.expect("bot", GID, "chrome")
     sub = inbox / "node"
     sub.mkdir()
@@ -721,7 +648,7 @@ async def test_a_filed_note_after_a_restart_is_only_deleted(tmp_path):
         "filed": "rec-20261008-1013.mp4",
     })
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
-    c = collector(store, inbox, Listing([GID]), Clock(), tick=0.1)
+    c = collector(store, inbox, Clock(), tick=0.1)
     await c.start()
     for _ in range(50):
         if not c.owed:
@@ -736,11 +663,10 @@ async def test_a_filed_note_after_a_restart_is_only_deleted(tmp_path):
 async def test_a_late_note_that_cannot_be_deleted_is_never_filed(parts):
     """Dropped at the deadline but its note survives the delete: a file that
     comes after is not filed, and the next sweep deletes the note."""
-    c, store, inbox, alive, filed, clock = parts
+    c, store, inbox, _monitor, filed, clock = parts
     c.expect("bot", GID, "chrome")
     c.ended(GID)
     await asyncio.sleep(0)
-    alive.clear()
     clock.now += 601
     failures = []
     store.delete_note = _failing_once(store.delete_note, failures)
@@ -780,7 +706,7 @@ async def test_notes_that_cannot_be_read_at_boot_are_read_on_a_later_tick(
     monkeypatch.setattr(Path, "read_text", flaky)
     filed = []
     c = collector(
-        store, inbox, Listing([GID]), Clock(), tick=0.1,
+        store, inbox, Clock(), tick=0.1,
         on_filed=lambda: filed.append(1),
     )
     with caplog.at_level(logging.WARNING):
@@ -824,7 +750,7 @@ async def test_one_workspace_that_cannot_be_read_does_not_block_another(tmp_path
     (inbox / f"good_{GID}.mp4").write_bytes(BODY + mp4.trailer())
     (inbox / f"bad_{other}.mp4").write_bytes(BODY + mp4.trailer())
     _eio_on(store.root / "bad", monkeypatch)
-    c = collector(store, inbox, Listing([GID, other]), Clock(), tick=0.1)
+    c = collector(store, inbox, Clock(), tick=0.1)
     with caplog.at_level(logging.WARNING):
         await c.start()
         for _ in range(50):
@@ -862,14 +788,14 @@ async def test_a_stop_during_a_filing_lets_it_finish_and_mark_its_note(tmp_path)
         return real(*a, **kw)
 
     store.move_in = slow
-    c = collector(store, inbox, Listing([GID]), Clock(), tick=0.1)
+    c = collector(store, inbox, Clock(), tick=0.1)
     try:
         await c.start()
         await asyncio.sleep(0.2)
         await c.stop()
         assert store.notes() == []
         assert len(store.files("bot", RECORDINGS_DIR)) == 1
-        c2 = collector(store, inbox, Listing([GID]), Clock(), tick=0.1)
+        c2 = collector(store, inbox, Clock(), tick=0.1)
         await c2.start()
         await c2.stop()
         assert c2.owed == {} and len(store.files("bot", RECORDINGS_DIR)) == 1
@@ -887,7 +813,7 @@ async def test_a_note_found_done_that_cannot_be_deleted_is_logged_once(tmp_path,
         raise PermissionError(13, "denied")
 
     store.delete_note = refused
-    c = collector(store, inbox, Listing([GID]), Clock())
+    c = collector(store, inbox, Clock())
     with caplog.at_level(logging.WARNING):
         await c.start()
         await c.stop()
@@ -906,7 +832,7 @@ async def test_a_failed_sweep_with_only_notes_unread_says_so(tmp_path, monkeypat
         raise OSError(5, "Input/output error")
 
     store.notes = unreadable
-    c = collector(store, inbox, Listing(), Clock(), tick=0.1)
+    c = collector(store, inbox, Clock(), tick=0.1)
 
     def blind():
         raise PermissionError(13, "denied")
@@ -933,7 +859,7 @@ async def test_a_stale_read_of_the_notes_never_brings_a_filed_one_back(tmp_path)
     inbox.mkdir()
     filed = []
     c = collector(
-        store, inbox, Listing([GID]), Clock(), on_filed=lambda: filed.append(1),
+        store, inbox, Clock(), on_filed=lambda: filed.append(1),
     )
     c.expect("bot", GID, "chrome")
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
@@ -975,14 +901,12 @@ def _stat_fails_on(path, exc, monkeypatch):
 async def test_a_file_whose_stat_fails_blocks_drops_but_others_are_filed(parts, monkeypatch, caplog):
     import errno
 
-    c, store, inbox, alive, _filed, clock = parts
+    c, store, inbox, _monitor, _filed, clock = parts
     other = "0123456789abcdef0123456789abcdef"
     c.expect("bot", GID, "chrome")
     c.expect("bot2", other, "chrome")
     c.ended(GID)
     await asyncio.sleep(0)
-    alive.clear()
-    alive.add(other)
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
     (inbox / f"bot2_{other}.mp4").write_bytes(BODY + mp4.trailer())
     _stat_fails_on(inbox / f"bot_{GID}.mp4", OSError(errno.EIO, "Input/output error"), monkeypatch)
@@ -1000,14 +924,14 @@ async def test_a_file_whose_stat_fails_blocks_drops_but_others_are_filed(parts, 
 
 
 async def test_a_file_that_vanishes_mid_scan_is_not_blindness(parts, monkeypatch):
-    c, _store, inbox, _alive, _filed, _clock = parts
+    c, _store, inbox, _monitor, _filed, _clock = parts
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY)
     _stat_fails_on(inbox / f"bot_{GID}.mp4", FileNotFoundError(2, "gone"), monkeypatch)
     assert c._inbox_files() == [] and c._blind is False
 
 
 async def test_a_symlink_named_with_an_owed_id_is_never_filed(parts):
-    c, store, inbox, alive, filed, clock = parts
+    c, store, inbox, _monitor, filed, clock = parts
     outside = inbox.parent / "outside"
     outside.mkdir()
     for name, body in (("plain.bin", BODY), ("done.bin", BODY + mp4.trailer())):
@@ -1015,7 +939,6 @@ async def test_a_symlink_named_with_an_owed_id_is_never_filed(parts):
     c.expect("bot", GID, "chrome")
     c.ended(GID)
     await asyncio.sleep(0)
-    alive.clear()
     (inbox / f"bot_{GID}.mp4").symlink_to(outside / "plain.bin")
     assert c._inbox_files() == []
     clock.now += 100  # past idle_after, short of wait
@@ -1035,7 +958,7 @@ async def test_a_symlink_named_with_an_owed_id_is_never_filed(parts):
 
 
 async def test_a_regular_file_is_still_a_candidate(parts):
-    c, _store, inbox, _alive, _filed, _clock = parts
+    c, _store, inbox, _monitor, _filed, _clock = parts
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY)
     assert [p.name for p, _s, _m in c._inbox_files()] == [f"bot_{GID}.mp4"]
 
@@ -1043,7 +966,7 @@ async def test_a_regular_file_is_still_a_candidate(parts):
 async def test_a_read_fault_on_one_file_files_nothing_and_blocks_drops(parts, monkeypatch, caplog):
     import errno
 
-    c, store, inbox, alive, _filed, clock = parts
+    c, store, inbox, _monitor, _filed, clock = parts
     other = "0123456789abcdef0123456789abcdef"
     nofile = "fedcba9876543210fedcba9876543210"
     c.expect("bot", GID, "chrome")
@@ -1052,8 +975,6 @@ async def test_a_read_fault_on_one_file_files_nothing_and_blocks_drops(parts, mo
     c.ended(GID)
     c.ended(nofile)
     await asyncio.sleep(0)
-    alive.clear()
-    alive.add(other)
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY)  # cut off: filed as it is once quiet
     (inbox / f"bot2_{other}.mp4").write_bytes(BODY + mp4.trailer())
     real = mp4.is_complete
@@ -1084,7 +1005,7 @@ async def test_a_read_fault_on_one_file_files_nothing_and_blocks_drops(parts, mo
 
 
 async def test_a_source_swapped_for_a_link_is_a_fault_not_a_filing(parts, monkeypatch):
-    c, store, inbox, _alive, filed, _clock = parts
+    c, store, inbox, _monitor, filed, _clock = parts
     outside = inbox.parent / "token"
     outside.write_bytes(b"AUTH_TOKEN")
     src = inbox / f"bot_{GID}.mp4"
@@ -1104,7 +1025,7 @@ async def test_a_source_swapped_for_a_link_is_a_fault_not_a_filing(parts, monkey
 
 
 async def test_the_grid_id_may_be_only_in_a_folder(parts):
-    c, store, inbox, _alive, filed, _clock = parts
+    c, store, inbox, _monitor, filed, _clock = parts
     c.expect("bot", GID, "chrome")
     (inbox / "x").mkdir()
     (inbox / "x" / "spike.mp4").write_bytes(BODY + mp4.trailer())
@@ -1119,7 +1040,7 @@ async def test_the_grid_id_may_be_only_in_a_folder(parts):
 
 
 async def test_a_path_naming_two_owed_ids_is_skipped_and_logged_without_them(parts, caplog):
-    c, _store, inbox, _alive, filed, _clock = parts
+    c, _store, inbox, _monitor, filed, _clock = parts
     other = "1" * 32
     c.expect("bot", GID, "chrome")
     c.expect("bot2", other, "chrome")
@@ -1136,10 +1057,9 @@ async def test_a_path_naming_two_owed_ids_is_skipped_and_logged_without_them(par
 async def test_one_sweep_reads_each_inbox_path_once_however_many_are_owed(parts):
     """The inbox is the operator's and only grows: a sweep that looked every
     path over again for each owed id was quadratic, on the loop."""
-    c, store, inbox, alive, filed, _clock = parts
+    c, store, inbox, _monitor, filed, _clock = parts
     owed = [f"{n:x}" * 32 for n in range(1, 6)]
     for i, gid in enumerate(owed):
-        alive.add(gid)
         c.expect(f"s{i}", gid, "chrome")
     for n in range(200):
         (inbox / f"old-{n:04d}.mp4").write_bytes(BODY + mp4.trailer())
@@ -1162,7 +1082,7 @@ async def test_one_sweep_reads_each_inbox_path_once_however_many_are_owed(parts)
 
 
 def test_an_id_is_found_anywhere_in_the_path_as_before(parts):
-    c, _store, inbox, _alive, _filed, _clock = parts
+    c, _store, inbox, _monitor, _filed, _clock = parts
     other = "abcd-1234-efgh"
     ids = frozenset({GID, other})
     assert c._ids_in(inbox / f"x{GID}y.mp4", ids) == [GID]
@@ -1183,7 +1103,7 @@ async def test_a_provisional_discard_expected_again_is_owed_once_and_filed(parts
     """A recorded browser is noted for discard the moment it exists and again,
     ordinarily, once its workspace holds it: one owed recording, timed from the
     first, and a note that says so across a restart (Copilot, #59)."""
-    c, store, inbox, _alive, _filed, clock = parts
+    c, store, inbox, _monitor, _filed, clock = parts
     await c.start()
     first = int(clock.now * 1000)
 
@@ -1203,7 +1123,7 @@ async def test_a_provisional_discard_expected_again_is_owed_once_and_filed(parts
     finally:
         await c.stop()
     c2 = collector_module.Collector(
-        store, inbox, live=set, wait=600, polling=True, poll_ms=50,
+        store, inbox, wait=600, polling=True, poll_ms=50,
         clock=clock, settle=0,
     )
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
@@ -1219,7 +1139,7 @@ async def test_an_upgrade_lands_after_a_write_of_the_provisional_note(parts):
     when the upgrade's own write landed: the old mark must not win on disk."""
     import threading
 
-    c, store, _inbox, _alive, _filed, _clock = parts
+    c, store, _inbox, _monitor, _filed, _clock = parts
     # The loop, without its sweeping task: this is about the writes alone.
     c._loop, c._stopping = asyncio.get_running_loop(), True
     c.expect("bot", GID, "chrome", discard=True)
@@ -1247,7 +1167,7 @@ async def test_an_upgrade_that_cannot_be_written_still_keeps_the_video(parts):
     """Told it cannot be filed, the workspace's video is not deleted on the
     strength of a provisional note: the collector owes it ordinarily and
     writes the note again."""
-    c, store, inbox, _alive, filed, _clock = parts
+    c, store, inbox, _monitor, filed, _clock = parts
     c.expect("bot", GID, "chrome", discard=True)
     store.write_note = _failing_once(store.write_note, [])
     with pytest.raises(OSError):
@@ -1265,3 +1185,52 @@ def test_a_first_expect_that_cannot_be_written_owes_nothing(parts):
     with pytest.raises(OSError):
         c.expect("bot", GID, "chrome")
     assert c.owed == {} and store.notes() == []
+
+
+async def test_an_expected_browser_is_watched_and_released_once_filed(parts):
+    c, _store, inbox, monitor, filed, _clock = parts
+    c.expect("bot", GID, "chrome")
+    assert monitor.watched == [(GID, "bot", "recording", "chrome")]
+    (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
+    await c.sweep()
+    assert filed == [1] and monitor.released == [(GID, "recording")]
+
+
+async def test_a_provisional_discard_is_watched_too(parts):
+    """Its deadline needs an end as much as a kept one's does."""
+    c, _store, _inbox, monitor, _filed, _clock = parts
+    c.expect("bot", GID, "chrome", discard=True)
+    assert monitor.watched == [(GID, "bot", "recording", "chrome")]
+
+
+async def test_start_watches_what_the_notes_still_owe(tmp_path):
+    store = flows.LocalFlowStore(tmp_path / "workspaces")
+    inbox = tmp_path / "recordings"
+    inbox.mkdir()
+    ended = "0123456789abcdef0123456789abcdef"
+    done = "fedcba9876543210fedcba9876543210"
+    store.write_note("a", GID, {"opened": 1_791_500_000_000, "browser": "chrome"})
+    store.write_note("b", ended, {"opened": 1_791_500_000_000, "ended": 1})
+    store.write_note("c", done, {"opened": 1_791_500_000_000, "filed": "x.mp4"})
+    monitor = Watcher()
+    c = collector(store, inbox, Clock(), monitor=monitor)
+    await c.start()
+    assert monitor.watched == [(GID, "a", "recording", "chrome")]
+    await c.stop()
+
+
+def test_an_end_on_the_bus_reaches_the_collector(tmp_path):
+    from kubed.selenium_flow import config
+    from kubed.selenium_flow.monitor.events import SessionEnded
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    (tmp_path / "recordings").mkdir()
+    server = SeleniumMCP(config.Settings(
+        grid={"url": "http://grid.invalid:4444"},
+        data={"dir": str(tmp_path)},
+        recording={"enabled": True},
+    ))
+    server.collector.expect("bot", GID, "chrome")
+    assert server.monitor.watching(GID) == {"recording"}
+    server.bus.publish(SessionEnded("bot", GID, "gone", 1.0))
+    assert server.collector.owed[GID].ended is not None
