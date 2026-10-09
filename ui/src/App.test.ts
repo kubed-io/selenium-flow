@@ -92,6 +92,7 @@ test.each([
   ['sites', SITES.data, 'app.example.com'],
   ['site', { site: 'app.example.com', uri: 'workspace://site-data/app.example.com', cookies: [], storage: [], own_cookies: [], kept_shared: [] }, 'Nothing saved for this site.'],
   ['file', { name: 'a.png', size: 10, url: 'https://flow.example.com/f/a.png', image: true, content_type: 'image/png', uri: 'workspace://files/screenshots/a.png' }, 'a.png'],
+  ['document', '# When something goes wrong\n\nRead the error first.\n', 'Read the error first.'],
 ])('draws the %s view from a show result', async (component, data, text) => {
   render(App)
   expect(screen.getByText('Loading…')).toBeInTheDocument()
@@ -292,6 +293,23 @@ test('the mode the host grants is the one used', async () => {
   await vi.waitFor(() => expect(host.requestDisplayMode).toHaveBeenCalled())
   expect(screen.getByText('+2 more')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Fullscreen' })).toBeInTheDocument()
+})
+
+test('a document can go fullscreen when the host offers it', async () => {
+  host.ctx = { availableDisplayModes: ['inline', 'fullscreen'] }
+  render(App)
+  await shown({ component: 'document', uri: 'skill://selenium-flow/SKILL.md', data: '# T\n\ntext\n' })
+  expect(await screen.findByRole('button', { name: 'Fullscreen' })).toBeInTheDocument()
+})
+
+test('Back under a document names its file', async () => {
+  host.callServerTool.mockResolvedValue({ content: [], structuredContent: {
+    component: 'document', uri: 'skill://selenium-flow/references/FLOWS.md', data: '# Flows\n\nSave once.\n',
+  } })
+  render(App)
+  await shown({ component: 'document', uri: 'skill://selenium-flow/SKILL.md', data: '# Skill\n\nSee `skill://selenium-flow/references/FLOWS.md`.\n' })
+  await fireEvent.click(await screen.findByRole('button', { name: 'skill://selenium-flow/references/FLOWS.md' }))
+  expect(await screen.findByRole('button', { name: 'Back' })).toHaveTextContent('← SKILL.md')
 })
 
 test('no fullscreen button when the host does not offer it', async () => {

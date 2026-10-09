@@ -6,6 +6,7 @@
   import { onMount, tick, type Component } from 'svelte'
   import { leaf, plural } from './lib/format'
   import ContextView from './lib/views/ContextView.svelte'
+  import DocumentView from './lib/views/DocumentView.svelte'
   import FilesView from './lib/views/FilesView.svelte'
   import FileView from './lib/views/FileView.svelte'
   import FlowsView from './lib/views/FlowsView.svelte'
@@ -34,6 +35,7 @@
     sites: SitesView as Component<Props>,
     site: SiteView as Component<Props>,
     secrets: SecretsView as Component<Props>,
+    document: DocumentView as Component<Props>,
   }
   const EXPANDS = new Set(['flow', 'document'])
   // What Back says: the view it returns to (spec 2026-10-09-show-everything, ruling 12).

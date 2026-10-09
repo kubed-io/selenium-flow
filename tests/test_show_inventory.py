@@ -8,6 +8,7 @@ row (and its view in the app) rather than editing the expectation.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 from fastmcp import Client
@@ -107,3 +108,15 @@ async def test_the_inventory_is_the_one_the_spec_lists(everything):
         if not uri.startswith(EXEMPT)
     }
     assert forms == FORMS
+
+
+APP = Path(__file__).parents[1] / "ui" / "src" / "App.svelte"
+
+
+def test_every_component_show_names_the_shell_draws():
+    """The other end of the table: a component with no Svelte view would draw
+    'Nothing to show'."""
+    keys = set(re.findall(
+        r"^\s+'?([\w-]+)'?: \w+ as Component<Props>,", APP.read_text(), re.M
+    ))
+    assert {view.component for view in show.VIEWS} == keys

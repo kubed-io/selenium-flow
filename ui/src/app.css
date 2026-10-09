@@ -550,3 +550,10 @@ textarea.yaml {
 .md th, .md td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
 .md blockquote { padding-left: 10px; border-left: 3px solid var(--line); color: var(--muted); }
 .md .md-uri, .md .md-link { padding: 0; min-height: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; }
+
+/* A JSON document as a tree (lib/JsonTree.svelte). */
+.tree { font-size: 13px; }
+.tree summary { cursor: pointer; padding: 2px 0; }
+.tree .kids { padding-left: 16px; border-left: 1px solid var(--line); margin-left: 4px; }
+.tree.leaf { padding: 2px 0; overflow-wrap: anywhere; }
+.tree .key { color: var(--accent); }
