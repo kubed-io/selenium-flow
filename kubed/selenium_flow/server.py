@@ -114,9 +114,12 @@ class SeleniumMCP:
 
         # Saved flows, or None when no data directory was named — which is the
         # default, and is the feature being off rather than a degraded mode.
-        # Built before the sessions: the recordings are filed into it.
+        # Built before the sessions: the recordings are filed into it. A
+        # recording.dir nothing collects from is no inbox, and must not hide an
+        # old session from the move the boot asks for (Copilot, #59).
         self.flows = flowstore.from_settings(
-            settings.data, config.recording_dir(settings)
+            settings.data,
+            config.recording_dir(settings) if settings.recording.enabled else None,
         )
 
         # Recordings (recordings spec): the Grid films, the operator delivers to

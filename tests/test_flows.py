@@ -906,3 +906,16 @@ def test_an_unreadable_top_level_entry_stops_the_boot(tmp_path, monkeypatch, fn_
 
 def test_a_missing_data_dir_is_no_old_layout(tmp_path):
     assert flowstore.old_layout(tmp_path / "nope") == []
+
+
+def test_a_recording_dir_nothing_collects_from_hides_no_old_session(tmp_path):
+    from kubed.selenium_flow import config
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    (tmp_path / "bot" / "flows").mkdir(parents=True)
+    with pytest.raises(ConfigError, match="bot"):
+        SeleniumMCP(config.Settings(
+            grid={"url": "http://grid.invalid:4444"},
+            data={"dir": str(tmp_path)},
+            recording={"dir": str(tmp_path / "bot" / "inbox")},
+        ))
