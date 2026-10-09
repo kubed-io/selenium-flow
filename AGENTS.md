@@ -542,8 +542,11 @@ tidies is still not.
   tick, holding the notes lock across the read and the merge; the boot carries
   on. Only bad JSON, a bad id or a non-file is skipped.
 - Matching is never by session name (the recorder strips `.`). The Grid id stays on disk, in the note only.
-- A file is complete when it ends in `mfro`; one cut off (no `mfro`, unchanged
-  60 s, browser gone) is filed as it is.
+- A file is complete when it ends in `mfro`, and filed once it has also sat
+  unchanged for `recording.settle` seconds: a transport may still be finishing
+  (rclone checks an upload after writing it and uploads one that vanished
+  again, a copy no note claims). One cut off (no `mfro`, unchanged 60 s,
+  browser gone) is filed as it is.
 - **The collector never sends the Grid a session command.** It learns whether a
   recorded browser still runs from one `GET /status` listing per tick
   (`Grid.sessions()`): a WebDriver command such as `GET /session/{id}/url` counts

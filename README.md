@@ -221,7 +221,10 @@ recording, so how the file reaches this server is yours to choose. The one rule:
 > `$DATA_DIR/recordings`), and set `RECORDING_ENABLED=true`.
 
 Both sides need write access to that directory: the Grid's side writes, this
-server moves the finished file out. Keep `SE_NODE_MAX_SESSIONS=1` on recording
+server moves the finished file out once it has sat unchanged for
+`RECORDING_SETTLE` seconds, because a transport may still be finishing with it
+(rclone checks an upload after writing it, and uploads one that vanished
+again). Keep `SE_NODE_MAX_SESSIONS=1` on recording
 nodes, or recordings share one screen.
 
 - **A shared volume.** Mount the same directory at the nodes' `/videos` and at
@@ -325,6 +328,7 @@ $DATA_DIR/
 | `RECORDING_WAIT` | `600` | seconds after a browser ends to wait for its video |
 | `RECORDING_WATCH` | `auto` | `events`, `poll`, or `auto` (polls on a network filesystem) |
 | `RECORDING_POLL` | `1000` | milliseconds between looks, when polling |
+| `RECORDING_SETTLE` | `10` | seconds a finished video sits unchanged before it is filed; `0` files it at once |
 
 **Upgrading from `FLOW_DATA_DIR`:** sessions used to sit at the top of the
 directory, and the server now refuses to boot until they move — once:

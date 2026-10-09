@@ -148,6 +148,7 @@ class SeleniumMCP:
                 wait=settings.recording.wait,
                 polling=mounts.polling(settings.recording.watch, inbox),
                 poll_ms=settings.recording.poll,
+                settle=settings.recording.settle,
             )
             log.info(
                 "recordings: on, inbox %s, %s",

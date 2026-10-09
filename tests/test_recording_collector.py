@@ -37,7 +37,8 @@ def parts(tmp_path):
     c = collector_module.Collector(
         store, inbox, live=lambda: set(alive), wait=600, polling=True,
         poll_ms=50, on_filed=lambda: filed.append(1), clock=clock, tick=0.1,
-        idle_after=60.0,
+        # Filed at once: the settle has tests of its own, below.
+        idle_after=60.0, settle=0,
     )
     return c, store, inbox, alive, filed, clock
 
@@ -54,11 +55,113 @@ async def test_a_file_that_ends_in_mfro_is_filed_and_its_note_goes(parts):
     c, store, inbox, _alive, filed, clock = parts
     c.expect("bot", GID, "chrome")
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
-    await c.sweep()
+    await c.sweep()  # settle 0 (the fixture's): the first sweep that sees it
     names = [f["name"] for f in store.files("bot", RECORDINGS_DIR)]
     assert names == [collector_module.name_for(int(clock.now * 1000))]
     assert store.notes() == [] and GID not in c.owed and filed == [1]
     assert not (inbox / f"bot_{GID}.mp4").exists()
+
+
+async def test_a_finished_file_is_filed_only_once_it_has_settled(parts):
+    """rclone checks an upload after writing it, and uploads one it finds gone
+    again: filed the moment it ended in mfro, it came back as a copy no note
+    claimed, in the inbox for good."""
+    c, store, inbox, _alive, filed, clock = parts
+    c.settle = 10
+    c.expect("bot", GID, "chrome")
+    (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
+    await c.sweep()
+    clock.now += 9.5
+    await c.sweep()
+    assert filed == [] and store.notes() != [] and (inbox / f"bot_{GID}.mp4").exists()
+    clock.now += 0.5
+    await c.sweep()
+    assert filed == [1] and store.notes() == []
+    assert not (inbox / f"bot_{GID}.mp4").exists()
+
+
+@pytest.mark.parametrize("change", ["size", "mtime"])
+async def test_a_finished_file_that_changes_while_settling_starts_again(parts, change):
+    c, _store, inbox, _alive, filed, clock = parts
+    c.settle = 10
+    c.expect("bot", GID, "chrome")
+    video = inbox / f"bot_{GID}.mp4"
+    video.write_bytes(BODY + mp4.trailer())
+    await c.sweep()
+    clock.now += 6
+    if change == "size":
+        video.write_bytes(BODY + b"\x00" * 50 + mp4.trailer())
+    else:
+        os.utime(video, (1_000_000.0, 1_000_000.0))
+    await c.sweep()  # changed: the 10 s start from here
+    clock.now += 9
+    await c.sweep()
+    assert filed == []
+    clock.now += 1
+    await c.sweep()
+    assert filed == [1]
+
+
+async def test_a_discarded_video_settles_before_it_is_deleted(parts):
+    c, store, inbox, _alive, _filed, clock = parts
+    c.settle = 10
+    c.expect("bot", GID, "chrome", discard=True)
+    video = inbox / f"bot_{GID}.mp4"
+    video.write_bytes(BODY + mp4.trailer())
+    await c.sweep()
+    assert video.exists() and store.notes() != []
+    clock.now += 10
+    await c.sweep()
+    assert not video.exists() and store.notes() == []
+
+
+async def test_a_settling_file_in_a_quiet_inbox_is_filed_without_waiting_a_tick(tmp_path):
+    """Nothing changes in the inbox once a file is finished, so the watch has
+    to time out to look again: after ``settle``, not after a tick."""
+    store = flows.LocalFlowStore(tmp_path / "sessions")
+    inbox = tmp_path / "recordings"
+    inbox.mkdir()
+    filed = []
+    c = collector_module.Collector(
+        store, inbox, live=lambda: {GID}, wait=600, polling=True, poll_ms=50,
+        on_filed=lambda: filed.append(1), tick=100.0, settle=0.3,
+    )
+    await c.start()
+    try:
+        c.expect("bot", GID, "chrome")
+        await asyncio.sleep(0.1)
+        (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
+        for _ in range(60):
+            if filed:
+                break
+            await asyncio.sleep(0.05)
+        assert filed == [1]
+    finally:
+        await c.stop()
+
+
+@pytest.mark.parametrize(
+    ("tick", "settle", "look"), [(30, 10, 10), (30, 60, 30), (30, 0, 30)],
+)
+def test_the_watch_looks_again_within_a_settle(tmp_path, tick, settle, look):
+    c = collector_module.Collector(
+        None, tmp_path, live=set, wait=600, polling=True, poll_ms=50,
+        tick=tick, settle=settle,
+    )
+    assert c._look == look
+
+
+def test_the_server_passes_the_settle_to_the_collector(tmp_path):
+    from kubed.selenium_flow import config
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    (tmp_path / "recordings").mkdir()
+    server = SeleniumMCP(config.Settings(
+        grid={"url": "http://grid.invalid:4444"},
+        data={"dir": str(tmp_path)},
+        recording={"enabled": True, "settle": 3},
+    ))
+    assert server.collector.settle == 3
 
 
 async def test_a_match_deep_in_the_inbox_is_found_and_partials_are_not(parts):
@@ -121,7 +224,7 @@ async def test_a_discard_survives_a_restart(parts):
     c, store, inbox, *_ = parts
     c.expect("bot", GID, "chrome", discard=True)
     c2 = collector_module.Collector(
-        store, inbox, live=set, wait=600, polling=True, poll_ms=50,
+        store, inbox, live=set, wait=600, polling=True, poll_ms=50, settle=0,
     )
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
     await c2._load()
@@ -184,7 +287,7 @@ async def test_the_task_runs_only_while_something_is_owed_and_survives_a_restart
     # A new process: the note is the queue.
     c2 = collector_module.Collector(
         store, inbox, live=set, wait=600, polling=True, poll_ms=50,
-        clock=clock, tick=0.1,
+        clock=clock, tick=0.1, settle=0,
     )
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
     await c2.start()
@@ -251,6 +354,7 @@ class Listing:
 
 def collector(store, inbox, live, clock, **kw):
     kw.setdefault("tick", 100.0)
+    kw.setdefault("settle", 0)
     return collector_module.Collector(
         store, inbox, live=live, wait=600, polling=True, poll_ms=50,
         clock=clock, **kw,

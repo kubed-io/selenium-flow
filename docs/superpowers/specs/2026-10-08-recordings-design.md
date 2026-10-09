@@ -160,7 +160,8 @@ Dr K, 2026-10-08:
 8. **A collector files recordings as they arrive** — proactive and async, not
    lazy. The notes on disk are the queue; one asyncio task per process is the
    engine; it runs only while a recording is owed. A file is complete when it
-   ends in a valid `mfro` box. Filing nudges the admin broadcast, so an open
+   ends in a valid `mfro` box, and filed once it has also sat unchanged for
+   `recording.settle` seconds. Filing nudges the admin broadcast, so an open
    page shows the recording within a second.
 9. **`watchfiles`, events or polling chosen automatically.** Native events on a
    local disk; polling on a network filesystem, where events cannot see the
@@ -185,6 +186,7 @@ The `recording` section:
 | `recording.wait` | `RECORDING_WAIT` | `600` (s, ≥ 30) | How long after a browser ends to wait for its file |
 | `recording.watch` | `RECORDING_WATCH` | `auto` | `auto`, `events` or `poll`. `auto` polls when the inbox is on a network filesystem (`nfs`, `nfs4`, `cifs`, `smb3`, `9p`, `ceph`, `glusterfs`, `fuse.*`, read from `/proc/self/mountinfo`), and uses events otherwise, including where there is no `/proc` |
 | `recording.poll` | `RECORDING_POLL` | `1000` (ms, ≥ 200) | The poll interval, when polling |
+| `recording.settle` | `RECORDING_SETTLE` | `10` (s, ≥ 0) | How long a complete file sits unchanged before it is filed; `0` files it at once |
 
 **Boot refuses, with the reason in the message** (§F4.12: configured and
 unusable stops the boot):
@@ -235,9 +237,10 @@ end_browser               ─► note stamped ─► collector.ended(gridId)
     ┌───────────────────────────────┴──────────────────────────────────────┐
     │ while anything is owed:                                               │
     │   async for changes in awatch(inbox, events | polling,                │
-    │                               yield_on_timeout, 30 s timer):          │
+    │                               yield_on_timeout, 30 s timer, or        │
+    │                               recording.settle when shorter):         │
     │     a file whose name holds an owed Grid id changed                   │
-    │        → ends in a valid mfro?   yes → file it                        │
+    │        → ends in a valid mfro, unchanged recording.settle? → file it  │
     │        → no mfro, unchanged 60 s, browser gone?  → file it as it is   │
     │     timer → read the Grid's /status listing once (never a session);   │
     │             drop notes past ended + recording.wait, with a warning    │
@@ -268,13 +271,17 @@ the boundary rules: no protocol imports, no `selenium`). It keeps a
 - **Watching.** `watchfiles.awatch(inbox, recursive=True)`, with
   `force_polling` and `poll_delay_ms` from `recording.watch` and
   `recording.poll`, `stop_event` for the end, and `yield_on_timeout` with a
-  30 s `rust_timeout` for the timer. A change is matched by Grid id anywhere in
+  `rust_timeout` of 30 s, or `recording.settle` when shorter, for the timer. A change is matched by Grid id anywhere in
   its path below the inbox: the recorder's per-session subfolder, rclone
   prefixes and Nextcloud paths all keep it. Names ending `.partial` or `.part`
   are skipped — a transport that renames is finishing.
 - **Complete** means the last 16 bytes are `00 00 00 10 'mfro' 00 00 00 00` and
   the `mfra` size they name is no larger than the file, with `mfra` at that
-  offset. Reading 16 bytes, plus 4 to confirm, costs nothing.
+  offset. Reading 16 bytes, plus 4 to confirm, costs nothing. A complete file
+  is filed once its size and mtime have also held for `recording.settle`
+  seconds (10): a transport may still be finishing. rclone checks an upload
+  after writing it and uploads one that vanished again, so a file filed the
+  moment it ended in `mfro` came back as a copy no note claimed.
 - **Cut off** — no `mfro`, unchanged for 60 s, and the Grid says the browser is
   gone — is filed as it is: a fragmented MP4 plays up to where it stopped. While
   the browser lives, the file cannot sit unchanged for 60 s (a keyframe is
@@ -307,7 +314,7 @@ the boundary rules: no protocol imports, no `selenium`). It keeps a
   settings.
 - **Typical timing:** our quit, then up to 10 s for ffmpeg to close the file,
   then the operator's transport, then at most `recording.poll` for the change to
-  be seen. On a shared volume the recording is in the row within about 5–15 s of
+  be seen, then `recording.settle`. On a shared volume the recording is in the row within about 5–15 s of
   the browser ending.
 
 ### 4. The Recordings folder on every surface
@@ -433,8 +440,8 @@ see break that no existing flow catches.
 - `mfro` detection on crafted bytes: complete, truncated, a `mfro` that names
   a wrong size, a file shorter than 16 bytes.
 - The collector, with a temp inbox, polling at 200 ms, `FakeGrid` and a fake
-  clock for the deadlines: nothing listed while the file grows; filed the moment
-  it ends in `mfro`; a cut-off file filed only once the browser is gone; a match
+  clock for the deadlines: nothing listed while the file grows; filed once it ends
+  in `mfro` and has settled, and again later when it changes while settling; a cut-off file filed only once the browser is gone; a match
   two directories down; `.partial` ignored until renamed; a note dropped (and
   logged) after `wait`; the task ending when nothing is owed and resuming from
   notes after a restart; the broadcast nudged on filing; a move across filesystems; two sessions never claim

@@ -11,13 +11,17 @@ process left off.
 It wakes on a change in the inbox (``watchfiles``: events, or polling on a
 network filesystem) and on a timer, and each time sweeps: an ``.mp4`` whose path
 below the inbox holds an owed Grid id and ends in ``mfro`` is moved into the
-session's recordings and its note deleted; one with no ``mfro`` is moved as it is once
-it has been quiet for a minute **and** the browser is gone (a live recording
-writes a keyframe at least every ~17 s, so this never files one early); an
-owed browser not yet known to have ended is looked for, so a file that never
-comes has a deadline to miss. A note marked ``discard`` is a recorded browser
-that lost a race to bind and was quit: its file is found the same way and
-deleted rather than filed, and a deadline it misses is no one's loss.
+session's recordings and its note deleted once it has also sat unchanged for
+``settle`` seconds (its transport may not be done with it: rclone checks an
+upload after writing it, and uploads one that vanished again); one with no
+``mfro`` is moved as it is once it has been quiet for a minute **and** the
+browser is gone (a live recording writes a keyframe at least every ~17 s, so
+this never files one early); an owed browser not yet known to have ended is
+looked for, so a file that never comes has a deadline to miss. A note marked
+``discard`` is a recorded browser that lost a race to bind and was quit: its
+file is found the same way and deleted rather than filed, and a deadline it
+misses is no one's loss. The timer is a tick, or ``settle`` when that is
+shorter, so a finished file in a quiet inbox is not left a tick past settling.
 
 **Whether a browser is gone is read off the Grid's status — never asked of the
 browser.** Any command sent to a session is activity the node counts against
@@ -158,6 +162,7 @@ class Collector:
         clock=time.time,
         tick: float = 30.0,
         idle_after: float = 60.0,
+        settle: float = 10.0,
     ):
         self.store = store
         self.inbox = Path(inbox)
@@ -171,6 +176,7 @@ class Collector:
         self.clock = clock
         self.tick = tick
         self.idle_after = idle_after
+        self.settle = settle
         self.owed: dict[str, Owed] = {}
         # path -> (size, mtime, first seen at that size and mtime)
         self._quiet: dict[str, tuple[int, float, float]] = {}
@@ -419,7 +425,7 @@ class Collector:
                     force_polling=self.polling,
                     poll_delay_ms=self.poll_ms,
                     yield_on_timeout=True,
-                    rust_timeout=max(1, int(self.tick * 1000)),
+                    rust_timeout=max(1, int(self._look * 1000)),
                     watch_filter=None,
                     recursive=True,
                 ):
@@ -446,6 +452,13 @@ class Collector:
         finally:
             if self._task is asyncio.current_task():
                 self._task = None
+
+    @property
+    def _look(self) -> float:
+        """Seconds the watch waits for a change before sweeping anyway: a
+        tick, or ``settle`` when shorter, so a finished file in an inbox gone
+        quiet is filed once it has settled rather than a tick later."""
+        return min(self.tick, self.settle) if self.settle > 0 else self.tick
 
     async def _swept(self) -> None:
         if self._unread:
@@ -480,17 +493,18 @@ class Collector:
                 done = complete.get(str(path))
                 if done is None:
                     continue  # not checked (unreadable, or expected after the snapshot)
-                if done:
-                    await self._file(owed, path)
-                    continue
                 quiet = self._quiet_for(path, size, mtime, now)
-            settled = quiet >= self.idle_after
-            gone = (owed.ended is None or settled) and await self._gone(owed, now)
+                if done:
+                    if quiet >= self.settle:
+                        await self._file(owed, path)
+                    continue
+            idle = quiet >= self.idle_after
+            gone = (owed.ended is None or idle) and await self._gone(owed, now)
             if gone and owed.ended is None:
                 owed.ended = int(now * 1000)
                 await self._save(owed)
             if match is not None:
-                if settled and gone:
+                if idle and gone:
                     if not owed.discard:
                         log.info(
                             "recordings: %s/%s ends without a trailer; filed as it is",

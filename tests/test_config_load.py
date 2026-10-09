@@ -385,3 +385,12 @@ def test_recording_section_defaults_and_env():
     s = config.load([], {"DATA_DIR": "/d", "RECORDING_ENABLED": "true"}).settings
     assert s.recording.enabled is True
     assert (s.recording.wait, s.recording.watch, s.recording.poll) == (600, "auto", 1000)
+    assert s.recording.settle == 10
+
+
+def test_recording_settle_reads_from_env_and_flag_and_zero_is_allowed():
+    assert config.load([], {"RECORDING_SETTLE": "0"}).settings.recording.settle == 0
+    loaded = config.load(["--recording-settle", "25"], {})
+    assert loaded.settings.recording.settle == 25
+    with pytest.raises(config.ConfigError, match=r"recording\.settle"):
+        config.load([], {"RECORDING_SETTLE": "-1"})

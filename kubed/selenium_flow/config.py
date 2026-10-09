@@ -225,6 +225,12 @@ class RecordingSettings(Section):
     poll: int = Field(
         1000, ge=200, description="Milliseconds between looks, when polling."
     )
+    settle: int = Field(
+        10,
+        ge=0,
+        description="Seconds a finished recording sits unchanged before it is "
+        "filed, so its transport is done with it.",
+    )
 
     @field_validator("dir")
     @classmethod
