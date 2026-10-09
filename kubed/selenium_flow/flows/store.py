@@ -519,11 +519,11 @@ class FileStore(SessionLayout):
                             with contextlib.suppress(OSError):
                                 target.unlink()
                             raise OSError(errno.EINVAL, "not a regular file")
-                        self._release(session, source, target, strict)
+                        self._release(session, source, target, strict, held_stat)
                         return self._entry(target)
                 if self._claim_staged(staged, target):
                     staged = None
-                    self._release(session, source, target, strict)
+                    self._release(session, source, target, strict, held_stat)
                     return self._entry(target)
             raise AssertionError("unreachable")  # candidates is infinite
         finally:
@@ -534,7 +534,8 @@ class FileStore(SessionLayout):
 
     @staticmethod
     def _release(
-        session: str, source: Path, target: Path, strict: bool = False
+        session: str, source: Path, target: Path, strict: bool = False,
+        held_stat: os.stat_result | None = None,
     ) -> None:
         """Remove the moved file's source. If a racing move took it first, this
         one lost: unclaim ``target`` so no duplicate stays, and say so.
@@ -545,8 +546,26 @@ class FileStore(SessionLayout):
         folder). Unclaiming then would be filed again on every sweep, a
         ``(1)``, a ``(2)``, … until the disk is full. The log names the filed
         file, never the source: an inbox name carries the Grid's id.
+
+        With ``held_stat`` (the inode that was pinned and filed), a source path
+        that now names a different inode or a non-regular file is left alone:
+        the producer replaced it after the pin, the filed copy is the recording
+        asked for, and unlinking would delete someone else's newer file. Strict
+        mode succeeds too. A window of microseconds remains between this check
+        and the unlink (Linux has no unlink-by-descriptor); it is accepted.
         """
         try:
+            if held_stat is not None:
+                now = os.lstat(source)
+                if not (
+                    stat.S_ISREG(now.st_mode) and os.path.samestat(now, held_stat)
+                ):
+                    log.warning(
+                        "%s/%s/%s is in place, but its original name now holds "
+                        "a different file, which was left alone",
+                        session, target.parent.name, target.name,
+                    )
+                    return
             source.unlink()
         except FileNotFoundError:
             with contextlib.suppress(OSError):

@@ -288,3 +288,29 @@ def test_move_in_files_the_inode_it_checked_not_a_link_swapped_in(
     assert outside.read_bytes() == b"AUTH_TOKEN"
     assert all(b"AUTH_TOKEN" not in store.read_file("bot", f["name"], RECORDINGS_DIR)
                for f in store.files("bot", RECORDINGS_DIR))
+
+
+@pytest.mark.parametrize("copy_path", [True, False])
+@pytest.mark.parametrize("strict", [True, False])
+def test_a_source_replaced_after_the_pin_is_filed_but_never_unlinked(
+    store, tmp_path, monkeypatch, copy_path, strict
+):
+    inbox = tmp_path / "recordings"
+    inbox.mkdir()
+    src = inbox / f"bot_{GID}.mp4"
+    src.write_bytes(b"original")
+    real_link = os.link
+
+    def replace_then(a, b, *args, **k):
+        if copy_path:  # no link: the copy is taken from the pinned fd
+            src.unlink()
+            src.write_bytes(b"newer")
+            raise OSError(18, "EXDEV")
+        real_link(a, b, *args, **k)  # filed the original inode, then it is replaced
+        src.unlink()
+        src.write_bytes(b"newer")
+
+    monkeypatch.setattr(os, "link", replace_then)
+    landed = store.move_in("bot", src, "rec.mp4", RECORDINGS_DIR, strict=strict)
+    assert store.read_file("bot", landed["name"], RECORDINGS_DIR) == b"original"
+    assert src.read_bytes() == b"newer"
