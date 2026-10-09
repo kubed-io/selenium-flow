@@ -77,6 +77,11 @@ function deferred<T>() {
 
 const contexts = () => host.updateModelContext.mock.calls.map(([p]) => (p as { content: { text: string }[] }).content[0].text)
 
+const SITES = {
+  component: 'sites', uri: 'workspace://site-data',
+  data: { saved_at: null, uri: 'workspace://site-data', sites: [{ site: 'app.example.com', uri: 'workspace://site-data/app.example.com', cookies: 1, storage: [] }] },
+}
+
 test.each([
   ['context', { workspace: 'drk', url: 'https://example.com/', live: true }, 'drk'],
   ['files', { workspace: 's', count: 0, files: [], folders: [{ name: 'screenshots', uri: 'workspace://files/screenshots', count: 2 }] }, 'Screenshots'],
@@ -84,6 +89,8 @@ test.each([
   ['flows', FLOWS.data, 'login'],
   ['flow', FLOW.data, 'navigate'],
   ['secrets', { workspace: 's', count: 1, secrets: [{ name: 'demo', keys: ['password'], restricted: false }] }, 'demo'],
+  ['sites', SITES.data, 'app.example.com'],
+  ['site', { site: 'app.example.com', uri: 'workspace://site-data/app.example.com', cookies: [], storage: [], own_cookies: [], kept_shared: [] }, 'Nothing saved for this site.'],
   ['file', { name: 'a.png', size: 10, url: 'https://flow.example.com/f/a.png', image: true, content_type: 'image/png', uri: 'workspace://files/screenshots/a.png' }, 'a.png'],
 ])('draws the %s view from a show result', async (component, data, text) => {
   render(App)
@@ -130,6 +137,18 @@ test('fileSections is no longer drawn', async () => {
   render(App)
   await shown({ component: 'fileSections', downloads: [], screenshots: [], files: [] })
   await vi.waitFor(() => expect(screen.getByText('Nothing to show for "fileSections".')).toHaveClass('error'))
+})
+
+test('a site row drills in, and Back says Site data', async () => {
+  host.callServerTool.mockResolvedValue({ content: [], structuredContent: {
+    component: 'site', uri: 'workspace://site-data/app.example.com',
+    data: { site: 'app.example.com', uri: 'workspace://site-data/app.example.com', cookies: [], storage: [], own_cookies: [], kept_shared: [] },
+  } })
+  render(App)
+  await shown(SITES)
+  await fireEvent.click(await screen.findByRole('button', { name: /app\.example\.com/ }))
+  expect(host.callServerTool).toHaveBeenCalledWith({ name: 'show', arguments: { uri: 'workspace://site-data/app.example.com' } })
+  expect(await screen.findByRole('button', { name: 'Back' })).toHaveTextContent('← Site data')
 })
 
 test.each(['workspaceList', 'workspaceSummary'])('%s is not a view: no tool emits it', async (component) => {

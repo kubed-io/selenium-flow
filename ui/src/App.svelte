@@ -11,6 +11,8 @@
   import FlowsView from './lib/views/FlowsView.svelte'
   import FlowView from './lib/views/FlowView.svelte'
   import FolderView from './lib/views/FolderView.svelte'
+  import SiteView from './lib/views/SiteView.svelte'
+  import SitesView from './lib/views/SitesView.svelte'
   import SecretsView from './lib/views/SecretsView.svelte'
 
   type Props = {
@@ -29,6 +31,8 @@
     folder: FolderView as Component<Props>,
     flows: FlowsView as Component<Props>,
     flow: FlowView as Component<Props>,
+    sites: SitesView as Component<Props>,
+    site: SiteView as Component<Props>,
     secrets: SecretsView as Component<Props>,
   }
   const EXPANDS = new Set(['flow', 'document'])
