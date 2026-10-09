@@ -154,11 +154,17 @@ metric. Prometheus stores numbers over time; events belong to logs and traces.
 Dr K, 2026-10-09, unless marked *recommended* (Claude's, to be confirmed on the
 epic's issue):
 
-1. **Workspace, not session.** The named record a caller addresses is a
-   *workspace*. *Session* keeps its two real meanings — the Grid's browser
-   session, the MCP transport session — and nothing else. The rename reaches
-   every surface. *Recommended:* `X-Session-Key` and `?session=` go rather than
-   linger as aliases (spec 2026-10-02, no compatibility while there is one user).
+1. **Workspace, and session inside it.** The named record a caller addresses
+   is a *workspace*: the outer box, persistent, holding flows, files, site
+   data, history and settings. A *session* is the live browser open in a
+   workspace: at most one at a time, started by `open_session`, holding and
+   controlling the Grid's session (Dr K, 2026-10-09: *"the workspace is the
+   outer box and the session is the thing holding and controlling the grid
+   session"*). *Session* otherwise means only the Grid's and the MCP
+   transport's. The rename reaches every surface. *Recommended:*
+   `X-Session-Key` and `?session=` go rather than linger as aliases (spec
+   2026-10-02, no compatibility while there is one user). E1's spec rules the
+   details (`2026-10-09-workspaces-rename-design.md`, rulings 8–10).
 2. **A connection is held only for a browser that owes something.** The
    per-call BiDi socket for site data stays. The monitor holds a socket only
    while a browser is *owed* — capture on, a recording owed — and lets go when

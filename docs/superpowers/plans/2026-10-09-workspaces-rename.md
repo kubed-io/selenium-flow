@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Every surface calls the thing a caller names a *workspace*; nothing a running deployment holds is lost; *session* is left meaning only the Grid's, MCP's and the browser's.
+**Goal:** Every surface calls the thing a caller names a *workspace* and the live browser open in it its *session* (spec ruling 8); nothing a running deployment holds is lost.
 
 **Architecture:** A rename in nine layers, each green on its own: identifiers first with every golden unchanged (behaviour identical), then config, disk, caller wire, resource URIs, admin HTTP, UI, skill, and docs/wiki, each with its goldens regenerated and read. Five small new behaviours refuse the old names (ruling 1, 2, 5) or move the data directory (ruling 3).
 
@@ -13,13 +13,14 @@
 ## Global Constraints
 
 - **The vocabulary table in spec §1 is binding.** Old → new, exactly as written there.
+- **Session, in our sense, is the live browser open in a workspace** (spec ruling 8): text about whether a browser is open says session ("no session is open in this workspace"); `open_session`, the `session` config section's browser settings, and `admin_end_session` keep it.
 - **Kept, never renamed** (spec §1): `session_id` and every Grid use (`/session/<id>`, `Grid.sessions()`, `session_count`, `is_alive`, `SE_NODE_SESSION_TIMEOUT`, "the Grid's session list"); the MCP transport (`Context.session_id`, `Mcp-Session-Id`, `mcp.session.id`, "transport session"); the browser's sessionStorage (`sessionStorage`, `session_storage`, site data's `"session"` key in `site_data/snapshot.py` and `site_data/transfer.py`, "Session storage", the "session" cookie expiry, `SavedCounts.session` in `ui/src/lib/types.ts`); the tool names `open_session` and `end_browser`, `Actions.open_session`, and the title "Open browser session"; pytest `scope="session"`, `start_new_session`, `requests.Session`, `client.session`.
 - **Persisted shapes do not change:** the record's `session_id` field and site data's `"session"` key stay as they are serialised.
 - **Refusal texts, verbatim:**
   - `` `?session=` is now `?workspace=`: rename it in the URL ``
   - `` `X-Session-Key` is now `X-Workspace`: rename the header ``
-  - `<OLD> is now <NEW>: the session settings are workspace settings` (one name), `<OLD1>, <OLD2> are now <NEW1>, <NEW2>: the session settings are workspace settings` (several, sorted)
-  - ``the config file's `session` section is now `workspace` ``
+  - `<OLD> is now <NEW>: workspace settings moved out of session` (one name), `<OLD1>, <OLD2> are now <NEW1>, <NEW2>: workspace settings moved out of session` (several, sorted) — only `SESSION_STORE`, `SESSION_TTL`
+  - ``the config file's `session.store` and `session.ttl` are now `workspace.store` and `workspace.ttl` ``
   - `` `session://<rest>` is now `workspace://<rest>` ``
 - **Comments and docstrings move with the code they describe**; a docstring that explains *our* session says workspace, one about the Grid's keeps its word.
 - **CHANGELOG:** one BREAKING line under `[Unreleased]` only (Task 9).
@@ -147,6 +148,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 
 ### Task 2: Config, Redis prefix and the ops endpoints
+
+> **Amended 2026-10-09 (spec rulings 8–9), sent to the implementer mid-task:** the `session` section is **split**, not renamed. A new `workspace` section holds only `store` and `ttl` (class `WorkspaceSettings`, "How workspaces are kept."); `session` keeps `browser`, `width`, `height`, `page_load_timeout`, `script_timeout` (a new class `SessionSettings`, "How a session opens a browser."; `SESSION_*` env names for those unchanged). The refusal covers only `SESSION_STORE`/`SESSION_TTL` and `session.store`/`session.ttl` in the file (`config.RETIRED_SESSION_KEYS`), with the texts in Global Constraints. Where the code and tests below say otherwise, this note wins.
 
 **Files:**
 - Modify: `kubed/selenium_flow/config.py` (the `session` field on `Settings` → `workspace`; section description; `RedisSettings.prefix` default; `sources["session.store"]` → `"workspace.store"`; `_retired`; `RETIRED_SESSION_SECTION`), `kubed/selenium_flow/workspace/settings.py` (`from_settings(workspace: WorkspaceSettings)`), `kubed/selenium_flow/workspace/store.py` (`DEFAULT_PREFIX = "selenium-flow:workspace:"`, `from_settings(workspace: …)`, the log lines "workspace store: …"), `kubed/selenium_flow/server.py` (`settings.workspace`), `kubed/selenium_flow/main.py` (log field `workspaces=%s`), `kubed/selenium_flow/routes.py` (`/ready`, `/info`: `"workspaces": workspaces.kind`), `kubed/selenium_flow/spec/schemas.py` (the `/ready` and `/info` schemas' `sessions` property → `workspaces`)
@@ -574,12 +577,12 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ### Task 6: The admin API
 
 **Files:**
-- Modify: `kubed/selenium_flow/http/admin/workspaces.py` (`GET /admin/workspaces` named `admin_workspaces`, `DELETE /admin/workspaces/{key}` named `admin_end_workspace`, the `{"workspaces": [...]}` payload, texts), `http/admin/files.py`, `http/admin/flows.py`, `http/admin/site_data.py` (every `/admin/sessions/{key}/…` → `/admin/workspaces/{key}/…`, keys in their payloads), `http/admin/__init__.py`, `http/admin/signed.py` and `http/links.py` (the path parameter named `session` that holds a workspace name → `workspace`; `owner="workspace"`; the `/files/{session_id}/…` Grid-id route stays), `http/access_log.py` (docstring)
+- Modify: `kubed/selenium_flow/http/admin/workspaces.py` (`GET /admin/workspaces` named `admin_workspaces`, `DELETE /admin/workspaces/{key}/session` named `admin_end_session`, the `{"workspaces": [...]}` payload, texts), `http/admin/files.py`, `http/admin/flows.py`, `http/admin/site_data.py` (every `/admin/sessions/{key}/…` → `/admin/workspaces/{key}/…`, keys in their payloads), `http/admin/__init__.py`, `http/admin/signed.py` and `http/links.py` (the path parameter named `session` that holds a workspace name → `workspace`; `owner="workspace"`; the `/files/{session_id}/…` Grid-id route stays), `http/access_log.py` (docstring)
 - Move: `tests/golden/admin-sessions.json` → `tests/golden/admin-workspaces.json`
 - Test: `tests/test_admin_*.py`, `tests/test_files_and_admin.py` (including `test_the_mcp_surface_never_lists_other_sessions` → `..._other_workspaces`), `tests/test_golden.py` (the admin golden's name), `tests/bench/test_admin.py`, `tests/test_main.py`, `tests/test_shutdown.py`; goldens `admin-routes.json`, `admin-workspaces.json`
 
 **Interfaces:**
-- Produces: `/admin/workspaces`, `/admin/workspaces/{key}`, `/admin/workspaces/{key}/files…|flows…|history…|site-data…`; event and list payload key `workspaces`.
+- Produces: `/admin/workspaces`, `/admin/workspaces/{key}/files…|flows…|history…|site-data…`; End is `DELETE /admin/workspaces/{key}/session`, route name `admin_end_session` (spec ruling 10, unchanged name); event and list payload key `workspaces`.
 
 - [ ] **Step 1: Point the tests at the new paths**
 
@@ -587,7 +590,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 git mv tests/golden/admin-sessions.json tests/golden/admin-workspaces.json
 ```
 
-In every test listed, `/admin/sessions` → `/admin/workspaces`, payload key `"sessions"` → `"workspaces"` (rows keep their Grid `session_id`), route names `admin_sessions` → `admin_workspaces`, `admin_end_session` → `admin_end_workspace`; in `tests/test_golden.py` the admin golden is `admin-workspaces.json`.
+In every test listed, `/admin/sessions` → `/admin/workspaces`, payload key `"sessions"` → `"workspaces"` (rows keep their Grid `session_id`), route name `admin_sessions` → `admin_workspaces` (`admin_end_session` keeps its name; its path is `DELETE /admin/workspaces/{key}/session`); in `tests/test_golden.py` the admin golden is `admin-workspaces.json`.
 
 - [ ] **Step 2: Run to see them fail**
 
@@ -748,7 +751,7 @@ cd $R && git grep -n -i -w -E "sessions?" -- . ':!docs/saga' ':!docs/superpowers
   | grep -v -E "session_id|sessionStorage|session_storage|Mcp-Session-Id|mcp\.session|SE_NODE_SESSION_TIMEOUT|open_session|scope=\"session\"|start_new_session|requests\.Session|RETIRED_SCHEME|OLD_PARAM|OLD_HEADER|SESSION_\*|retired"
 ```
 
-Every remaining line goes in the report with the meaning it keeps. A line meaning *our* workspace is a bug: fix it in this task.
+Every remaining line goes in the report with the meaning it keeps — our *session* (the live browser in a workspace, spec ruling 8) is one of them. A line meaning the *workspace* (the named box) is a bug: fix it in this task.
 
 - [ ] **Step 5: Commit**
 

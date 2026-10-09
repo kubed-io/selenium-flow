@@ -14,6 +14,21 @@ change everywhere in the ui, docs, design, tooling everywhere that says
 'session' and make it 'workspace'… The workspace is literally just a
 'namespace' in this app."* Programme R1.
 
+Dr K, later the same day: *"We should generally consider a 'session' as when
+the browser is actively open… not fully remove the word 'session'… It's more
+like 'open_session', then the session is running in the workspace, like it's one
+to one session to workspace. The workspace is the outer box and the session is
+the thing holding and controlling the 'grid session'."*
+
+So two words, two things:
+
+- A **workspace** is the outer box: named by its caller, persistent, holding
+  flows, files, site data, history and the settings it opens browsers with.
+- A **session** is the live browser open in a workspace: at most one at a time,
+  started by `open_session`, ended by `end_browser` (or the Grid's reaper), and
+  it holds and controls the Grid's session (`session_id`). An idle workspace has
+  no session.
+
 ## Research that shaped it
 
 An inventory on 2026-10-09 (this branch's base, `6e925d5`) found our meaning
@@ -57,8 +72,8 @@ inventory raised, are decided here; Dr K reviews them on the PR.
    first call rather than as "name your workspace". Cost if wrong: one config
    line per client, said by the error.
 2. Claude, 2026-10-09: **retired names refuse to boot**, as `FLOW_DATA_DIR`
-   does: any `SESSION_<setting>` env var for a workspace setting, and a
-   `session:` section in the config file, stop the boot naming the new name.
+   does: the env vars and file keys that moved to `workspace` (ruling 9) stop
+   the boot naming the new name.
    Cost if wrong: a deploy that sets them stops until renamed, which is the
    point.
 3. Claude, 2026-10-09: **the data directory moves itself, once.** At boot,
@@ -79,12 +94,26 @@ inventory raised, are decided here; Dr K reviews them on the PR.
    `workspace://current`, flows, files, secrets, admin, `/ready`, `/info`).
 7. Claude, 2026-10-09: **the wiki moves pages**: `Sessions` → `Workspaces`,
    `current_session` → `current_workspace`.
+8. Dr K, 2026-10-09: **session stays, for the live browser.** Everything about
+   the named box says workspace; everything about the open browser in it says
+   session (see Brief). Text about whether a browser is open says "session"
+   ("no session is open in this workspace").
+9. Claude, 2026-10-09: **the config section splits along that line.**
+   `workspace.store` and `workspace.ttl` (how workspaces are kept; env
+   `WORKSPACE_STORE`, `WORKSPACE_TTL`) leave the `session` section, which keeps
+   `browser`, `width`, `height`, `page_load_timeout` and `script_timeout` (how a
+   session opens; `SESSION_*` env names unchanged). Ruling 2's refusal narrows to
+   what moved: `SESSION_STORE`, `SESSION_TTL`, and `session.store`/`session.ttl`
+   in the file. Cost if wrong: a later split back is the same small change.
+10. Claude, 2026-10-09: **the admin's End ends a session, not a workspace**:
+    `DELETE /admin/workspaces/{key}/session`, route name `admin_end_session`.
+    A workspace is never deleted, only expires. Cost if wrong: one path.
 
 ## Goal
 
 The thing a caller names, and every word about it on every surface, is a
-*workspace*; nothing a running deployment holds is lost; and *session* is left
-meaning only the Grid's, MCP's and the browser's.
+*workspace*; the live browser open in it is its *session*; nothing a running
+deployment holds is lost; and *session* means nothing else of ours.
 
 ## Non-goals
 
@@ -104,19 +133,23 @@ meaning only the Grid's, MCP's and the browser's.
 |---|---|
 | `X-Session-Key`, `?session=` | `X-Workspace`, `?workspace=` (refused, ruling 1) |
 | `session://current\|files\|site-data` | `workspace://…` |
-| config `session.*`, `SESSION_*`, `--session-*` | `workspace.*`, `WORKSPACE_*`, `--workspace-*` |
+| config `session.store`, `session.ttl` (`SESSION_STORE`, `SESSION_TTL`) | `workspace.store`, `workspace.ttl` (`WORKSPACE_STORE`, `WORKSPACE_TTL`); the rest of `session.*` stays (ruling 9) |
 | `REDIS_PREFIX` default `selenium-flow:session:` | `selenium-flow:workspace:` |
-| `/admin/sessions…` | `/admin/workspaces…` |
+| `/admin/sessions…` | `/admin/workspaces…`; End is `DELETE /admin/workspaces/{key}/session` (ruling 10) |
 | `DATA_DIR/sessions/<name>/` | `DATA_DIR/workspaces/<name>/` |
 | package `session/`, `sessions.py` | `workspace/`, `workspaces.py` |
-| `SessionManager`, `SessionRecord`, `SessionStore`, `SessionSettings`, `SessionLayout` | `Workspaces`, `Workspace`, `WorkspaceStore`, `WorkspaceSettings`, `WorkspaceLayout` |
+| `SessionManager`, `SessionRecord`, `SessionStore`, `SessionLayout` | `Workspaces`, `Workspace`, `WorkspaceStore`, `WorkspaceLayout` |
+| `SessionSettings` (one class) | `WorkspaceSettings` (store, ttl) and `SessionSettings` (browser, size, timeouts) |
 | `valid_session_name`, `GLOBAL_SESSION`, `STDIO_SESSION`, `RESERVED_SESSIONS`, `SESSIONS_DIR` | `valid_workspace_name`, `GLOBAL_WORKSPACE`, `STDIO_WORKSPACE`, `RESERVED_WORKSPACES`, `WORKSPACES_DIR` |
 | result keys `session`, `sessions` | `workspace`, `workspaces` |
 | operationId `currentSession`, schema `SessionStatus` | `currentWorkspace`, `WorkspaceStatus` |
 | `references/SESSIONS.md`, wiki `Sessions`, `current_session` | `WORKSPACES.md`, `Workspaces`, `current_workspace` |
 | UI `Session*` components, `#/sessions/…`, "Sessions" | `Workspace*`, `#/workspaces/…`, "Workspaces" |
 
-**Kept** (the global constraint every task checks against): `session_id`
+**Kept** (the global constraint every task checks against): *session*
+meaning the live browser in a workspace (ruling 8: `open_session`, "no session
+is open", the `session` config section's browser settings, `admin_end_session`,
+`DELETE …/session`); `session_id`
 and every Grid use; `Context.session_id`, `Mcp-Session-Id`, `mcp.session.id`;
 sessionStorage and the site-data `"session"` key; `open_session`,
 `end_browser`, "Open browser session"; pytest's `scope="session"`,
@@ -128,8 +161,8 @@ sessionStorage and the site-data `"session"` key; `open_session`,
 |---|---|
 | `?session=` on a request | 400: "`?session=` is now `?workspace=`: rename it in the URL" |
 | `X-Session-Key` header | 400: "`X-Session-Key` is now `X-Workspace`: rename the header" |
-| `SESSION_TTL` (any workspace leaf) in env, non-blank | boot stops: "SESSION_TTL is now WORKSPACE_TTL: the session settings are workspace settings" (every one named) |
-| `session:` in the config file | boot stops: "the config file's `session` section is now `workspace`" |
+| `SESSION_STORE` or `SESSION_TTL` in env, non-blank | boot stops: "SESSION_TTL is now WORKSPACE_TTL: workspace settings moved out of session" (every one named) |
+| `session.store` or `session.ttl` in the config file | boot stops: "the config file's `session.store` and `session.ttl` are now `workspace.store` and `workspace.ttl`" |
 | `session://…` to a tool | 400: "`session://…` is now `workspace://…`" with the URI rewritten |
 | `DATA_DIR/sessions/` and `DATA_DIR/workspaces/` both | boot stops naming both: merge by hand |
 
