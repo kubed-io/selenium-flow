@@ -15,7 +15,9 @@ session's recordings and its note deleted; one with no ``mfro`` is moved as it i
 it has been quiet for a minute **and** the browser is gone (a live recording
 writes a keyframe at least every ~17 s, so this never files one early); an
 owed browser not yet known to have ended is looked for, so a file that never
-comes has a deadline to miss.
+comes has a deadline to miss. A note marked ``discard`` is a recorded browser
+that lost a race to bind and was quit: its file is found the same way and
+deleted rather than filed, and a deadline it misses is no one's loss.
 
 **Whether a browser is gone is read off the Grid's status — never asked of the
 browser.** Any command sent to a session is activity the node counts against
@@ -95,6 +97,8 @@ class Owed:
     # or dropped at its deadline. Only the delete is left (see the docstring).
     filed: str | None = None
     dropped: bool = False
+    # No session holds this browser: its video is deleted, never filed.
+    discard: bool = False
 
     @property
     def done(self) -> bool:
@@ -136,6 +140,7 @@ def _owed_from(session: str, grid_id: str, note: dict) -> Owed:
         None if ended is None else _millis(ended),
         None if filed is None else str(filed),
         note.get("dropped") is True,
+        discard=note.get("discard") is True,
     )
 
 
@@ -201,10 +206,15 @@ class Collector:
 
     # ---- from worker threads ----------------------------------------------
 
-    def expect(self, session: str, grid_id: str, browser: str) -> None:
-        """A recorded browser opened: note it on disk, then tell the loop."""
+    def expect(
+        self, session: str, grid_id: str, browser: str, *, discard: bool = False
+    ) -> None:
+        """A recorded browser opened: note it on disk, then tell the loop.
+        ``discard``: it lost the race to bind and was quit; delete its video."""
         valid_grid_id(grid_id)
-        owed = Owed(session, grid_id, int(self.clock() * 1000), browser)
+        owed = Owed(
+            session, grid_id, int(self.clock() * 1000), browser, discard=discard
+        )
         self.store.write_note(session, grid_id, self._note(owed))
         self._post(lambda: self._add(owed))
 
@@ -481,10 +491,11 @@ class Collector:
                 await self._save(owed)
             if match is not None:
                 if settled and gone:
-                    log.info(
-                        "recordings: %s/%s ends without a trailer; filed as it is",
-                        owed.session, name_for(owed.opened),
-                    )
+                    if not owed.discard:
+                        log.info(
+                            "recordings: %s/%s ends without a trailer; filed as it is",
+                            owed.session, name_for(owed.opened),
+                        )
                     await self._file(owed, match[0])
                 continue
             if (
@@ -493,6 +504,11 @@ class Collector:
                 and now * 1000 - owed.ended >= self.wait * 1000
             ):
                 await self._forget(owed)
+                if owed.discard:
+                    log.debug(
+                        "recordings: no video came to discard for %s", owed.session
+                    )
+                    continue
                 log.warning(
                     "recording for session %s (opened %s UTC) never reached "
                     "RECORDING_DIR; see the README's Recording section",
@@ -551,6 +567,9 @@ class Collector:
         await asyncio.shield(filing)
 
     async def _filing(self, owed: Owed, path: Path) -> None:
+        if owed.discard:
+            await self._discarding(owed, path)
+            return
         try:
             entry = await anyio.to_thread.run_sync(
                 self.store.move_in,
@@ -571,6 +590,25 @@ class Collector:
         log.info("recordings: filed %s/%s", owed.session, entry["name"])
         if self.on_filed is not None:
             self.on_filed()
+
+    async def _discarding(self, owed: Owed, path: Path) -> None:
+        """Delete ``path`` instead of filing it: no session holds its browser."""
+        try:
+            await anyio.to_thread.run_sync(path.unlink)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            log.warning(
+                "recordings: could not discard a video for %s: %s",
+                owed.session, type(exc).__name__,
+            )
+            return
+        await self._forget(owed)
+        self._quiet.pop(str(path), None)
+        log.info(
+            "recordings: discarded a video for %s: its browser lost a race to open",
+            owed.session,
+        )
 
     def _quiet_for(self, path: Path, size: int, mtime: float, now: float) -> float:
         """How long ``path`` has kept this size and mtime, as of ``now``."""
@@ -687,6 +725,8 @@ class Collector:
             note["filed"] = owed.filed
         if owed.dropped:
             note["dropped"] = True
+        if owed.discard:
+            note["discard"] = True
         return note
 
     def _write(self, owed: Owed) -> None:

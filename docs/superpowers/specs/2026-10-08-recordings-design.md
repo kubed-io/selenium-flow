@@ -298,6 +298,9 @@ the boundary rules: no protocol imports, no `selenium`). It keeps a
 - **The inbox is never cleaned by us.** A file no note claims — from another
   server, or one that arrived after its note was dropped — is left where it is.
   The operator owns the inbox.
+- **A recorded browser that lost a race to bind** is quit, and its note marked
+  `discard`: its file, found as any other, is deleted rather than filed, and
+  one that never comes is not warned about.
 - **Reads are pure.** Listing recordings reads the folder and nothing else.
   `session://current` (and `GET /browser`) gains `recording: true|false` — true
   when the browser it holds was opened with `record`, read from the stored

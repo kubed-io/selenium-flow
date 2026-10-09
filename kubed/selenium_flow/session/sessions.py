@@ -425,7 +425,6 @@ class SessionManager:
             replacing=record.session_id,
             report=opened.get("site_data"),
         )
-        # A reopen that lost the race had its browser quit: nothing to file.
         if replay.get("record") and kept == opened["session_id"]:
             try:
                 self.recordings.expect(
@@ -439,7 +438,24 @@ class SessionManager:
                 log.warning(
                     "recording for %s cannot be filed: %s", name, faults.message(exc)
                 )
+        elif replay.get("record"):
+            self._discard_recording(name, opened["session_id"], replay)
         return kept
+
+    def _discard_recording(self, name: str, grid_id: str, settings: dict) -> None:
+        """A recorded browser that lost a race to bind was quit: its video, if
+        one comes, is no session's, so the collector is told to delete it."""
+        try:
+            self.recordings.expect(
+                name, grid_id, settings.get("browser") or DEFAULT_BROWSER,
+                discard=True,
+            )
+        except (OSError, ValueError) as exc:
+            # The type alone: the note's path names the Grid id.
+            log.warning(
+                "a discarded recording for %s cannot be noted: %s",
+                name, type(exc).__name__,
+            )
 
     def act(self, caller: Caller, call, *, reshapes: bool = False) -> dict:
         """Resolve this session's browser, act on it, remember where it ended up.
@@ -643,6 +659,8 @@ class SessionManager:
         if kept != opened["session_id"]:
             # A concurrent open bound first and this browser was quit: describe
             # the one the session holds, not the discarded one (Copilot, #50).
+            if resolved.get("record"):
+                self._discard_recording(name, opened["session_id"], resolved)
             return self._held(name)
         noted = None
         if resolved.get("record"):

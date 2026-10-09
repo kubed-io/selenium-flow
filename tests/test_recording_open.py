@@ -13,10 +13,12 @@ class Recorder:
     """The hook SessionManager calls; records what it was told."""
 
     def __init__(self):
-        self.expected, self.finished = [], []
+        self.expected, self.finished, self.discarded = [], [], []
 
-    def expect(self, session, grid_id, browser):
-        self.expected.append((session, grid_id, browser))
+    def expect(self, session, grid_id, browser, *, discard=False):
+        (self.discarded if discard else self.expected).append(
+            (session, grid_id, browser)
+        )
 
     def ended(self, grid_id):
         self.finished.append(grid_id)
@@ -212,7 +214,7 @@ def test_a_reap_with_recording_off_remembers_the_browser_as_unrecorded():
     assert "record" not in m.store.get("bot").settings
 
 
-def test_a_reap_that_loses_the_race_expects_nothing():
+def test_a_reap_that_loses_the_race_notes_its_video_for_discard():
     rec = Recorder()
     m = manager(rec)
     m.open_browser(caller(), record=True)
@@ -228,6 +230,41 @@ def test_a_reap_that_loses_the_race_expects_nothing():
     m.actions.open_session = open_while_another_binds
     assert m.resolve("bot") == "grid9999"
     assert [e[1] for e in rec.expected] == ["grid0001"]
+    assert rec.discarded == [("bot", "grid0002", "chrome")]
+
+
+def test_an_open_that_loses_the_race_notes_its_video_for_discard():
+    rec = Recorder()
+    m = manager(rec)
+    real = m.actions.open_session
+
+    def open_while_another_binds(**kwargs):
+        m.actions.grid.alive.add("grid9999")
+        m.remember("bot", "grid9999", "", {"record": True})
+        return real(**kwargs)
+
+    m.actions.open_session = open_while_another_binds
+    m.open_browser(caller(), record=True)
+    assert rec.expected == []
+    assert rec.discarded == [("bot", "grid0001", "chrome")]
+
+
+def test_a_discard_that_cannot_be_noted_never_fails_the_open(caplog):
+    class Broken(Recorder):
+        def expect(self, session, grid_id, browser, *, discard=False):
+            raise PermissionError(13, "denied", "/data/sessions/bot/recordings")
+
+    m = manager(Broken())
+    real = m.actions.open_session
+
+    def open_while_another_binds(**kwargs):
+        m.actions.grid.alive.add("grid9999")
+        m.remember("bot", "grid9999", "", {"record": True})
+        return real(**kwargs)
+
+    m.actions.open_session = open_while_another_binds
+    assert m.open_browser(caller(), record=True)["session"] == "bot"
+    assert "cannot be noted" in caplog.text and "/data" not in caplog.text
 
 
 @pytest.mark.parametrize("where", ["open", "reap"])

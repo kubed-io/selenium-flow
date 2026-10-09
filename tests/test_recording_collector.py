@@ -104,6 +104,66 @@ async def test_a_file_that_never_comes_is_dropped_after_wait_with_a_warning(part
     assert "never reached" in caplog.text and GID not in caplog.text
 
 
+async def test_a_discarded_browsers_video_is_deleted_not_filed(parts):
+    """Its browser lost the race to bind and was quit: the video is no
+    session's, so it neither joins this one nor sits in the inbox forever."""
+    c, store, inbox, _alive, filed, _clock = parts
+    c.expect("bot", GID, "chrome", discard=True)
+    assert store.notes()[0][2]["discard"] is True
+    (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
+    await c.sweep()
+    assert not (inbox / f"bot_{GID}.mp4").exists()
+    assert store.files("bot", RECORDINGS_DIR) == [] and filed == []
+    assert store.notes() == [] and GID not in c.owed
+
+
+async def test_a_discard_survives_a_restart(parts):
+    c, store, inbox, *_ = parts
+    c.expect("bot", GID, "chrome", discard=True)
+    c2 = collector_module.Collector(
+        store, inbox, live=set, wait=600, polling=True, poll_ms=50,
+    )
+    (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
+    await c2._load()
+    await c2.sweep()
+    assert store.files("bot", RECORDINGS_DIR) == [] and store.notes() == []
+    assert not (inbox / f"bot_{GID}.mp4").exists()
+
+
+async def test_a_discard_that_cannot_delete_keeps_its_note(parts, monkeypatch, caplog):
+    c, store, inbox, *_ = parts
+    c.expect("bot", GID, "chrome", discard=True)
+    video = inbox / f"bot_{GID}.mp4"
+    video.write_bytes(BODY + mp4.trailer())
+    real = type(video).unlink
+
+    def refuse(self, *a, **kw):
+        if self == video:
+            raise PermissionError(13, "denied")
+        return real(self, *a, **kw)
+
+    monkeypatch.setattr(type(video), "unlink", refuse)
+    with caplog.at_level(logging.WARNING):
+        await c.sweep()
+    assert video.exists() and GID in c.owed and store.notes() != []
+    assert "could not discard" in caplog.text and GID not in caplog.text
+    monkeypatch.undo()
+    await c.sweep()
+    assert not video.exists() and store.notes() == []
+
+
+async def test_a_discard_whose_video_never_comes_goes_quietly(parts, caplog):
+    c, store, _inbox, alive, _filed, clock = parts
+    c.expect("bot", GID, "chrome", discard=True)
+    alive.clear()
+    with caplog.at_level(logging.WARNING):
+        await c.sweep()
+        clock.now += 601
+        await c.sweep()
+    assert store.notes() == [] and GID not in c.owed
+    assert caplog.records == []
+
+
 async def test_a_reap_is_noticed_by_the_tick(parts):
     c, store, _inbox, alive, _filed, clock = parts
     c.expect("bot", GID, "chrome")
