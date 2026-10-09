@@ -486,7 +486,7 @@ class BidiSocket:
 |---|---|
 | `open_browser`, once the session is bound to the workspace | `opened(..., reopened=False)` |
 | `resolve`, finding the held session gone | `ended(..., "lost")` for the old id, then `opened(..., reopened=True)` for the new one once bound |
-| `end_browser`, after a confirmed quit | `ended(..., "ended")` (replaces `self.recordings.ended(target)`) |
+| `end_browser`, after a confirmed quit, once the record is detached | `ended(..., "ended")` (replaces `self.recordings.ended(target)`) |
 | `remember`, quitting a racing open's loser | `ended(..., "ended")` |
 | the monitor's own listing | `ended(..., "gone")` |
 

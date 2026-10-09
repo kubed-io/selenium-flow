@@ -118,6 +118,22 @@ def test_end_announces_ended_and_a_failed_quit_announces_nothing():
     ]
 
 
+def test_ended_is_announced_once_the_record_no_longer_names_the_browser():
+    """A subscriber that redraws on `ended` (the admin broadcast) reads the
+    store, and must not draw the session it was told had gone."""
+    seen = []
+
+    class Watching(Announced):
+        def ended(self, workspace, session_id, cause):
+            seen.append(m.store.get(workspace).attached)
+            return super().ended(workspace, session_id, cause)
+
+    m = manager(Watching())
+    m.open_browser(caller())
+    m.end_browser(caller())
+    assert seen == [False]
+
+
 def test_a_reap_found_by_a_call_is_lost_and_the_reopen_is_announced():
     announced = Announced()
     m = manager(announced)

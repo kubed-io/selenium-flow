@@ -947,15 +947,16 @@ class Workspaces:
             # record naming a browser that cannot be ended is worse than one
             # naming nothing, because the next call would try to use it.
             log.info("could not end browser %s: %s", target, faults.message(exc))
-        # Only a confirmed quit (a 404 counts: Grid.quit treats it as done) is
-        # announced; after a failure the session may still run, and the
-        # monitor's listing finds it later if it is watched.
-        if quit_ok:
-            self._ended(name, target, "ended")
         # Ending took a Grid round trip: detach the record as it is now, and
         # only if it still names this browser — one opened meanwhile stays.
         self.store.update(
             name, lambda r: r.detached() if r.session_id == target else None
         )
+        # Only a confirmed quit (a 404 counts: Grid.quit treats it as done) is
+        # announced, and only once detached, so a page redrawn on it never
+        # draws the old row; after a failure the session may still run, and
+        # the monitor's listing finds it later if it is watched.
+        if quit_ok:
+            self._ended(name, target, "ended")
         log.info("ended browser %s for workspace %s", target, name)
         return target
