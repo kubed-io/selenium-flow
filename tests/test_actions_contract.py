@@ -575,6 +575,25 @@ def test_a_timeout_that_cannot_be_read_falls_back_to_the_default_wait(actions, s
     assert result["settings"]["script_timeout"] == 0
 
 
+def test_a_new_browser_is_announced_before_any_step_that_can_fail(actions, scripted):
+    """A failure after the Grid made the browser leaves it running: whoever
+    accounts for it (a recording's note) hears of it before the window, the
+    timeouts, a restore or the first page can fail (Copilot, #59)."""
+    driver = scripted(session_id="fresh")
+
+    def unreachable(url):
+        raise RuntimeError("page load")
+
+    driver.__dict__["get"] = unreachable
+    told = []
+    with pytest.raises(RuntimeError):
+        actions.open_session(
+            url="https://example.test/", width=640, page_load_timeout=5,
+            on_created=lambda sid: told.append((sid, driver.names())),
+        )
+    assert told == [("fresh", [])]
+
+
 def test_the_session_a_browser_opens_with_starts_with_no_pointer(actions, scripted):
     scripted(session_id="fresh")
     actions.pointers.set("fresh", 5, 5)

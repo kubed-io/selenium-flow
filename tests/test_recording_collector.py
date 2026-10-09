@@ -1170,3 +1170,98 @@ def test_an_id_is_found_anywhere_in_the_path_as_before(parts):
     assert c._ids_in(inbox / f"{GID}.webm", ids) == []
     assert c._ids_in(inbox / f"{GID[:-1]}.mp4", ids) == []
     assert c._ids_in(inbox / f"{GID}.mp4", frozenset()) == []
+
+
+async def _settled(c):
+    for _ in range(100):
+        if not c._saves:
+            return
+        await asyncio.sleep(0.02)
+
+
+async def test_a_provisional_discard_expected_again_is_owed_once_and_filed(parts):
+    """A recorded browser is noted for discard the moment it exists and again,
+    ordinarily, once its session holds it: one owed recording, timed from the
+    first, and a note that says so across a restart (Copilot, #59)."""
+    c, store, inbox, _alive, _filed, clock = parts
+    await c.start()
+    first = int(clock.now * 1000)
+
+    def open_session():  # one worker thread, in the order the sessions call it
+        c.expect("bot", GID, "chrome", discard=True)
+        clock.now += 90
+        c.expect("bot", GID, "chrome")
+
+    try:
+        await asyncio.to_thread(open_session)
+        await asyncio.sleep(0.05)
+        await _settled(c)
+        assert list(c.owed) == [GID]
+        assert (c.owed[GID].discard, c.owed[GID].opened) == (False, first)
+        [(_session, _gid, note)] = store.notes()
+        assert "discard" not in note and note["opened"] == first
+    finally:
+        await c.stop()
+    c2 = collector_module.Collector(
+        store, inbox, live=set, wait=600, polling=True, poll_ms=50,
+        clock=clock, settle=0,
+    )
+    (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
+    await c2._load()
+    assert c2.owed[GID].discard is False
+    await c2.sweep()
+    names = [f["name"] for f in store.files("bot", RECORDINGS_DIR)]
+    assert names == [collector_module.name_for(first)] and store.notes() == []
+
+
+async def test_an_upgrade_lands_after_a_write_of_the_provisional_note(parts):
+    """The loop was writing the provisional note (its browser marked ended)
+    when the upgrade's own write landed: the old mark must not win on disk."""
+    import threading
+
+    c, store, _inbox, _alive, _filed, _clock = parts
+    # The loop, without its sweeping task: this is about the writes alone.
+    c._loop, c._stopping = asyncio.get_running_loop(), True
+    c.expect("bot", GID, "chrome", discard=True)
+    real, gate, held = store.write_note, threading.Event(), threading.Event()
+
+    def slow_once(*a, **kw):
+        if not held.is_set():
+            held.set()
+            gate.wait(5)
+        return real(*a, **kw)
+
+    store.write_note = slow_once
+    c.ended(GID)  # a `_save` of the provisional note, now in its thread
+    await asyncio.to_thread(held.wait, 5)
+    await asyncio.to_thread(c.expect, "bot", GID, "chrome")
+    await asyncio.sleep(0.05)
+    gate.set()
+    await _settled(c)
+    [(_session, _gid, note)] = store.notes()
+    assert "discard" not in note and note["ended"] is not None
+    assert c.owed[GID].discard is False
+
+
+async def test_an_upgrade_that_cannot_be_written_still_keeps_the_video(parts):
+    """Told it cannot be filed, the session's video is not deleted on the
+    strength of a provisional note: the collector owes it ordinarily and
+    writes the note again."""
+    c, store, inbox, _alive, filed, _clock = parts
+    c.expect("bot", GID, "chrome", discard=True)
+    store.write_note = _failing_once(store.write_note, [])
+    with pytest.raises(OSError):
+        c.expect("bot", GID, "chrome")
+    assert c.owed[GID].discard is False
+    assert "discard" not in store.notes()[0][2]
+    (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
+    await c.sweep()
+    assert filed == [1] and len(store.files("bot", RECORDINGS_DIR)) == 1
+
+
+def test_a_first_expect_that_cannot_be_written_owes_nothing(parts):
+    c, store, *_ = parts
+    store.write_note = _failing_once(store.write_note, [])
+    with pytest.raises(OSError):
+        c.expect("bot", GID, "chrome")
+    assert c.owed == {} and store.notes() == []

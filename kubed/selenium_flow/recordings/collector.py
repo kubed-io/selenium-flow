@@ -18,7 +18,9 @@ upload after writing it, and uploads one that vanished again); one with no
 browser is gone (a live recording writes a keyframe at least every ~17 s, so
 this never files one early); an owed browser not yet known to have ended is
 looked for, so a file that never comes has a deadline to miss. A note marked
-``discard`` is a recorded browser that lost a race to bind and was quit: its
+``discard`` is a recorded browser no session holds: every recorded browser is
+noted so the moment it exists, and noted again without the mark once its
+session holds it, so one whose open failed or lost a race to bind keeps it. Its
 file is found the same way and deleted rather than filed, and a deadline it
 misses is no one's loss. The timer is a tick, or ``settle`` when that is
 shorter, so a finished file in a quiet inbox is not left a tick past settling.
@@ -216,12 +218,24 @@ class Collector:
         self, session: str, grid_id: str, browser: str, *, discard: bool = False
     ) -> None:
         """A recorded browser opened: note it on disk, then tell the loop.
-        ``discard``: it lost the race to bind and was quit; delete its video."""
+        ``discard``: no session holds it (yet); its video is deleted, never
+        filed. Expected again for the same browser, the second replaces the
+        first (`_add`), which is how a provisional discard becomes ordinary.
+
+        Both calls come from one thread in that order, and `_post` keeps it:
+        ``call_soon_threadsafe`` runs callbacks first in, first out."""
         valid_grid_id(grid_id)
         owed = Owed(
             session, grid_id, int(self.clock() * 1000), browser, discard=discard
         )
-        self.store.write_note(session, grid_id, self._note(owed))
+        try:
+            self.store.write_note(session, grid_id, self._note(owed))
+        except Exception:
+            if not discard:
+                # A provisional note already owed must not delete the video of
+                # a browser its session holds: kept in memory, written again.
+                self._post(lambda: self._add(owed, replacing_only=True))
+            raise
         self._post(lambda: self._add(owed))
 
     def ended(self, grid_id: str) -> None:
@@ -333,8 +347,19 @@ class Collector:
             with contextlib.suppress(Exception):
                 await save
 
-    def _add(self, owed: Owed) -> None:
+    def _add(self, owed: Owed, *, replacing_only: bool = False) -> None:
+        """Owe ``owed``. One already owed for that browser is replaced: it
+        keeps the first's times (its ``opened`` names the video), and its note
+        is written again here, through `_save`, so a write of the first that
+        the loop had under way cannot land after the caller's own and put the
+        old mark back. ``replacing_only``: there is nothing to add otherwise."""
+        previous = self.owed.get(owed.grid_id)
+        if previous is None and replacing_only:
+            return
         self.owed[owed.grid_id] = owed
+        if previous is not None:
+            owed.opened, owed.ended = previous.opened, previous.ended
+            self._rewrite(owed)
         self._ensure()
 
     def _mark_ended(self, grid_id: str) -> None:
@@ -343,8 +368,12 @@ class Collector:
         if owed is None or owed.ended is not None or owed.done:
             return
         owed.ended = int(self.clock() * 1000)
+        self._rewrite(owed)
+
+    def _rewrite(self, owed: Owed) -> None:
+        """Write ``owed``'s note again, from the loop in a task `stop` waits
+        for (or, before `start`, inline: the caller's own thread)."""
         if self._loop is None:
-            # Not started: this is the caller's own thread, not the loop.
             self._write(owed)
             return
         save = self._loop.create_task(self._save(owed))
@@ -392,7 +421,8 @@ class Collector:
                     )
                 return
             self._undeleted.discard(owed.grid_id)
-            del self.owed[owed.grid_id]
+            if self.owed.get(owed.grid_id) is owed:  # else expected again meanwhile
+                del self.owed[owed.grid_id]
 
     def _ensure(self) -> None:
         loop = self._loop
@@ -584,6 +614,8 @@ class Collector:
         await asyncio.shield(filing)
 
     async def _filing(self, owed: Owed, path: Path) -> None:
+        if self.owed.get(owed.grid_id) is not owed:
+            return  # replaced while the sweep awaited: the next one decides
         if owed.discard:
             await self._discarding(owed, path)
             return
@@ -623,7 +655,7 @@ class Collector:
         await self._forget(owed)
         self._quiet.pop(str(path), None)
         log.info(
-            "recordings: discarded a video for %s: its browser lost a race to open",
+            "recordings: discarded a video for %s: no session holds its browser",
             owed.session,
         )
 

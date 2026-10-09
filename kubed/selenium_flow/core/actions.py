@@ -154,6 +154,8 @@ class Actions:
         record=None,
         video_name=None,
         site_data=None,
+        *,
+        on_created=None,
     ) -> dict:
         """Start a browser session with the settings it should run under.
 
@@ -167,6 +169,11 @@ class Actions:
         storage, the saved sessionStorage — before the first page loads, except
         into an ``insecure`` browser, which gets none. ``record`` asks the Grid
         to film this browser's whole life.
+
+        ``on_created`` is called with the Grid's id the moment the browser
+        exists, before anything here that can fail: a browser left running by
+        a failure after that is still somebody's to account for (its video,
+        for one). One that raises fails the open, so it keeps its own faults.
         """
         name = normalize_browser(browser)
         insecure = as_bool(insecure, False)
@@ -175,6 +182,8 @@ class Actions:
             name, insecure=insecure, record=record, video_name=video_name
         )
         session_id = driver.session_id
+        if on_created is not None:
+            on_created(session_id)
 
         if width or height:
             current = driver.get_window_size()

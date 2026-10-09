@@ -14,11 +14,15 @@ class Recorder:
 
     def __init__(self):
         self.expected, self.finished, self.discarded = [], [], []
+        # Grid id -> whether its note says discard, as the collector keeps it:
+        # a second expect for one browser replaces the first.
+        self.notes = {}
 
     def expect(self, session, grid_id, browser, *, discard=False):
         (self.discarded if discard else self.expected).append(
             (session, grid_id, browser)
         )
+        self.notes[grid_id] = discard
 
     def ended(self, grid_id):
         self.finished.append(grid_id)
@@ -39,12 +43,18 @@ class Actions:
         self.grid = Grid()
         self.calls = []
         self.n = 0
+        # Raised once the browser exists: a restore or first page that failed.
+        self.fail = None
 
-    def open_session(self, **kwargs):
+    def open_session(self, *, on_created=None, **kwargs):
         self.n += 1
         sid = f"grid{self.n:04d}"
         self.grid.alive.add(sid)
-        self.calls.append(kwargs)
+        self.calls.append({**kwargs, **({"on_created": True} if on_created else {})})
+        if on_created is not None:
+            on_created(sid)
+        if self.fail is not None:
+            raise self.fail
         settings = {"browser": "chrome", "width": 1280, "height": 900}
         if kwargs.get("record"):
             settings["record"] = True
@@ -79,6 +89,7 @@ def test_record_sends_the_capability_and_tells_the_collector():
     assert m.actions.calls[-1]["record"] is True
     assert m.actions.calls[-1]["video_name"] == "bot"
     assert rec.expected == [("bot", "grid0001", "chrome")]
+    assert rec.notes == {"grid0001": False}
     assert result["recording"] is True
     assert "grid0001" not in str(result)
 
@@ -103,11 +114,12 @@ def test_a_reap_replays_record_and_expects_the_new_browser():
     assert m.actions.calls[-1]["record"] is True
     assert m.actions.calls[-1]["video_name"] == "bot"
     assert rec.expected[-1] == ("bot", "grid0002", "chrome")
+    assert rec.notes == {"grid0001": False, "grid0002": False}
 
 
 def test_a_note_that_cannot_be_written_keeps_the_browser_and_says_why():
     class Broken(Recorder):
-        def expect(self, session, grid_id, browser):
+        def expect(self, session, grid_id, browser, *, discard=False):
             raise PermissionError(13, "denied", "/data/sessions/bot/recordings")
 
     m = manager(Broken())
@@ -183,7 +195,7 @@ def test_a_disabled_recorder_may_name_any_inbox(tmp_path):
 
 def test_a_reap_survives_a_note_that_cannot_be_written():
     class Broken(Recorder):
-        def expect(self, session, grid_id, browser):
+        def expect(self, session, grid_id, browser, *, discard=False):
             raise PermissionError(13, "denied", "/data/sessions/bot/recordings")
 
     m = manager(Recorder())
@@ -230,7 +242,8 @@ def test_a_reap_that_loses_the_race_notes_its_video_for_discard():
     m.actions.open_session = open_while_another_binds
     assert m.resolve("bot") == "grid9999"
     assert [e[1] for e in rec.expected] == ["grid0001"]
-    assert rec.discarded == [("bot", "grid0002", "chrome")]
+    assert rec.discarded[-1] == ("bot", "grid0002", "chrome")
+    assert rec.notes == {"grid0001": False, "grid0002": True}
 
 
 def test_an_open_that_loses_the_race_notes_its_video_for_discard():
@@ -247,6 +260,36 @@ def test_an_open_that_loses_the_race_notes_its_video_for_discard():
     m.open_browser(caller(), record=True)
     assert rec.expected == []
     assert rec.discarded == [("bot", "grid0001", "chrome")]
+    assert rec.notes == {"grid0001": True}
+
+
+def test_an_open_that_fails_once_the_browser_exists_leaves_a_discard_note():
+    """The Grid made the browser and the restore or first page failed: the
+    session never held it, so its video is no one's (Copilot, #59)."""
+    rec = Recorder()
+    m = manager(rec)
+    m.actions.fail = TimeoutError("first page")
+    with pytest.raises(TimeoutError):
+        m.open_browser(caller(), url="https://example.test/", record=True)
+    assert rec.notes == {"grid0001": True} and rec.expected == []
+
+
+def test_a_reap_that_fails_once_the_browser_exists_leaves_a_discard_note():
+    rec = Recorder()
+    m = manager(rec)
+    m.open_browser(caller(), record=True)
+    m.actions.grid.alive.clear()
+    m.actions.fail = TimeoutError("first page")
+    with pytest.raises(TimeoutError):
+        m.resolve("bot")
+    assert rec.notes == {"grid0001": False, "grid0002": True}
+
+
+def test_an_unrecorded_open_notes_nothing():
+    rec = Recorder()
+    m = manager(rec)
+    m.open_browser(caller())
+    assert rec.notes == {} and "on_created" not in m.actions.calls[-1]
 
 
 def test_a_discard_that_cannot_be_noted_never_fails_the_open(caplog):
@@ -272,7 +315,7 @@ def test_a_note_path_that_is_refused_never_fails_the_open(where):
     from kubed.selenium_flow.names import InvalidName
 
     class Refused(Recorder):
-        def expect(self, session, grid_id, browser):
+        def expect(self, session, grid_id, browser, *, discard=False):
             raise InvalidName("'recordings' is a link")
 
     if where == "open":

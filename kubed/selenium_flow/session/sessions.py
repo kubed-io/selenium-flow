@@ -408,7 +408,7 @@ class SessionManager:
             replay.pop("record", None)
         opened = self.actions.open_session(
             url=record.url or None,
-            **({"video_name": name} if replay.get("record") else {}),
+            **(self._recorded(name, replay) if replay.get("record") else {}),
             **({"site_data": saved} if saved else {}),
             **replay,
         )
@@ -425,6 +425,7 @@ class SessionManager:
             replacing=record.session_id,
             report=opened.get("site_data"),
         )
+        # A browser this session does not hold keeps its provisional note.
         if replay.get("record") and kept == opened["session_id"]:
             try:
                 self.recordings.expect(
@@ -438,24 +439,32 @@ class SessionManager:
                 log.warning(
                     "recording for %s cannot be filed: %s", name, faults.message(exc)
                 )
-        elif replay.get("record"):
-            self._discard_recording(name, opened["session_id"], replay)
         return kept
 
-    def _discard_recording(self, name: str, grid_id: str, settings: dict) -> None:
-        """A recorded browser that lost a race to bind was quit: its video, if
-        one comes, is no session's, so the collector is told to delete it."""
-        try:
-            self.recordings.expect(
-                name, grid_id, settings.get("browser") or DEFAULT_BROWSER,
-                discard=True,
-            )
-        except (OSError, ValueError) as exc:
-            # The type alone: the note's path names the Grid id.
-            log.warning(
-                "a discarded recording for %s cannot be noted: %s",
-                name, type(exc).__name__,
-            )
+    def _recorded(self, name: str, settings: dict) -> dict:
+        """The arguments a recorded open adds: the video's name, and a note
+        for the collector the moment the browser exists, marked ``discard``.
+
+        Provisional: the caller notes it again without the mark once the
+        session holds the browser. Until then its video is no session's, and
+        it stays that way when the open fails after the Grid made the browser
+        or a concurrent open binds first and this one is quit (Copilot, #59)."""
+
+        def created(grid_id: str) -> None:
+            try:
+                self.recordings.expect(
+                    name, grid_id, settings.get("browser") or DEFAULT_BROWSER,
+                    discard=True,
+                )
+            except (OSError, ValueError) as exc:
+                # The type alone: the note's path names the Grid id. Never the
+                # open's failure: the browser is made, and the open goes on.
+                log.warning(
+                    "a recording for %s cannot be noted: %s",
+                    name, type(exc).__name__,
+                )
+
+        return {"video_name": name, "on_created": created}
 
     def act(self, caller: Caller, call, *, reshapes: bool = False) -> dict:
         """Resolve this session's browser, act on it, remember where it ended up.
@@ -648,7 +657,7 @@ class SessionManager:
             saved = {}
         opened = self.actions.open_session(
             url=url or inherited,
-            **({"video_name": name} if resolved.get("record") else {}),
+            **(self._recorded(name, resolved) if resolved.get("record") else {}),
             **({"site_data": saved} if saved else {}),
             **resolved,
         )
@@ -659,8 +668,7 @@ class SessionManager:
         if kept != opened["session_id"]:
             # A concurrent open bound first and this browser was quit: describe
             # the one the session holds, not the discarded one (Copilot, #50).
-            if resolved.get("record"):
-                self._discard_recording(name, opened["session_id"], resolved)
+            # Its provisional note stays, so its video is deleted, not filed.
             return self._held(name)
         noted = None
         if resolved.get("record"):

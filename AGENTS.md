@@ -523,8 +523,10 @@ tidies is still not.
   path naming two owed ids is skipped. The recorder must keep `SE_VIDEO_FILE_NAME=auto`
   and `SE_VIDEO_FILE_NAME_SUFFIX=true` or `SE_VIDEO_SESSION_SUBFOLDER=true`, or no id is there.
 - The inbox (`recording.dir`) is the operator's; we never clean it. A file no
-  note claims stays where it is; one a `discard` note claims (a recorded browser
-  quit after losing a race to bind) is deleted, never filed.
+  note claims stays where it is; one a `discard` note claims is deleted, never
+  filed. Every recorded browser is noted `discard` the moment it exists
+  (`open_session(on_created=)`) and noted again without it once its session
+  holds it, so an open that fails or loses a race to bind leaves no orphan.
 - The queue is the notes under `sessions/<name>/recordings/.pending/<gridId>.json`.
   They are on disk, so they survive a restart whatever the session store is.
 - **A note leaves the queue only once it is gone from disk.** Filing (or the
