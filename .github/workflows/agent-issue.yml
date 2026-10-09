@@ -1,7 +1,7 @@
 name: 🧭 Agent · Issue
 
 # Spec on an issue, then the hand-off. On an `enhancement` issue, Dr K's `agent` label
-# opts it in, and every comment of his is the next brainstorming turn; each spec round
+# opts it in, and every comment from Dr K is the next brainstorming turn; each spec round
 # is an artifact and a job summary. `spec approved` commits the last round on a new
 # branch, opens the draft PR, and starts the plan on it.
 
