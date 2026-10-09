@@ -487,6 +487,9 @@ def mount(
                     # Beside the browser because it is the same kind of fact:
                     # what this session is running, and how big.
                     "window": record.window,
+                    # How long the Grid lets its session sit idle: kept from
+                    # the last open, so an idle card shows it too.
+                    "grid_timeout": record.grid_timeout,
                     "started": record.opened_at or None,
                     "files_count": files_count,
                     "files_rev": files_rev,

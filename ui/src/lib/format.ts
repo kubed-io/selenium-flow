@@ -41,6 +41,14 @@ export function ago(ms?: number | null, now = Date.now()): string {
   return Math.round(s / 3600) + 'h ago'
 }
 
+/* How long the Grid lets a session sit idle, in seconds, and where that came
+   from, as the boards `summary / live` and `summary / idle` draw it; nothing
+   when the Grid did not say. */
+export function idle(seconds?: number | null, live?: boolean): string {
+  if (!seconds || seconds <= 0) return ''
+  return `${seconds} s · ${live ? 'read from the Grid node' : 'no session is open'}`
+}
+
 /* Each folder gets its own word — any one can be zero without the others
    being. Older rows carry only files_count. */
 export function countsText(s: WorkspaceRow): string {
