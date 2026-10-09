@@ -40,3 +40,21 @@ def test_an_mfro_naming_the_wrong_size_is_not(tmp_path):
 def test_a_tiny_or_missing_file_is_not(tmp_path):
     assert not mp4.is_complete(write(tmp_path, b"\x00" * 10))
     assert not mp4.is_complete(tmp_path / "absent.mp4")
+
+
+def test_a_read_fault_is_not_an_unfinished_file(tmp_path, monkeypatch):
+    import errno
+    from pathlib import Path
+
+    path = write(tmp_path, BODY + mp4.trailer())
+
+    def eio(self, *a, **k):
+        raise OSError(errno.EIO, "Input/output error")
+
+    monkeypatch.setattr(Path, "open", eio)
+    with pytest.raises(OSError):
+        mp4.is_complete(path)
+
+
+def test_a_file_that_vanished_is_not_complete(tmp_path):
+    assert mp4.is_complete(tmp_path / "gone.mp4") is False

@@ -62,6 +62,7 @@ import functools
 import logging
 import math
 import os
+import stat
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -179,6 +180,7 @@ class Collector:
         # Nested directories the last walk could not read (see _inbox_files).
         self._blind = False
         self._blind_logged = False
+        self._fault_logged = False
         # Set by `stop`: a recording expected during shutdown starts no task;
         # its note is on disk, so the next process files it.
         self._stopping = False
@@ -447,6 +449,7 @@ class Collector:
         now = self.clock()
         present = {str(path) for path, _size, _mtime in files}
         self._quiet = {k: v for k, v in self._quiet.items() if k in present}
+        complete = await anyio.to_thread.run_sync(self._completeness, files)
         for grid_id, owed in list(self.owed.items()):
             if self.owed.get(grid_id) is not owed:
                 continue  # filed or dropped while this sweep awaited
@@ -464,7 +467,10 @@ class Collector:
             quiet = 0.0
             if match is not None:
                 path, size, mtime = match
-                if await anyio.to_thread.run_sync(mp4.is_complete, path):
+                done = complete.get(str(path))
+                if done is None:
+                    continue  # unreadable: neither finished nor cut off
+                if done:
                     await self._file(owed, path)
                     continue
                 quiet = self._quiet_for(path, size, mtime, now)
@@ -575,6 +581,33 @@ class Collector:
             return 0.0
         return now - seen[2]
 
+    def _completeness(self, files) -> dict[str, bool]:
+        """Whether each owed file ends in a trailer; a file whose read faulted
+        is left out, and the sweep goes blind so no note is dropped meanwhile.
+        In a worker thread."""
+        names = list(self.owed)
+        out: dict[str, bool] = {}
+        faults = []
+        for path, _size, _mtime in files:
+            if path.suffix.lower() != ".mp4" or not any(g in path.name for g in names):
+                continue
+            try:
+                out[str(path)] = mp4.is_complete(path)
+            except OSError as exc:
+                faults.append(exc)
+        if faults:
+            self._blind = True
+            if not self._fault_logged:
+                self._fault_logged = True
+                log.warning(
+                    "recordings: %d recording(s) cannot be read (%s); they will "
+                    "be tried again and nothing owed is dropped while that lasts",
+                    len(faults), type(faults[0]).__name__,
+                )
+        else:
+            self._fault_logged = False
+        return out
+
     def _inbox_files(self) -> list[tuple[Path, int, float]]:
         """Every candidate in the inbox with its size and mtime. In a worker
         thread: on a network filesystem a stat can hang."""
@@ -594,18 +627,22 @@ class Collector:
             unreadable.append(exc)
 
         found = []
-        for root, dirs, names in os.walk(self.inbox, onerror=onerror):
+        walk = os.walk(self.inbox, onerror=onerror, followlinks=False)
+        for root, dirs, names in walk:
             dirs[:] = [d for d in dirs if not d.startswith(".")]
             for name in names:
                 if name.startswith(".") or name.endswith(PARTIAL_SUFFIXES):
                     continue
                 path = Path(root) / name
                 try:
-                    info = path.stat()
+                    # lstat: a link is never a recording, whatever it names.
+                    info = os.lstat(path)
                 except FileNotFoundError:
                     continue  # gone mid-scan: simply gone
                 except OSError as exc:
                     unreadable.append(exc)  # present but unseen: blind
+                    continue
+                if not stat.S_ISREG(info.st_mode):
                     continue
                 found.append((path, info.st_size, info.st_mtime))
         self._blind = bool(unreadable)

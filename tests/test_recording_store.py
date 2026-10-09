@@ -243,3 +243,16 @@ def test_a_strict_move_unclaims_the_copy_when_the_original_cannot_be_removed(sto
     with pytest.raises(PermissionError):
         store.move_in("bot", src, "a.mp4", FILES_DIR, strict=True)
     assert src.exists() and store.files("bot", FILES_DIR) == []
+
+
+def test_move_in_refuses_a_symlink_and_a_non_file(store, tmp_path):
+    secret = tmp_path / "secret.mp4"
+    secret.write_bytes(b"private")
+    link = tmp_path / "link.mp4"
+    link.symlink_to(secret)
+    with pytest.raises(OSError):
+        store.move_in("bot", link, "rec.mp4", RECORDINGS_DIR)
+    with pytest.raises(OSError):
+        store.move_in("bot", tmp_path, "rec.mp4", RECORDINGS_DIR)
+    assert secret.read_bytes() == b"private" and link.is_symlink()
+    assert store.files("bot", RECORDINGS_DIR) == []

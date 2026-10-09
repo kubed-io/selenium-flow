@@ -459,6 +459,9 @@ class FileStore(SessionLayout):
         tolerates a retained inbox original (a sticky or recorder-owned folder).
         """
         source = Path(source)
+        # A link would file whatever it points at; only a real file is moved.
+        if not stat.S_ISREG(os.lstat(source).st_mode):
+            raise OSError(errno.EINVAL, "not a regular file")
         staged: Path | None = None  # a complete copy, when links are impossible
         try:
             for candidate in candidates(valid_file_name(name)):

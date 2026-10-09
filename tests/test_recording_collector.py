@@ -839,3 +839,75 @@ async def test_a_file_that_vanishes_mid_scan_is_not_blindness(parts, monkeypatch
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY)
     _stat_fails_on(inbox / f"bot_{GID}.mp4", FileNotFoundError(2, "gone"), monkeypatch)
     assert c._inbox_files() == [] and c._blind is False
+
+
+async def test_a_symlink_named_with_an_owed_id_is_never_filed(parts):
+    c, store, inbox, alive, filed, clock = parts
+    outside = inbox.parent / "outside"
+    outside.mkdir()
+    for name, body in (("plain.bin", BODY), ("done.bin", BODY + mp4.trailer())):
+        (outside / name).write_bytes(body)
+    c.expect("bot", GID, "chrome")
+    c.ended(GID)
+    await asyncio.sleep(0)
+    alive.clear()
+    (inbox / f"bot_{GID}.mp4").symlink_to(outside / "plain.bin")
+    assert c._inbox_files() == []
+    clock.now += 1200
+    await c.sweep()
+    await c.sweep()
+    assert filed == [] and store.files("bot", RECORDINGS_DIR) == []
+    assert (outside / "plain.bin").exists()
+    (inbox / f"bot_{GID}.mp4").unlink()
+    (inbox / f"bot_{GID}.mp4").symlink_to(outside / "done.bin")
+    assert c._inbox_files() == []
+    await c.sweep()
+    assert filed == [] and (outside / "done.bin").exists()
+    # a linked directory is not walked into
+    (inbox / f"bot_{GID}.mp4").unlink()
+    (inbox / "dirlink").symlink_to(outside, target_is_directory=True)
+    assert c._inbox_files() == []
+
+
+async def test_a_regular_file_is_still_a_candidate(parts):
+    c, _store, inbox, _alive, _filed, _clock = parts
+    (inbox / f"bot_{GID}.mp4").write_bytes(BODY)
+    assert [p.name for p, _s, _m in c._inbox_files()] == [f"bot_{GID}.mp4"]
+
+
+async def test_a_read_fault_on_one_file_files_nothing_and_blocks_drops(parts, monkeypatch, caplog):
+    import errno
+
+    c, store, inbox, alive, _filed, clock = parts
+    other = "0123456789abcdef0123456789abcdef"
+    c.expect("bot", GID, "chrome")
+    c.expect("bot2", other, "chrome")
+    c.ended(GID)
+    await asyncio.sleep(0)
+    alive.clear()
+    alive.add(other)
+    (inbox / f"bot_{GID}.mp4").write_bytes(BODY)  # cut off: filed as it is once quiet
+    (inbox / f"bot2_{other}.mp4").write_bytes(BODY + mp4.trailer())
+    real = mp4.is_complete
+
+    def flaky(path):
+        if GID in str(path):
+            raise OSError(errno.EIO, "Input/output error")
+        return real(path)
+
+    monkeypatch.setattr(mp4, "is_complete", flaky)
+    with caplog.at_level(logging.WARNING):
+        await c.sweep()
+        clock.now += 1200
+        await c.sweep()
+        await c.sweep()
+    assert GID in c.owed and store.notes() != []
+    assert store.files("bot", RECORDINGS_DIR) == []
+    assert len(store.files("bot2", RECORDINGS_DIR)) == 1
+    assert caplog.text.count("cannot be read") == 1
+    assert GID not in caplog.text and "bot_" not in caplog.text
+    monkeypatch.setattr(mp4, "is_complete", real)
+    await c.sweep()  # readable again: its quiet starts now
+    clock.now += 120
+    await c.sweep()
+    assert GID not in c.owed and len(store.files("bot", RECORDINGS_DIR)) == 1

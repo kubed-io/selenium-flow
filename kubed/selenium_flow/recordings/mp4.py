@@ -42,5 +42,5 @@ def is_complete(path) -> bool:
             f.seek(size - mfra)
             head = f.read(8)
             return head[4:] == b"mfra" and int.from_bytes(head[:4], "big") == mfra
-    except OSError:
-        return False
+    except FileNotFoundError:
+        return False  # vanished between scan and open; other faults propagate
