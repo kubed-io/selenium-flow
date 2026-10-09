@@ -107,7 +107,7 @@ class BidiSocket:
     async def command(
         self, method: str, params: dict | None = None, *, timeout: float = REPLY_TIMEOUT
     ) -> dict:
-        """The result of one command, or BidiError / TimeoutError /
+        """The result of one command, or BidiError / asyncio.TimeoutError /
         ConnectionError."""
         if method in FORBIDDEN:
             raise ValueError(

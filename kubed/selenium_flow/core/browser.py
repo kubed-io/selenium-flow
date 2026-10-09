@@ -123,7 +123,7 @@ def _seconds(ms) -> int | None:
     """A node's ``sessionTimeout`` (milliseconds) in whole seconds, or None."""
     if isinstance(ms, bool) or not isinstance(ms, (int, float)) or ms <= 0:
         return None
-    return int(ms) // 1000
+    return int(ms) // 1000 or None
 
 
 def is_partial(name: str) -> bool:

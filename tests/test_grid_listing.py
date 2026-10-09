@@ -44,7 +44,7 @@ def test_a_grid_with_no_nodes_lists_nothing():
     assert grid({"value": {"ready": False, "nodes": []}}).listing() == (0, {})
 
 
-@pytest.mark.parametrize("value", [0, -1, "300000", True, None])
+@pytest.mark.parametrize("value", [0, -1, 500, "300000", True, None])
 def test_a_timeout_that_is_not_a_positive_number_is_none(value):
     payload = {
         "value": {

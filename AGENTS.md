@@ -203,7 +203,7 @@ stages; none of them writes its own copy.
 | **Surface** | how it is answered: an MCP result, an HTTP response, a flow step's entry | `mcp/tools.py`, `routes.py` with `http/answer.py`, `flows/engine.py` |
 
 The layering is enforced, not remembered: `tests/test_boundaries.py` fails when
-`core/`, `workspace/`, `flows/`, `site_data/` or `recordings/` imports the protocol layers
+`core/`, `workspace/`, `flows/`, `site_data/`, `monitor/` or `recordings/` imports the protocol layers
 (`mcp/`, `http/`, `routes`, `server`, `spec`), and when the modules that are
 meant to be plain import `selenium`. Shared pure rules live in their own small
 modules — `names.py`, `urls.py`, `binding.py`, `faults.py`, `core/coerce.py` —
