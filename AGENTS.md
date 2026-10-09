@@ -142,15 +142,27 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   port and `==` leaks the length of a correct prefix. There used to be two hand-rolled
   copies of this check, both using `==`. If a third door appears, it calls `http/auth.py`.
 
-- **`http/auth.py` also builds `/mcp`'s verifier (`provider()`)**: the token alone, or
-  `MultiAuth[token, OidcVerifier]`. A third credential goes there too.
-- **The verifiers return a `PrincipalToken`; `Caller.principal` carries it. It decides nothing
-  yet** — ownership, per-tool roles and the admin UI's OIDC sign-in are the next round's, and
-  the spec lists them.
-- **The REST routes, admin API and signed links are token-only on purpose**: the gateway only
-  routes `/mcp`.
+- **`http/auth.py` builds both doors from one verifier (`doors()`)**: `/mcp`'s —
+  the token alone, or `MultiAuth[token, OidcVerifier]` — and the admin API's
+  `AdminDoor`. One `OidcVerifier` instance serves both, so one JWKS cache and one
+  refetch floor. A third credential goes there too.
+- **The admin API admits the token, or a JWT the admin UI signed in for**: `azp`
+  is `oidc.client_id` and a role from `oidc.admin_roles` is held. `oidc.roles`
+  (`/mcp`'s gate) does not apply there. Unknown credential 401, known but not an
+  admin 403. The page runs Authorization Code + PKCE itself and keeps the tokens
+  in memory; there is no cookie and no server-side session (spec
+  2026-10-09-admin-oidc).
+- **The verifiers return a `PrincipalToken`; `Caller.principal` carries it. It
+  decides nothing beyond the admin door** — a workspace records who opened its
+  browser (`opened_by`) for the live list, and ownership and per-tool roles are
+  E6's.
+- **The REST routes and signed links are token-only on purpose**: the gateway
+  only routes `/mcp`. Signed links and the `events_url` stay HMAC on the token,
+  for an OIDC admin too.
 - **`oidc` without `auth.token` is a `ConfigError`**, checked after the layers merge
   (`config.oidc_problem`).
+- **`oidc.client_id` and `oidc.admin_roles` come together, and only with the
+  issuer**, checked in the same place (`config.oidc_problem`).
 - **Behind agentgateway, `X-Workspace` crosses and `?workspace=` does not.**
 - **A JWT with an unknown `kid` makes `JWTVerifier` fetch the JWKS**, and FastMCP's bearer
   middleware runs on every path, so any request on a door that bypasses the gateway (the
