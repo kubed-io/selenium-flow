@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { FakeEventSource, fakeFetch, fakeJwt } from '../test/helpers'
+import { deferred, FakeEventSource, fakeFetch, fakeJwt, type Reply } from '../test/helpers'
 import Admin from './Admin.svelte'
 import * as oidc from './oidc'
 
@@ -149,21 +149,26 @@ test('an issuer down on the button says it could not be reached', async () => {
   await vi.waitFor(() => expect(screen.getByText('The issuer could not be reached.')).toBeVisible())
 })
 
-/* A token endpoint that grants the code, and answers a refresh with `renewal`. */
-function renewing(renewal: { status?: number; body?: unknown }) {
+type Answer = Reply | (() => Reply | Promise<Reply>)
+const answer = (a: Answer) => (typeof a === 'function' ? a() : a)
+
+/* One fake for the whole test: a token endpoint that grants the code and
+   answers a refresh with `renewal`, and a settings call that answers `settings`. */
+function renewing(renewal: Answer, settings: Answer = { body: { sections: [] } }) {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   returning()
   return fakeFetch({
     [WELL_KNOWN]: { body: DISCOVERY },
     [TOKEN]: (init) => String(init.body).includes('grant_type=refresh_token')
-      ? renewal
+      ? answer(renewal)
       : { body: { access_token: ACCESS, refresh_token: 'r1', expires_in: 300 } },
     'GET /admin/workspaces': { body: WORKSPACES },
-    'GET /admin/settings': { body: { sections: [] } },
+    'GET /admin/settings': () => answer(settings),
   })
 }
 const refreshes = (calls: { method: string; path: string; body?: unknown }[]) =>
   calls.filter((c) => c.method === 'POST' && String(c.body).includes('grant_type=refresh_token'))
+const toSettings = () => { history.replaceState(null, '', '/#/settings'); window.dispatchEvent(new HashChangeEvent('hashchange')) }
 
 test('a renewal 30 s before expiry replaces the access token', async () => {
   const RENEWED = fakeJwt({ preferred_username: 'drk', n: 2 })
@@ -174,7 +179,7 @@ test('a renewal 30 s before expiry replaces the access token', async () => {
   expect(refreshes(calls)).toHaveLength(0)
   await vi.advanceTimersByTimeAsync(2_000)
   expect(refreshes(calls)).toHaveLength(1)
-  history.replaceState(null, '', '/#/settings'); window.dispatchEvent(new HashChangeEvent('hashchange'))
+  toSettings()
   await vi.waitFor(() => expect(calls.find((c) => c.path === '/admin/settings')).toBeTruthy())
   expect(calls.find((c) => c.path === '/admin/settings')!.headers.get('Authorization')).toBe('Bearer ' + RENEWED)
   expect(stored()).not.toContain(RENEWED)
@@ -191,15 +196,40 @@ test('a refused renewal signs out with exactly "Your sign-in ended; sign in agai
 })
 
 test('a 401 mid-session signs out and stops the renewal', async () => {
-  const { calls } = renewing({ body: { access_token: ACCESS, expires_in: 300 } })
+  let expired = false
+  const { calls } = renewing({ body: { access_token: ACCESS, expires_in: 300 } },
+    () => (expired ? { status: 401 } : { body: { sections: [] } }))
   const { container } = render(Admin, { mount: '', console: '/grid', oidc: CONFIG })
   await vi.waitFor(() => expect(screen.getByText('Sign out')).toBeInTheDocument())
-  fakeFetch({ 'GET /admin/settings': { status: 401 } })
-  history.replaceState(null, '', '/#/settings'); window.dispatchEvent(new HashChangeEvent('hashchange'))
+  expired = true
+  toSettings()
   await vi.waitFor(() => expect(container.querySelector('#login')).toBeVisible())
+  expect(calls.find((c) => c.path === '/admin/settings')!.headers.get('Authorization')).toBe('Bearer ' + ACCESS)
   expect(sessionStorage.getItem(oidc.MARKER)).toBeNull()
+  // The renewal timer itself is gone, not merely harmless when it fires.
+  expect(vi.getTimerCount()).toBe(0)
   await vi.advanceTimersByTimeAsync(600_000)
   expect(refreshes(calls)).toHaveLength(0)
+})
+
+test('a renewal that answers after Sign out keeps nothing and schedules nothing', async () => {
+  const RENEWED = fakeJwt({ preferred_username: 'drk', n: 2 })
+  const late = deferred<Reply>()
+  const { calls } = renewing(() => late.promise)
+  const { container } = render(Admin, { mount: '', console: '/grid', oidc: CONFIG })
+  await vi.waitFor(() => expect(screen.getByText('Sign out')).toBeInTheDocument())
+  await vi.advanceTimersByTimeAsync(271_000)
+  expect(refreshes(calls)).toHaveLength(1)
+  await fireEvent.click(screen.getByText('Sign out'))
+  late.resolve({ body: { access_token: RENEWED, refresh_token: 'r2', expires_in: 300 } })
+  await vi.advanceTimersByTimeAsync(0)
+  // A token typed next is the bearer, not the renewal that came back late.
+  await fireEvent.input(container.querySelector('#token')!, { target: { value: 'typed' } })
+  await fireEvent.submit(container.querySelector('#loginForm')!)
+  await vi.waitFor(() => expect(screen.getByText('Sign out')).toBeInTheDocument())
+  expect(calls.at(-1)!.headers.get('Authorization')).toBe('Bearer typed')
+  await vi.advanceTimersByTimeAsync(600_000)
+  expect(refreshes(calls)).toHaveLength(1)
 })
 
 test('Sign out and unmounting both stop the renewal', async () => {
