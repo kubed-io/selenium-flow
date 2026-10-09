@@ -18,6 +18,7 @@ from kubed.selenium_flow.config import Settings
 
 KID = "test-key"
 AUDIENCE = "https://mcp.example.com"
+ADMIN_CLIENT = "selenium-flow-admin"
 
 
 class Issuer:
@@ -70,16 +71,24 @@ class Issuer:
         key = RSAKey.import_key(self.keys.private_key.get_secret_value())
         return jwt.encode({"alg": "RS256", "kid": KID}, claims, key)
 
-    def settings(self, token: str, roles=("mcp",)) -> Settings:
+    def mint_admin(self, *, roles=("admin",), azp=ADMIN_CLIENT, **overrides) -> str:
+        """A token the admin UI's client would hold: its `azp`, these roles."""
+        claims = {"azp": azp, "roles": list(roles)} | overrides.pop("claims", {})
+        return self.mint(claims=claims, **overrides)
+
+    def settings(self, token: str, roles=("mcp",), admin_roles=()) -> Settings:
+        oidc = {
+            "issuer": self.issuer,
+            "audience": AUDIENCE,
+            "jwks_uri": self.jwks_uri,
+            "roles": list(roles),
+        }
+        if admin_roles:
+            oidc |= {"client_id": ADMIN_CLIENT, "admin_roles": list(admin_roles)}
         return Settings(
             grid={"url": "http://grid.invalid:4444"},
             auth={"token": token},
-            oidc={
-                "issuer": self.issuer,
-                "audience": AUDIENCE,
-                "jwks_uri": self.jwks_uri,
-                "roles": list(roles),
-            },
+            oidc=oidc,
         )
 
     def close(self):

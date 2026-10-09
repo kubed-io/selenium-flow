@@ -10,8 +10,9 @@ which signs a URL for one file so it can be opened by something that cannot send
 a header at all. The split is deliberate: this module answers "are you the
 operator?", `links.py` answers "may this one URL be fetched?".
 
-It also builds the MCP door's verifiers: the server token, and a JWT from the
-configured OIDC issuer.
+It also builds both doors that can take a JWT from the configured OIDC issuer:
+`/mcp`'s verifiers, and the admin API's `AdminDoor` (spec
+2026-10-09-admin-oidc). One `OidcVerifier` serves both.
 """
 
 from __future__ import annotations
@@ -21,6 +22,8 @@ import hmac
 import inspect
 import logging
 import time
+from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Any
 
 from fastmcp.server.auth.auth import AccessToken, AuthProvider, MultiAuth, TokenVerifier
@@ -216,18 +219,95 @@ def _log_refusal(reason: str, claims: dict) -> None:
     log.info("JWT refused for sub %r: %s", claims.get("sub"), reason)
 
 
-def provider(settings: config.Settings, *, http_client=None) -> AuthProvider | None:
-    """What `/mcp` checks a bearer with: nothing, the token, or the token then a JWT."""
+UNAUTHORIZED = "unauthorized"
+NOT_ADMIN = "this sign-in does not hold an admin role"
+
+
+class Refused(Exception):
+    """The admin door's no: 401 for a credential it does not know, 403 for one it
+    knows that is not enough (spec 2026-10-09-admin-oidc, ruling 6)."""
+
+    def __init__(self, status: int, reason: str):
+        super().__init__(reason)
+        self.status = status
+        self.reason = reason
+
+
+class AdminDoor:
+    """Who may use the admin API and its event stream.
+
+    The server token, as ever; and, when the admin UI signs in with OIDC
+    (`oidc.client_id`), a JWT minted for that client holding one of
+    `oidc.admin_roles`. The JWT check is `/mcp`'s own verifier minus its role,
+    so `oidc.roles` does not apply here and one JWKS cache serves both.
+    """
+
+    def __init__(
+        self,
+        token: str | None,
+        jwt: OidcVerifier | None = None,
+        *,
+        client_id: str | None = None,
+        roles: Iterable[str] = (),
+    ):
+        self._token = token or None
+        self._jwt = jwt
+        self._client_id = client_id
+        self._roles = frozenset(roles)
+
+    async def admit(self, request: Request) -> Principal | None:
+        """The admin this request is, None on an open server, or `Refused`."""
+        if not self._token:
+            return None
+        bearer = presented(request)
+        # Bytes: a str compare_digest raises on non-ASCII, and headers arrive latin-1.
+        if hmac.compare_digest(bearer.encode(), self._token.encode()):
+            return ADMIN
+        if self._jwt is None or not bearer:
+            raise Refused(401, UNAUTHORIZED)
+        verified = await self._jwt.verify_jwt(bearer)
+        if verified is None:
+            raise Refused(401, UNAUTHORIZED)
+        if verified.claims.get("azp") != self._client_id:
+            _log_refusal("not the admin UI's client", verified.claims)
+            raise Refused(401, UNAUTHORIZED)
+        if not self._roles.intersection(verified.principal.roles):
+            _log_refusal("no admin role", verified.claims)
+            raise Refused(403, NOT_ADMIN)
+        return verified.principal
+
+
+@dataclass(frozen=True)
+class Doors:
+    """Both doors a server has, built from one verifier."""
+
+    mcp: AuthProvider | None
+    admin: AdminDoor
+
+
+def doors(settings: config.Settings, *, http_client=None) -> Doors:
+    """`/mcp`'s verifiers and the admin door, sharing one `OidcVerifier`."""
     problem = config.oidc_problem(settings)
     if problem:
         raise config.ConfigError(problem)
     token = settings.auth.token.get_secret_value() if settings.auth.token else None
     if not token:
-        return None
+        return Doors(None, AdminDoor(None))
     server_token = ServerTokenVerifier(token)
-    if not settings.oidc.issuer:
-        return server_token
-    # The token first: a string compare, where a JWT costs a signature check.
-    return MultiAuth(
-        verifiers=[server_token, OidcVerifier(settings.oidc, http_client=http_client)]
+    oidc = settings.oidc
+    if not oidc.issuer:
+        return Doors(server_token, AdminDoor(token))
+    jwt = OidcVerifier(oidc, http_client=http_client)
+    admin = AdminDoor(
+        token,
+        jwt if oidc.client_id else None,
+        client_id=oidc.client_id,
+        roles=oidc.admin_roles,
     )
+    # The token first: a string compare, where a JWT costs a signature check.
+    return Doors(MultiAuth(verifiers=[server_token, jwt]), admin)
+
+
+def provider(settings: config.Settings, *, http_client=None) -> AuthProvider | None:
+    """What `/mcp` checks a bearer with: nothing, the token, or the token then a JWT."""
+    return doors(settings, http_client=http_client).mcp

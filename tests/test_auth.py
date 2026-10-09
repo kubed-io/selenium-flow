@@ -343,3 +343,73 @@ async def test_verify_jwt_still_refuses_a_bad_jwt(issuer, overrides):
 async def test_verify_jwt_still_refuses_a_jwt_without_exp(issuer):
     verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
     assert await verifier.verify_jwt(_raw(issuer)) is None
+
+
+def _bearer(value: str) -> Request:
+    return _request({"Authorization": f"Bearer {value}"})
+
+
+def _admin_door(issuer):
+    return auth.doors(issuer.settings(TOKEN, admin_roles=("admin",))).admin
+
+
+async def test_the_admin_door_on_an_open_server_admits_everyone():
+    assert await auth.AdminDoor(None).admit(_request({})) is None
+
+
+async def test_the_admin_door_admits_the_token_as_the_admin():
+    assert await auth.AdminDoor(TOKEN).admit(_bearer(TOKEN)) == ADMIN
+
+
+@pytest.mark.parametrize("headers", [{}, {"Authorization": "Bearer nope"}])
+async def test_the_admin_door_refuses_an_unknown_credential_with_a_401(headers):
+    with pytest.raises(auth.Refused) as refused:
+        await auth.AdminDoor(TOKEN).admit(_request(headers))
+    assert (refused.value.status, refused.value.reason) == (401, "unauthorized")
+
+
+async def test_an_admin_ui_jwt_holding_an_admin_role_is_the_admin(issuer):
+    """No `mcp` role needed: `oidc.roles` is `/mcp`'s gate, not this one's."""
+    principal = await _admin_door(issuer).admit(_bearer(issuer.mint_admin()))
+    assert (principal.kind, principal.username) == ("oidc", "drk")
+
+
+async def test_another_clients_jwt_is_a_401(issuer, caplog):
+    """Claude Code's token may hold `admin` too; it was not minted for this UI."""
+    bearer = issuer.mint_admin(azp="claude-code")
+    with (
+        caplog.at_level(logging.INFO, logger=auth.__name__),
+        pytest.raises(auth.Refused) as refused,
+    ):
+        await _admin_door(issuer).admit(_bearer(bearer))
+    assert refused.value.status == 401
+    assert "not the admin UI's client" in caplog.text
+    assert bearer not in caplog.text
+
+
+async def test_an_admin_ui_jwt_without_an_admin_role_is_a_403(issuer):
+    with pytest.raises(auth.Refused) as refused:
+        await _admin_door(issuer).admit(_bearer(issuer.mint_admin(roles=("mcp",))))
+    assert (refused.value.status, refused.value.reason) == (
+        403,
+        "this sign-in does not hold an admin role",
+    )
+
+
+async def test_without_a_client_id_a_jwt_never_opens_the_admin_api(issuer):
+    door = auth.doors(issuer.settings(TOKEN)).admin
+    with pytest.raises(auth.Refused) as refused:
+        await door.admit(_bearer(issuer.mint_admin()))
+    assert refused.value.status == 401
+
+
+def test_both_doors_share_one_verifier(issuer):
+    built = auth.doors(issuer.settings(TOKEN, admin_roles=("admin",)))
+    assert built.admin._jwt is built.mcp.verifiers[1]
+
+
+def test_the_doors_per_configuration():
+    assert auth.doors(Settings()).mcp is None
+    token_only = auth.doors(Settings(auth={"token": TOKEN}))
+    assert isinstance(token_only.mcp, auth.ServerTokenVerifier)
+    assert token_only.admin._jwt is None
