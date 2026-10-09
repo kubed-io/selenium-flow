@@ -200,6 +200,12 @@ ruff, the wiki check).
 
 ## Next round
 
-- The cluster repo's `components/mcp` sets `SESSION_*`: rename alongside the
-  image bump (ruling 2 refuses the old names, so the deploy will say so).
+- **Deploying needs three changes in the same step** (final review,
+  2026-10-09): the cluster repo's `components/mcp` renames `SESSION_STORE` and
+  `SESSION_TTL` to `WORKSPACE_STORE` and `WORKSPACE_TTL` with the image bump
+  (ruling 2 refuses the old ones at boot; `SESSION_BROWSER` and the rest stay);
+  every client URL with `?session=` becomes `?workspace=`, including this
+  machine's own selenium-flow MCP config; and any credential that pins
+  `X-Session-Key` (agentgateway, n8n) pins `X-Workspace` instead. Each old
+  spelling answers with a 400 naming the new one, so nothing fails silently.
 - E2 onward, in the new vocabulary.
