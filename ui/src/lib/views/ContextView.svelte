@@ -23,7 +23,6 @@
   <div class="row" style="flex-wrap:wrap">
     {#if data.window}<span class="pill">{data.window}</span>{/if}
     {#if who}<span class="pill name">{who}</span>{/if}
-    {#if data.site_data}<span class="pill">{data.site_data.sites} {data.site_data.sites === 1 ? 'site' : 'sites'}</span>{/if}
   </div>
   {#if data.site_data}
     <div class="chips">

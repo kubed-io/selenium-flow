@@ -75,3 +75,20 @@ test('a relative link drills; a web link opens through the host', async () => {
   expect(screen.queryByRole('link', { name: 'bad' })).toBeNull()
   expect(screen.getByText('bad')).toBeInTheDocument()
 })
+
+test('a link whose text is a URI keeps one button, not two', () => {
+  draw('[`skill://selenium-flow/references/FLOWS.md`](FLOWS.md)', { onshow: vi.fn() })
+  expect(screen.getAllByRole('button')).toHaveLength(1)
+})
+
+test('link reference definitions are not blocks or text', () => {
+  expect(parse('Hi [r].\n\n[r]: https://example.org/x\n').blocks.map((b) => b.type)).toEqual(['paragraph'])
+  const { container } = render(Markdown, { props: { tokens: [{ type: 'def', raw: '[r]: x', tag: 'r', href: 'x' }] as never, base: BASE } })
+  expect(container).not.toHaveTextContent('[r]')
+})
+
+test('task list items draw a box', () => {
+  const { container } = draw('- [x] done\n- [ ] todo')
+  expect(container.querySelectorAll('li')[0]).toHaveTextContent('☑ done')
+  expect(container.querySelectorAll('li')[1]).toHaveTextContent('☐ todo')
+})

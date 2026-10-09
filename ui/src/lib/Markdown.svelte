@@ -52,8 +52,10 @@
     <blockquote><Self tokens={(t as Tokens.Blockquote).tokens} {base} {onshow} {onlink} /></blockquote>
   {:else if t.type === 'hr'}
     <hr>
-  {:else if t.type === 'space'}
+  {:else if t.type === 'space' || t.type === 'def'}
     <!-- nothing to draw -->
+  {:else if t.type === 'checkbox'}
+    <span aria-hidden="true">{(t as Tokens.Checkbox).checked ? '☑ ' : '☐ '}</span>
   {:else}
     <p>{t.raw}</p>
   {/if}

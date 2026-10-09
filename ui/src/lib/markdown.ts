@@ -13,7 +13,7 @@ export interface Doc { title: Tokens.Heading | null; blocks: Token[] }
 /* A document's blocks, its first # heading lifted out as the title. Tokens
    only: the app draws them with Svelte and never renders an HTML string. */
 export function parse(text: string): Doc {
-  const tokens: Token[] = new Lexer({ gfm: true }).lex(body(text)).filter((t) => t.type !== 'space')
+  const tokens: Token[] = new Lexer({ gfm: true }).lex(body(text)).filter((t) => t.type !== 'space' && t.type !== 'def')
   const at = tokens.findIndex((t) => t.type === 'heading' && (t as Tokens.Heading).depth === 1)
   if (at === -1) return { title: null, blocks: tokens }
   return { title: tokens[at] as Tokens.Heading, blocks: tokens.filter((_, i) => i !== at) }

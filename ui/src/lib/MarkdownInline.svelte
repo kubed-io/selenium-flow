@@ -41,11 +41,11 @@
     {@const l = t as Tokens.Link}
     {@const to = target(l.href, base)}
     {#if to && to.kind === 'show' && onshow}
-      <button type="button" class="md-link" onclick={() => onshow(to.uri)}><Self tokens={l.tokens} {base} {onshow} {onlink} /></button>
+      <button type="button" class="md-link" onclick={() => onshow(to.uri)}><Self tokens={l.tokens} {base} onshow={undefined} {onlink} /></button>
     {:else if to && to.kind === 'open'}
-      <a href={to.url} target="_blank" rel="noopener noreferrer" onclick={(e) => open(e, to.url)}><Self tokens={l.tokens} {base} {onshow} {onlink} /></a>
+      <a href={to.url} target="_blank" rel="noopener noreferrer" onclick={(e) => open(e, to.url)}><Self tokens={l.tokens} {base} onshow={undefined} {onlink} /></a>
     {:else}
-      <span><Self tokens={l.tokens} {base} {onshow} {onlink} /></span>
+      <span><Self tokens={l.tokens} {base} onshow={undefined} {onlink} /></span>
     {/if}
   {:else}
     {t.raw}

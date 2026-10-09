@@ -897,8 +897,9 @@ never committed, whether it exists or not.
 
 `show(uri)` draws a resource in the app shell; the URI-to-component table lives
 in `mcp/show.py` and nowhere else; `App.svelte` maps the component names to
-Svelte views. The data is the resource's own JSON, so a view cannot drift from
-what the resource serves.
+Svelte views. The data is the resource's own content — its JSON, a page's
+markdown text, or for one file its folder listing's entry — so a view cannot
+drift from what the resource serves.
 
 - **Every URI the server serves has a view** (programme R17).
   `tests/test_show_inventory.py` enumerates the resources and templates through

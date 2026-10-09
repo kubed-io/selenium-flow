@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { bytes, clock, duration, glyphFor, readable } from '../format'
+  import { bytes, clock, duration, glyphFor, readable, safeHref } from '../format'
   import type { FileEntry } from '../types'
 
   let { data, uri = '', onlink }: {
@@ -9,6 +9,7 @@
     onlink?: (url: string) => void
   } = $props()
 
+  const href = $derived(safeHref(data.url))
   const kind = $derived(data.content_type ?? '')
   const video = $derived(kind.startsWith('video/'))
   const pdf = $derived(kind === 'application/pdf')
@@ -30,35 +31,35 @@
     // Without the host's openLinks the plain link is the way out.
     if (!onlink) return
     e.preventDefault()
-    onlink(data.url)
+    onlink(href)
   }
 </script>
 
-<div class="card file">
+<div class="card fileview">
   <div class="row head">
     <strong class="name">{data.name}</strong>
     <code class="uri small muted grow">{readable(address)}</code>
     {#if recording}<span class="pill rec">● REC</span>{/if}
   </div>
   <div class="preview">
-    {#if broken}
+    {#if broken || !href}
       <p class="small error">This link has expired, or this server's address is not reachable from here (PUBLIC_BASE_URL).</p>
     {:else if data.image}
-      <img alt={data.name} src={data.url} onerror={() => (broken = true)}>
+      <img alt={data.name} src={href} onerror={() => (broken = true)}>
     {:else if video}
       <!-- svelte-ignore a11y_media_has_caption -->
-      <video controls preload="metadata" src={data.url}
+      <video controls preload="metadata" src={href}
              onerror={() => (broken = true)}
              onloadedmetadata={(e) => (length = (e.currentTarget as HTMLVideoElement).duration)}></video>
     {:else if pdf}
-      <iframe title={data.name} src={data.url}></iframe>
+      <iframe title={data.name} src={href}></iframe>
     {:else}
       <span class="glyph">{glyphFor(data.name)}</span>
     {/if}
   </div>
   <div class="row foot">
     <span class="small muted grow">{facts}</span>
-    <a class="btn" href={data.url} target="_blank" rel="noopener" onclick={open}>Open</a>
+    {#if href}<a class="btn" {href} target="_blank" rel="noopener" onclick={open}>Open</a>{/if}
   </div>
 </div>
 

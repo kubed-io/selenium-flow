@@ -58,3 +58,11 @@ test('Open goes through the host when it can open links', async () => {
   await fireEvent.click(screen.getByRole('link', { name: 'Open' }))
   expect(onlink).toHaveBeenCalledWith(data.url)
 })
+
+test('a relative url is no link: the expired line, no preview, no Open', () => {
+  const data = entry('a.png', 'image/png', 'screenshots', { url: '/f/a.png' })
+  const { container } = render(FileView, { props: { data, uri: data.uri } })
+  expect(container.querySelector('img')).toBeNull()
+  expect(screen.getByText(/This link has expired/)).toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: 'Open' })).toBeNull()
+})

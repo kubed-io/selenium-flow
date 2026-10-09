@@ -1,7 +1,8 @@
 """show(uri): draw one resource as an MCP App, keyed by its URI.
 
 One tool and one shell for every view: the URI says which resource, the table
-below says which component draws it, and the data is the resource's own JSON —
+below says which component draws it, and the data is the resource's own content
+(its JSON, a page's markdown text, or for one file its folder listing's entry) —
 so a view cannot drift from what the resource serves. It is not read_resource:
 that is the model's reading tool, and an app on it would draw a UI on every read
 the model makes to think (spec 2026-10-04, ruling 1).

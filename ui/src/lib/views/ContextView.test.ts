@@ -13,7 +13,6 @@ test('a live workspace: name, mark, pill, link, window, principal, sites', () =>
   expect(screen.getByRole('link', { name: 'https://example.com/a' })).toHaveAttribute('rel', 'noopener noreferrer')
   expect(screen.getByText('1280x800')).toBeInTheDocument()
   expect(screen.getByText('drk')).toBeInTheDocument()
-  expect(screen.getByText('2 sites')).toBeInTheDocument()
 })
 
 test('no principal, no url, idle', () => {
