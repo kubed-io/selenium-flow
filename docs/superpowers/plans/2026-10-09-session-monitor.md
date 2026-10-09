@@ -2802,7 +2802,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Consumes: `Workspace.grid_timeout` (Task 5).
 - Produces: the admin row's `grid_timeout: int | null`; `WorkspaceRow.grid_timeout?: number | null`; `idle(seconds?: number | null, live?: boolean): string` in `lib/format.ts`.
 
-Boards: Penpot file *Admin UI*, components `summary / live` and `summary / idle` (read 2026-10-09): the row `IDLE TIMEOUT` sits in the **browser** group, beside `VERSION`, `ID` and `NODE` — the session's facts, not the workspace's — and reads `300 s · read from the Grid node` on `summary / live` and `300 s · the Grid reaped it` on `summary / idle`: seconds, never minutes (ruling 11). The card's CSS upper-cases the label (`.fact .k`), so the string is `idle timeout`.
+Boards: Penpot file *Admin UI*, components `summary / live` and `summary / idle` (read 2026-10-09): the row `IDLE TIMEOUT` sits in the **browser** group, beside `VERSION`, `ID` and `NODE` — the session's facts, not the workspace's — and reads `300 s · read from the Grid node` on `summary / live` and `300 s · no session is open` on `summary / idle` (changed on the board from *the Grid reaped it*, which the record cannot know: the session may have been ended by `end_browser` or the admin): seconds, never minutes, and no cause (ruling 11). The card's CSS upper-cases the label (`.fact .k`), so the string is `idle timeout`.
 
 - [ ] **Step 1: Write the failing UI tests**
 
@@ -2811,8 +2811,8 @@ Boards: Penpot file *Admin UI*, components `summary / live` and `summary / idle`
 ```ts
   test('idle timeout: seconds, then where it came from; nothing when unknown (spec ruling 11)', () => {
     expect(idle(300, true)).toBe('300 s · read from the Grid node')
-    expect(idle(300, false)).toBe('300 s · the Grid reaped it')
-    expect(idle(90)).toBe('90 s · the Grid reaped it')
+    expect(idle(300, false)).toBe('300 s · no session is open')
+    expect(idle(90)).toBe('90 s · no session is open')
     expect(idle(null, true)).toBe('')
     expect(idle(undefined)).toBe('')
     expect(idle(0, true)).toBe('')
@@ -2829,7 +2829,7 @@ test('the idle timeout sits with the session, live and idle, hidden when unknown
   expect(screen.getByText('300 s · read from the Grid node')).toBeInTheDocument()
   live.unmount()
   const idle = render(WorkspaceSummary, { data: { key: 'k', live: false, grid_timeout: 300 } })
-  expect(screen.getByText('300 s · the Grid reaped it')).toBeInTheDocument()
+  expect(screen.getByText('300 s · no session is open')).toBeInTheDocument()
   idle.unmount()
   render(WorkspaceSummary, { data: { key: 'k', live: true, grid_timeout: null } })
   expect(screen.queryByText('idle timeout')).toBeNull()
@@ -2857,7 +2857,7 @@ Expected: FAIL — the two new tests (measured: 2 failed, 15 passed), `idle` not
    when the Grid did not say. */
 export function idle(seconds?: number | null, live?: boolean): string {
   if (!seconds || seconds <= 0) return ''
-  return `${seconds} s · ${live ? 'read from the Grid node' : 'the Grid reaped it'}`
+  return `${seconds} s · ${live ? 'read from the Grid node' : 'no session is open'}`
 }
 ```
 

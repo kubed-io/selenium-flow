@@ -162,17 +162,15 @@ are decided here; Dr K reviews them on the PR.
     `summary / live` and `summary / idle`, read for this ruling): **the card
     shows `idle timeout` in the browser group**, beside `version`, `id` and
     `node` — the session's facts, since under E1's ruling 8 the timeout is
-    the session's — and **in seconds, with where it came from**: `300 s ·
-    read from the Grid node` on a live card, `300 s · the Grid reaped it` on
-    an idle one. It is kept on the record after the session ends (ruling 10),
-    which is why an idle card still has it. The `CAPTURE` row on the same
-    boards is E3's (it is the capture setting), and the `show` app's
-    `context` view is left to E3, which owns that board. Cost if wrong: an
-    idle card reads *the Grid reaped it* whatever ended the session — the
-    record does not keep the cause, so after `end_browser` or the admin's End
-    it says so too. If Dr K wants the idle text to be true in every case, it
-    becomes cause-free (*the last session's*) or the record keeps the cause;
-    either is a line in `idle()` and, for the second, a field.
+    the session's — and **in seconds, naming no cause**: `300 s · read from
+    the Grid node` on a live card, `300 s · no session is open` on an idle
+    one. It is kept on the record after the session ends (ruling 10), which
+    is why an idle card still has it. The idle board said *the Grid reaped
+    it* until Dr K changed it to match on 2026-10-09: the record does not
+    keep what ended a session (`end_browser`, the admin's End, a reap), and
+    no field is added to keep it. The `CAPTURE` row on the same boards is
+    E3's (it is the capture setting), and the `show` app's `context` view is
+    left to E3, which owns that board. Cost if wrong: a string in `idle()`.
 12. Claude, 2026-10-09: **a subscriber is a function run on the loop.** Each has
     a bounded queue (1 000) drained by a callback the loop schedules; overflow is
     dropped and counted (`Subscription.dropped`) and logged once a streak; a
@@ -462,7 +460,7 @@ class BidiSocket:
   - `WorkspaceSummary.svelte`: the fact `idle timeout` in the `browser` group,
     after `node`, formatted by a new `idle(seconds, live)` in `lib/format.ts`
     (`300, true` → `300 s · read from the Grid node`, `300, false` → `300 s ·
-    the Grid reaped it`, `null` → hidden). Boards `summary / live` and
+    no session is open`, `null` → hidden). Boards `summary / live` and
     `summary / idle` (`IDLE TIMEOUT`, ruling 11).
   - The monitor's watch takes it at `watch` and refreshes it from every listing.
 
@@ -685,7 +683,8 @@ minutes).
   the broadcast. **Goldens** regenerate for the new field (`openapi.json`,
   `admin-workspaces.json`); the tools goldens do not move. **UI**:
   `WorkspaceSummary` shows `idle timeout` in the browser group, live and idle,
-  as the boards word it, and hides it when null; `idle()` formats.
+  as the boards word it (idle: `no session is open`, no cause), and hides it
+  when null; `idle()` formats.
 
 ## Verify first
 
