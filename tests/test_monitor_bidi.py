@@ -173,6 +173,12 @@ async def test_a_cancelled_close_still_releases_and_propagates(browser):
     with pytest.raises(asyncio.CancelledError):
         await closing
     assert reader.done() and not sock.is_open
+    assert sock._ws.transport.is_closing()
+    for _ in range(50):  # the server sees the connection go
+        if browser.connections[-1].close_code is not None:
+            break
+        await asyncio.sleep(0.01)
+    assert browser.connections[-1].close_code is not None
 
 
 async def test_a_command_on_a_dropped_socket_is_a_connection_error(browser):

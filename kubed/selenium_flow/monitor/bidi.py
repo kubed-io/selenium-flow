@@ -163,6 +163,10 @@ class BidiSocket:
                     await asyncio.wait_for(ws.close(), OPEN_TIMEOUT)
         finally:
             self._closed = True
+            # Synchronous, so a pending cancellation cannot skip it: a no-op
+            # when the graceful close finished, the release when it did not.
+            if self._ws is not None and self._ws.transport is not None:
+                self._ws.transport.abort()
             if reader is not None:
                 reader.cancel()
                 # wait, not await: the reader's own CancelledError stays its own,
