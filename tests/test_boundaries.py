@@ -89,6 +89,7 @@ NO_SELENIUM = tuple(
         "recordings.mp4",
         "monitor.events",
         "monitor.bidi",
+        "monitor.monitor",
         "flows.template",
         "flows.redact",
         "flows.engine",
