@@ -26,29 +26,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - **BREAKING:** what you name is a *workspace* now: `?workspace=` or `X-Workspace`, `workspace://…`, `WORKSPACE_STORE`/`WORKSPACE_TTL`; the old names are refused with the new one, and `DATA_DIR/sessions/` moves to `DATA_DIR/workspaces/` on first boot. A session is the browser open in it.
-- **Breaking:** `FLOW_DATA_DIR` is now `DATA_DIR`, and session folders live under `DATA_DIR/sessions/` — move them there once.
-- `open_session(record=true)` records the browser; recordings appear under `session://files/recordings` and in the admin Files tab.
+- **Breaking:** `FLOW_DATA_DIR` is now `DATA_DIR`, and workspace folders live under `DATA_DIR/workspaces/` — move them there once.
+- `open_session(record=true)` records the browser; recordings appear under `workspace://files/recordings` and in the admin Files tab.
 - Skills-aware clients discover the embedded skill through the MCP Skills extension (`skills/list`, `skills/get`).
-- `show(uri)` draws a resource as an MCP App — your session, files, a folder, the saved flows as cards, one flow, the secrets (never a value); `session_files` is gone.
-- An `X-Workspace` header names the session too, for clients like Claude.ai custom connectors that cannot send `X-Session-Key`.
+- `show(uri)` draws a resource as an MCP App — your workspace, files, a folder, the saved flows as cards, one flow, the secrets (never a value); `session_files` is gone.
+- An `X-Workspace` header names the workspace, for clients like Claude.ai custom connectors that only send approved headers.
 - `/mcp` accepts a JWT from an OIDC issuer beside the token (`oidc.issuer`, `oidc.audience`, `oidc.jwks_uri`, `oidc.roles`), for a server behind an OIDC gateway.
 - The token is compared in constant time on `/mcp` too.
-- `session://current` says who the caller is: `admin` for the token, or the OIDC subject.
+- `workspace://current` says who the caller is: `admin` for the token, or the OIDC subject.
 - `GET /browser` reports `principal` too.
 - A failed flow step says one line, without the driver's stack trace.
 - A call whose browser is ended mid-wait answers 404, like the `assert` it queued behind.
 - A trailing-slash URL behind the ingress redirects to the right page, not `http://host/admin`.
 - Flow `parameters` written without `properties` say where each one goes.
 - `security.frame_ancestors` lets Nextcloud or Grafana frame the admin page.
-- The admin page and server logs no longer expose session names or signed links.
+- The admin page and server logs no longer expose workspace names or signed links.
 - A YAML config file (`--config-file` / `CONFIG_FILE`): every setting can be set there, in env or as a flag, and a later one wins.
 - Secrets can be defined in the config file, merged over the ones in `secrets.dirs`, with keys read from a file or an env var.
 - The admin UI has a Settings tab showing every setting and where its value came from.
-- `save_site_data` keeps the cookies and storage of the sites a session has been to, so a reopened browser comes back signed in to all of them.
+- `save_site_data` keeps the cookies and storage of the sites a workspace has been to, so a reopened browser comes back signed in to all of them.
 - `open_session(restore_site_data=false)` starts without that data and deletes it.
 - The admin UI has a Site data tab.
-- The admin UI has a History tab: where a session has been, with the secrets allowed and what is saved there.
-- Two `open_session` calls at once on one session no longer leave a browser running on the Grid.
+- The admin UI has a History tab: where a workspace has been, with the secrets allowed and what is saved there.
+- Two `open_session` calls at once on one workspace no longer leave a browser running on the Grid.
 - The Site data views show storage per origin, so one host on two ports no longer merges.
 - A browser opened with `insecure=true` gets no saved site data.
 - The Secrets tab no longer lists which flows use a secret.
@@ -62,7 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - navigate and every url refuse non-web schemes (file:, chrome:, data:, …).
 - A secret is typed into a frame only when the page and the frame are both allowed, and never into an element that hosts another document (`<iframe>`, `<object>`, …).
 - Request bodies are capped: 1 MiB JSON, 64 MiB upload, 1 MiB flow YAML; over the cap is a 413.
-- Naming two different sessions in one request (?session=a&session=b) is refused.
+- Naming two different workspaces in one request (`?workspace=a&workspace=b`) is refused.
 
 ## [0.3.0] - 2026-09-26
 

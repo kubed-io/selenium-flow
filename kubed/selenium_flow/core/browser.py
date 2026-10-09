@@ -224,7 +224,7 @@ class Grid:
         # `open_session(record=true)`: the Grid's own recorder films this
         # browser's whole life (recordings spec). The name only makes the
         # operator's inbox readable; nothing matches on it, because the
-        # recorder strips `.` from names and two sessions could collide.
+        # recorder strips `.` from names and two workspace names could collide.
         if record:
             options.set_capability("se:recordVideo", True)
             if video_name:

@@ -30,7 +30,7 @@ env:
   # than beside it. host-gateway is Docker's name for that host.
   ADMIN_ORIGIN: http://host.docker.internal:8765
   # Production runs Redis, and the blank admin list only happened on Redis.
-  SESSION_STORE: redis
+  WORKSPACE_STORE: redis
   REDIS_URL: redis://localhost:6379/0
 
 jobs:

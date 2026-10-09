@@ -584,8 +584,8 @@ def test_verbose_false_over_http_does_not_turn_verbose_on(client, flow_server,
 
 
 async def test_a_resize_step_is_written_back_to_the_workspace(flow_server, monkeypatch):
-    """Otherwise the flow resizes the live browser and the session comes back
-    the old size the next time the Grid reaps it."""
+    """Otherwise the flow resizes the live browser and the workspace's browser
+    comes back the old size the next time the Grid reaps it."""
     monkeypatch.setattr(
         flow_server.actions,
         "resize",

@@ -60,7 +60,7 @@ def _as_flag(value) -> bool | None:
     """True or False when said, None when not.
 
     False is kept, not dropped: an explicit `insecure=false` has to beat a
-    remembered true, or a session that once accepted a bad certificate could
+    remembered true, or a workspace that once accepted a bad certificate could
     never stop (Copilot, #40).
     """
     return None if value in (None, "") else as_bool(value, False)
