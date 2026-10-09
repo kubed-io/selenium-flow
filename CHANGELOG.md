@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- The admin UI can sign in with OIDC (`oidc.client_id`, `oidc.admin_roles`) for a person holding an admin role; the token still works.
 - **BREAKING:** what you name is a *workspace* now: `?workspace=` or `X-Workspace`, `workspace://…`, `WORKSPACE_STORE`/`WORKSPACE_TTL`, and results and the admin API say `workspace`; the old names are refused with the new one. A session is the browser open in it.
 - **BREAKING:** `FLOW_DATA_DIR` is now `DATA_DIR`, and workspace folders live under `DATA_DIR/workspaces/` — move them there once.
 - `open_session(record=true)` records the browser; recordings appear under `workspace://files/recordings` and in the admin Files tab.

@@ -63,12 +63,17 @@ export function countsText(s: WorkspaceRow): string {
     ? '' : s.files_count + ' file' + (s.files_count === 1 ? '' : 's')
 }
 
+/* Who opened a workspace's browser: the OIDC username, or the token. */
+export const openerText = (o: NonNullable<WorkspaceRow['opened_by']>): string =>
+  o.kind === 'admin' ? 'token' : o.username || 'OIDC'
+
 export function metaLine(s: WorkspaceRow, now = Date.now()): string {
   const meta = countsText(s)
   return [s.browser, s.version].filter(Boolean).join(' ')
     + (meta ? ' · ' + meta : '')
     + (s.started ? ' · ' + ago(s.started * 1000, now) : '')
     + (s.node ? ' · ' + s.node : '')
+    + (s.opened_by ? ' · by ' + openerText(s.opened_by) : '')
 }
 
 /* The headline is the workspace, not the browser: a workspace outlives its browsers. */

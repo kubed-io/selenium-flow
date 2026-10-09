@@ -1,5 +1,6 @@
 import { vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
+import { webcrypto } from 'node:crypto'
 
 // jsdom has neither `matchMedia` nor `Element.prototype.animate`. `motion.ts`
 // reads `matchMedia('(prefers-reduced-motion: reduce)')` once, at import
@@ -20,4 +21,11 @@ vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(prefers-r
 // 0), so only this one read needs a stub.
 if (!Element.prototype.getAnimations) {
   Element.prototype.getAnimations = () => []
+}
+
+// jsdom has `crypto.getRandomValues` but no `crypto.subtle`, which PKCE needs.
+// Node's own, defined rather than stubbed: `unstubGlobals` would remove a stub
+// after the first test (spec 2026-10-09-admin-oidc, Verify first 2).
+if (!globalThis.crypto?.subtle) {
+  Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true })
 }

@@ -1,5 +1,7 @@
 """Serving the built UI, and serving without one (§F4.15, §F4.17)."""
 
+import html
+import json
 import logging
 import pathlib
 import re
@@ -14,6 +16,7 @@ from kubed.selenium_flow.mcp import apps
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import SHELL, TOKEN
+from .jwks import AUDIENCE
 
 pytestmark = pytest.mark.unit
 
@@ -110,7 +113,7 @@ def test_a_placeholder_named_in_a_shell_comment_does_not_take_the_bundle(built_u
 def test_the_real_shells_are_filled_completely(built_ui, name):
     """Against the shells the build actually copies, not a stand-in."""
     shutil.copy(SHELLS / f"{name}.html", built_ui / f"{name}.html")
-    out = admin.page(name, MOUNT="/flow", CONSOLE="/")
+    out = admin.page(name, MOUNT="/flow", CONSOLE="/", OIDC="")
     assert f"<style>/* {name} css */</style>" in out
     assert f">/* {name} js */</script>" in out
     assert not re.search(r"__[A-Z]+__", out)
@@ -214,3 +217,21 @@ def test_listed_frame_ancestors_are_the_only_framers_and_a_304_says_so(built_ui)
     again = client.get("/", headers={"If-None-Match": res.headers["etag"]})
     assert again.status_code == 304
     assert "frame-ancestors" in again.headers["content-security-policy"]
+
+
+def test_the_page_offers_oidc_only_with_an_admin_ui_client(built_ui, issuer):
+    off = TestClient(_server().mcp.http_app()).get("/")
+    assert 'data-oidc=""' in off.text
+    server = SeleniumMCP(issuer.settings(TOKEN, admin_roles=("admin",)))
+    on = TestClient(server.mcp.http_app()).get("/")
+    raw = re.search(r'data-oidc="([^"]*)"', on.text)[1]
+    assert json.loads(html.unescape(raw)) == {
+        "issuer": issuer.issuer,
+        "client_id": "selenium-flow-admin",
+    }
+    # The two public values and nothing else.
+    assert issuer.jwks_uri not in on.text and AUDIENCE not in on.text
+
+
+def test_sign_in_is_empty_without_a_client():
+    assert admin.sign_in(Settings().oidc) == ""

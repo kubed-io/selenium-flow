@@ -13,10 +13,15 @@ them returns a particular string.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
+from starlette.applications import Starlette
+from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow.http import answer
+from kubed.selenium_flow.principal import ADMIN
 
 from .conftest import TOKEN
 
@@ -130,3 +135,27 @@ def test_a_flow_over_1_mib_is_a_413_over_http_and_a_refusal_over_mcp():
         asyncio.run(flowapi.save_text(None, "s", "big", text, None))
     assert errors.status_for(caught.value) == 413
     assert isinstance(caught.value, ValueError), "MCP reads it as any refusal"
+
+
+def _probe(token, seen):
+    async def route(request):
+        def call(caller, _body):
+            seen.append(caller.principal)
+            return {"ok": True}
+
+        log = logging.getLogger("t")
+        return await answer.answer(request, token, "probe", call, log)
+
+    return Starlette(routes=[Route("/p", route, methods=["POST"])])
+
+
+@pytest.mark.parametrize(("token", "principal"), [(TOKEN, ADMIN), (None, None)])
+def test_a_rest_caller_is_the_admin_when_there_is_a_token(token, principal):
+    """Only a token holder gets past the check, so that is who is calling."""
+    seen = []
+    headers = {"X-Workspace": WORKSPACE}
+    if token:
+        headers["Authorization"] = f"Bearer {TOKEN}"
+    answered = TestClient(_probe(token, seen)).post("/p", json={}, headers=headers)
+    assert answered.status_code == 200
+    assert seen == [principal]

@@ -42,6 +42,7 @@ export interface WorkspaceRow {
   site_data_rev?: string | null
   history_count?: number | null
   history_rev?: string | null
+  opened_by?: { kind: 'admin' | 'oidc'; username?: string | null } | null
 }
 
 export interface WorkspacesPayload { workspaces: WorkspaceRow[]; events_url?: string }

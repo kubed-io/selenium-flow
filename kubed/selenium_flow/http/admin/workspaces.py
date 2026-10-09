@@ -328,7 +328,7 @@ class _Stream(EventSourceResponse):
 
 
 def mount(
-    mcp, actions, workspaces, flow_store, token, prefix, guarded
+    mcp, actions, workspaces, flow_store, token, prefix, guarded, door
 ):
     """Mount the workspace list, its event stream and the end-a-session route.
 
@@ -491,6 +491,8 @@ def mount(
                     # the last open, so an idle card shows it too.
                     "grid_timeout": record.grid_timeout,
                     "started": record.opened_at or None,
+                    # Who opened this browser, for the meta line ("by drk").
+                    "opened_by": record.opened_by,
                     "files_count": files_count,
                     "files_rev": files_rev,
                     "site_data_count": len(listed["sites"]),
@@ -538,7 +540,9 @@ def mount(
         payload = broadcast.fresh() or await run_in_threadpool(workspaces_payload)
         # A signed URL for the event stream, because EventSource cannot send an
         # Authorization header — the same reason the file route is signed. It is
-        # minted here so it is only ever handed to a caller that had the token.
+        # minted here so it is only ever handed to a caller that the admin door
+        # admitted (the token or an admin-UI JWT; spec 2026-10-09-admin-oidc,
+        # ruling 9).
         return JSONResponse(
             {
                 **payload,
@@ -559,19 +563,21 @@ def mount(
         Asking once here, for every connected page, is the point: the polling
         that would otherwise happen in each open tab collapses into one loop.
         """
-        if not (
-            auth.authorized(request, token)
-            or (
-                token
-                and links.valid(
-                    EVENTS_PATH,
-                    request.query_params.get("exp"),
-                    request.query_params.get("sig"),
-                    token,
+        # A signed URL is how a page's EventSource gets in (it cannot send a
+        # header); anything else is asked of the same door as the admin API.
+        signed = bool(token) and links.valid(
+            EVENTS_PATH,
+            request.query_params.get("exp"),
+            request.query_params.get("sig"),
+            token,
+        )
+        if not signed:
+            try:
+                await door.admit(request)
+            except auth.Refused as refused:
+                return JSONResponse(
+                    {"error": refused.reason}, status_code=refused.status
                 )
-            )
-        ):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
 
         page = _Page()
 

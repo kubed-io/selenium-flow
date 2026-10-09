@@ -180,7 +180,8 @@ def ui_dir(tmp_path_factory, monkeypatch):
 
 SHELL = (
     '<title>{name}</title><style>__CSS__</style>'
-    '<div id="root" data-mount="__MOUNT__" data-console="__CONSOLE__"></div>'
+    '<div id="root" data-mount="__MOUNT__" data-console="__CONSOLE__"'
+    ' data-oidc="__OIDC__"></div>'
     '<script type="module">__JS__</script>'
 )
 

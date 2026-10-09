@@ -142,15 +142,27 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   port and `==` leaks the length of a correct prefix. There used to be two hand-rolled
   copies of this check, both using `==`. If a third door appears, it calls `http/auth.py`.
 
-- **`http/auth.py` also builds `/mcp`'s verifier (`provider()`)**: the token alone, or
-  `MultiAuth[token, OidcVerifier]`. A third credential goes there too.
-- **The verifiers return a `PrincipalToken`; `Caller.principal` carries it. It decides nothing
-  yet** — ownership, per-tool roles and the admin UI's OIDC sign-in are the next round's, and
-  the spec lists them.
-- **The REST routes, admin API and signed links are token-only on purpose**: the gateway only
-  routes `/mcp`.
+- **`http/auth.py` builds both doors from one verifier (`doors()`)**: `/mcp`'s —
+  the token alone, or `MultiAuth[token, OidcVerifier]` — and the admin API's
+  `AdminDoor`. One `OidcVerifier` instance serves both, so one JWKS cache and one
+  refetch floor. A third credential goes there too.
+- **The admin API admits the token, or a JWT the admin UI signed in for**: `azp`
+  is `oidc.client_id` and a role from `oidc.admin_roles` is held. `oidc.roles`
+  (`/mcp`'s gate) does not apply there. Unknown credential 401, known but not an
+  admin 403. The page runs Authorization Code + PKCE itself and keeps the tokens
+  in memory; there is no cookie and no server-side session (spec
+  2026-10-09-admin-oidc).
+- **The verifiers return a `PrincipalToken`; `Caller.principal` carries it. It
+  decides nothing beyond the admin door** — a workspace records who opened its
+  browser (`opened_by`) for the live list, and ownership and per-tool roles are
+  E6's.
+- **The REST routes and signed links are token-only on purpose**: the gateway
+  only routes `/mcp`. Signed links and the `events_url` stay HMAC on the token,
+  for an OIDC admin too.
 - **`oidc` without `auth.token` is a `ConfigError`**, checked after the layers merge
   (`config.oidc_problem`).
+- **`oidc.client_id` and `oidc.admin_roles` come together, and only with the
+  issuer**, checked in the same place (`config.oidc_problem`).
 - **Behind agentgateway, `X-Workspace` crosses and `?workspace=` does not.**
 - **A JWT with an unknown `kid` makes `JWTVerifier` fetch the JWKS**, and FastMCP's bearer
   middleware runs on every path, so any request on a door that bypasses the gateway (the
@@ -346,7 +358,7 @@ This is a rule, not a preference.
   session open, and calls `open_session`. There is no "reclaim", no "take over".
 - **The admin surface is HTTP endpoints and the UI, never tools or resources.**
   It is the only thing that sees across workspaces, and it is gated on the server
-  token rather than on being an MCP client at all.
+  token or an admin-role sign-in rather than on being an MCP client at all.
 - **Everything is ephemeral.** Stale entries are ignored and silently cleaned;
   nothing needs an operator to tidy up.
 
@@ -683,8 +695,8 @@ a path segment. `POST /browser` opens *yours*; there is no `/browser/{id}`,
 because addressing a browser by id is exactly what E18 removed.
 
 **The one place a workspace is in a path is `/admin/workspaces/{key}`**, and
-that is the same rule from the other side: the token holder looking across
-workspaces is the only role that addresses them as resources. Its End is
+that is the same rule from the other side: the admin (the token, or an admin-UI
+sign-in) looking across workspaces is the only role that addresses them as resources. Its End is
 `DELETE /admin/workspaces/{key}/session` — it ends the session, never the
 workspace, which only expires.
 

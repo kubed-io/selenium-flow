@@ -85,3 +85,9 @@ test('bytes', () => {
     expect(flowParams('x')).toEqual({ properties: {}, required: [] })
   })
 })
+
+test('metaLine ends with who opened the browser', () => {
+  expect(metaLine({ key: 'k', browser: 'chrome', opened_by: { kind: 'oidc', username: 'drk' } })).toBe('chrome · by drk')
+  expect(metaLine({ key: 'k', browser: 'chrome', opened_by: { kind: 'admin', username: null } })).toBe('chrome · by token')
+  expect(metaLine({ key: 'k', browser: 'chrome', opened_by: null })).toBe('chrome')
+})
