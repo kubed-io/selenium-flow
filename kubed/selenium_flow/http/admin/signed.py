@@ -269,7 +269,7 @@ def route(
     """Mount one signed file route.
 
     ``owner`` is the URL parameter naming whose file it is (a browser id or a
-    session); ``path_of`` is the path the signature was minted over; ``read``
+    workspace); ``path_of`` is the path the signature was minted over; ``read``
     fetches the bytes, in a worker thread; ``path`` instead resolves the file on
     disk and streams it, answering ``Range`` so a player can seek.
     ``closed(name)`` answers 404 before
@@ -358,7 +358,7 @@ def mount(mcp, actions, flow_store, token, prefix) -> None:
         name="kept_file",
         owner="workspace",
         path_of=links.kept_path,
-        path=lambda session, leaf: flow_store.file_path(session, leaf),
+        path=lambda workspace, leaf: flow_store.file_path(workspace, leaf),
         closed=lambda _leaf: flow_store is None,
         absent=gone,
         what="reading kept {name} for {owner}",
@@ -366,7 +366,7 @@ def mount(mcp, actions, flow_store, token, prefix) -> None:
 
         A route of its own rather than a flag on the one above, because it is
         keyed by a different thing: a download belongs to a browser id, a kept
-        file to a session name that outlives it. The signature covers whichever
+        file to a workspace name that outlives it. The signature covers whichever
         path it was minted for, so a link to one is not a link to the other.
         """,
     )
@@ -377,8 +377,8 @@ def mount(mcp, actions, flow_store, token, prefix) -> None:
         name="screenshot_file",
         owner="workspace",
         path_of=links.screenshot_path,
-        path=lambda session, leaf: flow_store.file_path(
-            session, leaf, SCREENSHOTS_DIR
+        path=lambda workspace, leaf: flow_store.file_path(
+            workspace, leaf, SCREENSHOTS_DIR
         ),
         closed=lambda _leaf: flow_store is None,
         absent=gone,
@@ -399,7 +399,9 @@ def mount(mcp, actions, flow_store, token, prefix) -> None:
         name="recording_file",
         owner="workspace",
         path_of=links.recording_path,
-        path=lambda session, leaf: flow_store.file_path(session, leaf, RECORDINGS_DIR),
+        path=lambda workspace, leaf: flow_store.file_path(
+            workspace, leaf, RECORDINGS_DIR
+        ),
         closed=lambda _leaf: flow_store is None,
         absent=gone,
         what="reading recording {name} for {owner}",

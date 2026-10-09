@@ -543,7 +543,7 @@ def test_an_unrestricted_secret_binds_anywhere(bindable):
 @pytest.mark.parametrize("tool", ["execute_script", "navigate", "press_key", "extract"])
 def test_only_write_may_receive_a_secret(bindable, tool):
     """A script is arbitrary code; a URL lands in history, the referrer and our
-    own session record. Neither may carry a credential (§F1.28)."""
+    own workspace record. Neither may carry a credential (§F1.28)."""
     with pytest.raises(secrets.Refused, match="cannot be bound into"):
         secrets.bind(
             bindable, {"name": "anywhere", "key": "token"},
@@ -743,7 +743,7 @@ def bound_http(tmp_path, monkeypatch):
         auth={"token": TOKEN},
         secrets={"dirs": str(tmp_path)},
     ))
-    # A named session holding a browser: this surface addresses one by naming
+    # A named workspace holding a browser: this surface addresses one by naming
     # itself now, so there is no id to put in the body (§F2.13).
     monkeypatch.setattr(server.workspaces, "resolve", lambda name: "b1")
     client = TestClient(server.mcp.http_app(), headers={"X-Workspace": "desktop"})
@@ -857,7 +857,7 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
 ):
     """The third surface of the same rule. It decided by comparing the URL with
     its scrubbed form, so a secret whose value is the marker compared equal and
-    the credential URL went into the session record — from where a reattach
+    the credential URL went into the workspace record — from where a reattach
     would have navigated back to it.
     """
     from kubed.selenium_flow.flows import run as flowrun
@@ -903,8 +903,8 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
         secret={"name": "nextcloud", "key": "password"},
     )
     # The page the value reached is never remembered, whatever the value is —
-    # but the session is still touched, because withholding the page must not
-    # also stop the clock that keeps the session alive.
+    # but the workspace is still touched, because withholding the page must not
+    # also stop the clock that keeps the workspace alive.
     assert touched == [(None, "browser-1")], "touched as the browser it resolved"
     assert result["url"] == f"https://nc.example.com/?q={flowrun.HIDDEN}"
 
@@ -913,7 +913,7 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
     tmp_path, monkeypatch
 ):
     """The other half: refusing to remember every bound write would lose the
-    session's page for the ordinary case, where the value never reaches the URL.
+    workspace's page for the ordinary case, where the value never reaches the URL.
     """
     from kubed.selenium_flow.server import SeleniumMCP
 
@@ -1122,7 +1122,7 @@ def test_a_workspace_in_use_is_kept_alive_even_when_its_page_is_withheld():
 
     clock[0] += 50  # past the original expiry, inside the slid one
     kept = store.get(NAMED)
-    assert kept is not None, "the session expired while it was being used"
+    assert kept is not None, "the workspace expired while it was being used"
     # And the page it already knew survives being touched with nothing.
     assert kept.url == "https://nc.test/home"
 

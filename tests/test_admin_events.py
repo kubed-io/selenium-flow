@@ -1,6 +1,6 @@
 """One broadcaster behind every open admin page.
 
-The session list is computed once a tick however many pages are connected, and
+The workspace list is computed once a tick however many pages are connected, and
 only while one is. What each page sees is what it saw when every page polled on
 its own: its first event on connect, one event per change, none when nothing
 changed, and a failed tick that says nothing.

@@ -20,7 +20,7 @@ GOOD = [{"tool": "navigate", "args": {"url": "https://example.test/"}}]
 
 @pytest.fixture
 def flow_server(tmp_path, named_caller):
-    """A server with a flow library and a caller who has named their session."""
+    """A server with a flow library and a caller who has named their workspace."""
     server = SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
@@ -178,7 +178,7 @@ async def test_an_unshowable_uri_is_refused_through_the_client(flow_server):
 
 
 async def test_showing_the_files_never_opens_a_browser(flow_server):
-    """Reading a listing must not call `sessions.resolve`: that opens a browser
+    """Reading a listing must not call `Workspaces.resolve`: that opens a browser
     when the record has none, the leak the status resource refuses to be."""
     opened_before = flow_server.actions.grid
     async with Client(flow_server.mcp) as c:

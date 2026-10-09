@@ -2,7 +2,7 @@
 
 The origin and host rules, the page identity, the comparison that treats two
 spellings of a page as one, and the one place a URL's credentials are cut out of
-a string. Nothing here knows about a browser, a session or a request; the Grid
+a string. Nothing here knows about a browser, a workspace or a request; the Grid
 URL's userinfo, a stored history row and a refusal message all go through the
 same few functions, so a fix to one is a fix to all of them.
 """

@@ -1,8 +1,8 @@
-"""The admin API over a session's snapshot: the Site data tab's routes and
-the two fields each session row carries for it.
+"""The admin API over a workspace's snapshot: the Site data tab's routes and
+the two fields each workspace row carries for it.
 
 Only what the snapshot holds is listed — no secrets, which are History's —
-hosts the session went to first; an httpOnly value is never shown; Forget
+hosts the workspace went to first; an httpOnly value is never shown; Forget
 and Clear change the snapshot alone, never the history or the browser.
 """
 

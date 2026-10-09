@@ -62,7 +62,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Only needed to share saved sessions across replicas or across a restart. The
+# Only needed to keep workspaces across a restart. The
 # image installs it so the feature is a config change, not a rebuild.
 redis = [
   "redis>=5.0,<9",
@@ -204,7 +204,7 @@ select = [
 
 # TRY is deliberately absent. Its headline rule, TRY003, wants a long exception
 # message moved into a custom exception class per message — and here an error
-# message IS the interface: it tells the caller which session mode they are in,
+# message IS the interface: it tells the caller which workspace it named,
 # what to call instead, and which skill reference explains it. Scattering that
 # guidance away from the check that raises it would cost the thing that makes
 # these errors useful.

@@ -1,4 +1,4 @@
-"""The session status, as a resource.
+"""The workspace status, as a resource.
 
 It is state to read, not an action to perform, so a client can pull it into
 context without spending a tool call. A client that cannot read resources reads
@@ -16,18 +16,18 @@ from . import clients
 RESOURCE_URI = "workspace://current"
 
 DESCRIPTION = (
-    "The browser session this client is currently using.\n\n"
-    "Returns the session name, which browser it is, the page it is on, the "
-    "window size as WxH, whether it is inside a frame, and whether a browser is "
+    "The workspace this client named, and the session (browser) open in it.\n\n"
+    "Returns the workspace name, which browser it is, the page it is on, the "
+    "window size as WxH, whether it is inside a frame, and whether a session is "
     "currently open (live). Read it before judging anything about layout — the "
     "window is not a fixed size and is what decides whether something is "
     "off-screen.\n\n"
-    "Reading this never opens a browser: live is false when none is held yet."
+    "Reading this never opens a browser: live is false when no session is open."
 )
 
 
 def register(mcp: FastMCP, workspaces: Workspaces) -> None:
-    """Register the session status resource."""
+    """Register the workspace status resource."""
 
     @mcp.resource(
         RESOURCE_URI,
@@ -58,9 +58,9 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
 
 
 SITE_DESCRIPTION = (
-    "What this session's last save_site_data holds: one entry per site with "
-    "counts, never a value; the sites the session went to come first. Every "
-    "browser this session opens has it back before open_session returns.\n\n"
+    "What this workspace's last save_site_data holds: one entry per site with "
+    "counts, never a value; the sites the workspace went to come first. Every "
+    "browser this workspace opens has it back before open_session returns.\n\n"
     "workspace://site-data/{site} shows one site in full. Reading this never "
     "opens a browser."
 )

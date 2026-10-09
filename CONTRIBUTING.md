@@ -50,14 +50,14 @@ unless `GRID_URL` and `ADMIN_ORIGIN` are set — see
 | Path | Holds |
 |---|---|
 | `kubed/selenium_flow/` | the app itself: `server.py` composes it, `main.py` starts it, `routes.py` is its own route table and the mount everything hangs beneath, `errors.py` decides what a failure means |
-| `kubed/selenium_flow/names.py`, `urls.py` | the identity rules (what may name a session, a flow, a file) and the origin rules (page identity, and the one place a URL's credentials are cut out) — plain, so any layer may import them |
+| `kubed/selenium_flow/names.py`, `urls.py` | the identity rules (what may name a workspace, a flow, a file) and the origin rules (page identity, and the one place a URL's credentials are cut out) — plain, so any layer may import them |
 | `kubed/selenium_flow/binding.py`, `faults.py` | how a secret reaches a field and comes back out nowhere, written once; and the failures this package raises itself, apart from what Selenium makes them mean |
 | `kubed/selenium_flow/core/` | the browser and the page — `actions.py` is what the server can do, `capabilities.py` the one table both surfaces are mounted from, `recipe.py` the road every action takes, `assertion.py` the `assert` engine, `guidance.py` where a failure points at the skill, `annotations.py` the tool annotations; `naming.py`, `coerce.py` and `defaults.py` are the pure rules, with no Selenium; `keys.py` builds its table from Selenium's `Keys` |
-| `kubed/selenium_flow/session/` | who is calling, the record they hold, and the env / client / explicit settings cascade; `locks.py` is the one-call-at-a-time lock |
-| `kubed/selenium_flow/site_data/` | the cookies and storage a session keeps: `snapshot.py` the model, `transfer.py` the BiDi read and write, `spare.py` the tab that reaches another origin |
+| `kubed/selenium_flow/workspace/` | who is calling, the workspace record they hold (`store.py`), what every surface goes through to reach it (`workspaces.py`), and the env / client / explicit settings cascade a session opens with (`settings.py`); `locks.py` is the one-call-at-a-time lock |
+| `kubed/selenium_flow/site_data/` | the cookies and storage a workspace keeps: `snapshot.py` the model, `transfer.py` the BiDi read and write, `spare.py` the tab that reaches another origin |
 | `kubed/selenium_flow/flows/` | saved documents: `document.py` validates one, `shape.py` is the tolerant view of one, `template.py` fills its parameters, `store.py` and `library.py` keep it, `engine.py` runs its steps, `redact.py` and `report.py` say what the run may show, `run.py` and `api.py` wire and serve it |
 | `kubed/selenium_flow/http/` | the request machinery: one `answer.py` for every JSON tree, auth, signed links, files |
-| `kubed/selenium_flow/http/admin/` | the admin API, a module per thing: `sessions.py` (list, stream, end), `files.py`, `flows.py`, `site_data.py`, `signed.py` (signed file links), `page.py` (the built UI's shell) |
+| `kubed/selenium_flow/http/admin/` | the admin API, a module per thing: `workspaces.py` (list, stream, end a session), `files.py`, `flows.py`, `site_data.py`, `signed.py` (signed file links), `page.py` (the built UI's shell) |
 | `kubed/selenium_flow/mcp/` | what an agent sees: tools, resources, prompts and the embedded skill |
 | `kubed/selenium_flow/spec/` | the OpenAPI document — `schemas.py` is the data, `builder.py` assembles it from the live tools |
 | `skills/selenium-flow/` | the embedded Agent Skill, mapped into the package at build time |
@@ -115,7 +115,7 @@ nothing to introspect. A test asserts every endpoint has one.
 
 A client caches tool schemas and cannot be told to read them again —
 `notifications/tools/list_changed` exists and caching clients ignore it. When
-`selector` became one object, a session that was live across the rollout had
+`selector` became one object, an MCP session that was live across the rollout had
 the same call accepted at 17:49 and refused at 18:05 (saga §F2.15).
 
 So an argument never changes shape in one step. Either accept both forms for a
@@ -224,9 +224,9 @@ a commit that also moves code.
 `js/` the way Selenium's `execute_script` does, so a
 change to one is provable without a browser. It needs `node`.
 
-**Test a behaviour once, at the layer that owns it.** `SessionManager.end_browser`
+**Test a behaviour once, at the layer that owns it.** `Workspaces.end_browser`
 decides what happens to a record when a browser ends, so that belongs in
-`test_sessions.py`. The admin route's job is the status code, the response shape
+`test_workspaces.py`. The admin route's job is the status code, the response shape
 and the auth check — so `test_files_and_admin.py` asserts those and does not
 re-assert the manager's contract through HTTP. When both files test the same
 sentence, the second one is not extra safety: it is a second thing to update
@@ -260,7 +260,7 @@ GRID_URL=http://localhost:4444 ADMIN_ORIGIN=http://host.docker.internal:8765 \
 
 `ADMIN_ORIGIN` is where the *browser* reaches this server, which is never
 `localhost` — the browser is in another container. Set `REDIS_URL` and
-`SESSION_STORE=redis` to run them the way production does; the fault that
+`WORKSPACE_STORE=redis` to run them the way production does; the fault that
 started this directory existed only on Redis.
 
 ## Before you push

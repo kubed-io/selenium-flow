@@ -1,4 +1,4 @@
-"""The save's size cap at the worst a session reaches: 400 origins of 20 KB,
+"""The save's size cap at the worst a workspace reaches: 400 origins of 20 KB,
 every one over the cap together (Task 20: 1.2 s before the cap sized once)."""
 
 import pytest

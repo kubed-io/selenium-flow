@@ -1,7 +1,7 @@
-"""A session's three file sections, for a person: list, keep, clear, delete.
+"""A workspace's file sections, for a person: list, keep, clear, delete.
 
 The listing and the rules are ``http.files``'; this is the admin's routes over
-them, addressed by a session key rather than by whoever is calling.
+them, addressed by a workspace key rather than by whoever is calling.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ def mount(
 ) -> None:
     """Mount the files listing, keep, and clear/delete.
 
-    ``changes`` marks the routes that change what the session list shows.
+    ``changes`` marks the routes that change what the workspace list shows.
     """
 
     @mcp.custom_route(
@@ -42,7 +42,7 @@ def mount(
         single boolean could not tell apart.
         """
         key = request.path_params["key"]
-        # A session whose name cannot be a directory keeps nothing, so it has no
+        # A workspace whose name cannot be a directory keeps nothing, so it has no
         # kept files to list — and must not be shown the shared library's.
         workspace = library_of(key) or ""
         try:
@@ -112,7 +112,7 @@ def mount(
     @changes
     async def admin_keep_file(request: Request) -> JSONResponse:
         """Move a screenshot or a recording, or copy a download, into the
-        session's own Files
+        workspace's own Files
         — so it outlives the browser. There is no matching unkeep: see
         ``files.py``."""
         key = request.path_params["key"]

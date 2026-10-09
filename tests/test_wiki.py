@@ -171,10 +171,11 @@ def test_every_action_with_an_endpoint_has_a_page():
 
 @needs_wiki
 def test_the_guides_that_pages_link_to_exist():
-    """`Actions` sends a reader to Flows and Files, and the env table sends them
-    to Secrets. Those are hand-written, so nothing regenerates them into being —
-    which is exactly how a generated link ends up pointing at nothing."""
-    for guide in ("Flows", "Files", "Secrets"):
+    """`Actions` sends a reader to Flows, Files and Workspaces, and the env
+    table sends them to Secrets. Those are hand-written, so nothing regenerates
+    them into being — which is exactly how a generated link ends up pointing at
+    nothing."""
+    for guide in ("Flows", "Files", "Secrets", "Workspaces"):
         assert (WIKI / f"{guide}.md").is_file(), guide
 
 

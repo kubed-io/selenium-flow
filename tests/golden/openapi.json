@@ -2897,7 +2897,7 @@
             ]
           },
           "guidance": {
-            "description": "The skill reference that explains sessions.",
+            "description": "The skill reference that explains workspaces.",
             "type": "string"
           },
           "in_frame": {
@@ -3244,7 +3244,7 @@
         "x-mcp-tool": "end_browser"
       },
       "get": {
-        "description": "The browser session this client is currently using.\n\nReturns the session name, which browser it is, the page it is on, the window size as WxH, whether it is inside a frame, and whether a browser is currently open (live). Read it before judging anything about layout — the window is not a fixed size and is what decides whether something is off-screen.\n\nReading this never opens a browser: live is false when none is held yet.",
+        "description": "The workspace this client named, and the session (browser) open in it.\n\nReturns the workspace name, which browser it is, the page it is on, the window size as WxH, whether it is inside a frame, and whether a session is currently open (live). Read it before judging anything about layout — the window is not a fixed size and is what decides whether something is off-screen.\n\nReading this never opens a browser: live is false when no session is open.",
         "operationId": "currentWorkspace",
         "parameters": [
           {
@@ -5384,7 +5384,7 @@
                 }
               }
             },
-            "description": "This session's browser downloads."
+            "description": "The downloads of the session open in this workspace."
           },
           "400": {
             "content": {
@@ -5437,7 +5437,7 @@
             "description": "The Grid could not serve this — unreachable, or failing. Worth retrying after a wait."
           }
         },
-        "summary": "This session's browser downloads.",
+        "summary": "The downloads of the session open in this workspace.",
         "tags": [
           "files"
         ],
@@ -6458,7 +6458,7 @@
     },
     "/site-data": {
       "get": {
-        "description": "What this session's last save_site_data holds: one entry per site with counts, never a value; the sites the session went to come first. Every browser this session opens has it back before open_session returns.\n\nworkspace://site-data/{site} shows one site in full. Reading this never opens a browser.",
+        "description": "What this workspace's last save_site_data holds: one entry per site with counts, never a value; the sites the workspace went to come first. Every browser this workspace opens has it back before open_session returns.\n\nworkspace://site-data/{site} shows one site in full. Reading this never opens a browser.",
         "operationId": "listSiteData",
         "parameters": [
           {

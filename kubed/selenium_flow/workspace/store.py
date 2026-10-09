@@ -46,8 +46,8 @@ log = logging.getLogger(__name__)
 # Every key is written under this prefix, which is what makes sharing a database
 # with other applications safe.
 DEFAULT_PREFIX = "selenium-flow:workspace:"
-# The pointer store writes under the session prefix too, in this sub-namespace.
-# No caller key has this shape, so it is never a session — but a SCAN of the
+# The pointer store writes under the workspace prefix too, in this sub-namespace.
+# No caller key has this shape, so it is never a workspace — but a SCAN of the
 # prefix finds it, and `records()` reading one as a record emptied the admin
 # list the moment any browser had been hovered.
 POINTER_NAMESPACE = "pointer:"
@@ -56,7 +56,7 @@ POINTER_NAMESPACE = "pointer:"
 DEFAULT_DB = 0
 # How long a workspace is kept after it was last used. A day, because these
 # are now the history the admin view shows rather than a short-lived cache: a
-# named session in daily use never expires, one abandoned yesterday is gone.
+# named workspace in daily use never expires, one abandoned yesterday is gone.
 # The browser it names is still reaped on the Grid's schedule, not this one.
 DEFAULT_TTL_SECONDS = 86400
 # How many times a Redis update re-reads after another writer got there first.
@@ -82,7 +82,7 @@ class StoreUnavailable(RuntimeError):
     rather than caught and downgraded to :class:`MemoryStore`. A pod that
     refuses to start is restarted by Kubernetes until Redis answers; a pod
     that started anyway, on the wrong store, is never corrected — the live
-    server once ran three days on in-memory sessions because Redis was
+    server once ran three days on an in-memory store because Redis was
     refusing connections at boot, with nothing but a log line saying so.
     Memory is the answer only when nothing asked for Redis in the first
     place.
@@ -244,7 +244,7 @@ class Workspace:
 
 def _visits(raw) -> list[dict]:
     """The well-formed entries of a stored history. A record written before
-    there was one has none: it reads as a session that has been nowhere. A URL
+    there was one has none: it reads as a workspace that has been nowhere. A URL
     that does not parse is no entry, or every later write would trip on it
     (Copilot, #51)."""
     if not isinstance(raw, list):
@@ -298,7 +298,7 @@ class WorkspaceStore(Protocol):
     def delete(self, key: str) -> None: ...
 
     # Optional, and only the admin view needs it: the MCP surface never lists
-    # sessions, because a client may only ever see its own. A store that cannot
+    # workspaces, because a client may only ever see its own. A store that cannot
     # enumerate cheaply may leave these out, and the admin view shows an empty
     # list rather than failing.
     def records(self) -> dict[str, Workspace]: ...
@@ -351,7 +351,7 @@ class MemoryStore(_Writes):
         self._data: dict[str, tuple[float, Workspace]] = {}
         self._ttl = ttl
         self._clock = clock
-        # One lock per key, held only while someone is using it, so a session
+        # One lock per key, held only while someone is using it, so a workspace
         # named once does not keep a lock for the life of the process.
         self._guard = threading.Lock()
         self._locks: dict[str, list] = {}
@@ -411,7 +411,7 @@ class MemoryStore(_Writes):
 
         Purges as it goes, which is the only thing that ever collects an entry
         nobody asks for again. ``get`` expires the one key it was handed, so a
-        caller that names a session once and never returns — a script run from a
+        caller that names a workspace once and never returns — a script run from a
         shell, a workflow that builds a name per invocation — left a record here
         until the process restarted. Redis has never had this problem: it
         expires entries itself, which is why the leak was invisible in the
@@ -502,7 +502,7 @@ class RedisStore(_Writes):
                 except WatchError:
                     continue
         raise StoreConflict(
-            f"session {key!r} kept changing while it was being updated; "
+            f"workspace {key!r} kept changing while it was being updated; "
             f"gave up after {UPDATE_RETRIES} tries"
         )
 
@@ -538,7 +538,7 @@ class RedisStore(_Writes):
 
 
 def from_settings(workspace: WorkspaceSettings, conn: RedisSettings) -> WorkspaceStore:
-    """Build the session store the config asks for.
+    """Build the workspace store the config asks for.
 
     Redis configured and unreachable, or missing its package, is a startup
     error rather than a silent step down to memory (§F4.12). An unknown
@@ -558,7 +558,7 @@ def from_settings(workspace: WorkspaceSettings, conn: RedisSettings) -> Workspac
 def redis_client(conn: RedisSettings):
     """A connected Redis client, or raises ``StoreUnavailable``. See §F4.12.
 
-    Separate from `from_settings` because the session record is no longer the
+    Separate from `from_settings` because the workspace record is no longer the
     only thing worth sharing between replicas — `pointer.py` keeps the
     pointer's position the same way. Two copies of this connection cascade is
     two places to forget the database index, and the second one would be the

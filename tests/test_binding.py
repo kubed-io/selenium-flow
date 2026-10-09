@@ -30,7 +30,7 @@ BAD = {
 
 
 class Nobody:
-    """A catalogue, actions and sessions that fail the test if a bind gets far
+    """A catalogue, actions and workspaces that fail the test if a bind gets far
     enough to touch any of them."""
 
     def __getattr__(self, name):
@@ -53,12 +53,12 @@ def at_run(args, schemas):
 
 
 def direct(args, schemas):
-    class Sessions:
+    class FakeWorkspaces:
         def resolve(self, name):
             return "browser-1"
 
     with pytest.raises(secrets.Refused) as caught:
-        secrets.perform_write(Nobody(), Nobody(), Sessions(), "s", args)
+        secrets.perform_write(Nobody(), Nobody(), FakeWorkspaces(), "s", args)
     return caught.value
 
 

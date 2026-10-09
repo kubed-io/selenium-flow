@@ -1,6 +1,6 @@
-"""Signed URLs for session files.
+"""Signed URLs for workspace files.
 
-A file in a session's store is often wanted somewhere that cannot present a
+A file in a workspace's store is often wanted somewhere that cannot present a
 bearer token: an ``<img>`` tag in the admin UI, a markdown image in a chat
 transcript, a link handed to someone who is not the caller. Browsers do not
 attach an ``Authorization`` header to an image request, and putting the MCP
@@ -94,7 +94,7 @@ def kept_path(workspace: str, name: str) -> str:
 
     A separate route rather than a flag on the one above, because it is keyed by
     a different thing: a download belongs to a *browser id*, and a kept file to
-    a *session name* that outlives it (§F1.10). One route taking either would
+    a *workspace name* that outlives it (§F1.10). One route taking either would
     have to guess which it was handed, and the two namespaces can collide.
     """
     return f"/kept/{quote(workspace, safe='')}/{quote(name, safe='')}"
@@ -136,7 +136,7 @@ def kept_url(
 
 
 def screenshot_path(workspace: str, name: str) -> str:
-    """The unsigned path of one screenshot. Keyed by session name, like a kept
+    """The unsigned path of one screenshot. Keyed by workspace name, like a kept
     file, because a screenshot outlives the browser that took it."""
     return f"/screenshots/{quote(workspace, safe='')}/{quote(name, safe='')}"
 

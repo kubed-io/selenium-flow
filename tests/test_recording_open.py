@@ -18,9 +18,9 @@ class Recorder:
         # a second expect for one browser replaces the first.
         self.notes = {}
 
-    def expect(self, session, grid_id, browser, *, discard=False):
+    def expect(self, workspace, grid_id, browser, *, discard=False):
         (self.discarded if discard else self.expected).append(
-            (session, grid_id, browser)
+            (workspace, grid_id, browser)
         )
         self.notes[grid_id] = discard
 
@@ -119,7 +119,7 @@ def test_a_reap_replays_record_and_expects_the_new_browser():
 
 def test_a_note_that_cannot_be_written_keeps_the_browser_and_says_why():
     class Broken(Recorder):
-        def expect(self, session, grid_id, browser, *, discard=False):
+        def expect(self, workspace, grid_id, browser, *, discard=False):
             raise PermissionError(13, "denied", "/data/workspaces/bot/recordings")
 
     m = manager(Broken())
@@ -163,7 +163,7 @@ def recording_at(data_dir, inbox=None):
 @pytest.mark.parametrize("inbox", [
     "workspaces/bot/recordings",  # inside: half-written videos listed as files
     "workspaces",
-    ".",  # above: the collector would sweep every session folder
+    ".",  # above: the collector would sweep every workspace folder
     "/",
 ])
 def test_an_inbox_overlapping_the_workspaces_does_not_boot(tmp_path, inbox):
@@ -195,7 +195,7 @@ def test_a_disabled_recorder_may_name_any_inbox(tmp_path):
 
 def test_a_reap_survives_a_note_that_cannot_be_written():
     class Broken(Recorder):
-        def expect(self, session, grid_id, browser, *, discard=False):
+        def expect(self, workspace, grid_id, browser, *, discard=False):
             raise PermissionError(13, "denied", "/data/workspaces/bot/recordings")
 
     m = manager(Recorder())
@@ -265,7 +265,7 @@ def test_an_open_that_loses_the_race_notes_its_video_for_discard():
 
 def test_an_open_that_fails_once_the_browser_exists_leaves_a_discard_note():
     """The Grid made the browser and the restore or first page failed: the
-    session never held it, so its video is no one's (Copilot, #59)."""
+    workspace never held it, so its video is no one's (Copilot, #59)."""
     rec = Recorder()
     m = manager(rec)
     m.actions.fail = TimeoutError("first page")
@@ -294,7 +294,7 @@ def test_an_unrecorded_open_notes_nothing():
 
 def test_a_discard_that_cannot_be_noted_never_fails_the_open(caplog):
     class Broken(Recorder):
-        def expect(self, session, grid_id, browser, *, discard=False):
+        def expect(self, workspace, grid_id, browser, *, discard=False):
             raise PermissionError(13, "denied", "/data/workspaces/bot/recordings")
 
     m = manager(Broken())
@@ -315,7 +315,7 @@ def test_a_note_path_that_is_refused_never_fails_the_open(where):
     from kubed.selenium_flow.names import InvalidName
 
     class Refused(Recorder):
-        def expect(self, session, grid_id, browser, *, discard=False):
+        def expect(self, workspace, grid_id, browser, *, discard=False):
             raise InvalidName("'recordings' is a link")
 
     if where == "open":

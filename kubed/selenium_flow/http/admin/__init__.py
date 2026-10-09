@@ -1,4 +1,4 @@
-"""A small web UI for the sessions the Grid is running, and their files.
+"""A small web UI for the workspaces and the sessions open in them, and their files.
 
 Two audiences, one set of routes. ``/admin`` is the page itself and
 ``/admin/<thing>`` is its data, for a person holding the token: live browsers,
@@ -15,7 +15,7 @@ anyone holding the token can already drive every browser through the API.
 
 The files themselves are the Grid's, not ours — see ``Grid.files``.
 
-One module per tab: ``page`` (the shell), ``sessions`` (the list and its live
+One module per tab: ``page`` (the shell), ``workspaces`` (the list and its live
 stream), ``site_data`` (history and saved site data), ``files``, ``flows``, and
 ``signed`` (the links that carry their own authority).
 """
@@ -51,12 +51,12 @@ def register(
 ) -> workspace_list.Broadcast:
     """Mount the admin pages, their JSON API, and the signed file routes.
 
-    Returns the session list's ``Broadcast``, so the server can tell open pages
+    Returns the workspace list's ``Broadcast``, so the server can tell open pages
     a recording was filed.
 
     ``flow_store`` is the *documents and kept files* store — what
     ``DATA_DIR`` points at — and is deliberately not spelled ``store``:
-    ``sessions.store`` is a different thing entirely, holding session records,
+    ``Workspaces.store`` is a different thing entirely, holding workspace records,
     and the two sat one scope apart with the same name until one shadowed the
     other and a listing died on ``MemoryStore.files``.
     """

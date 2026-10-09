@@ -57,7 +57,7 @@ class SeleniumMCP:
     functions, so the surfaces cannot drift.
 
     The server holds no browser state — a browser lives on the Grid and the
-    caller's session name leads back to it. What it *does* hold is the MCP
+    caller's workspace name leads back to it. What it *does* hold is the MCP
     transport session, in this process's memory, and it relies on it: that is
     where a client's `initialize` — who it is, what it can do — is remembered.
     So it runs as one replica.
@@ -80,7 +80,7 @@ class SeleniumMCP:
         )
         self.grid = Grid(settings.grid.url)
         # Redis or memory per workspace.store. The store is only ever a
-        # key -> session record map; the browser is on the Grid either way.
+        # key -> workspace record map; the browser is on the Grid either way.
         # Resolved before the actions, because the pointer store is derived
         # from it.
         self.store = (
@@ -88,10 +88,10 @@ class SeleniumMCP:
             else store_module.from_settings(settings.workspace, settings.redis)
         )
         # Where the pointer is in each browser, on the same backend as the
-        # session record (§F2.3) - built FROM that store rather than from a
+        # workspace record (§F2.3) - built FROM that store rather than from a
         # second reading of the environment, which is the only way the two are
         # guaranteed to agree. An injected Redis store with a memory
-        # environment would otherwise share session mappings and keep pointers
+        # environment would otherwise share workspace records and keep pointers
         # process-local, so a glide on another replica silently started as a
         # jump (Copilot, #31). Still injectable, for a caller that wants a
         # third thing.
@@ -108,22 +108,22 @@ class SeleniumMCP:
         self.prefix = routes.mount(settings.route_prefix)
         self.mcp_path = f"{self.prefix}/mcp"
         # Loaded before anything is told about it: the instructions and the
-        # session status both name the skill, and neither may name a resource
+        # workspace status both name the skill, and neither may name a resource
         # this server is not serving (Copilot, #36).
         self.skill = skill.load() if settings.mcp.skill else None
 
         # Saved flows, or None when no data directory was named — which is the
         # default, and is the feature being off rather than a degraded mode.
-        # Built before the sessions: the recordings are filed into it. A
+        # Built before the workspaces: the recordings are filed into it. A
         # recording.dir nothing collects from is no inbox, and must not hide an
-        # old session from the move the boot asks for (Copilot, #59).
+        # old workspace from the move the boot asks for (Copilot, #59).
         self.flows = flowstore.from_settings(
             settings.data,
             config.recording_dir(settings) if settings.recording.enabled else None,
         )
 
         # Recordings (recordings spec): the Grid films, the operator delivers to
-        # the inbox, the collector files. Built before the sessions, which tell
+        # the inbox, the collector files. Built before the workspaces, which tell
         # it about every recorded browser; None when recording is off.
         self.collector = None
         problem = config.recording_problem(settings)
@@ -207,7 +207,7 @@ class SeleniumMCP:
         mirror.register(self.mcp)
         completions.register(self.mcp)
 
-        # A session's files are resources; `show` draws them, and any other
+        # A workspace's files are resources; `show` draws them, and any other
         # showable resource, for a host that renders MCP Apps — and is listed
         # for no other client.
         # Where the server's own root is publicly reachable, or "" when nobody
@@ -291,7 +291,7 @@ class SeleniumMCP:
         self.mcp.add_middleware(mirror.HideMirrors(app_tools, apps_enabled))
         self.mcp.add_middleware(tools.InstructionsFor(self.skill is not None))
         failures.install(self.mcp)
-        # The same sessions the MCP surface uses: one contract, one resolver,
+        # The same workspaces the MCP surface uses: one contract, one resolver,
         # and the HTTP surface inherits the reopen-after-reap it never had.
         routes.register(
             self.mcp,

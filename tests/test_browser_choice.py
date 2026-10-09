@@ -143,7 +143,7 @@ def test_a_download_in_flight_is_not_offered_to_the_caller(name, partial):
 class TestTheSettingsCascade:
     """`browser` rides the same cascade as the window size, deliberately.
 
-    What comes out of `resolve` is what gets stored against the session, and the
+    What comes out of `resolve` is what gets stored against the workspace, and the
     stored settings are what a refresh replays — so a browser kept beside the
     cascade rather than in it would be dropped on every refresh.
     """

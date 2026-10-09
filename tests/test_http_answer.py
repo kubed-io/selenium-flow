@@ -22,8 +22,8 @@ from .conftest import TOKEN
 
 pytestmark = pytest.mark.unit
 
-SESSION = "answer-check"
-AUTH = {"Authorization": f"Bearer {TOKEN}", "X-Workspace": SESSION}
+WORKSPACE = "answer-check"
+AUTH = {"Authorization": f"Bearer {TOKEN}", "X-Workspace": WORKSPACE}
 
 # One write on each JSON tree — the browser actions, the files surface, the
 # flows surface — with the method each is actually served at. REST means these

@@ -1,5 +1,5 @@
-"""The admin API over where a session has been: the History tab's routes
-and the two fields each session row carries for it.
+"""The admin API over where a workspace has been: the History tab's routes
+and the two fields each workspace row carries for it.
 
 One row per host, the current one first, joined with the secrets allowed
 there and what the snapshot holds for it; a secret never makes a row; Clear
@@ -140,7 +140,7 @@ def test_the_row_counts_hosts_and_its_rev_follows_the_origins_and_the_top_page(c
 
 
 def test_a_page_within_the_top_site_moves_the_rev_and_the_clock_alone_does_not(client, server):
-    """History's top row is the session card's last page: a navigation within
+    """History's top row is the workspace card's last page: a navigation within
     the top site must repaint it, and a call that stays put must not."""
     before = row(client)["history_rev"]
     server.workspaces.store.update(KEY, lambda r: r.visited("https://app.example.com/y", now=NOW))

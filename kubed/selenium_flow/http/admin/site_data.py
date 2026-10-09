@@ -1,6 +1,6 @@
-"""A session's history and saved site data, for a person to read and clear.
+"""A workspace's history and saved site data, for a person to read and clear.
 
-None of these touch the live browser: they read and rewrite the session
+None of these touch the live browser: they read and rewrite the workspace
 record, so a clear takes effect the next time a browser is opened for it.
 """
 
@@ -29,7 +29,7 @@ async def secret_rows(catalogue) -> list[dict]:
 def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
     """Mount history and site data: read, clear, and forget one site.
 
-    ``changes`` marks the routes that change what the session list shows.
+    ``changes`` marks the routes that change what the workspace list shows.
     """
 
     @mcp.custom_route(
@@ -39,7 +39,7 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
     )
     @guarded
     async def admin_history(request: Request) -> JSONResponse:
-        """Where this session has been, by host, the current one first: each
+        """Where this workspace has been, by host, the current one first: each
         joined with the secrets allowed there and what the snapshot holds for
         it. Built per request; nothing is stored for it."""
         key = request.path_params["key"]
@@ -87,7 +87,7 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
     @guarded
     async def admin_site_data(request: Request) -> JSONResponse:
         """What a reopened browser gets back: the snapshot by host, each in
-        full, values masked, the hosts the session went to first. No secrets:
+        full, values masked, the hosts the workspace went to first. No secrets:
         those are History's."""
         key = request.path_params["key"]
         try:
@@ -130,7 +130,7 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
     async def admin_site_data_forget(request: Request) -> JSONResponse:
         """Forget one site. Parent-domain cookies stay: other sites use them.
 
-        It changes the session's store and nothing else: the history stays,
+        It changes the workspace's record and nothing else: the history stays,
         and a browser open now keeps what it has — only the next one opened
         comes back without it. A save after this saves the site again.
         """

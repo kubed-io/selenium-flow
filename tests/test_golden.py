@@ -182,7 +182,7 @@ def test_the_flow_run_reports_are_what_they_were(monkeypatch):
     compare("flow-reports.json", normalised(got))
 
 
-# ---- the admin session listing -----------------------------------------------
+# ---- the admin workspace listing -----------------------------------------------
 
 NOW = 1_790_800_000.0
 

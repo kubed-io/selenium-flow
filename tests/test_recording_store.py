@@ -1,4 +1,4 @@
-"""Recordings and notes in the session store."""
+"""Recordings and notes in a workspace's folder of the data directory."""
 
 import errno
 import logging
@@ -76,7 +76,7 @@ def test_a_broken_note_is_skipped_not_fatal(store, caplog):
     path.write_text("{not json")
     with caplog.at_level(logging.WARNING):
         assert store.notes() == []
-    # The operator's log names the session, never the Grid's id.
+    # The operator's log names the workspace, never the Grid's id.
     assert "bot" in caplog.text and GID not in caplog.text
 
 
@@ -191,8 +191,8 @@ def test_a_note_that_cannot_be_read_is_a_fault_not_a_broken_note(store, monkeypa
 
 
 def test_a_workspace_that_cannot_be_read_is_reported_and_the_rest_are_listed(store, monkeypatch):
-    """A stat that fails on one session folder is that session's fault, never
-    an empty session (Python 3.14's `is_dir` reads any OSError as False)."""
+    """A stat that fails on one workspace folder is that workspace's fault, never
+    an empty workspace (Python 3.14's `is_dir` reads any OSError as False)."""
     other = "0123456789abcdef0123456789abcdef"
     store.write_note("good", GID, {"opened": 1})
     store.write_note("bad", other, {"opened": 2})

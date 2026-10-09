@@ -700,7 +700,7 @@ def test_a_destination_outside_the_window_stops_at_the_edge_rather_than_failing(
 
 def test_the_pointer_store_is_built_from_the_workspace_store():
     """Not from a second reading of the environment. An injected Redis store
-    with a memory environment would otherwise share session mappings and keep
+    with a memory environment would otherwise share workspace mappings and keep
     pointers process-local, so a glide on another replica silently starts as a
     jump (Copilot, #31)."""
     from kubed.selenium_flow.workspace.store import MemoryStore, RedisStore
@@ -729,8 +729,8 @@ def test_a_server_given_a_shared_store_shares_its_pointers_too():
 
 
 def test_an_injected_workspace_store_can_bring_a_matching_pointer_store():
-    """The two are one decision. A caller that hands in a shared session store
-    while the environment says memory would otherwise share session mappings
+    """The two are one decision. A caller that hands in a shared workspace store
+    while the environment says memory would otherwise share workspace mappings
     across replicas and keep pointers local — and a cross-replica glide would
     silently degrade to a jump (Copilot, #31)."""
     from kubed.selenium_flow.config import Settings
@@ -844,7 +844,7 @@ def test_a_custom_store_without_a_ttl_still_starts_the_server():
 def test_an_element_replaced_under_the_action_is_found_again(
     actions, monkeypatch, call
 ):
-    """Found by the admin UI's own session list, which repaints on a two-second
+    """Found by the admin UI's own workspace list, which repaints on a two-second
     poll: the row was replaced between the wait and the click, and WebDriver
     called that a stale reference. Nothing was wrong with the selector — the
     element it found simply was not on the page any more — so the pair is

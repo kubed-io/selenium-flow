@@ -83,7 +83,7 @@ RESPONSES = {
             },
             "guidance": {
                 "type": "string",
-                "description": "The skill reference that explains sessions.",
+                "description": "The skill reference that explains workspaces.",
             },
         },
     },
@@ -859,7 +859,7 @@ _FILE_OPERATIONS = {
     ),
     "downloads": (
         "listDownloads",
-        "This session's browser downloads.",
+        "The downloads of the session open in this workspace.",
         "Newest first, read from the browser itself. Answers empty rather than "
         "failing when there is no browser open; a Grid failure from one that is "
         "open is a real fault and is not hidden.",

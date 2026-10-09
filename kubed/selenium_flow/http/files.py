@@ -676,7 +676,8 @@ FOLDER_DESCRIPTION = {
         "reading one by its uri answers that entry, not the video."
     ),
     DOWNLOADS: (
-        "This session's browser downloads. They belong to the browser and "
+        "The downloads of the session open in this workspace. They belong to "
+        "the browser and "
         f"disappear when it ends or the Grid reaps it; {KEEP_TOOL}(uri) copies "
         f"one into {ROOT_URI} before that happens."
     ),
@@ -888,7 +889,7 @@ def _routes(mcp, actions, workspaces, store, token, base, prefix, ttl) -> None:
         files_root + "/downloads", methods=["GET"], name="files_downloads"
     )
     async def list_downloads(request: Request) -> JSONResponse:
-        """This session's browser downloads."""
+        """The downloads of the session open in this workspace."""
         return await answer(
             request,
             "downloads",

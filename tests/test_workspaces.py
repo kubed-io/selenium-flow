@@ -280,7 +280,7 @@ def test_ending_a_browser_means_open_session_again():
 
 
 def test_ending_a_browser_never_removes_the_workspace():
-    """Nothing removes one. A session expires on its TTL, and a named one comes
+    """Nothing removes one. A workspace expires on its TTL, and a named one comes
     straight back on the next call because the name is in the caller's URL.
 
     The record it leaves behind is also exactly what the next open_session
@@ -298,7 +298,7 @@ def test_ending_a_browser_never_removes_the_workspace():
 
 def test_a_workspace_can_only_end_its_own_browser():
     """There is no id to pass any more, which is the point: the only browser a
-    caller can name is the one its own session holds."""
+    caller can name is the one its own workspace holds."""
     actions = RecordingActions()
     workspaces = manager(actions)
     workspaces.remember(NAMED, "mine")
@@ -396,7 +396,7 @@ def test_describe_reports_the_window_it_is_working_in(named_caller):
 
     An agent deciding whether something is off-screen, or whether a layout has
     collapsed, needs the window size — and should not have to take a screenshot
-    or know it is stored as a setting to find it. None when the session never
+    or know it is stored as a setting to find it. None when the workspace never
     named one: the window is then whatever the Grid node's default happens to
     be, and printing a number would claim we knew which.
     """
@@ -421,7 +421,7 @@ def test_a_workspace_stored_before_browsers_were_selectable_reads_as_chrome(name
 
 
 def test_describe_reports_no_browser_when_there_is_no_workspace(named_caller):
-    """Naming a browser for a session that does not exist would be a fiction."""
+    """Naming a browser for a workspace that does not exist would be a fiction."""
     assert manager().describe(clients_module.caller())["browser"] is None
 
 
@@ -442,7 +442,7 @@ def test_redis_store_round_trips_a_record_and_expires_it():
 
 def test_listing_redis_reads_every_record_in_one_round_trip():
     """Every open admin page asks for the list every two seconds; a GET per
-    session made that one network round trip per session per poll."""
+    workspace made that one network round trip per workspace per poll."""
     fake = FakeRedis()
     store = RedisStore(fake, prefix="p:")
     for key in ("a", "b", "c"):
@@ -460,8 +460,8 @@ def test_a_corrupt_redis_entry_is_a_miss_not_a_crash():
 
 def test_the_pointer_beside_a_workspace_does_not_empty_the_history():
     """The admin list went blank in production: the pointer store writes under
-    the session prefix, `records()` read its `[x, y]` as a record, raised, and
-    the page rendered the failure as "No sessions yet." Built through the real
+    the workspace prefix, `records()` read its `[x, y]` as a record, raised, and
+    the page rendered the failure as an empty list. Built through the real
     pointer store, so a pointer namespace that moves is still covered."""
     from kubed.selenium_flow.core import pointer
 
@@ -493,7 +493,7 @@ def test_the_memory_store_expires_like_redis_does():
 
 
 def test_listing_collects_the_records_nobody_asks_for_again():
-    """`get` only ever expires the one key it is handed, so a session named once
+    """`get` only ever expires the one key it is handed, so a workspace named once
     and never revisited stayed in memory until the process restarted. Listing is
     the only pass over every entry, so it is where they are collected."""
     now = [1000.0]
@@ -823,7 +823,7 @@ def test_touch_slides_the_expiry_of_a_workspace_in_use():
     now[0] += 50
     workspaces.touch(NAMED, "https://example.com")
     now[0] += 50
-    assert workspaces.store.get(NAMED) is not None, "an in-use session must not lapse"
+    assert workspaces.store.get(NAMED) is not None, "an in-use workspace must not lapse"
 
 
 # ---- configuration ---------------------------------------------------------
@@ -1075,7 +1075,7 @@ def test_an_unreachable_grid_does_not_strand_the_workspace(monkeypatch):
     assert grid.is_alive("abc") is True
 
 
-# ---- a flow session outlives its browser -----------------------------------
+# ---- a workspace outlives its session ---------------------------------------
 
 
 def test_ending_something_that_is_not_there_is_not_an_error():
@@ -1104,13 +1104,13 @@ def test_context_is_empty_when_there_is_nothing_to_inherit(monkeypatch):
     assert manager().context(NAMED) == {}
 
 
-# ---- one session holds one browser -----------------------------------------
+# ---- one workspace holds one session ----------------------------------------
 
 
 def test_opening_a_replacement_ends_the_browser_it_replaces():
     """Switching browser used to abandon the old one on the Grid.
 
-    A flow session holds at most one browser, so opening a second without
+    A workspace holds at most one session, so opening a second without
     ending the first leaves it running, referenced by nothing, holding one of a
     handful of Grid slots until the idle timeout. Found by switching Chrome to
     Firefox and watching sessionCount go to 2.
@@ -1532,7 +1532,7 @@ def test_describe_says_request_when_a_route_names_it(server):
     assert status["named_by"] == "request"
 
 
-# ---- the browser a session holds, without opening one (M31) -----------------
+# ---- the browser a workspace holds, without opening one (M31) -----------------
 
 
 def test_browser_is_the_grid_id_only_while_it_is_attached_and_alive():
@@ -1549,7 +1549,7 @@ def test_browser_is_the_grid_id_only_while_it_is_attached_and_alive():
     actions.grid.alive.add("abc")
     assert workspaces.browser(NAMED) == "abc"
     assert actions.opened == 0, "asking never opens a browser"
-    assert workspaces.browser(OTHER) == "", "another name is another session"
+    assert workspaces.browser(OTHER) == "", "another name is another workspace"
 
 
 # ---- a record that cannot be read is a miss (S5) ----------------------------

@@ -307,7 +307,7 @@ def end_once_polling(workspaces, polling):
 
 @pytest.fixture
 def ended_server(monkeypatch):
-    """A real server whose session `NAMED` holds a browser that never says true."""
+    """A real server whose workspace `NAMED` holds a browser that never says true."""
     from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 

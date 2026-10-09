@@ -1,4 +1,4 @@
-"""Session files: the signed links, the admin surface, and the three renderings.
+"""Workspace files: the signed links, the admin surface, and the three renderings.
 
 The Grid owns the file store, so nothing here dials a browser. What is asserted
 is the part this server actually decides: who may fetch a file, which shape a
@@ -40,9 +40,9 @@ KEY = "desktop"
 
 @pytest.fixture
 def flow_session(server):
-    """A flow session holding a browser, which is what the admin API addresses.
+    """A workspace holding a browser, which is what the admin API addresses.
 
-    The admin surface lists *our* sessions, not the Grid's, so a test that does
+    The admin surface lists *our* workspaces, not the Grid's, so a test that does
     not put one in the store is asking about an empty server.
     """
     server.workspaces.store.set(KEY, Workspace(session_id="abc").visited("https://x/"))
@@ -391,7 +391,7 @@ def test_the_listing_shows_workspaces_not_grid_sessions(client, server):
 
 
 def test_a_detached_workspace_is_listed_as_idle_with_its_context(client, server):
-    """The point of the split: no browser, but still a session worth seeing."""
+    """The point of the split: no browser, but still a workspace worth seeing."""
     server.workspaces.store.set(
         "idle",
         Workspace(session_id="", settings={"browser": "firefox"}).visited("https://x/"),
@@ -444,11 +444,12 @@ async def test_files_are_a_resource_and_a_template(server):
 
 
 async def test_the_mcp_surface_never_lists_other_workspaces(built_ui, server):
-    """A client owns one session and may only ever see that one.
+    """A client owns one workspace and may only ever see that one.
 
-    The session list is an admin view over HTTP, deliberately not a tool and not
-    a resource: a tool that enumerated every session would hand any MCP client
-    somebody else's browser id, which is the whole credential for driving it.
+    The workspace list is an admin view over HTTP, deliberately not a tool and not
+    a resource: a tool that enumerated every workspace would hand any MCP client
+    somebody else's workspace name, the address of a browser it could then drive
+    with the same token.
     """
     uris = {str(r.uri) for r in await server.mcp.list_resources()}
     assert "grid://sessions" not in uris

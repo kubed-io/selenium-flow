@@ -11,9 +11,10 @@ from starlette.routing import compile_path
 class RouteTemplates(logging.Filter):
     """Rewrites uvicorn's access line to the route that answered, not the path.
 
-    A session name is the credential past the token, and it rides in the query
-    (``?session=``) *and* in paths: ``/admin/workspaces/<name>/history``,
-    ``/kept/<name>/...``; a signed link's ``sig`` opens a file. An access line
+    A workspace name is the address of a browser anyone with the token can then
+    drive, and it rides in the query (``?workspace=``) *and* in paths:
+    ``/admin/workspaces/<name>/history``, ``/kept/<name>/...``; a signed link's
+    ``sig`` opens a file. An access line
     quotes the whole request target into every pod log and into Loki, so it
     says ``/admin/workspaces/{key}/history`` instead. A path no route serves keeps
     only its first segment, so nothing unknown leaks either. Method and status

@@ -35,28 +35,28 @@ pytestmark = pytest.mark.unit
 GRID_DOWN = 503
 
 
-# Every request names its session the way the surface says to (§F2.13). It is a
+# Every request names its workspace the way the surface says to (§F2.13). It is a
 # default header on the client rather than a keyword on each call, because it is
 # a property of the caller, not of the request.
-SESSION = "desktop"
+WORKSPACE = "desktop"
 
 
 @pytest.fixture
 def client(server, monkeypatch):
     monkeypatch.setattr(server.workspaces, "resolve", lambda name: "browser-1")
-    return TestClient(server.mcp.http_app(), headers={"X-Workspace": SESSION})
+    return TestClient(server.mcp.http_app(), headers={"X-Workspace": WORKSPACE})
 
 
 @pytest.fixture
 def open_client(open_server, monkeypatch):
-    """A client with auth off, whose session already holds a browser.
+    """A client with auth off, whose workspace already holds a browser.
 
     These tests are about this surface's own validation, so the browser is
     resolved out of the way: the Grid address is unroutable, and reaching it is
     the sentinel for "the input was accepted".
     """
     monkeypatch.setattr(open_server.workspaces, "resolve", lambda name: "browser-1")
-    return TestClient(open_server.mcp.http_app(), headers={"X-Workspace": SESSION})
+    return TestClient(open_server.mcp.http_app(), headers={"X-Workspace": WORKSPACE})
 
 
 @pytest.mark.parametrize(
@@ -151,7 +151,7 @@ def test_a_browser_action_runs_off_the_event_loop(server, monkeypatch):
         return {"success": True}
 
     monkeypatch.setattr(server.workspaces, "act", act)
-    client = TestClient(server.mcp.http_app(), headers={"X-Workspace": SESSION})
+    client = TestClient(server.mcp.http_app(), headers={"X-Workspace": WORKSPACE})
     response = client.post(
         "/browser/navigate",
         json={"url": "https://example.com"},
@@ -172,7 +172,7 @@ def test_a_flow_run_runs_off_the_event_loop(server, monkeypatch):
         return {"success": True}
 
     monkeypatch.setattr(flow_api, "run_for", run_for)
-    client = TestClient(server.mcp.http_app(), headers={"X-Workspace": SESSION})
+    client = TestClient(server.mcp.http_app(), headers={"X-Workspace": WORKSPACE})
     response = client.post(
         "/flows/login/runs", json={}, headers={"Authorization": f"Bearer {TOKEN}"}
     )
@@ -686,7 +686,7 @@ def test_a_store_that_kept_losing_to_other_writers_is_a_500(open_server, open_cl
 
     fake = FakeRedis()
     store = RedisStore(fake, prefix="p:")
-    store.set(SESSION, Workspace(session_id="abc"))
+    store.set(WORKSPACE, Workspace(session_id="abc"))
     n = [0]
 
     def always():
@@ -694,7 +694,7 @@ def test_a_store_that_kept_losing_to_other_writers_is_a_500(open_server, open_cl
         # Still this browser, so the detach has work to do, but never the same
         # bytes, so the transaction never lands.
         record = Workspace(session_id="abc", opened_at=float(n[0]))
-        fake.set(f"p:{SESSION}", record.to_json())
+        fake.set(f"p:{WORKSPACE}", record.to_json())
 
     fake.interfere = always
     monkeypatch.setattr(open_server.workspaces, "store", store)
@@ -714,7 +714,7 @@ def test_a_record_with_a_non_numeric_opened_at_is_a_workspace_with_no_history(
     from .fakes import FakeRedis
 
     fake = FakeRedis()
-    fake.set(f"p:{SESSION}", '{"session_id": "abc", "opened_at": "yesterday"}')
+    fake.set(f"p:{WORKSPACE}", '{"session_id": "abc", "opened_at": "yesterday"}')
     monkeypatch.setattr(open_server.workspaces, "store", RedisStore(fake, prefix="p:"))
     response = open_client.get("/browser")
     assert response.status_code == 200
@@ -725,7 +725,7 @@ def test_a_record_with_a_non_numeric_opened_at_is_a_workspace_with_no_history(
 def test_the_browser_resource_says_the_name_came_from_the_request(open_client):
     """M36 over HTTP: MCP says `query` or `header`, this surface says `request`."""
     body = open_client.get("/browser").json()
-    assert body["workspace"] == SESSION
+    assert body["workspace"] == WORKSPACE
     assert body["named_by"] == "request"
     assert body["principal"] is None, "an open server has no principal"
 

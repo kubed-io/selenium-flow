@@ -1,4 +1,4 @@
-"""The session's side of site data: a save stored and never returned, a
+"""The workspace's side of site data: a save stored and never returned, a
 restore on open and on a silent reopen, and the one report each makes."""
 
 import json

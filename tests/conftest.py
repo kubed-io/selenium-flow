@@ -27,7 +27,7 @@ from .fakes import FakeGrid, ScriptedDriver
 
 TOKEN = "test-token-abc123"
 
-# Two sessions that are stable and distinct, which is the whole premise: the
+# Two workspaces that are stable and distinct, which is the whole premise: the
 # same name must always resolve to the same browser, and two different names
 # must never see each other's. A name is the store key, so a test can read and
 # write `store[NAMED]` directly.

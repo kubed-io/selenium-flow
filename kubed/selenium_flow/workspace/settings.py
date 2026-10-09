@@ -6,11 +6,11 @@ accepts an insecure site. Each but the last can come from three places, and the
 useful part is the order:
 
     server default (config: session.*)  <  client default (param/header)  <
-    this session's last values  <  explicit
+    this workspace's last values  <  explicit
 
 The server default is the operator's floor. The client default is set once in a
-client's connection config, so an agent never has to think about it. A flow
-session's own last values come next: a caller that names nothing after its
+client's connection config, so an agent never has to think about it. The
+workspace's own last values come next: a caller that names nothing after its
 browser was reaped or ended means "carry on where I was", which is a stronger
 signal than any default and a weaker one than an argument it just typed. The
 explicit argument overrides all of them.
@@ -19,7 +19,7 @@ Only settings that are actually *set* are returned, so "unset" stays
 distinguishable from "set to the same value as the default" — the browser's own
 default window size is not something this module should invent a number for.
 
-What comes out of here is also what gets *stored* against a caller's session, so
+What comes out of here is also what gets *stored* against a caller's workspace, so
 a refresh after the Grid reaps a browser reopens the same one. That is why
 ``browser`` belongs in this cascade rather than beside it: a session that came
 back as Chrome because the refresh path did not know it was Firefox would be the
@@ -45,7 +45,7 @@ def _as_int(value) -> int | None:
 
     A bad value is ignored rather than fatal: a typo in a client's URL should
     not stop a browser from opening, and the resolved settings are reported on
-    the session resource where the omission is visible.
+    ``workspace://current`` where the omission is visible.
     """
     if value is None or value == "":
         return None
@@ -110,9 +110,9 @@ def from_settings(session: SessionSettings) -> dict:
 def from_client(params: dict | None, headers: dict | None) -> dict:
     """A client's defaults, set once in its connection config.
 
-    The header wins over the query parameter, for the same reason it does for
-    session names: the header lives in the credential an admin controls, while
-    the URL is written by whoever wires up the call.
+    The header wins over the query parameter: the header lives in the
+    credential an admin controls, while the URL is written by whoever wires up
+    the call. (A workspace name is stricter: both at once is refused.)
     """
     params = params or {}
     headers = headers or {}
@@ -139,7 +139,7 @@ def resolve(
     ``client`` is the caller's own defaults (:func:`from_client`, read off its
     request by whoever holds it). Off HTTP there are none, and None says so.
 
-    ``previous`` is what this flow session was last opened with, and it is
+    ``previous`` is what this workspace's last session was opened with, and it is
     applied over the two default sources — see the cascade at the top of this
     module. It is taken as already-resolved rather than re-coerced: it came out
     of this function, and a value that was good enough to open a browser with is

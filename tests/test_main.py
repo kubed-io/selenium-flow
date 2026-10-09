@@ -196,8 +196,8 @@ SESSION_PATHS = [
 def test_the_access_log_names_the_route_never_the_workspace(
     tmp_path, listened, prefix, path, template
 ):
-    """Copilot, review 2: a session name is the credential past the token, and
-    dropping the query still left it in the path. The line names the route."""
+    """Copilot, review 2: a workspace name is the address of a browser anyone
+    with the token can drive, and dropping the query still left it in the path. The line names the route."""
     main_module.main(config(tmp_path, f"route_prefix: {prefix or '/'}\n"))
     line = access_line(f"{prefix}{path}")
     assert line == f'1.2.3.4:5 - "GET {prefix}{template} HTTP/1.1" 200'

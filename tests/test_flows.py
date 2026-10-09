@@ -1,8 +1,8 @@
-"""The flow store: naming, session resolution, and reading and writing YAML.
+"""The flow store: naming, workspace resolution, and reading and writing YAML.
 
 Storage only. Nothing here knows what a step is or how to run one — that is E2
 and E3. What is asserted is the part that is expensive to get wrong later: which
-session a caller's flows belong to, and that a name from a URL cannot become a
+workspace a caller's flows belong to, and that a name from a URL cannot become a
 path outside the data directory.
 """
 
@@ -62,7 +62,7 @@ def test_an_ordinary_name_is_accepted(name):
     ],
 )
 def test_a_name_that_cannot_be_a_path_segment_is_refused(name):
-    """Every one of these arrives from a caller. The session half comes off a
+    """Every one of these arrives from a caller. The workspace half comes off a
     URL query parameter that anyone who can reach the port can write."""
     with pytest.raises(InvalidName):
         valid_name(name)
@@ -76,15 +76,15 @@ def test_a_bad_name_is_refused_rather_than_slugged():
 
 
 def test_the_error_names_which_kind_of_name_was_wrong():
-    with pytest.raises(InvalidName, match="session name"):
-        valid_name("../x", "session name")
+    with pytest.raises(InvalidName, match="workspace name"):
+        valid_name("../x", "workspace name")
 
 
-# ---- which session owns a caller's flows ------------------------------------
+# ---- which workspace owns a caller's flows ------------------------------------
 
 
 def test_a_workspace_owns_the_library_of_its_own_name():
-    """One answer now, where there were three. A session name IS a directory
+    """One answer now, where there were three. A workspace name IS a directory
     name — validated where it arrives (§F2.12) — so there is no longer a lenient
     resolver for browsers, a strict one for storage, and a third answering None
     for the admin list."""
@@ -106,7 +106,7 @@ def test_stdio_gets_a_library_of_its_own():
 def test_the_reserved_names_are_reserved_as_workspaces_but_not_as_flow_names():
     """The reservation is about who may own that *library*. A flow called
     `stdio` or `global` is nobody's business but its author's, and `valid_name`
-    still takes it — which is why the session rule is a separate function rather
+    still takes it — which is why the workspace rule is a separate function rather
     than a line inside that one."""
     from kubed.selenium_flow.names import valid_workspace_name
 
@@ -365,14 +365,14 @@ def test_a_traversing_flow_name_cannot_escape_either(store):
 
 
 def test_a_symlink_cannot_redirect_a_workspace_out_of_the_data_directory(store, tmp_path):
-    """The containment check used to stop at the session directory, so a link
-    left at <session>/flows redirected every read and write under it while the
+    """The containment check used to stop at the workspace directory, so a link
+    left at <workspace>/flows redirected every read and write under it while the
     boundary still looked guarded. resolve() follows links at every level."""
     outside = tmp_path.parent / "outside"
     outside.mkdir()
-    session = tmp_path / "bot"
-    session.mkdir()
-    (session / "flows").symlink_to(outside, target_is_directory=True)
+    workspace = tmp_path / "bot"
+    workspace.mkdir()
+    (workspace / "flows").symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(InvalidName, match="does not resolve to itself"):
         store.save("bot", "escape", {"steps": []})
@@ -444,7 +444,7 @@ def test_a_symlink_to_another_workspace_is_refused_even_though_it_stays_inside(
     store, tmp_path
 ):
     """"Inside the data directory" was too weak: bot/flows -> research-bot/flows
-    satisfies it and still hands one session another's library."""
+    satisfies it and still hands one workspace another's library."""
     victim = tmp_path / "research-bot" / "flows"
     victim.mkdir(parents=True)
     store.save("research-bot", "secret", {"steps": [], "description": "theirs"})
@@ -512,7 +512,7 @@ def test_a_linked_kept_file_is_never_listed(store, tmp_path):
     assert [f["name"] for f in store.files("bot")] == ["real.png"]
 
 
-@pytest.mark.parametrize("swapped", ["files", "session"])
+@pytest.mark.parametrize("swapped", ["files", "workspace"])
 def test_a_directory_swapped_for_a_link_after_it_was_checked_is_refused(
     tmp_path, monkeypatch, swapped
 ):
@@ -528,7 +528,7 @@ def test_a_directory_swapped_for_a_link_after_it_was_checked_is_refused(
         checked.symlink_to(root / "other" / "files")
     else:
         (root / "bot").symlink_to(root / "other")
-    monkeypatch.setattr(store, "_files_dir", lambda session, folder="files": checked)
+    monkeypatch.setattr(store, "_files_dir", lambda workspace, folder="files": checked)
     with pytest.raises(InvalidName):
         store.files("bot")
 
@@ -574,7 +574,7 @@ def test_a_symlinked_flow_file_is_skipped_from_the_listing(store, tmp_path):
 @pytest.mark.parametrize("steps", [1, {}, {"a": 1}, "three", None])
 def test_a_hand_typed_steps_field_cannot_abort_a_listing(store, tmp_path, steps):
     """`steps: 1` reached len() and raised; `steps: {a: 1}` reported a mapping's
-    size as a step count. Either hid every other flow in the session."""
+    size as a step count. Either hid every other flow in the workspace."""
     store.save("bot", "good", {"steps": [{"tool": "navigate"}]})
     (tmp_path / "bot" / "flows" / "odd.yaml").write_text(
         __import__("yaml").safe_dump({"steps": steps})
@@ -779,7 +779,7 @@ def test_workspaces_live_under_sessions(tmp_path):
 def test_an_old_layout_stops_the_boot_and_names_what_to_move(tmp_path):
     (tmp_path / "claudecode" / "screenshots").mkdir(parents=True)
     (tmp_path / "global" / "flows").mkdir(parents=True)
-    (tmp_path / "recordings").mkdir()  # the inbox is not a session
+    (tmp_path / "recordings").mkdir()  # the inbox is not a workspace
     with pytest.raises(ConfigError) as exc:
         flowstore.from_settings(DataSettings(dir=str(tmp_path)))
     assert "claudecode, global" in str(exc.value)

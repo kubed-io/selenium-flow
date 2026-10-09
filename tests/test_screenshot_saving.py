@@ -1,10 +1,10 @@
-"""Every screenshot and print is kept with the session, straight to its files.
+"""Every screenshot and print is kept with the workspace, straight to its files.
 
 `save` made the agent decide, per screenshot, whether a person would ever want
 to look at it — and the answer was usually no, so the admin UI showed nothing
 and a human asking "what did it see?" had nothing to open (§F2.9).
 
-They used to reach the session's files by being handed back to the page as a
+They used to reach the workspace's files by being handed back to the page as a
 download, which put them at the mercy of every download Chrome refuses: a
 plain-http page, a page with no origin, a second save from `about:blank`. The
 bytes are this server's, so they are written where they are kept (§F3.8).
@@ -263,7 +263,7 @@ def test_two_saves_racing_for_one_name_do_not_overwrite_each_other(
     looks: the create is what claims it (Copilot, #40)."""
     first = keeping_server.actions.keep("shot.png", b"one", "files")
 
-    def unlisted(session):
+    def unlisted(workspace):
         raise AssertionError("a name is claimed by creating it, not by listing")
 
     monkeypatch.setattr(keeping_server.flows, "files", unlisted)

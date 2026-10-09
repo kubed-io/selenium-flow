@@ -60,14 +60,14 @@ async def resource(server, uri: str):
     return json.loads(result.contents[0].content)
 
 
-def acting_as(monkeypatch, server, session):
+def acting_as(monkeypatch, server, workspace):
     """Make every surface agree about who is calling.
 
     One seam now, where there were two. A caller's browser identity and its
     storage identity are the same name (§F2.12), so there is no longer a way to
     patch one and quietly exercise a caller who is two different people.
 
-    `None` is the caller that named no session: it gets the shared library, and
+    `None` is the caller that named no workspace: it gets the shared library, and
     anything touching a browser refuses it.
     """
     from kubed.selenium_flow.mcp import clients as clients_module
@@ -75,11 +75,11 @@ def acting_as(monkeypatch, server, session):
 
     from .conftest import calling_as
 
-    if session == STDIO_WORKSPACE:
+    if workspace == STDIO_WORKSPACE:
         # The stdio caller is the one off HTTP: there is no request to read.
         monkeypatch.setattr(clients_module, "request_values", lambda: None)
     else:
-        calling_as(monkeypatch, session)
+        calling_as(monkeypatch, workspace)
 
 
 # ---- the surface itself -----------------------------------------------------
@@ -194,7 +194,7 @@ async def test_a_delete_never_touches_the_shared_library(flow_server, store):
 async def test_an_unnamed_caller_cannot_save_into_the_shared_library(
     flow_server, monkeypatch, store
 ):
-    """This was the exception that swallowed the rule. A caller with no session
+    """This was the exception that swallowed the rule. A caller with no workspace
     name *is* `global`, so the only kind of caller that could rewrite the shared
     library was the anonymous one — the chapter wrote that down and apologised
     for it. The library is live, so it is now refused like any other write."""
@@ -272,7 +272,7 @@ async def test_with_flows_off_an_unnamed_caller_is_told_that_not_to_rename_itsel
 ):
     """Two refusals could apply and only one is true. With no DATA_DIR
     there is nowhere to keep a flow for anybody, so sending an unnamed caller
-    off to name its session would point it at the wrong problem entirely — and
+    off to name its workspace would point it at the wrong problem entirely — and
     a *named* caller already got the right answer, so the two disagreed."""
     server = SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
@@ -329,7 +329,7 @@ def client(flow_server):
 @pytest.fixture
 def unkeyed_client(tmp_path, monkeypatch):
     """A client the server cannot identify, which is the ordinary case for an
-    n8n HTTP node: no session name anywhere, so it reads and runs the shared
+    n8n HTTP node: no workspace name anywhere, so it reads and runs the shared
     `global` library and has no library of its own to write to."""
     server = SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
@@ -343,9 +343,9 @@ def unkeyed_client(tmp_path, monkeypatch):
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
-def named(session: str | None = None) -> dict:
+def named(workspace: str | None = None) -> dict:
     """Headers for a caller that names its workspace, the way every surface does."""
-    return AUTH if session is None else {**AUTH, "X-Workspace": session}
+    return AUTH if workspace is None else {**AUTH, "X-Workspace": workspace}
 
 
 def test_the_endpoints_need_the_token(client):
@@ -396,7 +396,7 @@ def test_an_http_caller_that_names_nothing_reads_global_but_cannot_write_it(
     """The ordinary case for an n8n HTTP node, and the one place a missing name
     is not an error: it still reaches the shared library to list and run, and
     saving into it is a 400 rather than a silent write to somewhere every other
-    session can overwrite."""
+    workspace can overwrite."""
     saved = unkeyed_client.put("/flows/shared", json={"steps": GOOD}, headers=AUTH)
     assert saved.status_code == 400
     assert "read-only" in saved.json()["error"]

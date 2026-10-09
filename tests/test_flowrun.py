@@ -485,7 +485,7 @@ def test_a_failure_reports_the_page_the_browser_is_actually_on():
 
     assert report["status"] == "failed"
     assert report["steps"][-1]["url"] == "https://example.test/two"
-    # And the run-level URL, which is what sessions.touch stores.
+    # And the run-level URL, which is what Workspaces.touch stores.
     assert report["url"] == "https://example.test/two"
 
 
@@ -533,7 +533,7 @@ def test_a_guarded_value_does_not_come_back_in_the_result():
 
 
 def test_a_guarded_value_never_reaches_the_top_level_report():
-    """Which is what sessions.touch stores — a secret URL in Redis outlives the
+    """Which is what Workspaces.touch stores — a secret URL in Redis outlives the
     run, and a later reopen would navigate straight back to it."""
     steps = [
         {

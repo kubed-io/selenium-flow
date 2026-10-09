@@ -1,5 +1,5 @@
 """A save: the whole jar, the page's two storages, and the localStorage of
-every other origin the session has been to, read in a spare tab — one
+every other origin the workspace has been to, read in a spare tab — one
 snapshot that replaces the last (spec round 2, *save_site_data*)."""
 
 import json

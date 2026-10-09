@@ -263,7 +263,7 @@ class Actions:
 
     def save_site_data(self, session_id: str, url=None) -> dict:
         """Capture the browser's cookies, the page's storage, and the
-        localStorage of every other origin the session has been to.
+        localStorage of every other origin the workspace has been to.
 
         The capture rides back under a private key; the workspace manager stores
         it and no caller sees it.
@@ -280,7 +280,7 @@ class Actions:
     def end_browser(self, session_id: str) -> dict:
         """Quit the browser and free its Grid slot.
 
-        The browser, not the session. A workspace survives its browser and
+        The session, not the workspace. A workspace survives its session and
         keeps the context the next open inherits — see ``Workspaces``.
         """
         self.grid.quit(session_id)
@@ -566,7 +566,7 @@ class Actions:
         every locator until the session is switched into it. That switch is
         **session state on the Grid**, not something this process holds, so it
         persists across calls — and keeps applying until something switches
-        back. That is why ``default`` exists and why the session resource
+        back. That is why ``default`` exists and why ``workspace://current``
         reports whether you are in a frame.
         """
         resolved = str(action).strip().lower()

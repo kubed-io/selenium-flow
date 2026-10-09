@@ -1,8 +1,8 @@
 """Pointing a caller at the manual, in one shape and at the right moment.
 
 Two emitters build a `skill://` URI: a failed flow run says which reference
-explains that kind of failure, and the session status says which explains
-sessions. They built the same URI two different ways — one from a `REFERENCES`
+explains that kind of failure, and the workspace status says which explains
+workspaces. They built the same URI two different ways — one from a `REFERENCES`
 constant, one as a hardcoded literal — which is two places for the same string
 to be wrong.
 
@@ -91,7 +91,7 @@ def test_the_session_status_omits_guidance_when_no_skill_is_served():
 
 def test_the_emitted_shapes_are_exactly_what_they_were():
     """The contract does not move: a run's hint is an object with `read`, the
-    session status's guidance is a bare string. Sharing the construction must
+    workspace status's guidance is a bare string. Sharing the construction must
     not change either, and this is the test that says so."""
     from kubed.selenium_flow.flows.report import hint_for
 

@@ -1,6 +1,6 @@
 """Two tools that read resources, for the clients that cannot.
 
-Everything this server publishes to read — the session status, the skill, the
+Everything this server publishes to read — the workspace status, the skill, the
 flow library, the kept files, the secrets catalogue — is a resource with a URI,
 and the text an agent reads refers to it by that URI: a hint, an error, a
 prompt, the skill itself. A client that reads resources already knows what to

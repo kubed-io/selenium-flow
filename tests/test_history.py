@@ -1,4 +1,4 @@
-"""Where a session has been: the history on its record.
+"""Where a workspace has been: the history on its record.
 
 One entry per origin, newest first, and the current page is the top one. Only
 a page with an origin enters it, and a URL withheld after a secret write
@@ -130,7 +130,7 @@ def test_touch_bumps_the_history_and_a_withheld_url_still_slides_the_ttl():
     workspaces.touch(NAMED, None)
     clock[0] += 50
     record = store.get(NAMED)
-    assert record is not None, "the session expired while it was being used"
+    assert record is not None, "the workspace expired while it was being used"
     assert origins(record) == ["https://b.test", "https://a.test"]
 
 

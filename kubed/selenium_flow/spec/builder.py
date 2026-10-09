@@ -11,8 +11,8 @@ row in ``core/capabilities.py``, so an action cannot be declared without one.
 
 **No transform is applied on the way through, and that is new.** There used to
 be three sanctioned differences, all of them consequences of the HTTP surface
-having no session of its own: ``session_id`` became required, ``fresh`` was
-dropped because there was no session to be fresh *from*, and ``upload_file``
+having no workspace of its own: ``session_id`` became required, ``fresh`` was
+dropped because there was no workspace to be fresh *from*, and ``upload_file``
 gained a ``session`` field so a kept file could name a library. §F2.12 and
 §F2.13 removed the cause rather than the symptoms — both surfaces now name a
 workspace the same way — so a request body here is exactly the tool's schema,

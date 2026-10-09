@@ -63,7 +63,7 @@ def test_a_client_can_declare_it_cannot_read_resources(monkeypatch, value):
 
 
 def test_the_header_wins_here_too(monkeypatch):
-    """Same precedence rule as session names, for the same reason."""
+    """The header wins, as it does for every client default, for the same reason."""
     monkeypatch.setattr(
         clients_module, "request_values", lambda: http({"resources": "on"}, {"x-mcp-resources": "off"})
     )

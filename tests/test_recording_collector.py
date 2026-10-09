@@ -209,7 +209,7 @@ async def test_a_file_that_never_comes_is_dropped_after_wait_with_a_warning(part
 
 async def test_a_discarded_browsers_video_is_deleted_not_filed(parts):
     """Its browser lost the race to bind and was quit: the video is no
-    session's, so it neither joins this one nor sits in the inbox forever."""
+    workspace's, so it neither joins this one nor sits in the inbox forever."""
     c, store, inbox, _alive, filed, _clock = parts
     c.expect("bot", GID, "chrome", discard=True)
     assert store.notes()[0][2]["discard"] is True
@@ -1181,7 +1181,7 @@ async def _settled(c):
 
 async def test_a_provisional_discard_expected_again_is_owed_once_and_filed(parts):
     """A recorded browser is noted for discard the moment it exists and again,
-    ordinarily, once its session holds it: one owed recording, timed from the
+    ordinarily, once its workspace holds it: one owed recording, timed from the
     first, and a note that says so across a restart (Copilot, #59)."""
     c, store, inbox, _alive, _filed, clock = parts
     await c.start()
@@ -1244,7 +1244,7 @@ async def test_an_upgrade_lands_after_a_write_of_the_provisional_note(parts):
 
 
 async def test_an_upgrade_that_cannot_be_written_still_keeps_the_video(parts):
-    """Told it cannot be filed, the session's video is not deleted on the
+    """Told it cannot be filed, the workspace's video is not deleted on the
     strength of a provisional note: the collector owes it ordinarily and
     writes the note again."""
     c, store, inbox, _alive, filed, _clock = parts

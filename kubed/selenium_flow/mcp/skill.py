@@ -1,7 +1,7 @@
 """The embedded skill: how to use this server well, shipped inside it.
 
 An agent that can call the tools still has to decide *when* to screenshot rather
-than extract, whether it owns its session, and what a timeout on a good XPath
+than extract, how to name its workspace, and what a timeout on a good XPath
 actually means. That knowledge normally lives in whatever prompt the operator
 wrote, which means every deployment reinvents it and none of it travels with the
 version of the server it describes.

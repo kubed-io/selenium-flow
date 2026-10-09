@@ -24,7 +24,7 @@ workflow  ──── HTTP /browser ──▶ └──────────
                                                             lives here
 ```
 
-**This server holds no browser.** The browser lives on the Grid, and with `SESSION_STORE=redis` the record naming it does too — so the server can restart or scale to zero without anyone losing a tab. With the default in-memory store, a restart forgets which browser was whose. 🪄
+**This server holds no browser.** The browser lives on the Grid, and with `WORKSPACE_STORE=redis` the record naming it does too — so the server can restart or scale to zero without anyone losing a tab. With the default in-memory store, a restart forgets which browser was whose. 🪄
 
 ---
 
@@ -45,7 +45,7 @@ Every action is a tool **and** an endpoint, one to one, and a test fails the bui
 
 Seventeen actions, each a tool **and** an endpoint with identical parameters — a request body *is* the tool's schema, with nothing added and nothing taken away.
 
-> **Name your session** on either surface: `?session=<name>` or an `X-Session-Key` header. There is no session id anywhere. See [Sessions](#-sessions).
+> **Name your workspace** on either surface: `?workspace=<name>` or an `X-Workspace` header. There is no session id anywhere. See [Workspaces](#-workspaces).
 
 | Action | Endpoint | |
 |---|---|---|
@@ -65,7 +65,7 @@ Seventeen actions, each a tool **and** an endpoint with identical parameters —
 | [`dialog`](https://github.com/kubed-io/selenium-flow/wiki/dialog) | `POST /browser/dialog` | Answer a native alert, confirm or prompt 💬 |
 | [`resize`](https://github.com/kubed-io/selenium-flow/wiki/resize) | `POST /browser/resize` | Change the window at any time 📐 |
 | [`upload_file`](https://github.com/kubed-io/selenium-flow/wiki/upload_file) | `POST /browser/upload` | Attach a file to a file input 📎 |
-| [`end_browser`](https://github.com/kubed-io/selenium-flow/wiki/end_browser) | `DELETE /browser` | Give the slot back, keep the session 🧹 |
+| [`end_browser`](https://github.com/kubed-io/selenium-flow/wiki/end_browser) | `DELETE /browser` | Give the slot back, keep the workspace 🧹 |
 
 Every parameter, every return field and the traps worth knowing are one page per action in the **[wiki](https://github.com/kubed-io/selenium-flow/wiki/Actions)** — generated from `openapi.yaml`, which is itself generated from the live tool schemas, so it cannot drift from the server. The same schemas are served at `GET /openapi.yaml`.
 
@@ -73,15 +73,15 @@ Every parameter, every return field and the traps worth knowing are one page per
 
 `open_session(browser="firefox")` and you are on Firefox; leave it out and you are on Chrome. Every other action behaves identically on both — both are plain W3C WebDriver, so only session creation differs.
 
-### 🧠 A session is not a browser
+### 🧠 A workspace is not a browser
 
-The session outlives the browsers it holds. When the Grid reaps an idle one, or an operator ends one, the session keeps the browser choice, the window and the page it was on — so recovery is one call with no arguments:
+The workspace outlives the sessions it holds — a session is the live browser open in it, one at a time. When the Grid reaps an idle one, or an operator ends one, the workspace keeps the browser choice, the window and the page it was on — so recovery is one call with no arguments:
 
 ```
 open_session()      # same browser, same window, back where you were
 ```
 
-Sessions expire on `SESSION_TTL`, slid forward on every use. Nothing else removes one. [More in the wiki](https://github.com/kubed-io/selenium-flow/wiki/Sessions).
+Workspaces expire on `WORKSPACE_TTL`, slid forward on every use. Nothing else removes one. [More in the wiki](https://github.com/kubed-io/selenium-flow/wiki/Workspaces).
 
 ### 🧭 About that `url` parameter
 
@@ -89,16 +89,17 @@ Sessions expire on `SESSION_TTL`, slid forward on every use. Nothing else remove
 
 ---
 
-## 🍪 Sessions
+## 🍪 Workspaces
 
-**Every session is named by whoever calls, on both surfaces.** Say who you are and you get the browser that belongs to that name — there is no session id in the contract at all, so there is nothing to keep and nothing to pass.
+**Every workspace is named by whoever calls, on both surfaces.** Say who you are and you get the browser that belongs to that name — there is no session id in the contract at all, so there is nothing to keep and nothing to pass.
 
 | How to name it | Looks like | Use it when |
 |---|---|---|
-| **A URL parameter** | `…/mcp?session=research-bot` | the usual case: one credential, each caller named in its own URL |
-| **A header** | `X-Session-Key: research-bot` | an operator pins one session to one credential |
-| **The same header, renamed** | `X-Workspace: research-bot` | a client that only sends approved headers, such as Claude.ai custom connectors |
+| **A URL parameter** | `…/mcp?workspace=research-bot` | the usual case: one credential, each caller named in its own URL |
+| **A header** | `X-Workspace: research-bot` | an operator pins one workspace to one credential, or a client only sends approved headers (Claude.ai custom connectors) |
 | **stdio** | nothing to do | one process serves one client, and it is named `stdio` |
+
+The old `?session=` and `X-Session-Key` are refused with a 400 naming the new spelling.
 
 **Sending both is a 400**, not a contest one wins: two names is two ideas about who is calling, and quietly picking one hides that from whoever wired it up. Naming nothing is a 400 too, with a message saying how — except on the flow library, which falls back to the shared `global` one that everyone reads and nobody writes.
 
@@ -106,22 +107,22 @@ Sessions expire on `SESSION_TTL`, slid forward on every use. Nothing else remove
 
 Call again with the same name — after a reconnect, a client restart, a week later — and you are back on the same browser at the same page.
 
-> ⚠️ n8n opens a **new MCP transport per tool call**, so nothing the transport negotiates is ever the same twice. Name the session in the URL and it simply works.
+> ⚠️ n8n opens a **new MCP transport per tool call**, so nothing the transport negotiates is ever the same twice. Name the workspace in the URL and it simply works.
 
-> 🔑 A session name is a credential. The bearer token is the only thing guarding it, so anyone who can call this server can name your session and drive your browser.
+> 🔑 A workspace name is an address, not a secret: the bearer token is the credential, so anyone holding it who knows your workspace's name can drive your browser.
 
-Browser lifetime is the Grid's (`SE_NODE_SESSION_TIMEOUT`, 300s here); how long a session is remembered is `SESSION_TTL`, slid forward on every call. Nothing runs a cleanup loop.
+Browser lifetime is the Grid's (`SE_NODE_SESSION_TIMEOUT`, 300s here); how long a workspace is remembered is `WORKSPACE_TTL`, slid forward on every call. Nothing runs a cleanup loop.
 
 ### 📍 Where am I?
 
-`session://current` reports the session name, which browser it is running, the page it is on, whether one is open at all, whether you are inside a frame, and the window size. Reading it never opens a browser.
+`workspace://current` reports the workspace name, which browser it is running, the page it is on, whether a session is open at all, whether you are inside a frame, and the window size. Reading it never opens a browser.
 
 Everything there is to read is a resource like this one, and a client whose model cannot read resources — VS Code Copilot, or anything declaring `?resources=off` — gets two tools instead: `list_resources` and `read_resource(uri)`.
 
 ### 📖 It teaches you how to use it
 
 The server ships an **Agent Skill**: the strategic half tool descriptions cannot
-hold — how to name a session, why `extract` beats `screenshot` by orders
+hold — how to name a workspace, why `extract` beats `screenshot` by orders
 of magnitude, how to reach a page in one call, and what a timeout usually means.
 
 `SKILL.md` is a thin index; each reference is its own resource, so an agent loads
@@ -129,16 +130,13 @@ only what its task needs:
 
 | Resource | Holds |
 |---|---|
-| `skill://selenium-flow/SKILL.md` | the index: naming your session, the three rules, where next |
-| `.../references/SESSIONS.md` | naming a session, sharing one, recovering a dead browser |
+| `skill://selenium-flow/SKILL.md` | the index: naming your workspace, the three rules, where next |
+| `.../references/WORKSPACES.md` | naming a workspace, sharing one, recovering a dead browser |
 | `.../references/READING_PAGES.md` | extract vs script vs screenshot, and durable XPath |
 | `.../references/INTERACTION.md` | forms, clicks, keys, scrolling, waiting |
 | `.../references/TROUBLESHOOTING.md` | timeouts, dead sessions, blank captures |
 | `.../references/CONFIGURATION.md` | setting the server up, which env var to change |
 | `skill://selenium-flow/_manifest` | the file listing, with sizes and hashes |
-
-The two session references are mutually exclusive: `session://current` tells you
-which one applies.
 
 Those URIs are FastMCP's convention, served by its own `SkillProvider`, so
 `list_skills` and `download_skill` work here with no special casing.
@@ -159,7 +157,7 @@ Drive a form once, save the steps under a name, and every run after that is one 
 run_flow(name="sign-up", params={"email": "a@example.com"})
 ```
 
-A step is just a tool call, validated against the live tool schemas when it is saved — so a flow that could not run is refused before it starts. It runs in whatever browser you already hold, which means the same flow checks Chrome and then Firefox without an edit. Each named session keeps its own library, beside a shared one called `global` that every session can run and none can change. Set `DATA_DIR` to turn them on; sessions live under `DATA_DIR/sessions/<name>/`.
+A step is just a tool call, validated against the live tool schemas when it is saved — so a flow that could not run is refused before it starts. It runs in whatever browser you already hold, which means the same flow checks Chrome and then Firefox without an edit. Each workspace keeps its own library, beside a shared one called `global` that every workspace can run and none can change. Set `DATA_DIR` to turn them on; workspaces live under `DATA_DIR/workspaces/<name>/`.
 
 ## 🔐 Secrets — typed, never shown
 
@@ -189,11 +187,11 @@ operator action in the [Admin UI](#-admin-ui) below.
 
 | Read it as | URI |
 |---|---|
-| a resource | `session://files` — Files, plus the three folders below |
-| a resource | `session://files/{name}` — one kept file, as bytes (a video: its entry) |
-| a resource | `session://files/screenshots`, `.../screenshots/{name}` |
-| a resource | `session://files/recordings`, `.../recordings/{name}` — an entry, never the video |
-| a resource | `session://files/downloads`, `.../downloads/{name}` |
+| a resource | `workspace://files` — Files, plus the three folders below |
+| a resource | `workspace://files/{name}` — one kept file, as bytes (a video: its entry) |
+| a resource | `workspace://files/screenshots`, `.../screenshots/{name}` |
+| a resource | `workspace://files/recordings`, `.../recordings/{name}` — an entry, never the video |
+| a resource | `workspace://files/downloads`, `.../downloads/{name}` |
 | JSON over HTTP | `GET /files`, `GET /files/screenshots`, `GET /files/recordings`, `GET /files/downloads` |
 | keep one, over HTTP | `PUT /files/{folder}/{name}/kept` — `screenshots`, `recordings` or `downloads` |
 
@@ -208,7 +206,7 @@ opts out when a capture is not worth keeping.
 
 `open_session(record=true)` films the browser's whole life — from that call until
 the browser ends or the Grid reaps it — and the video appears under
-`session://files/recordings` (and in the admin page's Recordings row) shortly
+`workspace://files/recordings` (and in the admin page's Recordings row) shortly
 after. Like screenshots, recordings stay until they are kept into Files or
 cleared.
 
@@ -261,9 +259,9 @@ given up on after `RECORDING_WAIT` seconds with a warning in the log.
 
 ## 🖥 Admin UI
 
-`GET /` — **your** sessions, marked with the browser each is running. Open one for its Files tab — Downloads, Screenshots, Recordings and Files, each cleared the way that fits it — and its Flows tab. Click a file to view it in place; **End** quits a stale browser and gives its Grid slot back, rather than waiting out the Grid's idle timeout — the session itself is kept.
+`GET /` — **your** workspaces, marked with the browser each is running. Open one for its Files tab — Downloads, Screenshots, Recordings and Files, each cleared the way that fits it — and its Flows tab. Click a file to view it in place; **End** quits a stale browser and gives its Grid slot back, rather than waiting out the Grid's idle timeout — it ends the session and keeps the workspace.
 
-Flow sessions, not Grid sessions: browsers somebody else put on the Grid are not listed. Nothing on the MCP surface lists sessions at all — a client sees its own and nothing else. [More in the wiki](https://github.com/kubed-io/selenium-flow/wiki/Administration).
+Workspaces, not Grid sessions: browsers somebody else put on the Grid are not listed. Nothing on the MCP surface lists workspaces at all — a client sees its own and nothing else. [More in the wiki](https://github.com/kubed-io/selenium-flow/wiki/Administration).
 
 The list **pushes its own updates** over Server-Sent Events — no refresh button, and no polling per tab: one loop serves every page. Rows carry the name their caller claimed; a browser this server has no record of is labelled as somebody else's rather than passed off as ours.
 
@@ -275,14 +273,14 @@ The Grid's own console is a second tab, framed same-origin. Put both behind one 
 
 ## 🧩 MCP Apps
 
-Hosts implementing the [MCP Apps extension](https://modelcontextprotocol.io/extensions/apps/overview) — Claude, ChatGPT, VS Code, Goose — render a tool result as UI rather than JSON. `show(uri)` draws your session, its files, a folder of screenshots, the saved flows as cards, or one flow.
+Hosts implementing the [MCP Apps extension](https://modelcontextprotocol.io/extensions/apps/overview) — Claude, ChatGPT, VS Code, Goose — render a tool result as UI rather than JSON. `show(uri)` draws your workspace, its files, a folder of screenshots, the saved flows as cards, or one flow.
 
 The views are the app's own; the files grid, lightbox and browser marks are shared with the admin UI, not copied. Degradation is the point: one server, the client's capabilities pick the rendering.
 
 | The client can | It gets |
 |---|---|
 | render apps | `show`, and the view inline |
-| read resources | `session://files`, `flow://flows`, and the file as bytes |
+| read resources | `workspace://files`, `flow://flows`, and the file as bytes |
 | neither | `read_resource` / `list_resources`, the same JSON, and links anything can open |
 
 Apps get a deny-by-default CSP with no network, so `PUBLIC_BASE_URL` is also what admits this server's images to the frame. `MCP_APPS=false` turns it off.
@@ -317,7 +315,7 @@ Every setting, in all three spellings: the wiki's [Configuration](https://github
 
 ```
 $DATA_DIR/
-├── sessions/<name>/{flows,files,screenshots,recordings}
+├── workspaces/<name>/{flows,files,screenshots,recordings}
 └── recordings/          # RECORDING_DIR's default: where the Grid's videos arrive
 ```
 
@@ -330,15 +328,14 @@ $DATA_DIR/
 | `RECORDING_POLL` | `1000` | milliseconds between looks, when polling |
 | `RECORDING_SETTLE` | `10` | seconds a finished video sits unchanged before it is filed; `0` files it at once |
 
-**Upgrading from `FLOW_DATA_DIR`:** sessions used to sit at the top of the
-directory, and the server now refuses to boot until they move — once:
+**Upgrading:** a `$DATA_DIR/sessions/` moves itself to `workspaces/` at the first boot; both present stops the boot until you merge them. From `FLOW_DATA_DIR`, workspaces sat at the top of the directory, and the server refuses to boot until they move — once:
 
 ```bash
-cd "$DATA_DIR" && ls             # the old session folders, and recordings/ if any
-mkdir sessions && mv <each session folder> sessions/
+cd "$DATA_DIR" && ls             # the old workspace folders, and recordings/ if any
+mkdir workspaces && mv <each workspace folder> workspaces/
 ```
 
-Leave `recordings/` where it is, then set `DATA_DIR` in place of `FLOW_DATA_DIR`. `sessions` and `recordings` are now reserved names: an old session called either is refused at boot until you rename it (say `sessions-old`) and move it into `sessions/`.
+Leave `recordings/` where it is, then set `DATA_DIR` in place of `FLOW_DATA_DIR`. `workspaces` and `recordings` are reserved names: an old workspace called either is refused at boot until you rename it (say `workspaces-old`) and move it into `workspaces/`.
 
 ### Session defaults cascade
 
@@ -348,7 +345,7 @@ The browser, the window size and the two timeouts resolve in order of increasing
 server default (config: session.*)  <  client default (?width= / X-Window-Width)  <  open_session argument
 ```
 
-A bad *client* default is ignored and logged; a bad `session.*` in the config, env or args stops the boot, and an explicit `browser` argument fails loudly. The browser is stored with the session, so a reaped one reopens as the same browser.
+A bad *client* default is ignored and logged; a bad `session.*` in the config, env or args stops the boot, and an explicit `browser` argument fails loudly. The browser is stored with the workspace, so a reaped one reopens as the same browser.
 
 ### 🔐 Auth
 
@@ -384,7 +381,7 @@ That starts the server **and** a standalone Grid for it to drive, with auth off:
 
 ```bash
 curl -X POST localhost:8000/browser \
-  -H 'X-Session-Key: demo' -H 'Content-Type: application/json' \
+  -H 'X-Workspace: demo' -H 'Content-Type: application/json' \
   -d '{"url":"https://example.com","width":1280,"height":800}'
 ```
 

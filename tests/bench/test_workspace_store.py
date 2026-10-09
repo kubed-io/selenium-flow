@@ -1,4 +1,4 @@
-"""The Redis session listing every open admin page polls, timed in-process.
+"""The Redis workspace listing every open admin page polls, timed in-process.
 
 A fake client, so what is timed is ours: the SCAN filter and one MGET decoded
 into records (§F4.19). The network hop that MGET saves is exactly the part a
@@ -13,13 +13,13 @@ from ..fakes import FakeRedis
 
 pytestmark = pytest.mark.bench
 
-SESSIONS = 50
+WORKSPACES = 50
 
 
 @pytest.fixture(scope="module")
 def store():
     store = RedisStore(FakeRedis(), prefix="selenium-flow:")
-    for index in range(SESSIONS):
+    for index in range(WORKSPACES):
         store.set(
             f"agent-{index:02d}",
             Workspace(
@@ -32,4 +32,4 @@ def store():
 
 
 def test_records(benchmark, store):
-    assert len(benchmark(store.records)) == SESSIONS
+    assert len(benchmark(store.records)) == WORKSPACES

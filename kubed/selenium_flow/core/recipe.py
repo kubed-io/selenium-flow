@@ -153,7 +153,7 @@ class Recipe:
         and WebDriver reports that as a stale reference. It is not a mistake by
         the caller and there is nothing to fix in the selector: the element it
         found is simply not the one on the page any more. Found by the admin UI,
-        whose session list repaints on a two-second poll — a click on a row was
+        whose workspace list repaints on a two-second poll — a click on a row was
         racy on every page that refreshes itself, which is a great many of them.
 
         Retried **once**, and the wait is part of the retry: retrying the act

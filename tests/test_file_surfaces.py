@@ -1,4 +1,4 @@
-"""What an agent and an HTTP caller can do with a session's files (§F4.6, §F4.7)."""
+"""What an agent and an HTTP caller can do with a workspace's files (§F4.6, §F4.7)."""
 
 import asyncio
 
@@ -94,7 +94,7 @@ def test_reading_a_screenshot_resource_returns_its_bytes(srv):
     srv.flows.create_file(STDIO_NAME, "shot.png", b"\x89PNG", SCREENSHOTS_DIR)
 
     async def go():
-        async with Client(srv.mcp) as c:  # stdio-like: the session is `stdio`
+        async with Client(srv.mcp) as c:  # stdio-like: the workspace is `stdio`
             return await c.read_resource("workspace://files/screenshots/shot.png")
     got = _run(go())
     assert got[0].blob or got[0].text
