@@ -59,6 +59,10 @@ dependencies = [
   "watchfiles>=1.3",
   "mcp>=2.0,<3",
   "sse-starlette>=3.3",
+  # The session monitor's held BiDi socket (monitor/bidi.py, the only
+  # importer): an asyncio client with pings. It already arrives with fastmcp,
+  # whose floor this is; declared because the module imports it.
+  "websockets>=15",
 ]
 
 [project.optional-dependencies]

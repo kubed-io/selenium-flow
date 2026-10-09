@@ -88,6 +88,7 @@ NO_SELENIUM = tuple(
         "site_data.snapshot",
         "recordings.mp4",
         "monitor.events",
+        "monitor.bidi",
         "flows.template",
         "flows.redact",
         "flows.engine",
@@ -325,3 +326,32 @@ def test_the_upward_check_leaves_the_kernel_alone():
         "import json\n"
     )
     assert upward_imports("core/example.py", source) == []
+
+
+# ---- one socket library, one importer -----------------------------------------
+
+# The held BiDi socket is the monitor's (session monitor spec, ruling 1). A
+# second module holding a socket of its own would be a second set of rules about
+# pings, deadlines and intercepts, so `websockets` has exactly one importer.
+WEBSOCKETS_HOME = "monitor/bidi.py"
+
+
+def websockets_importers() -> set[str]:
+    """Every module under the package that imports ``websockets``."""
+    found = set()
+    for path in sorted(PACKAGE.rglob("*.py")):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and not node.level:
+                names = [node.module or ""]
+            else:
+                continue
+            if any(n == "websockets" or n.startswith("websockets.") for n in names):
+                found.add(path.relative_to(PACKAGE).as_posix())
+    return found
+
+
+def test_only_the_monitor_holds_a_socket():
+    assert websockets_importers() == {WEBSOCKETS_HOME}

@@ -5,6 +5,7 @@ See `events.py` for the bus, and the session monitor spec
 the way it is.
 """
 
+from .bidi import BidiError, BidiSocket
 from .events import (
     EVENTS,
     Bus,
@@ -18,6 +19,8 @@ from .events import (
 
 __all__ = [
     "EVENTS",
+    "BidiError",
+    "BidiSocket",
     "Bus",
     "CallFinished",
     "Event",
