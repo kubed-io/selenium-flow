@@ -18,7 +18,7 @@ export function fakeFetch(routes: Record<string, Route>) {
     const path = new URL(url, 'http://test').pathname
     calls.push({
       method, path, headers: new Headers(init.headers),
-      body: init.body ? JSON.parse(String(init.body)) : undefined,
+      body: init.body ? parsed(init.body) : undefined,
       signal: init.signal ?? undefined,
     })
     // Keyed on path only; a query string in `url` is dropped and never matches.
@@ -36,6 +36,20 @@ export function fakeFetch(routes: Record<string, Route>) {
   })
   vi.stubGlobal('fetch', fn)
   return { fn, calls }
+}
+
+/** A JSON body as its value; anything else — a form — as its text. */
+function parsed(body: BodyInit): unknown {
+  const text = String(body)
+  try { return JSON.parse(text) } catch { return text }
+}
+
+/** An unsigned JWT-shaped string: enough for code that only reads the claims.
+    UTF-8 first, so a username like `zoë` survives `btoa`. */
+export function fakeJwt(claims: object): string {
+  const part = (o: object) => btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(o))))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  return `${part({ alg: 'none' })}.${part(claims)}.sig`
 }
 
 export class FakeEventSource {
