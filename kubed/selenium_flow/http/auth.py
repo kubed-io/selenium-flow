@@ -1,18 +1,20 @@
-"""Does this request carry the server's token?
+"""Who may come in: the server's token, and the doors that also take a JWT.
 
-One question, asked from three places — the action endpoints, the admin API and
-the event stream — and previously answered by two hand-rolled copies of the same
-header parsing that had already drifted in shape. Answering it in one place is
-what lets the comparison below be careful exactly once.
+`authorized` asks "does this request carry the server's token?" for the routes
+that take nothing else — the action endpoints and the secrets listing. It used
+to be answered by two hand-rolled copies of the same header parsing that had
+already drifted in shape; answering it in one place is what lets the
+comparison below be careful exactly once.
+
+The admin API and its event stream ask `AdminDoor` instead: the token, or a JWT
+the admin UI signed in for with the configured OIDC issuer, holding an admin
+role (spec 2026-10-09-admin-oidc). `/mcp`'s verifiers are built here too, and
+one `OidcVerifier` serves both doors.
 
 This is the *bearer* half of the server's auth. The other half is `links.py`,
 which signs a URL for one file so it can be opened by something that cannot send
 a header at all. The split is deliberate: this module answers "are you the
 operator?", `links.py` answers "may this one URL be fetched?".
-
-It also builds both doors that can take a JWT from the configured OIDC issuer:
-`/mcp`'s verifiers, and the admin API's `AdminDoor` (spec
-2026-10-09-admin-oidc). One `OidcVerifier` serves both.
 """
 
 from __future__ import annotations

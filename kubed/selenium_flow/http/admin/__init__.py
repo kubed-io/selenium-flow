@@ -1,19 +1,21 @@
 """A small web UI for the workspaces and the sessions open in them, and their files.
 
 Two audiences, one set of routes. ``/admin`` is the page itself and
-``/admin/<thing>`` is its data, for a person holding the token: live browsers,
-and what each has downloaded.
+``/admin/<thing>`` is its data, for a person holding the token or an admin
+sign-in: live browsers, and what each has downloaded.
 
 ``/files/*`` is for anything that renders a URL — an ``<img>`` on that page, a
 markdown image in a chat transcript, a link sent to someone else — and is
 authorised by signature rather than by header, because none of those can set one.
 
-There is no user database and no session cookie. The server's token is the only
-credential it has, so the sign-in box asks for that: you have it or you do not.
-That is weak as an identity system and exactly right as an access check, since
-anyone holding the token can already drive every browser through the API —
-and, when `oidc.client_id` is set, a JWT the page signed in for with the issuer,
-holding an admin role (spec 2026-10-09-admin-oidc). Still no session cookie.
+There is no user database. The way in is the token, or an admin-UI sign-in
+holding an admin role; neither is a session cookie, and of the two only the
+token drives browsers. The sign-in box asks for the token: you have it or you
+do not. That is weak as an identity system and exactly right as an access
+check, since anyone holding it can already drive every browser through the
+API. When `oidc.client_id` is set the page can sign in with the issuer
+instead, and the admin API admits that JWT (spec 2026-10-09-admin-oidc); the
+REST routes that drive browsers stay token-only.
 
 The files themselves are the Grid's, not ours — see ``Grid.files``.
 

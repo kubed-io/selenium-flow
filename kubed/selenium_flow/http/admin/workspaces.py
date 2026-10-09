@@ -537,7 +537,9 @@ def mount(
         payload = broadcast.fresh() or await run_in_threadpool(workspaces_payload)
         # A signed URL for the event stream, because EventSource cannot send an
         # Authorization header — the same reason the file route is signed. It is
-        # minted here so it is only ever handed to a caller that had the token.
+        # minted here so it is only ever handed to a caller that the admin door
+        # admitted (the token or an admin-UI JWT; spec 2026-10-09-admin-oidc,
+        # ruling 9).
         return JSONResponse(
             {
                 **payload,
