@@ -218,3 +218,67 @@ def test_keeping_a_recording_that_cannot_be_removed_leaves_it_where_it_was(store
         files.keep(Actions(), Sessions(), store, "session://files/recordings/rec-20261008-1403.mp4", S)
     assert store.files(S, FILES_DIR) == []
     assert [f["name"] for f in store.files(S, RECORDINGS_DIR)] == ["rec-20261008-1403.mp4"]
+
+
+def _client(store):
+    from fastmcp import FastMCP
+
+    mcp = FastMCP("t")
+    signed.mount(mcp, Actions(), store, None, "")
+    return TestClient(mcp.http_app())
+
+
+def _fds():
+    return len(list(Path("/proc/self/fd").iterdir()))
+
+
+def _before_send(monkeypatch, action):
+    """Run ``action`` after the handler validated the file, before bytes stream."""
+    real = signed.PinnedFileResponse.__call__
+
+    async def call(self, scope, receive, send):
+        action()
+        await real(self, scope, receive, send)
+
+    monkeypatch.setattr(signed.PinnedFileResponse, "__call__", call)
+
+
+def test_a_file_unlinked_after_the_check_is_still_served_whole(store, tmp_path, monkeypatch):
+    target = store.file_path(S, "rec-20261008-1403.mp4", RECORDINGS_DIR)
+    target.write_bytes(b"A" * 64)
+    _before_send(monkeypatch, target.unlink)
+    resp = _client(store).get(links.recording_path(S, "rec-20261008-1403.mp4"))
+    assert resp.status_code == 200
+    assert resp.content == b"A" * 64
+    assert resp.headers["content-length"] == "64"
+
+
+def test_a_file_replaced_after_the_check_serves_the_original(store, monkeypatch):
+    target = store.file_path(S, "rec-20261008-1403.mp4", RECORDINGS_DIR)
+    target.write_bytes(b"A" * 64)
+
+    def swap():
+        target.unlink()
+        target.write_bytes(b"B" * 500)
+
+    _before_send(monkeypatch, swap)
+    resp = _client(store).get(
+        links.recording_path(S, "rec-20261008-1403.mp4"), headers={"Range": "bytes=4-9"}
+    )
+    assert resp.status_code == 206
+    assert resp.content == b"A" * 6
+    assert resp.headers["content-range"] == "bytes 4-9/64"
+
+
+def test_streaming_leaks_no_descriptor(store):
+    client = _client(store)
+    good = links.recording_path(S, "rec-20261008-1403.mp4")
+    client.get(good)  # warm anything lazily opened
+    before = _fds()
+    for _ in range(5):
+        assert client.get(good).status_code == 200
+        assert client.get(good, headers={"Range": "bytes=0-9"}).status_code == 206
+        assert client.get(good, headers={"Range": "bytes=0-1,4-5"}).status_code == 206
+        assert client.get(links.recording_path(S, "nope.mp4")).status_code == 404
+        assert client.get(good, headers={"Range": "bytes=900-"}).status_code == 416
+    assert _fds() == before

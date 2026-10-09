@@ -164,6 +164,9 @@ def _open_regular(path: Path) -> int:
     return fd
 
 
+open_regular = _open_regular
+
+
 def _no_link(exc: OSError) -> bool:
     """Whether a failed ``os.link`` means links are unavailable, not a real fault."""
     return isinstance(exc, PermissionError) or exc.errno in _NO_LINK

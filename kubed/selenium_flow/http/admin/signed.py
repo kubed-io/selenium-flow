@@ -14,9 +14,10 @@ streamed (``Range``); a Grid download is read as bytes.
 
 from __future__ import annotations
 
+import errno
 import logging
+import os
 import re
-import stat
 import time
 from collections.abc import Callable
 from pathlib import Path, PurePosixPath
@@ -28,6 +29,7 @@ from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Respon
 
 from ... import errors, faults
 from ...core.browser import is_partial
+from ...flows.store import open_regular
 from ...names import RECORDINGS_DIR, SCREENSHOTS_DIR, InvalidName
 from .. import files, links
 
@@ -208,6 +210,41 @@ def signed_refused(exc: Exception, what: str) -> JSONResponse:
     return JSONResponse({"error": text}, status_code=status)
 
 
+class PinnedFileResponse(FileResponse):
+    """A ``FileResponse`` that streams a descriptor it already checked.
+
+    Starlette reopens ``path`` by name while sending, so a file removed or
+    replaced after the check would be streamed with the old size and range
+    headers. ``/proc/self/fd/N`` reopens the inode the descriptor holds, name or
+    no name, and the descriptor is closed when the response ends however it ends.
+    """
+
+    def __init__(self, fd: int, info: os.stat_result, **kwargs) -> None:
+        self._fd = fd
+        super().__init__(f"/proc/self/fd/{fd}", stat_result=info, **kwargs)
+
+    async def __call__(self, scope, receive, send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            os.close(self._fd)
+
+
+def _pinned(resolved: Path):
+    """The open descriptor and its stat; None when not a regular file."""
+    try:
+        fd = open_regular(resolved)
+    except OSError as exc:
+        if exc.errno == errno.EINVAL:
+            return None
+        raise
+    try:
+        return fd, os.fstat(fd)
+    except BaseException:
+        os.close(fd)
+        raise
+
+
 def route(
     mcp,
     token: str | None,
@@ -251,17 +288,21 @@ def route(
         try:
             if path is not None:
                 resolved = await run_in_threadpool(path, who, leaf)
-                # stat, not is_file: is_file turns a permission fault into
-                # "absent", and a storage fault must stay a 5xx.
-                info = await run_in_threadpool(resolved.stat)
-                if not stat.S_ISREG(info.st_mode):
+                # Opened and fstat-ed in one place: the bytes streamed are the
+                # inode checked, whatever happens to the name meanwhile. A
+                # permission fault stays a 5xx, not an "absent".
+                pinned = await run_in_threadpool(_pinned, resolved)
+                if pinned is None:
                     return JSONResponse({"error": "not found"}, status_code=404)
-                return FileResponse(
-                    resolved,
-                    media_type=files.content_type(leaf),
-                    headers=headers_for(leaf, fresh_for(request)),
-                    stat_result=info,
-                )
+                fd, info = pinned
+                kwargs = {
+                    "media_type": files.content_type(leaf),
+                    "headers": headers_for(leaf, fresh_for(request)),
+                }
+                if not Path("/proc/self/fd").is_dir():
+                    os.close(fd)
+                    return FileResponse(resolved, stat_result=info, **kwargs)
+                return PinnedFileResponse(fd, info, **kwargs)
             data = await run_in_threadpool(read, who, leaf)
         except absent:
             return JSONResponse({"error": "not found"}, status_code=404)
