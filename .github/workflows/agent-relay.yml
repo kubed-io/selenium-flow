@@ -1,0 +1,23 @@
+name: Agent Relay
+
+# A pull request review runs the PR's own copy of a workflow, so nothing privileged
+# listens to it directly. This one does nothing; its completion fires agent-pr.yml's
+# workflow_run, which is read from main.
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions: {}
+
+jobs:
+  relay:
+    name: Relay the Review
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Relay
+      env:
+        REVIEWER: ${{ github.event.review.user.login }}
+        NUMBER: ${{ github.event.pull_request.number }}
+      run: echo "review by $REVIEWER on PR $NUMBER"

@@ -1,0 +1,254 @@
+name: 🛠️ Agent · Pull Request
+
+# Plan, then code, on a PR opened from an approved spec (head `issue-*`). Until
+# `plan approved`, Dr K's comments are plan turns; the label commits the last plan round
+# and starts the code. Each code run answers open review threads, does one plan task,
+# and pushes; Copilot's review of that push (relayed by agent-relay.yml) wakes the next.
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [labeled]
+  workflow_run:
+    workflows: [Agent Relay]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+
+  route:
+    name: Route
+    if: >-
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+        github.event.sender.id == fromJSON(vars.CLAUDE_OWNER_ID) &&
+        github.triggering_actor == vars.CLAUDE_OWNER) ||
+      (github.event_name == 'pull_request_target' && github.event.label.name == 'plan approved' &&
+        github.event.sender.id == fromJSON(vars.CLAUDE_OWNER_ID) &&
+        github.triggering_actor == vars.CLAUDE_OWNER) ||
+      (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
+        (github.event.workflow_run.triggering_actor.id == fromJSON(vars.CLAUDE_OWNER_ID) ||
+          contains(fromJSON(vars.CLAUDE_REVIEWER_IDS), github.event.workflow_run.triggering_actor.id)))
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      stage: ${{ steps.route.outputs.stage }}
+      number: ${{ steps.route.outputs.number }}
+      head: ${{ steps.route.outputs.head }}
+      approve: ${{ steps.route.outputs.approve }}
+    steps:
+
+    # plan before `plan approved`, code after; a Copilot review before it does nothing
+    - name: Route
+      id: route
+      uses: actions/github-script@v9
+      env:
+        OWNER_ID: ${{ vars.CLAUDE_OWNER_ID }}
+      with:
+        script: |
+          const e = context.payload;
+          const run = e.workflow_run;
+          const number = run ? (run.pull_requests[0]?.number || 0) : (e.issue?.number || e.pull_request?.number || 0);
+          core.setOutput('stage', 'none');
+          if (!number) return;
+          const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: number });
+          const ours = pr.head.repo?.full_name === `${context.repo.owner}/${context.repo.repo}`;
+          if (pr.state !== 'open' || !ours || !pr.head.ref.startsWith('issue-')) return;
+          const approved = pr.labels.some((l) => l.name === 'plan approved');
+          const byOwner = String((run ? run.triggering_actor : e.sender).id) === process.env.OWNER_ID;
+          const stage = approved ? 'code' : byOwner ? 'plan' : 'none';
+          core.setOutput('stage', stage);
+          core.setOutput('number', String(number));
+          core.setOutput('head', pr.head.ref);
+          core.setOutput('approve', String(context.eventName === 'pull_request_target'));
+
+  approve:
+    name: Approve the Plan
+    needs: route
+    if: needs.route.outputs.stage == 'code' && needs.route.outputs.approve == 'true'
+    runs-on: ubuntu-latest
+    environment: claude
+    timeout-minutes: 10
+    permissions:
+      actions: read
+    steps:
+
+    - name: App Token
+      id: app
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ vars.GH_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
+        permission-contents: write
+        permission-pull-requests: write
+        permission-issues: write
+
+    - name: Commit the Plan
+      uses: kubed-io/actions/issue-agent/commit@main
+      with:
+        github_token: ${{ steps.app.outputs.token }}
+        number: ${{ needs.route.outputs.number }}
+        document: plan
+        trusted_ids: ${{ vars.CLAUDE_OWNER_ID }}
+
+  plan:
+    name: Plan
+    needs: route
+    if: needs.route.outputs.stage == 'plan'
+    runs-on: claude
+    environment: claude
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      actions: read
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ needs.route.outputs.head }}
+        persist-credentials: false
+
+    - name: Roles Token
+      id: roles
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ vars.GH_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
+        repositories: .github-private
+        permission-contents: read
+
+    # the org's base roles; after the repo's checkout, which would clean them away
+    - name: Checkout the Roles
+      uses: actions/checkout@v7
+      with:
+        repository: kubed-io/.github-private
+        token: ${{ steps.roles.outputs.token }}
+        path: .issue/roles
+        sparse-checkout: claude
+        persist-credentials: false
+
+    - name: Plan Agent
+      uses: kubed-io/actions/issue-agent@main
+      with:
+        github_token: ${{ github.token }}
+        number: ${{ needs.route.outputs.number }}
+        instructions: .issue/roles/claude/plan.md
+        schema: .issue/roles/claude/plan.schema.json
+        document: plan
+        document_path: docs/superpowers/plans/{date}-{slug}.md
+        trusted_ids: ${{ vars.CLAUDE_OWNER_ID }}
+        trusted_bots: ${{ vars.CLAUDE_APP_BOT }}
+        session_key: pr-${{ needs.route.outputs.number }}
+        model: opus
+        max_turns: 80
+        mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
+        allowed_tools: Read,Glob,Grep
+        disallowed_tools: Bash,Edit,Write,MultiEdit,NotebookEdit
+        show_full_output: false
+        claude_args: --strict-mcp-config
+
+  code:
+    name: Code
+    needs: [route, approve]
+    if: always() && needs.route.outputs.stage == 'code' && needs.approve.result != 'failure'
+    runs-on: claude
+    environment: claude
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      actions: read
+    steps:
+
+    - name: App Token
+      id: app
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ vars.GH_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
+        permission-contents: write
+        permission-pull-requests: write
+
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ needs.route.outputs.head }}
+        fetch-depth: 0
+        persist-credentials: false
+
+    - name: Checkout the Wiki
+      run: git submodule update --init --depth 1
+
+    - name: Setup Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.14"
+
+    - name: Install
+      run: pip install --editable .[test,build]
+
+    - name: Setup Node
+      uses: actions/setup-node@v7
+      with:
+        node-version: 26
+
+    - name: Install UI Dependencies
+      run: npm --prefix ui ci
+
+    - name: Roles Token
+      id: roles
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ vars.GH_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
+        repositories: .github-private
+        permission-contents: read
+
+    # the org's base roles; after the repo's checkout, which would clean them away
+    - name: Checkout the Roles
+      uses: actions/checkout@v7
+      with:
+        repository: kubed-io/.github-private
+        token: ${{ steps.roles.outputs.token }}
+        path: .issue/roles
+        sparse-checkout: claude
+        persist-credentials: false
+
+    # the agent's commits are the App's
+    - name: Git Identity
+      env:
+        GH_TOKEN: ${{ steps.app.outputs.token }}
+        SLUG: ${{ steps.app.outputs.app-slug }}
+      run: |
+        id=$(gh api "/users/${SLUG}%5Bbot%5D" --jq .id)
+        git config user.name "${SLUG}[bot]"
+        git config user.email "${id}+${SLUG}[bot]@users.noreply.github.com"
+
+    - name: Code Agent
+      uses: kubed-io/actions/issue-agent@main
+      with:
+        github_token: ${{ github.token }}
+        number: ${{ needs.route.outputs.number }}
+        instructions: |
+          .issue/roles/claude/code.md
+          .github/claude/code.md
+        schema: .issue/roles/claude/code.schema.json
+        push_token: ${{ steps.app.outputs.token }}
+        max_runs: 40
+        trusted_ids: ${{ vars.CLAUDE_OWNER_ID }}
+        trusted_bots: ${{ join(fromJSON(vars.CLAUDE_REVIEWER_IDS), ',') }},${{ vars.CLAUDE_APP_BOT }}
+        allowed_bots: ${{ vars.CLAUDE_REVIEWER_LOGINS }}
+        session_key: pr-${{ needs.route.outputs.number }}
+        model: opus
+        max_turns: 200
+        mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
+        allowed_tools: Read,Edit,Write,Glob,Grep,Bash,Agent
+        show_full_output: false
+        claude_args: --permission-mode acceptEdits --strict-mcp-config
