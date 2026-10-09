@@ -1,0 +1,183 @@
+name: 🧭 Agent · Issue
+
+# Spec on an issue, then the hand-off. On an `enhancement` issue, Dr K's `agent` label
+# opts it in, and every comment from Dr K is the next brainstorming turn; each spec round
+# is an artifact and a job summary. `spec approved` commits the last round on a new
+# branch, opens the draft PR, and starts the plan on it.
+#
+# The job gates name ids, not variables: a job's `if` is decided before any runner, so
+# only GitHub's own event data can vouch for the sender. 4399427 is Dr K. Who else
+# counts inside a run comes from the claude runner's env.
+
+on:
+  issues:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+jobs:
+
+  spec:
+    name: Spec
+    if: >-
+      github.event.sender.id == 4399427 &&
+      github.triggering_actor == 'kferrone' &&
+      !github.event.issue.pull_request &&
+      contains(github.event.issue.labels.*.name, 'enhancement') &&
+      contains(github.event.issue.labels.*.name, 'agent') &&
+      !contains(github.event.issue.labels.*.name, 'spec approved') &&
+      (github.event_name == 'issue_comment' || github.event.label.name == 'agent')
+    runs-on: claude
+    environment: claude
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+
+    - name: Roles Token
+      id: roles
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ vars.GH_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
+        repositories: .github-private
+        permission-contents: read
+
+    # the org's base roles; after the repo's checkout, which would clean them away
+    - name: Checkout the Roles
+      uses: actions/checkout@v7
+      with:
+        repository: kubed-io/.github-private
+        token: ${{ steps.roles.outputs.token }}
+        path: .issue/roles
+        sparse-checkout: claude
+        persist-credentials: false
+
+    - name: Spec Agent
+      uses: kubed-io/actions/issue-agent@main
+      with:
+        github_token: ${{ github.token }}
+        instructions: |
+          .issue/roles/claude/spec.md
+          .github/claude/spec.md
+        schema: .issue/roles/claude/spec.schema.json
+        document: spec
+        document_path: docs/superpowers/specs/{date}-{slug}-design.md
+        opt_in_label: agent
+        trusted_ids: ${{ env.CLAUDE_OWNER_ID }}
+        session_key: issue-${{ github.event.issue.number }}
+        session_title: "selenium-flow#${{ github.event.issue.number }} spec: ${{ github.event.issue.title }}"
+        model: opus
+        max_turns: 60
+        mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
+        allowed_tools: Read,Glob,Grep
+        disallowed_tools: Bash,Edit,Write,MultiEdit,NotebookEdit
+        show_full_output: false
+        claude_args: --strict-mcp-config
+
+  approve:
+    name: Approve the Spec
+    if: >-
+      github.event_name == 'issues' &&
+      github.event.label.name == 'spec approved' &&
+      github.event.sender.id == 4399427 &&
+      github.triggering_actor == 'kferrone' &&
+      contains(github.event.issue.labels.*.name, 'agent')
+    runs-on: claude
+    environment: claude
+    timeout-minutes: 10
+    permissions:
+      actions: read
+    outputs:
+      pull_request: ${{ steps.commit.outputs.pull_request }}
+      branch: ${{ steps.commit.outputs.branch }}
+    steps:
+
+    - name: App Token
+      id: app
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ vars.GH_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
+        permission-contents: write
+        permission-pull-requests: write
+        permission-issues: write
+
+    - name: Commit the Spec
+      id: commit
+      uses: kubed-io/actions/issue-agent/commit@main
+      with:
+        github_token: ${{ steps.app.outputs.token }}
+        number: ${{ github.event.issue.number }}
+        document: spec
+        pull_request: draft
+        trusted_ids: ${{ env.CLAUDE_OWNER_ID }}
+
+  plan:
+    name: Plan
+    needs: approve
+    if: needs.approve.outputs.pull_request != ''
+    runs-on: claude
+    environment: claude
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      actions: read
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ needs.approve.outputs.branch }}
+        persist-credentials: false
+
+    - name: Roles Token
+      id: roles
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ vars.GH_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
+        repositories: .github-private
+        permission-contents: read
+
+    # the org's base roles; after the repo's checkout, which would clean them away
+    - name: Checkout the Roles
+      uses: actions/checkout@v7
+      with:
+        repository: kubed-io/.github-private
+        token: ${{ steps.roles.outputs.token }}
+        path: .issue/roles
+        sparse-checkout: claude
+        persist-credentials: false
+
+    - name: Plan Agent
+      uses: kubed-io/actions/issue-agent@main
+      with:
+        github_token: ${{ github.token }}
+        number: ${{ needs.approve.outputs.pull_request }}
+        instructions: .issue/roles/claude/plan.md
+        schema: .issue/roles/claude/plan.schema.json
+        document: plan
+        document_path: docs/superpowers/plans/{date}-{slug}.md
+        trusted_ids: ${{ env.CLAUDE_OWNER_ID }}
+        trusted_bots: ${{ env.CLAUDE_TRUSTED_BOTS }}
+        session_key: pr-${{ needs.approve.outputs.pull_request }}
+        session_title: "selenium-flow#${{ needs.approve.outputs.pull_request }} plan: ${{ github.event.issue.title }}"
+        model: opus
+        max_turns: 80
+        mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
+        allowed_tools: Read,Glob,Grep
+        disallowed_tools: Bash,Edit,Write,MultiEdit,NotebookEdit
+        show_full_output: false
+        claude_args: --strict-mcp-config
