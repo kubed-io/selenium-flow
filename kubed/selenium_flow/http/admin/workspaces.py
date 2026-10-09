@@ -328,7 +328,7 @@ class _Stream(EventSourceResponse):
 
 
 def mount(
-    mcp, actions, workspaces, flow_store, token, prefix, guarded
+    mcp, actions, workspaces, flow_store, token, prefix, guarded, door
 ):
     """Mount the workspace list, its event stream and the end-a-session route.
 
@@ -556,19 +556,21 @@ def mount(
         Asking once here, for every connected page, is the point: the polling
         that would otherwise happen in each open tab collapses into one loop.
         """
-        if not (
-            auth.authorized(request, token)
-            or (
-                token
-                and links.valid(
-                    EVENTS_PATH,
-                    request.query_params.get("exp"),
-                    request.query_params.get("sig"),
-                    token,
+        # A signed URL is how a page's EventSource gets in (it cannot send a
+        # header); anything else is asked of the same door as the admin API.
+        signed = bool(token) and links.valid(
+            EVENTS_PATH,
+            request.query_params.get("exp"),
+            request.query_params.get("sig"),
+            token,
+        )
+        if not signed:
+            try:
+                await door.admit(request)
+            except auth.Refused as refused:
+                return JSONResponse(
+                    {"error": refused.reason}, status_code=refused.status
                 )
-            )
-        ):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
 
         page = _Page()
 

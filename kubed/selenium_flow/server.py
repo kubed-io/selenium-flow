@@ -168,9 +168,11 @@ class SeleniumMCP:
         self.secrets = secrets.from_settings(settings.secrets, settings.config_file)
 
         # The token turns on auth for both surfaces; `oidc` adds a JWT beside it
-        # on /mcp only. Absent, the server is open — correct for a local
+        # on /mcp. Absent, the server is open — correct for a local
         # `docker compose up`, and the reason the deployment always sets one.
-        auth = http_auth.provider(settings)
+        # Both doors from one verifier: /mcp's, and the admin API's, which
+        # also admits an admin-UI JWT when `oidc.client_id` is set.
+        self.doors = http_auth.doors(settings)
 
         # The collector's task lives on the server's event loop, so it starts
         # and stops with it. It runs only while a recording is owed.
@@ -189,7 +191,7 @@ class SeleniumMCP:
         self.mcp = FastMCP(
             "Selenium",
             instructions=tools.first_instructions(self.skill is not None),
-            auth=auth,
+            auth=self.doors.mcp,
             lifespan=lifespan,
         )
         tools.register(self.mcp, self.actions, self.workspaces, self.secrets)
@@ -318,6 +320,7 @@ class SeleniumMCP:
             settings_payload=lambda: config.describe(self.settings, self.sources),
             link_ttl=settings.link_ttl,
             frame_ancestors=settings.security.frame_ancestors,
+            door=self.doors.admin,
         )
         # A filed recording shows on every open admin page now, not a tick on.
         if self.collector is not None:

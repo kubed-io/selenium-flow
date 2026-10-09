@@ -134,20 +134,28 @@ def refused(exc: Exception, what: str, log: logging.Logger) -> JSONResponse:
     return JSONResponse({"error": text}, status_code=status)
 
 
-def guarded(token: str | None) -> Callable:
-    """A decorator: refuse a request with no token before the handler sees it.
+def guarded(door: auth.AdminDoor) -> Callable:
+    """A decorator: refuse a request the admin door does not admit.
 
     A decorator rather than two lines at the top of each route, and the
-    reason is not the fourteen lines: every one of these returns data only a
-    token-holder may see, so the check has to be impossible to leave out of the
+    reason is not the fourteen lines: every one of these returns data only an
+    admin may see, so the check has to be impossible to leave out of the
     next one. Written per-route it was seven chances to forget.
+
+    The door decides who the admin is — the token, or an admin-UI JWT holding
+    an admin role (spec 2026-10-09-admin-oidc) — and its refusal is a 401 or a
+    403 with its reason.
     """
 
     def decorate(handler):
         @wraps(handler)
         async def wrapper(request: Request):
-            if not auth.authorized(request, token):
-                return JSONResponse({"error": "unauthorized"}, status_code=401)
+            try:
+                await door.admit(request)
+            except auth.Refused as refused:
+                return JSONResponse(
+                    {"error": refused.reason}, status_code=refused.status
+                )
             return await handler(request)
 
         return wrapper

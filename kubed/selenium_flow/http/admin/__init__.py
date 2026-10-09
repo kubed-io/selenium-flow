@@ -11,7 +11,9 @@ authorised by signature rather than by header, because none of those can set one
 There is no user database and no session cookie. The server's token is the only
 credential it has, so the sign-in box asks for that: you have it or you do not.
 That is weak as an identity system and exactly right as an access check, since
-anyone holding the token can already drive every browser through the API.
+anyone holding the token can already drive every browser through the API —
+and, when `oidc.client_id` is set, a JWT the page signed in for with the issuer,
+holding an admin role (spec 2026-10-09-admin-oidc). Still no session cookie.
 
 The files themselves are the Grid's, not ours — see ``Grid.files``.
 
@@ -28,7 +30,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from .. import answer, links
+from .. import answer, auth, links
 from . import files, flows, page, signed, site_data
 from . import workspaces as workspace_list
 
@@ -48,6 +50,7 @@ def register(
     settings_payload=None,
     link_ttl: int = links.DEFAULT_TTL,
     frame_ancestors: list[str] | None = None,
+    door: auth.AdminDoor | None = None,
 ) -> workspace_list.Broadcast:
     """Mount the admin pages, their JSON API, and the signed file routes.
 
@@ -60,7 +63,10 @@ def register(
     and the two sat one scope apart with the same name until one shadowed the
     other and a listing died on ``MemoryStore.files``.
     """
-    guarded = answer.guarded(token)
+    # Built from the token when not given, so a caller passing only a token
+    # keeps today's behaviour; the server passes the one `auth.doors` built.
+    door = door or auth.AdminDoor(token)
+    guarded = answer.guarded(door)
 
     page.mount(mcp, prefix, console_url, frame_ancestors)
 
@@ -98,7 +104,7 @@ def register(
         return JSONResponse(settings_payload())
 
     broadcast = workspace_list.mount(
-        mcp, actions, workspaces, flow_store, token, prefix, guarded
+        mcp, actions, workspaces, flow_store, token, prefix, guarded, door
     )
     site_data.mount(mcp, workspaces, catalogue, prefix, guarded, broadcast.changes)
     files.mount(
