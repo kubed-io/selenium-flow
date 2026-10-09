@@ -121,12 +121,17 @@ class BidiSocket:
         reply = asyncio.get_running_loop().create_future()
         self._pending[cid] = reply
         try:
-            await self._ws.send(
-                json.dumps({"id": cid, "method": method, "params": params or {}})
-            )
+            try:
+                await self._ws.send(
+                    json.dumps({"id": cid, "method": method, "params": params or {}})
+                )
+            except ConnectionClosed as exc:
+                raise ConnectionError("the BiDi socket closed") from exc
             return await asyncio.wait_for(reply, timeout)
         finally:
             self._pending.pop(cid, None)
+            if reply.done() and not reply.cancelled():
+                reply.exception()  # retrieved, so an unawaited one never logs
 
     async def subscribe(self, events: Sequence[str]) -> str:
         """Subscribe to ``events`` across the browser; the subscription's id."""
@@ -142,22 +147,29 @@ class BidiSocket:
         self.subscriptions.pop(subscription, None)
 
     async def close(self) -> None:
-        """Unsubscribe each subscription, then close. Never raises."""
+        """Unsubscribe each subscription, then close. Never raises, and always
+        releases the socket and its reader, even when cancelled part-way (the
+        cancellation is then re-raised)."""
         self._closing = True
-        if self.is_open:
-            for subscription in list(self.subscriptions):
-                with contextlib.suppress(Exception):
-                    await self.unsubscribe(subscription)
-        ws = self._ws
-        if ws is not None:
-            with contextlib.suppress(Exception):
-                await asyncio.wait_for(ws.close(), OPEN_TIMEOUT)
         reader, self._reader = self._reader, None
-        if reader is not None and not reader.done():
-            reader.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await reader
-        self._closed = True
+        try:
+            if self.is_open:
+                for subscription in list(self.subscriptions):
+                    with contextlib.suppress(Exception):
+                        await self.unsubscribe(subscription)
+            ws = self._ws
+            if ws is not None:
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(ws.close(), OPEN_TIMEOUT)
+        finally:
+            self._closed = True
+            if reader is not None:
+                reader.cancel()
+                # wait, not await: the reader's own CancelledError stays its own,
+                # while a cancellation aimed at close() still propagates.
+                await asyncio.wait({reader})
+                if not reader.cancelled():
+                    reader.exception()
 
     async def reopen(self) -> None:
         """Open again and ask for the same events: an id is its connection's."""

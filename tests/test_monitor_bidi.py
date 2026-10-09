@@ -159,3 +159,29 @@ async def test_reopen_asks_again_for_the_same_events(browser):
         "sub-2": ("log.entryAdded", "network.responseCompleted")
     }
     await sock.close()
+
+
+async def test_a_cancelled_close_still_releases_and_propagates(browser):
+    sock = BidiSocket(browser.url)
+    await sock.open()
+    await sock.subscribe(["log.entryAdded"])
+    reader = sock._reader
+    sock.command = lambda *a, **k: asyncio.sleep(60)  # the unsubscribe hangs
+    closing = asyncio.ensure_future(sock.close())
+    await asyncio.sleep(0.05)
+    closing.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await closing
+    assert reader.done() and not sock.is_open
+
+
+async def test_a_command_on_a_dropped_socket_is_a_connection_error(browser):
+    sock = BidiSocket(browser.url)
+    await sock.open()
+    await browser.connections[-1].close()
+    await asyncio.sleep(0.05)
+    sock._closed = False  # the reader has seen the drop; send must fail alone
+    with pytest.raises(ConnectionError):
+        await sock.command("browsingContext.getTree")
+    sock._closed = True
+    await sock.close()
