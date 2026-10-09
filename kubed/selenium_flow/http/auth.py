@@ -1,17 +1,20 @@
-"""Does this request carry the server's token?
+"""Who may come in: the server's token, and the doors that also take a JWT.
 
-One question, asked from three places — the action endpoints, the admin API and
-the event stream — and previously answered by two hand-rolled copies of the same
-header parsing that had already drifted in shape. Answering it in one place is
-what lets the comparison below be careful exactly once.
+`authorized` asks "does this request carry the server's token?" for the routes
+that take nothing else — the action endpoints and the secrets listing. It used
+to be answered by two hand-rolled copies of the same header parsing that had
+already drifted in shape; answering it in one place is what lets the
+comparison below be careful exactly once.
+
+The admin API and its event stream ask `AdminDoor` instead: the token, or a JWT
+the admin UI signed in for with the configured OIDC issuer, holding an admin
+role (spec 2026-10-09-admin-oidc). `/mcp`'s verifiers are built here too, and
+one `OidcVerifier` serves both doors.
 
 This is the *bearer* half of the server's auth. The other half is `links.py`,
 which signs a URL for one file so it can be opened by something that cannot send
 a header at all. The split is deliberate: this module answers "are you the
 operator?", `links.py` answers "may this one URL be fetched?".
-
-It also builds the MCP door's verifiers: the server token, and a JWT from the
-configured OIDC issuer.
 """
 
 from __future__ import annotations
@@ -21,6 +24,8 @@ import hmac
 import inspect
 import logging
 import time
+from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Any
 
 from fastmcp.server.auth.auth import AccessToken, AuthProvider, MultiAuth, TokenVerifier
@@ -28,7 +33,7 @@ from fastmcp.server.auth.providers.jwt import JWTVerifier
 from starlette.requests import Request
 
 from .. import config
-from ..principal import ADMIN, Principal, roles_in
+from ..principal import ADMIN, Principal
 
 log = logging.getLogger(__name__)
 
@@ -170,7 +175,14 @@ class OidcVerifier(JWTVerifier):
         fetch.add_done_callback(_retrieve)
         return await asyncio.shield(fetch)
 
-    async def verify_token(self, token: str) -> AccessToken | None:
+    async def verify_jwt(self, token: str) -> PrincipalToken | None:
+        """Signature, iss, aud, exp and nbf: everything but a role.
+
+        The admin door asks this and applies its own roles (spec
+        2026-10-09-admin-oidc, ruling 5); `/mcp` asks `verify_token`, which
+        adds `oidc.roles`. One instance serves both, so one JWKS cache and one
+        refetch floor.
+        """
         verified = await super().verify_token(token)
         if verified is None:
             return None
@@ -188,14 +200,19 @@ class OidcVerifier(JWTVerifier):
         ):
             _log_refusal("nbf not numeric or in the future", claims)
             return None
-        held = roles_in(claims, self._roles_claim)
-        if self._roles and not self._roles.intersection(held):
-            _log_refusal("no allowed role", claims)
-            return None
         return PrincipalToken(
             **verified.model_dump(),
             principal=Principal.from_claims(claims, self._roles_claim),
         )
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        verified = await self.verify_jwt(token)
+        if verified is None:
+            return None
+        if self._roles and not self._roles.intersection(verified.principal.roles):
+            _log_refusal("no allowed role", verified.claims)
+            return None
+        return verified
 
 
 def _log_refusal(reason: str, claims: dict) -> None:
@@ -204,18 +221,96 @@ def _log_refusal(reason: str, claims: dict) -> None:
     log.info("JWT refused for sub %r: %s", claims.get("sub"), reason)
 
 
-def provider(settings: config.Settings, *, http_client=None) -> AuthProvider | None:
-    """What `/mcp` checks a bearer with: nothing, the token, or the token then a JWT."""
+UNAUTHORIZED = "unauthorized"
+NOT_ADMIN = "this sign-in does not hold an admin role"
+
+
+class Refused(Exception):
+    """The admin door's no: 401 for a credential it does not know, 403 for one it
+    knows that is not enough (spec 2026-10-09-admin-oidc, ruling 6)."""
+
+    def __init__(self, status: int, reason: str):
+        super().__init__(reason)
+        self.status = status
+        self.reason = reason
+
+
+class AdminDoor:
+    """Who may use the admin API and its event stream.
+
+    The server token, as ever; and, when the admin UI signs in with OIDC
+    (`oidc.client_id`), a JWT minted for that client holding one of
+    `oidc.admin_roles`. The JWT check is `/mcp`'s own verifier minus its role,
+    so `oidc.roles` does not apply here and one JWKS cache serves both.
+    """
+
+    def __init__(
+        self,
+        token: str | None,
+        jwt: OidcVerifier | None = None,
+        *,
+        client_id: str | None = None,
+        roles: Iterable[str] = (),
+    ):
+        self._token = token or None
+        self._jwt = jwt
+        self._client_id = client_id
+        self._roles = frozenset(roles)
+
+    async def admit(self, request: Request) -> Principal | None:
+        """The admin this request is, None on an open server, or `Refused`."""
+        if not self._token:
+            return None
+        bearer = presented(request)
+        # Bytes: a str compare_digest raises on non-ASCII, and headers arrive latin-1.
+        if hmac.compare_digest(bearer.encode(), self._token.encode()):
+            return ADMIN
+        # No client to match is no JWT door: a JWT without `azp` must not match None.
+        if self._jwt is None or not self._client_id or not bearer:
+            raise Refused(401, UNAUTHORIZED)
+        verified = await self._jwt.verify_jwt(bearer)
+        if verified is None:
+            raise Refused(401, UNAUTHORIZED)
+        if verified.claims.get("azp") != self._client_id:
+            _log_refusal("not the admin UI's client", verified.claims)
+            raise Refused(401, UNAUTHORIZED)
+        if not self._roles.intersection(verified.principal.roles):
+            _log_refusal("no admin role", verified.claims)
+            raise Refused(403, NOT_ADMIN)
+        return verified.principal
+
+
+@dataclass(frozen=True)
+class Doors:
+    """Both doors a server has, built from one verifier."""
+
+    mcp: AuthProvider | None
+    admin: AdminDoor
+
+
+def doors(settings: config.Settings, *, http_client=None) -> Doors:
+    """`/mcp`'s verifiers and the admin door, sharing one `OidcVerifier`."""
     problem = config.oidc_problem(settings)
     if problem:
         raise config.ConfigError(problem)
     token = settings.auth.token.get_secret_value() if settings.auth.token else None
     if not token:
-        return None
+        return Doors(None, AdminDoor(None))
     server_token = ServerTokenVerifier(token)
-    if not settings.oidc.issuer:
-        return server_token
-    # The token first: a string compare, where a JWT costs a signature check.
-    return MultiAuth(
-        verifiers=[server_token, OidcVerifier(settings.oidc, http_client=http_client)]
+    oidc = settings.oidc
+    if not oidc.issuer:
+        return Doors(server_token, AdminDoor(token))
+    jwt = OidcVerifier(oidc, http_client=http_client)
+    admin = AdminDoor(
+        token,
+        jwt if oidc.client_id else None,
+        client_id=oidc.client_id,
+        roles=oidc.admin_roles,
     )
+    # The token first: a string compare, where a JWT costs a signature check.
+    return Doors(MultiAuth(verifiers=[server_token, jwt]), admin)
+
+
+def provider(settings: config.Settings, *, http_client=None) -> AuthProvider | None:
+    """What `/mcp` checks a bearer with: nothing, the token, or the token then a JWT."""
+    return doors(settings, http_client=http_client).mcp

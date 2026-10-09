@@ -13,6 +13,7 @@ import pytest
 
 from kubed.selenium_flow.flows.store import LocalFlowStore
 from kubed.selenium_flow.http.admin import workspaces as workspace_list
+from kubed.selenium_flow.http.auth import AdminDoor
 from kubed.selenium_flow.names import SCREENSHOTS_DIR
 from kubed.selenium_flow.site_data.snapshot import _size
 from kubed.selenium_flow.workspace.store import RedisStore, Workspace
@@ -108,6 +109,7 @@ def workspaces_payload(tmp_path_factory):
         None,
         "",
         lambda handler: handler,
+        AdminDoor(None),
     )
     return broadcast.compute
 

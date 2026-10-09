@@ -37,6 +37,16 @@ def oidc_server(issuer):
     return SeleniumMCP(issuer.settings(TOKEN))
 
 
+@pytest.fixture
+def admin_server(issuer):
+    return SeleniumMCP(issuer.settings(TOKEN, admin_roles=("admin",)))
+
+
+def get(server, path, bearer):
+    with TestClient(server.mcp.http_app()) as client:
+        return client.get(path, headers={"Authorization": f"Bearer {bearer}"})
+
+
 def status_of(server, bearer):
     with TestClient(server.mcp.http_app()) as client:
         return client.post(
@@ -116,3 +126,50 @@ async def test_session_current_names_the_jwt_subject(oidc_server, issuer):
 
 async def test_session_current_names_the_admin_for_the_token(oidc_server):
     assert (await current(oidc_server, TOKEN))["principal"] == {"kind": "admin"}
+
+
+def test_an_admin_ui_jwt_opens_the_admin_api(admin_server, issuer):
+    answer = get(admin_server, "/admin/workspaces", issuer.mint_admin())
+    assert answer.status_code == 200
+    # Signed with the server token, as ever: the stream does not need the JWT.
+    assert "sig=" in answer.json()["events_url"]
+
+
+def test_a_jwt_without_an_admin_role_is_told_so(admin_server, issuer):
+    answer = get(admin_server, "/admin/workspaces", issuer.mint_admin(roles=("mcp",)))
+    assert answer.status_code == 403
+    assert answer.json() == {"error": "this sign-in does not hold an admin role"}
+
+
+def test_another_clients_jwt_is_refused_on_the_admin_api(admin_server, issuer):
+    answer = get(admin_server, "/admin/settings", issuer.mint_admin(azp="claude-code"))
+    assert answer.status_code == 401
+    assert answer.json() == {"error": "unauthorized"}
+
+
+def test_the_event_stream_asks_the_same_door(admin_server, issuer):
+    roleless = issuer.mint_admin(roles=("mcp",))
+    assert get(admin_server, "/admin/events", roleless).status_code == 403
+
+
+def test_the_token_still_opens_the_admin_api(admin_server):
+    assert get(admin_server, "/admin/workspaces", TOKEN).status_code == 200
+
+
+@pytest.mark.parametrize(("method", "path"), TREES)
+def test_an_admin_ui_jwt_does_not_open_a_rest_route(admin_server, issuer, method, path):
+    """The REST routes stay token-only, whoever the JWT is."""
+    with TestClient(admin_server.mcp.http_app()) as client:
+        answer = getattr(client, method)(
+            path, json={}, headers={"Authorization": f"Bearer {issuer.mint_admin()}"}
+        )
+    assert answer.status_code == 401
+
+
+def test_one_jwks_fetch_serves_both_doors(admin_server, issuer):
+    with TestClient(admin_server.mcp.http_app()) as client:
+        admin = {"Authorization": f"Bearer {issuer.mint_admin()}"}
+        assert client.get("/admin/settings", headers=admin).status_code == 200
+        mcp = ACCEPT | {"Authorization": f"Bearer {issuer.mint()}"}
+        assert client.post("/mcp", json=INIT, headers=mcp).status_code == 200
+    assert issuer.fetches == 1

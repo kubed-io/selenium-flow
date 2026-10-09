@@ -6,11 +6,14 @@ rather than quietly given a browser, because inventing an identity is how every
 tool call opened a browser nobody closed.
 """
 
+import json
+
 import pytest
 from pydantic import ValidationError
 
 from kubed.selenium_flow.config import RedisSettings, WorkspaceSettings
 from kubed.selenium_flow.mcp import clients as clients_module
+from kubed.selenium_flow.principal import Principal
 from kubed.selenium_flow.workspace.store import (
     DEFAULT_DB,
     MemoryStore,
@@ -1670,3 +1673,43 @@ def test_a_blank_old_name_is_no_name_at_all():
 def test_the_new_names_name_the_workspace():
     assert caller_of({"workspace": "desk"}).name == "desk"
     assert caller_of(headers={"x-workspace": "desk"}).name == "desk"
+
+
+# ---- who opened the browser (spec 2026-10-09-admin-oidc, ruling 11) ---------
+
+
+DRK = {"kind": "oidc", "username": "drk"}
+
+
+def test_open_session_records_who_opened_the_browser():
+    workspaces = manager()
+    drk = Principal("oidc", subject="6b0f", username="drk")
+    workspaces.open_browser(Caller(NAMED, "header", principal=drk))
+    assert workspaces.store.get(NAMED).opened_by == DRK
+
+
+def test_an_open_server_records_nobody():
+    workspaces = manager()
+    workspaces.open_browser(Caller(NAMED, "header"))
+    assert workspaces.store.get(NAMED).opened_by is None
+
+
+def test_a_reopen_after_a_reap_keeps_who_opened_it():
+    workspaces = manager(RecordingActions())
+    workspaces.store.set(NAMED, Workspace(session_id="dead", opened_by=DRK))
+    workspaces.resolve(NAMED)
+    assert workspaces.store.get(NAMED).opened_by == DRK
+
+
+@pytest.mark.parametrize(
+    ("stored", "read"),
+    [
+        (DRK, DRK),
+        ({"kind": "admin"}, {"kind": "admin", "username": None}),
+        ({"kind": "root", "username": "x"}, None),
+        ("drk", None),
+    ],
+)
+def test_opened_by_is_read_back_or_dropped(stored, read):
+    raw = json.dumps({"session_id": "s", "opened_by": stored})
+    assert Workspace.from_json(raw).opened_by == read
