@@ -25,6 +25,7 @@
     <span class="bmark" title={s.browser || 'browser'}>{browserMark(s.browser)}</span>
     <strong class="grow">{s.name || s.owner || 'Session'}</strong>
     {#if s.live}<span class="pill live">live</span>{:else}<span class="pill">idle</span>{/if}
+    {#if s.live && s.recording}<span class="pill rec">● REC</span>{/if}
   </div>
   <div class="lastpage">
     <div class="k small muted">last page</div>

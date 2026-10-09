@@ -333,7 +333,7 @@ def test_a_save_mid_flow_reads_the_sites_the_run_reached_before_it(
     monkeypatch.setattr(Grid, "is_alive", lambda self, sid: True)
     monkeypatch.setattr(Grid, "bidi", lambda self, sid: bidi_cm(FakeBidi())(sid))
     server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"}, flow={"data_dir": str(tmp_path)},
+        grid={"url": "http://grid.invalid:4444"}, data={"dir": str(tmp_path)},
     ))
     server.flows.save(NAMED, "trip", {"steps": [
         {"tool": "navigate", "args": {"url": a + "/"}},

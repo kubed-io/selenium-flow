@@ -1,4 +1,4 @@
-export type Folder = 'downloads' | 'screenshots' | 'files'
+export type Folder = 'downloads' | 'screenshots' | 'recordings' | 'files'
 
 export interface FileEntry {
   name: string
@@ -12,11 +12,12 @@ export interface FileEntry {
 export interface FilesData {
   downloads: FileEntry[]
   screenshots: FileEntry[]
+  recordings: FileEntry[]
   files: FileEntry[]
   browser: boolean
 }
 
-export interface Counts { downloads: number; screenshots: number; files: number }
+export interface Counts { downloads: number; screenshots: number; recordings?: number; files: number }
 
 export interface SessionRow {
   key: string
@@ -26,6 +27,7 @@ export interface SessionRow {
   version?: string | null
   session_id?: string | null
   live?: boolean
+  recording?: boolean
   attached?: boolean
   started?: number | null
   node?: string | null
@@ -47,6 +49,7 @@ export interface FilesResponse {
   session?: SessionRow
   downloads?: FileEntry[]
   screenshots?: FileEntry[]
+  recordings?: FileEntry[]
   files?: FileEntry[]
   browser?: boolean
 }

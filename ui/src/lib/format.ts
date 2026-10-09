@@ -46,7 +46,7 @@ export function ago(ms?: number | null, now = Date.now()): string {
 export function countsText(s: SessionRow): string {
   const c = s.counts
   if (c) {
-    return ([[c.downloads, ' download'], [c.screenshots, ' screenshot'], [c.files, ' file']] as const)
+    return ([[c.downloads, ' download'], [c.screenshots, ' screenshot'], [c.recordings ?? 0, ' recording'], [c.files, ' file']] as const)
       .filter(([n]) => n)
       .map(([n, word]) => n + word + (n === 1 ? '' : 's'))
       .join(' · ')

@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Breaking:** `FLOW_DATA_DIR` is now `DATA_DIR`, and session folders live under `DATA_DIR/sessions/` — move them there once.
+- `open_session(record=true)` records the browser; recordings appear under `session://files/recordings` and in the admin Files tab.
 - Skills-aware clients discover the embedded skill through the MCP Skills extension (`skills/list`, `skills/get`).
 - `show(uri)` draws a resource as an MCP App — your session, files, a folder, the saved flows as cards, one flow, the secrets (never a value); `session_files` is gone.
 - An `X-Workspace` header names the session too, for clients like Claude.ai custom connectors that cannot send `X-Session-Key`.

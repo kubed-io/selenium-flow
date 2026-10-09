@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import inspect
 import logging
 import time
 from typing import Any
@@ -83,6 +84,22 @@ CLIENT_ID = "selenium-flow"
 # refusals for the new kid: the accepted price of closing that amplifier.
 JWKS_REFETCH_FLOOR = 60
 
+# FastMCP 4.1 floors JWKS refreshes itself (`jwks_refresh_interval`, 30 s by
+# default), but records the attempt and fetches under a lock, unshielded: a
+# first caller cancelled mid-fetch takes the fetch with it, and everyone waiting
+# is refused for the whole interval. So that floor is set to 0 (refresh on every
+# miss, its documented off) and `OidcVerifier._fetch_jwks` is the one floor on
+# every FastMCP. 4.0 has no such parameter, so it is passed only where it exists.
+_TAKES_REFRESH_INTERVAL = (
+    "jwks_refresh_interval" in inspect.signature(JWTVerifier.__init__).parameters
+)
+
+
+def _retrieve(fetch: asyncio.Future) -> None:
+    """Read a fetch's exception, so one nobody awaited does not warn at GC."""
+    if not fetch.cancelled():
+        fetch.exception()
+
 
 class PrincipalToken(AccessToken):
     """An access token that says who it is, so nothing re-reads its claims."""
@@ -115,42 +132,43 @@ class OidcVerifier(JWTVerifier):
     """
 
     def __init__(self, oidc: config.OidcSettings, *, http_client=None):
+        # FastMCP's own floor off, so ours is the only one (see above).
+        native = {"jwks_refresh_interval": 0} if _TAKES_REFRESH_INTERVAL else {}
         super().__init__(
             jwks_uri=oidc.jwks_uri,
             issuer=oidc.issuer,
             audience=oidc.audience,
             algorithm="RS256",
             http_client=http_client,
+            **native,
         )
         self._roles = frozenset(oidc.roles)
         self._roles_claim = oidc.roles_claim
+        self._floor = JWKS_REFETCH_FLOOR  # read once: the floor it was built with
         self._fetched_at: float | None = None
-        self._inflight: asyncio.Future | None = None
+        self._last_fetch: asyncio.Future | None = None
 
     async def _fetch_jwks(self) -> dict[str, Any]:
-        # JWTVerifier calls this only on a cache miss, and its caller turns the
-        # ValueError into a refusal and keeps the cached keys. Single-flight: a
-        # burst waits for the one fetch in progress, so a valid token at cold
-        # start is not refused by the floor. Shielded, so one waiter's
-        # cancellation does not cancel the fetch for the rest.
-        if self._inflight is not None:
-            return await asyncio.shield(self._inflight)
+        # JWTVerifier calls this on every cache miss and caches what it returns
+        # in the calling task; its caller turns the ValueError into a refusal
+        # and keeps the cached keys. On 4.0 a burst awaits the one fetch in
+        # progress here; on 4.1 FastMCP's lock lets misses in one at a time, and
+        # those after the fetch get its body back. Either way a valid token at
+        # cold start is not refused by the floor. Shielded, so a caller's
+        # cancellation does not cancel the fetch; and kept, not cleared, so a
+        # body its cancelled caller never cached still answers the floor.
+        fetch = self._last_fetch
+        if fetch is not None and not fetch.done():
+            return await asyncio.shield(fetch)
         now = time.monotonic()
-        if self._fetched_at is not None and now - self._fetched_at < JWKS_REFETCH_FLOOR:
-            raise ValueError(f"JWKS fetched under {JWKS_REFETCH_FLOOR}s ago")
+        if self._fetched_at is not None and now - self._fetched_at < self._floor:
+            if fetch and not fetch.cancelled() and fetch.exception() is None:
+                return fetch.result()  # the floor's own body again: no GET
+            raise ValueError(f"JWKS fetched under {self._floor}s ago")
         self._fetched_at = now
-        self._inflight = fetch = asyncio.ensure_future(super()._fetch_jwks())
-        fetch.add_done_callback(self._fetch_done)
+        self._last_fetch = fetch = asyncio.ensure_future(super()._fetch_jwks())
+        fetch.add_done_callback(_retrieve)
         return await asyncio.shield(fetch)
-
-    def _fetch_done(self, fetch: asyncio.Future) -> None:
-        # Cleared when the fetch ends, not when its first caller does: that
-        # caller may be cancelled while others still wait. Reading the
-        # exception keeps a fetch nobody awaited from warning at GC.
-        if self._inflight is fetch:
-            self._inflight = None
-        if not fetch.cancelled():
-            fetch.exception()
 
     async def verify_token(self, token: str) -> AccessToken | None:
         verified = await super().verify_token(token)

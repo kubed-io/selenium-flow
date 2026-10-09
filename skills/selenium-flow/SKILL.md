@@ -59,9 +59,10 @@ To switch, just call `open_session(browser="firefox")` again — the browser you
 are holding is ended for you first, so do not close and reopen. **The files it
 had go with it** — the downloads, which the Grid deletes with the browser.
 Screenshots and prints are your session's already: `session://files` lists
-what is in Files and names two folders, `session://files/screenshots` and
-`session://files/downloads`. `keep_file(uri)` moves a screenshot into Files, or
-copies a download there before the browser goes.
+what is in Files and names three folders, `session://files/screenshots`,
+`session://files/recordings` and `session://files/downloads`. `keep_file(uri)`
+moves a screenshot or a recording into Files, or copies a download there before
+the browser goes.
 
 One session holds one browser. To use both at once, use two session names;
 `session://current` reports which browser the one you are holding is.
@@ -179,10 +180,12 @@ And everything to read:
 | URI | Is |
 |---|---|
 | `session://current` | what you are holding |
-| `session://files` | Files' own kept files, each with a link, plus the two folders below |
-| `session://files/{name}` | one kept file, as bytes |
+| `session://files` | Files' own kept files, each with a link, plus the three folders below |
+| `session://files/{name}` | one kept file, as bytes; a video (a kept recording) is described instead — its link plays it |
 | `session://files/screenshots` | saved screenshots not yet kept |
 | `session://files/screenshots/{name}` | one of those, as bytes |
+| `session://files/recordings` | this session's recordings not yet kept, each with a link that plays it |
+| `session://files/recordings/{name}` | one of those, described — its link plays it; not the video's bytes |
 | `session://files/downloads` | this session's browser downloads |
 | `session://files/downloads/{name}` | one of those, as bytes, while the browser is open |
 | `session://site-data` | the sites you have saved cookies or storage for — never a value |

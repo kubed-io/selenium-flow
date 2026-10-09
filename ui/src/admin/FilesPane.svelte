@@ -12,7 +12,7 @@
     onopen: (folder: Folder, i: number) => void
     onkeep: (folder: Folder, f: FileEntry) => Promise<boolean>
     ondelete: (f: FileEntry) => void
-    onclear: (what: 'downloads' | 'screenshots') => void
+    onclear: (what: 'downloads' | 'screenshots' | 'recordings') => void
   } = $props()
 
   // Ending needs attached; clearing downloads needs it RUNNING — the Grid
@@ -20,11 +20,12 @@
   const clearDownloadsOff = $derived(!m.row.live || m.files === NO_FILES || m.loadingFiles)
   // No per-screenshot delete on the Grid, so the clear is offered only when
   // there is something to take.
+  const clearRecordingsOff = $derived(!m.files.recordings.length || m.loadingFiles)
   const clearScreenshotsOff = $derived(!m.files.screenshots.length || m.loadingFiles)
   const count = (n: number | undefined) => (m.filesError || !m.view ? '' : String(n ?? ''))
 </script>
 
-{#snippet rows(folder: 'downloads' | 'screenshots' | 'kept')}
+{#snippet rows(folder: 'downloads' | 'screenshots' | 'recordings' | 'kept')}
   {#if m.filesError}
     <div class="empty error">{m.filesError}</div>
   {:else if !m.view}
@@ -35,6 +36,9 @@
   {:else if folder === 'screenshots'}
     <FileGrid files={m.view.screenshots} base={root} action="keep" empty="No screenshots yet."
               onopen={(i) => onopen('screenshots', i)} onkeep={(f) => onkeep('screenshots', f)} />
+  {:else if folder === 'recordings'}
+    <FileGrid files={m.view.recordings} base={root} action="keep" empty="No recordings yet."
+              onopen={(i) => onopen('recordings', i)} onkeep={(f) => onkeep('recordings', f)} />
   {:else}
     <FileGrid files={m.view.files} base={root} action="delete"
               empty="Nothing here yet — prints land here, and anything you keep."
@@ -58,6 +62,15 @@
               onclick={() => onclear('screenshots')}>Clear screenshots</button>
     {/snippet}
     <div id="screenshots">{@render rows('screenshots')}</div>
+  </Section>
+
+  <Section id="recordingsSection" title="Recordings" count={count(m.view?.counts.recordings)}>
+    {#snippet actions()}
+      <button id="clearRecordings" class="danger" disabled={clearRecordingsOff}
+              title="Delete every recording. Anything you kept is in Files and stays."
+              onclick={() => onclear('recordings')}>Clear recordings</button>
+    {/snippet}
+    <div id="recordings">{@render rows('recordings')}</div>
   </Section>
   <!-- No clear: everything in Files was put there on purpose (§F4.1). -->
   <Section id="keptSection" title="Files" count={count(m.view?.counts.files)}>

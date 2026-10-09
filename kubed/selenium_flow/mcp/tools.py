@@ -350,6 +350,7 @@ def register(
         page_load_timeout: int | None = None,
         script_timeout: int | None = None,
         insecure: bool | None = None,
+        record: bool | None = None,
         fresh: bool = False,
         restore_site_data: bool = True,
     ) -> dict:
@@ -368,6 +369,10 @@ def register(
         start as a new user. page_load_timeout bounds a navigation that
         hangs. insecure=true accepts a self-signed certificate; use it only for a site
         you know has one. An insecure browser gets no saved site data.
+        record=true films this browser's whole life as a video, from now until it
+        ends; it appears under session://files/recordings shortly after. A person
+        watches it, so only when one will — it costs the Grid. Not inherited: ask
+        again for the next browser.
         """
         return sessions.open_browser(
             clients.caller(),
@@ -380,6 +385,7 @@ def register(
             page_load_timeout=page_load_timeout,
             script_timeout=script_timeout,
             insecure=insecure,
+            record=record,
         )
 
     @action("save_site_data")

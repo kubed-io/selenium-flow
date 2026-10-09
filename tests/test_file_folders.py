@@ -21,7 +21,7 @@ def store(tmp_path):
 
 
 def test_the_folders_are_named_once():
-    assert FOLDERS == ("files", "screenshots")
+    assert FOLDERS == ("files", "screenshots", "recordings")
 
 
 def test_a_screenshot_lands_in_its_own_folder(store, tmp_path):

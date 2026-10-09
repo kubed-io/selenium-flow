@@ -31,6 +31,7 @@ VIEWS: tuple[tuple[str, re.Pattern[str], str], ...] = (
         re.compile(r"session://files/screenshots"),
         "folder",
     ),
+    ("session://files/recordings", re.compile(r"session://files/recordings"), "folder"),
     ("session://files/downloads", re.compile(r"session://files/downloads"), "folder"),
     ("flow://flows", re.compile(r"flow://flows"), "flows"),
     ("flow://flows/{name}", re.compile(r"flow://flows/[^/]+"), "flow"),

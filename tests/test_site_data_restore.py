@@ -242,7 +242,7 @@ class OpenedDriver:
 def opened(actions, monkeypatch, spare, data, **kw):
     order = []
     spare.order = order
-    monkeypatch.setattr(actions.grid, "open", lambda name, insecure=False: OpenedDriver(order))
+    monkeypatch.setattr(actions.grid, "open", lambda name, insecure=False, record=False, video_name=None: OpenedDriver(order))
     monkeypatch.setattr(actions.grid, "bidi", bidi_cm(FakeBidi(order=order)))
     return actions.open_session(url=APP + "/", site_data=data, **kw), order
 
@@ -305,7 +305,7 @@ def test_an_open_with_no_url_is_on_about_blank_even_when_the_restore_could_not_s
 
     order = []
     spare.order = order
-    monkeypatch.setattr(actions.grid, "open", lambda name, insecure=False: LeftOnTheStandIn(order))
+    monkeypatch.setattr(actions.grid, "open", lambda name, insecure=False, record=False, video_name=None: LeftOnTheStandIn(order))
     monkeypatch.setattr(actions.grid, "bidi", bidi_cm(FakeBidi(order=order)))
     result = actions.open_session(site_data=FULL)
     assert went == ["about:blank"]

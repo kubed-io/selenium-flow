@@ -32,7 +32,7 @@ from pydantic.fields import FieldInfo
 from pydantic_settings import EnvSettingsSource, NoDecode
 
 from .core.defaults import DEFAULT_GRID_URL, normalize_browser
-from .names import valid_name
+from .names import INBOX_DIR, SESSIONS_DIR, valid_name
 from .urls import without_userinfo
 
 # Marks a field that only the config file may set: structure, not a value.
@@ -191,14 +191,50 @@ class RedisSettings(Section):
     )
 
 
-class FlowSettings(Section):
-    data_dir: str | None = Field(
-        None, description="Where flows and kept files live. Unset turns flows off."
+class DataSettings(Section):
+    dir: str | None = Field(
+        None,
+        description=(
+            "Where sessions and recordings live. Unset turns flows, kept files "
+            "and recordings off."
+        ),
     )
 
-    @field_validator("data_dir")
+    @field_validator("dir")
     @classmethod
     def _blank_is_off(cls, value):
+        return (value or "").strip() or None
+
+
+class RecordingSettings(Section):
+    enabled: bool = Field(
+        False, description="The Grid's recordings reach recording.dir."
+    )
+    dir: str | None = Field(
+        None,
+        description="Where the Grid's recordings arrive. Unset is data.dir/recordings.",
+    )
+    wait: int = Field(
+        600,
+        ge=30,
+        description="Seconds after a browser ends to wait for its recording.",
+    )
+    watch: Literal["auto", "events", "poll"] = Field(
+        "auto", description="auto, events or poll: how recording.dir is watched."
+    )
+    poll: int = Field(
+        1000, ge=200, description="Milliseconds between looks, when polling."
+    )
+    settle: int = Field(
+        10,
+        ge=0,
+        description="Seconds a finished recording sits unchanged before it is "
+        "filed, so its transport is done with it.",
+    )
+
+    @field_validator("dir")
+    @classmethod
+    def _blank_is_unset(cls, value):
         return (value or "").strip() or None
 
 
@@ -356,8 +392,13 @@ class Settings(Section):
         default_factory=RedisSettings,
         description="The session store\u2019s connection.",
     )
-    flow: FlowSettings = Field(
-        default_factory=FlowSettings, description="Saved flows and kept files."
+    data: DataSettings = Field(
+        default_factory=DataSettings,
+        description="Where sessions, their flows and files, and recordings live.",
+    )
+    recording: RecordingSettings = Field(
+        default_factory=RecordingSettings,
+        description="Video of a browser's whole life, from the Grid's recorder.",
     )
     secrets: SecretsSettings = Field(
         default_factory=SecretsSettings, description="Where secrets are read from."
@@ -685,6 +726,27 @@ def oidc_problem(settings: Settings) -> str | None:
     return None
 
 
+RETIRED_FLOW = (
+    "FLOW_DATA_DIR is now DATA_DIR, and session folders live under "
+    "DATA_DIR/sessions/ — move them there once, then set DATA_DIR"
+)
+
+
+def _retired(environ: Mapping[str, str], file: dict) -> None:
+    """A name this server used to read, refused rather than ignored.
+
+    The env layer drops unknown names on purpose (Kubernetes injects plenty),
+    so a deployment still setting FLOW_DATA_DIR would boot with flows quietly
+    off. One retired name is worth naming; the rule stays lenient for the rest.
+    """
+    if any(
+        k.lower() == "flow_data_dir" and not _is_blank(v) for k, v in environ.items()
+    ):
+        raise ConfigError(RETIRED_FLOW)
+    if "flow" in file:
+        raise ConfigError(RETIRED_FLOW)
+
+
 def load(
     argv: list[str] | None = None, environ: Mapping[str, str] | None = None
 ) -> Loaded:
@@ -700,6 +762,7 @@ def load(
     # Blank is unset in the file layer too, same as env and args — a quoted
     # `""` (or whitespace) does not mean "use this empty value".
     file = _drop_blank_leaves(_read_file(path)) if path else {}
+    _retired(environ, file)
     # The file's own contract is strict, checked in isolation: `_merge` below
     # overwrites a whole section when a later layer sets any key in it, so a
     # malformed `redis: broken` would otherwise validate fine once, say,
@@ -744,7 +807,36 @@ def load(
     problem = oidc_problem(settings)
     if problem:
         raise ConfigError(problem)
+    problem = recording_problem(settings)
+    if problem:
+        raise ConfigError(problem)
     return Loaded(settings, sources)
+
+
+def recording_problem(settings: Settings) -> str | None:
+    """Why recording cannot run, or None. Checked after every layer merges."""
+    if settings.recording.enabled and not settings.data.dir:
+        return "recording.enabled needs data.dir: a recording is filed into its session"
+    if settings.recording.enabled:
+        # Resolved as the server opens them: relative to the working directory.
+        inbox = Path(recording_dir(settings)).resolve()
+        sessions = (Path(settings.data.dir) / SESSIONS_DIR).resolve()
+        if inbox == sessions or sessions in inbox.parents or inbox in sessions.parents:
+            return (
+                f"recording.dir {inbox} must not overlap {sessions}: inside it, "
+                "unfinished videos show as a session's files; above it, the "
+                "collector sweeps every session"
+            )
+    return None
+
+
+def recording_dir(settings: Settings) -> str | None:
+    """The inbox: recording.dir, else data.dir/recordings, else None."""
+    if settings.recording.dir:
+        return settings.recording.dir
+    if settings.data.dir:
+        return str(Path(settings.data.dir) / INBOX_DIR)
+    return None
 
 
 def sources_for(settings: Settings) -> dict[str, str]:

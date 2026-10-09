@@ -118,7 +118,7 @@ class Actions:
         if self.keep is None:
             raise ValueError(
                 "keeping files is not enabled on this server: it was started "
-                "with no FLOW_DATA_DIR, so there is nowhere to save one"
+                "with no DATA_DIR, so there is nowhere to save one"
             )
         return self.keep(name, data, folder)
 
@@ -151,7 +151,11 @@ class Actions:
         page_load_timeout=None,
         script_timeout=None,
         insecure=None,
+        record=None,
+        video_name=None,
         site_data=None,
+        *,
+        on_created=None,
     ) -> dict:
         """Start a browser session with the settings it should run under.
 
@@ -163,12 +167,23 @@ class Actions:
 
         A session's saved site data is restored here — cookies, every origin's
         storage, the saved sessionStorage — before the first page loads, except
-        into an ``insecure`` browser, which gets none.
+        into an ``insecure`` browser, which gets none. ``record`` asks the Grid
+        to film this browser's whole life.
+
+        ``on_created`` is called with the Grid's id the moment the browser
+        exists, before anything here that can fail: a browser left running by
+        a failure after that is still somebody's to account for (its video,
+        for one). One that raises fails the open, so it keeps its own faults.
         """
         name = normalize_browser(browser)
         insecure = as_bool(insecure, False)
-        driver = self.grid.open(name, insecure=insecure)
+        record = as_bool(record, False)
+        driver = self.grid.open(
+            name, insecure=insecure, record=record, video_name=video_name
+        )
         session_id = driver.session_id
+        if on_created is not None:
+            on_created(session_id)
 
         if width or height:
             current = driver.get_window_size()
@@ -231,6 +246,8 @@ class Actions:
             applied["script_timeout"] = as_int(script_timeout, 0)
         if insecure:
             applied["insecure"] = True
+        if record:
+            applied["record"] = True
         result = {
             "session_id": session_id,
             "browser": name,
@@ -1118,7 +1135,7 @@ class Actions:
                     _generated_name(filename or "page", f".{kind}"), data, FILES_DIR
                 )
             except OSError as exc:
-                # A full disk or a permission names a path under FLOW_DATA_DIR,
+                # A full disk or a permission names a path under DATA_DIR,
                 # which is nobody's business but the log's. Still a server fault.
                 log.error("a print could not be kept", exc_info=exc)
                 raise RuntimeError(

@@ -23,3 +23,11 @@ test('unnamed shows key and held-by; a javascript: page is text; nowhere yet', (
   expect(screen.getByText('nowhere yet')).toBeInTheDocument()
   expect(screen.getByText('x')).toBeInTheDocument()
 })
+
+test('a recording live session wears ● REC; otherwise none (R7)', () => {
+  const r = render(SessionSummary, { data: { key: 'k', live: true, recording: true } })
+  expect(screen.getByText('● REC')).toHaveClass('pill', 'rec')
+  r.unmount()
+  render(SessionSummary, { data: { key: 'k', live: true, recording: false } })
+  expect(screen.queryByText('● REC')).toBeNull()
+})

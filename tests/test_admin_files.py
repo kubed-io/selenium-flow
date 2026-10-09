@@ -22,7 +22,7 @@ from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core import browser
 from kubed.selenium_flow.flows import store as flows
 from kubed.selenium_flow.http import links
-from kubed.selenium_flow.names import SCREENSHOTS_DIR
+from kubed.selenium_flow.names import RECORDINGS_DIR, SCREENSHOTS_DIR
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.session.store import SessionRecord
 
@@ -41,7 +41,7 @@ def kept_server(tmp_path):
     return SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
-        flow={"data_dir": str(tmp_path)},
+        data={"dir": str(tmp_path)},
     ))
 
 
@@ -198,7 +198,7 @@ def test_keeping_from_the_admin_moves_a_screenshot(client, live):
 
 
 @pytest.mark.parametrize("folder", ["files", "flows"])
-def test_the_admin_keeps_only_from_the_two_folders(client, live, folder):
+def test_the_admin_keeps_only_out_of_a_folder_a_file_leaves(client, live, folder):
     response = client.post(
         f"/admin/sessions/{KEY}/files/{folder}/whatever.pdf/keep", headers=AUTH
     )
@@ -245,11 +245,11 @@ def test_a_broken_screenshot_store_is_a_5xx_not_a_404(client, live):
     """A read that fails is not the same fact as a read that found nothing:
     an NFS permission fault or a mount gone read-only must not tell a client
     to stop retrying something that could work on the next attempt, and its
-    message must not quote FLOW_DATA_DIR's own layout back at whoever asked
+    message must not quote DATA_DIR's own layout back at whoever asked
     (Copilot, PR #41)."""
     with patch.object(
         flows.LocalFlowStore,
-        "read_file",
+        "file_path",
         side_effect=PermissionError(
             13, "Permission denied", "/data/flows/desktop/screenshots/shot.png"
         ),
@@ -277,7 +277,7 @@ def test_the_session_row_counts_each_section(client, live):
         ),
     ):
         row = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
-    assert row["counts"] == {"downloads": 1, "screenshots": 1, "files": 1}
+    assert row["counts"] == {"downloads": 1, "screenshots": 1, "recordings": 0, "files": 1}
     assert row["files_count"] == 3
 
 
@@ -307,8 +307,67 @@ def test_the_file_stamp_changes_when_a_screenshot_is_kept(client, live):
         ("delete", "/admin/sessions/{key}/files/screenshots"),
         ("delete", "/admin/sessions/{key}/files/report.pdf"),
         ("post", "/admin/sessions/{key}/files/screenshots/shot.png/keep"),
+        ("delete", "/admin/sessions/{key}/files/recordings"),
+        ("post", "/admin/sessions/{key}/files/recordings/a.mp4/keep"),
     ],
 )
 def test_every_files_endpoint_needs_the_token(client, method, path):
     route = path.format(key=KEY)
     assert getattr(client, method)(route).status_code == 401
+
+
+# ---- recordings ---------------------------------------------------------------
+
+
+def test_recordings_are_listed_counted_cleared_and_kept(client, live):
+    live.sessions.store.set(
+        KEY,
+        SessionRecord(session_id="abc", settings={"record": True}).visited("https://x/"),
+    )
+    live.flows.write_file(SESSION, "rec-1.mp4", b"v", RECORDINGS_DIR)
+    live.flows.write_file(SESSION, "rec-2.mp4", b"w", RECORDINGS_DIR)
+    live.flows.write_file(SESSION, "report.pdf", b"p")
+    live.flows.write_note(SESSION, "8f3d6dc2a1b04e6f9c1d2e3f4a5b6c7d", {"opened": 1})
+    with (
+        patch.object(browser.Grid, "sessions", return_value=[{"session_id": "abc"}]),
+        patch.object(browser.Grid, "is_alive", return_value=True),
+        patch.object(browser.Grid, "files", return_value=[]),
+    ):
+        row = client.get("/admin/sessions", headers=AUTH).json()["sessions"][0]
+        body = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH).json()
+    assert row["counts"]["recordings"] == 2 and row["recording"] is True
+    assert sorted(f["name"] for f in body["recordings"]) == ["rec-1.mp4", "rec-2.mp4"]
+
+    kept = client.post(
+        f"/admin/sessions/{KEY}/files/recordings/rec-1.mp4/keep", headers=AUTH
+    )
+    assert kept.status_code == 200, kept.text
+    assert kept.json()["uri"] == "session://files/rec-1.mp4"
+    assert [f["name"] for f in live.flows.files(SESSION, RECORDINGS_DIR)] == ["rec-2.mp4"]
+
+    cleared = client.delete(f"/admin/sessions/{KEY}/files/recordings", headers=AUTH)
+    assert cleared.status_code == 200 and cleared.json()["cleared"] == 1
+    assert live.flows.files(SESSION, RECORDINGS_DIR) == []
+    assert sorted(f["name"] for f in live.flows.files(SESSION)) == [
+        "rec-1.mp4", "report.pdf",
+    ]
+    assert len(live.flows.notes()) == 1
+
+
+def test_a_storage_fault_keeping_a_recording_is_a_5xx(client, live, monkeypatch):
+    import errno
+    import os
+
+    live.flows.write_file(SESSION, "rec-1.mp4", b"v", RECORDINGS_DIR)
+    real = os.stat
+
+    def faulty(path, *a, **k):
+        if str(path).endswith("rec-1.mp4"):
+            raise OSError(errno.EIO, "EIO")
+        return real(path, *a, **k)
+
+    monkeypatch.setattr(os, "stat", faulty)
+    response = client.post(
+        f"/admin/sessions/{KEY}/files/recordings/rec-1.mp4/keep", headers=AUTH
+    )
+    assert 500 <= response.status_code < 600

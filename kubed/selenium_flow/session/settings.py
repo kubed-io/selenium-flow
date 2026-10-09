@@ -87,6 +87,10 @@ SETTINGS = {
     "script_timeout": ("script_timeout", "x-script-timeout", _as_int),
     # Explicit only (§F3.8): no parameter, no header, no default.
     "insecure": (None, None, _as_flag),
+    # Explicit only, like insecure: no parameter, no header, no default. Stored
+    # so a reap replays it, but `open_browser` never inherits it (recordings
+    # spec, ruling 3): video is costly, and ending the browser ends it.
+    "record": (None, None, _as_flag),
 }
 
 # The config's session section, as the operator's floor. `store` and `ttl` are

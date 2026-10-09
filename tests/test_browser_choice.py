@@ -68,6 +68,17 @@ def test_both_browsers_carry_the_two_capabilities_that_matter(name):
     assert caps["se:downloadsEnabled"] is True
 
 
+@pytest.mark.parametrize("name", ["chrome", "firefox"])
+def test_recording_asks_the_grid_for_video_only_when_asked(name):
+    plain = Grid("http://grid.invalid")._options(name).to_capabilities()
+    assert "se:recordVideo" not in plain and "se:videoName" not in plain
+    caps = Grid("http://grid.invalid")._options(
+        name, record=True, video_name="bot"
+    ).to_capabilities()
+    assert caps["se:recordVideo"] is True
+    assert caps["se:videoName"] == "bot"
+
+
 def test_firefox_is_told_to_save_downloads_without_asking():
     """Firefox's analogue of Chrome's automatic-downloads prompt.
 

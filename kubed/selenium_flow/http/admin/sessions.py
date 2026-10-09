@@ -24,6 +24,7 @@ from starlette.responses import JSONResponse, Response
 from ...core.defaults import DEFAULT_BROWSER
 from ...names import (
     GLOBAL_SESSION,
+    RECORDINGS_DIR,
     SCREENSHOTS_DIR,
     STDIO_SESSION,
     InvalidName,
@@ -234,6 +235,12 @@ class Broadcast:
         self._latest = None
         self._floor = time.monotonic()
 
+    def poke(self) -> None:
+        """Something an open page should see changed (a recording was filed):
+        forget the last broadcast and tick now. Called on the event loop."""
+        self.invalidate()
+        self._nudge.set()
+
     def changes(self, handler):
         """For a route that changes what the list shows — End, Forget, Clear,
         keep, delete: once it has run, however it ended, the listing after it
@@ -414,10 +421,16 @@ def mount(
                 if stores
                 else []
             )
+            recs = (
+                named(lambda s: flow_store.files(s, RECORDINGS_DIR), session)
+                if stores
+                else []
+            )
             kept = named(flow_store.files, session) if stores else []
             counts = {
                 "downloads": len(downloads) if downloads is not None else None,
                 "screenshots": len(shots) if stores else None,
+                "recordings": len(recs) if stores else None,
                 "files": len(kept) if stores else None,
             }
             known = [v for v in counts.values() if v is not None]
@@ -446,6 +459,7 @@ def mount(
                     for folder_name, names in (
                         ("downloads", downloads or []),
                         ("screenshots", shots),
+                        ("recordings", recs),
                         ("files", kept),
                     )
                     for name in names
@@ -466,6 +480,7 @@ def mount(
                     "session_id": sid or None,
                     "attached": bool(sid),
                     "live": live,
+                    "recording": bool(live and (record.settings or {}).get("record")),
                     "url": record.url or None,
                     "browser": (record.settings or {}).get("browser")
                     or DEFAULT_BROWSER,

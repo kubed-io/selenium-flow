@@ -57,7 +57,7 @@ test('the list: names, step counts, a globe only when shared, the open one selec
 
 test('flows off, and none yet (W1)', async () => {
   const off = setup({ 'GET /admin/sessions/k/flows': { body: { enabled: false } } }, undefined)
-  await vi.waitFor(() => expect(off.container).toHaveTextContent('Flows are off: this server was started with no FLOW_DATA_DIR.'))
+  await vi.waitFor(() => expect(off.container).toHaveTextContent('Flows are off: this server was started with no DATA_DIR.'))
   expect(off.container.querySelector('#flowsTotal')).toHaveTextContent('off')
   off.unmount()
   const none = setup({ 'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [] } } }, undefined)

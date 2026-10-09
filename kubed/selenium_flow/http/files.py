@@ -1,6 +1,6 @@
-"""A session's files as three sections, addressed by path (§F4.6, §F4.7).
+"""A session's files as four sections, addressed by path (§F4.6, §F4.7).
 
-**Downloads, Screenshots and Files never merge into one list.** The first
+**Downloads, Screenshots, Recordings and Files never merge into one list.** The first
 draft of this feature merged everything so a caller only had to ask once
 (§F1.10); that ruling is superseded, and for the same reason it existed — a
 folder that lists its own sub-folders costs a caller nothing it does not want,
@@ -9,7 +9,7 @@ knows. In a path, the section is part of the address, so a name only has to
 be unique inside its own folder, and there is no ``section=`` argument on
 ``keep_file`` for a name that lives in two places at once.
 
-The three sections still divide along the line §F1.10 drew, because the line
+The four sections still divide along the line §F1.10 drew, because the line
 was right even though the merge built on top of it was not:
 
 - **Downloads belong to the browser.** They live in the Grid's per-session
@@ -17,7 +17,7 @@ was right even though the merge built on top of it was not:
   that store is *list, read-one, delete-all* — there is no write and no
   per-file delete — so those are the only operations offered for them.
 - **Screenshots and Files belong to the session**, which outlives any
-  browser. They are ours, under ``FLOW_DATA_DIR``. Screenshots pile up until
+  browser. They are ours, under ``DATA_DIR``. Screenshots pile up until
   kept or cleared in bulk; Files holds only what somebody chose to keep, or a
   print, and gets no bulk delete because everything in it is there on purpose
   (§F4.1).
@@ -68,25 +68,30 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import stat
 from urllib.parse import quote, unquote
 
+from fastmcp.resources import ResourceContent, ResourceResult
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from ..core.annotations import hints
 from ..mcp import clients
-from ..names import valid_file_name
+from ..names import RESERVED_IN_FILES, candidates, valid_file_name
 from . import answer as answer_module
 from . import links
 
 log = logging.getLogger(__name__)
 
-FILES, SCREENSHOTS, DOWNLOADS = "files", "screenshots", "downloads"
-RESERVED = frozenset({SCREENSHOTS, DOWNLOADS})
+FILES, SCREENSHOTS, DOWNLOADS, RECORDINGS = (
+    "files", "screenshots", "downloads", "recordings",
+)
+RESERVED = RESERVED_IN_FILES
 ROOT_URI = "session://files"
 FILE_URI = "session://files/{name}"
 FOLDER_URI = {
     SCREENSHOTS: f"{ROOT_URI}/{SCREENSHOTS}",
+    RECORDINGS: f"{ROOT_URI}/{RECORDINGS}",
     DOWNLOADS: f"{ROOT_URI}/{DOWNLOADS}",
 }
 ITEM_URI = {k: v + "/{name}" for k, v in FOLDER_URI.items()}
@@ -99,7 +104,8 @@ LIST_URI = ROOT_URI
 
 SHAPES = (
     "session://files/<name> for a file in Files, "
-    "session://files/screenshots/<name> for a screenshot, or "
+    "session://files/screenshots/<name> for a screenshot, "
+    "session://files/recordings/<name> for a recording, or "
     "session://files/downloads/<name> for a download"
 )
 
@@ -112,7 +118,7 @@ SHAPES = (
 # DELETE /admin/sessions/{key}/files/downloads, .../files/screenshots and
 # .../files/{name} — which is an operator surface rather than a caller's, and
 # is where deleting anything belongs.
-FILE_ENDPOINTS = ("list", "screenshots", "downloads", "keep")
+FILE_ENDPOINTS = ("list", "screenshots", "downloads", "recordings", "keep")
 
 # The REST shape of each: method, and the path under the /files prefix. Read by
 # the routes and by the published spec, so the two cannot disagree (§F2.13).
@@ -123,6 +129,7 @@ FILE_ROUTES = {
     "list": ("get", ""),
     "screenshots": ("get", "/screenshots"),
     "downloads": ("get", "/downloads"),
+    "recordings": ("get", "/recordings"),
     "keep": ("put", "/{folder}/{name}/kept"),
 }
 
@@ -137,15 +144,15 @@ IMAGE_TYPES = RASTER_TYPES | {"image/svg+xml"}
 
 OFF = (
     "keeping files is not enabled on this server: it was started with no "
-    "FLOW_DATA_DIR, so there is nowhere to keep them"
+    "DATA_DIR, so there is nowhere to keep them"
 )
 
 NOTHING = "nothing to list: this server keeps no files and holds no browser for you"
 
 DESCRIPTION = (
     "The files in Files: prints, and anything kept with keep_file. Also names "
-    "two folders — session://files/screenshots and session://files/downloads "
-    "— each with its own listing.\n\n"
+    "three folders — session://files/screenshots, session://files/recordings "
+    "and session://files/downloads — each with its own listing.\n\n"
     "Every entry carries its own uri, to keep with keep_file(uri), and a URL "
     "that opens in a browser for a while, so an image can be shown to someone "
     "rather than described to them."
@@ -185,33 +192,20 @@ def parse_uri(uri) -> tuple[str, str]:
 
 def _unreserved(name: str) -> str:
     """A name Files can hold: the folder names are taken there (§F4.6)."""
-    return f"{name} (1)" if name in RESERVED else name
-
-
-def _candidates(name: str):
-    """``name``, then ``name (1)``, ``name (2)`` … the way a browser names a
-    second download."""
-    stem, dot, suffix = name.rpartition(".")
-    if not dot or not stem:
-        stem, suffix = name, ""
-    yield name
-    n = 1
-    while True:
-        yield f"{stem} ({n}).{suffix}" if suffix else f"{stem} ({n})"
-        n += 1
+    return f"{name} (1)" if name in RESERVED_IN_FILES else name
 
 
 def _claim(store, session: str, name: str, data: bytes, folder: str) -> dict:
     """Write under the first free name. The exclusive create is the claim, so
     two racing saves cannot both win (Copilot, #40)."""
-    for candidate in _candidates(name):
-        if folder == FILES and candidate in RESERVED:
+    for candidate in candidates(name):
+        if folder == FILES and candidate in RESERVED_IN_FILES:
             continue
         try:
             return store.create_file(session, candidate, data, folder)
         except FileExistsError:
             continue
-    raise AssertionError("unreachable")  # _candidates is infinite
+    raise AssertionError("unreachable")  # candidates is infinite
 
 
 def describe(folder: str, entry: dict, url: str, base: str = "") -> dict:
@@ -270,6 +264,8 @@ def url_for(
         return links.file_url(session_id, name, token, mount, ttl)
     if folder == SCREENSHOTS:
         return links.screenshot_url(session, name, token, mount, ttl)
+    if folder == RECORDINGS:
+        return links.recording_url(session, name, token, mount, ttl)
     return links.kept_url(session, name, token, mount, ttl)
 
 
@@ -346,11 +342,11 @@ def root(
     mount: str = "",
     ttl: int = links.DEFAULT_TTL,
 ) -> dict:
-    """``session://files``: the Files section's own files, and its two folders.
+    """``session://files``: the Files section's own files, and its three folders.
 
     The two folders are named with a count each rather than expanded, so a
     caller who only wants to know whether there is anything to look at need
-    not pay for either listing.
+    not pay for any listing.
     """
     owned = owner(store, name)
     # Never `resolve`: see the module docstring.
@@ -363,6 +359,9 @@ def root(
     screenshots_count = (
         len(store.files(owned, SCREENSHOTS)) if store is not None and owned else 0
     )
+    recordings_count = (
+        len(store.files(owned, RECORDINGS)) if store is not None and owned else 0
+    )
     return {
         "session": owned or None,
         "count": len(file_list),
@@ -372,6 +371,11 @@ def root(
                 "name": SCREENSHOTS,
                 "uri": FOLDER_URI[SCREENSHOTS],
                 "count": screenshots_count,
+            },
+            {
+                "name": RECORDINGS,
+                "uri": FOLDER_URI[RECORDINGS],
+                "count": recordings_count,
             },
             {
                 "name": DOWNLOADS,
@@ -395,7 +399,7 @@ def folder(
     ttl: int = links.DEFAULT_TTL,
 ) -> dict:
     """One section's own listing: Files, Screenshots or Downloads."""
-    if which not in (FILES, SCREENSHOTS, DOWNLOADS):
+    if which not in (FILES, SCREENSHOTS, RECORDINGS, DOWNLOADS):
         raise ValueError(f"{which!r} is not a file section: use {SHAPES}")
     owned = owner(store, name)
     # Never `resolve`: see the module docstring.
@@ -452,6 +456,9 @@ def sections(
         "screenshots": listing_of(
             actions, store, SCREENSHOTS, owned, target, token, base, mount, ttl=ttl
         ),
+        "recordings": listing_of(
+            actions, store, RECORDINGS, owned, target, token, base, mount, ttl=ttl
+        ),
         "files": listing_of(
             actions, store, FILES, owned, target, token, base, mount, ttl=ttl
         ),
@@ -461,6 +468,9 @@ def sections(
 def keep(actions, sessions, store, uri, name: str, session_id=None) -> dict:
     """Put one file in Files. A screenshot moves; a download is copied, because
     the Grid cannot delete one file (§F1.10); a Files URI answers with itself.
+    A recording moves too, strictly: if its source cannot be removed the Files
+    copy is rolled back and the error raised (a retryable 5xx), never a success
+    with the video in both folders.
     """
     if store is None:
         raise ValueError(OFF)
@@ -517,6 +527,24 @@ def keep(actions, sessions, store, uri, name: str, session_id=None) -> dict:
                 f"no screenshot called {leaf!r}: it may be kept already or cleared. "
                 f"{FOLDER_URI[SCREENSHOTS]} lists what there is"
             )
+        log.info("kept %s as %s/%s", uri, session, landed["name"])
+    elif folder_of == RECORDINGS:
+        # The screenshot rule, without reading a video into memory: a move,
+        # landing beside a same-named file as name (1) (recordings spec, ruling 7).
+        try:
+            source = store.file_path(session, leaf, RECORDINGS)
+            try:
+                is_file = stat.S_ISREG(source.stat().st_mode)
+            except NotADirectoryError:
+                is_file = False  # only FileNotFoundError propagates as missing
+            if not is_file:
+                raise FileNotFoundError(leaf)
+            landed = store.move_in(session, source, leaf, FILES, strict=True)
+        except FileNotFoundError:
+            raise ValueError(
+                f"no recording called {leaf!r}: it may be kept already or cleared. "
+                f"{FOLDER_URI[RECORDINGS]} lists what there is"
+            ) from None
         log.info("kept %s as %s/%s", uri, session, landed["name"])
     else:
         # `session_id`, when given, is the browser to read from and is never
@@ -603,6 +631,14 @@ def clear_screenshots(store, session: str) -> dict:
     return {"cleared": store.clear_folder(session, SCREENSHOTS), "session": session}
 
 
+def clear_recordings(store, session: str) -> dict:
+    """Empty the recordings folder. **Operator-only**, like clearing screenshots;
+    notes for recordings still to come are not in it and are left alone."""
+    if store is None:
+        raise ValueError(OFF)
+    return {"cleared": store.clear_folder(session, RECORDINGS), "session": session}
+
+
 def delete_one(store, session: str, name: str) -> dict:
     """Remove one file from Files. **Operator-only** — there is no tool for
     this.
@@ -619,13 +655,21 @@ def delete_one(store, session: str, name: str) -> dict:
     return {"deleted": removed, "session": session, "name": name}
 
 
-FOLDER_NAME = {SCREENSHOTS: "Screenshots", DOWNLOADS: "Downloads"}
+FOLDER_NAME = {
+    SCREENSHOTS: "Screenshots", RECORDINGS: "Recordings", DOWNLOADS: "Downloads",
+}
 
 FOLDER_DESCRIPTION = {
     SCREENSHOTS: (
         "This session's saved screenshots, not yet kept. "
         f"{KEEP_TOOL}(uri) moves one into {ROOT_URI}, where it stays until a "
         "person deletes it. Prints land in Files directly, not here."
+    ),
+    RECORDINGS: (
+        "This session's recordings: one video per browser opened with "
+        "open_session(record=true), filed shortly after that browser ends. "
+        f"{KEEP_TOOL}(uri) moves one into {ROOT_URI}. Each entry's url plays it; "
+        "reading one by its uri answers that entry, not the video."
     ),
     DOWNLOADS: (
         "This session's browser downloads. They belong to the browser and "
@@ -639,7 +683,8 @@ ITEM_DESCRIPTION = {
         "One file from Files, as bytes. The name comes from the "
         f"{ROOT_URI} listing, which also carries each file's real media type — "
         "a template declares one type for every file it serves, so this is "
-        "deliberately the generic one."
+        "deliberately the generic one. A video (a kept recording) answers its "
+        "entry instead, as JSON: its url plays it."
     ),
     SCREENSHOTS: (
         f"One screenshot, as bytes, from {FOLDER_URI[SCREENSHOTS]}. It answers "
@@ -691,7 +736,7 @@ def register(
 
         return read
 
-    for which in (SCREENSHOTS, DOWNLOADS):
+    for which in (SCREENSHOTS, RECORDINGS, DOWNLOADS):
         mcp.resource(
             FOLDER_URI[which],
             name=FOLDER_NAME[which],
@@ -699,14 +744,33 @@ def register(
             mime_type="application/json",
         )(_folder_resource(which))
 
+    def _entry(which: str, name: str) -> dict | None:
+        """One stored file's entry, described and signed, or None."""
+        listing = folder(
+            actions, sessions, store, token, clients.caller().name, which,
+            base=base, mount=prefix, ttl=ttl,
+        )
+        return next((f for f in listing["files"] if f["name"] == unquote(name)), None)
+
     def _item_resource(which: str):
-        def read(name: str) -> bytes:
+        def read(name: str) -> bytes | ResourceResult:
             # The caller is named last: with Files off, or a URI that is not
             # one, naming the session would not fix the call, so those say so
             # first, as they did before the caller was read at the edge.
-            folder_of, _ = parse_uri(uri_of(which, name))
+            folder_of, leaf = parse_uri(uri_of(which, name))
             if folder_of != DOWNLOADS and store is None:
                 raise ValueError(OFF)
+            if folder_of == FILES and content_type(leaf).startswith("video/"):
+                # A kept recording: the Recordings rule, for the same reason.
+                entry = _entry(FILES, name)
+                if entry is None:
+                    raise ValueError(
+                        f"no file at {uri_of(which, name)}. {ROOT_URI} lists what "
+                        "there is"
+                    )
+                return ResourceResult(
+                    [ResourceContent(json.dumps(entry), mime_type="application/json")]
+                )
             return read_file(
                 actions, sessions, store, uri_of(which, name), clients.caller().name
             )[1]
@@ -725,12 +789,32 @@ def register(
             mime_type="application/octet-stream",
         )(_item_resource(which))
 
+    @mcp.resource(
+        ITEM_URI[RECORDINGS],
+        name="Recording",
+        description=(
+            f"One recording from {FOLDER_URI[RECORDINGS]}, described: its url plays "
+            "it. Not the video's bytes — a model cannot watch one, and a resource "
+            "would carry it as base64."
+        ),
+        mime_type="application/json",
+    )
+    def recording_resource(name: str) -> dict:
+        if store is None:
+            raise ValueError(OFF)
+        entry = _entry(RECORDINGS, name)
+        if entry is None:
+            raise ValueError(
+                f"no recording called {name!r}. {FOLDER_URI[RECORDINGS]} lists them"
+            )
+        return entry
+
     @mcp.tool(
         name=KEEP_TOOL,
         description=(
             "Keep one file in Files, where it stays until a person deletes it.\n\n"
             "uri is as session://files and its folders list it. A screenshot "
-            "moves out of session://files/screenshots and lands beside a "
+            "or a recording moves out of its folder and lands beside a "
             "same-named file as name (1); a download is copied, since the "
             "browser keeps its own until it ends, and REPLACES a same-named "
             "file in Files. The result is the file's new uri. "
@@ -772,7 +856,7 @@ def _routes(mcp, actions, sessions, store, token, base, prefix, ttl) -> None:
 
     @mcp.custom_route(files_root, methods=["GET"], name="files_list")
     async def list_files(request: Request) -> JSONResponse:
-        """Files' own listing, and the two folders beside it."""
+        """Files' own listing, and the three folders beside it."""
         return await answer(
             request,
             "list",
@@ -811,6 +895,20 @@ def _routes(mcp, actions, sessions, store, token, base, prefix, ttl) -> None:
         )
 
     @mcp.custom_route(
+        files_root + "/recordings", methods=["GET"], name="files_recordings"
+    )
+    async def list_recordings(request: Request) -> JSONResponse:
+        """This session's recordings, not yet kept."""
+        return await answer(
+            request,
+            "recordings",
+            lambda caller, _body: folder(
+                actions, sessions, store, token, caller.name, RECORDINGS,
+                base=base, mount=prefix, ttl=ttl,
+            ),
+        )
+
+    @mcp.custom_route(
         files_root + "/{folder}/{name}/kept", methods=["PUT"], name="files_keep"
     )
     async def keep_route(request: Request) -> JSONResponse:
@@ -822,10 +920,10 @@ def _routes(mcp, actions, sessions, store, token, base, prefix, ttl) -> None:
         leaf = request.path_params["name"]
 
         def call(caller, _body):
-            if which not in (SCREENSHOTS, DOWNLOADS):
+            if which not in (SCREENSHOTS, RECORDINGS, DOWNLOADS):
                 raise ValueError(
-                    f"{which!r} is not something to keep: use {SCREENSHOTS} or "
-                    f"{DOWNLOADS}"
+                    f"{which!r} is not something to keep: use {SCREENSHOTS}, "
+                    f"{RECORDINGS} or {DOWNLOADS}"
                 )
             return keep(actions, sessions, store, uri_of(which, leaf), caller.name)
 

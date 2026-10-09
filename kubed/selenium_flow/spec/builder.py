@@ -536,7 +536,7 @@ def _named_in_path(template: str) -> list[dict]:
             "in": "path",
             "required": True,
             "schema": (
-                {"type": "string", "enum": ["screenshots", "downloads"]}
+                {"type": "string", "enum": ["screenshots", "recordings", "downloads"]}
                 if name == "folder"
                 else {"type": "string"}
             ),
@@ -637,6 +637,10 @@ def _mcp_tools() -> tuple[dict, dict]:
                 "x-mcp-resource",
                 files_module.FOLDER_URI[files_module.SCREENSHOTS],
             ),
+            "recordings": (
+                "x-mcp-resource",
+                files_module.FOLDER_URI[files_module.RECORDINGS],
+            ),
             "downloads": (
                 "x-mcp-resource",
                 files_module.FOLDER_URI[files_module.DOWNLOADS],
@@ -728,7 +732,7 @@ def _file_paths(prefix: str = "") -> dict:
             },
             "400": _error(
                 "The request cannot succeed as sent — an unusable name, or a "
-                "server with no FLOW_DATA_DIR to keep files in. Do not retry it "
+                "server with no DATA_DIR to keep files in. Do not retry it "
                 "unchanged."
             ),
             "401": _error("Missing or wrong bearer token."),

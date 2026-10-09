@@ -184,7 +184,13 @@ class Grid:
                 raise
         return send(url, timeout=GRID_TIMEOUT, **kwargs)
 
-    def _options(self, browser: str | None = None, insecure: bool = False):
+    def _options(
+        self,
+        browser: str | None = None,
+        insecure: bool = False,
+        record: bool = False,
+        video_name: str | None = None,
+    ):
         """Capabilities for a new session of ``browser``.
 
         The two capabilities that matter are W3C standard and identical for
@@ -215,6 +221,14 @@ class Grid:
         # site it is about to drive.
         if insecure:
             options.accept_insecure_certs = True
+        # `open_session(record=true)`: the Grid's own recorder films this
+        # browser's whole life (recordings spec). The name only makes the
+        # operator's inbox readable; nothing matches on it, because the
+        # recorder strips `.` from names and two sessions could collide.
+        if record:
+            options.set_capability("se:recordVideo", True)
+            if video_name:
+                options.set_capability("se:videoName", video_name)
 
         if name == FIREFOX:
             # 2 = the directory the Grid node set for this session. Firefox
@@ -266,11 +280,16 @@ class Grid:
         return options
 
     def open(
-        self, browser: str | None = None, insecure: bool = False
+        self,
+        browser: str | None = None,
+        insecure: bool = False,
+        record: bool = False,
+        video_name: str | None = None,
     ) -> RemoteWebDriver:
         """Create a session on ``browser`` and return its driver."""
         return webdriver.Remote(
-            command_executor=self.url, options=self._options(browser, insecure)
+            command_executor=self.url,
+            options=self._options(browser, insecure, record, video_name),
         )
 
     def reconnect(self, session_id: str) -> RemoteWebDriver:

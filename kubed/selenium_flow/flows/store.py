@@ -8,8 +8,9 @@ is or how to run one — see the saga's Chapter 1, §F1.1 through §F1.4. What a
 document is as text — parsing it once, saying where it broke, summarising it —
 is ``flows.library``.
 
-**The codebase sees a directory and nothing else.** ``FLOW_DATA_DIR`` points at
-one and the installer decides what is behind it: a folder on a laptop, an
+**The codebase sees a directory and nothing else.** ``DATA_DIR`` points at
+one (sessions live under ``DATA_DIR/sessions``) and the installer decides what is
+behind it: a folder on a laptop, an
 ``emptyDir`` in this cluster, a PVC, an NFS mount. That choice is deliberately
 not ours, and it is why the backend is two small method sets rather than a
 module full of ``open()`` calls — a WebDAV implementation is the next one, so
@@ -25,7 +26,7 @@ Two rules that exist for the backend that does not exist yet:
   and descriptions rather than whole documents precisely so a listing stays one
   cheap operation over a network store.
 
-Unset ``FLOW_DATA_DIR`` means the feature is off, and deliberately not a
+Unset ``DATA_DIR`` means the feature is off, and deliberately not a
 fallback to a temp directory. The point is not durability — an ``emptyDir`` a
 redeploy wipes is an accepted backing — it is that *the operator chose where
 this lives*. Falling back to ``/tmp`` would put flows on the 64Mi volume the
@@ -37,8 +38,11 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import errno
+import json
 import logging
 import os
+import shutil
 import stat
 import uuid
 from pathlib import Path
@@ -46,11 +50,23 @@ from typing import TYPE_CHECKING
 
 import yaml
 
-from ..names import FILES_DIR, FOLDERS, InvalidName, valid_file_name, valid_name
+from ..names import (
+    FILES_DIR,
+    FOLDERS,
+    INBOX_DIR,
+    RECORDINGS_DIR,
+    RESERVED_IN_FILES,
+    SESSIONS_DIR,
+    InvalidName,
+    candidates,
+    valid_file_name,
+    valid_grid_id,
+    valid_name,
+)
 from .library import dump, summary, view, yaml_complaint
 
 if TYPE_CHECKING:
-    from ..config import FlowSettings
+    from ..config import DataSettings
 
 # The store's old logger name, kept: operators filter Loki by it.
 log = logging.getLogger("kubed.selenium_flow.flows.library")
@@ -60,6 +76,8 @@ log = logging.getLogger("kubed.selenium_flow.flows.library")
 # /openapi.yaml (§F1.14).
 SUFFIX = ".yaml"
 FLOWS_DIR = "flows"
+PENDING_DIR = ".pending"
+_NO_LINK = frozenset({errno.EXDEV, errno.EPERM, errno.ENOTSUP, errno.EMLINK})
 
 
 def valid_folder(folder) -> str:
@@ -126,9 +144,38 @@ def _listed(directory: Path, usable) -> list[tuple[str, os.stat_result]]:
             os.close(fd)
 
 
-def _replace(path: Path, text: str) -> None:
+def _open_regular(path: Path) -> int:
+    """An fd on ``path`` that is a regular file and not reached through a link.
+
+    EINVAL for anything else (a link, a FIFO, a directory): never opened for
+    reading past the check, never blocking.
+    """
+    try:
+        fd = os.open(
+            path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+        )
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise OSError(errno.EINVAL, "not a regular file") from exc
+        raise
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        os.close(fd)
+        raise OSError(errno.EINVAL, "not a regular file")
+    return fd
+
+
+open_regular = _open_regular
+
+
+def _no_link(exc: OSError) -> bool:
+    """Whether a failed ``os.link`` means links are unavailable, not a real fault."""
+    return isinstance(exc, PermissionError) or exc.errno in _NO_LINK
+
+
+def _replace(path: Path, text: str | bytes, *, sync: bool = False) -> None:
     """Write ``text`` as ``path`` in one step: a reader sees the old document or
-    the new one, never part of either.
+    the new one, never part of either. ``sync`` flushes it to disk before the
+    rename, for bytes that have no other copy.
 
     Writing in place let a crash or an NFS hiccup between the open and the last
     write leave a truncated document, which reads as missing — the previous
@@ -143,10 +190,16 @@ def _replace(path: Path, text: str) -> None:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    file = temporary.open("x", encoding="utf-8")
+    if isinstance(text, bytes):
+        file = temporary.open("xb")
+    else:
+        file = temporary.open("x", encoding="utf-8")
     try:
         with file:
             file.write(text)
+            if sync:
+                file.flush()
+                os.fsync(file.fileno())
         # Nothing to replace means the new file keeps the umask's mode.
         with contextlib.suppress(FileNotFoundError):
             temporary.chmod(stat.S_IMODE(path.stat().st_mode))
@@ -194,7 +247,7 @@ class SessionLayout:
         So the check is equality, not containment: the resolved path must be
         the path we asked for. Nothing below the root may traverse a link.
         The root itself is resolved first and so may be one — pointing
-        ``FLOW_DATA_DIR`` at a mount is the installer's business (§F1.12), and
+        ``DATA_DIR`` at a mount is the installer's business (§F1.12), and
         it is only the parts *we* join on that have to be honest.
         """
         root = self.root.resolve()
@@ -402,8 +455,8 @@ class FileStore(SessionLayout):
 
     Bytes rather than documents, and deliberately the whole of what a file
     store needs: the Grid supplies the only other operations there are, and it
-    supplies them for *its* files, not ours. Two folders, kept apart because
-    Files is curated and screenshots are disposable until kept.
+    supplies them for *its* files, not ours. Three folders, kept apart because
+    Files is curated while screenshots and recordings are disposable until kept.
     """
 
     def _files_dir(self, session: str, folder: str = FILES_DIR) -> Path:
@@ -415,6 +468,238 @@ class FileStore(SessionLayout):
             valid_folder(folder),
             valid_file_name(name),
         )
+
+    def file_path(self, session: str, name: str, folder: str = FILES_DIR) -> Path:
+        """Where one file lives, checked: for a route that streams it from disk."""
+        return self._file_path(session, name, folder)
+
+    def move_in(
+        self, session: str, source: Path, name: str, folder: str,
+        *, strict: bool = False,
+    ) -> dict:
+        """Take ``source`` into a folder under the first free name, and remove it.
+
+        Never an overwrite: the claim is a hard link (or, where links cannot
+        cross, an exclusive create and a copy), so a racing move cannot win the
+        same name. Files skips its reserved names, as `_claim` does.
+
+        ``strict`` is the move contract of Keep: a source that cannot be
+        removed (anything but already gone) unclaims the new copy and raises, so
+        the file is never in both folders. Without it, the collector's filing
+        tolerates a retained inbox original (a sticky or recorder-owned folder).
+        """
+        source = Path(source)
+        # Open the source once and only ever file that inode: a link swapped
+        # in after a check would otherwise be copied or linked as itself.
+        held = _open_regular(source)
+        held_stat = os.fstat(held)
+        staged: Path | None = None  # a complete copy, when links are impossible
+        try:
+            for candidate in candidates(valid_file_name(name)):
+                if folder == FILES_DIR and candidate in RESERVED_IN_FILES:
+                    continue
+                target = self._file_path(session, candidate, folder)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if staged is None:
+                    try:
+                        os.link(source, target)
+                    except FileExistsError:
+                        continue
+                    except OSError as exc:
+                        if not _no_link(exc):
+                            raise
+                        # No hard link here (another filesystem, or one that
+                        # has none): copy beside the target under a name no
+                        # listing addresses, so the final name never holds a
+                        # partial file.
+                        staged = target.with_name(
+                            f".{target.name}.{uuid.uuid4().hex}.tmp"
+                        )
+                        with staged.open("xb") as out, os.fdopen(
+                            os.dup(held), "rb"
+                        ) as src:
+                            shutil.copyfileobj(src, out, 1024 * 1024)
+                        staged.chmod(stat.S_IMODE(held_stat.st_mode))
+                        os.utime(
+                            staged,
+                            ns=(held_stat.st_atime_ns, held_stat.st_mtime_ns),
+                        )
+                    else:
+                        if not os.path.samestat(os.lstat(target), held_stat):
+                            with contextlib.suppress(OSError):
+                                target.unlink()
+                            raise OSError(errno.EINVAL, "not a regular file")
+                        self._release(session, source, target, strict, held_stat)
+                        return self._entry(target)
+                if self._claim_staged(staged, target):
+                    staged = None
+                    self._release(session, source, target, strict, held_stat)
+                    return self._entry(target)
+            raise AssertionError("unreachable")  # candidates is infinite
+        finally:
+            os.close(held)
+            if staged is not None:
+                with contextlib.suppress(OSError):
+                    staged.unlink()
+
+    @staticmethod
+    def _release(
+        session: str, source: Path, target: Path, strict: bool = False,
+        held_stat: os.stat_result | None = None,
+    ) -> None:
+        """Remove the moved file's source. If a racing move took it first, this
+        one lost: unclaim ``target`` so no duplicate stays, and say so.
+
+        With ``strict``, any other failure unclaims too and is raised. Otherwise
+        it leaves the move done: ``target`` is claimed and whole,
+        and only the original stays behind (a sticky or recorder-owned inbox
+        folder). Unclaiming then would be filed again on every sweep, a
+        ``(1)``, a ``(2)``, … until the disk is full. The log names the filed
+        file, never the source: an inbox name carries the Grid's id.
+
+        With ``held_stat`` (the inode that was pinned and filed), a source path
+        that now names a different inode or a non-regular file is left alone:
+        the producer replaced it after the pin, the filed copy is the recording
+        asked for, and unlinking would delete someone else's newer file. Strict
+        mode succeeds too. A window of microseconds remains between this check
+        and the unlink (Linux has no unlink-by-descriptor); it is accepted.
+        """
+        try:
+            if held_stat is not None:
+                now = os.lstat(source)
+                if not (
+                    stat.S_ISREG(now.st_mode) and os.path.samestat(now, held_stat)
+                ):
+                    log.warning(
+                        "%s/%s/%s is in place, but its original name now holds "
+                        "a different file, which was left alone",
+                        session, target.parent.name, target.name,
+                    )
+                    return
+            source.unlink()
+        except FileNotFoundError:
+            with contextlib.suppress(OSError):
+                target.unlink()
+            raise
+        except OSError as exc:
+            if strict:
+                with contextlib.suppress(OSError):
+                    target.unlink()
+                raise
+            log.warning(
+                "%s/%s/%s is in place, but its original could not be removed "
+                "(%s) and was left where it was",
+                session, target.parent.name, target.name, type(exc).__name__,
+            )
+
+    @staticmethod
+    def _claim_staged(staged: Path, target: Path) -> bool:
+        """Give ``staged`` the final name ``target`` if it is free."""
+        try:
+            os.link(staged, target)
+        except FileExistsError:
+            return False
+        except OSError as exc:
+            if not _no_link(exc):
+                raise
+            # Not even a link inside one directory: claim the name with an
+            # exclusive create, then rename the finished file over the claim.
+            try:
+                os.close(os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            except FileExistsError:
+                return False
+            try:
+                staged.replace(target)
+            except OSError:
+                with contextlib.suppress(OSError):
+                    target.unlink()
+                raise
+            return True
+        staged.unlink()
+        return True
+
+    def _note_path(self, session: str, grid_id: str) -> Path:
+        return self._resolved(
+            valid_name(session, "session name"),
+            RECORDINGS_DIR,
+            PENDING_DIR,
+            f"{valid_grid_id(grid_id)}.json",
+        )
+
+    def write_note(self, session: str, grid_id: str, note: dict) -> None:
+        """Write a recording's note whole: a temp file, then a rename."""
+        path = self._note_path(session, grid_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _replace(path, json.dumps(note))
+
+    def delete_note(self, session: str, grid_id: str) -> bool:
+        try:
+            self._note_path(session, grid_id).unlink()
+        except FileNotFoundError:
+            return False
+        return True
+
+    def notes(self, on_error=None) -> list[tuple[str, str, dict]]:
+        """Every owed recording, as ``(session, grid_id, note)``. A note that is
+        not JSON, or names no usable id, is skipped with a warning.
+
+        A storage error is not a broken note, and only a note or folder that is
+        gone counts as absent. One inside a session raises, or, given
+        ``on_error(session, exc)``, is handed to it and the other sessions are
+        read on, so one folder that cannot be read never holds back the rest.
+        The data directory itself unreadable always raises. Not `sessions()`,
+        whose ``is_dir`` reads an unreadable folder as no folder (Python 3.14:
+        any OSError).
+        """
+        try:
+            children = sorted(self.root.iterdir())
+        except FileNotFoundError:
+            return []
+        found = []
+        for child in children:
+            try:
+                found.extend(self._session_notes(child))
+            except OSError as exc:
+                if on_error is None:
+                    raise
+                on_error(child.name, exc)
+        return found
+
+    def _session_notes(self, folder: Path) -> list[tuple[str, str, dict]]:
+        """One session's notes, for `notes`; raises a storage error."""
+        session = folder.name
+        try:
+            valid_name(session)
+        except InvalidName:
+            return []
+        try:
+            if not stat.S_ISDIR(folder.lstat().st_mode):
+                return []  # a file, or a link: nothing below the root is one
+            pending = self._resolved(session, RECORDINGS_DIR, PENDING_DIR)
+            entries = sorted(p for p in pending.iterdir() if p.suffix == ".json")
+        except (FileNotFoundError, NotADirectoryError, InvalidName):
+            return []
+        found = []
+        for entry in entries:
+            try:
+                info = entry.lstat()
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISREG(info.st_mode):
+                continue  # a symlink or a folder is never a note
+            grid_id = entry.stem
+            try:
+                valid_grid_id(grid_id)
+                note = json.loads(entry.read_text(encoding="utf-8"))
+            except FileNotFoundError:
+                continue
+            except (InvalidName, ValueError):
+                # The file is named by the Grid's id; the log never is.
+                log.warning("ignoring a recording note in session %s", session)
+                continue
+            if isinstance(note, dict):
+                found.append((session, grid_id, note))
+        return found
 
     def _entry(self, path: Path) -> dict:
         """One file, in either Files or Screenshots, shaped like the Grid's own
@@ -435,6 +720,10 @@ class FileStore(SessionLayout):
         """
 
         def usable(name: str) -> str | None:
+            if name.startswith("."):
+                # Never a caller's: a staged copy (`move_in`) or the notes.
+                # Silent, or a stranded one warns on every broadcast tick.
+                return None
             # For the reason `_flow_entries` gives: a name the store would
             # refuse to address must not reach a caller that reads it back.
             try:
@@ -461,10 +750,11 @@ class FileStore(SessionLayout):
         Create-or-replace, the same rule `save` follows: keeping a name that is
         already kept is how someone re-keeps a file they have since downloaded
         again, and the alternative is a second copy under a name nobody chose.
+        A new file renamed over the old, never a rewrite: a link already
+        streaming the old file keeps its bytes.
         """
         path = self._file_path(session, name, folder)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
+        _replace(path, data, sync=True)
         return self._entry(path)
 
     def create_file(
@@ -517,10 +807,132 @@ class LocalFlowStore(FlowStore, FileStore):
     kind = "local"
 
 
-def from_settings(flow: FlowSettings) -> LocalFlowStore | None:
-    """The flow store the config asks for, or None when flows are off (the default)."""
-    if not flow.data_dir:
-        log.info("flows: off (set flow.data_dir to enable them)")
+# Folders that mark a directory as a session's, for the old-layout check.
+_SESSION_MARKS = (FLOWS_DIR, FILES_DIR, "screenshots")
+
+
+def _is_dir(path: Path) -> bool:
+    """`Path.is_dir` that lets a storage fault through: 3.14 reports an unreadable
+    path as "not a directory", which here would hide an old layout. Only a path
+    that is not there, or a non-directory in its way, means absent."""
+    try:
+        return stat.S_ISDIR(path.stat().st_mode)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+
+
+def _is_symlink(path: Path) -> bool:
+    try:
+        return stat.S_ISLNK(os.lstat(path).st_mode)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+
+
+_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".gif")
+
+
+def _holds_file(folder: Path, suffix: str | tuple[str, ...] = "") -> bool:
+    """Whether `folder` holds a regular file directly in it (not a symlink)."""
+    if not _is_dir(folder) or _is_symlink(folder):
+        return False
+    for entry in folder.iterdir():
+        if entry.name.lower().endswith(suffix) and not _is_symlink(entry):
+            try:
+                if stat.S_ISREG(entry.stat().st_mode):
+                    return True
+            except (FileNotFoundError, NotADirectoryError):
+                continue
+    return False
+
+
+def _old_reserved(entry: Path) -> bool:
+    """Whether a folder named like a newly reserved name is an old session.
+
+    Only an unmistakable old shape counts: in the new layout these paths hold
+    sub-folders only, so a regular file directly in them is the old layout.
+    """
+    if entry.name == SESSIONS_DIR:
+        return (
+            _holds_file(entry / FLOWS_DIR, ".yaml")
+            or _holds_file(entry / FILES_DIR)
+            or _holds_file(entry / "screenshots")
+        )
+    # A bare files/ is ambiguous (a transport prefix creates it): not counted.
+    # Screenshots were always images; a transport may put videos there.
+    return _holds_file(entry / FLOWS_DIR, ".yaml") or _holds_file(
+        entry / "screenshots", _IMAGE_SUFFIXES
+    )
+
+
+def old_layout(root: Path, inbox: str | os.PathLike | None = None) -> list[str]:
+    """Session folders still at the top of the data directory, sorted.
+
+    Before the recordings release a session lived at ``DATA_DIR/<name>``; it
+    lives at ``DATA_DIR/sessions/<name>`` now. One left behind would make every
+    flow and file it holds silently vanish, so the boot refuses and names them.
+    The recordings inbox is never a session, whatever it holds: ``INBOX_DIR``
+    always, and the configured ``inbox`` (``recording.dir``) when it is, or lies
+    beneath, a top-level entry. ``sessions`` and ``recordings`` are now reserved
+    names: either is reported as an old session only when it holds the old
+    shape (regular files directly in its ``flows/``, ``files/`` or
+    ``screenshots/``), and is otherwise the new layout or the inbox.
+    """
+    if not _is_dir(root):
+        return []
+    reserved = {SESSIONS_DIR, INBOX_DIR}
+    configured = Path(inbox).resolve() if inbox else None
+    base = root.resolve()
+    found = []
+    for entry in root.iterdir():
+        if _is_symlink(entry) or not _is_dir(entry):
+            continue
+        if entry.name in reserved:
+            if _old_reserved(entry):
+                found.append(entry.name)
+            continue
+        if configured is not None:
+            here = base / entry.name
+            if configured == here or here in configured.parents:
+                continue
+        try:
+            valid_name(entry.name)
+        except InvalidName:
+            continue
+        if any(_is_dir(entry / mark) for mark in _SESSION_MARKS):
+            found.append(entry.name)
+    return sorted(found)
+
+
+def from_settings(
+    data: DataSettings, inbox: str | os.PathLike | None = None
+) -> LocalFlowStore | None:
+    """The store the config asks for, or None when the data directory is unset."""
+    if not data.dir:
+        log.info("flows: off (set data.dir to enable them)")
         return None
-    log.info("flows: local, under %s", flow.data_dir)
-    return LocalFlowStore(flow.data_dir)
+    root = Path(data.dir)
+    from ..config import ConfigError  # local: config imports names, not us
+
+    try:
+        stranded = old_layout(root, inbox)
+    except OSError as exc:
+        # Configured and unusable stops the boot (§F4.12): a data directory
+        # that cannot be read must not be mistaken for an empty one.
+        raise ConfigError(
+            f"data directory {root} cannot be read ({type(exc).__name__}: "
+            f"{exc.strerror or 'I/O error'})"
+        ) from None
+    for name in (SESSIONS_DIR, INBOX_DIR):
+        if name in stranded:
+            raise ConfigError(
+                f"`{name}` in {root} is a session folder from before the "
+                f"sessions/ layout, and `{name}` is now reserved: rename it "
+                f"(e.g. to `{name}-old`), then move it into {root / SESSIONS_DIR}/"
+            )
+    if stranded:
+        raise ConfigError(
+            f"{', '.join(stranded)} in {root} are session folders from before "
+            f"the sessions/ layout: move them into {root / SESSIONS_DIR}/"
+        )
+    log.info("flows: local, under %s", root / SESSIONS_DIR)
+    return LocalFlowStore(root / SESSIONS_DIR)

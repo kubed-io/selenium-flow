@@ -77,6 +77,7 @@ def mount(
                     "browser": False,
                     "downloads": [],
                     "screenshots": [],
+                    "recordings": [],
                     "files": [],
                 }
             else:
@@ -110,17 +111,18 @@ def mount(
     @guarded
     @changes
     async def admin_keep_file(request: Request) -> JSONResponse:
-        """Move a screenshot, or copy a download, into the session's own Files
+        """Move a screenshot or a recording, or copy a download, into the
+        session's own Files
         — so it outlives the browser. There is no matching unkeep: see
         ``files.py``."""
         key = request.path_params["key"]
         folder = request.path_params["folder"]
         name = request.path_params["name"]
         try:
-            if folder not in (stored.SCREENSHOTS, stored.DOWNLOADS):
+            if folder not in (stored.SCREENSHOTS, stored.RECORDINGS, stored.DOWNLOADS):
                 raise ValueError(
                     f"{folder!r} is not something to keep from: use "
-                    f"{stored.SCREENSHOTS} or {stored.DOWNLOADS}"
+                    f"{stored.SCREENSHOTS}, {stored.RECORDINGS} or {stored.DOWNLOADS}"
                 )
             kept = await run_in_threadpool(
                 stored.keep,
@@ -168,6 +170,11 @@ def mount(
             if name == stored.SCREENSHOTS:
                 got = await run_in_threadpool(
                     stored.clear_screenshots, flow_store, library(key)
+                )
+                return JSONResponse({"success": True, "key": key, **got})
+            if name == stored.RECORDINGS:
+                got = await run_in_threadpool(
+                    stored.clear_recordings, flow_store, library(key)
                 )
                 return JSONResponse({"success": True, "key": key, **got})
             removed = await run_in_threadpool(

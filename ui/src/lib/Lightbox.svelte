@@ -71,6 +71,9 @@
       <div class="frame" in:fade|local={{ duration: ms(150) }}>
         {#if f.image}
           <img alt={f.name} src={href}>
+        {:else if f.content_type?.startsWith('video/')}
+          <!-- svelte-ignore a11y_media_has_caption -->
+          <video controls autoplay preload="metadata" src={href}></video>
         {:else if f.content_type === 'application/pdf'}
           <iframe title={f.name} src={href}></iframe>
         {:else}

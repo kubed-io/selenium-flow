@@ -34,12 +34,29 @@ GLOBAL_SESSION = "global"
 # remedy cannot be performed (§F1.2).
 STDIO_SESSION = "stdio"
 
+# The data directory is a root with two homes in it (recordings spec, ruling 6):
+# every session's own folder under `sessions/`, and the inbox the Grid's
+# recordings arrive in. Neither can collide with a session's name, because a
+# session is one level further down.
+SESSIONS_DIR = "sessions"
+INBOX_DIR = "recordings"
+
 # Where a session's own files land. `files` IS the Files section — a print, and
-# anything kept; `screenshots` holds every screenshot until it is kept or
-# cleared (§F4.1). Downloads are not a folder here: they are the Grid's.
+# anything kept; `screenshots` and `recordings` hold what the server made until
+# it is kept or cleared (§F4.1; recordings spec, ruling 7). Downloads are not a
+# folder here: they are the Grid's.
 FILES_DIR = "files"
 SCREENSHOTS_DIR = "screenshots"
-FOLDERS = (FILES_DIR, SCREENSHOTS_DIR)
+RECORDINGS_DIR = "recordings"
+FOLDERS = (FILES_DIR, SCREENSHOTS_DIR, RECORDINGS_DIR)
+
+# The folder names a file in Files can never take, since session://files/<name>
+# would then mean the folder (§F4.6). One arriving under one lands as `name (1)`.
+RESERVED_IN_FILES = frozenset({SCREENSHOTS_DIR, "downloads", RECORDINGS_DIR})
+
+# A Grid session id becomes a note's file name. The Grid hands us 32 hex or a
+# dashed UUID; anything else is refused before it touches a path.
+GRID_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{7,63}$")
 
 # A name becomes a path segment, and the session half of one arrives from a URL
 # query parameter that anyone who can reach this port can write. Anchored, so
@@ -68,6 +85,26 @@ class InvalidName(ValueError):
     A ValueError, so `errors.py` already classifies it as the caller's problem
     and returns 400 rather than 500.
     """
+
+
+def valid_grid_id(value) -> str:
+    """``value`` if it can name a note, else raise."""
+    if not isinstance(value, str) or not GRID_ID.match(value):
+        raise InvalidName(f"{value!r} is not a Grid session id")
+    return value
+
+
+def candidates(name: str):
+    """``name``, then ``name (1)``, ``name (2)`` … the way a browser names a
+    second download. Shared by every folder that never overwrites."""
+    stem, dot, suffix = name.rpartition(".")
+    if not dot or not stem:
+        stem, suffix = name, ""
+    yield name
+    n = 1
+    while True:
+        yield f"{stem} ({n}).{suffix}" if suffix else f"{stem} ({n})"
+        n += 1
 
 
 def valid_name(name, kind: str = "name") -> str:

@@ -60,7 +60,7 @@ def kept_server(tmp_path):
     return SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
-        flow={"data_dir": str(tmp_path)},
+        data={"dir": str(tmp_path)},
     ))
 
 
@@ -132,6 +132,32 @@ def test_keeping_the_same_name_replaces_it(store):
     store.write_file(SESSION, "report.pdf", b"second")
     assert store.read_file(SESSION, "report.pdf") == b"second"
     assert len(store.files(SESSION)) == 1
+
+
+def test_a_re_keep_never_changes_a_file_already_being_read(store):
+    """A signed link streams the inode it opened, with its length already sent:
+    a re-keep is a new file renamed over the name, not a rewrite of that one."""
+    store.write_file(SESSION, "report.pdf", b"first")
+    with store.file_path(SESSION, "report.pdf").open("rb") as streaming:
+        store.write_file(SESSION, "report.pdf", b"second, and longer")
+        assert streaming.read() == b"first"
+    assert store.read_file(SESSION, "report.pdf") == b"second, and longer"
+
+
+def test_a_re_keep_that_fails_leaves_the_kept_file_and_no_temporary(
+    store, monkeypatch
+):
+    store.write_file(SESSION, "report.pdf", b"first")
+
+    def broken(fd):
+        raise OSError(5, "Input/output error")
+
+    monkeypatch.setattr(flows.os, "fsync", broken)
+    with pytest.raises(OSError):
+        store.write_file(SESSION, "report.pdf", b"second")
+    assert store.read_file(SESSION, "report.pdf") == b"first"
+    folder = store.file_path(SESSION, "report.pdf").parent
+    assert [p.name for p in folder.iterdir()] == ["report.pdf"]
 
 
 def test_deleting_reports_whether_there_was_anything_there(store):
@@ -288,7 +314,7 @@ def test_deleting_a_kept_file_is_idempotent(store):
 
 
 def test_deleting_refuses_when_keeping_is_off():
-    with pytest.raises(ValueError, match="FLOW_DATA_DIR"):
+    with pytest.raises(ValueError, match="DATA_DIR"):
         files.delete_one(None, "", "report.pdf")
 
 
@@ -301,6 +327,7 @@ MCP_FOR = {
     "list": ("resource", files.ROOT_URI),
     "screenshots": ("resource", files.FOLDER_URI[files.SCREENSHOTS]),
     "downloads": ("resource", files.FOLDER_URI[files.DOWNLOADS]),
+    "recordings": ("resource", files.FOLDER_URI[files.RECORDINGS]),
     "keep": ("tool", files.KEEP_TOOL),
 }
 
@@ -400,7 +427,7 @@ def test_keep_then_list_over_http(client, live):
     assert body["session"] == SESSION
     # The Grid still reports both — keeping a download is a copy, so the
     # original stays exactly where it was until the browser ends (§F1.10).
-    downloads = body["folders"][1]
+    downloads = next(f for f in body["folders"] if f["name"] == "downloads")
     assert downloads["name"] == "downloads" and downloads["count"] == 2
 
 
@@ -636,7 +663,7 @@ def test_such_a_session_shows_unknown_counts_not_the_shared_librarys(
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get("/admin/sessions", headers=AUTH).json()
     row = next(r for r in body["sessions"] if r["key"] == BAD_KEY)
-    assert row["counts"] == {"downloads": None, "screenshots": None, "files": None}
+    assert row["counts"] == {"downloads": None, "screenshots": None, "recordings": None, "files": None}
     assert row["files_count"] is None and row["flows_count"] is None
 
 
@@ -704,11 +731,11 @@ def test_a_broken_kept_store_is_a_5xx_not_a_404(client, live):
     """A read that fails is not the same fact as a read that found nothing: an
     NFS permission fault or a mount gone read-only must not tell a client to
     stop retrying something that could work on the next attempt, and its
-    message must not quote FLOW_DATA_DIR's own layout back at whoever asked
+    message must not quote DATA_DIR's own layout back at whoever asked
     (Copilot, PR #41)."""
     with patch.object(
         flows.LocalFlowStore,
-        "read_file",
+        "file_path",
         side_effect=PermissionError(
             13, "Permission denied", "/data/flows/desktop/files/report.pdf"
         ),
@@ -754,12 +781,12 @@ async def test_the_file_endpoints_are_tagged_apart(spec):
 
 
 async def test_the_keep_routes_folder_parameter_is_an_enum(spec):
-    """It can only ever be `screenshots` or `downloads` — `files.RESERVED` says
+    """It can only ever be `screenshots`, `recordings` or `downloads` — `files.RESERVED` says
     so, and the route itself refuses a third — so a generated client should
     not have to guess one."""
     params = spec["paths"]["/files/{folder}/{name}/kept"]["put"]["parameters"]
     folder = next(p for p in params if p["name"] == "folder")
-    assert folder["schema"]["enum"] == ["screenshots", "downloads"]
+    assert folder["schema"]["enum"] == ["screenshots", "recordings", "downloads"]
 
 
 async def test_every_file_response_schema_it_references_exists(spec):

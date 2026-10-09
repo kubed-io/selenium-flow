@@ -594,7 +594,7 @@
         "type": "object"
       },
       "FileEntry": {
-        "description": "One file, in whichever of the three sections listed it — Files, Screenshots or Downloads.",
+        "description": "One file, in whichever of the four sections listed it — Files, Screenshots, Recordings or Downloads.",
         "properties": {
           "content_type": {
             "type": "string"
@@ -632,7 +632,7 @@
         "type": "object"
       },
       "FileFolder": {
-        "description": "One of the two folders named beside Files' own files.",
+        "description": "One of the three folders named beside Files' own files.",
         "properties": {
           "browser": {
             "description": "Present on downloads only: whether a browser is open to read them from.",
@@ -644,6 +644,7 @@
           "name": {
             "enum": [
               "screenshots",
+              "recordings",
               "downloads"
             ],
             "type": "string"
@@ -683,7 +684,7 @@
         "type": "object"
       },
       "FileList": {
-        "description": "session://files: Files' own listing, and its two folders.",
+        "description": "session://files: Files' own listing, and its three folders.",
         "properties": {
           "count": {
             "type": "integer"
@@ -1031,7 +1032,7 @@
         "type": "object"
       },
       "FolderList": {
-        "description": "One folder's own listing: session://files/screenshots or /downloads.",
+        "description": "One folder's own listing: session://files/screenshots, /recordings or /downloads.",
         "properties": {
           "browser": {
             "description": "Present on downloads only: whether a browser is open to read them from.",
@@ -1049,6 +1050,7 @@
           "folder": {
             "enum": [
               "screenshots",
+              "recordings",
               "downloads"
             ],
             "type": "string"
@@ -1454,6 +1456,17 @@
             ],
             "default": null
           },
+          "record": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "restore_site_data": {
             "default": true,
             "type": "boolean"
@@ -1503,6 +1516,14 @@
           "height": {
             "description": "Window height in use.",
             "type": "integer"
+          },
+          "recording": {
+            "description": "Whether this browser is being recorded.",
+            "type": "boolean"
+          },
+          "recording_error": {
+            "description": "Why this recording cannot be filed, when it cannot.",
+            "type": "string"
           },
           "session": {
             "description": "The session this browser belongs to — the name you called with. There is no browser id to keep.",
@@ -2592,6 +2613,10 @@
               "null"
             ]
           },
+          "recording": {
+            "description": "Whether the browser this session holds is being recorded.",
+            "type": "boolean"
+          },
           "session": {
             "description": "The name you called with.",
             "type": "string"
@@ -3298,7 +3323,7 @@
         "x-mcp-resource": "session://current"
       },
       "post": {
-        "description": "Start this session's browser, or come back to the one it had. Call it before\nanything else: nothing opens a browser for you.\n\nWith no arguments it returns to the same browser, window and page, which is\nthe right call after a browser was reaped or ended. Calling it while you\nhold a browser ends that one first, which is how you switch:\nopen_session(browser=\"firefox\"). Files that browser had and you did not keep\ngo with it.\n\nSet width and height when layout matters; the headless default is narrow.\nfresh=true starts on about:blank. Saved site data comes back by default;\nrestore_site_data=false opens without it and deletes it, which is how you\nstart as a new user. page_load_timeout bounds a navigation that\nhangs. insecure=true accepts a self-signed certificate; use it only for a site\nyou know has one. An insecure browser gets no saved site data.",
+        "description": "Start this session's browser, or come back to the one it had. Call it before\nanything else: nothing opens a browser for you.\n\nWith no arguments it returns to the same browser, window and page, which is\nthe right call after a browser was reaped or ended. Calling it while you\nhold a browser ends that one first, which is how you switch:\nopen_session(browser=\"firefox\"). Files that browser had and you did not keep\ngo with it.\n\nSet width and height when layout matters; the headless default is narrow.\nfresh=true starts on about:blank. Saved site data comes back by default;\nrestore_site_data=false opens without it and deletes it, which is how you\nstart as a new user. page_load_timeout bounds a navigation that\nhangs. insecure=true accepts a self-signed certificate; use it only for a site\nyou know has one. An insecure browser gets no saved site data.\nrecord=true films this browser's whole life as a video, from now until it\nends; it appears under session://files/recordings shortly after. A person\nwatches it, so only when one will — it costs the Grid. Not inherited: ask\nagain for the next browser.",
         "operationId": "open_session",
         "parameters": [
           {
@@ -5406,7 +5431,7 @@
     },
     "/files": {
       "get": {
-        "description": "Everything kept in Files, newest first, plus a count for session://files/screenshots and session://files/downloads — each its own listing, fetched separately so a caller who only wants to know whether there is anything to look at need not pay for either.",
+        "description": "Everything kept in Files, newest first, plus a count for session://files/screenshots, session://files/recordings and session://files/downloads — each its own listing, fetched separately so a caller who only wants to know whether there is anything to look at need not pay for either.",
         "operationId": "listFiles",
         "parameters": [
           {
@@ -5446,7 +5471,7 @@
                 }
               }
             },
-            "description": "Files' own listing, and its two folders."
+            "description": "Files' own listing, and its three folders."
           },
           "400": {
             "content": {
@@ -5456,7 +5481,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — an unusable name, or a server with no FLOW_DATA_DIR to keep files in. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — an unusable name, or a server with no DATA_DIR to keep files in. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -5499,7 +5524,7 @@
             "description": "The Grid could not serve this — unreachable, or failing. Worth retrying after a wait."
           }
         },
-        "summary": "Files' own listing, and its two folders.",
+        "summary": "Files' own listing, and its three folders.",
         "tags": [
           "files"
         ],
@@ -5558,7 +5583,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — an unusable name, or a server with no FLOW_DATA_DIR to keep files in. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — an unusable name, or a server with no DATA_DIR to keep files in. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -5606,6 +5631,108 @@
           "files"
         ],
         "x-mcp-resource": "session://files/downloads"
+      }
+    },
+    "/files/recordings": {
+      "get": {
+        "description": "Newest first. One video per browser opened with record=true, filed shortly after it ended. Works after the browser is gone.",
+        "operationId": "listRecordings",
+        "parameters": [
+          {
+            "description": "Which session this call is about. What an admin pins inside a credential when one credential should mean one session. Sending this AND ?session= is a 400: two names is two ideas about who is calling.",
+            "in": "header",
+            "name": "X-Session-Key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same as X-Session-Key, by the name Claude.ai custom connectors may send. Both headers with one value are one name; two values, or a header AND ?session=, is a 400.",
+            "in": "header",
+            "name": "X-Workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "in": "query",
+            "name": "session",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderList"
+                }
+              }
+            },
+            "description": "This session's recordings, not yet kept."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The request cannot succeed as sent — an unusable name, or a server with no DATA_DIR to keep files in. Do not retry it unchanged."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or wrong bearer token."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such browser session, or no such file in it. It ended, the Grid reaped it, or the id was never real."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Something failed that this server did not expect."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The Grid could not serve this — unreachable, or failing. Worth retrying after a wait."
+          }
+        },
+        "summary": "This session's recordings, not yet kept.",
+        "tags": [
+          "files"
+        ],
+        "x-mcp-resource": "session://files/recordings"
       }
     },
     "/files/screenshots": {
@@ -5660,7 +5787,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — an unusable name, or a server with no FLOW_DATA_DIR to keep files in. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — an unusable name, or a server with no DATA_DIR to keep files in. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -5722,6 +5849,7 @@
             "schema": {
               "enum": [
                 "screenshots",
+                "recordings",
                 "downloads"
               ],
               "type": "string"
@@ -5783,7 +5911,7 @@
                 }
               }
             },
-            "description": "Moves a screenshot into Files, or copies a download there."
+            "description": "Moves a screenshot or a recording into Files, or copies a download there."
           },
           "400": {
             "content": {
@@ -5793,7 +5921,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — an unusable name, or a server with no FLOW_DATA_DIR to keep files in. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — an unusable name, or a server with no DATA_DIR to keep files in. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -5846,7 +5974,7 @@
             "description": "The Grid could not serve this — unreachable, or failing. Worth retrying after a wait."
           }
         },
-        "summary": "Moves a screenshot into Files, or copies a download there.",
+        "summary": "Moves a screenshot or a recording into Files, or copies a download there.",
         "tags": [
           "files"
         ],

@@ -14,7 +14,7 @@ import time
 import pytest
 import yaml
 
-from kubed.selenium_flow.config import FlowSettings
+from kubed.selenium_flow.config import ConfigError, DataSettings
 from kubed.selenium_flow.flows import library as flows
 from kubed.selenium_flow.flows import store as flowstore
 from kubed.selenium_flow.flows.store import LocalFlowStore
@@ -338,12 +338,12 @@ def test_flows_are_parsed_by_libyaml_when_the_wheel_has_it():
 
 def test_flows_are_off_unless_a_directory_is_named():
     """Not a temp-directory fallback: the operator chooses where this lives."""
-    assert flowstore.from_settings(FlowSettings()) is None
-    assert flowstore.from_settings(FlowSettings(data_dir="   ")) is None
+    assert flowstore.from_settings(DataSettings()) is None
+    assert flowstore.from_settings(DataSettings(dir="   ")) is None
 
 
 def test_naming_a_directory_turns_them_on(tmp_path):
-    store = flowstore.from_settings(FlowSettings(data_dir=str(tmp_path)))
+    store = flowstore.from_settings(DataSettings(dir=str(tmp_path)))
     assert store is not None
     assert store.kind == "local"
 
@@ -414,15 +414,15 @@ def test_surrounding_whitespace_is_trimmed_rather_than_refused():
 
 
 def test_a_blank_explicit_directory_means_off_just_as_a_blank_env_does():
-    """`FlowSettings` normalises "   " to None (see `_blank_is_off`), so a
+    """`DataSettings` normalises "   " to None (see `_blank_is_off`), so a
     caller building `Settings` by hand cannot end up with a directory named
     three spaces."""
     from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
     grid = {"url": "http://grid.invalid:4444"}
-    assert SeleniumMCP(Settings(grid=grid, flow={"data_dir": "   "})).flows is None
-    assert SeleniumMCP(Settings(grid=grid, flow={"data_dir": None})).flows is None
+    assert SeleniumMCP(Settings(grid=grid, data={"dir": "   "})).flows is None
+    assert SeleniumMCP(Settings(grid=grid, data={"dir": None})).flows is None
 
 
 def test_an_explicit_directory_is_used_and_trimmed(tmp_path):
@@ -430,11 +430,11 @@ def test_an_explicit_directory_is_used_and_trimmed(tmp_path):
     from kubed.selenium_flow.server import SeleniumMCP
 
     server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"}, flow={"data_dir": f"  {tmp_path}  "}
+        grid={"url": "http://grid.invalid:4444"}, data={"dir": f"  {tmp_path}  "}
     ))
     assert server.flows is not None
     server.flows.save("bot", "login", {"steps": []})
-    assert (tmp_path / "bot" / "flows" / "login.yaml").is_file()
+    assert (tmp_path / "sessions" / "bot" / "flows" / "login.yaml").is_file()
 
 
 # ---- what the second review caught ------------------------------------------
@@ -464,7 +464,7 @@ def test_a_symlink_to_another_session_is_refused_even_though_it_stays_inside(
 def test_the_root_itself_may_be_a_link_because_that_is_the_installer_s_business(
     tmp_path,
 ):
-    """FLOW_DATA_DIR pointing at a mount is exactly the case §F1.12 leaves open,
+    """DATA_DIR pointing at a mount is exactly the case §F1.12 leaves open,
     so only the parts we join on have to be honest."""
     real = tmp_path / "real"
     real.mkdir()
@@ -768,3 +768,154 @@ def test_a_replaced_document_keeps_its_mode(store, tmp_path):
     assert path.stat().st_mode & 0o777 == 0o640
     store.write_text("bot", "login", "steps: []\n")
     assert path.stat().st_mode & 0o777 == 0o640
+
+
+def test_sessions_live_under_sessions(tmp_path):
+    store = flowstore.from_settings(DataSettings(dir=str(tmp_path)))
+    store.write_file("bot", "a.txt", b"x")
+    assert (tmp_path / "sessions" / "bot" / "files" / "a.txt").read_bytes() == b"x"
+
+
+def test_an_old_layout_stops_the_boot_and_names_what_to_move(tmp_path):
+    (tmp_path / "claudecode" / "screenshots").mkdir(parents=True)
+    (tmp_path / "global" / "flows").mkdir(parents=True)
+    (tmp_path / "recordings").mkdir()  # the inbox is not a session
+    with pytest.raises(ConfigError) as exc:
+        flowstore.from_settings(DataSettings(dir=str(tmp_path)))
+    assert "claudecode, global" in str(exc.value)
+    assert "sessions/" in str(exc.value)
+
+
+@pytest.mark.parametrize("inner", ["files", "flows", "screenshots", "x/files"])
+def test_the_recordings_inbox_is_never_an_old_session(tmp_path, inner):
+    (tmp_path / "recordings" / inner).mkdir(parents=True)
+    assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
+
+
+def test_a_configured_inbox_beside_the_sessions_is_never_an_old_session(tmp_path):
+    (tmp_path / "inbox2" / "files").mkdir(parents=True)
+    with pytest.raises(ConfigError):
+        flowstore.from_settings(DataSettings(dir=str(tmp_path)))
+    store = flowstore.from_settings(
+        DataSettings(dir=str(tmp_path)), inbox=str(tmp_path / "inbox2")
+    )
+    assert store is not None
+    (tmp_path / "real" / "flows").mkdir(parents=True)
+    with pytest.raises(ConfigError) as exc:
+        flowstore.from_settings(DataSettings(dir=str(tmp_path)), inbox=str(tmp_path / "inbox2"))
+    assert "real" in str(exc.value) and "inbox2" not in str(exc.value)
+
+
+def test_a_nested_inbox_is_not_an_old_session(tmp_path):
+    (tmp_path / "inbox" / "files").mkdir(parents=True)
+    (tmp_path / "inbox" / "files" / "x.mp4").write_bytes(b"x")
+    inbox = tmp_path / "inbox" / "files"
+    assert flowstore.from_settings(DataSettings(dir=str(tmp_path)), inbox=str(inbox))
+
+
+def _touch(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"x")
+
+
+def test_an_old_session_named_sessions_is_refused(tmp_path):
+    _touch(tmp_path / "sessions" / "flows" / "a.yaml")
+    with pytest.raises(ConfigError, match=r"`sessions`.*reserved.*sessions-old"):
+        flowstore.from_settings(DataSettings(dir=str(tmp_path)))
+
+
+def test_a_new_session_named_flows_boots(tmp_path):
+    _touch(tmp_path / "sessions" / "flows" / "flows" / "a.yaml")
+    assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
+
+
+def test_an_old_session_named_recordings_is_refused(tmp_path):
+    _touch(tmp_path / "recordings" / "flows" / "a.yaml")
+    with pytest.raises(ConfigError, match=r"`recordings`.*reserved"):
+        flowstore.from_settings(DataSettings(dir=str(tmp_path)))
+
+
+def test_a_video_under_recordings_screenshots_boots(tmp_path):
+    _touch(tmp_path / "recordings" / "screenshots" / "x.mp4")
+    assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
+
+
+def test_an_image_under_recordings_screenshots_is_an_old_session(tmp_path):
+    _touch(tmp_path / "recordings" / "screenshots" / "SHOT.PNG")
+    with pytest.raises(ConfigError, match=r"`recordings`"):
+        flowstore.from_settings(DataSettings(dir=str(tmp_path)))
+
+
+@pytest.mark.parametrize("folder", ["files", "screenshots"])
+def test_an_old_sessions_folder_holding_a_file_is_refused(tmp_path, folder):
+    _touch(tmp_path / "sessions" / folder / "a.bin")
+    with pytest.raises(ConfigError, match=r"`sessions`"):
+        flowstore.from_settings(DataSettings(dir=str(tmp_path)))
+
+
+def test_a_symlinked_sessions_flows_is_skipped(tmp_path):
+    _touch(tmp_path / "elsewhere" / "a.yaml")
+    (tmp_path / "sessions").mkdir()
+    (tmp_path / "sessions" / "flows").symlink_to(tmp_path / "elsewhere")
+    assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
+
+
+@pytest.mark.parametrize("fn_name", ["stat", "scandir"])
+def test_a_fault_reading_a_reserved_folder_stops_the_boot(tmp_path, monkeypatch, fn_name):
+    _touch(tmp_path / "sessions" / "flows" / "a.yaml")
+    _stat_eio_on(monkeypatch, fn_name, "flows")
+    with pytest.raises(ConfigError, match="OSError"):
+        flowstore.from_settings(DataSettings(dir=str(tmp_path)))
+
+
+def test_an_inbox_with_a_transport_prefix_boots(tmp_path):
+    _touch(tmp_path / "recordings" / "files" / "x.mp4")
+    assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
+
+
+def _stat_eio_on(monkeypatch, fn_name, needle):
+    import errno
+    import os
+
+    real = getattr(os, fn_name)
+
+    def faulty(path, *a, **k):
+        if str(path).endswith(needle):
+            raise OSError(errno.EIO, "EIO")
+        return real(path, *a, **k)
+
+    monkeypatch.setattr(os, fn_name, faulty)
+
+
+def test_an_unreadable_data_dir_stops_the_boot_not_an_empty_one(tmp_path, monkeypatch):
+    root = tmp_path / "data"
+    (root / "claudecode" / "files").mkdir(parents=True)
+    _stat_eio_on(monkeypatch, "stat", "data")
+    with pytest.raises(ConfigError) as exc:
+        flowstore.from_settings(DataSettings(dir=str(root)))
+    assert "data" in str(exc.value) and "OSError" in str(exc.value)
+
+
+@pytest.mark.parametrize("fn_name", ["stat", "lstat"])
+def test_an_unreadable_top_level_entry_stops_the_boot(tmp_path, monkeypatch, fn_name):
+    (tmp_path / "claudecode" / "files").mkdir(parents=True)
+    _stat_eio_on(monkeypatch, fn_name, "claudecode")
+    with pytest.raises(ConfigError, match="OSError"):
+        flowstore.from_settings(DataSettings(dir=str(tmp_path)))
+
+
+def test_a_missing_data_dir_is_no_old_layout(tmp_path):
+    assert flowstore.old_layout(tmp_path / "nope") == []
+
+
+def test_a_recording_dir_nothing_collects_from_hides_no_old_session(tmp_path):
+    from kubed.selenium_flow import config
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    (tmp_path / "bot" / "flows").mkdir(parents=True)
+    with pytest.raises(ConfigError, match="bot"):
+        SeleniumMCP(config.Settings(
+            grid={"url": "http://grid.invalid:4444"},
+            data={"dir": str(tmp_path)},
+            recording={"dir": str(tmp_path / "bot" / "inbox")},
+        ))

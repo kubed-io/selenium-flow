@@ -105,7 +105,7 @@ FLOW_ENDPOINTS = tuple(FLOW_ROUTES)
 
 OFF = (
     "saved flows are not enabled on this server: it was started with no "
-    "FLOW_DATA_DIR, so there is nowhere to keep them"
+    "DATA_DIR, so there is nowhere to keep them"
 )
 
 LIST_DESCRIPTION = (

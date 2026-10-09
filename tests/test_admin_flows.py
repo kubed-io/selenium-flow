@@ -45,12 +45,12 @@ steps:
 
 @pytest.fixture
 def server(tmp_path, monkeypatch):
-    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    monkeypatch.delenv("DATA_DIR", raising=False)
     built = SeleniumMCP(
         Settings(
             grid={"url": "http://grid.invalid:4444"},
             auth={"token": TOKEN},
-            flow={"data_dir": str(tmp_path)},
+            data={"dir": str(tmp_path)},
         )
     )
     built.sessions.store.set(KEY, SessionRecord(session_id=""))
@@ -96,7 +96,7 @@ def test_the_listing_is_the_same_merge_the_agent_sees(client, server):
 def test_with_flows_off_the_panel_is_empty_rather_than_broken(tmp_path, monkeypatch):
     """A disabled capability should render as "nothing here", not as an error
     that blanks the section and says a 400."""
-    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    monkeypatch.delenv("DATA_DIR", raising=False)
     off = SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
     )

@@ -41,7 +41,7 @@ STEPS = [
 def slow_server(tmp_path, tmp_path_factory, monkeypatch):
     """A server whose `navigate` takes a moment, and records that it ran. It
     holds one secret, `demo`, usable anywhere."""
-    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    monkeypatch.delenv("DATA_DIR", raising=False)
     secrets_dir = tmp_path_factory.mktemp("secrets")
     (secrets_dir / "demo").mkdir()
     (secrets_dir / "demo" / "password").write_text("hunter2")
@@ -49,7 +49,7 @@ def slow_server(tmp_path, tmp_path_factory, monkeypatch):
         Settings(
             grid={"url": "http://grid.invalid:4444"},
             auth={"token": TOKEN},
-            flow={"data_dir": str(tmp_path)},
+            data={"dir": str(tmp_path)},
             secrets={"dirs": str(secrets_dir)},
         )
     )
@@ -189,7 +189,7 @@ async def test_a_budget_that_is_not_seconds_is_refused_at_save(
         Settings(
             grid={"url": "http://grid.invalid:4444"},
             auth={"token": TOKEN},
-            flow={"data_dir": str(tmp_path)},
+            data={"dir": str(tmp_path)},
         )
     )
     calling_as(monkeypatch, NAMED)

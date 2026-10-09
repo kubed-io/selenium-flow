@@ -58,11 +58,11 @@ test('switch-in: Loading… everywhere, then the three rows with counts (D4, F1,
   expect(toggle).toHaveAttribute('aria-expanded', 'false')
 })
 
-test('the three Files sections are Downloads, Screenshots, Files, in that order (F1)', async () => {
+test('the four Files sections are Downloads, Screenshots, Recordings, Files, in that order (F1)', async () => {
   const { container } = setup()
   const sections = [...container.querySelectorAll('#paneFiles section.section')]
-  expect(sections.map((s) => s.id)).toEqual(['downloadsSection', 'screenshotsSection', 'keptSection'])
-  expect(sections.map((s) => s.querySelector('.title')!.textContent!.slice(1))).toEqual(['Downloads', 'Screenshots', 'Files'])
+  expect(sections.map((s) => s.id)).toEqual(['downloadsSection', 'screenshotsSection', 'recordingsSection', 'keptSection'])
+  expect(sections.map((s) => s.querySelector('.title')!.textContent!.slice(1))).toEqual(['Downloads', 'Screenshots', 'Recordings', 'Files'])
 })
 
 test('Files has no clear of its own (F9)', async () => {
@@ -611,4 +611,45 @@ test('a flow Move/Delete/Save from a session that has since been left does not t
   expect(b.container.querySelector('.outline [data-step="1"]')).toHaveAttribute('aria-selected', 'true')
   expect(b.container.querySelector('.pane .dhead')).toHaveTextContent('2gointeract')
   expect(b.container.querySelector('.flowlist .item')).toHaveAttribute('aria-selected', 'true')
+})
+
+const rec = (name: string) => ({ name, size: 9, url: '/r/' + name, image: false, content_type: 'video/mp4' })
+const WITH_RECS = { ...FILES, recordings: [rec('one.mp4'), rec('two.mp4')] }
+
+test('Recordings shows its count and a tile each (R1)', async () => {
+  const { container } = setup({ 'GET /admin/sessions/k/files': { body: WITH_RECS } })
+  await vi.waitFor(() => expect(container.querySelector('#recordingsCount')).toHaveTextContent('2'))
+  expect(container.querySelectorAll('#recordings .file')).toHaveLength(2)
+})
+
+test('Clear recordings is off when there are none (R2)', async () => {
+  const { container } = setup()
+  await vi.waitFor(() => expect(container.querySelector('#recordingsCount')).toHaveTextContent('0'))
+  expect(container.querySelector('#clearRecordings')).toBeDisabled()
+  expect(within(container.querySelector('#recordings')!).getByText('No recordings yet.')).toBeInTheDocument()
+})
+
+test('Clear recordings confirms, then deletes the folder (R3)', async () => {
+  const { container, calls } = setup({
+    'GET /admin/sessions/k/files': { body: WITH_RECS },
+    'DELETE /admin/sessions/k/files/recordings': { body: {} },
+  })
+  await vi.waitFor(() => expect(container.querySelector('#clearRecordings')).not.toBeDisabled())
+  await fireEvent.click(container.querySelector('#clearRecordings')!)
+  const sheet = container.ownerDocument.querySelector('.modal') as HTMLElement
+  expect(sheet).toHaveTextContent('Clear recordings')
+  expect(sheet).toHaveTextContent('Deletes all 2 recordings in this session. Anything you kept is in Files and stays.')
+  expect([...sheet.querySelectorAll('.names li')].map((li) => li.textContent)).toEqual(['one.mp4', 'two.mp4'])
+  await fireEvent.click(within(sheet).getByText('Delete 2 recordings'))
+  await vi.waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.path === '/admin/sessions/k/files/recordings')).toBe(true))
+})
+
+test('Keep on a recording tile posts to the recordings folder (R4)', async () => {
+  const { container, calls } = setup({
+    'GET /admin/sessions/k/files': { body: WITH_RECS },
+    'POST /admin/sessions/k/files/recordings/one.mp4/keep': { body: {} },
+  })
+  await vi.waitFor(() => expect(container.querySelector('#recordings button.keep')).not.toBeNull())
+  await fireEvent.click(container.querySelector('#recordings button.keep')!)
+  await vi.waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.path === '/admin/sessions/k/files/recordings/one.mp4/keep')).toBe(true))
 })

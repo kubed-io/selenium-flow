@@ -147,14 +147,14 @@ def test_a_malformed_secrets_dirs_is_a_config_error_not_a_crash(tmp_path, body):
 
 
 @pytest.mark.parametrize("body, field", [
-    ("flow:\n  data_dir: 1\n", r"flow\.data_dir"),
+    ("data:\n  dir: 1\n", r"data\.dir"),
     ("log_level: 5\n", "log_level"),
     ("session:\n  browser: 5\n", r"session\.browser"),
 ])
 def test_a_wrong_typed_before_validated_setting_is_a_config_error_not_a_crash(tmp_path, body, field):
     """Every `mode="before"` validator in config.py must tolerate non-string
     input and hand it to pydantic's own type check, the same as `_split`
-    (`dirs`) was fixed to. `data_dir`'s validator is `mode="after"`, so
+    (`dirs`) was fixed to. `dir`'s validator is `mode="after"`, so
     pydantic's own str|None check already rejects a non-string before the
     validator ever sees it — this locks that in alongside the two that do
     run `mode="before"` (`browser`, `log_level`)."""
@@ -352,3 +352,45 @@ def test_security_frame_ancestors_from_env_and_args():
     ]
     args = ["--security-frame-ancestors", "https://c.example"]
     assert load(args, {}).settings.security.frame_ancestors == ["https://c.example"]
+
+
+def test_data_dir_is_the_setting_and_reads_from_env():
+    loaded = config.load([], {"DATA_DIR": "/srv/data"})
+    assert loaded.settings.data.dir == "/srv/data"
+    assert loaded.sources["data.dir"] == "env"
+
+
+def test_the_retired_env_name_stops_the_boot_with_the_move():
+    with pytest.raises(config.ConfigError) as exc:
+        config.load([], {"FLOW_DATA_DIR": "/data/flows"})
+    assert str(exc.value) == (
+        "FLOW_DATA_DIR is now DATA_DIR, and session folders live under "
+        "DATA_DIR/sessions/ — move them there once, then set DATA_DIR"
+    )
+
+
+def test_a_blank_retired_env_name_is_not_a_setting():
+    config.load([], {"FLOW_DATA_DIR": ""})
+
+
+def test_the_retired_file_section_stops_the_boot_with_the_move(tmp_path):
+    path = tmp_path / "c.yaml"
+    path.write_text("flow:\n  data_dir: /data/flows\n")
+    with pytest.raises(config.ConfigError) as exc:
+        config.load(["--config-file", str(path)], {})
+    assert str(exc.value) == config.RETIRED_FLOW
+
+
+def test_recording_section_defaults_and_env():
+    s = config.load([], {"DATA_DIR": "/d", "RECORDING_ENABLED": "true"}).settings
+    assert s.recording.enabled is True
+    assert (s.recording.wait, s.recording.watch, s.recording.poll) == (600, "auto", 1000)
+    assert s.recording.settle == 10
+
+
+def test_recording_settle_reads_from_env_and_flag_and_zero_is_allowed():
+    assert config.load([], {"RECORDING_SETTLE": "0"}).settings.recording.settle == 0
+    loaded = config.load(["--recording-settle", "25"], {})
+    assert loaded.settings.recording.settle == 25
+    with pytest.raises(config.ConfigError, match=r"recording\.settle"):
+        config.load([], {"RECORDING_SETTLE": "-1"})

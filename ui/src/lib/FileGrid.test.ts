@@ -100,3 +100,10 @@ test("layout row: one horizontal strip of tiles, still opening the lightbox", as
   await fireEvent.click(container.querySelector('a.thumb')!)
   expect(container.ownerDocument.querySelector('.lightbox')).not.toBeNull()
 })
+
+test('a video tile shows 🎬 and a play badge, never an img (R6)', () => {
+  const { container } = render(FileGrid, { files: [{ name: 'r.mp4', size: 5, url: '/f/3', content_type: 'video/mp4' }] })
+  expect(container.querySelector('.glyph')).toHaveTextContent('🎬')
+  expect(container.querySelector('.thumb .play')).not.toBeNull()
+  expect(container.querySelector('img')).toBeNull()
+})

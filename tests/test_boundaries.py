@@ -66,6 +66,7 @@ NO_PROTOCOL = (
     *walk("session"),
     *walk("flows", skip=("api",)),
     *walk("site_data"),
+    *walk("recordings"),
     *(
         f"kubed.selenium_flow.{name}"
         for name in (
@@ -84,6 +85,7 @@ NO_SELENIUM = tuple(
         "core.assertion",
         "session.store",
         "site_data.snapshot",
+        "recordings.mp4",
         "flows.template",
         "flows.redact",
         "flows.engine",
@@ -219,7 +221,7 @@ UPPER = tuple(
 )
 
 # The kernel: the same layers `NO_PROTOCOL` walks, `flows/api` excepted.
-KERNEL = ("core", "session", "flows", "site_data")
+KERNEL = ("core", "session", "flows", "site_data", "recordings")
 KERNEL_SKIP = {"flows/api.py"}
 
 # Upward imports that exist today, each with the reason. Keyed by file and the

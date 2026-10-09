@@ -264,6 +264,7 @@ BROWSER = {"accept": "text/html,application/xhtml+xml,*/*;q=0.8"}
         links.file_path("abc", "shot.png"),
         links.kept_path("desk", "shot.png"),
         links.screenshot_path("desk", "shot.png"),
+        links.recording_path("desk", "a.mp4"),
     ],
 )
 def test_a_dead_link_opened_in_a_browser_says_why(client, path):
@@ -347,7 +348,7 @@ def test_a_partial_download_is_never_served(client):
 
 
 def test_the_admin_api_lists_files_with_signed_urls(client, flow_session):
-    """`server` keeps no flows (no `FLOW_DATA_DIR`), so Downloads is the only
+    """`server` keeps no flows (no `DATA_DIR`), so Downloads is the only
     section with anything in it — and it still has to list, signed, with flows
     off entirely."""
     with (

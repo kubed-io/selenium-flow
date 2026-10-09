@@ -148,9 +148,14 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
 - **Behind agentgateway, `X-Session-Key` / `X-Workspace` cross and `?session=` does not.**
 - **A JWT with an unknown `kid` makes `JWTVerifier` fetch the JWKS**, and FastMCP's bearer
   middleware runs on every path, so any request on a door that bypasses the gateway (the
-  in-cluster Service, the ingress) can cause one. `OidcVerifier._fetch_jwks` floors that at one
-  attempt per `JWKS_REFETCH_FLOOR` (60 s), failed attempts included; misses during a fetch
-  wait for it rather than being refused.
+  in-cluster Service, the ingress) can cause one. `OidcVerifier` floors that at one attempt
+  per `JWKS_REFETCH_FLOOR` (60 s), failed attempts included. Misses during a fetch wait for
+  it, and misses after it, inside the floor, get its body back rather than a refusal, even
+  when the caller that started it was cancelled before caching anything: the fetch is
+  shielded and kept, never cleared. FastMCP 4.1's own floor (`jwks_refresh_interval`) is
+  passed as 0, so ours is the only one on every version: FastMCP's fetches unshielded
+  under a lock, so a first caller cancelled mid-fetch takes the fetch with it, and
+  everyone waiting is refused for the whole interval.
 
 - **Type hints in `mcp/tools.py` are the tool schema.** FastMCP builds the JSON schema from the
   signature, so a missing or loose annotation is a worse tool, not a style nit. This is the
@@ -507,6 +512,58 @@ A stored mapping can name a browser the Grid has already reaped. `resolve` check
 package runs a cleanup loop: the Grid expires idle browsers via `SE_NODE_SESSION_TIMEOUT`,
 and the store expires mappings via its own TTL. Do not add a scheduler.
 
+**One bounded wait is allowed:** a task that waits for something this server was
+told to expect, and ends when nothing is owed — the admin broadcast (while a page
+listens) and the recordings collector (while a recording is owed). A loop that
+tidies is still not.
+
+### Recordings: Selenium records, the operator delivers, we file
+
+- A file is matched by the owed Grid id anywhere in its path below the inbox; one
+  path naming two owed ids is skipped. The recorder must keep `SE_VIDEO_FILE_NAME=auto`
+  and `SE_VIDEO_FILE_NAME_SUFFIX=true` or `SE_VIDEO_SESSION_SUBFOLDER=true`, or no id is there.
+- The inbox (`recording.dir`) is the operator's; we never clean it. A file no
+  note claims stays where it is; one a `discard` note claims is deleted, never
+  filed. Every recorded browser is noted `discard` the moment it exists
+  (`open_session(on_created=)`) and noted again without it once its session
+  holds it, so an open that fails or loses a race to bind leaves no orphan.
+- The queue is the notes under `sessions/<name>/recordings/.pending/<gridId>.json`.
+  They are on disk, so they survive a restart whatever the session store is.
+- **A note leaves the queue only once it is gone from disk.** Filing (or the
+  deadline) first marks the note `filed` / `dropped`, then deletes it; a delete
+  that fails keeps it owed but done, and every sweep (and the next process)
+  retries the delete alone, never matching or filing it again. A filing's move,
+  mark and delete are one shielded task `stop` waits for, so a rolling deploy
+  mid-copy finishes it; only a hard crash between the move and the mark leaves
+  an unmarked note the next process can file again.
+- A storage error reading the notes is a fault, not a broken note, and it is a
+  session's: `notes(on_error=)` reads every other session on (only the data
+  directory itself unreadable raises), walking the root with `lstat` rather
+  than `sessions()`, whose `is_dir` reads an unreadable folder as none. The
+  collector owes what it read, logs the rest once a streak and reads again each
+  tick, holding the notes lock across the read and the merge; the boot carries
+  on. Only bad JSON, a bad id or a non-file is skipped.
+- Matching is never by session name (the recorder strips `.`). The Grid id stays on disk, in the note only.
+- A file is complete when it ends in `mfro`, and filed once it has also sat
+  unchanged for `recording.settle` seconds: a transport may still be finishing
+  (rclone checks an upload after writing it and uploads one that vanished
+  again, a copy no note claims). One cut off (no `mfro`, unchanged 60 s,
+  browser gone) is filed as it is.
+- **The collector never sends the Grid a session command.** It learns whether a
+  recorded browser still runs from one `GET /status` listing per tick
+  (`Grid.sessions()`): a WebDriver command such as `GET /session/{id}/url` counts
+  as activity and would stop the Grid ever reaping the browser. A listing taken
+  before a browser opened cannot mark it gone (a cached listing older than the
+  note's `opened` is ignored). A failed sweep is retried a tick later, logged once
+  per failure streak.
+- Recordings follow the screenshot lifecycle: kept into Files or cleared.
+- `record` is never inherited by an explicit open, but a reap replays it, and
+  only while `recording.enabled`; with recording off it is dropped from the reopen.
+- Layout: `DATA_DIR/sessions/<name>/{flows,files,screenshots,recordings}`, and
+  the inbox `DATA_DIR/recordings/` by default, never in or above `sessions/`
+  (refused at boot). `data` and `recording` are config sections;
+  `FLOW_DATA_DIR` is the one retired name refused at boot.
+
 ### Everything to read is a resource, named by its URI
 
 `session://current` is the natural shape for "what browser am I holding" — state to read,
@@ -601,7 +658,10 @@ token on this origin. Images get `default-src 'none'` and no sandbox, and
 this is not an oversight to tidy away: the sandbox's opaque origin is felt by
 every extension in the tab, and one reading `localStorage` threw on each
 render until screenshot links opened black and hung. A PDF gets neither,
-since Chrome's viewer does not load under a sandbox. A link that does not open
+since Chrome's viewer does not load under a sandbox. Video and audio are the other unsandboxed case: they get
+`default-src 'none'; media-src 'self'; style-src 'unsafe-inline'`, because a
+sandboxed top-level media document does not play. Files on our disk (kept files,
+screenshots, recordings) stream with HTTP Range so a video can seek. A link that does not open
 is a page saying why for a browser and JSON for anything else, and
 `link_ttl` sets how long one lasts.
 

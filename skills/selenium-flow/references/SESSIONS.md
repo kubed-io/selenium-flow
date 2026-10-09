@@ -93,6 +93,14 @@ need first. Screenshots and prints are never at risk this way — they land in
 your session's own files, `session://files/screenshots` and `session://files`,
 from the moment they are taken.
 
+## Recording a browser
+
+`open_session(record=true)` films the browser from that call until it ends. It is
+never inherited: reopening without `record` does not record. The video shows up
+under `session://files/recordings` shortly after the browser ends (or is
+reaped); `keep_file` it to keep it. It costs the Grid, so ask for it only when a
+person will watch.
+
 ## Your library is your name too
 
 The flow library and Files are the directory your session name

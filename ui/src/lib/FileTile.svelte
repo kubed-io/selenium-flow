@@ -43,6 +43,7 @@
   {:else}
     <span class="glyph">{glyphFor(f.name)}</span>
   {/if}
+  {#if f.content_type?.startsWith('video/')}<span class="play" aria-hidden="true">▶</span>{/if}
 </a>
 <div class="meta">
   <div class="name">{f.name}</div>

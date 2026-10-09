@@ -9,6 +9,9 @@ only connects them, so a new capability never means editing the server.
 from __future__ import annotations
 
 import logging
+import os
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastmcp import FastMCP
 from starlette.middleware import Middleware
@@ -36,6 +39,8 @@ from .mcp import (
     skill,
     tools,
 )
+from .recordings import collector as recording_collector
+from .recordings import mounts
 from .session import settings as session_settings
 from .session import store as store_module
 from .session.sessions import SessionManager
@@ -106,16 +111,57 @@ class SeleniumMCP:
         # session status both name the skill, and neither may name a resource
         # this server is not serving (Copilot, #36).
         self.skill = skill.load() if settings.mcp.skill else None
+
+        # Saved flows, or None when no data directory was named — which is the
+        # default, and is the feature being off rather than a degraded mode.
+        # Built before the sessions: the recordings are filed into it. A
+        # recording.dir nothing collects from is no inbox, and must not hide an
+        # old session from the move the boot asks for (Copilot, #59).
+        self.flows = flowstore.from_settings(
+            settings.data,
+            config.recording_dir(settings) if settings.recording.enabled else None,
+        )
+
+        # Recordings (recordings spec): the Grid films, the operator delivers to
+        # the inbox, the collector files. Built before the sessions, which tell
+        # it about every recorded browser; None when recording is off.
+        self.collector = None
+        problem = config.recording_problem(settings)
+        if problem:
+            # `load` checks this too; Settings built in code skips `load`.
+            raise config.ConfigError(problem)
+        if settings.recording.enabled:
+            inbox = Path(config.recording_dir(settings))
+            if not inbox.is_dir() or not os.access(inbox, os.R_OK | os.W_OK | os.X_OK):
+                raise config.ConfigError(
+                    f"recording.dir {inbox} must exist and be readable and writable "
+                    "by this server: filing a recording moves it out"
+                )
+            self.collector = recording_collector.Collector(
+                self.flows,
+                inbox,
+                # The Grid's status, never a call to a session: a command sent
+                # to one is activity, and would keep it from ever being reaped.
+                live=lambda: {
+                    s["session_id"] for s in self.grid.sessions() if s.get("session_id")
+                },
+                wait=settings.recording.wait,
+                polling=mounts.polling(settings.recording.watch, inbox),
+                poll_ms=settings.recording.poll,
+                settle=settings.recording.settle,
+            )
+            log.info(
+                "recordings: on, inbox %s, %s",
+                inbox, "polling" if self.collector.polling else "events",
+            )
+
         self.sessions = SessionManager(
             self.actions,
             store=self.store,
             skill_available=self.skill is not None,
             defaults=session_settings.from_settings(settings.session),
+            recordings=self.collector,
         )
-
-        # Saved flows, or None when no data directory was named — which is the
-        # default, and is the feature being off rather than a degraded mode.
-        self.flows = flowstore.from_settings(settings.flow)
 
         # The secrets an agent may bind, or None when none were configured.
         # Read-only and value-free: this holds a catalogue, never a credential.
@@ -126,10 +172,25 @@ class SeleniumMCP:
         # `docker compose up`, and the reason the deployment always sets one.
         auth = http_auth.provider(settings)
 
+        # The collector's task lives on the server's event loop, so it starts
+        # and stops with it. It runs only while a recording is owed.
+        collector = self.collector
+
+        @asynccontextmanager
+        async def lifespan(_server):
+            if collector is not None:
+                await collector.start()
+            try:
+                yield {}
+            finally:
+                if collector is not None:
+                    await collector.stop()
+
         self.mcp = FastMCP(
             "Selenium",
             instructions=tools.first_instructions(self.skill is not None),
             auth=auth,
+            lifespan=lifespan,
         )
         tools.register(self.mcp, self.actions, self.sessions, self.secrets)
 
@@ -244,7 +305,7 @@ class SeleniumMCP:
         # The admin pages and the signed file route. Always on: they are how a
         # person sees what the agents have been doing, and the file route is the
         # only way an image reaches somewhere that cannot send a token.
-        admin.register(
+        broadcast = admin.register(
             self.mcp,
             self.actions,
             auth_token,
@@ -258,6 +319,9 @@ class SeleniumMCP:
             link_ttl=settings.link_ttl,
             frame_ancestors=settings.security.frame_ancestors,
         )
+        # A filed recording shows on every open admin page now, not a tick on.
+        if self.collector is not None:
+            self.collector.on_filed = broadcast.poke
 
     def run(
         self, transport: str = "http", host: str = "0.0.0.0", port: int = 8000

@@ -112,7 +112,10 @@ GROUPS = [
         "Files",
         "What a session has produced, and how to keep one past the browser "
         "that made it. See [Files](Files).",
-        ["list_files", "list_screenshots", "list_downloads", "keep_file"],
+        [
+            "list_files", "list_screenshots", "list_recordings",
+            "list_downloads", "keep_file",
+        ],
     ),
     (
         "Secrets",

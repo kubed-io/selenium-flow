@@ -27,11 +27,14 @@ class Issuer:
         body = json.dumps({"keys": [jwk | {"kid": KID, "use": "sig", "alg": "RS256"}]})
         self.fetches = 0  # JWKS GETs served, a failed one included
         self.down = False  # answer 503, as an issuer mid-outage would
+        self.gate = threading.Event()  # cleared, a GET waits for it: a slow issuer
+        self.gate.set()
         issuer = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):  # the stdlib's name
                 issuer.fetches += 1
+                issuer.gate.wait(10)
                 if issuer.down:
                     self.send_response(503)
                     self.end_headers()
@@ -80,5 +83,6 @@ class Issuer:
         )
 
     def close(self):
+        self.gate.set()
         self.http.shutdown()
         self.http.server_close()

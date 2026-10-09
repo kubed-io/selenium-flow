@@ -121,7 +121,7 @@ def test_a_save_that_fails_still_returns_the_image_without_quoting_the_disk(
     acting, driver, monkeypatch
 ):
     """Saving is on every screenshot, so it must never take one away. And an
-    OSError names a path under FLOW_DATA_DIR, which is nobody's business."""
+    OSError names a path under DATA_DIR, which is nobody's business."""
     acting.keep = _Keeper(OSError(28, "No space left", "/data/flows/x/files/s.png"))
     result = acting.screenshot("abc")
     assert result["image"] == PIXEL
@@ -135,7 +135,7 @@ def test_a_server_that_keeps_nothing_says_so_and_still_shows_the_image(acting):
     acting.keep = _Keeper(ValueError(files.OFF))
     result = acting.screenshot("abc")
     assert result["image"] == PIXEL
-    assert "FLOW_DATA_DIR" in result["file_error"]
+    assert "DATA_DIR" in result["file_error"]
 
 
 @pytest.mark.parametrize(
@@ -229,7 +229,7 @@ def keeping_server(tmp_path):
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": "tok"},
         public_base_url="https://selenium.example.com",
-        flow={"data_dir": str(tmp_path)},
+        data={"dir": str(tmp_path)},
     ))
 
 
@@ -279,7 +279,7 @@ def test_a_server_with_no_data_dir_refuses_to_keep_with_the_reason():
     server = SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": "tok"})
     )
-    with pytest.raises(ValueError, match="FLOW_DATA_DIR"):
+    with pytest.raises(ValueError, match="DATA_DIR"):
         server.actions.keep("shot.png", b"png", "files")
 
 
@@ -302,7 +302,7 @@ def test_a_mounted_server_hands_out_links_it_serves(tmp_path, public, expected):
         auth={"token": "tok"},
         public_base_url=public,
         route_prefix="/flow",
-        flow={"data_dir": str(tmp_path)},
+        data={"dir": str(tmp_path)},
     ))
     described = server.actions.keep("shot.png", b"png", "files")
     assert described["url"].startswith(expected)
@@ -348,6 +348,7 @@ def test_a_kept_page_opens_without_its_scripts(keeping_server):
     from kubed.selenium_flow.http import links
 
     inert = "default-src 'none'; style-src 'unsafe-inline'"
+    media = "default-src 'none'; media-src 'self'; style-src 'unsafe-inline'"
     client = TestClient(keeping_server.mcp.http_app())
     for name, csp in (
         ("page.html", "sandbox"),
@@ -360,6 +361,8 @@ def test_a_kept_page_opens_without_its_scripts(keeping_server):
         ("shot.gif", inert),
         ("shot.webp", inert),
         ("shot.avif", inert),
+        ("clip.mp4", media),
+        ("clip.webm", media),
     ):
         keeping_server.flows.write_file("stdio", name, b"<script>alert(1)</script>")
         response = client.get(links.kept_url("stdio", name, "tok"))
@@ -386,7 +389,7 @@ async def test_link_ttl_is_how_long_a_link_opens(tmp_path):
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": "tok"},
         link_ttl=day,
-        flow={"data_dir": str(tmp_path)},
+        data={"dir": str(tmp_path)},
     ))
 
     def lasts(url: str) -> float:
@@ -544,7 +547,7 @@ def test_open_session_opens_insecure_only_when_asked_and_remembers_it(server, mo
         def get(self, url):
             self.current_url = url
 
-    def opening(browser=None, insecure=False):
+    def opening(browser=None, insecure=False, record=False, video_name=None):
         asked.append(insecure)
         return _Driver()
 

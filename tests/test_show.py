@@ -24,7 +24,7 @@ def flow_server(tmp_path, named_caller):
     server = SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
-        flow={"data_dir": str(tmp_path)},
+        data={"dir": str(tmp_path)},
     ))
     server.flows.save(named_caller, "login", {"steps": GOOD, "description": "Log in"})
     return server
@@ -50,6 +50,7 @@ def secrets_server(tmp_path, named_caller):
         ("session://current", "context"),
         ("session://files", "files"),
         ("session://files/screenshots", "folder"),
+        ("session://files/recordings", "folder"),
         ("session://files/downloads", "folder"),
         ("flow://flows", "flows"),
         ("flow://flows/login", "flow"),
@@ -87,6 +88,7 @@ def test_anything_else_is_refused_naming_what_can_be_shown(uri):
         ("session://files", "files"),
         ("session://files/downloads", "folder"),
         ("session://files/screenshots", "folder"),
+        ("session://files/recordings", "folder"),
     ],
 )
 async def test_show_returns_the_resources_own_json(flow_server, uri, component):

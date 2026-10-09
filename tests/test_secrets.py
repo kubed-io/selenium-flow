@@ -321,7 +321,7 @@ def secret_server(tmp_path, monkeypatch):
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
         secrets={"dirs": str(tmp_path / "secrets-src")},
-        flow={"data_dir": str(tmp_path / "flows")},
+        data={"dir": str(tmp_path / "flows")},
     ))
     calling_as(monkeypatch, NAMED)
     return server
@@ -706,7 +706,7 @@ def bound_http(tmp_path, monkeypatch):
     from .conftest import TOKEN
 
     monkeypatch.delenv("SECRETS_DIRS", raising=False)
-    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    monkeypatch.delenv("DATA_DIR", raising=False)
     make_secret(
         tmp_path, "nextcloud", password="hunter2",
         **{ALLOWED_URLS: "https://nc.example.com"},
@@ -866,7 +866,7 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
     from .conftest import NAMED, TOKEN, calling_as
 
     monkeypatch.delenv("SECRETS_DIRS", raising=False)
-    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    monkeypatch.delenv("DATA_DIR", raising=False)
     make_secret(
         tmp_path, "nextcloud", password=flowrun.HIDDEN,
         **{ALLOWED_URLS: "https://nc.example.com"},
@@ -920,7 +920,7 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
     from .conftest import NAMED, TOKEN, calling_as
 
     monkeypatch.delenv("SECRETS_DIRS", raising=False)
-    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    monkeypatch.delenv("DATA_DIR", raising=False)
     make_secret(
         tmp_path, "nextcloud", password="hunter2",
         **{ALLOWED_URLS: "https://nc.example.com"},
@@ -964,7 +964,7 @@ def _direct(tmp_path, monkeypatch, write):
     from .conftest import NAMED, TOKEN, calling_as
 
     monkeypatch.delenv("SECRETS_DIRS", raising=False)
-    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    monkeypatch.delenv("DATA_DIR", raising=False)
     make_secret(
         tmp_path, "nextcloud", password=VALUE,
         **{ALLOWED_URLS: "https://nc.example.com"},
@@ -1040,7 +1040,7 @@ async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
     from .conftest import NAMED, TOKEN, calling_as
 
     monkeypatch.delenv("SECRETS_DIRS", raising=False)
-    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    monkeypatch.delenv("DATA_DIR", raising=False)
     make_secret(
         tmp_path, "nextcloud", password="hunter2",
         **{ALLOWED_URLS: "https://nc.example.com"},

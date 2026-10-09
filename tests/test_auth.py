@@ -188,10 +188,15 @@ async def test_unknown_kids_fetch_the_jwks_once_per_floor(issuer, monkeypatch):
     assert results == [None] * 8 and issuer.fetches == 1
     # The one fetch cached the real key, so a good token is unaffected.
     assert await verifier.verify_token(issuer.mint()) is not None
-    assert issuer.fetches == 1
-    monkeypatch.setattr(auth, "JWKS_REFETCH_FLOOR", 0)
+    # And the next unknown kid, inside the floor, is refused without one.
     assert await verifier.verify_token(_unknown_kid(issuer)) is None
-    assert issuer.fetches == 2
+    assert issuer.fetches == 1
+    # Past the floor, a miss fetches again: the floor is the only thing holding it.
+    monkeypatch.setattr(auth, "JWKS_REFETCH_FLOOR", 0)
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
+    for fetches in (2, 3):
+        assert await verifier.verify_token(_unknown_kid(issuer)) is None
+        assert issuer.fetches == fetches
 
 
 async def test_a_cold_start_burst_waits_for_one_fetch(issuer):
@@ -203,6 +208,65 @@ async def test_a_cold_start_burst_waits_for_one_fetch(issuer):
     results = await asyncio.gather(*(verifier.verify_token(t) for t in burst))
     assert [r is not None for r in results] == [False, True] * 5
     assert issuer.fetches == 1
+
+
+async def test_a_cancelled_first_caller_does_not_cost_the_rest_the_fetch(issuer):
+    """The caller that started the fetch may go; the ones waiting on it still get it."""
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
+    issuer.gate.clear()
+    try:
+        first = asyncio.ensure_future(verifier.verify_token(issuer.mint()))
+        while issuer.fetches == 0:
+            await asyncio.sleep(0.01)
+        rest = [asyncio.ensure_future(verifier.verify_token(issuer.mint())) for _ in range(4)]
+        await asyncio.sleep(0.05)
+        first.cancel()
+        await asyncio.sleep(0.05)
+    finally:
+        issuer.gate.set()
+    results = await asyncio.gather(*rest)
+    assert all(r is not None for r in results) and issuer.fetches == 1
+    assert first.cancelled()
+
+
+async def test_a_fetch_whose_caller_gave_up_still_serves_the_floor(issuer):
+    """A client times out mid-fetch and retries: the GET it started answers the retry."""
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
+    issuer.gate.clear()
+    try:
+        first = asyncio.ensure_future(verifier.verify_token(issuer.mint()))
+        while issuer.fetches == 0:
+            await asyncio.sleep(0.01)
+        first.cancel()
+    finally:
+        issuer.gate.set()
+    # The shield kept the GET alive; nothing has cached what it brought back.
+    await asyncio.wait([verifier._last_fetch])
+    assert await verifier.verify_token(issuer.mint()) is not None
+    assert issuer.fetches == 1
+
+
+async def test_a_caller_cancelled_as_its_fetch_lands_does_not_cost_the_rest(issuer):
+    """The tightest gap: done, and its caller cancelled, before that caller resumes.
+
+    On 4.1 the waiters queue on FastMCP's lock rather than on the fetch, so the
+    first of them arrives after the fetch is over, inside the floor.
+    """
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
+    issuer.gate.clear()
+    try:
+        first = asyncio.ensure_future(verifier.verify_token(issuer.mint()))
+        while issuer.fetches == 0:
+            await asyncio.sleep(0.01)
+        rest = [asyncio.ensure_future(verifier.verify_token(issuer.mint())) for _ in range(4)]
+        await asyncio.sleep(0.05)
+        # Runs as the fetch completes, before `first` is woken with its result.
+        verifier._last_fetch.add_done_callback(lambda _: first.cancel())
+    finally:
+        issuer.gate.set()
+    results = await asyncio.gather(*rest)
+    assert all(r is not None for r in results) and issuer.fetches == 1
+    assert first.cancelled()
 
 
 async def test_a_failed_shared_fetch_reaches_every_waiter(issuer, caplog):

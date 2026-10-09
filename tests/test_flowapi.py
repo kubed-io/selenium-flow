@@ -27,11 +27,11 @@ GOOD = [{"tool": "navigate", "args": {"url": "https://example.test/"}}]
 
 @pytest.fixture
 def flow_server(tmp_path, monkeypatch):
-    monkeypatch.delenv("FLOW_DATA_DIR", raising=False)
+    monkeypatch.delenv("DATA_DIR", raising=False)
     server = SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
-        flow={"data_dir": str(tmp_path)},
+        data={"dir": str(tmp_path)},
     ))
     acting_as(monkeypatch, server, NAMED)
     return server
@@ -270,7 +270,7 @@ async def test_a_stdio_caller_still_reads_the_shared_library(
 async def test_with_flows_off_an_unnamed_caller_is_told_that_not_to_rename_itself(
     monkeypatch, tmp_path
 ):
-    """Two refusals could apply and only one is true. With no FLOW_DATA_DIR
+    """Two refusals could apply and only one is true. With no DATA_DIR
     there is nowhere to keep a flow for anybody, so sending an unnamed caller
     off to name its session would point it at the wrong problem entirely — and
     a *named* caller already got the right answer, so the two disagreed."""
@@ -278,9 +278,9 @@ async def test_with_flows_off_an_unnamed_caller_is_told_that_not_to_rename_itsel
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
     )
     acting_as(monkeypatch, server, None)
-    with pytest.raises(ValueError, match="FLOW_DATA_DIR"):
+    with pytest.raises(ValueError, match="DATA_DIR"):
         await call(server, flowapi.SAVE_TOOL, name="x", steps=GOOD)
-    with pytest.raises(ValueError, match="FLOW_DATA_DIR"):
+    with pytest.raises(ValueError, match="DATA_DIR"):
         await call(server, flowapi.DELETE_TOOL, name="x")
 
 
@@ -314,7 +314,7 @@ async def test_with_no_data_directory_the_tools_say_so(monkeypatch):
     assert server.flows is None
     from fastmcp.exceptions import ResourceError
 
-    with pytest.raises(ResourceError, match="FLOW_DATA_DIR"):
+    with pytest.raises(ResourceError, match="DATA_DIR"):
         await resource(server, flowapi.LIST_URI)
 
 
@@ -334,7 +334,7 @@ def unkeyed_client(tmp_path, monkeypatch):
     server = SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
-        flow={"data_dir": str(tmp_path)},
+        data={"dir": str(tmp_path)},
     ))
     acting_as(monkeypatch, server, None)
     return TestClient(server.mcp.http_app())

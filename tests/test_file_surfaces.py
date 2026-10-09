@@ -22,7 +22,7 @@ def srv(tmp_path):
     return SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
-        flow={"data_dir": str(tmp_path)},
+        data={"dir": str(tmp_path)},
     ))
 
 
@@ -35,17 +35,21 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-def test_the_resources_are_a_folder_and_two_sub_folders(srv):
+def test_the_resources_are_a_folder_and_three_sub_folders(srv):
     async def go():
         async with Client(srv.mcp) as c:
             listed = {str(r.uri) for r in await c.list_resources()}
             templated = {t.uri_template for t in await c.list_resource_templates()}
             return listed, templated
     listed, templated = _run(go())
-    assert {"session://files", "session://files/screenshots", "session://files/downloads"} <= listed
+    assert {
+        "session://files", "session://files/screenshots",
+        "session://files/recordings", "session://files/downloads",
+    } <= listed
     assert {
         "session://files/{name}",
         "session://files/screenshots/{name}",
+        "session://files/recordings/{name}",
         "session://files/downloads/{name}",
     } <= templated
 

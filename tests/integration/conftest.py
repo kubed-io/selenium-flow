@@ -47,6 +47,8 @@ import pytest
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
+from kubed.selenium_flow.names import SESSIONS_DIR
+
 GRID_URL = os.environ.get("GRID_URL", "")
 ADMIN_ORIGIN = os.environ.get("ADMIN_ORIGIN", "").rstrip("/")
 TOKEN = "integration-token"
@@ -115,7 +117,7 @@ def server(tmp_path_factory):
     """``selenium-flow`` on ADMIN_ORIGIN's port, with the flows in the shared
     library and the token as a secret leashed to the admin origin."""
     root = tmp_path_factory.mktemp("server")
-    shutil.copytree(FLOWS, root / "data" / "global" / "flows")
+    shutil.copytree(FLOWS, root / "data" / SESSIONS_DIR / "global" / "flows")
     secret = root / "secrets" / "admin"
     secret.mkdir(parents=True)
     (secret / "token").write_text(TOKEN)
@@ -126,7 +128,7 @@ def server(tmp_path_factory):
         **os.environ,
         "GRID_URL": GRID_URL,
         "AUTH_TOKEN": TOKEN,
-        "FLOW_DATA_DIR": str(root / "data"),
+        "DATA_DIR": str(root / "data"),
         "SECRETS_DIRS": str(root / "secrets"),
         "HOST": "0.0.0.0",
         "PORT": str(port),

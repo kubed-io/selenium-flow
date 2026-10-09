@@ -118,7 +118,7 @@ def refused(exc: Exception, what: str, log: logging.Logger) -> JSONResponse:
     The log line keeps whatever ``faults.message`` says, path included — an
     operator chasing an NFS outage needs to know which mount. A real
     filesystem failure's ``str()`` quotes that same path, though, and the body
-    a caller reads is not the place for FLOW_DATA_DIR's layout — the same
+    a caller reads is not the place for DATA_DIR's layout — the same
     reason ``naming._why_unsaved`` keeps a screenshot-save failure to a type
     name rather than the OSError's own message (Copilot, PR #41).
 
