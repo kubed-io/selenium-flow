@@ -469,7 +469,7 @@ class Collector:
                 path, size, mtime = match
                 done = complete.get(str(path))
                 if done is None:
-                    continue  # unreadable: neither finished nor cut off
+                    continue  # not checked (unreadable, or expected after the snapshot)
                 if done:
                     await self._file(owed, path)
                     continue

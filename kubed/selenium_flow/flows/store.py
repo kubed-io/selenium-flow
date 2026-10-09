@@ -144,6 +144,26 @@ def _listed(directory: Path, usable) -> list[tuple[str, os.stat_result]]:
             os.close(fd)
 
 
+def _open_regular(path: Path) -> int:
+    """An fd on ``path`` that is a regular file and not reached through a link.
+
+    EINVAL for anything else (a link, a FIFO, a directory): never opened for
+    reading past the check, never blocking.
+    """
+    try:
+        fd = os.open(
+            path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+        )
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise OSError(errno.EINVAL, "not a regular file") from exc
+        raise
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        os.close(fd)
+        raise OSError(errno.EINVAL, "not a regular file")
+    return fd
+
+
 def _no_link(exc: OSError) -> bool:
     """Whether a failed ``os.link`` means links are unavailable, not a real fault."""
     return isinstance(exc, PermissionError) or exc.errno in _NO_LINK
@@ -459,9 +479,10 @@ class FileStore(SessionLayout):
         tolerates a retained inbox original (a sticky or recorder-owned folder).
         """
         source = Path(source)
-        # A link would file whatever it points at; only a real file is moved.
-        if not stat.S_ISREG(os.lstat(source).st_mode):
-            raise OSError(errno.EINVAL, "not a regular file")
+        # Open the source once and only ever file that inode: a link swapped
+        # in after a check would otherwise be copied or linked as itself.
+        held = _open_regular(source)
+        held_stat = os.fstat(held)
         staged: Path | None = None  # a complete copy, when links are impossible
         try:
             for candidate in candidates(valid_file_name(name)):
@@ -484,10 +505,20 @@ class FileStore(SessionLayout):
                         staged = target.with_name(
                             f".{target.name}.{uuid.uuid4().hex}.tmp"
                         )
-                        with staged.open("xb") as out, source.open("rb") as src:
+                        with staged.open("xb") as out, os.fdopen(
+                            os.dup(held), "rb"
+                        ) as src:
                             shutil.copyfileobj(src, out, 1024 * 1024)
-                        shutil.copystat(source, staged)
+                        staged.chmod(stat.S_IMODE(held_stat.st_mode))
+                        os.utime(
+                            staged,
+                            ns=(held_stat.st_atime_ns, held_stat.st_mtime_ns),
+                        )
                     else:
+                        if not os.path.samestat(os.lstat(target), held_stat):
+                            with contextlib.suppress(OSError):
+                                target.unlink()
+                            raise OSError(errno.EINVAL, "not a regular file")
                         self._release(session, source, target, strict)
                         return self._entry(target)
                 if self._claim_staged(staged, target):
@@ -496,6 +527,7 @@ class FileStore(SessionLayout):
                     return self._entry(target)
             raise AssertionError("unreachable")  # candidates is infinite
         finally:
+            os.close(held)
             if staged is not None:
                 with contextlib.suppress(OSError):
                     staged.unlink()

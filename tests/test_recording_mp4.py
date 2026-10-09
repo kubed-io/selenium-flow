@@ -44,17 +44,28 @@ def test_a_tiny_or_missing_file_is_not(tmp_path):
 
 def test_a_read_fault_is_not_an_unfinished_file(tmp_path, monkeypatch):
     import errno
-    from pathlib import Path
+    import os
 
     path = write(tmp_path, BODY + mp4.trailer())
 
-    def eio(self, *a, **k):
+    def eio(*a, **k):
         raise OSError(errno.EIO, "Input/output error")
 
-    monkeypatch.setattr(Path, "open", eio)
+    monkeypatch.setattr(os, "open", eio)
     with pytest.raises(OSError):
         mp4.is_complete(path)
 
 
 def test_a_file_that_vanished_is_not_complete(tmp_path):
     assert mp4.is_complete(tmp_path / "gone.mp4") is False
+
+
+def test_a_link_or_a_fifo_is_not_complete_and_never_blocks(tmp_path):
+    import os
+
+    real = write(tmp_path, BODY + mp4.trailer())
+    link = tmp_path / "l.mp4"
+    link.symlink_to(real)
+    fifo = tmp_path / "f.mp4"
+    os.mkfifo(fifo)
+    assert mp4.is_complete(link) is False and mp4.is_complete(fifo) is False

@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import time
 
 import pytest
@@ -853,16 +854,16 @@ async def test_a_symlink_named_with_an_owed_id_is_never_filed(parts):
     alive.clear()
     (inbox / f"bot_{GID}.mp4").symlink_to(outside / "plain.bin")
     assert c._inbox_files() == []
-    clock.now += 1200
+    clock.now += 100  # past idle_after, short of wait
     await c.sweep()
     await c.sweep()
     assert filed == [] and store.files("bot", RECORDINGS_DIR) == []
-    assert (outside / "plain.bin").exists()
+    assert (outside / "plain.bin").exists() and GID in c.owed
     (inbox / f"bot_{GID}.mp4").unlink()
     (inbox / f"bot_{GID}.mp4").symlink_to(outside / "done.bin")
     assert c._inbox_files() == []
     await c.sweep()
-    assert filed == [] and (outside / "done.bin").exists()
+    assert filed == [] and (outside / "done.bin").exists() and GID in c.owed
     # a linked directory is not walked into
     (inbox / f"bot_{GID}.mp4").unlink()
     (inbox / "dirlink").symlink_to(outside, target_is_directory=True)
@@ -880,9 +881,12 @@ async def test_a_read_fault_on_one_file_files_nothing_and_blocks_drops(parts, mo
 
     c, store, inbox, alive, _filed, clock = parts
     other = "0123456789abcdef0123456789abcdef"
+    nofile = "fedcba9876543210fedcba9876543210"
     c.expect("bot", GID, "chrome")
     c.expect("bot2", other, "chrome")
+    c.expect("bot3", nofile, "chrome")
     c.ended(GID)
+    c.ended(nofile)
     await asyncio.sleep(0)
     alive.clear()
     alive.add(other)
@@ -902,12 +906,34 @@ async def test_a_read_fault_on_one_file_files_nothing_and_blocks_drops(parts, mo
         await c.sweep()
         await c.sweep()
     assert GID in c.owed and store.notes() != []
+    assert nofile in c.owed  # past wait, but a read fault blocks the drop
     assert store.files("bot", RECORDINGS_DIR) == []
     assert len(store.files("bot2", RECORDINGS_DIR)) == 1
     assert caplog.text.count("cannot be read") == 1
     assert GID not in caplog.text and "bot_" not in caplog.text
     monkeypatch.setattr(mp4, "is_complete", real)
     await c.sweep()  # readable again: its quiet starts now
+    assert nofile not in c.owed  # dropped on the first sweep after recovery
     clock.now += 120
     await c.sweep()
     assert GID not in c.owed and len(store.files("bot", RECORDINGS_DIR)) == 1
+
+
+async def test_a_source_swapped_for_a_link_is_a_fault_not_a_filing(parts, monkeypatch):
+    c, store, inbox, _alive, filed, _clock = parts
+    outside = inbox.parent / "token"
+    outside.write_bytes(b"AUTH_TOKEN")
+    src = inbox / f"bot_{GID}.mp4"
+    src.write_bytes(BODY + mp4.trailer())
+    c.expect("bot", GID, "chrome")
+    real_link = os.link
+
+    def swap(*a, **k):
+        src.unlink()
+        src.symlink_to(outside)
+        return real_link(*a, **k)
+
+    monkeypatch.setattr(os, "link", swap)
+    await c.sweep()
+    assert filed == [] and GID in c.owed and store.files("bot", RECORDINGS_DIR) == []
+    assert outside.read_bytes() == b"AUTH_TOKEN"

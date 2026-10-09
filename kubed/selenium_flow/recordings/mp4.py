@@ -11,8 +11,9 @@ recording whose ffmpeg was killed has none — the collector handles that case.
 
 from __future__ import annotations
 
+import errno
 import os
-from pathlib import Path
+import stat
 
 TRAILER = 16
 
@@ -25,9 +26,23 @@ def trailer(tfra: bytes = b"") -> bytes:
 
 
 def is_complete(path) -> bool:
-    """True when ``path`` ends in an ``mfro`` that names a real ``mfra``."""
+    """True when ``path`` ends in an ``mfro`` that names a real ``mfra``.
+
+    False for a file that vanished, a link, or anything that is not a regular
+    file (opened without following links or blocking); other faults propagate.
+    """
     try:
-        with Path(path).open("rb") as f:
+        fd = os.open(
+            path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+        )
+    except OSError as exc:
+        if isinstance(exc, FileNotFoundError) or exc.errno == errno.ELOOP:
+            return False
+        raise
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return False
+        with os.fdopen(fd, "rb", closefd=False) as f:
             f.seek(0, os.SEEK_END)
             size = f.tell()
             if size < 8 + TRAILER:
@@ -42,5 +57,5 @@ def is_complete(path) -> bool:
             f.seek(size - mfra)
             head = f.read(8)
             return head[4:] == b"mfra" and int.from_bytes(head[:4], "big") == mfra
-    except FileNotFoundError:
-        return False  # vanished between scan and open; other faults propagate
+    finally:
+        os.close(fd)

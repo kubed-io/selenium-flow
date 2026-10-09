@@ -256,3 +256,35 @@ def test_move_in_refuses_a_symlink_and_a_non_file(store, tmp_path):
         store.move_in("bot", tmp_path, "rec.mp4", RECORDINGS_DIR)
     assert secret.read_bytes() == b"private" and link.is_symlink()
     assert store.files("bot", RECORDINGS_DIR) == []
+
+
+@pytest.mark.parametrize("copy_path", [True, False])
+def test_move_in_files_the_inode_it_checked_not_a_link_swapped_in(
+    store, tmp_path, monkeypatch, copy_path
+):
+    inbox = tmp_path / "recordings"
+    inbox.mkdir()
+    outside = tmp_path / "token"
+    outside.write_bytes(b"AUTH_TOKEN")
+    src = inbox / f"bot_{GID}.mp4"
+    src.write_bytes(b"real")
+    real_link = os.link
+
+    def swap_then(*a, **k):
+        src.unlink()
+        src.symlink_to(outside)
+        if copy_path:
+            raise OSError(18, "EXDEV")
+        return real_link(*a, **k)
+
+    monkeypatch.setattr(os, "link", swap_then)
+    if copy_path:
+        landed = store.move_in("bot", src, "rec.mp4", RECORDINGS_DIR)
+        assert store.read_file("bot", landed["name"], RECORDINGS_DIR) == b"real"
+    else:
+        with pytest.raises(OSError):
+            store.move_in("bot", src, "rec.mp4", RECORDINGS_DIR)
+        assert store.files("bot", RECORDINGS_DIR) == []
+    assert outside.read_bytes() == b"AUTH_TOKEN"
+    assert all(b"AUTH_TOKEN" not in store.read_file("bot", f["name"], RECORDINGS_DIR)
+               for f in store.files("bot", RECORDINGS_DIR))
