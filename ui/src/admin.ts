@@ -5,5 +5,5 @@ import Admin from './admin/Admin.svelte'
 const root = document.getElementById('root')!
 mount(Admin, {
   target: root,
-  props: { mount: root.dataset.mount ?? '', console: root.dataset.console ?? '/' },
+  props: { mount: root.dataset.mount ?? '', console: root.dataset.console ?? '/', oidc: root.dataset.oidc ?? '' },
 })

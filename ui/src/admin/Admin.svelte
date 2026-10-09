@@ -1,16 +1,17 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import { createApi } from './api'
+  import { onDestroy, onMount } from 'svelte'
+  import { ApiError, createApi } from './api'
   import ConsolePane from './ConsolePane.svelte'
   import { Live } from './live.svelte'
   import Login from './Login.svelte'
+  import { begin, complete, hasReply, MARKER, NOT_REACHED, readConfig, refresh, renewIn, usernameOf, type Tokens } from './oidc'
   import { go, hashes, router, sync } from './router.svelte'
   import SecretsPane from './SecretsPane.svelte'
   import WorkspaceDetail from './WorkspaceDetail.svelte'
   import WorkspacesView from './WorkspacesView.svelte'
   import SettingsPane from './SettingsPane.svelte'
 
-  let { mount, console: consoleUrl }: { mount: string; console: string } = $props()
+  let { mount, console: consoleUrl, oidc: oidcRaw = '' }: { mount: string; console: string; oidc?: string } = $props()
 
   // Served at the root of wherever this server is mounted, so its own path is
   // the base every call hangs off. Server-issued URLs already carry the mount
@@ -27,25 +28,40 @@
   const target = new URL(consoleUrl, location.href)
   const consoleSelf = target.origin === location.origin && target.pathname.replace(/\/+$/, '') === BASE
 
+  // svelte-ignore state_referenced_locally (oidcRaw is a boot-time prop, read once by design)
+  const oidc = readConfig(oidcRaw)
+  const framed = window !== window.top
+
   // sessionStorage, not localStorage: the server's full-privilege token should
   // not outlive the tab it was typed into. A plain variable: nothing renders
   // it, and the api reads it afresh on every call.
   let token = sessionStorage.getItem('sf-token') || ''
-  let phase = $state<'probing' | 'login' | 'in'>(token ? 'probing' : 'login')
+  // An OIDC sign-in's tokens: memory only, so a reload signs in again —
+  // silently while the issuer's session lives (spec 2026-10-09-admin-oidc).
+  let tokens: Tokens | null = null
+  let renewal: ReturnType<typeof setTimeout> | undefined
+  const resuming = !!oidc && (hasReply() || !!sessionStorage.getItem(MARKER))
+  let phase = $state<'probing' | 'login' | 'in'>(token || resuming ? 'probing' : 'login')
   let refused = $state(false)
+  let said = $state<string | null>(null)
 
-  const api = createApi({ base: BASE, token: () => token, onUnauthorized: signOut })
+  const api = createApi({ base: BASE, token: () => tokens?.access ?? token, onUnauthorized: () => signOut() })
   const live = new Live(api, ROOT)
 
-  function signOut() {
+  function signOut(message: string | null = null) {
     live.stop()
+    clearTimeout(renewal)
     token = ''
+    tokens = null
     sessionStorage.removeItem('sf-token')
+    sessionStorage.removeItem(MARKER)
+    said = message
     phase = 'login'
   }
 
   async function signIn(value: string) {
     token = value
+    said = null
     try {
       await api('/admin/workspaces')
       sessionStorage.setItem('sf-token', token)
@@ -56,10 +72,71 @@
     }
   }
 
+  async function startOidc(silent: boolean) {
+    if (!oidc) return
+    try {
+      await begin(oidc, silent)
+    } catch {
+      said = NOT_REACHED
+      phase = 'login'
+    }
+  }
+
+  async function finishOidc() {
+    if (!oidc) return
+    const reply = await complete(oidc)
+    if (reply.kind !== 'tokens') {
+      said = reply.kind === 'error' ? reply.message : null
+      phase = 'login'
+      return
+    }
+    tokens = reply.tokens
+    try {
+      await api('/admin/workspaces')
+      sessionStorage.setItem(MARKER, 'oidc')
+      schedule()
+      refused = false
+      phase = 'in'
+    } catch (e) {
+      const who = usernameOf(reply.tokens.access) ?? 'this account'
+      signOut(e instanceof ApiError && e.status === 403
+        ? `Signed in as ${who}, who does not hold an admin role.`
+        : 'The server refused this sign-in.')
+    }
+  }
+
+  // Renew 30 s before the access token runs out; a failed renewal ends it.
+  function schedule() {
+    clearTimeout(renewal)
+    if (!oidc || !tokens?.refresh) return
+    renewal = setTimeout(async () => {
+      const current = tokens
+      if (!current) return
+      try {
+        const next = await refresh(oidc, current)
+        // Signed out (or unmounted) while the issuer answered: keep nothing.
+        if (tokens !== current) return
+        tokens = next
+        schedule()
+      } catch {
+        if (tokens === current) signOut('Your sign-in ended; sign in again.')
+      }
+    }, renewIn(tokens))
+  }
+
   onMount(() => {
     sync()
-    if (phase === 'probing') api('/admin/workspaces').then(() => { phase = 'in' }, () => { phase = 'login' })
+    // A reply first: complete() takes the code out of the address bar before
+    // anything else runs.
+    if (oidc && hasReply()) { void finishOidc(); return }
+    if (token) { api('/admin/workspaces').then(() => { phase = 'in' }, () => { phase = 'login' }); return }
+    if (oidc && sessionStorage.getItem(MARKER)) {
+      // Removed before leaving: an issuer that is down must not loop the page.
+      sessionStorage.removeItem(MARKER)
+      void startOidc(true)
+    }
   })
+  onDestroy(() => { clearTimeout(renewal); tokens = null })
 
   const route = $derived(router.route)
   const top = $derived(route.view === 'secrets' ? 'secrets' : route.view === 'settings' ? 'settings' : route.view === 'console' && !consoleSelf ? 'console' : 'workspaces')
@@ -79,11 +156,11 @@
 <header class="bar">
   <span class="brand">selenium-flow</span>
   <span class="grow"></span>
-  {#if phase === 'in'}<button id="signout" onclick={signOut}>Sign out</button>{/if}
+  {#if phase === 'in'}<button id="signout" onclick={() => signOut()}>Sign out</button>{/if}
 </header>
 
 {#if phase === 'login'}
-  <Login onsubmit={signIn} {refused} />
+  <Login onsubmit={signIn} {refused} {said} oidc={oidc ? { framed, start: () => void startOidc(false) } : null} />
 {:else if phase === 'in'}
   <main id="app" class="wrap">
     <div class="tabs" role="tablist">
