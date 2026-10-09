@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { ago, browserMark, bytes, countsText, flowParams, glyphFor, metaLine, plural, safeHref, workspaceLabel, stepSummary } from './format'
+import { ago, browserMark, bytes, clock, countsText, duration, flowParams, glyphFor, leaf, metaLine, plural, readable, safeHref, until, workspaceLabel, stepSummary } from './format'
 
 describe('format', () => {
   test('counts name recordings, singular and plural (R8)', () => {
@@ -75,4 +75,39 @@ test('bytes', () => {
     expect(flowParams(null)).toEqual({ properties: {}, required: [] })
     expect(flowParams('x')).toEqual({ properties: {}, required: [] })
   })
+})
+
+test('readable undoes escapes and survives a bad one', () => {
+  expect(readable('workspace://files/recordings/run%201.mp4')).toBe('workspace://files/recordings/run 1.mp4')
+  expect(readable('workspace://files/%E0%A4%A')).toBe('workspace://files/%E0%A4%A')
+})
+
+test('leaf is the last segment, readable', () => {
+  expect(leaf('skill://selenium-flow/references/FLOWS.md')).toBe('FLOWS.md')
+  expect(leaf('workspace://files/a%20b.png')).toBe('a b.png')
+  expect(leaf('flow://schema')).toBe('schema')
+})
+
+test('until counts down to an expiry in seconds', () => {
+  const now = 1_000_000_000_000
+  const s = now / 1000
+  expect(until(s + 45 * 60, now)).toBe('45 m')
+  expect(until(s + 10, now)).toBe('1 m')
+  expect(until(s + 5 * 3600, now)).toBe('5 h')
+  expect(until(s + 3 * 86400, now)).toBe('3 d')
+  expect(until(s + 400 * 86400, now)).toBe('1 y')
+})
+
+test('clock is a time today and a date otherwise', () => {
+  const now = new Date(2026, 9, 9, 21, 12).getTime()
+  expect(clock(now - 60_000, now)).toMatch(/\d:\d\d/)
+  const before = new Date(2026, 9, 1, 9, 0).getTime()
+  expect(clock(before, now)).toBe(new Date(before).toLocaleDateString())
+})
+
+test('duration is minutes and seconds; nothing for an unknown length', () => {
+  expect(duration(252)).toBe('4:12')
+  expect(duration(9)).toBe('0:09')
+  expect(duration(Infinity)).toBe('')
+  expect(duration(NaN)).toBe('')
 })

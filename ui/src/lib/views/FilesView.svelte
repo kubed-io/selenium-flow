@@ -22,15 +22,3 @@
     {/if}
   {/each}
 </div>
-
-<style>
-  .chips { display: flex; flex-wrap: wrap; gap: var(--gap); margin-top: var(--gap); }
-  .chip {
-    display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px;
-    border: 1px solid var(--line); border-radius: 999px; background: var(--panel);
-    color: var(--ink); font: inherit;
-  }
-  button.chip { cursor: pointer; }
-  button.chip:hover { border-color: var(--accent); }
-  button.chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-</style>

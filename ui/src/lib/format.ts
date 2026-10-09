@@ -95,3 +95,39 @@ export function flowParams(p: unknown): { properties: Record<string, unknown>; r
     required: Array.isArray(r) ? r.filter((s): s is string => typeof s === 'string') : [],
   }
 }
+
+/* A URI with its escapes undone: for showing a person, never for calling. */
+export function readable(uri: string): string {
+  try {
+    return decodeURIComponent(uri)
+  } catch {
+    return uri
+  }
+}
+
+/* A URI's last segment, as a person reads it. */
+export const leaf = (uri: string): string => readable(uri.split('/').pop() || uri)
+
+/* Time left until an expiry in epoch seconds: "45 m", "5 h", "3 d", "1 y". */
+export function until(expiry: number, now = Date.now()): string {
+  const s = Math.max(0, expiry - now / 1000)
+  if (s < 3600) return Math.max(1, Math.round(s / 60)) + ' m'
+  if (s < 86400) return Math.round(s / 3600) + ' h'
+  if (s < 365 * 86400) return Math.round(s / 86400) + ' d'
+  return Math.round(s / (365 * 86400)) + ' y'
+}
+
+/* A moment as a clock time when it is today, else as a date. */
+export function clock(ms: number, now = Date.now()): string {
+  const d = new Date(ms)
+  return d.toDateString() === new Date(now).toDateString()
+    ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString()
+}
+
+/* A media length in seconds as m:ss; nothing while it is unknown. */
+export function duration(seconds: number): string {
+  if (!Number.isFinite(seconds)) return ''
+  const s = Math.round(seconds)
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0')
+}
