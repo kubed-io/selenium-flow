@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `open_session(record=true)` records the browser; recordings appear under `workspace://files/recordings` and in the admin Files tab.
 - Skills-aware clients discover the embedded skill through the MCP Skills extension (`skills/list`, `skills/get`).
 - `show(uri)` draws a resource as an MCP App — your workspace, files, a folder, the saved flows as cards, one flow, the secrets (never a value); `session_files` is gone.
+- `show` draws every resource: one file, the saved site data, the skill's pages and the flow schema.
 - `/mcp` accepts a JWT from an OIDC issuer beside the token (`oidc.issuer`, `oidc.audience`, `oidc.jwks_uri`, `oidc.roles`), for a server behind an OIDC gateway.
 - The token is compared in constant time on `/mcp` too.
 - `workspace://current` says who the caller is: `admin` for the token, or the OIDC subject.

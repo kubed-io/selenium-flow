@@ -170,7 +170,7 @@ check this table twice before reaching for it.
 | `execute_script` | run JavaScript — only for what nothing above does | `script` |
 | `assert` | JavaScript that must return true, or the call fails | `script`, `message`, `stable_for` |
 | `save_site_data` | keep the cookies and storage of the sites you have been to, so a replacement comes back signed in | `url` |
-| `show` | draw a resource for the person (hosts that render apps): context, files, a folder, flows, one flow, the secrets | `uri` |
+| `show` | draw any resource for the person (hosts that render apps): the workspace, files and one file, site data, flows, the secrets, these pages, the flow schema | `uri` |
 | `keep_file` | keep a file in Files, past the browser | `uri` |
 | `save_flow` | save a sequence of steps under a name | `name`, `parameters`, `steps`, `timeout` |
 | `run_flow` | run a saved flow in one call | `name`, `params` |
