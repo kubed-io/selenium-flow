@@ -52,3 +52,11 @@ test('JSON is a tree, titled by its title or its URI', () => {
   render(DocumentView, { props: { data: { skill: 'selenium-flow', files: [] }, uri: 'skill://selenium-flow/_manifest' } })
   expect(screen.getByText('_manifest', { selector: 'strong' })).toBeInTheDocument()
 })
+
+test('other text arrives as one code block: drawn as it is, titled by its file name', () => {
+  const uri = 'skill://selenium-flow/references/example.yaml'
+  const { container } = render(DocumentView, { props: { data: '```\n# a comment\nsteps: []\n```\n', uri } })
+  expect(screen.getByText('example.yaml', { selector: 'strong' })).toBeInTheDocument()
+  expect(container.querySelector('pre code')).toHaveTextContent('# a comment steps: []')
+  expect(screen.queryByRole('heading')).toBeNull()
+})

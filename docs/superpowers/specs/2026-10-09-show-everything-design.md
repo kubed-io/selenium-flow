@@ -163,10 +163,14 @@ Claude, 2026-10-09, unattended — each for Dr K to overturn on #63:
    Cost if wrong: a URI with no resource behind it lands as `show`'s refusal in
    the shell's error line.
 5. **A document's `data` is the resource's own content: its text for
-   `text/markdown`, its JSON otherwise.** The `document` view draws a string as
-   markdown and anything else as a JSON tree. Front matter is not drawn; the
-   first `#` heading becomes the title. Cost if wrong: a future `text/plain`
-   resource is refused until its row says how to read it.
+   `text/markdown`, its JSON when it parses, and any other UTF-8 text as one
+   fenced code block.** The `document` view draws a string as markdown and
+   anything else as a JSON tree, so the fence is what keeps a YAML comment from
+   becoming a heading. Front matter is not drawn; the first `#` heading becomes
+   the title. Bytes that are not UTF-8 are refused. *Amended at review: a
+   supporting file the skill ships that is not markdown reads back as bytes
+   under its own type (`application/yaml`), matched the skill's row, and was
+   refused — the guard only proved the URI routed.*
 6. **Inline, a document shows its first six blocks and "+N more" when the host
    offers fullscreen; everything when it does not.** Claude's guidelines keep
    inline views short and unscrolled, and a host with no fullscreen would
@@ -290,9 +294,10 @@ forms in order, and still what the refusal names.
 ### 2. How `show` reads
 
 - **A whole resource** (`entry` false): read through the server as today. If
-  the content is a `str` with `mime_type` `text/markdown`, `data` is that text;
-  otherwise it is `json.loads` of the content, refused as today when it is not
-  JSON (`"<uri> is not a resource show can draw"`).
+  the content is `bytes`, it is decoded as UTF-8, refused when it is not
+  (`"<uri> is not a resource show can draw"`). Text with `mime_type`
+  `text/markdown` is `data` as it is; otherwise `data` is `json.loads` of it,
+  or, when it is not JSON, the text as one fenced code block (Ruling 5).
 - **One file** (`entry` true): the listing URI is everything before the last
   `/`; `show` reads that listing the same way, unquotes the last segment, and
   takes the entry in `files` whose `name` equals it. None:

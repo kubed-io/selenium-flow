@@ -111,7 +111,7 @@ def summary(uri: str, component: str, data) -> str:
     return f"Showing {uri} to the person ({component})."
 
 
-# The one text type `show` hands a view as text: a document is drawn from it.
+# The one text type `show` hands a view as it is: a document is drawn from it.
 MARKDOWN = "text/markdown"
 
 DESCRIPTION = (
@@ -122,9 +122,19 @@ DESCRIPTION = (
 )
 
 
+def _preformatted(text: str) -> str:
+    """Text as markdown of one code block, so a document draws it as it is: a
+    YAML comment is not a heading. The fence outruns any backticks inside."""
+    runs = re.findall(r"`+", text)
+    fence = "`" * max(3, 1 + max(map(len, runs), default=0))
+    body = text if text.endswith("\n") else text + "\n"
+    return f"{fence}\n{body}{fence}\n"
+
+
 async def _content(uri: str):
-    """A resource as a view takes it: markdown as its text, anything else as
-    its JSON."""
+    """A resource as a view takes it: markdown as its text, JSON as its JSON,
+    and any other text as one preformatted block. SkillProvider serves a
+    supporting file that is not markdown as bytes, so text is what decodes."""
     try:
         result = await get_context().fastmcp.read_resource(uri)
     except NotFoundError:
@@ -132,12 +142,19 @@ async def _content(uri: str):
     item = result.contents[0]
     content = item.content
     kind = getattr(item, "mime_type", None) or ""
-    if isinstance(content, str) and kind.startswith(MARKDOWN):
+    if isinstance(content, bytes):
+        try:
+            content = content.decode("utf-8")
+        except UnicodeDecodeError:
+            raise ValueError(f"{uri} is not a resource show can draw") from None
+    if not isinstance(content, str):
+        raise ValueError(f"{uri} is not a resource show can draw")
+    if kind.startswith(MARKDOWN):
         return content
     try:
         return json.loads(content)
-    except (TypeError, ValueError):
-        raise ValueError(f"{uri} is not a resource show can draw") from None
+    except ValueError:
+        return _preformatted(content)
 
 
 async def _entry(uri: str) -> dict:

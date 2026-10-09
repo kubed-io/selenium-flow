@@ -265,21 +265,47 @@ async def test_the_session_status_shows_through_the_client(flow_server):
         assert shown["data"][key] == read[key]
 
 
-@pytest.mark.parametrize("content", ["not json", b"\x89PNG"])
-async def test_content_that_is_not_json_is_refused_cleanly(flow_server, content):
+def reading(server, content, mime_type=None):
+    """Make every resource read as ``content``, under ``mime_type``."""
     class Item:
         pass
 
     item = Item()
     item.content = content
+    item.mime_type = mime_type
     result = type("R", (), {"contents": [item]})()
 
     async def read(uri):
         return result
 
+    return patch.object(server.mcp, "read_resource", read)
+
+
+@pytest.mark.parametrize(
+    ("content", "mime_type", "drawn"),
+    [
+        ("not json", None, "```\nnot json\n```\n"),
+        # How SkillProvider serves a supporting file that is not markdown.
+        (b"a: 1\n# no heading\n", "application/yaml", "```\na: 1\n# no heading\n```\n"),
+        ("a ``` b", "text/plain", "````\na ``` b\n````\n"),
+    ],
+)
+async def test_other_text_is_drawn_as_one_preformatted_block(
+    flow_server, content, mime_type, drawn
+):
+    """Text that is neither markdown nor JSON is a document of one code block,
+    fenced past any run of backticks in it, so none of it is read as markdown."""
+    uri = "skill://selenium-flow/references/example.yaml"
+    async with Client(flow_server.mcp) as c:
+        with reading(flow_server, content, mime_type):
+            shown = (await c.call_tool("show", {"uri": uri})).structured_content
+    assert shown == {"component": "document", "uri": uri, "data": drawn}
+
+
+async def test_content_that_is_not_text_is_refused_cleanly(flow_server):
     async with Client(flow_server.mcp) as c:
         with (
-            patch.object(flow_server.mcp, "read_resource", read),
+            reading(flow_server, b"\x89PNG\r\n", "image/png"),
             pytest.raises(ToolError) as refused,
         ):
             await c.call_tool("show", {"uri": "workspace://current"})
