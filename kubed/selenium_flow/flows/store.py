@@ -443,12 +443,20 @@ class FileStore(SessionLayout):
         """Where one file lives, checked: for a route that streams it from disk."""
         return self._file_path(session, name, folder)
 
-    def move_in(self, session: str, source: Path, name: str, folder: str) -> dict:
+    def move_in(
+        self, session: str, source: Path, name: str, folder: str,
+        *, strict: bool = False,
+    ) -> dict:
         """Take ``source`` into a folder under the first free name, and remove it.
 
         Never an overwrite: the claim is a hard link (or, where links cannot
         cross, an exclusive create and a copy), so a racing move cannot win the
         same name. Files skips its reserved names, as `_claim` does.
+
+        ``strict`` is the move contract of Keep: a source that cannot be
+        removed (anything but already gone) unclaims the new copy and raises, so
+        the file is never in both folders. Without it, the collector's filing
+        tolerates a retained inbox original (a sticky or recorder-owned folder).
         """
         source = Path(source)
         staged: Path | None = None  # a complete copy, when links are impossible
@@ -477,11 +485,11 @@ class FileStore(SessionLayout):
                             shutil.copyfileobj(src, out, 1024 * 1024)
                         shutil.copystat(source, staged)
                     else:
-                        self._release(session, source, target)
+                        self._release(session, source, target, strict)
                         return self._entry(target)
                 if self._claim_staged(staged, target):
                     staged = None
-                    self._release(session, source, target)
+                    self._release(session, source, target, strict)
                     return self._entry(target)
             raise AssertionError("unreachable")  # candidates is infinite
         finally:
@@ -490,11 +498,14 @@ class FileStore(SessionLayout):
                     staged.unlink()
 
     @staticmethod
-    def _release(session: str, source: Path, target: Path) -> None:
+    def _release(
+        session: str, source: Path, target: Path, strict: bool = False
+    ) -> None:
         """Remove the moved file's source. If a racing move took it first, this
         one lost: unclaim ``target`` so no duplicate stays, and say so.
 
-        Any other failure leaves the move done: ``target`` is claimed and whole,
+        With ``strict``, any other failure unclaims too and is raised. Otherwise
+        it leaves the move done: ``target`` is claimed and whole,
         and only the original stays behind (a sticky or recorder-owned inbox
         folder). Unclaiming then would be filed again on every sweep, a
         ``(1)``, a ``(2)``, … until the disk is full. The log names the filed
@@ -507,6 +518,10 @@ class FileStore(SessionLayout):
                 target.unlink()
             raise
         except OSError as exc:
+            if strict:
+                with contextlib.suppress(OSError):
+                    target.unlink()
+                raise
             log.warning(
                 "%s/%s/%s is in place, but its original could not be removed "
                 "(%s) and was left where it was",
@@ -731,6 +746,23 @@ class LocalFlowStore(FlowStore, FileStore):
 _SESSION_MARKS = (FLOWS_DIR, FILES_DIR, "screenshots")
 
 
+def _is_dir(path: Path) -> bool:
+    """`Path.is_dir` that lets a storage fault through: 3.14 reports an unreadable
+    path as "not a directory", which here would hide an old layout. Only a path
+    that is not there, or a non-directory in its way, means absent."""
+    try:
+        return stat.S_ISDIR(path.stat().st_mode)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+
+
+def _is_symlink(path: Path) -> bool:
+    try:
+        return stat.S_ISLNK(os.lstat(path).st_mode)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+
+
 def old_layout(root: Path, inbox: str | os.PathLike | None = None) -> list[str]:
     """Session folders still at the top of the data directory, sorted.
 
@@ -740,7 +772,7 @@ def old_layout(root: Path, inbox: str | os.PathLike | None = None) -> list[str]:
     The recordings inbox is never a session, whatever it holds: ``INBOX_DIR``
     always, and ``inbox`` (``recording.dir``) when it is a direct child of root.
     """
-    if not root.is_dir():
+    if not _is_dir(root):
         return []
     skip = {SESSIONS_DIR, INBOX_DIR}
     if inbox:
@@ -749,13 +781,13 @@ def old_layout(root: Path, inbox: str | os.PathLike | None = None) -> list[str]:
             skip.add(configured.name)
     found = []
     for entry in root.iterdir():
-        if entry.name in skip or not entry.is_dir() or entry.is_symlink():
+        if entry.name in skip or _is_symlink(entry) or not _is_dir(entry):
             continue
         try:
             valid_name(entry.name)
         except InvalidName:
             continue
-        if any((entry / mark).is_dir() for mark in _SESSION_MARKS):
+        if any(_is_dir(entry / mark) for mark in _SESSION_MARKS):
             found.append(entry.name)
     return sorted(found)
 
@@ -768,10 +800,18 @@ def from_settings(
         log.info("flows: off (set data.dir to enable them)")
         return None
     root = Path(data.dir)
-    stranded = old_layout(root, inbox)
-    if stranded:
-        from ..config import ConfigError  # local: config imports names, not us
+    from ..config import ConfigError  # local: config imports names, not us
 
+    try:
+        stranded = old_layout(root, inbox)
+    except OSError as exc:
+        # Configured and unusable stops the boot (§F4.12): a data directory
+        # that cannot be read must not be mistaken for an empty one.
+        raise ConfigError(
+            f"data directory {root} cannot be read ({type(exc).__name__}: "
+            f"{exc.strerror or 'I/O error'})"
+        ) from None
+    if stranded:
         raise ConfigError(
             f"{', '.join(stranded)} in {root} are session folders from before "
             f"the sessions/ layout: move them into {root / SESSIONS_DIR}/"

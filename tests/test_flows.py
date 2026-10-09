@@ -804,3 +804,38 @@ def test_a_configured_inbox_beside_the_sessions_is_never_an_old_session(tmp_path
     with pytest.raises(ConfigError) as exc:
         flowstore.from_settings(DataSettings(dir=str(tmp_path)), inbox=str(tmp_path / "inbox2"))
     assert "real" in str(exc.value) and "inbox2" not in str(exc.value)
+
+
+def _stat_eio_on(monkeypatch, fn_name, needle):
+    import errno
+    import os
+
+    real = getattr(os, fn_name)
+
+    def faulty(path, *a, **k):
+        if str(path).endswith(needle):
+            raise OSError(errno.EIO, "EIO")
+        return real(path, *a, **k)
+
+    monkeypatch.setattr(os, fn_name, faulty)
+
+
+def test_an_unreadable_data_dir_stops_the_boot_not_an_empty_one(tmp_path, monkeypatch):
+    root = tmp_path / "data"
+    (root / "claudecode" / "files").mkdir(parents=True)
+    _stat_eio_on(monkeypatch, "stat", "data")
+    with pytest.raises(ConfigError) as exc:
+        flowstore.from_settings(DataSettings(dir=str(root)))
+    assert "data" in str(exc.value) and "OSError" in str(exc.value)
+
+
+@pytest.mark.parametrize("fn_name", ["stat", "lstat"])
+def test_an_unreadable_top_level_entry_stops_the_boot(tmp_path, monkeypatch, fn_name):
+    (tmp_path / "claudecode" / "files").mkdir(parents=True)
+    _stat_eio_on(monkeypatch, fn_name, "claudecode")
+    with pytest.raises(ConfigError, match="OSError"):
+        flowstore.from_settings(DataSettings(dir=str(tmp_path)))
+
+
+def test_a_missing_data_dir_is_no_old_layout(tmp_path):
+    assert flowstore.old_layout(tmp_path / "nope") == []

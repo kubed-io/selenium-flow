@@ -1,7 +1,10 @@
 """The Recordings folder on every surface: the Screenshots folder's twin."""
 
 import asyncio
+import errno
 import json
+import os
+from pathlib import Path
 
 import pytest
 from fastmcp import Client
@@ -176,3 +179,42 @@ def test_a_kept_recording_read_from_files_answers_its_entry_not_the_video(srv):
     assert entry["content_type"] == "video/mp4"
     assert entry["uri"] == "session://files/rec-20261008-1403.mp4"
     assert text[0].blob  # anything else is still its bytes
+
+
+def _fault_on(monkeypatch, fn_name, needle, exc):
+    real = getattr(os, fn_name)
+
+    def faulty(path, *a, **k):
+        if needle in str(path):
+            raise exc
+        return real(path, *a, **k)
+
+    monkeypatch.setattr(os, fn_name, faulty)
+
+
+def test_a_storage_fault_reading_the_recording_is_not_a_missing_recording(store, monkeypatch):
+    """Path.is_file() hides this on 3.14: it must stay an OSError (a retryable
+    5xx), never the caller-fixable 'no recording called'."""
+    _fault_on(monkeypatch, "stat", "rec-20261008-1403.mp4", OSError(errno.EIO, "EIO"))
+    with pytest.raises(OSError):
+        files.keep(Actions(), Sessions(), store, "session://files/recordings/rec-20261008-1403.mp4", S)
+
+
+def test_a_recording_that_is_not_there_is_still_a_no_recording_error(store):
+    with pytest.raises(ValueError, match="no recording called"):
+        files.keep(Actions(), Sessions(), store, "session://files/recordings/gone.mp4", S)
+
+
+def test_keeping_a_recording_that_cannot_be_removed_leaves_it_where_it_was(store, monkeypatch):
+    real = Path.unlink
+
+    def unlink(self, *a, **k):
+        if self.parent.name == RECORDINGS_DIR and self.name.endswith(".mp4"):
+            raise PermissionError(errno.EACCES, "denied")
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(Path, "unlink", unlink)
+    with pytest.raises(PermissionError):
+        files.keep(Actions(), Sessions(), store, "session://files/recordings/rec-20261008-1403.mp4", S)
+    assert store.files(S, FILES_DIR) == []
+    assert [f["name"] for f in store.files(S, RECORDINGS_DIR)] == ["rec-20261008-1403.mp4"]

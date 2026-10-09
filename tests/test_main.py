@@ -222,3 +222,24 @@ def test_a_config_error_while_building_the_server_stops_the_boot(tmp_path, liste
     with pytest.raises(SystemExit) as exc:
         main_module.main(["--data-dir", str(tmp_path)])
     assert "move" in str(exc.value) and "sessions/" in str(exc.value)
+
+
+def test_an_unreadable_data_dir_exits_naming_it_not_a_traceback(tmp_path, listened, levels, monkeypatch):
+    import errno
+    import os
+
+    data = tmp_path / "data"
+    data.mkdir()
+    real = os.stat
+
+    def faulty(path, *a, **k):
+        if str(path) == str(data):
+            raise OSError(errno.EIO, "EIO")
+        return real(path, *a, **k)
+
+    monkeypatch.setattr(os, "stat", faulty)
+    monkeypatch.setenv("DATA_DIR", str(data))
+    with pytest.raises(SystemExit) as exc:
+        main_module.main(config(tmp_path))
+    assert str(data) in str(exc.value) and "OSError" in str(exc.value)
+    assert listened == []

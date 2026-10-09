@@ -68,6 +68,7 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import stat
 from urllib.parse import quote, unquote
 
 from fastmcp.resources import ResourceContent, ResourceResult
@@ -467,6 +468,9 @@ def sections(
 def keep(actions, sessions, store, uri, name: str, session_id=None) -> dict:
     """Put one file in Files. A screenshot moves; a download is copied, because
     the Grid cannot delete one file (§F1.10); a Files URI answers with itself.
+    A recording moves too, strictly: if its source cannot be removed the Files
+    copy is rolled back and the error raised (a retryable 5xx), never a success
+    with the video in both folders.
     """
     if store is None:
         raise ValueError(OFF)
@@ -529,9 +533,13 @@ def keep(actions, sessions, store, uri, name: str, session_id=None) -> dict:
         # landing beside a same-named file as name (1) (recordings spec, ruling 7).
         try:
             source = store.file_path(session, leaf, RECORDINGS)
-            if not source.is_file():
+            try:
+                is_file = stat.S_ISREG(source.stat().st_mode)
+            except NotADirectoryError:
+                is_file = False  # only FileNotFoundError propagates as missing
+            if not is_file:
                 raise FileNotFoundError(leaf)
-            landed = store.move_in(session, source, leaf, FILES)
+            landed = store.move_in(session, source, leaf, FILES, strict=True)
         except FileNotFoundError:
             raise ValueError(
                 f"no recording called {leaf!r}: it may be kept already or cleared. "

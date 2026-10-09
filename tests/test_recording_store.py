@@ -215,3 +215,31 @@ def test_a_session_that_cannot_be_read_is_reported_and_the_rest_are_listed(store
     assert failed == [("bad", OSError)]
     with pytest.raises(OSError):
         store.notes()
+
+
+def test_a_tolerant_move_leaves_an_original_that_cannot_be_removed(store, tmp_path, monkeypatch):
+    """The collector's filing: the copy stands, the inbox original stays."""
+    src = tmp_path / "inbox.mp4"
+    src.write_bytes(b"v")
+    real = Path.unlink
+    monkeypatch.setattr(
+        Path, "unlink",
+        lambda self, *a, **k: (_ for _ in ()).throw(PermissionError(13, "denied"))
+        if self == src else real(self, *a, **k),
+    )
+    store.move_in("bot", src, "a.mp4", RECORDINGS_DIR)
+    assert src.exists() and len(store.files("bot", RECORDINGS_DIR)) == 1
+
+
+def test_a_strict_move_unclaims_the_copy_when_the_original_cannot_be_removed(store, tmp_path, monkeypatch):
+    src = tmp_path / "inbox.mp4"
+    src.write_bytes(b"v")
+    real = Path.unlink
+    monkeypatch.setattr(
+        Path, "unlink",
+        lambda self, *a, **k: (_ for _ in ()).throw(PermissionError(13, "denied"))
+        if self == src else real(self, *a, **k),
+    )
+    with pytest.raises(PermissionError):
+        store.move_in("bot", src, "a.mp4", FILES_DIR, strict=True)
+    assert src.exists() and store.files("bot", FILES_DIR) == []

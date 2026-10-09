@@ -352,3 +352,22 @@ def test_recordings_are_listed_counted_cleared_and_kept(client, live):
         "rec-1.mp4", "report.pdf",
     ]
     assert len(live.flows.notes()) == 1
+
+
+def test_a_storage_fault_keeping_a_recording_is_a_5xx(client, live, monkeypatch):
+    import errno
+    import os
+
+    live.flows.write_file(SESSION, "rec-1.mp4", b"v", RECORDINGS_DIR)
+    real = os.stat
+
+    def faulty(path, *a, **k):
+        if str(path).endswith("rec-1.mp4"):
+            raise OSError(errno.EIO, "EIO")
+        return real(path, *a, **k)
+
+    monkeypatch.setattr(os, "stat", faulty)
+    response = client.post(
+        f"/admin/sessions/{KEY}/files/recordings/rec-1.mp4/keep", headers=AUTH
+    )
+    assert 500 <= response.status_code < 600
