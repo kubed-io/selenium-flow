@@ -862,14 +862,19 @@ class SessionManager:
             return None
         target = record.session_id
         locks.interrupt(target)
+        quit_ok = False
         try:
             self.actions.end_browser(target)
+            quit_ok = True
         except Exception as exc:  # noqa: BLE001 - it is going either way
             # Already gone, or the Grid is unreachable. Detach regardless: a
             # record naming a browser that cannot be ended is worse than one
             # naming nothing, because the next call would try to use it.
             log.info("could not end browser %s: %s", target, faults.message(exc))
-        if self.recordings is not None:
+        # Only a confirmed quit (a 404 counts: Grid.quit treats it as done)
+        # starts the collector's clock; after a failure the browser may still
+        # be recording, and the collector's Grid listing finds it later.
+        if quit_ok and self.recordings is not None:
             self.recordings.ended(target)
         # Ending took a Grid round trip: detach the record as it is now, and
         # only if it still names this browser — one opened meanwhile stays.

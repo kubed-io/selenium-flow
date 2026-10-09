@@ -209,3 +209,17 @@ def test_a_note_path_that_is_refused_never_fails_the_open(where):
         m.recordings = Refused()
         m.actions.grid.alive.clear()
         assert m.resolve("bot") == "grid0002"
+
+
+def test_a_quit_that_failed_does_not_start_the_collectors_clock():
+    rec = Recorder()
+    m = manager(rec)
+    m.open_browser(caller(), record=True)
+
+    def down(sid):
+        raise ConnectionError("grid unreachable")
+
+    m.actions.end_browser = down
+    m.end_browser(caller())
+    assert rec.finished == []
+    assert not m.store.get("bot").attached
