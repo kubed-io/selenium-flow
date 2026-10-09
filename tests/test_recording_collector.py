@@ -1131,3 +1131,42 @@ async def test_a_path_naming_two_owed_ids_is_skipped_and_logged_without_them(par
     assert filed == []
     warned = [r.getMessage() for r in caplog.records if "more than one" in r.getMessage()]
     assert len(warned) == 1 and GID not in warned[0] and other not in warned[0]
+
+
+async def test_one_sweep_reads_each_inbox_path_once_however_many_are_owed(parts):
+    """The inbox is the operator's and only grows: a sweep that looked every
+    path over again for each owed id was quadratic, on the loop."""
+    c, store, inbox, alive, filed, _clock = parts
+    owed = [f"{n:x}" * 32 for n in range(1, 6)]
+    for i, gid in enumerate(owed):
+        alive.add(gid)
+        c.expect(f"s{i}", gid, "chrome")
+    for n in range(200):
+        (inbox / f"old-{n:04d}.mp4").write_bytes(BODY + mp4.trailer())
+    (inbox / f"s1_{owed[1]}.mp4").write_bytes(BODY + mp4.trailer())
+    (inbox / f"s3_{owed[3]}.mp4").write_bytes(BODY + mp4.trailer())
+    real, calls = c._ids_in, []
+
+    def counted(path, ids):
+        calls.append(path)
+        return real(path, ids)
+
+    c._ids_in = counted
+    await c.sweep()
+    assert len(calls) == 202
+    assert filed == [1, 1] and set(c.owed) == {owed[0], owed[2], owed[4]}
+    assert [len(store.files(f"s{i}", RECORDINGS_DIR)) for i in range(5)] == [
+        0, 1, 0, 1, 0,
+    ]
+    assert len(list(inbox.iterdir())) == 200
+
+
+def test_an_id_is_found_anywhere_in_the_path_as_before(parts):
+    c, _store, inbox, _alive, _filed, _clock = parts
+    other = "abcd-1234-efgh"
+    ids = frozenset({GID, other})
+    assert c._ids_in(inbox / f"x{GID}y.mp4", ids) == [GID]
+    assert c._ids_in(inbox / f"a{other}" / "b.MP4", ids) == [other]
+    assert c._ids_in(inbox / f"{GID}.webm", ids) == []
+    assert c._ids_in(inbox / f"{GID[:-1]}.mp4", ids) == []
+    assert c._ids_in(inbox / f"{GID}.mp4", frozenset()) == []

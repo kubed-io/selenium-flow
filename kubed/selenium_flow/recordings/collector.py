@@ -474,16 +474,19 @@ class Collector:
         now = self.clock()
         present = {str(path) for path, _size, _mtime in files}
         self._quiet = {k: v for k, v in self._quiet.items() if k in present}
-        complete = await anyio.to_thread.run_sync(self._completeness, files)
+        # The ids as they are now, taken on the loop: the thread reads this
+        # snapshot, never `owed`, which an expect can change meanwhile.
+        matches, complete = await anyio.to_thread.run_sync(
+            self._index, files, frozenset(self.owed)
+        )
         for grid_id, owed in list(self.owed.items()):
             if self.owed.get(grid_id) is not owed:
                 continue  # filed or dropped while this sweep awaited
             if owed.done:
                 await self._forget(owed)  # its note is all that is left
                 continue
-            match = next(
-                (f for f in files if self._ids_in(f[0]) == [grid_id]), None,
-            )
+            # None for one expected after the snapshot too: matched next sweep.
+            match = matches.get(grid_id)
             if owed.ended is not None and await self._back(owed, now):
                 owed.ended = None
                 await self._save(owed)
@@ -492,7 +495,7 @@ class Collector:
                 path, size, mtime = match
                 done = complete.get(str(path))
                 if done is None:
-                    continue  # not checked (unreadable, or expected after the snapshot)
+                    continue  # its read faulted: tried again next sweep
                 quiet = self._quiet_for(path, size, mtime, now)
                 if done:
                     if quiet >= self.settle:
@@ -633,19 +636,27 @@ class Collector:
             return 0.0
         return now - seen[2]
 
-    def _ids_in(self, path: Path) -> list[str]:
-        """The owed Grid ids in ``path`` below the inbox, folders and file name
+    def _ids_in(self, path: Path, owed: frozenset[str]) -> list[str]:
+        """The ids of ``owed`` in ``path`` below the inbox, folders and file name
         alike (the recorder's per-session subfolder mode keeps the id only in
         the folder). Empty for a file that is not an ``.mp4``. A path holding
         more than one owed id is ambiguous: it matches none, and is logged once
-        without the ids."""
+        without the ids.
+
+        Every slice of the path as long as some owed id, looked up in the set:
+        the same "anywhere in the path" as ``g in below`` for each id, at a cost
+        that grows with the path rather than with the ids owed."""
         if path.suffix.lower() != ".mp4":
             return []
         try:
             below = path.relative_to(self.inbox).as_posix()
         except ValueError:
             below = path.name
-        ids = [g for g in self.owed if g in below]
+        ids = sorted({
+            below[i:i + n]
+            for n in {len(g) for g in owed}
+            for i in range(len(below) - n + 1)
+        } & owed)
         if len(ids) > 1:
             if below not in self._ambiguous:
                 self._ambiguous.add(below)
@@ -657,15 +668,23 @@ class Collector:
         self._ambiguous.discard(below)
         return ids
 
-    def _completeness(self, files) -> dict[str, bool]:
-        """Whether each owed file ends in a trailer; a file whose read faulted
-        is left out, and the sweep goes blind so no note is dropped meanwhile.
-        In a worker thread."""
+    def _index(
+        self, files, owed: frozenset[str]
+    ) -> tuple[dict[str, tuple[Path, int, float]], dict[str, bool]]:
+        """One pass over ``files``: each owed id's file (the first, in walk
+        order, naming that id alone), and whether each file naming one owed id
+        ends in a trailer. A file whose read faulted is left out of the second,
+        and the sweep goes blind so no note is dropped meanwhile. In a worker
+        thread."""
+        matches: dict[str, tuple[Path, int, float]] = {}
         out: dict[str, bool] = {}
         faults = []
-        for path, _size, _mtime in files:
-            if not self._ids_in(path):
+        for entry in files:
+            path = entry[0]
+            ids = self._ids_in(path, owed)
+            if not ids:
                 continue
+            matches.setdefault(ids[0], entry)
             try:
                 out[str(path)] = mp4.is_complete(path)
             except OSError as exc:
@@ -681,7 +700,7 @@ class Collector:
                 )
         else:
             self._fault_logged = False
-        return out
+        return matches, out
 
     def _inbox_files(self) -> list[tuple[Path, int, float]]:
         """Every candidate in the inbox with its size and mtime. In a worker
