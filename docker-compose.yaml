@@ -64,9 +64,12 @@ services:
     - 7900:7900
     environment:
       SE_NODE_SESSION_TIMEOUT: ${SE_NODE_SESSION_TIMEOUT:-300}
-      # Recording, opt-in with DATA_DIR above. Precaution, pending a check:
-      # switches on recording for a standalone container (open_session
-      # record=true), and may not be needed.
+      # Recording, opt-in with DATA_DIR above. The recorder is built into the
+      # standalone image. Event-driven mode listens on a Grid event bus that a
+      # standalone container may not expose, so polling mode is used instead
+      # (SE_VIDEO_EVENT_DRIVEN=false with SE_VIDEO_RECORD_STANDALONE=true).
+      # Not yet verified end to end.
+      # SE_VIDEO_EVENT_DRIVEN: "false"
       # SE_VIDEO_RECORD_STANDALONE: "true"
     # volumes:
     # - ./data/recordings:/videos

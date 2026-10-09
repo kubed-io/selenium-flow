@@ -236,8 +236,11 @@ nodes, or recordings share one screen.
   a missing folder as root and this image runs as 65534: run
   `mkdir -p data/recordings && chmod -R 777 data` once, then uncomment
   `DATA_DIR`, `RECORDING_ENABLED`, both volumes and the Grid's
-  `SE_VIDEO_RECORD_STANDALONE=true`, which a standalone container may need to
-  start its recorder (not yet verified).
+  `SE_VIDEO_EVENT_DRIVEN=false` and `SE_VIDEO_RECORD_STANDALONE=true`, which a
+  standalone container may need to start its recorder (not yet verified).
+  If a standalone image's built-in recorder does not start, docker-selenium's
+  separate `selenium/video` sidecar, sharing `/videos`, does the same job (not
+  yet verified).
 
 A recording is matched to its session by the Grid's session id anywhere in its
 path below `RECORDING_DIR` (folders or file name), so any path and prefix the
