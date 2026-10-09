@@ -158,11 +158,21 @@ are decided here; Dr K reviews them on the PR.
     is shown as nothing. A watch with no known timeout uses the Grid's default,
     300 s, for its deadline. Cost if wrong: an agent wanting the timeout at open
     reads one resource.
-11. Claude, 2026-10-09: **the card shows `idle timeout` in the workspace group**,
-    as `5 min` for whole minutes and `N s` otherwise. The `CAPTURE` row on the
-    same boards is E3's (it is the capture setting), and the `show` app's
-    `context` view is left to E3, which owns that board. Cost if wrong: a label
-    or format that differs from the board is a one-line change.
+11. Claude, 2026-10-09, as drawn (Penpot file *Admin UI*, components
+    `summary / live` and `summary / idle`, read for this ruling): **the card
+    shows `idle timeout` in the browser group**, beside `version`, `id` and
+    `node` — the session's facts, since under E1's ruling 8 the timeout is
+    the session's — and **in seconds, with where it came from**: `300 s ·
+    read from the Grid node` on a live card, `300 s · the Grid reaped it` on
+    an idle one. It is kept on the record after the session ends (ruling 10),
+    which is why an idle card still has it. The `CAPTURE` row on the same
+    boards is E3's (it is the capture setting), and the `show` app's
+    `context` view is left to E3, which owns that board. Cost if wrong: an
+    idle card reads *the Grid reaped it* whatever ended the session — the
+    record does not keep the cause, so after `end_browser` or the admin's End
+    it says so too. If Dr K wants the idle text to be true in every case, it
+    becomes cause-free (*the last session's*) or the record keeps the cause;
+    either is a line in `idle()` and, for the second, a field.
 12. Claude, 2026-10-09: **a subscriber is a function run on the loop.** Each has
     a bounded queue (1 000) drained by a callback the loop schedules; overflow is
     dropped and counted (`Subscription.dropped`) and logged once a streak; a
@@ -449,10 +459,11 @@ class BidiSocket:
     (`RESPONSES["current_workspace"]`) gains the field.
   - The admin workspace row (`workspaces_payload`): `grid_timeout`, from the
     record. `WorkspaceRow.grid_timeout?: number | null` in `ui/src/lib/types.ts`.
-  - `WorkspaceSummary.svelte`: the fact `idle timeout` in the `workspace` group,
-    after `started`, formatted by a new `idle(seconds)` in `lib/format.ts`
-    (`300` → `5 min`, `90` → `90 s`, `null` → hidden). Boards `summary / live`
-    and `summary / idle` (`IDLE TIMEOUT`).
+  - `WorkspaceSummary.svelte`: the fact `idle timeout` in the `browser` group,
+    after `node`, formatted by a new `idle(seconds, live)` in `lib/format.ts`
+    (`300, true` → `300 s · read from the Grid node`, `300, false` → `300 s ·
+    the Grid reaped it`, `null` → hidden). Boards `summary / live` and
+    `summary / idle` (`IDLE TIMEOUT`, ruling 11).
   - The monitor's watch takes it at `watch` and refreshes it from every listing.
 
 ### 7. Who publishes, who consumes
@@ -673,8 +684,8 @@ minutes).
 - **`tests/test_admin_events.py`**: a session opening or ending on the bus pokes
   the broadcast. **Goldens** regenerate for the new field (`openapi.json`,
   `admin-workspaces.json`); the tools goldens do not move. **UI**:
-  `WorkspaceSummary` shows `idle timeout` as `5 min` and hides it when null;
-  `idle()` formats.
+  `WorkspaceSummary` shows `idle timeout` in the browser group, live and idle,
+  as the boards word it, and hides it when null; `idle()` formats.
 
 ## Verify first
 

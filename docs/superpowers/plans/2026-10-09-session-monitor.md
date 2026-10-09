@@ -2800,33 +2800,37 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `Workspace.grid_timeout` (Task 5).
-- Produces: the admin row's `grid_timeout: int | null`; `WorkspaceRow.grid_timeout?: number | null`; `idle(seconds?: number | null): string` in `lib/format.ts`.
+- Produces: the admin row's `grid_timeout: int | null`; `WorkspaceRow.grid_timeout?: number | null`; `idle(seconds?: number | null, live?: boolean): string` in `lib/format.ts`.
 
-Boards: Penpot, Components page, `summary / live` and `summary / idle`, row `IDLE TIMEOUT` (ruling 11: shown in the workspace group as `5 min`, or `N s` when not whole minutes). If the board's text or format differs from this, the board wins; change the label string and `idle()` to match and say so in the PR.
+Boards: Penpot file *Admin UI*, components `summary / live` and `summary / idle` (read 2026-10-09): the row `IDLE TIMEOUT` sits in the **browser** group, beside `VERSION`, `ID` and `NODE` — the session's facts, not the workspace's — and reads `300 s · read from the Grid node` on `summary / live` and `300 s · the Grid reaped it` on `summary / idle`: seconds, never minutes (ruling 11). The card's CSS upper-cases the label (`.fact .k`), so the string is `idle timeout`.
 
 - [ ] **Step 1: Write the failing UI tests**
 
 `ui/src/lib/format.test.ts`: add `idle` to the import from `./format`, and inside `describe('format', …)`:
 
 ```ts
-  test('idle timeout: whole minutes, else seconds, nothing when unknown (spec ruling 11)', () => {
-    expect(idle(300)).toBe('5 min')
-    expect(idle(60)).toBe('1 min')
-    expect(idle(90)).toBe('90 s')
-    expect(idle(null)).toBe('')
+  test('idle timeout: seconds, then where it came from; nothing when unknown (spec ruling 11)', () => {
+    expect(idle(300, true)).toBe('300 s · read from the Grid node')
+    expect(idle(300, false)).toBe('300 s · the Grid reaped it')
+    expect(idle(90)).toBe('90 s · the Grid reaped it')
+    expect(idle(null, true)).toBe('')
     expect(idle(undefined)).toBe('')
-    expect(idle(0)).toBe('')
+    expect(idle(0, true)).toBe('')
   })
 ```
 
 `ui/src/lib/WorkspaceSummary.test.ts`, append:
 
 ```ts
-test('the idle timeout is a workspace fact, shown live and idle, hidden when unknown (spec §6)', () => {
-  const r = render(WorkspaceSummary, { data: { key: 'k', live: false, grid_timeout: 300 } })
-  expect(screen.getByText('idle timeout')).toBeInTheDocument()
-  expect(screen.getByText('5 min')).toBeInTheDocument()
-  r.unmount()
+test('the idle timeout sits with the session, live and idle, hidden when unknown (spec ruling 11)', () => {
+  const live = render(WorkspaceSummary, { data: { key: 'k', live: true, session_id: 'id1', grid_timeout: 300 } })
+  const fact = screen.getByText('idle timeout').closest('.group')
+  expect(fact?.querySelector('.label')).toHaveTextContent('browser')
+  expect(screen.getByText('300 s · read from the Grid node')).toBeInTheDocument()
+  live.unmount()
+  const idle = render(WorkspaceSummary, { data: { key: 'k', live: false, grid_timeout: 300 } })
+  expect(screen.getByText('300 s · the Grid reaped it')).toBeInTheDocument()
+  idle.unmount()
   render(WorkspaceSummary, { data: { key: 'k', live: true, grid_timeout: null } })
   expect(screen.queryByText('idle timeout')).toBeNull()
 })
@@ -2835,7 +2839,7 @@ test('the idle timeout is a workspace fact, shown live and idle, hidden when unk
 - [ ] **Step 2: Run them to make sure they fail**
 
 Run: `npm --prefix ui test -- src/lib/format.test.ts src/lib/WorkspaceSummary.test.ts`
-Expected: FAIL — `idle` is not exported; `idle timeout` not found.
+Expected: FAIL — the two new tests (measured: 2 failed, 15 passed), `idle` not being exported and `idle timeout` not found.
 
 - [ ] **Step 3: Implement**
 
@@ -2848,21 +2852,29 @@ Expected: FAIL — `idle` is not exported; `idle timeout` not found.
 `ui/src/lib/format.ts`, after `ago`:
 
 ```ts
-/* How long the Grid lets a session sit idle: whole minutes read as minutes,
-   anything else in seconds; nothing when the Grid did not say. */
-export function idle(seconds?: number | null): string {
+/* How long the Grid lets a session sit idle, in seconds, and where that came
+   from, as the boards `summary / live` and `summary / idle` draw it; nothing
+   when the Grid did not say. */
+export function idle(seconds?: number | null, live?: boolean): string {
   if (!seconds || seconds <= 0) return ''
-  return seconds % 60 === 0 ? `${seconds / 60} min` : `${seconds} s`
+  return `${seconds} s · ${live ? 'read from the Grid node' : 'the Grid reaped it'}`
 }
 ```
 
-`ui/src/lib/WorkspaceSummary.svelte`: import `idle` beside `browserMark, safeHref`, and in the `workspace` group, after the `['started', …]` entry:
+`ui/src/lib/WorkspaceSummary.svelte`: import `idle` beside `browserMark, safeHref` (`import { browserMark, idle, safeHref } from './format'`), and replace the `browser` group's one line, `['browser', [['version', s.version], ['id', s.session_id], ['node', s.node]]],`, with:
 
 ```ts
-      ['idle timeout', idle(s.grid_timeout)],
+    ['browser', [
+      ['version', s.version],
+      ['id', s.session_id],
+      ['node', s.node],
+      // The session's, as drawn: kept on the record after it ends, so an idle
+      // card shows it too (spec ruling 11).
+      ['idle timeout', idle(s.grid_timeout, s.live)],
+    ]],
 ```
 
-(an empty string is falsy, so the existing `.filter(([, v]) => v)` hides it when unknown).
+(an empty string is falsy, so the existing `.filter(([, v]) => v)` hides it when unknown, and the group with it when nothing else is in it). The `workspace` group does not change.
 
 `kubed/selenium_flow/http/admin/workspaces.py`, in `workspaces_payload`'s row dict, after `"window": record.window,`:
 
@@ -2878,7 +2890,7 @@ Run: `npm --prefix ui test && npm --prefix ui run -s check && npm --prefix ui ru
 Expected: all pass.
 
 Run: `GOLDEN_UPDATE=1 pytest tests/test_golden.py -q -p no:randomly && git diff --stat tests/golden`
-Expected: only `tests/golden/admin-workspaces.json` changes, by one `"grid_timeout": null` line per row. Then `pytest -q -n 4` and `ruff check .` pass.
+Expected: only `tests/golden/admin-workspaces.json` changes, by one `"grid_timeout": null` line per row (4). Where the card shows it does not change the payload: the row's field is the same either way (measured: regenerating after the move to the browser group changes nothing further). Then `pytest -q -n 4` and `ruff check .` pass.
 
 - [ ] **Step 5: Commit**
 
@@ -2959,7 +2971,7 @@ On 2026-10-09 every task above was applied in order to a scratch copy of E1's tr
 | Task 4 | `test_monitor.py` 19 passed; the three monitor files five times in a row under `pytest-randomly`, no flake |
 | Task 5 | `test_workspace_monitor.py` 9 passed; `test_recording_open`, `test_workspaces`, `test_history`, `test_routes` pass; golden: `openapi.json` only |
 | Task 6 | the rewrite script applies unchanged; the six files of Step 5 149 passed; whole suite 2 404 passed, 35 skipped; no golden moves |
-| Task 7 | UI 274 tests, `check` and `lint` pass; golden: `admin-workspaces.json` only, one `"grid_timeout": null` per row (4) |
+| Task 7 | UI 274 tests, `check` and `lint` pass, with the row in the browser group as drawn (re-run after the board was read); golden: `admin-workspaces.json` only, one `"grid_timeout": null` per row (4) |
 | Task 8 | wiki regenerated (`current_workspace.md`, +2 lines); whole suite 2 428 passed, 26 skipped (the wiki tests run once it is checked out); `ruff check .` clean |
 
 The tools goldens (`tools-on.json`, `tools-off.json`), `admin-routes.json`, `errors.json` and `flow-reports.json` never moved.
