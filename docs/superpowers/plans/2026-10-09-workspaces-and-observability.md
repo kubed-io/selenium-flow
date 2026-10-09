@@ -12,7 +12,7 @@ without conflict.
 **Spec:** `docs/superpowers/specs/2026-10-09-workspaces-and-observability-design.md`
 (the programme; cited as `programme R<n>` / `programme E<n>`).
 
-**Design:** Penpot file *selenium-flow* — every board the epics need is drawn.
+**Design:** Penpot file *Admin UI* — every board the epics need is drawn.
 Epic agents read it; they do not edit it (programme R15).
 
 ## Global constraints

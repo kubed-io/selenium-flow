@@ -6,7 +6,7 @@ so that each epic's own spec, written on its GitHub issue by an agent that can
 read this repo and the Penpot design and nothing else, neither repeats the
 research nor re-decides the rulings. Plan:
 `docs/superpowers/plans/2026-10-09-workspaces-and-observability.md`. Penpot:
-file *selenium-flow*, every page (the rename), the new pages *Workspace ·
+file *Admin UI*, every page (the rename), the new pages *Workspace ·
 Console* and *Workspace · Network*, and *Admin · login*.
 
 An epic's spec cites this one as `programme R<n>` for a ruling and `programme
