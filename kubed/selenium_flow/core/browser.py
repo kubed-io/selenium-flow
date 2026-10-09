@@ -119,6 +119,13 @@ class ReattachDriver(RemoteWebDriver):
         self._web_element_identifier = None
 
 
+def _seconds(ms) -> int | None:
+    """A node's ``sessionTimeout`` (milliseconds) in whole seconds, or None."""
+    if isinstance(ms, bool) or not isinstance(ms, (int, float)) or ms <= 0:
+        return None
+    return int(ms) // 1000
+
+
 def is_partial(name: str) -> bool:
     """Whether a download-directory entry is a scratch copy, not a finished file.
 
@@ -335,21 +342,29 @@ class Grid:
         driver.session_id = session_id
         return driver
 
+    def bidi_url(self, session_id: str) -> str:
+        """The browser's BiDi socket, as the Grid proxies it.
+
+        Derived from ``url``, never read from the browser's ``webSocketUrl``
+        capability: the Grid fills that in with its own in-cluster name
+        (measured: ``ws://selenium-grid-selenium-hub.flow:4444/...``).
+        """
+        parts = urlsplit(self.url)
+        scheme = "wss" if parts.scheme == "https" else "ws"
+        root = urlunsplit((scheme, parts.netloc, parts.path.rstrip("/"), "", ""))
+        return f"{root}/session/{session_id}/se/bidi"
+
     @contextlib.contextmanager
     def bidi(self, session_id: str):
         """A reattached driver that speaks BiDi: ``.storage``, ``.network``,
         ``.browsing_context``, ``.script``.
 
-        The socket address is derived, not discovered: the Grid proxies it at
-        ``/session/<id>/se/bidi``.
+        The socket address is derived, not discovered (`bidi_url`).
         """
-        parts = urlsplit(self.url)
-        scheme = "wss" if parts.scheme == "https" else "ws"
-        socket = urlunsplit((scheme, parts.netloc, parts.path.rstrip("/"), "", ""))
         driver = self.reconnect(session_id)
         # The socket's timeout and polling are on the shared connection's
         # config, set once by `reconnect`.
-        driver.caps = {"webSocketUrl": f"{socket}/session/{session_id}/se/bidi"}
+        driver.caps = {"webSocketUrl": self.bidi_url(session_id)}
         try:
             yield driver
         finally:
@@ -435,6 +450,28 @@ class Grid:
                     }
                 )
         return sorted(found, key=lambda s: s.get("started") or "", reverse=True)
+
+    def listing(self) -> tuple[int, dict[str, int | None]]:
+        """How many nodes are registered, and every running browser mapped to
+        its node's idle timeout in seconds (None when the node does not say).
+
+        One ``GET /status``, which touches no browser: a command sent to a
+        session is activity the node counts, and would keep it alive.
+        """
+        nodes = self.status()["value"].get("nodes") or []
+        running: dict[str, int | None] = {}
+        for node in nodes:
+            timeout = _seconds(node.get("sessionTimeout"))
+            for slot in node.get("slots") or []:
+                session_id = (slot.get("session") or {}).get("sessionId")
+                if session_id:
+                    running[session_id] = timeout
+        return len(nodes), running
+
+    def session_timeout(self, session_id: str) -> int | None:
+        """Seconds this browser's node lets it sit idle before reaping it, or
+        None when the Grid does not list it or does not say."""
+        return self.listing()[1].get(session_id)
 
     def files(self, session_id: str) -> list[dict]:
         """What this session has finished downloading, newest first.
