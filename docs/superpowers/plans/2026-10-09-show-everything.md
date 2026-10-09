@@ -842,6 +842,7 @@ test('Back under the files root says Files', async () => {
   await fireEvent.click(await screen.findByRole('button', { name: /Screenshots/ }))
   expect(await screen.findByRole('button', { name: 'Back' })).toHaveTextContent('← Files')
 })
+```
 
 Views are given `uri`, `expandable` and `onlink`; these are asserted through the
 views that use them in Tasks 5 and 8.
