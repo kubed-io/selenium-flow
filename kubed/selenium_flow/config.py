@@ -32,7 +32,7 @@ from pydantic.fields import FieldInfo
 from pydantic_settings import EnvSettingsSource, NoDecode
 
 from .core.defaults import DEFAULT_GRID_URL, normalize_browser
-from .names import INBOX_DIR, valid_name
+from .names import INBOX_DIR, SESSIONS_DIR, valid_name
 from .urls import without_userinfo
 
 # Marks a field that only the config file may set: structure, not a value.
@@ -811,6 +811,16 @@ def recording_problem(settings: Settings) -> str | None:
     """Why recording cannot run, or None. Checked after every layer merges."""
     if settings.recording.enabled and not settings.data.dir:
         return "recording.enabled needs data.dir: a recording is filed into its session"
+    if settings.recording.enabled:
+        # Resolved as the server opens them: relative to the working directory.
+        inbox = Path(recording_dir(settings)).resolve()
+        sessions = (Path(settings.data.dir) / SESSIONS_DIR).resolve()
+        if inbox == sessions or sessions in inbox.parents or inbox in sessions.parents:
+            return (
+                f"recording.dir {inbox} must not overlap {sessions}: inside it, "
+                "unfinished videos show as a session's files; above it, the "
+                "collector sweeps every session"
+            )
     return None
 
 

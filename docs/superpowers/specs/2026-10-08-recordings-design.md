@@ -181,7 +181,7 @@ The `recording` section:
 | Setting | Env | Default | Meaning |
 |---|---|---|---|
 | `recording.enabled` | `RECORDING_ENABLED` | `false` | The operator says the Grid's recordings reach the inbox |
-| `recording.dir` | `RECORDING_DIR` | `$DATA_DIR/recordings` | The inbox. Set it independently to point at a folder the operator already has — any path, inside the data dir or not |
+| `recording.dir` | `RECORDING_DIR` | `$DATA_DIR/recordings` | The inbox. Set it independently to point at a folder the operator already has — any path, inside the data dir or not, that neither holds nor lies in `data.dir/sessions` |
 | `recording.wait` | `RECORDING_WAIT` | `600` (s, ≥ 30) | How long after a browser ends to wait for its file |
 | `recording.watch` | `RECORDING_WATCH` | `auto` | `auto`, `events` or `poll`. `auto` polls when the inbox is on a network filesystem (`nfs`, `nfs4`, `cifs`, `smb3`, `9p`, `ceph`, `glusterfs`, `fuse.*`, read from `/proc/self/mountinfo`), and uses events otherwise, including where there is no `/proc` |
 | `recording.poll` | `RECORDING_POLL` | `1000` (ms, ≥ 200) | The poll interval, when polling |
@@ -193,6 +193,8 @@ unusable stops the boot):
   filed.
 - `recording.enabled` and the inbox is missing, or not readable *and* writable
   by this process — collecting a recording is a move out of it.
+- `recording.enabled` and the inbox is, holds or lies in `data.dir/sessions`
+  — videos would show half-written as files, or sessions be swept as the inbox.
 - `FLOW_DATA_DIR` in the environment, or `flow:` in the config file — *"renamed
   to `DATA_DIR`; sessions now live under `DATA_DIR/sessions`"*. The env layer is
   lenient by design (AGENTS.md), and here that would boot with flows silently

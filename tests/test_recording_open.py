@@ -139,6 +139,46 @@ def test_the_inbox_defaults_inside_the_data_dir_and_can_be_set_apart():
     assert config.recording_dir(config.Settings()) is None
 
 
+def recording_at(data_dir, inbox=None):
+    return config.recording_problem(config.Settings(
+        data={"dir": str(data_dir)},
+        recording={"enabled": True, "dir": inbox and str(inbox)},
+    ))
+
+
+@pytest.mark.parametrize("inbox", [
+    "sessions/bot/recordings",  # inside: half-written videos listed as files
+    "sessions",
+    ".",  # above: the collector would sweep every session folder
+    "/",
+])
+def test_an_inbox_overlapping_the_sessions_does_not_boot(tmp_path, inbox):
+    problem = recording_at(tmp_path, tmp_path / inbox)
+    assert problem and "must not overlap" in problem
+    assert str((tmp_path / "sessions").resolve()) in problem
+
+
+def test_a_relative_inbox_is_compared_where_the_server_opens_it(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert "must not overlap" in recording_at(tmp_path, "sessions/bot/inbox")
+    assert recording_at(tmp_path, "inbox") is None
+
+
+def test_the_default_inbox_and_a_sibling_are_apart_from_the_sessions(tmp_path):
+    assert recording_at(tmp_path) is None
+    assert recording_at(tmp_path, tmp_path / "videos") is None
+    assert recording_at(tmp_path, tmp_path / "sessions-inbox") is None
+
+
+def test_a_disabled_recorder_may_name_any_inbox(tmp_path):
+    assert config.recording_problem(config.Settings(
+        data={"dir": str(tmp_path)},
+        recording={"dir": str(tmp_path / "sessions")},
+    )) is None
+
+
 def test_a_reap_survives_a_note_that_cannot_be_written():
     class Broken(Recorder):
         def expect(self, session, grid_id, browser):

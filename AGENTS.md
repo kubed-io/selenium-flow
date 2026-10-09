@@ -554,8 +554,9 @@ tidies is still not.
 - `record` is never inherited by an explicit open, but a reap replays it, and
   only while `recording.enabled`; with recording off it is dropped from the reopen.
 - Layout: `DATA_DIR/sessions/<name>/{flows,files,screenshots,recordings}`, and
-  the inbox `DATA_DIR/recordings/` by default. `data` and `recording` are
-  config sections; `FLOW_DATA_DIR` is the one retired name refused at boot.
+  the inbox `DATA_DIR/recordings/` by default, never in or above `sessions/`
+  (refused at boot). `data` and `recording` are config sections;
+  `FLOW_DATA_DIR` is the one retired name refused at boot.
 
 ### Everything to read is a resource, named by its URI
 
