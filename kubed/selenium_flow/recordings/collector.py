@@ -40,18 +40,25 @@ note filed meanwhile is never written back.
 recording owed but *done*: every sweep retries the delete and nothing else, so
 it is never matched, filed or timed out again — an inbox copy that could not be
 removed is not filed a second time — and a restart that finds the note reads
-the same mark. Only a note left without its mark (a crash, or the mark's own
-write failing as well as the delete) can be filed again.
+the same mark. A filing, once its move has begun, runs to its mark and delete
+as one task that ``stop`` waits for, so a graceful shutdown mid-copy (a rolling
+deploy) leaves nothing half done. What remains: a hard crash between the move
+and the mark, or the mark's own write failing as well as the delete, leaves an
+unmarked note, which the next process can file again.
 
-**The notes are read at ``start`` and again each tick until a read succeeds.**
-A storage fault reading them stops neither the boot nor the queue: it is
-logged once, and the task runs while the read is owed.
+**The notes are read at ``start`` and again each tick until every session's
+are read.** A storage fault reading one session's stops neither the boot nor
+another session's recordings: what could be read is owed at once, the fault is
+logged once a streak (the sessions and the error's type), and the task runs
+while any read is owed. The read and the merge hold the notes lock, so a read
+that began before a sweep filed and deleted a note cannot put it back.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import logging
 import math
 import os
@@ -181,6 +188,8 @@ class Collector:
         # The notes on disk have not been read yet (`_load`).
         self._unread = False
         self._unread_logged = False
+        # Grid ids whose note this process has said it cannot remove.
+        self._undeleted: set[str] = set()
 
     @property
     def running(self) -> bool:
@@ -238,40 +247,54 @@ class Collector:
         return bool(self.owed) or self._unread
 
     async def _load(self) -> None:
-        """Read the notes into ``owed``. A storage fault keeps ``_unread`` set,
-        so the task tries again next tick, and is logged once a streak with
-        its type alone (a path names a Grid id). Never raises it: one note
-        NFS cannot read must not stop the boot."""
-        try:
-            notes = await anyio.to_thread.run_sync(self.store.notes)
-        except OSError as exc:
-            if not self._unread_logged:
-                self._unread_logged = True
-                log.warning(
-                    "recordings: the notes of owed recordings cannot be read "
-                    "(%s); retrying every %ss",
-                    type(exc).__name__, self.tick,
-                )
-            return
-        self._unread = False
-        if self._unread_logged:
-            self._unread_logged = False
-            log.info("recordings: the notes can be read again")
-        loaded = 0
-        for session, grid_id, note in notes:
+        """Read the notes into ``owed``. Never raises a storage fault: one
+        note NFS cannot read must not stop the boot. A session that could not
+        be read keeps ``_unread`` set, so the task reads again next tick; the
+        rest are owed now. Logged once a streak, by session and the error's
+        type alone (a path names a Grid id).
+
+        Under the notes lock from the read to the merge: a sweep's `_forget`
+        waits, so this can never add back a note it deleted meanwhile."""
+        failed: dict[str, str] = {}
+
+        def fault(session: str, exc: OSError) -> None:
+            failed.setdefault(session, type(exc).__name__)
+
+        async with self._notes_lock:
             try:
-                owed = _owed_from(session, grid_id, note)
-            except ValueError:
-                log.warning(
-                    "recordings: ignoring an unreadable note in session %s", session
+                notes = await anyio.to_thread.run_sync(
+                    functools.partial(self.store.notes, on_error=fault)
                 )
-                continue
-            # One expected while the read was failing is already in memory,
-            # and is the newer: keep it (a `_save` may hold that object).
-            if self.owed.setdefault(grid_id, owed) is owed:
-                loaded += 1
+            except OSError as exc:  # the data directory itself
+                notes, failed = [], {"": type(exc).__name__}
+            loaded = 0
+            for session, grid_id, note in notes:
+                try:
+                    owed = _owed_from(session, grid_id, note)
+                except ValueError:
+                    log.warning(
+                        "recordings: ignoring an unreadable note in session %s",
+                        session,
+                    )
+                    continue
+                # One already in memory (expected meanwhile, or read by an
+                # earlier partial load) is the newer: keep it, since a `_save`
+                # or a sweep may hold that object.
+                if self.owed.setdefault(grid_id, owed) is owed:
+                    loaded += 1
         if loaded:
             log.info("recordings: %d owed from before the restart", loaded)
+        self._unread = bool(failed)
+        if failed and not self._unread_logged:
+            self._unread_logged = True
+            where = ", ".join(sorted(k for k in failed if k)) or "the data directory"
+            log.warning(
+                "recordings: notes cannot be read for %s (%s); retrying every %ss",
+                where, ", ".join(sorted(set(failed.values()))), self.tick,
+            )
+        elif not failed and self._unread_logged:
+            self._unread_logged = False
+            log.info("recordings: the notes can be read again")
 
     async def stop(self) -> None:
         self._stopping = True
@@ -328,8 +351,7 @@ class Collector:
         async with self._notes_lock:
             if self.owed.get(owed.grid_id) is not owed:
                 return
-            first = not owed.done
-            if first:
+            if not owed.done:
                 owed.filed, owed.dropped = filed, filed is None
                 # Best effort: if it fails too, only a restart can mistake the
                 # note for an owed one (the module docstring).
@@ -339,13 +361,17 @@ class Collector:
                     self.store.delete_note, owed.session, owed.grid_id
                 )
             except OSError as exc:
-                if first:
+                # Once a recording a process, whether this one marked it or
+                # found it marked: not persisted, so a restart says it again.
+                if owed.grid_id not in self._undeleted:
+                    self._undeleted.add(owed.grid_id)
                     log.warning(
                         "recordings: a note for %s could not be removed (%s); "
                         "retrying every %ss",
                         owed.session, type(exc).__name__, self.tick,
                     )
                 return
+            self._undeleted.discard(owed.grid_id)
             del self.owed[owed.grid_id]
 
     def _ensure(self) -> None:
@@ -392,11 +418,12 @@ class Collector:
             if not self._failing:
                 # Once per streak, and no traceback: a path in one names a
                 # Grid id, which the operator's log never does.
+                sessions = sorted({o.session for o in self.owed.values()})
                 log.warning(
-                    "recordings: a sweep failed (%s) with recordings owed for %s; "
-                    "retrying every %ss",
+                    "recordings: a sweep failed (%s) with %s; retrying every %ss",
                     type(exc).__name__,
-                    ", ".join(sorted({o.session for o in self.owed.values()})),
+                    f"recordings owed for {', '.join(sessions)}" if sessions
+                    else "notes not yet read",
                     self.tick,
                 )
             self._failing = True
@@ -508,6 +535,16 @@ class Collector:
         return ids
 
     async def _file(self, owed: Owed, path: Path) -> None:
+        """File ``path`` for ``owed``: the move, the mark and the delete as one
+        task, shielded and held in ``_saves``. Cancelling the sweep (``stop``)
+        does not stop a move already copying in its thread, so without this the
+        recording would be filed and its note left unmarked."""
+        filing = asyncio.get_running_loop().create_task(self._filing(owed, path))
+        self._saves.add(filing)
+        filing.add_done_callback(self._saves.discard)
+        await asyncio.shield(filing)
+
+    async def _filing(self, owed: Owed, path: Path) -> None:
         try:
             entry = await anyio.to_thread.run_sync(
                 self.store.move_in,

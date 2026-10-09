@@ -559,46 +559,66 @@ class FileStore(SessionLayout):
             return False
         return True
 
-    def notes(self) -> list[tuple[str, str, dict]]:
+    def notes(self, on_error=None) -> list[tuple[str, str, dict]]:
         """Every owed recording, as ``(session, grid_id, note)``. A note that is
         not JSON, or names no usable id, is skipped with a warning.
 
-        A storage error is not a broken note: it raises, so the collector
-        retries the whole read rather than abandon that recording until the
-        next restart. Only a note or folder that is gone counts as absent.
+        A storage error is not a broken note, and only a note or folder that is
+        gone counts as absent. One inside a session raises, or, given
+        ``on_error(session, exc)``, is handed to it and the other sessions are
+        read on, so one folder that cannot be read never holds back the rest.
+        The data directory itself unreadable always raises. Not `sessions()`,
+        whose ``is_dir`` reads an unreadable folder as no folder (Python 3.14:
+        any OSError).
         """
+        try:
+            children = sorted(self.root.iterdir())
+        except FileNotFoundError:
+            return []
         found = []
-        for session in self.sessions():
+        for child in children:
             try:
-                pending = self._resolved(
-                    valid_name(session), RECORDINGS_DIR, PENDING_DIR
-                )
-            except InvalidName:
-                continue
+                found.extend(self._session_notes(child))
+            except OSError as exc:
+                if on_error is None:
+                    raise
+                on_error(child.name, exc)
+        return found
+
+    def _session_notes(self, folder: Path) -> list[tuple[str, str, dict]]:
+        """One session's notes, for `notes`; raises a storage error."""
+        session = folder.name
+        try:
+            valid_name(session)
+        except InvalidName:
+            return []
+        try:
+            if not stat.S_ISDIR(folder.lstat().st_mode):
+                return []  # a file, or a link: nothing below the root is one
+            pending = self._resolved(session, RECORDINGS_DIR, PENDING_DIR)
+            entries = sorted(p for p in pending.iterdir() if p.suffix == ".json")
+        except (FileNotFoundError, NotADirectoryError, InvalidName):
+            return []
+        found = []
+        for entry in entries:
             try:
-                # Not `glob` or `is_dir`, which read an unreadable folder as empty.
-                entries = sorted(p for p in pending.iterdir() if p.suffix == ".json")
-            except (FileNotFoundError, NotADirectoryError):
+                info = entry.lstat()
+            except FileNotFoundError:
                 continue
-            for entry in entries:
-                try:
-                    info = entry.lstat()
-                except FileNotFoundError:
-                    continue
-                if not stat.S_ISREG(info.st_mode):
-                    continue  # a symlink or a folder is never a note
-                grid_id = entry.stem
-                try:
-                    valid_grid_id(grid_id)
-                    note = json.loads(entry.read_text(encoding="utf-8"))
-                except FileNotFoundError:
-                    continue
-                except (InvalidName, ValueError):
-                    # The file is named by the Grid's id; the log never is.
-                    log.warning("ignoring a recording note in session %s", session)
-                    continue
-                if isinstance(note, dict):
-                    found.append((session, grid_id, note))
+            if not stat.S_ISREG(info.st_mode):
+                continue  # a symlink or a folder is never a note
+            grid_id = entry.stem
+            try:
+                valid_grid_id(grid_id)
+                note = json.loads(entry.read_text(encoding="utf-8"))
+            except FileNotFoundError:
+                continue
+            except (InvalidName, ValueError):
+                # The file is named by the Grid's id; the log never is.
+                log.warning("ignoring a recording note in session %s", session)
+                continue
+            if isinstance(note, dict):
+                found.append((session, grid_id, note))
         return found
 
     def _entry(self, path: Path) -> dict:

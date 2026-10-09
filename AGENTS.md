@@ -526,10 +526,17 @@ tidies is still not.
 - **A note leaves the queue only once it is gone from disk.** Filing (or the
   deadline) first marks the note `filed` / `dropped`, then deletes it; a delete
   that fails keeps it owed but done, and every sweep (and the next process)
-  retries the delete alone, never matching or filing it again.
-- A storage error reading the notes is a fault, not a broken note: `notes()`
-  raises it, and the collector logs it once and reads again each tick, with the
-  boot carrying on. Only bad JSON, a bad id or a non-file is skipped.
+  retries the delete alone, never matching or filing it again. A filing's move,
+  mark and delete are one shielded task `stop` waits for, so a rolling deploy
+  mid-copy finishes it; only a hard crash between the move and the mark leaves
+  an unmarked note the next process can file again.
+- A storage error reading the notes is a fault, not a broken note, and it is a
+  session's: `notes(on_error=)` reads every other session on (only the data
+  directory itself unreadable raises), walking the root with `lstat` rather
+  than `sessions()`, whose `is_dir` reads an unreadable folder as none. The
+  collector owes what it read, logs the rest once a streak and reads again each
+  tick, holding the notes lock across the read and the merge; the boot carries
+  on. Only bad JSON, a bad id or a non-file is skipped.
 - Matching is by Grid id found anywhere in the file name, never by session name
   (the recorder strips `.`). The Grid id stays on disk, in the note only.
 - A file is complete when it ends in `mfro`; one cut off (no `mfro`, unchanged

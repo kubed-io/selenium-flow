@@ -630,3 +630,161 @@ async def test_notes_that_cannot_be_read_at_boot_are_read_on_a_later_tick(
     assert "OSError" in caplog.text and GID not in caplog.text
     assert (store.root / "bad" / RECORDINGS_DIR / ".pending" / f"{other}.json").exists()
     await c.stop()
+
+
+def _eio_on(path, monkeypatch):
+    """Every stat of ``path`` fails as NFS fails: EIO."""
+    import errno
+    import os
+
+    real = os.stat
+
+    def stat(p, *a, **kw):
+        if os.fspath(p) == str(path):
+            raise OSError(errno.EIO, "Input/output error", str(path))
+        return real(p, *a, **kw)
+
+    monkeypatch.setattr(os, "stat", stat)
+
+
+async def test_one_session_that_cannot_be_read_does_not_block_another(tmp_path, monkeypatch, caplog):
+    store = flows.LocalFlowStore(tmp_path / "sessions")
+    inbox = tmp_path / "recordings"
+    inbox.mkdir()
+    other = "0123456789abcdef0123456789abcdef"
+    store.write_note("good", GID, {"opened": 1_791_500_000_000, "browser": "chrome"})
+    store.write_note("bad", other, {"opened": 1_791_500_000_000, "browser": "chrome"})
+    (inbox / f"good_{GID}.mp4").write_bytes(BODY + mp4.trailer())
+    (inbox / f"bad_{other}.mp4").write_bytes(BODY + mp4.trailer())
+    _eio_on(store.root / "bad", monkeypatch)
+    c = collector(store, inbox, Listing([GID, other]), Clock(), tick=0.1)
+    with caplog.at_level(logging.WARNING):
+        await c.start()
+        for _ in range(50):
+            if store.files("good", RECORDINGS_DIR):
+                break
+            await asyncio.sleep(0.05)
+    assert len(store.files("good", RECORDINGS_DIR)) == 1
+    assert c._unread and other not in c.owed and len(store.notes(on_error=lambda *a: None)) == 0
+    assert caplog.text.count("cannot be read") == 1 and "bad" in caplog.text
+    assert GID not in caplog.text and other not in caplog.text
+    monkeypatch.undo()
+    for _ in range(50):
+        if not c.running:
+            break
+        await asyncio.sleep(0.05)
+    assert c.owed == {} and len(store.files("bad", RECORDINGS_DIR)) == 1
+    await c.stop()
+
+
+async def test_a_stop_during_a_filing_lets_it_finish_and_mark_its_note(tmp_path):
+    """A rolling deploy mid-copy: the move completes in its thread, so its note
+    must be settled too, or the next process files the inbox copy again."""
+    store = flows.LocalFlowStore(tmp_path / "sessions")
+    inbox = tmp_path / "recordings"
+    inbox.mkdir()
+    store.write_note("bot", GID, {"opened": 1_791_500_000_000, "browser": "chrome"})
+    sub = inbox / "node"
+    sub.mkdir()
+    (sub / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
+    real = store.move_in
+
+    def slow(*a, **kw):
+        time.sleep(0.5)
+        sub.chmod(0o555)  # and the inbox copy stays behind
+        return real(*a, **kw)
+
+    store.move_in = slow
+    c = collector(store, inbox, Listing([GID]), Clock(), tick=0.1)
+    try:
+        await c.start()
+        await asyncio.sleep(0.2)
+        await c.stop()
+        assert store.notes() == []
+        assert len(store.files("bot", RECORDINGS_DIR)) == 1
+        c2 = collector(store, inbox, Listing([GID]), Clock(), tick=0.1)
+        await c2.start()
+        await c2.stop()
+        assert c2.owed == {} and len(store.files("bot", RECORDINGS_DIR)) == 1
+    finally:
+        sub.chmod(0o755)
+
+
+async def test_a_note_found_done_that_cannot_be_deleted_is_logged_once(tmp_path, caplog):
+    store = flows.LocalFlowStore(tmp_path / "sessions")
+    inbox = tmp_path / "recordings"
+    inbox.mkdir()
+    store.write_note("bot", GID, {"opened": 1_791_500_000_000, "filed": "rec.mp4"})
+
+    def refused(*_a, **_kw):
+        raise PermissionError(13, "denied")
+
+    store.delete_note = refused
+    c = collector(store, inbox, Listing([GID]), Clock())
+    with caplog.at_level(logging.WARNING):
+        await c.start()
+        await c.stop()
+        for _ in range(3):
+            await c.sweep()
+    assert GID in c.owed and caplog.text.count("could not be removed") == 1
+    assert "bot" in caplog.text and GID not in caplog.text
+
+
+async def test_a_failed_sweep_with_only_notes_unread_says_so(tmp_path, monkeypatch, caplog):
+    store = flows.LocalFlowStore(tmp_path / "sessions")
+    inbox = tmp_path / "recordings"
+    inbox.mkdir()
+
+    def unreadable(on_error=None):
+        raise OSError(5, "Input/output error")
+
+    store.notes = unreadable
+    c = collector(store, inbox, Listing(), Clock(), tick=0.1)
+
+    def blind():
+        raise PermissionError(13, "denied")
+
+    c._inbox_files = blind
+    with caplog.at_level(logging.WARNING):
+        await c.start()
+        for _ in range(20):
+            if c._failing:
+                break
+            await asyncio.sleep(0.05)
+        await c.stop()
+    assert c._failing and "notes not yet read" in caplog.text
+    assert "owed for ;" not in caplog.text
+
+
+async def test_a_stale_read_of_the_notes_never_brings_a_filed_one_back(tmp_path):
+    """A read that began before a sweep filed and deleted a note must not put
+    it back, unmarked, when it lands after."""
+    import threading
+
+    store = flows.LocalFlowStore(tmp_path / "sessions")
+    inbox = tmp_path / "recordings"
+    inbox.mkdir()
+    filed = []
+    c = collector(
+        store, inbox, Listing([GID]), Clock(), on_filed=lambda: filed.append(1),
+    )
+    c.expect("bot", GID, "chrome")
+    (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
+    real, gate, read = store.notes, threading.Event(), threading.Event()
+
+    def stale(*a, **kw):
+        snapshot = real(*a, **kw)
+        read.set()
+        gate.wait(5)
+        return snapshot
+
+    store.notes = stale
+    c._unread = True
+    load = asyncio.ensure_future(c._load())
+    await asyncio.to_thread(read.wait, 5)
+    sweep = asyncio.ensure_future(c.sweep())
+    for _ in range(20):
+        await asyncio.sleep(0.02)
+    gate.set()
+    await asyncio.gather(load, sweep)
+    assert filed == [1] and c.owed == {} and real() == []

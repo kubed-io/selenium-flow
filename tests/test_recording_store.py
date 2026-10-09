@@ -188,3 +188,27 @@ def test_a_note_that_cannot_be_read_is_a_fault_not_a_broken_note(store, monkeypa
     monkeypatch.setattr(Path, "read_text", failing)
     with pytest.raises(OSError):
         store.notes()
+
+
+def test_a_session_that_cannot_be_read_is_reported_and_the_rest_are_listed(store, monkeypatch):
+    """A stat that fails on one session folder is that session's fault, never
+    an empty session (Python 3.14's `is_dir` reads any OSError as False)."""
+    other = "0123456789abcdef0123456789abcdef"
+    store.write_note("good", GID, {"opened": 1})
+    store.write_note("bad", other, {"opened": 2})
+    bad = str(store.root / "bad")
+    real = os.stat
+
+    def stat(path, *a, **kw):
+        if os.fspath(path) == bad:
+            raise OSError(errno.EIO, "Input/output error", bad)
+        return real(path, *a, **kw)
+
+    monkeypatch.setattr(os, "stat", stat)
+    failed = []
+    assert store.notes(on_error=lambda s, e: failed.append((s, type(e)))) == [
+        ("good", GID, {"opened": 1})
+    ]
+    assert failed == [("bad", OSError)]
+    with pytest.raises(OSError):
+        store.notes()
