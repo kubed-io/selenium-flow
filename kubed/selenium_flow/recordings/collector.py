@@ -33,6 +33,19 @@ change to the loop, and the loop writes every note it changes in a worker
 thread, never on itself: ``DATA_DIR`` can be NFS, and a write that stalls on
 the loop stalls every request. Writes and deletes of notes take one lock, so a
 note filed meanwhile is never written back.
+
+**A note leaves the queue only once it is gone from disk.** Filing a recording
+(or giving up on one at its deadline) first rewrites its note to say so
+(``filed``, ``dropped``), then deletes it. A delete that fails leaves the
+recording owed but *done*: every sweep retries the delete and nothing else, so
+it is never matched, filed or timed out again — an inbox copy that could not be
+removed is not filed a second time — and a restart that finds the note reads
+the same mark. Only a note left without its mark (a crash, or the mark's own
+write failing as well as the delete) can be filed again.
+
+**The notes are read at ``start`` and again each tick until a read succeeds.**
+A storage fault reading them stops neither the boot nor the queue: it is
+logged once, and the task runs while the read is owed.
 """
 
 from __future__ import annotations
@@ -70,6 +83,14 @@ class Owed:
     opened: int
     browser: str
     ended: int | None = None
+    # Done, its note still on disk: the recording was filed under this name,
+    # or dropped at its deadline. Only the delete is left (see the docstring).
+    filed: str | None = None
+    dropped: bool = False
+
+    @property
+    def done(self) -> bool:
+        return self.filed is not None or self.dropped
 
 
 # The year 3000 in milliseconds: past it, `gmtime` raises in every sweep.
@@ -98,13 +119,15 @@ def _millis(value) -> int:
 
 
 def _owed_from(session: str, grid_id: str, note: dict) -> Owed:
-    opened, ended = note.get("opened"), note.get("ended")
+    opened, ended, filed = note.get("opened"), note.get("ended"), note.get("filed")
     return Owed(
         session,
         grid_id,
         0 if opened is None else _millis(opened),
         str(note.get("browser") or ""),
         None if ended is None else _millis(ended),
+        None if filed is None else str(filed),
+        note.get("dropped") is True,
     )
 
 
@@ -155,6 +178,9 @@ class Collector:
         # Every note write or delete made from the loop, in order (`_save`).
         self._notes_lock = asyncio.Lock()
         self._saves: set[asyncio.Task] = set()
+        # The notes on disk have not been read yet (`_load`).
+        self._unread = False
+        self._unread_logged = False
 
     @property
     def running(self) -> bool:
@@ -201,16 +227,51 @@ class Collector:
         self._stopping = False
         # A lock waited on binds to its loop; a restarted server has a new one.
         self._notes_lock = asyncio.Lock()
-        for session, grid_id, note in await anyio.to_thread.run_sync(self.store.notes):
+        self._unread = True
+        await self._load()
+        if self._busy:
+            self._ensure()
+
+    @property
+    def _busy(self) -> bool:
+        """The task has work: a recording owed, or the notes still to read."""
+        return bool(self.owed) or self._unread
+
+    async def _load(self) -> None:
+        """Read the notes into ``owed``. A storage fault keeps ``_unread`` set,
+        so the task tries again next tick, and is logged once a streak with
+        its type alone (a path names a Grid id). Never raises it: one note
+        NFS cannot read must not stop the boot."""
+        try:
+            notes = await anyio.to_thread.run_sync(self.store.notes)
+        except OSError as exc:
+            if not self._unread_logged:
+                self._unread_logged = True
+                log.warning(
+                    "recordings: the notes of owed recordings cannot be read "
+                    "(%s); retrying every %ss",
+                    type(exc).__name__, self.tick,
+                )
+            return
+        self._unread = False
+        if self._unread_logged:
+            self._unread_logged = False
+            log.info("recordings: the notes can be read again")
+        loaded = 0
+        for session, grid_id, note in notes:
             try:
-                self.owed[grid_id] = _owed_from(session, grid_id, note)
+                owed = _owed_from(session, grid_id, note)
             except ValueError:
                 log.warning(
                     "recordings: ignoring an unreadable note in session %s", session
                 )
-        if self.owed:
-            log.info("recordings: %d owed from before the restart", len(self.owed))
-            self._ensure()
+                continue
+            # One expected while the read was failing is already in memory,
+            # and is the newer: keep it (a `_save` may hold that object).
+            if self.owed.setdefault(grid_id, owed) is owed:
+                loaded += 1
+        if loaded:
+            log.info("recordings: %d owed from before the restart", loaded)
 
     async def stop(self) -> None:
         self._stopping = True
@@ -236,7 +297,7 @@ class Collector:
     def _mark_ended(self, grid_id: str) -> None:
         """``ended``'s half on the loop (or, before `start`, inline)."""
         owed = self.owed.get(grid_id)
-        if owed is None or owed.ended is not None:
+        if owed is None or owed.ended is not None or owed.done:
             return
         owed.ended = int(self.clock() * 1000)
         if self._loop is None:
@@ -249,21 +310,43 @@ class Collector:
 
     async def _save(self, owed: Owed) -> None:
         """Write ``owed``'s note as it is now, in a worker thread. Skipped once
-        it is filed or dropped: its note is gone and must stay gone."""
+        it is done: its note is marked, or gone and must stay gone."""
         async with self._notes_lock:
-            if self.owed.get(owed.grid_id) is not owed:
+            if self.owed.get(owed.grid_id) is not owed or owed.done:
                 return
             await anyio.to_thread.run_sync(self._write, owed)
 
-    async def _forget(self, owed: Owed) -> None:
-        """Stop owing ``owed``: out of memory first, so a `_save` waiting for
-        the lock finds it gone, then its note."""
+    async def _forget(self, owed: Owed, filed: str | None = None) -> None:
+        """Stop owing ``owed``, filed as ``filed`` or (None) dropped.
+
+        The note is marked done first, then deleted, and only a delete that
+        worked takes it out of ``owed``. One that failed leaves it owed and
+        done, so the next sweep calls this again and retries the delete alone
+        (the mark is already on disk). Under the notes lock throughout, so a
+        `_save` waiting for it finds the recording done or gone and writes
+        nothing back."""
         async with self._notes_lock:
-            if self.owed.get(owed.grid_id) is owed:
-                self.owed.pop(owed.grid_id, None)
-            await anyio.to_thread.run_sync(
-                self.store.delete_note, owed.session, owed.grid_id
-            )
+            if self.owed.get(owed.grid_id) is not owed:
+                return
+            first = not owed.done
+            if first:
+                owed.filed, owed.dropped = filed, filed is None
+                # Best effort: if it fails too, only a restart can mistake the
+                # note for an owed one (the module docstring).
+                await anyio.to_thread.run_sync(self._write, owed)
+            try:
+                await anyio.to_thread.run_sync(
+                    self.store.delete_note, owed.session, owed.grid_id
+                )
+            except OSError as exc:
+                if first:
+                    log.warning(
+                        "recordings: a note for %s could not be removed (%s); "
+                        "retrying every %ss",
+                        owed.session, type(exc).__name__, self.tick,
+                    )
+                return
+            del self.owed[owed.grid_id]
 
     def _ensure(self) -> None:
         loop = self._loop
@@ -285,10 +368,10 @@ class Collector:
 
     async def _run(self) -> None:
         try:
-            while self.owed:
+            while self._busy:
                 self._stop = anyio.Event()
                 await self._swept()
-                if not self.owed:
+                if not self._busy:
                     break
                 async for _changes in awatch(
                     self.inbox,
@@ -301,7 +384,7 @@ class Collector:
                     recursive=True,
                 ):
                     await self._swept()
-                    if not self.owed:
+                    if not self._busy:
                         self._stop.set()
         except asyncio.CancelledError:
             raise
@@ -324,6 +407,8 @@ class Collector:
                 self._task = None
 
     async def _swept(self) -> None:
+        if self._unread:
+            await self._load()
         await self.sweep()
         if self._failing:
             self._failing = False
@@ -338,6 +423,9 @@ class Collector:
         for grid_id, owed in list(self.owed.items()):
             if self.owed.get(grid_id) is not owed:
                 continue  # filed or dropped while this sweep awaited
+            if owed.done:
+                await self._forget(owed)  # its note is all that is left
+                continue
             match = next(
                 (f for f in files
                  if grid_id in f[0].name and f[0].suffix.lower() == ".mp4"),
@@ -435,7 +523,7 @@ class Collector:
                 owed.session, name_for(owed.opened), type(exc).__name__,
             )
             return
-        await self._forget(owed)
+        await self._forget(owed, entry["name"])
         self._quiet.pop(str(path), None)
         log.info("recordings: filed %s/%s", owed.session, entry["name"])
         if self.on_filed is not None:
@@ -494,7 +582,12 @@ class Collector:
         return found
 
     def _note(self, owed: Owed) -> dict:
-        return {"opened": owed.opened, "ended": owed.ended, "browser": owed.browser}
+        note = {"opened": owed.opened, "ended": owed.ended, "browser": owed.browser}
+        if owed.filed is not None:
+            note["filed"] = owed.filed
+        if owed.dropped:
+            note["dropped"] = True
+        return note
 
     def _write(self, owed: Owed) -> None:
         try:

@@ -561,7 +561,12 @@ class FileStore(SessionLayout):
 
     def notes(self) -> list[tuple[str, str, dict]]:
         """Every owed recording, as ``(session, grid_id, note)``. A note that is
-        not JSON, or names no usable id, is skipped with a warning."""
+        not JSON, or names no usable id, is skipped with a warning.
+
+        A storage error is not a broken note: it raises, so the collector
+        retries the whole read rather than abandon that recording until the
+        next restart. Only a note or folder that is gone counts as absent.
+        """
         found = []
         for session in self.sessions():
             try:
@@ -570,16 +575,25 @@ class FileStore(SessionLayout):
                 )
             except InvalidName:
                 continue
-            if not pending.is_dir():
+            try:
+                # Not `glob` or `is_dir`, which read an unreadable folder as empty.
+                entries = sorted(p for p in pending.iterdir() if p.suffix == ".json")
+            except (FileNotFoundError, NotADirectoryError):
                 continue
-            for entry in sorted(pending.glob("*.json")):
-                if entry.is_symlink() or not entry.is_file():
+            for entry in entries:
+                try:
+                    info = entry.lstat()
+                except FileNotFoundError:
                     continue
+                if not stat.S_ISREG(info.st_mode):
+                    continue  # a symlink or a folder is never a note
                 grid_id = entry.stem
                 try:
                     valid_grid_id(grid_id)
                     note = json.loads(entry.read_text(encoding="utf-8"))
-                except (InvalidName, ValueError, OSError):
+                except FileNotFoundError:
+                    continue
+                except (InvalidName, ValueError):
                     # The file is named by the Grid's id; the log never is.
                     log.warning("ignoring a recording note in session %s", session)
                     continue

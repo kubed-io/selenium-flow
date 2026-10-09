@@ -508,3 +508,125 @@ async def test_an_unreadable_subfolder_does_not_starve_others_nor_drop_notes(par
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
     await c.sweep()
     assert GID not in c.owed
+
+
+def _failing_once(real, failures):
+    def flaky(*a, **kw):
+        if not failures:
+            failures.append(1)
+            raise OSError(5, "Input/output error")
+        return real(*a, **kw)
+    return flaky
+
+
+async def test_a_note_that_cannot_be_deleted_stays_owed_until_it_is(parts, caplog):
+    """Filed, but its note survives a delete: it stays owed only to be deleted
+    — never matched again, so the inbox copy left behind is not a (1)."""
+    c, store, inbox, _alive, filed, clock = parts
+    c.expect("bot", GID, "chrome")
+    sub = inbox / "node"
+    sub.mkdir()
+    (sub / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
+    sub.chmod(0o555)  # the inbox copy stays behind (store._release)
+    failures = []
+    store.delete_note = _failing_once(store.delete_note, failures)
+    name = collector_module.name_for(int(clock.now * 1000))
+    try:
+        with caplog.at_level(logging.WARNING):
+            await c.sweep()
+        assert filed == [1] and failures == [1] and GID in c.owed
+        assert [n[2].get("filed") for n in store.notes()] == [name]
+        assert GID not in caplog.text
+        clock.now += 10_000  # far past the deadline: still only a delete
+        await c.sweep()
+        assert c.owed == {} and store.notes() == [] and filed == [1]
+        assert [f["name"] for f in store.files("bot", RECORDINGS_DIR)] == [name]
+    finally:
+        sub.chmod(0o755)
+
+
+async def test_a_filed_note_after_a_restart_is_only_deleted(tmp_path):
+    """A note that says it was filed, and the inbox copy that could not be
+    removed: the next process deletes the note and files nothing."""
+    store = flows.LocalFlowStore(tmp_path / "sessions")
+    inbox = tmp_path / "recordings"
+    inbox.mkdir()
+    store.write_note("bot", GID, {
+        "opened": 1_791_500_000_000, "ended": None, "browser": "chrome",
+        "filed": "rec-20261008-1013.mp4",
+    })
+    (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
+    c = collector(store, inbox, Listing([GID]), Clock(), tick=0.1)
+    await c.start()
+    for _ in range(50):
+        if not c.owed:
+            break
+        await asyncio.sleep(0.05)
+    assert c.owed == {} and store.notes() == []
+    assert store.files("bot", RECORDINGS_DIR) == []
+    assert (inbox / f"bot_{GID}.mp4").exists()
+    await c.stop()
+
+
+async def test_a_late_note_that_cannot_be_deleted_is_never_filed(parts):
+    """Dropped at the deadline but its note survives the delete: a file that
+    comes after is not filed, and the next sweep deletes the note."""
+    c, store, inbox, alive, filed, clock = parts
+    c.expect("bot", GID, "chrome")
+    c.ended(GID)
+    await asyncio.sleep(0)
+    alive.clear()
+    clock.now += 601
+    failures = []
+    store.delete_note = _failing_once(store.delete_note, failures)
+    await c.sweep()
+    assert failures == [1] and GID in c.owed
+    assert store.notes()[0][2].get("dropped") is True
+    (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
+    await c.sweep()
+    assert c.owed == {} and store.notes() == [] and filed == []
+    assert store.files("bot", RECORDINGS_DIR) == []
+
+
+async def test_notes_that_cannot_be_read_at_boot_are_read_on_a_later_tick(
+    tmp_path, monkeypatch, caplog,
+):
+    """A storage fault reading the notes neither stops the boot nor abandons
+    them: the task reads them again a tick later. A broken note is still
+    skipped."""
+    from pathlib import Path
+
+    store = flows.LocalFlowStore(tmp_path / "sessions")
+    inbox = tmp_path / "recordings"
+    inbox.mkdir()
+    store.write_note("bot", GID, {"opened": 1_791_500_000_000, "browser": "chrome"})
+    other = "0123456789abcdef0123456789abcdef"
+    store.write_note("bad", other, {})
+    (store.root / "bad" / RECORDINGS_DIR / ".pending" / f"{other}.json").write_text("{no")
+    (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
+    real, failures = Path.read_text, []
+
+    def flaky(self, *a, **kw):
+        if self.name == f"{GID}.json" and not failures:
+            failures.append(1)
+            raise OSError(5, "Input/output error", str(self))
+        return real(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "read_text", flaky)
+    filed = []
+    c = collector(
+        store, inbox, Listing([GID]), Clock(), tick=0.1,
+        on_filed=lambda: filed.append(1),
+    )
+    with caplog.at_level(logging.WARNING):
+        await c.start()  # does not raise
+        assert failures == [1] and c.owed == {} and len(store.notes()) == 1
+        for _ in range(50):
+            if filed:
+                break
+            await asyncio.sleep(0.05)
+    assert filed == [1] and c.owed == {}
+    assert len(store.files("bot", RECORDINGS_DIR)) == 1
+    assert "OSError" in caplog.text and GID not in caplog.text
+    assert (store.root / "bad" / RECORDINGS_DIR / ".pending" / f"{other}.json").exists()
+    await c.stop()

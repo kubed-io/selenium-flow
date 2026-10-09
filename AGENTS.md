@@ -523,6 +523,13 @@ tidies is still not.
   note claims stays where it is.
 - The queue is the notes under `sessions/<name>/recordings/.pending/<gridId>.json`.
   They are on disk, so they survive a restart whatever the session store is.
+- **A note leaves the queue only once it is gone from disk.** Filing (or the
+  deadline) first marks the note `filed` / `dropped`, then deletes it; a delete
+  that fails keeps it owed but done, and every sweep (and the next process)
+  retries the delete alone, never matching or filing it again.
+- A storage error reading the notes is a fault, not a broken note: `notes()`
+  raises it, and the collector logs it once and reads again each tick, with the
+  boot carrying on. Only bad JSON, a bad id or a non-file is skipped.
 - Matching is by Grid id found anywhere in the file name, never by session name
   (the recorder strips `.`). The Grid id stays on disk, in the note only.
 - A file is complete when it ends in `mfro`; one cut off (no `mfro`, unchanged

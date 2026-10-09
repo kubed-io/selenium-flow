@@ -170,3 +170,21 @@ def test_a_stranded_staging_file_is_skipped_without_a_warning(store, caplog):
         names = [f["name"] for f in store.files("bot", RECORDINGS_DIR)]
     assert names == ["rec.mp4"]
     assert ".tmp" not in caplog.text
+
+
+def test_a_note_that_cannot_be_read_is_a_fault_not_a_broken_note(store, monkeypatch):
+    """A storage error is not a malformed note: it reaches the caller, which
+    retries, instead of the note being skipped until the next restart."""
+    from pathlib import Path
+
+    store.write_note("bot", GID, {"opened": 1})
+    real = Path.read_text
+
+    def failing(self, *a, **kw):
+        if self.suffix == ".json":
+            raise OSError(5, "Input/output error")
+        return real(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "read_text", failing)
+    with pytest.raises(OSError):
+        store.notes()
