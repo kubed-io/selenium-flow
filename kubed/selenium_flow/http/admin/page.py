@@ -8,6 +8,7 @@ place, and an install that skipped the build simply has none (§F4.17).
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from html import escape
 from pathlib import Path
@@ -134,6 +135,18 @@ def _build(name: str, **substitutions: str) -> str:
     return re.sub(r"__([A-Z]+)__", fill, html)
 
 
+def sign_in(oidc) -> str:
+    """What the page needs to offer Sign in with OIDC, or "" when it should not.
+
+    The issuer and the public client id, and nothing else: the audience, the
+    JWKS URI and the roles are the server's business (spec
+    2026-10-09-admin-oidc §3). Both values are public by nature.
+    """
+    if not oidc.client_id:
+        return ""
+    return json.dumps({"issuer": oidc.issuer, "client_id": oidc.client_id})
+
+
 def _matches(header: str | None, etag: str) -> bool:
     """Whether an ``If-None-Match`` names ``etag`` (weak validators compare
     equal for a GET, and ``*`` matches anything)."""
@@ -148,6 +161,7 @@ def mount(
     prefix: str,
     console_url: str | None,
     frame_ancestors: list[str] | None = None,
+    oidc: str = "",
 ) -> None:
     """The page at the root of wherever this server is mounted, and the old
     ``/admin`` URL that now redirects to it."""
@@ -168,7 +182,9 @@ def mount(
         """
         if not ui_built("admin"):
             return HTMLResponse(PLACEHOLDER, headers=secure)
-        html, etag = page_with_etag("admin", CONSOLE=console, MOUNT=prefix)
+        html, etag = page_with_etag(
+            "admin", CONSOLE=console, MOUNT=prefix, OIDC=oidc
+        )
         # no-cache is "ask every time", and the ETag makes the ask cheap: a
         # rebuilt UI is picked up on the next load, an unchanged one is a 304.
         headers = {"Cache-Control": "no-cache", "ETag": etag, **secure}

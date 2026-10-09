@@ -51,6 +51,7 @@ def register(
     link_ttl: int = links.DEFAULT_TTL,
     frame_ancestors: list[str] | None = None,
     door: auth.AdminDoor | None = None,
+    oidc_page: str = "",
 ) -> workspace_list.Broadcast:
     """Mount the admin pages, their JSON API, and the signed file routes.
 
@@ -68,7 +69,7 @@ def register(
     door = door or auth.AdminDoor(token)
     guarded = answer.guarded(door)
 
-    page.mount(mcp, prefix, console_url, frame_ancestors)
+    page.mount(mcp, prefix, console_url, frame_ancestors, oidc_page)
 
     @mcp.custom_route(f"{prefix}/admin/secrets", methods=["GET"], name="admin_secrets")
     @guarded
