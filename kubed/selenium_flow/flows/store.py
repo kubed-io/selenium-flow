@@ -820,12 +820,15 @@ def _is_symlink(path: Path) -> bool:
         return False
 
 
-def _holds_file(folder: Path, suffix: str = "") -> bool:
+_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".gif")
+
+
+def _holds_file(folder: Path, suffix: str | tuple[str, ...] = "") -> bool:
     """Whether `folder` holds a regular file directly in it (not a symlink)."""
     if not _is_dir(folder) or _is_symlink(folder):
         return False
     for entry in folder.iterdir():
-        if entry.name.endswith(suffix) and not _is_symlink(entry):
+        if entry.name.lower().endswith(suffix) and not _is_symlink(entry):
             try:
                 if stat.S_ISREG(entry.stat().st_mode):
                     return True
@@ -847,7 +850,10 @@ def _old_reserved(entry: Path) -> bool:
             or _holds_file(entry / "screenshots")
         )
     # A bare files/ is ambiguous (a transport prefix creates it): not counted.
-    return _holds_file(entry / FLOWS_DIR, ".yaml") or _holds_file(entry / "screenshots")
+    # Screenshots were always images; a transport may put videos there.
+    return _holds_file(entry / FLOWS_DIR, ".yaml") or _holds_file(
+        entry / "screenshots", _IMAGE_SUFFIXES
+    )
 
 
 def old_layout(root: Path, inbox: str | os.PathLike | None = None) -> list[str]:

@@ -835,6 +835,39 @@ def test_an_old_session_named_recordings_is_refused(tmp_path):
         flowstore.from_settings(DataSettings(dir=str(tmp_path)))
 
 
+def test_a_video_under_recordings_screenshots_boots(tmp_path):
+    _touch(tmp_path / "recordings" / "screenshots" / "x.mp4")
+    assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
+
+
+def test_an_image_under_recordings_screenshots_is_an_old_session(tmp_path):
+    _touch(tmp_path / "recordings" / "screenshots" / "SHOT.PNG")
+    with pytest.raises(ConfigError, match=r"`recordings`"):
+        flowstore.from_settings(DataSettings(dir=str(tmp_path)))
+
+
+@pytest.mark.parametrize("folder", ["files", "screenshots"])
+def test_an_old_sessions_folder_holding_a_file_is_refused(tmp_path, folder):
+    _touch(tmp_path / "sessions" / folder / "a.bin")
+    with pytest.raises(ConfigError, match=r"`sessions`"):
+        flowstore.from_settings(DataSettings(dir=str(tmp_path)))
+
+
+def test_a_symlinked_sessions_flows_is_skipped(tmp_path):
+    _touch(tmp_path / "elsewhere" / "a.yaml")
+    (tmp_path / "sessions").mkdir()
+    (tmp_path / "sessions" / "flows").symlink_to(tmp_path / "elsewhere")
+    assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
+
+
+@pytest.mark.parametrize("fn_name", ["stat", "scandir"])
+def test_a_fault_reading_a_reserved_folder_stops_the_boot(tmp_path, monkeypatch, fn_name):
+    _touch(tmp_path / "sessions" / "flows" / "a.yaml")
+    _stat_eio_on(monkeypatch, fn_name, "flows")
+    with pytest.raises(ConfigError, match="OSError"):
+        flowstore.from_settings(DataSettings(dir=str(tmp_path)))
+
+
 def test_an_inbox_with_a_transport_prefix_boots(tmp_path):
     _touch(tmp_path / "recordings" / "files" / "x.mp4")
     assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
