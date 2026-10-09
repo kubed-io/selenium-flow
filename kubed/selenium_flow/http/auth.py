@@ -28,7 +28,7 @@ from fastmcp.server.auth.providers.jwt import JWTVerifier
 from starlette.requests import Request
 
 from .. import config
-from ..principal import ADMIN, Principal, roles_in
+from ..principal import ADMIN, Principal
 
 log = logging.getLogger(__name__)
 
@@ -170,7 +170,14 @@ class OidcVerifier(JWTVerifier):
         fetch.add_done_callback(_retrieve)
         return await asyncio.shield(fetch)
 
-    async def verify_token(self, token: str) -> AccessToken | None:
+    async def verify_jwt(self, token: str) -> PrincipalToken | None:
+        """Signature, iss, aud, exp and nbf: everything but a role.
+
+        The admin door asks this and applies its own roles (spec
+        2026-10-09-admin-oidc, ruling 5); `/mcp` asks `verify_token`, which
+        adds `oidc.roles`. One instance serves both, so one JWKS cache and one
+        refetch floor.
+        """
         verified = await super().verify_token(token)
         if verified is None:
             return None
@@ -188,14 +195,19 @@ class OidcVerifier(JWTVerifier):
         ):
             _log_refusal("nbf not numeric or in the future", claims)
             return None
-        held = roles_in(claims, self._roles_claim)
-        if self._roles and not self._roles.intersection(held):
-            _log_refusal("no allowed role", claims)
-            return None
         return PrincipalToken(
             **verified.model_dump(),
             principal=Principal.from_claims(claims, self._roles_claim),
         )
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        verified = await self.verify_jwt(token)
+        if verified is None:
+            return None
+        if self._roles and not self._roles.intersection(verified.principal.roles):
+            _log_refusal("no allowed role", verified.claims)
+            return None
+        return verified
 
 
 def _log_refusal(reason: str, claims: dict) -> None:

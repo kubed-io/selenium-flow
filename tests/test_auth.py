@@ -314,3 +314,32 @@ def test_no_token_leaves_the_server_open(open_server):
     """`docker compose up` runs without a token on purpose."""
     assert open_server.mcp.auth is None
     assert open_server.auth_token is None
+
+
+async def test_verify_jwt_checks_everything_but_the_role(issuer):
+    """The admin door applies its own roles; `oidc.roles` is `/mcp`'s gate."""
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)  # roles: mcp
+    admin_only = issuer.mint(claims={"roles": ["admin"]})
+    assert await verifier.verify_token(admin_only) is None
+    verified = await verifier.verify_jwt(admin_only)
+    assert verified.principal.roles == ("admin",)
+    assert verified.principal.username == "drk"
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"audience": "https://other.example.com"},
+        {"issuer": "https://auth.example.com/realms/other"},
+        {"expires_in_seconds": -60},
+    ],
+    ids=["audience", "issuer", "expired"],
+)
+async def test_verify_jwt_still_refuses_a_bad_jwt(issuer, overrides):
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
+    assert await verifier.verify_jwt(issuer.mint(**overrides)) is None
+
+
+async def test_verify_jwt_still_refuses_a_jwt_without_exp(issuer):
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
+    assert await verifier.verify_jwt(_raw(issuer)) is None
