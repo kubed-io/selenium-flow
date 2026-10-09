@@ -55,13 +55,13 @@ starts a paid spec run and fixes the order.
 
 | # | Title | Add `agent` | Code after |
 |---|---|---|---|
-| E1 | Workspaces: the rename | now | — (first, alone) |
-| E2 | The session monitor | now | E1 merged |
-| E5 | The admin UI signs in with OIDC | now | E1 merged (parallel with E2) |
-| E7 | `show` draws every resource | now | E1 merged (parallel with E2) |
-| E3 | Console and network capture | once E2's spec is approved | E2 merged |
-| E4 | Telemetry: `/metrics` and traces | once E2's spec is approved | E2 merged (parallel with E3) |
-| E6 | Workspace ownership and per-surface roles | later, Dr K's call | last |
+| E1 (#60) | Workspaces: the rename | now | — (first, alone) |
+| E2 (#61) | The session monitor | now | E1 merged |
+| E5 (#62) | The admin UI signs in with OIDC | now | E1 merged (parallel with E2) |
+| E7 (#63) | `show` draws every resource | now | E1 merged (parallel with E2) |
+| E3 (#64) | Console and network capture | once E2's spec is approved | E2 merged |
+| E4 (#65) | Telemetry: `/metrics` and traces | once E2's spec is approved | E2 merged (parallel with E3) |
+| E6 (#66) | Workspace ownership and per-surface roles | later, Dr K's call | last |
 
 ## Order and gates
 
@@ -93,9 +93,9 @@ results once run; name the Penpot boards it reads.
 
 ## Orchestrator duties (this session, or its successor)
 
-- [ ] Open E1, E2, E5, E7 and E6 with their bodies; open E3 and
-      E4 the day E2's spec is approved, so their briefs can name E2's
-      interfaces.
+- [x] Opened #60–#66, 2026-10-09, `enhancement` only. E3 and E4 are open
+      too; their bodies say the spec waits for E2's, so `agent` goes on them
+      the day E2's spec is approved.
 - [ ] Watch for drift between specs written in parallel: E3 and E4 both name
       `call.finished` and the bus; E2's spec owns those names.
 - [ ] When a spec needs a board that is not drawn, draw it here and tell the
