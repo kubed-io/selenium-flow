@@ -968,12 +968,14 @@ def test_a_symlinked_sessions_folder_is_renamed_as_the_link(tmp_path):
     assert (tmp_path / "real" / "desk" / "flows").is_dir()
 
 
-def test_a_failed_move_stops_the_boot_as_unreadable(tmp_path, monkeypatch):
+def test_a_failed_move_stops_the_boot_saying_how_to_finish_it(tmp_path, monkeypatch):
     (tmp_path / "sessions" / "a").mkdir(parents=True)
 
     def refuse(self, target):
         raise PermissionError(13, "Permission denied")
 
     monkeypatch.setattr("pathlib.Path.rename", refuse)
-    with pytest.raises(ConfigError, match="cannot be read"):
+    with pytest.raises(ConfigError, match="could not move") as caught:
         flowstore.from_settings(DataSettings(dir=str(tmp_path)))
+    assert "rename it by hand" in str(caught.value)
+    assert "cannot be read" not in str(caught.value)

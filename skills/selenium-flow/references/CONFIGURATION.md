@@ -103,7 +103,7 @@ page; these are the ones that change behaviour you will notice.
 | Env | Default | Why you would change it |
 |---|---|---|
 | `AUTH_TOKEN` | unset | Sets the bearer token for both surfaces. Unset means **no auth** |
-| `WORKSPACE_STORE` | `memory` | `redis` to share a caller's workspace across replicas or a restart |
+| `WORKSPACE_STORE` | `memory` | `redis` to share a caller's workspace across replicas or a restart. To keep records from before the rename, set `REDIS_PREFIX=selenium-flow:session:` (the old default) |
 | `WORKSPACE_TTL` | `86400` | How long a workspace is kept after its last use. Not the browser's lifetime |
 | `DATA_DIR` | unset | The data root: workspaces (flows, kept files, screenshots, recordings) live under `DATA_DIR/workspaces/<name>/`. Unset means none of them |
 | `RECORDING_ENABLED` | `false` | The operator says the Grid's recordings reach `RECORDING_DIR`; without it `open_session(record=true)` is refused |

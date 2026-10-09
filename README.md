@@ -328,7 +328,7 @@ $DATA_DIR/
 | `RECORDING_POLL` | `1000` | milliseconds between looks, when polling |
 | `RECORDING_SETTLE` | `10` | seconds a finished video sits unchanged before it is filed; `0` files it at once |
 
-**Upgrading:** a `:main` build's `$DATA_DIR/sessions/` moves itself to `workspaces/` at the first boot; both present stops the boot until you merge them. From a released version (`FLOW_DATA_DIR`), workspaces sat at the top of the directory, and the server refuses to boot until they move — once:
+**Upgrading:** a `:main` build's `$DATA_DIR/sessions/` moves itself to `workspaces/` at the first boot; both present stops the boot until you merge them. Roll the upgrade out with `Recreate` (or scale to 0): an old pod still writing `sessions/` makes the next boot stop on "both exist". With Redis, `REDIS_PREFIX=selenium-flow:session:` keeps the old records. From a released version (`FLOW_DATA_DIR`), workspaces sat at the top of the directory, and the server refuses to boot until they move — once:
 
 ```bash
 cd "$DATA_DIR" && ls             # the old workspace folders, and recordings/ if any

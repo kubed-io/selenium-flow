@@ -25,12 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- **BREAKING:** what you name is a *workspace* now: `?workspace=` or `X-Workspace`, `workspace://…`, `WORKSPACE_STORE`/`WORKSPACE_TTL`; the old names are refused with the new one. A session is the browser open in it.
-- **Breaking:** `FLOW_DATA_DIR` is now `DATA_DIR`, and workspace folders live under `DATA_DIR/workspaces/` — move them there once.
+- **BREAKING:** what you name is a *workspace* now: `?workspace=` or `X-Workspace`, `workspace://…`, `WORKSPACE_STORE`/`WORKSPACE_TTL`, and results and the admin API say `workspace`; the old names are refused with the new one. A session is the browser open in it.
+- **BREAKING:** `FLOW_DATA_DIR` is now `DATA_DIR`, and workspace folders live under `DATA_DIR/workspaces/` — move them there once.
 - `open_session(record=true)` records the browser; recordings appear under `workspace://files/recordings` and in the admin Files tab.
 - Skills-aware clients discover the embedded skill through the MCP Skills extension (`skills/list`, `skills/get`).
 - `show(uri)` draws a resource as an MCP App — your workspace, files, a folder, the saved flows as cards, one flow, the secrets (never a value); `session_files` is gone.
-- An `X-Workspace` header names the workspace, for clients like Claude.ai custom connectors that only send approved headers.
 - `/mcp` accepts a JWT from an OIDC issuer beside the token (`oidc.issuer`, `oidc.audience`, `oidc.jwks_uri`, `oidc.roles`), for a server behind an OIDC gateway.
 - The token is compared in constant time on `/mcp` too.
 - `workspace://current` says who the caller is: `admin` for the token, or the OIDC subject.

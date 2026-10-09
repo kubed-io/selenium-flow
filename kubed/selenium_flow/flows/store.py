@@ -933,7 +933,13 @@ def _move_old_folder(root: Path) -> None:
             f"{old} and {new} both exist: merge {_OLD_DIR}/ into "
             f"{WORKSPACES_DIR}/ by hand, then remove {_OLD_DIR}/"
         )
-    old.rename(new)
+    try:
+        old.rename(new)
+    except OSError as exc:
+        raise ConfigError(
+            f"could not move {old} to {new} ({type(exc).__name__}: "
+            f"{exc.strerror or 'I/O error'}): rename it by hand, then restart"
+        ) from None
     log.info("data: moved %s to %s", old, new)
 
 
