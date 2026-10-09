@@ -540,8 +540,7 @@ tidies is still not.
   collector owes what it read, logs the rest once a streak and reads again each
   tick, holding the notes lock across the read and the merge; the boot carries
   on. Only bad JSON, a bad id or a non-file is skipped.
-- Matching is by Grid id found anywhere in the file name, never by session name
-  (the recorder strips `.`). The Grid id stays on disk, in the note only.
+- Matching is never by session name (the recorder strips `.`). The Grid id stays on disk, in the note only.
 - A file is complete when it ends in `mfro`; one cut off (no `mfro`, unchanged
   60 s, browser gone) is filed as it is.
 - **The collector never sends the Grid a session command.** It learns whether a
