@@ -4,6 +4,10 @@ name: 🧭 Agent · Issue
 # opts it in, and every comment from Dr K is the next brainstorming turn; each spec round
 # is an artifact and a job summary. `spec approved` commits the last round on a new
 # branch, opens the draft PR, and starts the plan on it.
+#
+# The job gates name ids, not variables: a job's `if` is decided before any runner, so
+# only GitHub's own event data can vouch for the sender. 4399427 is Dr K. Who else
+# counts inside a run comes from the claude runner's env.
 
 on:
   issues:
@@ -18,8 +22,8 @@ jobs:
   spec:
     name: Spec
     if: >-
-      github.event.sender.id == fromJSON(vars.CLAUDE_OWNER_ID) &&
-      github.triggering_actor == vars.CLAUDE_OWNER &&
+      github.event.sender.id == 4399427 &&
+      github.triggering_actor == 'kferrone' &&
       !github.event.issue.pull_request &&
       contains(github.event.issue.labels.*.name, 'enhancement') &&
       contains(github.event.issue.labels.*.name, 'agent') &&
@@ -69,7 +73,7 @@ jobs:
         document: spec
         document_path: docs/superpowers/specs/{date}-{slug}-design.md
         opt_in_label: agent
-        trusted_ids: ${{ vars.CLAUDE_OWNER_ID }}
+        trusted_ids: ${{ env.CLAUDE_OWNER_ID }}
         session_key: issue-${{ github.event.issue.number }}
         session_title: "selenium-flow#${{ github.event.issue.number }} spec: ${{ github.event.issue.title }}"
         model: opus
@@ -85,10 +89,10 @@ jobs:
     if: >-
       github.event_name == 'issues' &&
       github.event.label.name == 'spec approved' &&
-      github.event.sender.id == fromJSON(vars.CLAUDE_OWNER_ID) &&
-      github.triggering_actor == vars.CLAUDE_OWNER &&
+      github.event.sender.id == 4399427 &&
+      github.triggering_actor == 'kferrone' &&
       contains(github.event.issue.labels.*.name, 'agent')
-    runs-on: ubuntu-latest
+    runs-on: claude
     environment: claude
     timeout-minutes: 10
     permissions:
@@ -116,7 +120,7 @@ jobs:
         number: ${{ github.event.issue.number }}
         document: spec
         pull_request: draft
-        trusted_ids: ${{ vars.CLAUDE_OWNER_ID }}
+        trusted_ids: ${{ env.CLAUDE_OWNER_ID }}
 
   plan:
     name: Plan
@@ -166,8 +170,8 @@ jobs:
         schema: .issue/roles/claude/plan.schema.json
         document: plan
         document_path: docs/superpowers/plans/{date}-{slug}.md
-        trusted_ids: ${{ vars.CLAUDE_OWNER_ID }}
-        trusted_bots: ${{ vars.CLAUDE_APP_BOT }}
+        trusted_ids: ${{ env.CLAUDE_OWNER_ID }}
+        trusted_bots: ${{ env.CLAUDE_TRUSTED_BOTS }}
         session_key: pr-${{ needs.approve.outputs.pull_request }}
         session_title: "selenium-flow#${{ needs.approve.outputs.pull_request }} plan: ${{ github.event.issue.title }}"
         model: opus

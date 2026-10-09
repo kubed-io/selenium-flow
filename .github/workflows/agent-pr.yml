@@ -4,6 +4,10 @@ name: 🛠️ Agent · Pull Request
 # `plan approved`, Dr K's comments are plan turns; the label commits the last plan round
 # and starts the code. Each code run answers open review threads, does one plan task,
 # and pushes; Copilot's review of that push (relayed by agent-relay.yml) wakes the next.
+#
+# The job gates name ids, not variables: a job's `if` is decided before any runner, so
+# only GitHub's own event data can vouch for the sender. 4399427 is Dr K, 175728472
+# Copilot's reviewer. Who else counts inside a run comes from the claude runner's env.
 
 on:
   issue_comment:
@@ -22,15 +26,15 @@ jobs:
     name: Route
     if: >-
       (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
-        github.event.sender.id == fromJSON(vars.CLAUDE_OWNER_ID) &&
-        github.triggering_actor == vars.CLAUDE_OWNER) ||
+        github.event.sender.id == 4399427 &&
+        github.triggering_actor == 'kferrone') ||
       (github.event_name == 'pull_request_target' && github.event.label.name == 'plan approved' &&
-        github.event.sender.id == fromJSON(vars.CLAUDE_OWNER_ID) &&
-        github.triggering_actor == vars.CLAUDE_OWNER) ||
+        github.event.sender.id == 4399427 &&
+        github.triggering_actor == 'kferrone') ||
       (github.event_name == 'workflow_run' &&
         github.event.workflow_run.head_repository.full_name == github.repository &&
-        (github.event.workflow_run.triggering_actor.id == fromJSON(vars.CLAUDE_OWNER_ID) ||
-          contains(fromJSON(vars.CLAUDE_REVIEWER_IDS), github.event.workflow_run.triggering_actor.id)))
+        (github.event.workflow_run.triggering_actor.id == 4399427 ||
+          github.event.workflow_run.triggering_actor.id == 175728472))
     runs-on: ubuntu-latest
     permissions:
       pull-requests: read
@@ -46,7 +50,7 @@ jobs:
       id: route
       uses: actions/github-script@v9
       env:
-        OWNER_ID: ${{ vars.CLAUDE_OWNER_ID }}
+        OWNER_ID: "4399427"
       with:
         script: |
           const e = context.payload;
@@ -69,7 +73,7 @@ jobs:
     name: Approve the Plan
     needs: route
     if: needs.route.outputs.stage == 'code' && needs.route.outputs.approve == 'true'
-    runs-on: ubuntu-latest
+    runs-on: claude
     environment: claude
     timeout-minutes: 10
     permissions:
@@ -92,7 +96,7 @@ jobs:
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
         document: plan
-        trusted_ids: ${{ vars.CLAUDE_OWNER_ID }}
+        trusted_ids: ${{ env.CLAUDE_OWNER_ID }}
 
   plan:
     name: Plan
@@ -142,8 +146,8 @@ jobs:
         schema: .issue/roles/claude/plan.schema.json
         document: plan
         document_path: docs/superpowers/plans/{date}-{slug}.md
-        trusted_ids: ${{ vars.CLAUDE_OWNER_ID }}
-        trusted_bots: ${{ vars.CLAUDE_APP_BOT }}
+        trusted_ids: ${{ env.CLAUDE_OWNER_ID }}
+        trusted_bots: ${{ env.CLAUDE_TRUSTED_BOTS }}
         session_key: pr-${{ needs.route.outputs.number }}
         model: opus
         max_turns: 80
@@ -242,9 +246,9 @@ jobs:
         schema: .issue/roles/claude/code.schema.json
         push_token: ${{ steps.app.outputs.token }}
         max_runs: 40
-        trusted_ids: ${{ vars.CLAUDE_OWNER_ID }}
-        trusted_bots: ${{ join(fromJSON(vars.CLAUDE_REVIEWER_IDS), ',') }},${{ vars.CLAUDE_APP_BOT }}
-        allowed_bots: ${{ vars.CLAUDE_REVIEWER_LOGINS }}
+        trusted_ids: ${{ env.CLAUDE_OWNER_ID }}
+        trusted_bots: ${{ env.CLAUDE_TRUSTED_BOTS }}
+        allowed_bots: ${{ env.CLAUDE_ALLOWED_BOTS }}
         session_key: pr-${{ needs.route.outputs.number }}
         model: opus
         max_turns: 200
