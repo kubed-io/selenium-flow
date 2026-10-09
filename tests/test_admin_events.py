@@ -314,3 +314,19 @@ async def test_a_forget_with_a_page_open_is_in_the_next_listing(
         assert after["site_data_rev"] != before["site_data_rev"]
     finally:
         await _close(stop, [task])
+
+
+def test_a_session_opening_or_ending_pokes_the_admin_broadcast(monkeypatch):
+    """An open page shows a session appear or end now, not a poll later."""
+    from kubed.selenium_flow import config
+    from kubed.selenium_flow.http.admin.workspaces import Broadcast
+    from kubed.selenium_flow.monitor.events import SessionEnded, SessionOpened
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    pokes = []
+    monkeypatch.setattr(Broadcast, "poke", lambda self: pokes.append(self))
+    server = SeleniumMCP(config.Settings(grid={"url": "http://grid.invalid:4444"}))
+    gid = "8f3d6dc2a1b04e6f9c1d2e3f4a5b6c7d"
+    server.bus.publish(SessionOpened("bot", gid, "chrome", 300, False, 1.0))
+    server.bus.publish(SessionEnded("bot", gid, "ended", 2.0))
+    assert len(pokes) == 2 and isinstance(pokes[0], Broadcast)

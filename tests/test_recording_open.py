@@ -13,7 +13,7 @@ class Recorder:
     """The hook Workspaces calls; records what it was told."""
 
     def __init__(self):
-        self.expected, self.finished, self.discarded = [], [], []
+        self.expected, self.discarded = [], []
         # Grid id -> whether its note says discard, as the collector keeps it:
         # a second expect for one browser replaces the first.
         self.notes = {}
@@ -24,8 +24,19 @@ class Recorder:
         )
         self.notes[grid_id] = discard
 
-    def ended(self, grid_id):
-        self.finished.append(grid_id)
+
+class Announced:
+    """Stands in for the monitor: what the manager announced, in order."""
+
+    def __init__(self):
+        self.calls = []
+
+    def opened(self, workspace, session_id, browser, grid_timeout, *, reopened=False):
+        self.calls.append(("opened", session_id, reopened))
+
+    def ended(self, workspace, session_id, cause):
+        self.calls.append(("ended", session_id, cause))
+        return True
 
 
 class Grid:
@@ -66,8 +77,8 @@ class Actions:
         return {"success": True}
 
 
-def manager(recorder=None):
-    return Workspaces(Actions(), recordings=recorder)
+def manager(recorder=None, monitor=None):
+    return Workspaces(Actions(), recordings=recorder, monitor=monitor)
 
 
 def caller(name="bot"):
@@ -95,14 +106,14 @@ def test_record_sends_the_capability_and_tells_the_collector():
 
 
 def test_an_explicit_open_after_end_does_not_inherit_record():
-    rec = Recorder()
-    m = manager(rec)
+    rec, announced = Recorder(), Announced()
+    m = manager(rec, announced)
     m.open_browser(caller(), record=True)
     m.end_browser(caller())
     result = m.open_browser(caller())
     assert not m.actions.calls[-1].get("record")
     assert result["recording"] is False
-    assert rec.finished == ["grid0001"]
+    assert ("ended", "grid0001", "ended") in announced.calls
 
 
 def test_a_reap_replays_record_and_expects_the_new_browser():
@@ -332,8 +343,8 @@ def test_a_note_path_that_is_refused_never_fails_the_open(where):
 
 
 def test_a_quit_that_failed_does_not_start_the_collectors_clock():
-    rec = Recorder()
-    m = manager(rec)
+    rec, announced = Recorder(), Announced()
+    m = manager(rec, announced)
     m.open_browser(caller(), record=True)
 
     def down(sid):
@@ -341,5 +352,5 @@ def test_a_quit_that_failed_does_not_start_the_collectors_clock():
 
     m.actions.end_browser = down
     m.end_browser(caller())
-    assert rec.finished == []
+    assert [c for c in announced.calls if c[0] == "ended"] == []
     assert not m.store.get("bot").attached

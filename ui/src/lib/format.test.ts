@@ -1,7 +1,16 @@
 import { describe, expect, test } from 'vitest'
-import { ago, browserMark, bytes, clock, countsText, duration, flowParams, glyphFor, leaf, metaLine, plural, readable, safeHref, until, workspaceLabel, stepSummary } from './format'
+import { ago, idle, browserMark, bytes, clock, countsText, duration, flowParams, glyphFor, leaf, metaLine, plural, readable, safeHref, until, workspaceLabel, stepSummary } from './format'
 
 describe('format', () => {
+  test('idle timeout: seconds, then where it came from; nothing when unknown (spec ruling 11)', () => {
+    expect(idle(300, true)).toBe('300 s · read from the Grid node')
+    expect(idle(300, false)).toBe('300 s · no session is open')
+    expect(idle(90)).toBe('90 s · no session is open')
+    expect(idle(null, true)).toBe('')
+    expect(idle(undefined)).toBe('')
+    expect(idle(0, true)).toBe('')
+  })
+
   test('counts name recordings, singular and plural (R8)', () => {
   expect(countsText({ key: 'k', counts: { downloads: 0, screenshots: 6, recordings: 2, files: 2 } })).toBe('6 screenshots · 2 recordings · 2 files')
   expect(countsText({ key: 'k', counts: { downloads: 0, screenshots: 0, recordings: 1, files: 0 } })).toBe('1 recording')

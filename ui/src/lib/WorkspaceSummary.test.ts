@@ -31,3 +31,16 @@ test('a recording live workspace wears ● REC; otherwise none (R7)', () => {
   render(WorkspaceSummary, { data: { key: 'k', live: true, recording: false } })
   expect(screen.queryByText('● REC')).toBeNull()
 })
+
+test('the idle timeout sits with the session, live and idle, hidden when unknown (spec ruling 11)', () => {
+  const live = render(WorkspaceSummary, { data: { key: 'k', live: true, session_id: 'id1', grid_timeout: 300 } })
+  const fact = screen.getByText('idle timeout').closest('.group')
+  expect(fact?.querySelector('.label')).toHaveTextContent('browser')
+  expect(screen.getByText('300 s · read from the Grid node')).toBeInTheDocument()
+  live.unmount()
+  const idle = render(WorkspaceSummary, { data: { key: 'k', live: false, grid_timeout: 300 } })
+  expect(screen.getByText('300 s · no session is open')).toBeInTheDocument()
+  idle.unmount()
+  render(WorkspaceSummary, { data: { key: 'k', live: true, grid_timeout: null } })
+  expect(screen.queryByText('idle timeout')).toBeNull()
+})

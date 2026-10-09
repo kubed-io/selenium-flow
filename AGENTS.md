@@ -175,8 +175,15 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   already caught real failures.
 - **Plain W3C WebDriver only.** No CDP. It is Chrome-only, which forfeits running against
   any other browser the Grid offers, and the CDP DevTools API is deprecated for removal in
-  Selenium 5. WebDriver BiDi is W3C and allowed, used **only** for site data, and reattached
-  per call through `Grid.bidi(session_id)`, which closes its socket on exit. CDP `Page.captureScreenshot` with `captureBeyondViewport` does produce a
+  Selenium 5. WebDriver BiDi is W3C and allowed in exactly two shapes. **Per call**, for
+  site data, reattached through `Grid.bidi(session_id)`, which closes its socket
+  on exit. **Held**, by the session monitor (`monitor/bidi.py`), only while a
+  session is owed something that needs its events, and never with an intercept:
+  a request matching an intercept hangs with nobody to answer. `websockets` is
+  imported there and nowhere else. A held socket is a channel, never a liveness
+  signal: measured, it survives its session's end and its hub still answers a
+  ping, so the monitor closes it when the watch ends.
+  CDP `Page.captureScreenshot` with `captureBeyondViewport` does produce a
   better full-page image, and `Emulation.setDeviceMetricsOverride` adds JPEG and a 2x
   retina render — both tested working against this Grid. If that capability is wanted, add
   it as a **separate** tool so the portable path keeps working when CDP goes away.
@@ -196,7 +203,7 @@ stages; none of them writes its own copy.
 | **Surface** | how it is answered: an MCP result, an HTTP response, a flow step's entry | `mcp/tools.py`, `routes.py` with `http/answer.py`, `flows/engine.py` |
 
 The layering is enforced, not remembered: `tests/test_boundaries.py` fails when
-`core/`, `workspace/`, `flows/`, `site_data/` or `recordings/` imports the protocol layers
+`core/`, `workspace/`, `flows/`, `site_data/`, `monitor/` or `recordings/` imports the protocol layers
 (`mcp/`, `http/`, `routes`, `server`, `spec`), and when the modules that are
 meant to be plain import `selenium`. Shared pure rules live in their own small
 modules — `names.py`, `urls.py`, `binding.py`, `faults.py`, `core/coerce.py` —
@@ -536,10 +543,35 @@ A stored mapping can name a browser the Grid has already reaped. `resolve` check
 package runs a cleanup loop: the Grid expires idle browsers via `SE_NODE_SESSION_TIMEOUT`,
 and the store expires mappings via its own TTL. Do not add a scheduler.
 
-**One bounded wait is allowed:** a task that waits for something this server was
-told to expect, and ends when nothing is owed — the admin broadcast (while a page
-listens) and the recordings collector (while a recording is owed). A loop that
-tidies is still not.
+**One bounded wait is allowed:** a task that waits for something this server
+was told to expect, and ends when nothing is owed — the admin broadcast
+(while a page listens), the recordings collector (while a recording is owed)
+and the session monitor (while a session is watched). A loop that tidies is
+still not.
+
+**The Grid reaps; we let it.** A held subscription on a busy page would keep
+its browser alive forever (measured: 2.2× the timeout and counting), so a
+watched session carries a deadline: its last call plus its node's
+`sessionTimeout`, read from `/status`. At the deadline the monitor
+unsubscribes, closes the socket and lets the Grid's timer run. This server
+ends no session on a timer of its own.
+
+### The session monitor and the bus
+
+`monitor/` knows which sessions this server opened, which ended and why, and
+which it still owes something. It says so on a bus: `session.opened`,
+`session.ended` (cause `ended`, `gone`, `lost`), and `call.finished`.
+
+- **Events carry no values**: workspace, the session's `session_id`, browser
+  kind, tool, surface, outcome, times — never an argument, a URL, a header, a
+  body or a secret. Every field is a scalar; `test_events_carry_no_values`
+  holds it. No subscriber logs the `session_id`.
+- **Publishing never blocks a call.** A subscriber is a function run on the
+  loop, with a bounded queue; one that falls behind loses events, counted.
+- **`/status` is the truth about liveness, the socket is not.** Gone is two
+  listings; a socket that drops is one miss.
+- **The registry and the bus are process memory**, like the per-session lock:
+  one replica.
 
 ### Recordings: Selenium records, the operator delivers, we file
 
@@ -573,13 +605,17 @@ tidies is still not.
   (rclone checks an upload after writing it and uploads one that vanished
   again, a copy no note claims). One cut off (no `mfro`, unchanged 60 s,
   browser gone) is filed as it is.
-- **The collector never sends the Grid a session command.** It learns whether a
-  recorded browser still runs from one `GET /status` listing per tick
-  (`Grid.sessions()`): a WebDriver command such as `GET /session/{id}/url` counts
-  as activity and would stop the Grid ever reaping the browser. A listing taken
-  before a browser opened cannot mark it gone (a cached listing older than the
-  note's `opened` is ignored). A failed sweep is retried a tick later, logged once
-  per failure streak.
+- **Nothing that watches sends the Grid a session command.** The monitor
+  learns whether a watched session still runs from one `GET /status` listing
+  per tick (`Grid.listing()`): a WebDriver command such as
+  `GET /session/{id}/url` counts as activity and would stop the Grid ever
+  reaping the browser. A session is gone when two listings with nodes, taken
+  after the watch began, miss it. A listing that fails says nothing; one with
+  no nodes says nothing until such listings have run unbroken for the watch's
+  idle timeout plus a tick, and is a miss after: every command reaches a node
+  through the hub, so a node unlisted that long has reaped the session or is
+  gone itself. The collector hears an end as `session.ended`, and watches every
+  owed note at start.
 - Recordings follow the screenshot lifecycle: kept into Files or cleared.
 - `record` is never inherited by an explicit open, but a reap replays it, and
   only while `recording.enabled`; with recording off it is dropped from the reopen.
@@ -851,6 +887,8 @@ back from a restart holding its callers' browsers.
 The per-session lock (`workspace/locks.py`) is process memory too, with Redis or
 without: a second replica would let two calls drive one browser at once.
 
+The session monitor's watches and the bus are process memory too: a second replica would watch nothing the first opened.
+
 ## Gotchas
 
 - **Do not bake a deployment's conventions into this package.** `REDIS_DB` defaults to
@@ -866,7 +904,9 @@ without: a second replica would let two calls drive one browser at once.
   element reference stale.
 - **The Grid's session timeout is not this repo's setting.** It comes from
   `SE_NODE_SESSION_TIMEOUT` on the Grid node, set in the cluster repo. A long-thinking
-  agent will lose its browser mid-task if that is left at the 300s default.
+  agent will lose its browser mid-task if that is left at the 300s default. This server reads it
+  per node from `/status` at every open and reopen and reports it as `grid_timeout`; it never sets
+  or assumes it.
 - **`@mcp.tool` returns the plain function**, not a Tool object, so a description cannot be
   patched after decoration. Pass `description=` to the decorator when it needs to be
   computed — `press_key` does this to interpolate the real key list.
@@ -938,7 +978,7 @@ listing's entry — so a view cannot drift from what the resource serves.
 
 | | Who owns it | Default here |
 |---|---|---|
-| **How long a session's browser lives idle** | the Grid — `SE_NODE_SESSION_TIMEOUT` on the node | `300s` idle, in the cluster repo |
+| **How long a session's browser lives idle** | the Grid — `SE_NODE_SESSION_TIMEOUT` on the node, read from `/status` and shown as `grid_timeout` | `300s` idle, in the cluster repo |
 | **How long a workspace is remembered** | `WORKSPACE_TTL` | `86400s` (a day), slid forward on every call |
 | **Where it is remembered** | `WORKSPACE_STORE` | `memory` (or `redis` to share it) |
 

@@ -47,6 +47,9 @@ from .defaults import (
 
 # Seconds any one request to the Grid's own HTTP endpoints may take.
 GRID_TIMEOUT = 30
+# Seconds a read that is only shown may take, sent once: the idle timeout,
+# asked on every open, must not hold an open that has already succeeded.
+SHOWN_TIMEOUT = 5
 # Connections each pool keeps open to the Grid: one per call that can be in
 # flight at once, which is anyio's 40 worker threads. Fewer and a busy moment
 # opens, uses and drops the overflow, logging a warning for each.
@@ -119,6 +122,13 @@ class ReattachDriver(RemoteWebDriver):
         self._web_element_identifier = None
 
 
+def _seconds(ms) -> int | None:
+    """A node's ``sessionTimeout`` (milliseconds) in whole seconds, or None."""
+    if isinstance(ms, bool) or not isinstance(ms, (int, float)) or ms <= 0:
+        return None
+    return int(ms) // 1000 or None
+
+
 def is_partial(name: str) -> bool:
     """Whether a download-directory entry is a scratch copy, not a finished file.
 
@@ -148,6 +158,19 @@ def _dropped(exc: requests.ConnectionError) -> bool:
     return bool(exc.args) and isinstance(exc.args[0], ProtocolError)
 
 
+def _listed(status: dict) -> tuple[int, dict[str, int | None]]:
+    """`Grid.listing` out of a ``GET /status`` payload."""
+    nodes = status["value"].get("nodes") or []
+    running: dict[str, int | None] = {}
+    for node in nodes:
+        timeout = _seconds(node.get("sessionTimeout"))
+        for slot in node.get("slots") or []:
+            session_id = (slot.get("session") or {}).get("sessionId")
+            if session_id:
+                running[session_id] = timeout
+    return len(nodes), running
+
+
 class Grid:
     """A Selenium Grid endpoint, and the operations this server needs from it.
 
@@ -168,9 +191,18 @@ class Grid:
         self.http.cookies.set_policy(DefaultCookiePolicy(allowed_domains=()))
         self._webdriver = None
 
-    def _send(self, method: str, path: str, **kwargs) -> requests.Response:
+    def _send(
+        self,
+        method: str,
+        path: str,
+        *,
+        timeout: float = GRID_TIMEOUT,
+        retry: bool = True,
+        **kwargs,
+    ) -> requests.Response:
         """One request to the Grid, sent again once if the pool's connection
-        turns out to be one the Grid dropped (`_dropped`).
+        turns out to be one the Grid dropped (`_dropped`) - unless ``retry`` is
+        off, for a read nobody waits on.
 
         Once: the retry runs on a fresh connection, so a second failure is the
         Grid's real answer and raises exactly as a single request would.
@@ -178,11 +210,11 @@ class Grid:
         send = getattr(self.http, method)
         url = f"{self.url}{path}"
         try:
-            return send(url, timeout=GRID_TIMEOUT, **kwargs)
+            return send(url, timeout=timeout, **kwargs)
         except requests.ConnectionError as exc:
-            if not _dropped(exc):
+            if not retry or not _dropped(exc):
                 raise
-        return send(url, timeout=GRID_TIMEOUT, **kwargs)
+        return send(url, timeout=timeout, **kwargs)
 
     def _options(
         self,
@@ -335,21 +367,29 @@ class Grid:
         driver.session_id = session_id
         return driver
 
+    def bidi_url(self, session_id: str) -> str:
+        """The browser's BiDi socket, as the Grid proxies it.
+
+        Derived from ``url``, never read from the browser's ``webSocketUrl``
+        capability: the Grid fills that in with its own in-cluster name
+        (measured: ``ws://selenium-grid-selenium-hub.flow:4444/...``).
+        """
+        parts = urlsplit(self.url)
+        scheme = "wss" if parts.scheme == "https" else "ws"
+        root = urlunsplit((scheme, parts.netloc, parts.path.rstrip("/"), "", ""))
+        return f"{root}/session/{session_id}/se/bidi"
+
     @contextlib.contextmanager
     def bidi(self, session_id: str):
         """A reattached driver that speaks BiDi: ``.storage``, ``.network``,
         ``.browsing_context``, ``.script``.
 
-        The socket address is derived, not discovered: the Grid proxies it at
-        ``/session/<id>/se/bidi``.
+        The socket address is derived, not discovered (`bidi_url`).
         """
-        parts = urlsplit(self.url)
-        scheme = "wss" if parts.scheme == "https" else "ws"
-        socket = urlunsplit((scheme, parts.netloc, parts.path.rstrip("/"), "", ""))
         driver = self.reconnect(session_id)
         # The socket's timeout and polling are on the shared connection's
         # config, set once by `reconnect`.
-        driver.caps = {"webSocketUrl": f"{socket}/session/{session_id}/se/bidi"}
+        driver.caps = {"webSocketUrl": self.bidi_url(session_id)}
         try:
             yield driver
         finally:
@@ -435,6 +475,25 @@ class Grid:
                     }
                 )
         return sorted(found, key=lambda s: s.get("started") or "", reverse=True)
+
+    def listing(self) -> tuple[int, dict[str, int | None]]:
+        """How many nodes are registered, and every running browser mapped to
+        its node's idle timeout in seconds (None when the node does not say).
+
+        One ``GET /status``, which touches no browser: a command sent to a
+        session is activity the node counts, and would keep it alive.
+        """
+        return _listed(self.status())
+
+    def session_timeout(self, session_id: str) -> int | None:
+        """Seconds this browser's node lets it sit idle before reaping it, or
+        None when the Grid does not list it or does not say.
+
+        Asked once and briefly (`SHOWN_TIMEOUT`): it is shown, never needed.
+        """
+        response = self._send("get", "/status", timeout=SHOWN_TIMEOUT, retry=False)
+        response.raise_for_status()
+        return _listed(response.json())[1].get(session_id)
 
     def files(self, session_id: str) -> list[dict]:
         """What this session has finished downloading, newest first.
