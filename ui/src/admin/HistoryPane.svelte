@@ -2,15 +2,15 @@
   import { untrack } from 'svelte'
   import { ago } from '../lib/format'
   import type { HistoryRow, SavedCounts } from '../lib/types'
-  import { sessionPath, type Api } from './api'
+  import { workspacePath, type Api } from './api'
   import { folds } from './folds.svelte'
   import type { ModalSpec } from './modal'
   import { go, hashes } from './router.svelte'
   import Section from './Section.svelte'
-  import type { SessionModel } from './session.svelte'
+  import type { WorkspaceModel } from './workspace.svelte'
 
   let { m, api, ask, refuseIfGone, isGone, hidden }: {
-    m: SessionModel
+    m: WorkspaceModel
     api: Api
     ask: <T>(spec: ModalSpec<T>) => void
     refuseIfGone: () => void
@@ -50,7 +50,7 @@
       confirm: 'Clear', danger: true,
       onconfirm: async () => {
         refuseIfGone()
-        await api(sessionPath(m.key, '/history'), 'DELETE')
+        await api(workspacePath(m.key, '/history'), 'DELETE')
         // Site data is ordered by the history, so it moves too.
         if (!isGone()) { void m.loadHistory(); void m.loadSiteData() }
       },

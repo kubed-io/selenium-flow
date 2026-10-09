@@ -39,7 +39,7 @@ import App from './App.svelte'
 
 const FLOWS = {
   component: 'flows', uri: 'flow://flows',
-  data: { session: 's', count: 1, flows: [{ name: 'login', description: 'Sign in', parameters: {}, step_count: 2, shared: false }] },
+  data: { workspace: 's', count: 1, flows: [{ name: 'login', description: 'Sign in', parameters: {}, step_count: 2, shared: false }] },
 }
 const FLOW = {
   component: 'flow', uri: 'flow://flows/login',
@@ -76,12 +76,12 @@ function deferred<T>() {
 const contexts = () => host.updateModelContext.mock.calls.map(([p]) => (p as { content: { text: string }[] }).content[0].text)
 
 test.each([
-  ['context', { session: 'drk', url: 'https://example.com/', live: true }, 'drk'],
-  ['files', { session: 's', count: 0, files: [], folders: [{ name: 'screenshots', uri: 'session://files/screenshots', count: 2 }] }, 'Screenshots'],
-  ['folder', { session: 's', folder: 'downloads', uri: 'session://files/downloads', count: 0, files: [] }, 'Downloads'],
+  ['context', { workspace: 'drk', url: 'https://example.com/', live: true }, 'drk'],
+  ['files', { workspace: 's', count: 0, files: [], folders: [{ name: 'screenshots', uri: 'workspace://files/screenshots', count: 2 }] }, 'Screenshots'],
+  ['folder', { workspace: 's', folder: 'downloads', uri: 'workspace://files/downloads', count: 0, files: [] }, 'Downloads'],
   ['flows', FLOWS.data, 'login'],
   ['flow', FLOW.data, 'navigate'],
-  ['secrets', { session: 's', count: 1, secrets: [{ name: 'demo', keys: ['password'], restricted: false }] }, 'demo'],
+  ['secrets', { workspace: 's', count: 1, secrets: [{ name: 'demo', keys: ['password'], restricted: false }] }, 'demo'],
 ])('draws the %s view from a show result', async (component, data, text) => {
   render(App)
   expect(screen.getByText('Loading…')).toBeInTheDocument()
@@ -95,17 +95,17 @@ test('fileSections is no longer drawn', async () => {
   await vi.waitFor(() => expect(screen.getByText('Nothing to show for "fileSections".')).toHaveClass('error'))
 })
 
-test.each(['sessionList', 'sessionSummary'])('%s is not a view: no tool emits it', async (component) => {
+test.each(['workspaceList', 'workspaceSummary'])('%s is not a view: no tool emits it', async (component) => {
   render(App)
-  await shown({ component, data: { sessions: [] } })
+  await shown({ component, data: { workspaces: [] } })
   await vi.waitFor(() => expect(screen.getByText(`Nothing to show for "${component}".`)).toHaveClass('error'))
 })
 
 test("the model's own show call that failed draws the refusal", async () => {
   render(App)
   await vi.waitFor(() => expect(host.listeners.toolresult).toBeTypeOf('function'))
-  host.listeners.toolresult({ isError: true, content: [{ type: 'text', text: 'x://y has no view; show draws session://current' }] })
-  await vi.waitFor(() => expect(screen.getByText('x://y has no view; show draws session://current')).toHaveClass('error'))
+  host.listeners.toolresult({ isError: true, content: [{ type: 'text', text: 'x://y has no view; show draws workspace://current' }] })
+  await vi.waitFor(() => expect(screen.getByText('x://y has no view; show draws workspace://current')).toHaveClass('error'))
   expect(screen.queryByText(/Nothing to show/)).toBeNull()
   expect(screen.queryByText('Loading…')).toBeNull()
   // The next result replaces it.
@@ -288,7 +288,7 @@ test('a tool result that arrives during a drill-down wins over it', async () => 
   const { container } = render(App)
   await shown(FLOWS)
   await fireEvent.click(await screen.findByRole('button', { name: 'login' }))
-  host.listeners.toolresult({ structuredContent: { component: 'context', uri: 'session://current', data: { session: 'drk', live: true } } })
+  host.listeners.toolresult({ structuredContent: { component: 'context', uri: 'workspace://current', data: { workspace: 'drk', live: true } } })
   await vi.waitFor(() => expect(screen.getByText('drk')).toBeInTheDocument())
   expect(container.querySelector('[aria-busy=true]')).toBeNull()
   later.resolve({ content: [], structuredContent: FLOW })
@@ -344,7 +344,7 @@ test('a fresh show result starts its view fresh', async () => {
   const secrets = (names: string[]) => ({
     component: 'secrets',
     uri: 'secret://secrets',
-    data: { session: 's', count: names.length, secrets: names.map((name) => ({ name, keys: ['password'], restricted: false })) },
+    data: { workspace: 's', count: names.length, secrets: names.map((name) => ({ name, keys: ['password'], restricted: false })) },
   })
   await shown(secrets(['alpha', 'beta']))
   await fireEvent.click(await screen.findByRole('button', { name: /alpha/ }))

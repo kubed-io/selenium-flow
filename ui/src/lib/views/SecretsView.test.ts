@@ -3,7 +3,7 @@ import { expect, test } from 'vitest'
 import SecretsView from './SecretsView.svelte'
 
 const data = {
-  session: 's', count: 2,
+  workspace: 's', count: 2,
   secrets: [
     {
       name: 'admin', description: 'The admin login', keys: ['username', 'password'],
@@ -51,7 +51,7 @@ test('the cards open without a server call: they work with no onshow', async () 
 })
 
 test('no secrets: one line, no scroller', () => {
-  render(SecretsView, { props: { data: { session: 's', count: 0, secrets: [] } } })
+  render(SecretsView, { props: { data: { workspace: 's', count: 0, secrets: [] } } })
   expect(screen.getByText('No secrets are configured.')).toBeInTheDocument()
   expect(screen.queryByRole('list')).toBeNull()
 })

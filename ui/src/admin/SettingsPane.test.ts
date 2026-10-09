@@ -15,7 +15,7 @@ const body = {
     { name: 'auth', description: 'The bearer token every request needs.', settings: [
       { key: 'auth.token', name: 'token', description: 'Bearer token for every request. Unset is open.', value: null, source: 'env', sensitive: true, set: true },
     ] },
-    { name: 'redis', description: 'The session store’s connection.', settings: [
+    { name: 'redis', description: 'The workspace store’s connection.', settings: [
       { key: 'redis.db', name: 'db', description: 'Redis database number.', value: 2, source: 'config' },
       { key: 'redis.password', name: 'password', description: 'Redis password.', value: null, source: 'default', sensitive: true, set: false },
     ] },

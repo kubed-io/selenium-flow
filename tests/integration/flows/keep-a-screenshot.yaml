@@ -1,13 +1,13 @@
 description: >-
-  Take a screenshot of this very page, find it in this session's Screenshots
+  Take a screenshot of this very page, find it in this workspace's Screenshots
   row, keep it, and see it arrive in Files — the admin UI's whole files story,
   and the kept file Chapter 2 never exercised from the page.
 parameters:
   type: object
-  required: [admin, session]
+  required: [admin, workspace]
   properties:
     admin: {type: string, description: The origin the browser reaches this server at}
-    session: {type: string, description: The name the caller running this flow gave its session}
+    workspace: {type: string, description: The name the caller running this flow gave its workspace}
 steps:
 - tool: navigate
   args: {url: "${admin}/"}
@@ -22,7 +22,7 @@ steps:
 - tool: screenshot
   args: {filename: hangar-check}
 - tool: navigate
-  args: {url: "${admin}/#/sessions/${session}"}
+  args: {url: "${admin}/#/workspaces/${workspace}"}
 - tool: assert
   args:
     script: >-

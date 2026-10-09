@@ -1,16 +1,16 @@
 description: >-
-  Open this session from the admin list and see the shared flows in its detail
+  Open this workspace from the admin list and see the shared flows in its detail
   view — including this one.
 parameters:
   type: object
-  required: [admin, session]
+  required: [admin, workspace]
   properties:
     admin:
       type: string
       description: The origin the browser reaches this server at
-    session:
+    workspace:
       type: string
-      description: The name the caller running this flow gave its session
+      description: The name the caller running this flow gave its workspace
 steps:
 - tool: navigate
   args:
@@ -31,7 +31,7 @@ steps:
   args:
     action: click
     selector:
-      xpath: //div[contains(@class, 'card')][.//span[contains(@class, 'name') and . = '${session}']]
+      xpath: //div[contains(@class, 'card')][.//span[contains(@class, 'name') and . = '${workspace}']]
 - tool: interact
   args:
     action: click
@@ -41,7 +41,7 @@ steps:
   args:
     script: >-
       return [...document.querySelectorAll('#flowlist .item .nm')]
-      .some((name) => name.textContent === 'open-this-session')
+      .some((name) => name.textContent === 'open-this-workspace')
     message: >-
-      The session opened, but its flows section does not list the shared flow
+      The workspace opened, but its flows section does not list the shared flow
       that is running right now.

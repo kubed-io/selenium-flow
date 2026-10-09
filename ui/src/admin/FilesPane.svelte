@@ -2,11 +2,11 @@
   import FileGrid from '../lib/FileGrid.svelte'
   import type { FileEntry, Folder } from '../lib/types'
   import Section from './Section.svelte'
-  import type { SessionModel } from './session.svelte'
-  import { NO_FILES } from './session.svelte'
+  import type { WorkspaceModel } from './workspace.svelte'
+  import { NO_FILES } from './workspace.svelte'
 
   let { m, root, hidden, onopen, onkeep, ondelete, onclear }: {
-    m: SessionModel
+    m: WorkspaceModel
     root: string
     hidden: boolean
     onopen: (folder: Folder, i: number) => void
@@ -16,7 +16,7 @@
   } = $props()
 
   // Ending needs attached; clearing downloads needs it RUNNING — the Grid
-  // deletes the download store with the browser — and this session's own files.
+  // deletes the download store with the browser — and this workspace's own files.
   const clearDownloadsOff = $derived(!m.row.live || m.files === NO_FILES || m.loadingFiles)
   // No per-screenshot delete on the Grid, so the clear is offered only when
   // there is something to take.

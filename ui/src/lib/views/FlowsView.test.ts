@@ -3,7 +3,7 @@ import { expect, test, vi } from 'vitest'
 import FlowsView from './FlowsView.svelte'
 
 const data = {
-  session: 's', count: 2,
+  workspace: 's', count: 2,
   flows: [
     { name: 'login', description: 'Sign in', parameters: { properties: { a: {}, b: {} } }, step_count: 3, shared: true },
     { name: 'a b/c', description: '', parameters: {}, step_count: 1, shared: false },
@@ -29,7 +29,7 @@ test('a card click shows the flow by its encoded uri', async () => {
 })
 
 test('no flows: one line, no scroller', () => {
-  render(FlowsView, { props: { data: { session: 's', count: 0, flows: [] } } })
+  render(FlowsView, { props: { data: { workspace: 's', count: 0, flows: [] } } })
   expect(screen.getByText('No flows yet.')).toBeInTheDocument()
   expect(screen.queryByRole('list')).toBeNull()
 })
@@ -46,7 +46,7 @@ test('a card that opens carries no unavailable tooltip', () => {
 })
 
 test('counts are pluralised, and odd parameters count as none', () => {
-  const odd = { session: 's', count: 3, flows: [
+  const odd = { workspace: 's', count: 3, flows: [
     { name: 'one', parameters: { properties: { a: {} } }, step_count: 1 },
     { name: 'str', parameters: { properties: 'abc' }, step_count: 2 },
     { name: 'nil', parameters: null, step_count: 0 },

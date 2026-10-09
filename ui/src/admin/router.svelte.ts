@@ -7,7 +7,7 @@ export type Route =
   | { view: 'console' }
   | { view: 'secrets' }
   | { view: 'settings' }
-  | { view: 'session'; key: string; tab: Tab; flow: string | undefined; site: string | undefined }
+  | { view: 'workspace'; key: string; tab: Tab; flow: string | undefined; site: string | undefined }
 
 const TABS: readonly string[] = ['flows', 'site-data', 'history']
 
@@ -16,13 +16,13 @@ export function parse(hash: string): Route {
   if (view === 'console') return { view: 'console' }
   if (view === 'secrets') return { view: 'secrets' }
   if (view === 'settings') return { view: 'settings' }
-  if (view === 'sessions' && key) {
+  if (view === 'workspaces' && key) {
     // parse() runs at module load: a bad pasted `%` must not stop the app booting.
     try {
       const picked = (TABS.includes(tab) ? tab : 'files') as Tab
       const named = rest ? decodeURIComponent(rest) : undefined
       return {
-        view: 'session',
+        view: 'workspace',
         key: decodeURIComponent(key),
         tab: picked,
         // The fourth segment is a flow on Flows and a host on Site data.
@@ -42,12 +42,12 @@ export const hashes = {
   console: '#/console',
   secrets: '#/secrets',
   settings: '#/settings',
-  session: (key: string) => '#/sessions/' + enc(key),
-  flows: (key: string) => '#/sessions/' + enc(key) + '/flows',
-  siteData: (key: string) => '#/sessions/' + enc(key) + '/site-data',
-  site: (key: string, host: string) => '#/sessions/' + enc(key) + '/site-data/' + enc(host),
-  history: (key: string) => '#/sessions/' + enc(key) + '/history',
-  flow: (key: string, name: string) => '#/sessions/' + enc(key) + '/flows/' + enc(name),
+  workspace: (key: string) => '#/workspaces/' + enc(key),
+  flows: (key: string) => '#/workspaces/' + enc(key) + '/flows',
+  siteData: (key: string) => '#/workspaces/' + enc(key) + '/site-data',
+  site: (key: string, host: string) => '#/workspaces/' + enc(key) + '/site-data/' + enc(host),
+  history: (key: string) => '#/workspaces/' + enc(key) + '/history',
+  flow: (key: string, name: string) => '#/workspaces/' + enc(key) + '/flows/' + enc(name),
 }
 
 export const router = $state<{ route: Route }>({ route: parse(location.hash) })

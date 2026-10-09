@@ -2,10 +2,10 @@ import { render, screen } from '@testing-library/svelte'
 import { expect, test } from 'vitest'
 import ContextView from './ContextView.svelte'
 
-const base = { session: 'mine', browser: 'firefox', url: 'https://example.com/a', live: true, window: '1280x800',
+const base = { workspace: 'mine', browser: 'firefox', url: 'https://example.com/a', live: true, window: '1280x800',
   principal: { kind: 'oidc', username: 'drk' }, site_data: { sites: 2 } }
 
-test('a live session: name, mark, pill, link, window, principal, sites', () => {
+test('a live workspace: name, mark, pill, link, window, principal, sites', () => {
   const { container } = render(ContextView, { props: { data: base } })
   expect(container.querySelector('strong')).toHaveTextContent('mine')
   expect(container.querySelector('.bmark')).toHaveTextContent('🦊')
@@ -17,7 +17,7 @@ test('a live session: name, mark, pill, link, window, principal, sites', () => {
 })
 
 test('no principal, no url, idle', () => {
-  render(ContextView, { props: { data: { session: 's', live: false, principal: null, url: null } } })
+  render(ContextView, { props: { data: { workspace: 's', live: false, principal: null, url: null } } })
   expect(screen.getByText('idle')).toBeInTheDocument()
   expect(screen.getByText('nowhere yet')).toBeInTheDocument()
   expect(screen.queryByText('drk')).toBeNull()

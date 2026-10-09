@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
   import Lightbox from '../lib/Lightbox.svelte'
-  import SessionSummary from '../lib/SessionSummary.svelte'
-  import type { FileEntry, Folder, SessionsPayload } from '../lib/types'
-  import { sessionPath, type Api } from './api'
+  import WorkspaceSummary from '../lib/WorkspaceSummary.svelte'
+  import type { FileEntry, Folder, WorkspacesPayload } from '../lib/types'
+  import { workspacePath, type Api } from './api'
   import FilesPane from './FilesPane.svelte'
   import FlowsPane from './FlowsPane.svelte'
   import HistoryPane from './HistoryPane.svelte'
@@ -12,7 +12,7 @@
   import Modal from './Modal.svelte'
   import type { ModalSpec } from './modal'
   import { go, hashes, replace, type Tab } from './router.svelte'
-  import { SessionModel } from './session.svelte'
+  import { WorkspaceModel } from './workspace.svelte'
 
   let { key, tab, flow, site, api, live, root }: {
     key: string
@@ -25,10 +25,10 @@
     root: string
   } = $props()
 
-  // Rendered inside {#key route.key}: a session switch destroys this whole
+  // Rendered inside {#key route.key}: a workspace switch destroys this whole
   // subtree — its loads, its lightbox, its modal — so nothing here outlives
-  // the session it was made for.
-  const m = untrack(() => new SessionModel(key, api))
+  // the workspace it was made for.
+  const m = untrack(() => new WorkspaceModel(key, api))
   let destroyed = false
 
   // Stored erased: each spec's body snippet is typed to its own data, and only
@@ -68,8 +68,8 @@
   }
 
   // The backstop the structure cannot give: a handler held past the switch
-  // (a confirm clicked as the session goes) checks first, and says so.
-  const refuseIfGone = () => { if (destroyed) throw new Error('that session is no longer on screen') }
+  // (a confirm clicked as the workspace goes) checks first, and says so.
+  const refuseIfGone = () => { if (destroyed) throw new Error('that workspace is no longer on screen') }
 
   /* Whatever is on screen about ONE browser's downloads, closed when that
      browser goes — a reap noticed in a push, or End browser. */
@@ -129,7 +129,7 @@
   })
 
   // Pushed updates. The first value is what the list already had.
-  let seen: SessionsPayload | null = untrack(() => live.data)
+  let seen: WorkspacesPayload | null = untrack(() => live.data)
   $effect(() => {
     const data = live.data
     if (!data || data === seen) return
@@ -138,7 +138,7 @@
   })
 
   const keepPath = (folder: Folder, f: FileEntry) =>
-    sessionPath(key, '/files/' + encodeURIComponent(folder) + '/' + encodeURIComponent(f.name) + '/keep')
+    workspacePath(key, '/files/' + encodeURIComponent(folder) + '/' + encodeURIComponent(f.name) + '/keep')
 
   async function keep(folder: Folder, f: FileEntry): Promise<boolean> {
     try {
@@ -157,7 +157,7 @@
       title: 'Delete a file', body: deleteBody, data: f.name, confirm: 'Delete', danger: true,
       onconfirm: async () => {
         refuseIfGone()
-        await api(sessionPath(key, '/files/' + encodeURIComponent(f.name)), 'DELETE')
+        await api(workspacePath(key, '/files/' + encodeURIComponent(f.name)), 'DELETE')
         if (resolve) resolve()
         else if (!destroyed) void m.loadFiles()
       },
@@ -176,7 +176,7 @@
         confirm: names.length ? 'Clear ' + names.length + ' file' + (names.length === 1 ? '' : 's') : 'Clear',
         onconfirm: async () => {
           refuseIfGone()
-          await api(sessionPath(key, '/files/downloads'), 'DELETE')
+          await api(workspacePath(key, '/files/downloads'), 'DELETE')
           if (!destroyed) void m.loadFiles()
         },
       })
@@ -187,7 +187,7 @@
         confirm: 'Delete ' + names.length + ' recording' + (names.length === 1 ? '' : 's'),
         onconfirm: async () => {
           refuseIfGone()
-          await api(sessionPath(key, '/files/recordings'), 'DELETE')
+          await api(workspacePath(key, '/files/recordings'), 'DELETE')
           if (!destroyed) void m.loadFiles()
         },
       })
@@ -198,18 +198,18 @@
         confirm: 'Delete ' + names.length + ' screenshot' + (names.length === 1 ? '' : 's'),
         onconfirm: async () => {
           refuseIfGone()
-          await api(sessionPath(key, '/files/screenshots'), 'DELETE')
+          await api(workspacePath(key, '/files/screenshots'), 'DELETE')
           if (!destroyed) void m.loadFiles()
         },
       })
     }
   }
 
-  /* Ending drops the browser, not the session: its next open carries on. */
+  /* Ending drops the browser, not the workspace: its next open carries on. */
   async function endBrowser() {
-    if (!confirm('End this browser? The session and its context are kept — whatever the browser was holding is lost.')) return
+    if (!confirm('End this browser? The workspace and its context are kept — whatever the browser was holding is lost.')) return
     try {
-      await api(sessionPath(key), 'DELETE')
+      await api(workspacePath(key, '/session'), 'DELETE')
     } catch (err) {
       alert('Could not end the browser: ' + (err as Error).message)
       return
@@ -282,27 +282,27 @@
 {/snippet}
 
 {#snippet clearRecordingsBody(names: string[])}
-  <p>Deletes {names.length === 1 ? 'the 1 recording' : 'all ' + names.length + ' recordings'} in this session. Anything you kept is in Files and stays.</p>
+  <p>Deletes {names.length === 1 ? 'the 1 recording' : 'all ' + names.length + ' recordings'} in this workspace. Anything you kept is in Files and stays.</p>
   <ul class="names">{#each names as n (n)}<li>{n}</li>{/each}</ul>
 {/snippet}
 
 {#snippet clearScreenshotsBody(names: string[])}
-  <p>Deletes {names.length === 1 ? 'the 1 screenshot' : 'all ' + names.length + ' screenshots'} in this session. Anything you kept is in Files and stays.</p>
+  <p>Deletes {names.length === 1 ? 'the 1 screenshot' : 'all ' + names.length + ' screenshots'} in this workspace. Anything you kept is in Files and stays.</p>
   <ul class="names">{#each names as n (n)}<li>{n}</li>{/each}</ul>
 {/snippet}
 
 <div id="detailView">
   <div class="row" style="margin-bottom:12px">
-    <button id="back" onclick={() => go(hashes.list)}>← Sessions</button>
+    <button id="back" onclick={() => go(hashes.list)}>← Workspaces</button>
     <span class="grow"></span>
     <button id="endBrowser" class="danger" disabled={!m.row.attached}
-            title="Quit this browser. The session and its context are kept." onclick={endBrowser}>End browser</button>
+            title="Quit this browser. The workspace and its context are kept." onclick={endBrowser}>End browser</button>
   </div>
-  <!-- Blank until this session's row arrives, from its load or a push. -->
-  <div id="detailHeader">{#if m.headed}<SessionSummary data={m.row} />{/if}</div>
+  <!-- Blank until this workspace's row arrives, from its load or a push. -->
+  <div id="detailHeader">{#if m.headed}<WorkspaceSummary data={m.row} />{/if}</div>
 
-  <div class="tabs subtabs" id="sessionTabs" role="tablist">
-    <button id="tabFiles" role="tab" aria-selected={tab === 'files'} onclick={() => go(hashes.session(key))}>Files <span id="filesTotal" class="count">{filesTotal}</span></button>
+  <div class="tabs subtabs" id="workspaceTabs" role="tablist">
+    <button id="tabFiles" role="tab" aria-selected={tab === 'files'} onclick={() => go(hashes.workspace(key))}>Files <span id="filesTotal" class="count">{filesTotal}</span></button>
     <button id="tabFlows" role="tab" aria-selected={tab === 'flows'} onclick={() => go(hashes.flows(key))}>Flows <span id="flowsTotal" class="count">{flowsTotal}</span></button>
     <button id="tabSiteData" role="tab" aria-selected={tab === 'site-data'} onclick={() => go(hashes.siteData(key))}>Site data <span id="siteDataTotal" class="count">{siteDataTotal}</span></button>
     <button id="tabHistory" role="tab" aria-selected={tab === 'history'} onclick={() => go(hashes.history(key))}>History <span id="historyTotal" class="count">{historyTotal}</span></button>

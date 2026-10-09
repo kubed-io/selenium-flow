@@ -1,16 +1,16 @@
 import { fireEvent, render, screen } from '@testing-library/svelte'
 import { expect, test, vi } from 'vitest'
-import SessionList from './SessionList.svelte'
+import WorkspaceList from './WorkspaceList.svelte'
 
 const row = { key: 'k1', name: 'claudecode', browser: 'chrome', version: '140', session_id: 'abc', live: true, counts: { downloads: 0, screenshots: 2, files: 1 }, url: 'https://x.y/' }
 
-test('No sessions yet.', () => {
-  render(SessionList, { data: { sessions: [] } })
-  expect(screen.getByText('No sessions yet.')).toBeInTheDocument()
+test('No workspaces yet.', () => {
+  render(WorkspaceList, { data: { workspaces: [] } })
+  expect(screen.getByText('No workspaces yet.')).toBeInTheDocument()
 })
 
 test('a card: mark, name pill, id, live, meta, url (L3, frozen selector)', () => {
-  const { container } = render(SessionList, { data: { sessions: [row, { key: 'k2', owner: 'stdio' }] } })
+  const { container } = render(WorkspaceList, { data: { workspaces: [row, { key: 'k2', owner: 'stdio' }] } })
   const [card, idle] = container.querySelectorAll('.card')
   expect(card.querySelector('.bmark')).toHaveAttribute('title', 'chrome')
   expect(card.querySelector('span.pill.name')).toHaveTextContent('claudecode')
@@ -25,13 +25,13 @@ test('a card: mark, name pill, id, live, meta, url (L3, frozen selector)', () =>
 
 test('picking is optional; without it the cards are plain (L3)', async () => {
   const onpick = vi.fn()
-  const r1 = render(SessionList, { data: { sessions: [row] }, onpick })
+  const r1 = render(WorkspaceList, { data: { workspaces: [row] }, onpick })
   expect(r1.container.querySelector('.card')).toHaveClass('click')
   await fireEvent.click(r1.container.querySelector('.card')!)
   expect(onpick).toHaveBeenCalledWith('k1')
   r1.unmount()
 
-  const { container } = render(SessionList, { data: { sessions: [row] } })
+  const { container } = render(WorkspaceList, { data: { workspaces: [row] } })
   const card = container.querySelector('.card')!
   expect(card).not.toHaveClass('click')
   await expect(fireEvent.click(card)).resolves.not.toThrow()
@@ -39,9 +39,9 @@ test('picking is optional; without it the cards are plain (L3)', async () => {
 })
 
 test('the card class attribute is exactly "card", or "card click" when pickable (frozen selector)', () => {
-  const r1 = render(SessionList, { data: { sessions: [row] }, onpick: () => {} })
+  const r1 = render(WorkspaceList, { data: { workspaces: [row] }, onpick: () => {} })
   expect(r1.container.querySelector('.card')!.getAttribute('class')).toBe('card click')
   r1.unmount()
-  const { container } = render(SessionList, { data: { sessions: [row] } })
+  const { container } = render(WorkspaceList, { data: { workspaces: [row] } })
   expect(container.querySelector('.card')!.getAttribute('class')).toBe('card')
 })

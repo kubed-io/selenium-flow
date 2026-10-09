@@ -4,7 +4,7 @@ import { deferred, fakeFetch } from '../test/helpers'
 import { createApi } from './api'
 import { resetFolds } from './folds.svelte'
 import { Live } from './live.svelte'
-import SessionDetail from './SessionDetail.svelte'
+import WorkspaceDetail from './WorkspaceDetail.svelte'
 
 const api = createApi({ base: '', token: () => 't', onUnauthorized: () => {} })
 afterEach(() => resetFolds())
@@ -14,7 +14,7 @@ const cookie = (name: string, value: string, extra = {}) =>
 const ORIGIN = 'https://the-internet.herokuapp.com'
 const GRAFANA = 'https://grafana.example.com'
 const detail = {
-  site: 'the-internet.herokuapp.com', uri: 'session://site-data/the-internet.herokuapp.com',
+  site: 'the-internet.herokuapp.com', uri: 'workspace://site-data/the-internet.herokuapp.com',
   cookies: [
     cookie('rack.session', '•••', { http_only: true, secure: true }),
     cookie('optimizelyEndUserId', 'oeu1', { domain: '.herokuapp.com', expiry: 1790800000, shared: true }),
@@ -24,7 +24,7 @@ const detail = {
 }
 const counted = (origin: string, local: number, session = 0) => ({ origin, local_storage: local, session_storage: session })
 const SITES = {
-  key: 'k', saved_at: Date.now() / 1000 - 120, uri: 'session://site-data',
+  key: 'k', saved_at: Date.now() / 1000 - 120, uri: 'workspace://site-data',
   sites: [
     { site: 'the-internet.herokuapp.com', uri: '', cookies: 2, storage: [counted(ORIGIN, 2)] },
     { site: 'grafana.example.com', uri: '', cookies: 5, storage: [counted(GRAFANA, 12)] },
@@ -38,15 +38,15 @@ const SITES = {
 }
 const row = { key: 'k', name: 'mine', live: true, attached: true, session_id: 'b1', files_rev: 1, flows_rev: 1, files_count: 0, site_data_count: 3, site_data_rev: 'r1' }
 const base = {
-  'GET /admin/sessions/k/files': { body: { session: row, downloads: [], screenshots: [], files: [], browser: true } },
-  'GET /admin/sessions/k/flows': { body: { enabled: true, flows: [], rev: 1, session: 'k' } },
-  'GET /admin/sessions/k/history': { body: { key: 'k', sites: [] } },
+  'GET /admin/workspaces/k/files': { body: { workspace: row, downloads: [], screenshots: [], files: [], browser: true } },
+  'GET /admin/workspaces/k/flows': { body: { enabled: true, flows: [], rev: 1, workspace: 'k' } },
+  'GET /admin/workspaces/k/history': { body: { key: 'k', sites: [] } },
 }
 
 function setup(routes = {}) {
-  const net = fakeFetch({ ...base, 'GET /admin/sessions/k/site-data': { body: SITES }, ...routes })
+  const net = fakeFetch({ ...base, 'GET /admin/workspaces/k/site-data': { body: SITES }, ...routes })
   const live = new Live(api, '')
-  const r = render(SessionDetail, { key: 'k', tab: 'site-data', flow: undefined, api, live, root: '' })
+  const r = render(WorkspaceDetail, { key: 'k', tab: 'site-data', flow: undefined, api, live, root: '' })
   return { ...r, ...net, live }
 }
 const sections = (c: HTMLElement) => [...c.querySelectorAll('#paneSiteData section.section')] as HTMLElement[]
@@ -108,7 +108,7 @@ test('expanded: cookies with dots for httpOnly, flags, expiry; storage; none', a
 test('the shared pill follows the payload: a site\'s own dotted cookie has none', async () => {
   const own = cookie('own', 'o', { domain: '.the-internet.herokuapp.com', shared: false })
   const d = { ...detail, cookies: [own, ...detail.cookies.slice(1)] }
-  const { container } = setup({ 'GET /admin/sessions/k/site-data': { body: { ...SITES, details: { ...SITES.details, [detail.site]: d } } } })
+  const { container } = setup({ 'GET /admin/workspaces/k/site-data': { body: { ...SITES, details: { ...SITES.details, [detail.site]: d } } } })
   await loaded(container)
   const a = within(sections(container)[0])
   expect(a.getByText('own').closest('.line')!.querySelector('.pill.shared')).toBeNull()
@@ -127,8 +127,8 @@ test('every row has Forget, and the tab shows no secrets and no "nothing saved"'
 })
 
 test('nothing saved: the drawn line, no pill, no Clear, a count of 0', async () => {
-  const none = { key: 'k', saved_at: null, uri: 'session://site-data', sites: [], details: {} }
-  const { container } = setup({ 'GET /admin/sessions/k/site-data': { body: none } })
+  const none = { key: 'k', saved_at: null, uri: 'workspace://site-data', sites: [], details: {} }
+  const { container } = setup({ 'GET /admin/workspaces/k/site-data': { body: none } })
   await vi.waitFor(() => expect(container.querySelector('#paneSiteData > p')).not.toBeNull())
   const line = container.querySelector('#paneSiteData > p')!
   expect(line).toHaveTextContent('Nothing saved — an agent calls save_site_data after signing in.')
@@ -138,7 +138,7 @@ test('nothing saved: the drawn line, no pill, no Clear, a count of 0', async () 
 })
 
 test('Forget confirms with goes and stays, then DELETEs the site and reloads', async () => {
-  const { container, calls } = setup({ 'DELETE /admin/sessions/k/site-data/the-internet.herokuapp.com': { body: { forgotten: {} } } })
+  const { container, calls } = setup({ 'DELETE /admin/workspaces/k/site-data/the-internet.herokuapp.com': { body: { forgotten: {} } } })
   await loaded(container)
   await fireEvent.click(within(sections(container)[0]).getByRole('button', { name: 'Forget' }))
   expect(modal().querySelector('.head')).toHaveTextContent('Forget site data')
@@ -151,12 +151,12 @@ test('Forget confirms with goes and stays, then DELETEs the site and reloads', a
   const gets = () => calls.filter((c) => c.method === 'GET' && c.path.endsWith('/site-data')).length
   const before = gets()
   await fireEvent.click(within(modal()).getByRole('button', { name: 'Forget' }))
-  await vi.waitFor(() => expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.path)).toEqual(['/admin/sessions/k/site-data/the-internet.herokuapp.com']))
+  await vi.waitFor(() => expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.path)).toEqual(['/admin/workspaces/k/site-data/the-internet.herokuapp.com']))
   await vi.waitFor(() => expect(gets()).toBe(before + 1))
 })
 
 test('Clear confirms with the hosts, then DELETEs the snapshot and reloads', async () => {
-  const { container, calls } = setup({ 'DELETE /admin/sessions/k/site-data': { body: { cleared: [] } } })
+  const { container, calls } = setup({ 'DELETE /admin/workspaces/k/site-data': { body: { cleared: [] } } })
   await loaded(container)
   await fireEvent.click(within(container.querySelector('#paneSiteData .bar') as HTMLElement).getByRole('button', { name: 'Clear' }))
   expect(modal().querySelector('.head')).toHaveTextContent('Clear site data')
@@ -165,14 +165,14 @@ test('Clear confirms with the hosts, then DELETEs the snapshot and reloads', asy
   const gets = () => calls.filter((c) => c.method === 'GET' && c.path.endsWith('/site-data')).length
   const before = gets()
   await fireEvent.click(within(modal()).getByRole('button', { name: 'Clear' }))
-  await vi.waitFor(() => expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.path)).toEqual(['/admin/sessions/k/site-data']))
+  await vi.waitFor(() => expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.path)).toEqual(['/admin/workspaces/k/site-data']))
   await vi.waitFor(() => expect(gets()).toBe(before + 1))
 })
 
 test('Forget and Clear reload History too: its saved pills would point at a gone row', async () => {
   const { container, calls } = setup({
-    'DELETE /admin/sessions/k/site-data/the-internet.herokuapp.com': { body: { forgotten: {} } },
-    'DELETE /admin/sessions/k/site-data': { body: { cleared: [] } },
+    'DELETE /admin/workspaces/k/site-data/the-internet.herokuapp.com': { body: { forgotten: {} } },
+    'DELETE /admin/workspaces/k/site-data': { body: { cleared: [] } },
   })
   await loaded(container)
   const history = () => calls.filter((c) => c.method === 'GET' && c.path.endsWith('/history')).length
@@ -200,7 +200,7 @@ test('a pushed site_data_rev change reloads; the same rev does not', async () =>
   await loaded(container)
   const gets = () => calls.filter((c) => c.method === 'GET' && c.path.endsWith('/site-data')).length
   expect(gets()).toBe(1)
-  const push = (rev: string) => { live.data = { sessions: [{ ...row, site_data_rev: rev }] } }
+  const push = (rev: string) => { live.data = { workspaces: [{ ...row, site_data_rev: rev }] } }
   push('r1')
   await new Promise((r) => setTimeout(r, 10))
   expect(gets()).toBe(1)
@@ -211,20 +211,20 @@ test('a pushed site_data_rev change reloads; the same rev does not', async () =>
 test('a failed load is retried by the next push at the same rev', async () => {
   let n = 0
   const { container, live } = setup({
-    'GET /admin/sessions/k/site-data': () => (++n <= 2 ? { status: 500, body: { error: 'flaky' } } : { body: SITES }),
+    'GET /admin/workspaces/k/site-data': () => (++n <= 2 ? { status: 500, body: { error: 'flaky' } } : { body: SITES }),
   })
   await vi.waitFor(() => expect(screen.getByText('flaky')).toBeInTheDocument())
-  live.data = { sessions: [{ ...row, site_data_rev: 'r1' }] }
+  live.data = { workspaces: [{ ...row, site_data_rev: 'r1' }] }
   await vi.waitFor(() => expect(n).toBe(2))
   await new Promise((r) => setTimeout(r, 10))
-  live.data = { sessions: [{ ...row, site_data_rev: 'r1', files_count: 1 }] }
+  live.data = { workspaces: [{ ...row, site_data_rev: 'r1', files_count: 1 }] }
   await loaded(container)
   expect(n).toBe(3)
 })
 
 test('an error shows in the pane, Loading… before', async () => {
   const d = deferred<{ status: number; body: unknown }>()
-  const { container } = setup({ 'GET /admin/sessions/k/site-data': () => d.promise })
+  const { container } = setup({ 'GET /admin/workspaces/k/site-data': () => d.promise })
   expect(within(container.querySelector('#paneSiteData') as HTMLElement).getByText('Loading…')).toBeInTheDocument()
   d.resolve({ status: 500, body: { error: 'nope' } })
   await vi.waitFor(() => expect(screen.getByText('nope')).toHaveClass('error'))
@@ -237,7 +237,7 @@ test('a parent-only row: its dotted cookie goes', async () => {
     sites: [{ site: 'example.com', uri: '', cookies: 1, storage: [] }],
     details: { 'example.com': { site: 'example.com', uri: '', cookies: [PARENT], storage: [], own_cookies: ['shared'], kept_shared: [] } },
   }
-  const { container } = setup({ 'GET /admin/sessions/k/site-data': { body: data } })
+  const { container } = setup({ 'GET /admin/workspaces/k/site-data': { body: data } })
   await loaded(container, 1)
   await fireEvent.click(within(sections(container)[0]).getByRole('button', { name: 'Forget' }))
   expect(pairs()).toEqual(['goesshared'])
@@ -247,8 +247,8 @@ test('after Forget the tab counts the reloaded payload, before any push', async 
   let n = 0
   const after = { ...SITES, sites: SITES.sites.slice(1) }
   const { container } = setup({
-    'GET /admin/sessions/k/site-data': () => ({ body: ++n === 1 ? SITES : after }),
-    'DELETE /admin/sessions/k/site-data/the-internet.herokuapp.com': { body: { forgotten: {} } },
+    'GET /admin/workspaces/k/site-data': () => ({ body: ++n === 1 ? SITES : after }),
+    'DELETE /admin/workspaces/k/site-data/the-internet.herokuapp.com': { body: { forgotten: {} } },
   })
   await loaded(container)
   expect(container.querySelector('#siteDataTotal')).toHaveTextContent('3')
@@ -263,8 +263,8 @@ test('forgetting the last host leaves the empty line, not a pill: saved_at stays
   const one = { ...SITES, sites: SITES.sites.slice(0, 1) }
   const emptied = { ...SITES, sites: [], details: {} }
   const { container } = setup({
-    'GET /admin/sessions/k/site-data': () => ({ body: ++n === 1 ? one : emptied }),
-    'DELETE /admin/sessions/k/site-data/the-internet.herokuapp.com': { body: { forgotten: {} } },
+    'GET /admin/workspaces/k/site-data': () => ({ body: ++n === 1 ? one : emptied }),
+    'DELETE /admin/workspaces/k/site-data/the-internet.herokuapp.com': { body: { forgotten: {} } },
   })
   await loaded(container, 1)
   expect(container.querySelector('#paneSiteData .bar .pill')).toHaveTextContent('saved 2m ago')
@@ -303,7 +303,7 @@ test('two shared cookies of one name both stay, each under its own domain', asyn
       },
     },
   }
-  const { container } = setup({ 'GET /admin/sessions/k/site-data': { body: data } })
+  const { container } = setup({ 'GET /admin/workspaces/k/site-data': { body: data } })
   await loaded(container, 1)
   await fireEvent.click(within(sections(container)[0]).getByRole('button', { name: 'Forget' }))
   expect(pairs()).toEqual([
@@ -320,7 +320,7 @@ test('one host on two ports: a storage group per origin, each labelled, the host
     sites: [{ site: 'localhost', uri: '', cookies: 0, storage: [counted('http://localhost:3000', 1), counted('http://localhost:8080', 1)] }],
     details: { localhost: { site: 'localhost', uri: '', cookies: [], own_cookies: [], kept_shared: [], storage: [dev(3000, { k: 'a' }), dev(8080, { k: 'b' })] } },
   }
-  const { container } = setup({ 'GET /admin/sessions/k/site-data': { body: data } })
+  const { container } = setup({ 'GET /admin/workspaces/k/site-data': { body: data } })
   await loaded(container, 1)
   const [s] = sections(container)
   expect(s.querySelector('.title')).toHaveTextContent('localhost')

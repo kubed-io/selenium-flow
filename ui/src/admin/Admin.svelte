@@ -6,8 +6,8 @@
   import Login from './Login.svelte'
   import { go, hashes, router, sync } from './router.svelte'
   import SecretsPane from './SecretsPane.svelte'
-  import SessionDetail from './SessionDetail.svelte'
-  import SessionsView from './SessionsView.svelte'
+  import WorkspaceDetail from './WorkspaceDetail.svelte'
+  import WorkspacesView from './WorkspacesView.svelte'
   import SettingsPane from './SettingsPane.svelte'
 
   let { mount, console: consoleUrl }: { mount: string; console: string } = $props()
@@ -47,7 +47,7 @@
   async function signIn(value: string) {
     token = value
     try {
-      await api('/admin/sessions')
+      await api('/admin/workspaces')
       sessionStorage.setItem('sf-token', token)
       refused = false
       phase = 'in'
@@ -58,20 +58,20 @@
 
   onMount(() => {
     sync()
-    if (phase === 'probing') api('/admin/sessions').then(() => { phase = 'in' }, () => { phase = 'login' })
+    if (phase === 'probing') api('/admin/workspaces').then(() => { phase = 'in' }, () => { phase = 'login' })
   })
 
   const route = $derived(router.route)
-  const top = $derived(route.view === 'secrets' ? 'secrets' : route.view === 'settings' ? 'settings' : route.view === 'console' && !consoleSelf ? 'console' : 'sessions')
+  const top = $derived(route.view === 'secrets' ? 'secrets' : route.view === 'settings' ? 'settings' : route.view === 'console' && !consoleSelf ? 'console' : 'workspaces')
 
   // The list reloads whenever it (or the console, which sits on the same live
-  // stream) comes on screen; a deep link into a session starts the stream too.
+  // stream) comes on screen; a deep link into a workspace starts the stream too.
   // `live.watching` must stay the last operand: it's read only for the
-  // session branch, so a list or console load never re-triggers this effect
+  // workspace branch, so a list or console load never re-triggers this effect
   // by way of the very state its own `live.load()` call goes on to update.
   $effect(() => {
     if (phase !== 'in') return
-    if (route.view === 'list' || route.view === 'console' || (route.view === 'session' && !live.watching)) void live.load()
+    if (route.view === 'list' || route.view === 'console' || (route.view === 'workspace' && !live.watching)) void live.load()
   })
 </script>
 
@@ -87,21 +87,21 @@
 {:else if phase === 'in'}
   <main id="app" class="wrap">
     <div class="tabs" role="tablist">
-      <button id="tabSessions" role="tab" aria-selected={top === 'sessions'} onclick={() => go(hashes.list)}>Sessions</button>
+      <button id="tabWorkspaces" role="tab" aria-selected={top === 'workspaces'} onclick={() => go(hashes.list)}>Workspaces</button>
       <button id="tabSecrets" role="tab" aria-selected={top === 'secrets'} onclick={() => go(hashes.secrets)}>Secrets</button>
       <button id="tabSettings" role="tab" aria-selected={top === 'settings'} onclick={() => go(hashes.settings)}>Settings</button>
       <button id="tabConsole" role="tab" aria-selected={top === 'console'} hidden={consoleSelf} onclick={() => go(hashes.console)}>Grid console</button>
     </div>
-    {#if top === 'sessions'}
-      <section id="paneSessions">
-        {#if route.view === 'session'}
-          <!-- Keyed: a switch destroys the old session's subtree — its loads,
+    {#if top === 'workspaces'}
+      <section id="paneWorkspaces">
+        {#if route.view === 'workspace'}
+          <!-- Keyed: a switch destroys the old workspace's subtree — its loads,
                its lightbox, its modal — and builds the new one from nothing. -->
           {#key route.key}
-            <SessionDetail key={route.key} tab={route.tab} flow={route.flow} site={route.site} {api} {live} root={ROOT} />
+            <WorkspaceDetail key={route.key} tab={route.tab} flow={route.flow} site={route.site} {api} {live} root={ROOT} />
           {/key}
         {:else}
-          <SessionsView {live} />
+          <WorkspacesView {live} />
         {/if}
       </section>
     {:else if top === 'secrets'}

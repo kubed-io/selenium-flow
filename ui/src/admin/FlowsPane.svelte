@@ -1,19 +1,19 @@
 <script lang="ts">
-  import { sessionPath, type Api } from './api'
+  import { workspacePath, type Api } from './api'
   import { listed, mapping } from './flow'
   import type { ModalSpec } from './modal'
   import ParamDetail from './ParamDetail.svelte'
   import ParamRow from './ParamRow.svelte'
-  import type { SessionModel } from './session.svelte'
+  import type { WorkspaceModel } from './workspace.svelte'
   import StepDetail from './StepDetail.svelte'
   import StepRow from './StepRow.svelte'
 
-  /* Rendered once per SessionDetail, which is itself keyed by session, so
-     every prop here belongs to one session for this component's whole life: a
+  /* Rendered once per WorkspaceDetail, which is itself keyed by workspace, so
+     every prop here belongs to one workspace for this component's whole life: a
      confirm that awaits and then reads `isGone`, `onclosed` or `reload` reads
-     its own session's, never the one on screen since. */
+     its own workspace's, never the one on screen since. */
   let { m, flowName, api, ask, refuseIfGone, isGone, onpick, onclosed, reload }: {
-    m: SessionModel
+    m: WorkspaceModel
     flowName: string | null
     api: Api
     ask: <T>(spec: ModalSpec<T>) => void
@@ -42,10 +42,10 @@
   const required = $derived(f ? listed(mapping(f.parameters).required) : [])
   const names = $derived(Object.keys(declared))
   const steps = $derived(f ? listed(f.steps) : [])
-  // `global` is a folder like any other; a session literally named `global` IS
+  // `global` is a folder like any other; a workspace literally named `global` IS
   // the shared library, so the move would go nowhere.
-  const canMove = $derived(!m.flows || m.flows.session !== 'global')
-  const moveSaid = $derived(f?.shared ? 'Move to this session' : 'Move to global')
+  const canMove = $derived(!m.flows || m.flows.workspace !== 'global')
+  const moveSaid = $derived(f?.shared ? 'Move to this workspace' : 'Move to global')
 
   /* A param row and a step row are one control in two sections; the "used by"
      rows in the pane are step rows too, so a click there jumps to the step.
@@ -68,7 +68,7 @@
 
   async function edit() {
     const doc = f!
-    const path = sessionPath(m.key, '/flows/' + encodeURIComponent(doc.name))
+    const path = workspacePath(m.key, '/flows/' + encodeURIComponent(doc.name))
     // Read again: the editor's Save is a blind PUT, and the copy on screen can
     // be minutes old (§F1.40 records the rest). The raw file, comments and all.
     let fresh: { yaml?: string }
@@ -91,13 +91,13 @@
 
   function move() {
     const doc = f!
-    const to = doc.shared ? String(m.flows!.session) : 'global'
+    const to = doc.shared ? String(m.flows!.workspace) : 'global'
     ask({
-      title: doc.shared ? 'Move to this session' : 'Move to global', body: moveBody,
+      title: doc.shared ? 'Move to this workspace' : 'Move to global', body: moveBody,
       data: { shared: !!doc.shared, to }, confirm: 'Move',
       onconfirm: async () => {
         refuseIfGone()
-        await api(sessionPath(m.key, '/flows/' + encodeURIComponent(doc.name) + '/move'), 'POST', { to })
+        await api(workspacePath(m.key, '/flows/' + encodeURIComponent(doc.name) + '/move'), 'POST', { to })
         if (!isGone()) await onclosed()
       },
     })
@@ -110,7 +110,7 @@
       confirm: 'Delete', danger: true,
       onconfirm: async () => {
         refuseIfGone()
-        await api(sessionPath(m.key, '/flows/' + encodeURIComponent(doc.name)), 'DELETE')
+        await api(workspacePath(m.key, '/flows/' + encodeURIComponent(doc.name)), 'DELETE')
         if (!isGone()) await onclosed()
       },
     })
@@ -118,8 +118,8 @@
 </script>
 
 {#snippet editorBody()}<textarea class="yaml" spellcheck="false" bind:value={draft}></textarea>{/snippet}
-{#snippet moveBody(d: { shared: boolean; to: string })}{#if d.shared}<p>It moves out of the shared library into <strong>{d.to}</strong>. Other sessions stop seeing it.</p>{:else}<p>It moves into the shared <strong>global</strong> library, where every session can list and run it. No agent can change what is in there — only an operator, here.</p>{/if}{/snippet}
-{#snippet dropBody(label: string)}<p>It is removed from the folder it lives in. A flow in the <strong>global</strong> folder goes for every session, not just this one.</p><ul class="names"><li>{label}</li></ul>{/snippet}
+{#snippet moveBody(d: { shared: boolean; to: string })}{#if d.shared}<p>It moves out of the shared library into <strong>{d.to}</strong>. Other workspaces stop seeing it.</p>{:else}<p>It moves into the shared <strong>global</strong> library, where every workspace can list and run it. No agent can change what is in there — only an operator, here.</p>{/if}{/snippet}
+{#snippet dropBody(label: string)}<p>It is removed from the folder it lives in. A flow in the <strong>global</strong> folder goes for every workspace, not just this one.</p><ul class="names"><li>{label}</li></ul>{/snippet}
 
 <!-- No whitespace between sibling tags, as today's markup: between inline
      elements it would render as a gap. A list item shows the globe only where

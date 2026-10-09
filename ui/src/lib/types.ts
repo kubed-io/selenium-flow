@@ -19,7 +19,7 @@ export interface FilesData {
 
 export interface Counts { downloads: number; screenshots: number; recordings?: number; files: number }
 
-export interface SessionRow {
+export interface WorkspaceRow {
   key: string
   name?: string | null
   owner?: string | null
@@ -43,10 +43,10 @@ export interface SessionRow {
   history_rev?: string | null
 }
 
-export interface SessionsPayload { sessions: SessionRow[]; events_url?: string }
+export interface WorkspacesPayload { workspaces: WorkspaceRow[]; events_url?: string }
 
 export interface FilesResponse {
-  session?: SessionRow
+  workspace?: WorkspaceRow
   downloads?: FileEntry[]
   screenshots?: FileEntry[]
   recordings?: FileEntry[]
@@ -55,7 +55,7 @@ export interface FilesResponse {
 }
 
 export interface FlowSummary { name: string; step_count: number; shared?: boolean }
-export interface FlowsListing { enabled: boolean; flows?: FlowSummary[]; session?: string; rev?: string | number | null }
+export interface FlowsListing { enabled: boolean; flows?: FlowSummary[]; workspace?: string; rev?: string | number | null }
 
 /** A stored flow, as edited by a person: nothing about its shape is guaranteed (§F1.6). */
 export interface FlowDoc {
@@ -82,7 +82,7 @@ export interface Secret {
 }
 // `secret://secrets`, as `show` hands it to the app.
 export interface SecretsData {
-  session: string
+  workspace: string
   count: number
   secrets: Secret[]
 }
@@ -151,7 +151,7 @@ export interface SiteDataPayload {
 
 /** What the snapshot holds for one host, as History's pill counts it. */
 export interface SavedCounts { cookies: number; local: number; session: number }
-/** A host the session landed on: its latest page, and what can be used there. */
+/** A host the workspace landed on: its latest page, and what can be used there. */
 export interface HistoryRow {
   site: string
   url: string
@@ -164,7 +164,7 @@ export interface HistoryPayload { key: string; sites: HistoryRow[]; clears: stri
 
 /* What `show` hands each view: the resource's own JSON, as the server writes it. */
 export interface ContextData {
-  session: string
+  workspace: string
   named_by?: string | null
   principal?: { kind: string; username?: string | null; subject?: string | null } | null
   browser?: string | null
@@ -181,14 +181,14 @@ export interface ContextData {
 export interface FolderRef { name: string; uri: string; count: number; browser?: boolean }
 
 export interface FilesRootData {
-  session: string | null
+  workspace: string | null
   count: number
   files: FileEntry[]
   folders: FolderRef[]
 }
 
 export interface FolderData {
-  session: string | null
+  workspace: string | null
   folder: string
   uri: string
   count: number
@@ -200,14 +200,14 @@ export interface FlowParam { type?: unknown; default?: unknown; description?: un
 
 export interface FlowCard {
   name: string
-  session?: string
+  workspace?: string
   description?: string
   /** As the file holds it: read with `flowParams`. */
   parameters?: unknown
   step_count: number
   shared?: boolean
 }
-export interface FlowsData { session: string; count: number; flows: FlowCard[] }
+export interface FlowsData { workspace: string; count: number; flows: FlowCard[] }
 
 export interface FlowStep {
   tool?: unknown
@@ -219,7 +219,7 @@ export interface FlowStep {
 /** A stored flow as the file holds it: `parameters` and `steps` are unvetted (§F1.6). */
 export interface FlowData {
   name: string
-  session?: string
+  workspace?: string
   shared?: boolean
   description?: string
   parameters?: unknown

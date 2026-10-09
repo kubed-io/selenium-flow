@@ -6,7 +6,7 @@
   import Lightbox from './Lightbox.svelte'
   import type { FileEntry } from './types'
 
-  let { files, base = '', action, empty = 'No files in this session yet.', layout = 'grid', onopen, onkeep, ondelete }: {
+  let { files, base = '', action, empty = 'No files in this workspace yet.', layout = 'grid', onopen, onkeep, ondelete }: {
     files: FileEntry[]
     base?: string
     /** `row`: one horizontal strip, for an inline app view that must not grow tall. */

@@ -1,4 +1,4 @@
-import type { SessionRow } from './types'
+import type { WorkspaceRow } from './types'
 
 const GLYPH: Record<string, string> = {
   pdf: '📄', png: '🖼️', jpg: '🖼️', jpeg: '🖼️', gif: '🖼️', webp: '🖼️', svg: '🖼️',
@@ -43,7 +43,7 @@ export function ago(ms?: number | null, now = Date.now()): string {
 
 /* Each folder gets its own word — any one can be zero without the others
    being. Older rows carry only files_count. */
-export function countsText(s: SessionRow): string {
+export function countsText(s: WorkspaceRow): string {
   const c = s.counts
   if (c) {
     return ([[c.downloads, ' download'], [c.screenshots, ' screenshot'], [c.recordings ?? 0, ' recording'], [c.files, ' file']] as const)
@@ -55,7 +55,7 @@ export function countsText(s: SessionRow): string {
     ? '' : s.files_count + ' file' + (s.files_count === 1 ? '' : 's')
 }
 
-export function metaLine(s: SessionRow, now = Date.now()): string {
+export function metaLine(s: WorkspaceRow, now = Date.now()): string {
   const meta = countsText(s)
   return [s.browser, s.version].filter(Boolean).join(' ')
     + (meta ? ' · ' + meta : '')
@@ -63,8 +63,8 @@ export function metaLine(s: SessionRow, now = Date.now()): string {
     + (s.node ? ' · ' + s.node : '')
 }
 
-/* The headline is the session, not the browser: a session outlives its browsers. */
-export const sessionLabel = (s: SessionRow): string => s.name || s.owner || 'session'
+/* The headline is the workspace, not the browser: a workspace outlives its browsers. */
+export const workspaceLabel = (s: WorkspaceRow): string => s.name || s.owner || 'workspace'
 
 /* One line for a step: the first string argument (a selector, url or text),
    a selector object read as its xpath or css. */
