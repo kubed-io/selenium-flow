@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest'
 import { fakeFetch } from '../test/helpers'
-import { createApi, workspacePath } from './api'
+import { ApiError, createApi, workspacePath } from './api'
 
 test('every call carries the bearer token and hangs off BASE', async () => {
   const { calls } = fakeFetch({ 'GET /flow/admin/workspaces': { body: { workspaces: [] } } })
@@ -32,4 +32,12 @@ test("a failure says the server's own words, else the status (A5)", async () => 
 
 test('workspacePath encodes the key', () => {
   expect(workspacePath('a b/c', '/files')).toBe('/admin/workspaces/a%20b%2Fc/files')
+})
+
+test('a refusal carries its status, so a 403 can be told from the rest', async () => {
+  fakeFetch({ 'GET /x': { status: 403, body: { error: 'this sign-in does not hold an admin role' } } })
+  const failed = await createApi({ base: '', token: () => 't', onUnauthorized: () => {} })('/x').catch((e) => e)
+  expect(failed).toBeInstanceOf(ApiError)
+  expect(failed.status).toBe(403)
+  expect(failed.message).toBe('this sign-in does not hold an admin role')
 })

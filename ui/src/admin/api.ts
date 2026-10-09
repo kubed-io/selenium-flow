@@ -1,5 +1,14 @@
 export type Api = <T = unknown>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => Promise<T>
 
+/* A refused call: the server's own message, and the status that says what kind of no. */
+export class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
 export function createApi(opts: { base: string; token: () => string; onUnauthorized: () => void }): Api {
   return async function api<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
     const res = await fetch(opts.base + path, {
@@ -11,12 +20,12 @@ export function createApi(opts: { base: string; token: () => string; onUnauthori
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
-    if (res.status === 401) { opts.onUnauthorized(); throw new Error('unauthorized') }
+    if (res.status === 401) { opts.onUnauthorized(); throw new ApiError('unauthorized', 401) }
     if (!res.ok) {
       // The server's own message: it names the rule an operator hit.
       let said = ''
       try { said = (await res.json()).error || '' } catch { /* not JSON */ }
-      throw new Error(said || 'request failed (' + res.status + ')')
+      throw new ApiError(said || 'request failed (' + res.status + ')', res.status)
     }
     return res.json() as Promise<T>
   }
