@@ -684,7 +684,7 @@
         "type": "object"
       },
       "FileList": {
-        "description": "session://files: Files' own listing, and its three folders.",
+        "description": "workspace://files: Files' own listing, and its three folders.",
         "properties": {
           "count": {
             "type": "integer"
@@ -1032,7 +1032,7 @@
         "type": "object"
       },
       "FolderList": {
-        "description": "One folder's own listing: session://files/screenshots, /recordings or /downloads.",
+        "description": "One folder's own listing: workspace://files/screenshots, /recordings or /downloads.",
         "properties": {
           "browser": {
             "description": "Present on downloads only: whether a browser is open to read them from.",
@@ -2227,7 +2227,7 @@
             "type": "string"
           },
           "uri": {
-            "description": "session://site-data, which lists what is saved.",
+            "description": "workspace://site-data, which lists what is saved.",
             "type": "string"
           },
           "url": {
@@ -2553,117 +2553,8 @@
         },
         "type": "object"
       },
-      "SessionStatus": {
-        "properties": {
-          "browser": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "guidance": {
-            "description": "The skill reference that explains sessions.",
-            "type": "string"
-          },
-          "in_frame": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "live": {
-            "description": "Whether a session is open in this workspace.",
-            "type": "boolean"
-          },
-          "named_by": {
-            "description": "Which mechanism supplied the name.",
-            "enum": [
-              "header",
-              "query",
-              "stdio",
-              "request"
-            ],
-            "type": "string"
-          },
-          "principal": {
-            "description": "Who the credential says you are: kind admin or oidc, with subject and username for oidc. Null on an open server.",
-            "properties": {
-              "kind": {
-                "enum": [
-                  "admin",
-                  "oidc"
-                ],
-                "type": "string"
-              },
-              "subject": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "username": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              }
-            },
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "recording": {
-            "description": "Whether the browser this workspace holds is being recorded.",
-            "type": "boolean"
-          },
-          "settings": {
-            "type": "object"
-          },
-          "site_data": {
-            "description": "Present only when the workspace has saved site data.",
-            "properties": {
-              "sites": {
-                "description": "How many sites have saved data.",
-                "type": "integer"
-              },
-              "uri": {
-                "description": "Where to read what is saved.",
-                "type": "string"
-              }
-            },
-            "type": "object"
-          },
-          "store": {
-            "enum": [
-              "memory",
-              "redis"
-            ],
-            "type": "string"
-          },
-          "url": {
-            "description": "The page it is on.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "window": {
-            "description": "Window size as WxH, when one is known.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "workspace": {
-            "description": "The name you called with.",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
       "SiteData": {
-        "description": "session://site-data/{site}: one site in full. An httpOnly cookie's value is shown as •••.",
+        "description": "workspace://site-data/{site}: one site in full. An httpOnly cookie's value is shown as •••.",
         "properties": {
           "cookies": {
             "items": {
@@ -2769,7 +2660,7 @@
         "type": "object"
       },
       "SiteList": {
-        "description": "session://site-data: one entry per site the last save holds data for, counts only, the sites the workspace went to first.",
+        "description": "workspace://site-data: one entry per site the last save holds data for, counts only, the sites the workspace went to first.",
         "properties": {
           "saved_at": {
             "description": "When the snapshot was saved, in epoch seconds.",
@@ -2992,6 +2883,115 @@
           },
           "url": {
             "description": "Current URL after the action.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "WorkspaceStatus": {
+        "properties": {
+          "browser": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "guidance": {
+            "description": "The skill reference that explains sessions.",
+            "type": "string"
+          },
+          "in_frame": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "live": {
+            "description": "Whether a session is open in this workspace.",
+            "type": "boolean"
+          },
+          "named_by": {
+            "description": "Which mechanism supplied the name.",
+            "enum": [
+              "header",
+              "query",
+              "stdio",
+              "request"
+            ],
+            "type": "string"
+          },
+          "principal": {
+            "description": "Who the credential says you are: kind admin or oidc, with subject and username for oidc. Null on an open server.",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "admin",
+                  "oidc"
+                ],
+                "type": "string"
+              },
+              "subject": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "username": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "recording": {
+            "description": "Whether the browser this workspace holds is being recorded.",
+            "type": "boolean"
+          },
+          "settings": {
+            "type": "object"
+          },
+          "site_data": {
+            "description": "Present only when the workspace has saved site data.",
+            "properties": {
+              "sites": {
+                "description": "How many sites have saved data.",
+                "type": "integer"
+              },
+              "uri": {
+                "description": "Where to read what is saved.",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "store": {
+            "enum": [
+              "memory",
+              "redis"
+            ],
+            "type": "string"
+          },
+          "url": {
+            "description": "The page it is on.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "window": {
+            "description": "Window size as WxH, when one is known.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "workspace": {
+            "description": "The name you called with.",
             "type": "string"
           }
         },
@@ -3245,7 +3245,7 @@
       },
       "get": {
         "description": "The browser session this client is currently using.\n\nReturns the session name, which browser it is, the page it is on, the window size as WxH, whether it is inside a frame, and whether a browser is currently open (live). Read it before judging anything about layout — the window is not a fixed size and is what decides whether something is off-screen.\n\nReading this never opens a browser: live is false when none is held yet.",
-        "operationId": "currentSession",
+        "operationId": "currentWorkspace",
         "parameters": [
           {
             "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
@@ -3271,7 +3271,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionStatus"
+                  "$ref": "#/components/schemas/WorkspaceStatus"
                 }
               }
             },
@@ -3302,10 +3302,10 @@
         "tags": [
           "browser"
         ],
-        "x-mcp-resource": "session://current"
+        "x-mcp-resource": "workspace://current"
       },
       "post": {
-        "description": "Start this workspace's browser, or come back to the one it had. Call it\nbefore anything else: nothing opens a browser for you.\n\nWith no arguments it returns to the same browser, window and page, which is\nthe right call after a browser was reaped or ended. Calling it while you\nhold a browser ends that one first, which is how you switch:\nopen_session(browser=\"firefox\"). Files that browser had and you did not keep\ngo with it.\n\nSet width and height when layout matters; the headless default is narrow.\nfresh=true starts on about:blank. Saved site data comes back by default;\nrestore_site_data=false opens without it and deletes it, which is how you\nstart as a new user. page_load_timeout bounds a navigation that\nhangs. insecure=true accepts a self-signed certificate; use it only for a site\nyou know has one. An insecure browser gets no saved site data.\nrecord=true films this browser's whole life as a video, from now until it\nends; it appears under session://files/recordings shortly after. A person\nwatches it, so only when one will — it costs the Grid. Not inherited: ask\nagain for the next browser.",
+        "description": "Start a session in this workspace, or come back to the one it had. Call it\nbefore anything else: nothing opens a browser for you.\n\nWith no arguments it returns to the same browser, window and page, which is\nthe right call after a browser was reaped or ended. Calling it while you\nhold a browser ends that one first, which is how you switch:\nopen_session(browser=\"firefox\"). Files that browser had and you did not keep\ngo with it.\n\nSet width and height when layout matters; the headless default is narrow.\nfresh=true starts on about:blank. Saved site data comes back by default;\nrestore_site_data=false opens without it and deletes it, which is how you\nstart as a new user. page_load_timeout bounds a navigation that\nhangs. insecure=true accepts a self-signed certificate; use it only for a site\nyou know has one. An insecure browser gets no saved site data.\nrecord=true films this browser's whole life as a video, from now until it\nends; it appears under workspace://files/recordings shortly after. A person\nwatches it, so only when one will — it costs the Grid. Not inherited: ask\nagain for the next browser.",
         "operationId": "open_session",
         "parameters": [
           {
@@ -3346,7 +3346,7 @@
                 }
               }
             },
-            "description": "Open this workspace's browser, or pick up the one it was using."
+            "description": "Open a session in this workspace, or pick up the one it was using."
           },
           "400": {
             "content": {
@@ -3389,7 +3389,7 @@
             "description": "The Grid could not serve this — unreachable, or no free slot for a new browser. Worth retrying after a wait."
           }
         },
-        "summary": "Open this workspace's browser, or pick up the one it was using.",
+        "summary": "Open a session in this workspace, or pick up the one it was using.",
         "tags": [
           "browser"
         ],
@@ -3850,7 +3850,7 @@
     },
     "/browser/frame": {
       "post": {
-        "description": "Move into an iframe (switch, with a selector or an index), up one level (parent), or back to the page (default).\n\nElements inside a frame are invisible to every tool until you switch in, and the switch sticks for every later call. If a selector that should work keeps failing, read session://current: in_frame says where you are.",
+        "description": "Move into an iframe (switch, with a selector or an index), up one level (parent), or back to the page (default).\n\nElements inside a frame are invisible to every tool until you switch in, and the switch sticks for every later call. If a selector that should work keeps failing, read workspace://current: in_frame says where you are.",
         "operationId": "frame",
         "parameters": [
           {
@@ -4657,7 +4657,7 @@
     },
     "/browser/save-site-data": {
       "post": {
-        "description": "Save this workspace's site data, so a new browser comes back signed in.\n\nIt keeps every cookie the browser holds, the localStorage of the sites it has\nbeen to, and the sessionStorage of the page it is on. Call it right after a\nsign-in is confirmed, and after changing a setting you want kept; never before\nchecking you landed, or you keep a failed sign-in.\n\nOne save covers every site a call ended on, while the workspace keeps its\nhistory (a day by default, 100 sites): one passed through inside a call is not\nread, and one last visited longer ago loses its storage at the next save, its\ncookies staying. Each save replaces the last, so a save after signing out\nsaves you signed out. Every browser opened for this workspace has it back before\nopen_session returns, the one that replaces a reaped browser included. Values\nare never returned; session://site-data lists what is saved.",
+        "description": "Save this workspace's site data, so a new browser comes back signed in.\n\nIt keeps every cookie the browser holds, the localStorage of the sites it has\nbeen to, and the sessionStorage of the page it is on. Call it right after a\nsign-in is confirmed, and after changing a setting you want kept; never before\nchecking you landed, or you keep a failed sign-in.\n\nOne save covers every site a call ended on, while the workspace keeps its\nhistory (a day by default, 100 sites): one passed through inside a call is not\nread, and one last visited longer ago loses its storage at the next save, its\ncookies staying. Each save replaces the last, so a save after signing out\nsaves you signed out. Every browser opened for this workspace has it back before\nopen_session returns, the one that replaces a reaped browser included. Values\nare never returned; workspace://site-data lists what is saved.",
         "operationId": "save_site_data",
         "parameters": [
           {
@@ -4996,7 +4996,7 @@
     },
     "/browser/upload": {
       "post": {
-        "description": "Attach a file to a file input (selector). Give exactly one source:\n\n- text, for anything you wrote (JSON, CSV, markdown), with a filename;\n- file, any file this workspace has, by its uri from session://files — a\n  screenshot, a download or a file in Files — without its bytes passing\n  through you;\n- content, base64, for other binary.\n\nThe page reads the type from the filename's extension, so name it\nreport.csv, not report; without one, mime_type picks it.",
+        "description": "Attach a file to a file input (selector). Give exactly one source:\n\n- text, for anything you wrote (JSON, CSV, markdown), with a filename;\n- file, any file this workspace has, by its uri from workspace://files — a\n  screenshot, a download or a file in Files — without its bytes passing\n  through you;\n- content, base64, for other binary.\n\nThe page reads the type from the filename's extension, so name it\nreport.csv, not report; without one, mime_type picks it.",
         "operationId": "upload_file",
         "parameters": [
           {
@@ -5260,7 +5260,7 @@
     },
     "/files": {
       "get": {
-        "description": "Everything kept in Files, newest first, plus a count for session://files/screenshots, session://files/recordings and session://files/downloads — each its own listing, fetched separately so a caller who only wants to know whether there is anything to look at need not pay for either.",
+        "description": "Everything kept in Files, newest first, plus a count for workspace://files/screenshots, workspace://files/recordings and workspace://files/downloads — each its own listing, fetched separately so a caller who only wants to know whether there is anything to look at need not pay for either.",
         "operationId": "listFiles",
         "parameters": [
           {
@@ -5348,7 +5348,7 @@
         "tags": [
           "files"
         ],
-        "x-mcp-resource": "session://files"
+        "x-mcp-resource": "workspace://files"
       }
     },
     "/files/downloads": {
@@ -5441,7 +5441,7 @@
         "tags": [
           "files"
         ],
-        "x-mcp-resource": "session://files/downloads"
+        "x-mcp-resource": "workspace://files/downloads"
       }
     },
     "/files/recordings": {
@@ -5534,7 +5534,7 @@
         "tags": [
           "files"
         ],
-        "x-mcp-resource": "session://files/recordings"
+        "x-mcp-resource": "workspace://files/recordings"
       }
     },
     "/files/screenshots": {
@@ -5627,7 +5627,7 @@
         "tags": [
           "files"
         ],
-        "x-mcp-resource": "session://files/screenshots"
+        "x-mcp-resource": "workspace://files/screenshots"
       }
     },
     "/files/{folder}/{name}/kept": {
@@ -6458,7 +6458,7 @@
     },
     "/site-data": {
       "get": {
-        "description": "What this session's last save_site_data holds: one entry per site with counts, never a value; the sites the session went to come first. Every browser this session opens has it back before open_session returns.\n\nsession://site-data/{site} shows one site in full. Reading this never opens a browser.",
+        "description": "What this session's last save_site_data holds: one entry per site with counts, never a value; the sites the session went to come first. Every browser this session opens has it back before open_session returns.\n\nworkspace://site-data/{site} shows one site in full. Reading this never opens a browser.",
         "operationId": "listSiteData",
         "parameters": [
           {
@@ -6526,12 +6526,12 @@
         "tags": [
           "browser"
         ],
-        "x-mcp-resource": "session://site-data"
+        "x-mcp-resource": "workspace://site-data"
       }
     },
     "/site-data/{site}": {
       "get": {
-        "description": "One site's saved data: its cookies, and the localStorage and sessionStorage of each of its origins. An httpOnly cookie's value is shown as •••; nothing else is hidden. The site is a host from the session://site-data listing.",
+        "description": "One site's saved data: its cookies, and the localStorage and sessionStorage of each of its origins. An httpOnly cookie's value is shown as •••; nothing else is hidden. The site is a host from the workspace://site-data listing.",
         "operationId": "getSiteData",
         "parameters": [
           {
@@ -6608,7 +6608,7 @@
         "tags": [
           "browser"
         ],
-        "x-mcp-resource": "session://site-data/{site}"
+        "x-mcp-resource": "workspace://site-data/{site}"
       }
     },
     "/started": {

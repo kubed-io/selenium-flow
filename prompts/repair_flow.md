@@ -20,7 +20,7 @@ A flow breaks for one of two reasons, and they have different fixes: the page
 changed under it, or the flow is being run somewhere it was not written for.
 Find out which before editing anything.
 
-1. **Check what you are holding.** Read `session://current`. A flow never opens
+1. **Check what you are holding.** Read `workspace://current`. A flow never opens
    a browser: if yours was reaped or ended, `open_session()` first — with no
    arguments it comes back where it was.
 2. Read the flow: `flow://flows/{{ flow }}`. Note what each step addresses

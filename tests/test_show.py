@@ -47,11 +47,11 @@ def secrets_server(tmp_path, named_caller):
 @pytest.mark.parametrize(
     ("uri", "component"),
     [
-        ("session://current", "context"),
-        ("session://files", "files"),
-        ("session://files/screenshots", "folder"),
-        ("session://files/recordings", "folder"),
-        ("session://files/downloads", "folder"),
+        ("workspace://current", "context"),
+        ("workspace://files", "files"),
+        ("workspace://files/screenshots", "folder"),
+        ("workspace://files/recordings", "folder"),
+        ("workspace://files/downloads", "folder"),
         ("flow://flows", "flows"),
         ("flow://flows/login", "flow"),
         ("secret://secrets", "secrets"),
@@ -70,8 +70,8 @@ def test_every_row_matches_its_own_display_form():
 
 @pytest.mark.parametrize(
     "uri",
-    ["skill://selenium-flow/SKILL.md", "flow://schema", "session://files/a.png",
-     "flow://flows/", "session://current/x", "secret://secrets/demo"],
+    ["skill://selenium-flow/SKILL.md", "flow://schema", "workspace://files/a.png",
+     "flow://flows/", "workspace://current/x", "secret://secrets/demo"],
 )
 def test_anything_else_is_refused_naming_what_can_be_shown(uri):
     with pytest.raises(ValueError) as refused:
@@ -85,10 +85,10 @@ def test_anything_else_is_refused_naming_what_can_be_shown(uri):
     [
         ("flow://flows/login", "flow"),
         ("flow://flows", "flows"),
-        ("session://files", "files"),
-        ("session://files/downloads", "folder"),
-        ("session://files/screenshots", "folder"),
-        ("session://files/recordings", "folder"),
+        ("workspace://files", "files"),
+        ("workspace://files/downloads", "folder"),
+        ("workspace://files/screenshots", "folder"),
+        ("workspace://files/recordings", "folder"),
     ],
 )
 async def test_show_returns_the_resources_own_json(flow_server, uri, component):
@@ -101,8 +101,8 @@ async def test_show_returns_the_resources_own_json(flow_server, uri, component):
 async def test_a_kept_file_shows_as_the_resource_lists_it(flow_server, named_caller):
     flow_server.flows.write_file(named_caller, "report.pdf", b"%PDF-1.4")
     async with Client(flow_server.mcp) as c:
-        shown = (await c.call_tool("show", {"uri": "session://files"})).structured_content
-        read = json.loads((await c.read_resource("session://files"))[0].text)
+        shown = (await c.call_tool("show", {"uri": "workspace://files"})).structured_content
+        read = json.loads((await c.read_resource("workspace://files"))[0].text)
 
     def unsigned(data):
         # The signed url carries an expiry that can cross a second between calls.
@@ -129,10 +129,10 @@ async def test_a_result_claude_would_drop_is_refused(flow_server, monkeypatch):
     ("uri", "summary"),
     [
         ("flow://flows/login", "Showing flow://flows/login to the person (flow)."),
-        ("session://current", "Showing session://current to the person (context)."),
+        ("workspace://current", "Showing workspace://current to the person (context)."),
         ("flow://flows", "Showing flow://flows to the person: 1 flow."),
-        ("session://files", "Showing session://files to the person: 0 kept files."),
-        ("session://files/screenshots", "Showing session://files/screenshots to the person: 0 files."),
+        ("workspace://files", "Showing workspace://files to the person: 0 kept files."),
+        ("workspace://files/screenshots", "Showing workspace://files/screenshots to the person: 0 files."),
     ],
 )
 async def test_the_payload_goes_once_and_the_model_gets_one_line(flow_server, uri, summary):
@@ -182,9 +182,9 @@ async def test_showing_the_files_never_opens_a_browser(flow_server):
     when the record has none, the leak the status resource refuses to be."""
     opened_before = flow_server.actions.grid
     async with Client(flow_server.mcp) as c:
-        files = (await c.call_tool("show", {"uri": "session://files"})).structured_content
+        files = (await c.call_tool("show", {"uri": "workspace://files"})).structured_content
         folder = (await c.call_tool(
-            "show", {"uri": "session://files/downloads"}
+            "show", {"uri": "workspace://files/downloads"}
         )).structured_content
     assert files["data"]["files"] == []
     assert folder["component"] == "folder"
@@ -226,10 +226,10 @@ async def test_the_app_may_frame_its_own_files(built_ui):
 
 async def test_the_session_status_shows_through_the_client(flow_server):
     async with Client(flow_server.mcp) as c:
-        shown = (await c.call_tool("show", {"uri": "session://current"})).structured_content
-        read = json.loads((await c.read_resource("session://current"))[0].text)
+        shown = (await c.call_tool("show", {"uri": "workspace://current"})).structured_content
+        read = json.loads((await c.read_resource("workspace://current"))[0].text)
     assert shown["component"] == "context"
-    assert shown["uri"] == "session://current"
+    assert shown["uri"] == "workspace://current"
     # Only the stable keys: liveness fields may differ between two probes.
     for key in ("workspace", "named_by", "browser", "store", "principal"):
         assert shown["data"][key] == read[key]
@@ -252,7 +252,7 @@ async def test_content_that_is_not_json_is_refused_cleanly(flow_server, content)
             patch.object(flow_server.mcp, "read_resource", read),
             pytest.raises(ToolError) as refused,
         ):
-            await c.call_tool("show", {"uri": "session://current"})
+            await c.call_tool("show", {"uri": "workspace://current"})
     assert "not a resource show can draw" in str(refused.value)
 
 

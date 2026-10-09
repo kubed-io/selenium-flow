@@ -1062,7 +1062,7 @@ async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
             "value": None, "url": "https://nc.example.com/home", "title": "Home",
         },
     )
-    report = {"restored": ["nc.example.com"], "skipped": [], "uri": "session://site-data"}
+    report = {"restored": ["nc.example.com"], "skipped": [], "uri": "workspace://site-data"}
     monkeypatch.setattr(server.workspaces, "touch", lambda name, url, browser=None: report)
 
     write = await server.mcp.get_tool("write")

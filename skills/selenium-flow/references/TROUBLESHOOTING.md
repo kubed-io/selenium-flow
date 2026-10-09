@@ -25,12 +25,12 @@ Check where you are, cheaply:
 extract(selector={"xpath": "//title"})
 ```
 
-or read `session://current`, which reports the URL without touching the browser.
+or read `workspace://current`, which reports the URL without touching the browser.
 
 If the URL is right and the element still is not found, in order of likelihood:
 
 1. **It is inside an iframe** — or you are *already* inside one and the element
-   is not. Check `in_frame` on `session://current`: a frame switch sticks until
+   is not. Check `in_frame` on `workspace://current`: a frame switch sticks until
    something switches back, so a locator on the main page fails while you are
    still in a frame. Use `frame(action="switch", ...)` to go in and
    `frame(action="default")` to come back.
@@ -72,7 +72,7 @@ and still signed out? The site ended its own session:
 The Grid reaped the browser. Nothing to do: your session survives it, and the
 next call reopens a browser and returns to the last URL. Just retry.
 
-`session://current` shows `live: false` in the meantime.
+`workspace://current` shows `live: false` in the meantime.
 
 ## "unexpected alert open", or a null url and title
 

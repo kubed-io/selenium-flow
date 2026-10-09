@@ -33,6 +33,7 @@ from mcp.types import TextContent
 from pydantic import BaseModel
 
 from ..core.annotations import reads
+from ..names import retired_uri
 from . import apps, clients
 
 LIST_TOOL = "list_resources"
@@ -126,9 +127,9 @@ def _binary(uri: str, data: bytes, media: str) -> TextContent | Image:
                 "binary": True,
                 "read": (
                     "Not returned: binary content is not text. Read "
-                    "session://files for this file's link, which any HTTP "
+                    "workspace://files for this file's link, which any HTTP "
                     "client can download."
-                    if uri.startswith("session://files/")
+                    if uri.startswith("workspace://files/")
                     else "Not returned: binary content is not text."
                 ),
             }
@@ -158,17 +159,18 @@ def register(mcp) -> frozenset[str]:
     @mcp.tool(
         name=READ_TOOL,
         description=(
-            "Read the resource at uri: session://current, skill://selenium-flow/"
+            "Read the resource at uri: workspace://current, skill://selenium-flow/"
             "SKILL.md, flow://flows/{name}, anything list_resources shows. "
             "Images come back as images; other binary files are described, not "
             "returned."
         ),
-        # Open world: session://current asks the Grid whether the browser is
+        # Open world: workspace://current asks the Grid whether the browser is
         # still alive. One tool reads every resource, so it is annotated for the
         # widest of them.
         annotations=reads("Read a resource"),
     )
     async def read_resource(uri: str) -> ToolResult:
+        retired_uri(uri)
         server = get_context().fastmcp
         if not _listed(uri):
             raise ValueError(f"{uri} is an app for a host to draw, not to read")

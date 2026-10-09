@@ -62,10 +62,10 @@ def store(tmp_path):
 @pytest.mark.parametrize(
     ("folder", "name", "uri"),
     [
-        ("files", "report.pdf", "session://files/report.pdf"),
-        ("screenshots", "shot.png", "session://files/screenshots/shot.png"),
-        ("downloads", "export.csv", "session://files/downloads/export.csv"),
-        ("files", "Q3 summary (1).csv", "session://files/Q3%20summary%20%281%29.csv"),
+        ("files", "report.pdf", "workspace://files/report.pdf"),
+        ("screenshots", "shot.png", "workspace://files/screenshots/shot.png"),
+        ("downloads", "export.csv", "workspace://files/downloads/export.csv"),
+        ("files", "Q3 summary (1).csv", "workspace://files/Q3%20summary%20%281%29.csv"),
     ],
 )
 def test_a_uri_round_trips(folder, name, uri):
@@ -74,7 +74,7 @@ def test_a_uri_round_trips(folder, name, uri):
 
 
 def test_a_literal_space_parses_like_its_escape():
-    assert files.parse_uri("session://files/screenshots/shot (1).png") == (
+    assert files.parse_uri("workspace://files/screenshots/shot (1).png") == (
         "screenshots",
         "shot (1).png",
     )
@@ -83,17 +83,17 @@ def test_a_literal_space_parses_like_its_escape():
 @pytest.mark.parametrize(
     "uri",
     [
-        "session://files",
-        "session://files/screenshots",
-        "session://files/downloads",
-        "session://files/a/b",
-        "session://files/flows/x",
+        "workspace://files",
+        "workspace://files/screenshots",
+        "workspace://files/downloads",
+        "workspace://files/a/b",
+        "workspace://files/flows/x",
         "flow://flows/x",
         "",
     ],
 )
 def test_a_uri_that_names_no_file_is_refused_with_the_shapes(uri):
-    with pytest.raises(ValueError, match="session://files/screenshots/"):
+    with pytest.raises(ValueError, match="workspace://files/screenshots/"):
         files.parse_uri(uri)
 
 
@@ -107,16 +107,16 @@ def test_the_root_lists_files_and_names_three_folders(store):
     assert [f["name"] for f in got["files"]] == ["report.pdf"]
     assert got["count"] == 1
     assert got["folders"] == [
-        {"name": "screenshots", "uri": "session://files/screenshots", "count": 1},
-        {"name": "recordings", "uri": "session://files/recordings", "count": 0},
-        {"name": "downloads", "uri": "session://files/downloads", "count": 2, "browser": True},
+        {"name": "screenshots", "uri": "workspace://files/screenshots", "count": 1},
+        {"name": "recordings", "uri": "workspace://files/recordings", "count": 0},
+        {"name": "downloads", "uri": "workspace://files/downloads", "count": 2, "browser": True},
     ]
 
 
 def test_with_no_browser_the_downloads_folder_says_so(store):
     got = files.root(Actions(), Sessions(browser=""), store, TOKEN, S)
     assert got["folders"][2] == {
-        "name": "downloads", "uri": "session://files/downloads", "count": 0, "browser": False,
+        "name": "downloads", "uri": "workspace://files/downloads", "count": 0, "browser": False,
     }
 
 
@@ -124,7 +124,7 @@ def test_the_root_counts_downloads_without_describing_them(store, monkeypatch):
     """Copilot: the root listing must count downloads from the Grid's own
     listing, not by describing (and signing) every one of them just to throw
     the descriptions away. A session with many downloads pays for that on
-    every ``session://files`` read, and it is real work: content-type
+    every ``workspace://files`` read, and it is real work: content-type
     guessing, a folder-count, and an HMAC signature per entry.
 
     The in-flight file also proves the count still applies the partial-file
@@ -162,9 +162,9 @@ def test_the_root_counts_downloads_without_describing_them(store, monkeypatch):
 def test_every_entry_carries_its_own_uri_and_no_kept_flag(store):
     store.create_file(S, "shot.png", b"s", SCREENSHOTS_DIR)
     shot = files.folder(Actions(), Sessions(), store, TOKEN, S, "screenshots")["files"][0]
-    assert shot["uri"] == "session://files/screenshots/shot.png"
+    assert shot["uri"] == "workspace://files/screenshots/shot.png"
     assert "kept" not in shot
-    assert shot["keep_with"] == 'keep_file("session://files/screenshots/shot.png")'
+    assert shot["keep_with"] == 'keep_file("workspace://files/screenshots/shot.png")'
 
 
 def test_a_file_in_files_has_nothing_to_keep(store):
@@ -177,8 +177,8 @@ def test_the_same_name_in_two_folders_is_two_entries(store):
     store.write_file(S, "shot.png", b"kept")
     store.create_file(S, "shot.png", b"new", SCREENSHOTS_DIR)
     got = files.sections(Actions(), Sessions(), store, TOKEN, S)
-    assert [f["uri"] for f in got["files"]] == ["session://files/shot.png"]
-    assert [f["uri"] for f in got["screenshots"]] == ["session://files/screenshots/shot.png"]
+    assert [f["uri"] for f in got["files"]] == ["workspace://files/shot.png"]
+    assert [f["uri"] for f in got["screenshots"]] == ["workspace://files/screenshots/shot.png"]
 
 
 def test_sections_are_newest_first_and_name_the_app_component(store, tmp_path):
@@ -207,9 +207,9 @@ def test_each_folder_signs_its_own_route(store):
 
 def test_keeping_a_screenshot_moves_it_into_files(store):
     store.create_file(S, "shot.png", b"png", SCREENSHOTS_DIR)
-    got = files.keep(Actions(), Sessions(), store, "session://files/screenshots/shot.png", S)
-    assert got["uri"] == "session://files/shot.png"
-    assert got["from"] == "session://files/screenshots/shot.png"
+    got = files.keep(Actions(), Sessions(), store, "workspace://files/screenshots/shot.png", S)
+    assert got["uri"] == "workspace://files/shot.png"
+    assert got["from"] == "workspace://files/screenshots/shot.png"
     assert store.read_file(S, "shot.png") == b"png"
     assert store.files(S, SCREENSHOTS_DIR) == []
 
@@ -217,7 +217,7 @@ def test_keeping_a_screenshot_moves_it_into_files(store):
 def test_a_moved_screenshot_never_overwrites_a_kept_file(store):
     store.write_file(S, "shot.png", b"kept earlier")
     store.create_file(S, "shot.png", b"new", SCREENSHOTS_DIR)
-    got = files.keep(Actions(), Sessions(), store, "session://files/screenshots/shot.png", S)
+    got = files.keep(Actions(), Sessions(), store, "workspace://files/screenshots/shot.png", S)
     assert got["name"] == "shot (1).png"
     assert store.read_file(S, "shot.png") == b"kept earlier"
     assert store.read_file(S, "shot (1).png") == b"new"
@@ -226,37 +226,37 @@ def test_a_moved_screenshot_never_overwrites_a_kept_file(store):
 def test_keeping_a_download_copies_it_and_replaces_a_same_named_file(store):
     store.write_file(S, "export.csv", b"old copy")
     grid = Grid(data=b"fresh")
-    got = files.keep(Actions(grid), Sessions(), store, "session://files/downloads/export.csv", S)
-    assert got["uri"] == "session://files/export.csv"
+    got = files.keep(Actions(grid), Sessions(), store, "workspace://files/downloads/export.csv", S)
+    assert got["uri"] == "workspace://files/export.csv"
     assert store.read_file(S, "export.csv") == b"fresh"
     assert grid.read == [("abc", "export.csv")]
 
 
 @pytest.mark.parametrize("name", ["screenshots", "downloads"])
 def test_a_reserved_name_lands_beside_itself(store, name):
-    got = files.keep(Actions(), Sessions(), store, f"session://files/downloads/{name}", S)
+    got = files.keep(Actions(), Sessions(), store, f"workspace://files/downloads/{name}", S)
     assert got["name"] == f"{name} (1)"
 
 
 def test_keeping_a_file_already_in_files_answers_with_it(store):
     store.write_file(S, "report.pdf", b"p")
-    got = files.keep(Actions(), Sessions(), store, "session://files/report.pdf", S)
-    assert got["uri"] == "session://files/report.pdf"
+    got = files.keep(Actions(), Sessions(), store, "workspace://files/report.pdf", S)
+    assert got["uri"] == "workspace://files/report.pdf"
 
 
 def test_keeping_a_screenshot_that_is_gone_says_where_to_look(store):
-    with pytest.raises(ValueError, match="session://files/screenshots"):
-        files.keep(Actions(), Sessions(), store, "session://files/screenshots/nope.png", S)
+    with pytest.raises(ValueError, match="workspace://files/screenshots"):
+        files.keep(Actions(), Sessions(), store, "workspace://files/screenshots/nope.png", S)
 
 
 def test_keeping_a_download_with_no_browser_is_refused(store):
     with pytest.raises(ValueError, match="browser"):
-        files.keep(Actions(), Sessions(browser=""), store, "session://files/downloads/export.csv", S)
+        files.keep(Actions(), Sessions(browser=""), store, "workspace://files/downloads/export.csv", S)
 
 
 def test_keeping_refuses_when_there_is_nowhere_to_keep():
     with pytest.raises(ValueError, match="DATA_DIR"):
-        files.keep(Actions(), Sessions(), None, "session://files/screenshots/a.png", S)
+        files.keep(Actions(), Sessions(), None, "workspace://files/screenshots/a.png", S)
 
 
 def test_a_screenshot_that_cannot_be_removed_leaves_no_copy_behind(store, monkeypatch):
@@ -275,7 +275,7 @@ def test_a_screenshot_that_cannot_be_removed_leaves_no_copy_behind(store, monkey
     monkeypatch.setattr(flows.LocalFlowStore, "delete_file", refuse)
 
     with pytest.raises(PermissionError):
-        files.keep(Actions(), Sessions(), store, "session://files/screenshots/shot.png", S)
+        files.keep(Actions(), Sessions(), store, "workspace://files/screenshots/shot.png", S)
     assert store.files(S) == []
     assert [f["name"] for f in store.files(S, SCREENSHOTS_DIR)] == ["shot.png"]
 
@@ -302,7 +302,7 @@ def test_a_screenshot_removed_by_someone_else_during_the_move_leaves_no_copy_beh
     monkeypatch.setattr(flows.LocalFlowStore, "delete_file", raced)
 
     with pytest.raises(ValueError, match="no screenshot called"):
-        files.keep(Actions(), Sessions(), store, "session://files/screenshots/shot.png", S)
+        files.keep(Actions(), Sessions(), store, "workspace://files/screenshots/shot.png", S)
     assert store.files(S) == []
     assert store.files(S, SCREENSHOTS_DIR) == []
 
@@ -312,14 +312,14 @@ def test_a_screenshot_removed_by_someone_else_during_the_move_leaves_no_copy_beh
 
 def test_a_screenshot_is_kept_in_screenshots_with_a_link(store):
     got = files.keep_made(S, store, "screenshot.png", b"p", TOKEN, folder="screenshots")
-    assert got["uri"] == "session://files/screenshots/screenshot.png"
+    assert got["uri"] == "workspace://files/screenshots/screenshot.png"
     again = files.keep_made(S, store, "screenshot.png", b"q", TOKEN, folder="screenshots")
     assert again["name"] == "screenshot (1).png"
 
 
 def test_a_print_is_kept_in_files(store):
     got = files.keep_made(S, store, "page.pdf", b"p", TOKEN)
-    assert got["uri"] == "session://files/page.pdf"
+    assert got["uri"] == "workspace://files/page.pdf"
 
 
 # ---- reading back, clearing, deleting ------------------------------------------
@@ -328,9 +328,9 @@ def test_a_print_is_kept_in_files(store):
 @pytest.mark.parametrize(
     ("uri", "expected"),
     [
-        ("session://files/report.pdf", ("report.pdf", b"kept")),
-        ("session://files/screenshots/shot.png", ("shot.png", b"png")),
-        ("session://files/downloads/export.csv", ("export.csv", b"from-grid")),
+        ("workspace://files/report.pdf", ("report.pdf", b"kept")),
+        ("workspace://files/screenshots/shot.png", ("shot.png", b"png")),
+        ("workspace://files/downloads/export.csv", ("export.csv", b"from-grid")),
     ],
 )
 def test_any_file_can_be_read_back_by_its_uri(store, uri, expected):
@@ -340,8 +340,8 @@ def test_any_file_can_be_read_back_by_its_uri(store, uri, expected):
 
 
 def test_reading_a_name_nobody_has_is_the_callers_mistake(store):
-    with pytest.raises(ValueError, match=r"session://files"):
-        files.read_file(Actions(), Sessions(), store, "session://files/nope.pdf", S)
+    with pytest.raises(ValueError, match=r"workspace://files"):
+        files.read_file(Actions(), Sessions(), store, "workspace://files/nope.pdf", S)
 
 
 def test_clearing_screenshots_reports_how_many(store):

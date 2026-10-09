@@ -241,7 +241,7 @@ def register(
     # are mounted with every other row, at the method the row declares.
 
     def opened(caller, body):
-        """Open this workspace's browser, or pick up the one it was using."""
+        """Open a session in this workspace, or pick up the one it was using."""
         return workspaces.open_browser(
             caller,
             url=body.get("url"),

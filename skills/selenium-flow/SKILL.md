@@ -34,11 +34,11 @@ There is **no session id anywhere** — no tool takes one, no result carries one
 Call again with the same name and you get the same browser back, after a
 reconnect or a restart.
 
-Read `session://current` before your first action if you want to know what you
+Read `workspace://current` before your first action if you want to know what you
 are holding. It reports the session name, the browser, the page and whether one
 is open. `skill://selenium-flow/references/SESSIONS.md` has the rest.
 
-**Everything here to read is a URI** — `session://`, `flow://`, `secret://`,
+**Everything here to read is a URI** — `workspace://`, `flow://`, `secret://`,
 `skill://` — whether this page, a hint in a failed run or an error names it. Read
 it the way your client reads MCP resources. If your client cannot, this server
 gives you `read_resource(uri)` and `list_resources()` instead, for the same URIs.
@@ -58,14 +58,14 @@ leave it alone.
 To switch, just call `open_session(browser="firefox")` again — the browser you
 are holding is ended for you first, so do not close and reopen. **The files it
 had go with it** — the downloads, which the Grid deletes with the browser.
-Screenshots and prints are your session's already: `session://files` lists
-what is in Files and names three folders, `session://files/screenshots`,
-`session://files/recordings` and `session://files/downloads`. `keep_file(uri)`
+Screenshots and prints are your session's already: `workspace://files` lists
+what is in Files and names three folders, `workspace://files/screenshots`,
+`workspace://files/recordings` and `workspace://files/downloads`. `keep_file(uri)`
 moves a screenshot or a recording into Files, or copies a download there before
 the browser goes.
 
 One session holds one browser. To use both at once, use two session names;
-`session://current` reports which browser the one you are holding is.
+`workspace://current` reports which browser the one you are holding is.
 
 ## If you are told you have no browser
 
@@ -160,7 +160,7 @@ check this table twice before reaching for it.
 | `press_key` | a key or a combination | `key`: `Enter`, `Escape`, `a`, `Control+a` |
 | `extract` | read an element's text and HTML | `selector` |
 | `outline` | what is on the page: selectors, and what works | `selector`, `text`, `limit`, `interactive` |
-| `screenshot` | the viewport, one element, or the whole page — kept in session://files/screenshots, with a link to share | `full_page`, `filename`, `save` |
+| `screenshot` | the viewport, one element, or the whole page — kept in workspace://files/screenshots, with a link to share | `full_page`, `filename`, `save` |
 | `print` | the page as a PDF or HTML, kept in your files | `format`: `pdf` \| `html`, `landscape`, `background`, `filename` |
 | `upload_file` | attach a file to a file input | `text`, `content` or `file`, `filename` |
 | `frame` | move into or out of an iframe | `action`: `switch` \| `parent` \| `default` |
@@ -179,17 +179,17 @@ And everything to read:
 
 | URI | Is |
 |---|---|
-| `session://current` | what you are holding |
-| `session://files` | Files' own kept files, each with a link, plus the three folders below |
-| `session://files/{name}` | one kept file, as bytes; a video (a kept recording) is described instead — its link plays it |
-| `session://files/screenshots` | saved screenshots not yet kept |
-| `session://files/screenshots/{name}` | one of those, as bytes |
-| `session://files/recordings` | this session's recordings not yet kept, each with a link that plays it |
-| `session://files/recordings/{name}` | one of those, described — its link plays it; not the video's bytes |
-| `session://files/downloads` | this session's browser downloads |
-| `session://files/downloads/{name}` | one of those, as bytes, while the browser is open |
-| `session://site-data` | the sites you have saved cookies or storage for — never a value |
-| `session://site-data/{site}` | one site's saved cookies and storage; httpOnly values are masked |
+| `workspace://current` | what you are holding |
+| `workspace://files` | Files' own kept files, each with a link, plus the three folders below |
+| `workspace://files/{name}` | one kept file, as bytes; a video (a kept recording) is described instead — its link plays it |
+| `workspace://files/screenshots` | saved screenshots not yet kept |
+| `workspace://files/screenshots/{name}` | one of those, as bytes |
+| `workspace://files/recordings` | this session's recordings not yet kept, each with a link that plays it |
+| `workspace://files/recordings/{name}` | one of those, described — its link plays it; not the video's bytes |
+| `workspace://files/downloads` | this session's browser downloads |
+| `workspace://files/downloads/{name}` | one of those, as bytes, while the browser is open |
+| `workspace://site-data` | the sites you have saved cookies or storage for — never a value |
+| `workspace://site-data/{site}` | one site's saved cookies and storage; httpOnly values are masked |
 | `secret://secrets` | the secrets you may type — never their values |
 | `flow://flows` | the saved flows you can run |
 | `flow://flows/{name}` | one flow's parameters and steps |

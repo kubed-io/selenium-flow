@@ -4,7 +4,7 @@
 draft of this feature merged everything so a caller only had to ask once
 (§F1.10); that ruling is superseded, and for the same reason it existed — a
 folder that lists its own sub-folders costs a caller nothing it does not want,
-and ``session://files/screenshots/{name}`` is a shape every model already
+and ``workspace://files/screenshots/{name}`` is a shape every model already
 knows. In a path, the section is part of the address, so a name only has to
 be unique inside its own folder, and there is no ``section=`` argument on
 ``keep_file`` for a name that lives in two places at once.
@@ -48,7 +48,7 @@ record says is live is never swallowed.
 
 ``screenshots`` and ``downloads`` are **reserved names inside Files**:
 without that rule, a file arriving there under either name could never be
-addressed by ``session://files/{name}``, since those two path segments
+addressed by ``workspace://files/{name}``, since those two path segments
 already mean the folders. One arriving under a reserved name lands as
 ``screenshots (1)`` or ``downloads (1)``, the same rule every other name
 clash in a folder follows.
@@ -77,7 +77,7 @@ from starlette.responses import JSONResponse
 
 from ..core.annotations import hints
 from ..mcp import clients
-from ..names import RESERVED_IN_FILES, candidates, valid_file_name
+from ..names import RESERVED_IN_FILES, candidates, retired_uri, valid_file_name
 from . import answer as answer_module
 from . import links
 
@@ -87,8 +87,8 @@ FILES, SCREENSHOTS, DOWNLOADS, RECORDINGS = (
     "files", "screenshots", "downloads", "recordings",
 )
 RESERVED = RESERVED_IN_FILES
-ROOT_URI = "session://files"
-FILE_URI = "session://files/{name}"
+ROOT_URI = "workspace://files"
+FILE_URI = "workspace://files/{name}"
 FOLDER_URI = {
     SCREENSHOTS: f"{ROOT_URI}/{SCREENSHOTS}",
     RECORDINGS: f"{ROOT_URI}/{RECORDINGS}",
@@ -103,10 +103,10 @@ KEEP_TOOL = "keep_file"
 LIST_URI = ROOT_URI
 
 SHAPES = (
-    "session://files/<name> for a file in Files, "
-    "session://files/screenshots/<name> for a screenshot, "
-    "session://files/recordings/<name> for a recording, or "
-    "session://files/downloads/<name> for a download"
+    "workspace://files/<name> for a file in Files, "
+    "workspace://files/screenshots/<name> for a screenshot, "
+    "workspace://files/recordings/<name> for a recording, or "
+    "workspace://files/downloads/<name> for a download"
 )
 
 # Path -> what it does. Its own table, like flowapi's: these are not browser
@@ -151,8 +151,8 @@ NOTHING = "nothing to list: this server keeps no files and holds no browser for 
 
 DESCRIPTION = (
     "The files in Files: prints, and anything kept with keep_file. Also names "
-    "three folders — session://files/screenshots, session://files/recordings "
-    "and session://files/downloads — each with its own listing.\n\n"
+    "three folders — workspace://files/screenshots, workspace://files/recordings "
+    "and workspace://files/downloads — each with its own listing.\n\n"
     "Every entry carries its own uri, to keep with keep_file(uri), and a URL "
     "that opens in a browser for a while, so an image can be shown to someone "
     "rather than described to them."
@@ -180,6 +180,7 @@ def uri_of(folder: str, name: str) -> str:
 
 def parse_uri(uri) -> tuple[str, str]:
     """``(folder, name)`` for a file's address, or a ValueError naming the shapes."""
+    retired_uri(uri)
     text = str(uri or "")
     prefix = ROOT_URI + "/"
     parts = text[len(prefix):].split("/") if text.startswith(prefix) else []
@@ -343,7 +344,7 @@ def root(
     mount: str = "",
     ttl: int = links.DEFAULT_TTL,
 ) -> dict:
-    """``session://files``: the Files section's own files, and its three folders.
+    """``workspace://files``: the Files section's own files, and its three folders.
 
     The two folders are named with a count each rather than expanded, so a
     caller who only wants to know whether there is anything to look at need
@@ -720,7 +721,7 @@ def register(
 
     @mcp.resource(
         ROOT_URI,
-        name="Session Files",
+        name="Workspace Files",
         description=DESCRIPTION,
         mime_type="application/json",
     )
@@ -781,7 +782,7 @@ def register(
         return read
 
     item_name = {
-        FILES: "Session File", SCREENSHOTS: "Screenshot", DOWNLOADS: "Download",
+        FILES: "Workspace File", SCREENSHOTS: "Screenshot", DOWNLOADS: "Download",
     }
     item_uri = {FILES: FILE_URI, **ITEM_URI}
     for which in (FILES, SCREENSHOTS, DOWNLOADS):
@@ -816,7 +817,7 @@ def register(
         name=KEEP_TOOL,
         description=(
             "Keep one file in Files, where it stays until a person deletes it.\n\n"
-            "uri is as session://files and its folders list it. A screenshot "
+            "uri is as workspace://files and its folders list it. A screenshot "
             "or a recording moves out of its folder and lands beside a "
             "same-named file as name (1); a download is copied, since the "
             "browser keeps its own until it ends, and REPLACES a same-named "

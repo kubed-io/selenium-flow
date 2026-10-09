@@ -21,11 +21,11 @@ from ..core.capabilities import CAPABILITIES, SITE_DATA_HINT
 # the one answer that belongs to no capability: the workspace status.
 RESPONSES = {
     **{row.name: row.response for row in CAPABILITIES},
-    # What `GET /browser` and `session://current` answer with. Hand-written like
+    # What `GET /browser` and `workspace://current` answer with. Hand-written like
     # every capability's answer, and it was missing — so the published status
     # operation was an empty object and a generated client could not read it
     # (Copilot, #34).
-    "current_session": {
+    "current_workspace": {
         "type": "object",
         "properties": {
             "workspace": {"type": "string", "description": "The name you called with."},
@@ -643,7 +643,7 @@ FILE_SCHEMAS = {
     },
     "FileList": {
         "type": "object",
-        "description": "session://files: Files' own listing, and its three folders.",
+        "description": "workspace://files: Files' own listing, and its three folders.",
         "properties": {
             "workspace": {
                 "type": ["string", "null"],
@@ -682,7 +682,7 @@ FILE_SCHEMAS = {
     "FolderList": {
         "type": "object",
         "description": (
-            "One folder's own listing: session://files/screenshots, /recordings "
+            "One folder's own listing: workspace://files/screenshots, /recordings "
             "or /downloads."
         ),
         "properties": {
@@ -746,7 +746,7 @@ SITE_DATA_SCHEMAS = {
     "SiteList": {
         "type": "object",
         "description": (
-            "session://site-data: one entry per site the last save holds data "
+            "workspace://site-data: one entry per site the last save holds data "
             "for, counts only, the sites the workspace went to first."
         ),
         "properties": {
@@ -779,7 +779,7 @@ SITE_DATA_SCHEMAS = {
     "SiteData": {
         "type": "object",
         "description": (
-            "session://site-data/{site}: one site in full. An httpOnly cookie's "
+            "workspace://site-data/{site}: one site in full. An httpOnly cookie's "
             "value is shown as \u2022\u2022\u2022."
         ),
         "properties": {
@@ -834,8 +834,8 @@ _FILE_OPERATIONS = {
         "listFiles",
         "Files' own listing, and its three folders.",
         "Everything kept in Files, newest first, plus a count for "
-        "session://files/screenshots, session://files/recordings and "
-        "session://files/downloads — each its "
+        "workspace://files/screenshots, workspace://files/recordings and "
+        "workspace://files/downloads — each its "
         "own listing, fetched separately so a caller who only wants to know "
         "whether there is anything to look at need not pay for either.",
         {"type": "object", "properties": {}},

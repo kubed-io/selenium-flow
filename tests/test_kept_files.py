@@ -420,7 +420,7 @@ def test_keep_then_list_over_http(client, live):
     ):
         kept = client.put("/files/downloads/report.pdf/kept", headers=AUTH)
         assert kept.status_code == 200, kept.text
-        assert kept.json()["uri"] == "session://files/report.pdf"
+        assert kept.json()["uri"] == "workspace://files/report.pdf"
 
         body = client.get("/files", headers=AUTH).json()
     assert [f["name"] for f in body["files"]] == ["report.pdf"]
@@ -827,7 +827,7 @@ async def test_every_file_operation_declares_the_grids_failure_modes(spec):
 
 @pytest.mark.parametrize(
     "uri",
-    ["session://files/export.csv", "session://files/screenshots/shot.png"],
+    ["workspace://files/export.csv", "workspace://files/screenshots/shot.png"],
 )
 def test_upload_sends_any_file_named_by_its_uri(actions, uri, monkeypatch):
     """Through `upload_file`, not through the helper: the action is where the
@@ -924,7 +924,7 @@ def test_a_workspace_field_on_the_upload_body_never_reaches_the_action(
         "/browser/upload",
         json={
             "selector": {"css": "input"},
-            "file": "session://files/export.csv",
+            "file": "workspace://files/export.csv",
             "workspace": "someone-elses-workspace",
         },
         headers=AUTH,
@@ -951,7 +951,7 @@ def test_upload_over_http_reads_the_file_from_the_callers_own_workspace(
         "/browser/upload",
         json={
             "selector": {"css": "input"},
-            "file": "session://files/export.csv",
+            "file": "workspace://files/export.csv",
             "workspace": "victim",
         },
         headers=AUTH,
@@ -974,7 +974,7 @@ def test_a_workspace_naming_nobody_in_the_upload_body_does_not_400(
         "/browser/upload",
         json={
             "selector": {"css": "input"},
-            "file": "session://files/export.csv",
+            "file": "workspace://files/export.csv",
             "workspace": "nobody-has-this-workspace",
         },
         headers=AUTH,
@@ -987,7 +987,7 @@ def test_a_kept_upload_is_refused_when_there_is_nowhere_to_keep(actions):
     exist. Refused with the three sources that do work."""
     with pytest.raises(ValueError, match="not available"):
         actions.upload_file(
-            "abc", selector={"css": "input"}, file="session://files/export.csv"
+            "abc", selector={"css": "input"}, file="workspace://files/export.csv"
         )
 
 
@@ -997,7 +997,7 @@ def test_only_one_source_may_be_given(actions):
             "abc",
             selector={"css": "input"},
             text="hi",
-            file="session://files/export.csv",
+            file="workspace://files/export.csv",
         )
 
 

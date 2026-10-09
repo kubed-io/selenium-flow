@@ -37,7 +37,7 @@ MASK = "•••"
 # Why an origin's storage was not read: its own service worker answered the
 # spare tab (spec round 2, *Service workers at save time*).
 SW_REASON = "a service worker answered: save while on this site"
-LIST_URI = "session://site-data"
+LIST_URI = "workspace://site-data"
 
 
 def site_uri(host: str) -> str:

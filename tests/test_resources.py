@@ -147,7 +147,7 @@ async def test_an_image_comes_back_as_an_image(reader):
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAMAASsJTYQAAAAASUVORK5CYII="
     )
     _serving(reader, png)
-    result = await read(reader, "session://files/downloads/shot.png")
+    result = await read(reader, "workspace://files/downloads/shot.png")
     assert result.content[0].type == "image"
     assert result.content[0].mimeType == "image/png"
 
@@ -157,11 +157,11 @@ async def test_any_other_binary_is_described_not_dumped(reader):
     with, spent out of its own context."""
     pdf = b"%PDF-1.4" + b"x" * 50_000
     _serving(reader, pdf)
-    result = await read(reader, "session://files/downloads/report.pdf")
+    result = await read(reader, "workspace://files/downloads/report.pdf")
     said = json.loads(result.content[0].text)
     assert said["binary"] is True and said["bytes"] == len(pdf)
     assert said["mime_type"] == "application/pdf"
-    assert "session://files" in said["read"]
+    assert "workspace://files" in said["read"]
     assert len(result.content[0].text) < 1_000
 
 
@@ -239,7 +239,7 @@ async def test_a_person_picking_a_flow_is_offered_the_names_they_can_read(reader
 async def test_resources_are_named_for_a_person_to_read(reader):
     names = {str(r.uri): r.name for r in await reader.mcp.list_resources()}
     assert names["flow://flows"] == "Saved Flows"
-    assert names[RESOURCE_URI] == "Current Session"
+    assert names[RESOURCE_URI] == "Current Workspace"
     assert not any(n.endswith("_resource") for n in names.values())
 
 
@@ -251,7 +251,7 @@ async def test_a_person_picking_a_file_is_offered_their_own_files(reader):
     reader.flows.write_file("someone-else", "report-secret.pdf", b"%PDF")
     async with Client(reader.mcp) as c:
         offered = await c.complete(
-            ResourceTemplateReference(type="ref/resource", uri="session://files/{name}"),
+            ResourceTemplateReference(type="ref/resource", uri="workspace://files/{name}"),
             {"name": "name", "value": "rep"},
         )
     assert offered.values == ["report.pdf"]
@@ -261,7 +261,7 @@ async def test_an_svg_reads_back_as_the_text_it_is(reader):
     """An image to a browser, XML to a model — which cannot view it as a picture
     (Copilot, #39)."""
     _serving(reader, b"<svg xmlns='http://www.w3.org/2000/svg'><rect/></svg>")
-    result = await read(reader, "session://files/downloads/chart.svg")
+    result = await read(reader, "workspace://files/downloads/chart.svg")
     assert result.content[0].type == "text"
     assert result.content[0].text.startswith("<svg")
 

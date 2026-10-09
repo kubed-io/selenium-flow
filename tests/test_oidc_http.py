@@ -104,7 +104,7 @@ async def current(server, bearer):
         httpx_client_factory=factory,
     )
     async with app.router.lifespan_context(app), Client(transport) as client:
-        result = await client.call_tool(mirror.READ_TOOL, {"uri": "session://current"})
+        result = await client.call_tool(mirror.READ_TOOL, {"uri": "workspace://current"})
     return json.loads(result.content[0].text)
 
 

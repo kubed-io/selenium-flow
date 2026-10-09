@@ -170,7 +170,7 @@ Exactly one source is required:
 |---|---|
 | `text` | content you have as text |
 | `content` | base64, for binary — the only shape a tool argument can carry |
-| `file` | any file this session has, by its `session://files` uri |
+| `file` | any file this session has, by its `workspace://files` uri |
 
 There is no way to upload a file from the server's own disk.
 
@@ -208,7 +208,7 @@ frame(action="default")                                   # back to the page
 one call, so every later action stays inside that frame until something switches
 back. A locator on the main page will then fail for a reason that looks nothing
 like the cause — so if something obvious is failing, check `in_frame` on
-`session://current` before rewriting the selector.
+`workspace://current` before rewriting the selector.
 
 Switch back as soon as you are done in there.
 

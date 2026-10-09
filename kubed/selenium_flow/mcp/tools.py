@@ -192,7 +192,7 @@ with this server, so it describes this version of it.
 # still named by URI, so it is told how to read one rather than handed a
 # different vocabulary.
 READING_POINTER = """
-Everything this server has to read is a URI — session://current, flow://flows, \
+Everything this server has to read is a URI — workspace://current, flow://flows, \
 secret://secrets and the like, wherever a hint or an error names one. Read one \
 with read_resource(uri); list_resources shows them all.
 """
@@ -354,7 +354,7 @@ def register(
         fresh: bool = False,
         restore_site_data: bool = True,
     ) -> dict:
-        """Start this workspace's browser, or come back to the one it had. Call it
+        """Start a session in this workspace, or come back to the one it had. Call it
         before anything else: nothing opens a browser for you.
 
         With no arguments it returns to the same browser, window and page, which is
@@ -370,7 +370,7 @@ def register(
         hangs. insecure=true accepts a self-signed certificate; use it only for a site
         you know has one. An insecure browser gets no saved site data.
         record=true films this browser's whole life as a video, from now until it
-        ends; it appears under session://files/recordings shortly after. A person
+        ends; it appears under workspace://files/recordings shortly after. A person
         watches it, so only when one will — it costs the Grid. Not inherited: ask
         again for the next browser.
         """
@@ -403,7 +403,7 @@ def register(
         cookies staying. Each save replaces the last, so a save after signing out
         saves you signed out. Every browser opened for this workspace has it back before
         open_session returns, the one that replaces a reaped browser included. Values
-        are never returned; session://site-data lists what is saved.
+        are never returned; workspace://site-data lists what is saved.
         """
 
     @own("end_browser")
@@ -482,7 +482,7 @@ def register(
             "one level (parent), or back to the page (default).\n\n"
             "Elements inside a frame are invisible to every tool until you "
             "switch in, and the switch sticks for every later call. If a "
-            "selector that should work keeps failing, read session://current: "
+            "selector that should work keeps failing, read workspace://current: "
             "in_frame says where you are."
         ),
     )
@@ -535,7 +535,7 @@ def register(
         """Attach a file to a file input (selector). Give exactly one source:
 
         - text, for anything you wrote (JSON, CSV, markdown), with a filename;
-        - file, any file this workspace has, by its uri from session://files — a
+        - file, any file this workspace has, by its uri from workspace://files — a
           screenshot, a download or a file in Files — without its bytes passing
           through you;
         - content, base64, for other binary.

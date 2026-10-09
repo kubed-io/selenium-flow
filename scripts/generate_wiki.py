@@ -76,7 +76,7 @@ GROUPS = [
         "Everything you can do to a page.",
         [
             "open_session",
-            "current_session",
+            "current_workspace",
             "navigate",
             "interact",
             "drag",

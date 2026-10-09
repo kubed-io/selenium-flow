@@ -728,7 +728,7 @@ async def test_a_run_reads_a_kept_file_from_the_callers_own_library(
                     "tool": "upload_file",
                     "args": {
                         "selector": {"css": "input"},
-                        "file": "session://files/export.csv",
+                        "file": "workspace://files/export.csv",
                     },
                 }
             ],
@@ -738,7 +738,7 @@ async def test_a_run_reads_a_kept_file_from_the_callers_own_library(
 
     assert report["status"] == "ok", report
     assert report["workspace"] == GLOBAL_WORKSPACE, "the flow came from global"
-    assert asked["uri"] == "session://files/export.csv"
+    assert asked["uri"] == "workspace://files/export.csv"
     # The CALLER's library, not the one the flow was read from.
     assert asked["workspace"] == "desktop"
     assert sent["name"] == "export.csv"

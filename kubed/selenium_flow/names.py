@@ -50,7 +50,7 @@ SCREENSHOTS_DIR = "screenshots"
 RECORDINGS_DIR = "recordings"
 FOLDERS = (FILES_DIR, SCREENSHOTS_DIR, RECORDINGS_DIR)
 
-# The folder names a file in Files can never take, since session://files/<name>
+# The folder names a file in Files can never take, since workspace://files/<name>
 # would then mean the folder (§F4.6). One arriving under one lands as `name (1)`.
 RESERVED_IN_FILES = frozenset({SCREENSHOTS_DIR, "downloads", RECORDINGS_DIR})
 
@@ -217,3 +217,17 @@ def library_of(key: str) -> str | None:
         return valid_name(key, "workspace name")
     except InvalidName:
         return None
+
+
+# The scheme every workspace resource had before the rename (spec
+# 2026-10-09-workspaces-rename, ruling 5). A saved flow may still name one.
+RETIRED_SCHEME = "session://"
+
+
+def retired_uri(uri) -> None:
+    """Refuse a URI from before the rename, naming its new spelling."""
+    text = str(uri or "")
+    if text.startswith(RETIRED_SCHEME):
+        raise ValueError(
+            f"`{text}` is now `workspace://{text[len(RETIRED_SCHEME):]}`"
+        )

@@ -20,7 +20,7 @@ so it never queues behind them: it sets the hold's ``ending`` flag, which the
 holder is watching through `core.cancel`, and a running `assert` raises its
 existing cancellation at its next poll and lets go. `open_session` takes none
 either - it makes a browser rather than driving one - and nothing that only
-reads (`session://current`) does.
+reads (`workspace://current`) does.
 
 **Reentrant**, because the units nest: a flow step and a bound write each hold
 it around the page read *and* the action, and the action's own `Recipe.run`

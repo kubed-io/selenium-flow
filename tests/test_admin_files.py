@@ -342,7 +342,7 @@ def test_recordings_are_listed_counted_cleared_and_kept(client, live):
         f"/admin/sessions/{KEY}/files/recordings/rec-1.mp4/keep", headers=AUTH
     )
     assert kept.status_code == 200, kept.text
-    assert kept.json()["uri"] == "session://files/rec-1.mp4"
+    assert kept.json()["uri"] == "workspace://files/rec-1.mp4"
     assert [f["name"] for f in live.flows.files(SESSION, RECORDINGS_DIR)] == ["rec-2.mp4"]
 
     cleared = client.delete(f"/admin/sessions/{KEY}/files/recordings", headers=AUTH)

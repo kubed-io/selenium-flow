@@ -12,7 +12,7 @@ from kubed.selenium_flow.workspace.workspaces import Caller
 from tests.conftest import NAMED, RecordingActions, manager
 
 URL = "https://app.example.com/x"
-REPORT = {"restored": ["app.example.com"], "skipped": [], "uri": "session://site-data"}
+REPORT = {"restored": ["app.example.com"], "skipped": [], "uri": "workspace://site-data"}
 
 
 class SiteActions(RecordingActions):
@@ -79,7 +79,7 @@ def test_a_save_is_stored_and_never_returned_raw(named_caller):
     m.open_browser(Caller(NAMED))
     result = m.act(Caller(NAMED), lambda s: m.actions.save_site_data(s))
     assert site_data.CAPTURED not in result
-    assert result["saved"]["cookies"] == 1 and result["uri"] == "session://site-data"
+    assert result["saved"]["cookies"] == 1 and result["uri"] == "workspace://site-data"
     assert list(m.store.get(NAMED).site_data["origins"]) == ["https://app.example.com"]
 
 
@@ -143,7 +143,7 @@ def test_remember_keeps_site_data(named_caller):
 
 def test_describe_summarises_site_data(named_caller):
     m = opened_with_save()
-    assert m.describe(Caller(NAMED))["site_data"] == {"sites": 1, "uri": "session://site-data"}
+    assert m.describe(Caller(NAMED))["site_data"] == {"sites": 1, "uri": "workspace://site-data"}
 
 
 # ---- a silent reopen says what came back, on the first result after it --------
@@ -335,7 +335,7 @@ def test_a_save_from_a_replaced_browser_keeps_nothing(named_caller):
     told = m.act(Caller(NAMED), save_while_replaced)
     assert site_data.CAPTURED not in told
     assert told["saved"]["sites"] == [] and told["saved"]["cookies"] == 0
-    assert told["saved"]["skipped"][0]["reason"].startswith("another browser took")
+    assert told["saved"]["skipped"][0]["reason"].startswith("another session took over")
     assert m.store.get(NAMED).site_data == {}
 
 

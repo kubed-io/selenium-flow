@@ -399,7 +399,7 @@ async def test_link_ttl_is_how_long_a_link_opens(tmp_path):
     assert day - 5 <= lasts(kept["url"]) < day + links.EXPIRY_STEP
 
     async with Client(server.mcp) as client:
-        listed = await client.read_resource("session://files/screenshots")
+        listed = await client.read_resource("workspace://files/screenshots")
     entry = json.loads(listed[0].text)["files"][0]
     assert day - 5 <= lasts(entry["url"]) < day + links.EXPIRY_STEP
 
@@ -426,7 +426,7 @@ async def test_print_is_a_tool_that_keeps_the_file(keeping_server, monkeypatch):
     async with Client(keeping_server.mcp) as client:
         result = await client.call_tool("print", {"format": "html"})
     assert result.structured_content["file"]["name"] == "page.html"
-    assert result.structured_content["file"]["uri"] == "session://files/page.html"
+    assert result.structured_content["file"]["uri"] == "workspace://files/page.html"
 
 
 @pytest.mark.parametrize("kept", [{}, {"file": {"name": "shot.png"}},
@@ -436,7 +436,7 @@ async def test_a_screenshot_carries_the_site_data_hint(keeping_server, monkeypat
     swallow the hint that says it was restored."""
     from fastmcp import Client
 
-    hint = {"restored": ["https://w.test"], "uri": "session://site-data/w.test"}
+    hint = {"restored": ["https://w.test"], "uri": "workspace://site-data/w.test"}
     png = base64.b64encode(b"\x89PNG\r\n\x1a\n").decode()
     monkeypatch.setattr(keeping_server.workspaces, "act", lambda name, call, **kw: {
         "image": png, "site_data": hint, **kept})

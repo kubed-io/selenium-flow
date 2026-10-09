@@ -438,9 +438,9 @@ def test_a_detached_workspace_has_no_files_rather_than_an_error(client, server):
 
 async def test_files_are_a_resource_and_a_template(server):
     uris = {str(r.uri) for r in await server.mcp.list_resources()}
-    assert "session://files" in uris
+    assert "workspace://files" in uris
     templates = {t.uri_template for t in await server.mcp.list_resource_templates()}
-    assert "session://files/{name}" in templates
+    assert "workspace://files/{name}" in templates
 
 
 async def test_the_mcp_surface_never_lists_other_workspaces(built_ui, server):
@@ -456,7 +456,7 @@ async def test_the_mcp_surface_never_lists_other_workspaces(built_ui, server):
         names = {t.name for t in await server.mcp.list_tools()}
     assert "browser_sessions" not in names
     # What a client does get is its own, and only its own.
-    assert "session://current" in uris
+    assert "workspace://current" in uris
 
 
 async def test_the_app_shell_is_a_ui_resource(built_ui, server):
@@ -472,7 +472,7 @@ async def test_apps_can_be_turned_off(built_ui):
     uris = {str(r.uri) for r in await off.mcp.list_resources()}
     assert apps.RESOURCE_URI not in uris
     # The listing survives as a resource: it never depended on apps.
-    assert "session://files" in uris
+    assert "workspace://files" in uris
     # Off means off, whatever the client says it can render.
     with patch.object(apps, "supported", return_value=True):
         names = {t.name for t in await off.mcp.list_tools()}

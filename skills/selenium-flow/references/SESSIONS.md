@@ -19,7 +19,7 @@ wired it up.
 Over **stdio** there is nothing to read, and one process serves one client, so
 the name is `stdio` and you need do nothing.
 
-`session://current` reports what you are holding:
+`workspace://current` reports what you are holding:
 
 ```json
 {"session": "research-bot", "named_by": "query", "browser": "chrome",
@@ -27,7 +27,7 @@ the name is `stdio` and you need do nothing.
  "window": "1400x900"}
 ```
 
-`show(session://current)` draws it for the person.
+`show(workspace://current)` draws it for the person.
 
 ## Two rules, and they are absolute
 
@@ -90,14 +90,14 @@ same browser at the same page.
 What *is* gone is the browser's downloads. The Grid keeps that store per
 browser and deletes it with the browser, so `keep_file` anything you still
 need first. Screenshots and prints are never at risk this way — they land in
-your session's own files, `session://files/screenshots` and `session://files`,
+your session's own files, `workspace://files/screenshots` and `workspace://files`,
 from the moment they are taken.
 
 ## Recording a browser
 
 `open_session(record=true)` films the browser from that call until it ends. It is
 never inherited: reopening without `record` does not record. The video shows up
-under `session://files/recordings` shortly after the browser ends (or is
+under `workspace://files/recordings` shortly after the browser ends (or is
 reaped); `keep_file` it to keep it. It costs the Grid, so ask for it only when a
 person will watch.
 

@@ -13,7 +13,7 @@ from ..site_data import snapshot as site_data
 from ..workspace.workspaces import Workspaces
 from . import clients
 
-RESOURCE_URI = "session://current"
+RESOURCE_URI = "workspace://current"
 
 DESCRIPTION = (
     "The browser session this client is currently using.\n\n"
@@ -31,7 +31,7 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
 
     @mcp.resource(
         RESOURCE_URI,
-        name="Current Session",
+        name="Current Workspace",
         description=DESCRIPTION,
         mime_type="application/json",
     )
@@ -61,7 +61,7 @@ SITE_DESCRIPTION = (
     "What this session's last save_site_data holds: one entry per site with "
     "counts, never a value; the sites the session went to come first. Every "
     "browser this session opens has it back before open_session returns.\n\n"
-    "session://site-data/{site} shows one site in full. Reading this never "
+    "workspace://site-data/{site} shows one site in full. Reading this never "
     "opens a browser."
 )
 
@@ -69,12 +69,12 @@ ONE_SITE_DESCRIPTION = (
     "One site's saved data: its cookies, and the localStorage and sessionStorage "
     "of each of its origins. "
     "An httpOnly cookie's value is shown as \u2022\u2022\u2022; nothing else is "
-    "hidden. The site is a host from the session://site-data listing."
+    "hidden. The site is a host from the workspace://site-data listing."
 )
 
 
 def site_listing(workspaces: Workspaces, name: str) -> dict:
-    """``session://site-data``. Reads the record; never opens a browser."""
+    """``workspace://site-data``. Reads the record; never opens a browser."""
     record = workspaces.store.get(name)
     if record is None:
         return site_data.view({})
@@ -82,7 +82,7 @@ def site_listing(workspaces: Workspaces, name: str) -> dict:
 
 
 def one_site(workspaces: Workspaces, name: str, site: str) -> dict:
-    """``session://site-data/{site}``, or a ValueError that says where to look."""
+    """``workspace://site-data/{site}``, or a ValueError that says where to look."""
     record = workspaces.store.get(name)
     found = site_data.site_view(record.site_data if record else {}, site)
     if found is None:

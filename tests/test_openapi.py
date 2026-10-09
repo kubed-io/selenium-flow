@@ -359,7 +359,7 @@ async def test_a_flow_run_declares_the_site_data_it_reports(spec):
 
 
 async def test_the_session_status_declares_its_site_data_summary(spec):
-    declared = spec["components"]["schemas"]["SessionStatus"]["properties"]["site_data"]
+    declared = spec["components"]["schemas"]["WorkspaceStatus"]["properties"]["site_data"]
     assert declared["properties"]["sites"]["type"] == "integer"
     assert declared["properties"]["uri"]["type"] == "string"
     assert "only" in declared["description"]

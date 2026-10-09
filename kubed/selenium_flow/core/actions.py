@@ -165,7 +165,7 @@ class Actions:
         simply hold. There is no switching a live session to another browser:
         that is a different browser, so it is a different session.
 
-        A session's saved site data is restored here — cookies, every origin's
+        A workspace's saved site data is restored here — cookies, every origin's
         storage, the saved sessionStorage — before the first page loads, except
         into an ``insecure`` browser, which gets none. ``record`` asks the Grid
         to film this browser's whole life.
@@ -280,7 +280,7 @@ class Actions:
     def end_browser(self, session_id: str) -> dict:
         """Quit the browser and free its Grid slot.
 
-        The browser, not the session. A flow session survives its browser and
+        The browser, not the session. A workspace survives its browser and
         keeps the context the next open inherits — see ``Workspaces``.
         """
         self.grid.quit(session_id)
@@ -696,7 +696,7 @@ class Actions:
           Base64-encoding text it just wrote is a wasted step it can get wrong.
         - ``content`` — base64, which binary needs and which is the only shape
           MCP tool arguments can carry.
-        - ``file`` — any file this workspace has, by its ``session://files`` uri
+        - ``file`` — any file this workspace has, by its ``workspace://files`` uri
           — a screenshot, a download, or a file in Files — from the library
           ``workspace`` names. This closes the loop the file store never had: a
           browser could download a file or take a screenshot and there was no
@@ -729,7 +729,7 @@ class Actions:
             raise ValueError(
                 "the file is required: pass text for a text file, content for "
                 "base64 bytes, or file for any file this workspace has, by its "
-                "session://files uri"
+                "workspace://files uri"
             )
         if len(sources) > 1:
             raise ValueError(
@@ -1106,7 +1106,7 @@ class Actions:
         landscape=False,
         background=False,
     ) -> dict:
-        """Print the page into the session's files, as a PDF or as HTML.
+        """Print the page into the workspace's files, as a PDF or as HTML.
 
         A PDF is W3C ``print``, the rendering a person gets from Ctrl+P: text
         stays selectable and the whole document is included. HTML is the
@@ -1150,7 +1150,7 @@ class Actions:
     def page(self, session_id: str) -> dict:
         """Where the browser is, without touching it.
 
-        Not a capability and so not a tool: `session://current` already answers
+        Not a capability and so not a tool: `workspace://current` already answers
         this for a caller. It exists because a secret's leash is checked against
         the page about to receive the keystroke, and that check has to read the
         page rather than trust what the caller said about it.

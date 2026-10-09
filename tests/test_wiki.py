@@ -142,7 +142,7 @@ def test_every_action_with_an_endpoint_has_a_page():
         (
             "/browser",
             set(ENDPOINTS.values())
-            | {"open_session", "end_browser", "current_session"},
+            | {"open_session", "end_browser", "current_workspace"},
         ),
         (("/flows", "/schemas/flow"), flowapi.FLOW_ENDPOINTS),
         ("/files", files_module.FILE_ENDPOINTS),

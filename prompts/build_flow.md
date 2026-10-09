@@ -19,7 +19,7 @@ Build a selenium-flow flow for: **{{ task }}**
 Do it by hand first, then save what worked. A flow written from guesswork fails
 at step nine with a form half filled.
 
-1. **Check what you are holding.** Read `session://current`. Your session is
+1. **Check what you are holding.** Read `workspace://current`. Your session is
    the name you connected with; no call takes a session id.
 2. `open_session()`, then `navigate` to {{ url }}.
 3. **`outline` the page** before each action, scoped with a `selector` or

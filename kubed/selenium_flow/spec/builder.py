@@ -84,7 +84,9 @@ PLACEHOLDER_VERSION = "0.0.0"
 # a model rather than as what the operation is. Keyed by capability, so a new
 # row on the resource without one fails the build rather than going unnamed.
 RESOURCE_SUMMARIES = {
-    "open_session": "Open this workspace's browser, or pick up the one it was using.",
+    "open_session": (
+        "Open a session in this workspace, or pick up the one it was using."
+    ),
     "end_browser": "Quit the browser, keeping the workspace and its context.",
 }
 
@@ -268,9 +270,9 @@ async def build_spec(
 
     from ..mcp import resources as status
 
-    schemas["SessionStatus"] = RESPONSES["current_session"]
+    schemas["WorkspaceStatus"] = RESPONSES["current_workspace"]
     paths.setdefault(browser_root, {})["get"] = {
-        "operationId": "currentSession",
+        "operationId": "currentWorkspace",
         "x-mcp-resource": status.RESOURCE_URI,
         "parameters": list(WORKSPACE_PARAMETERS),
         "summary": "What this workspace is, and whether it holds a browser.",
@@ -281,7 +283,7 @@ async def build_spec(
                 "description": "The workspace's current state. Opens nothing.",
                 "content": {
                     "application/json": {
-                        "schema": {"$ref": "#/components/schemas/SessionStatus"}
+                        "schema": {"$ref": "#/components/schemas/WorkspaceStatus"}
                     }
                 },
             },

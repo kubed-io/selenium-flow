@@ -40,7 +40,7 @@ def test_without_a_build_no_app_is_offered_and_the_files_resource_stays():
 
     uris = {str(r.uri) for r in asyncio.run(_server().mcp.list_resources())}
     assert apps.RESOURCE_URI not in uris
-    assert "session://files" in uris
+    assert "workspace://files" in uris
 
 
 def test_without_a_build_startup_says_how_to_build(caplog):

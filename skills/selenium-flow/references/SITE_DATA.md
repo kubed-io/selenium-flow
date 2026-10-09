@@ -30,7 +30,7 @@ The result names what was kept, never a value:
 {"saved": {"cookies": 14,
            "sites": ["https://app.example.com", "https://sso.example.com"],
            "skipped": []},
- "uri": "session://site-data"}
+ "uri": "workspace://site-data"}
 ```
 
 `skipped` names a site whose storage is not in this save, and why. One that could
@@ -48,7 +48,7 @@ says which sites, and never a value:
 
 ```json
 {"site_data": {"restored": ["app.example.com", "sso.example.com"], "skipped": [],
-               "uri": "session://site-data"}}
+               "uri": "workspace://site-data"}}
 ```
 
 No `site_data` key means nothing happened: nothing was saved, or only cookies that
@@ -87,7 +87,7 @@ open_session()
 execute_script(script="return localStorage.getItem('seen')")   # "1"
 ```
 
-`document.cookie` shows what the page can see. `session://site-data/app.example.com`
+`document.cookie` shows what the page can see. `workspace://site-data/app.example.com`
 shows what was saved, including httpOnly cookies the page cannot — their values
 read `•••`, here and in the admin UI.
 
@@ -107,5 +107,5 @@ read `•••`, here and in the admin UI.
 - Stored on the session and expires with it. Never on this server's disk; with the
   Redis store it is as durable as Redis.
 - A site that stores what you typed makes it readable in site data — a token typed
-  through a secret and kept in localStorage shows in `session://site-data/{site}`.
+  through a secret and kept in localStorage shows in `workspace://site-data/{site}`.
   httpOnly cookies stay masked.

@@ -1435,6 +1435,29 @@ def test_a_repeated_name_is_a_400_over_http(server):
     assert response.json() == {"error": "the request names two workspaces: a, b"}
 
 
+@pytest.mark.parametrize(
+    "path, headers, error",
+    [
+        ("/browser?session=desk", {}, "OLD_QUERY"),
+        ("/browser", {"X-Session-Key": "desk"}, "OLD_HEADER"),
+    ],
+)
+def test_an_old_name_is_a_400_over_http(server, path, headers, error):
+    from starlette.testclient import TestClient
+
+    from kubed.selenium_flow.workspace import workspaces
+
+    from .conftest import TOKEN
+
+    client = TestClient(
+        server.mcp.http_app(),
+        headers={"Authorization": f"Bearer {TOKEN}", **headers},
+    )
+    response = client.get(path)
+    assert response.status_code == 400
+    assert response.json() == {"error": getattr(workspaces, error)}
+
+
 def test_a_client_setting_repeated_is_the_later_one():
     """Only a workspace name became a refusal; a client default reads as it
     always has."""

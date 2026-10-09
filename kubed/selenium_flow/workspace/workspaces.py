@@ -77,7 +77,7 @@ RECORDING_OFF = (
 FROM_RESULT = object()
 
 REPLACED_BEFORE_SAVE = (
-    "another browser took this workspace before the save landed: nothing was saved"
+    "another session took over this workspace before the save landed: nothing was saved"
 )
 
 # A client names its workspace with either of these. The query parameter is the
@@ -612,7 +612,7 @@ class Workspaces:
         restore_site_data: bool = True,
         **wanted,
     ) -> dict:
-        """Open this workspace's browser, or pick up the one it was using.
+        """Open a session in this workspace, or pick up the one it was using.
 
         The only place a browser is created, and the only place its settings can
         be chosen, which is why it is never done implicitly. Shared by both

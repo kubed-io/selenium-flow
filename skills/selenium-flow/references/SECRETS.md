@@ -117,7 +117,7 @@ one, and do not screenshot a page that shows it.
 
 A site that stores what you typed makes it readable in site data: a token typed
 through a secret that the page keeps in localStorage or sessionStorage is saved
-by `save_site_data` and shown in `session://site-data/{site}` and the admin UI.
+by `save_site_data` and shown in `workspace://site-data/{site}` and the admin UI.
 httpOnly cookies stay masked
 (`skill://selenium-flow/references/SITE_DATA.md`).
 

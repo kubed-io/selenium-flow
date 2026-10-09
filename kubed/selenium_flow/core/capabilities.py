@@ -522,7 +522,7 @@ CAPABILITIES: tuple[Capability, ...] = (
             },
             uri={
                 "type": "string",
-                "description": "session://site-data, which lists what is saved.",
+                "description": "workspace://site-data, which lists what is saved.",
             },
         ),
     ),

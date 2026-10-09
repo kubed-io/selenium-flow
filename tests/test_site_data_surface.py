@@ -61,18 +61,18 @@ async def test_open_session_takes_restore_site_data(server):
 
 
 async def test_the_resources_list_and_show_one_site_masking_httponly(saved):
-    listing = await read(saved, "session://site-data")
+    listing = await read(saved, "workspace://site-data")
     assert [s["site"] for s in listing["sites"]] == [SITE]
     assert listing["sites"][0]["cookies"] == 2
-    one = await read(saved, f"session://site-data/{SITE}")
+    one = await read(saved, f"workspace://site-data/{SITE}")
     values = {c["name"]: c["value"] for c in one["cookies"]}
     assert values == {"sid": "•••", "theme": "dark"}
     assert one["storage"] == [
         {"origin": f"https://{SITE}", "local_storage": {"k": "v"}, "session_storage": {}}
     ]
     assert "pending" not in json.dumps([listing, one])
-    with pytest.raises(Exception, match="session://site-data"):
-        await read(saved, "session://site-data/nowhere.test")
+    with pytest.raises(Exception, match="workspace://site-data"):
+        await read(saved, "workspace://site-data/nowhere.test")
 
 
 async def test_the_http_routes_answer_the_same(saved):
@@ -80,12 +80,12 @@ async def test_the_http_routes_answer_the_same(saved):
     params = {"workspace": NAMED}
     listed = client.get("/site-data", headers=AUTH, params=params)
     one = client.get(f"/site-data/{SITE}", headers=AUTH, params=params)
-    assert listed.json() == await read(saved, "session://site-data")
-    assert one.json() == await read(saved, f"session://site-data/{SITE}")
+    assert listed.json() == await read(saved, "workspace://site-data")
+    assert one.json() == await read(saved, f"workspace://site-data/{SITE}")
     assert client.get("/site-data", params=params).status_code == 401
     missing = client.get("/site-data/nowhere.test", headers=AUTH, params=params)
     assert missing.status_code == 400
-    assert "session://site-data" in missing.json()["error"]
+    assert "workspace://site-data" in missing.json()["error"]
 
 
 def test_the_capture_never_leaves_the_server(monkeypatch):
@@ -122,12 +122,12 @@ def test_the_capture_never_leaves_the_server(monkeypatch):
     assert response.status_code == 200, body
     assert site_data.CAPTURED not in body
     assert body["saved"] == {"cookies": 1, "sites": [f"https://{SITE}"], "skipped": []}
-    assert body["uri"] == "session://site-data"
+    assert body["uri"] == "workspace://site-data"
 
 
 async def test_current_session_names_site_data(saved):
-    current = await read(saved, "session://current")
-    assert current["site_data"] == {"sites": 1, "uri": "session://site-data"}
+    current = await read(saved, "workspace://current")
+    assert current["site_data"] == {"sites": 1, "uri": "workspace://site-data"}
 
 
 def test_the_published_kept_shared_is_the_shape_returned():
