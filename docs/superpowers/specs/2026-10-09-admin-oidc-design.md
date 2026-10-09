@@ -1,7 +1,7 @@
 # The admin UI signs in with OIDC
 
 **Status: DESIGNED 2026-10-09 on branch `issue-62-oidc` (issue #62, programme
-E5); not yet built. Assumes E1 (#60) merged. Plan:
+E5); planned, not yet built. Assumes E1 (#60) merged. Plan:
 `docs/superpowers/plans/2026-10-09-admin-oidc.md`. Penpot: *Admin UI* → page
 *Admin*, board `login`, its `oidc` row (`or` · `btn / oidc` "Sign in with
 OIDC" · note "the configured issuer · needs the admin role").** Written with no
@@ -486,8 +486,8 @@ sharing one verifier; `page.sign_in`; the record's `opened_by` written by
 `events_url`; a roleless one gets the 403 body; another client's gets 401;
 `/admin/events` gives the same 403; an admin-UI JWT on every REST tree is 401;
 one JWKS fetch serves `/mcp` and `/admin`; the page carries `data-oidc` and
-never the audience or JWKS URI; a REST open with the token records
-`opened_by: admin`. The admin-workspaces golden gains `"opened_by": null`.
+never the audience or JWKS URI; a REST caller carries the admin principal
+when a token is set, so its opens record `opened_by: admin`. The admin-workspaces golden gains `"opened_by": null`.
 
 **UI (vitest):** `oidc.ts` — the RFC 7636 vector, the authorization URL, the
 reply's every branch, the exchange's form body, renewal, `renewIn`,
