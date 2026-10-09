@@ -31,8 +31,8 @@ beforeEach(() => {
 
 afterEach(() => { vi.useRealTimers() })
 
-function returning(query = 'code=c1&state=s1', silent = false) {
-  sessionStorage.setItem(oidc.PENDING, JSON.stringify({ state: 's1', verifier: 'v1', hash: '#/', silent }))
+function returning(query = 'code=c1&state=s1', silent = false, hash = '#/') {
+  sessionStorage.setItem(oidc.PENDING, JSON.stringify({ state: 's1', verifier: 'v1', hash, silent }))
   history.replaceState(null, '', '/?' + query)
 }
 
@@ -68,6 +68,20 @@ test('a reply signs in with the access token and stores no token (ruling 2)', as
   expect(stored()).not.toContain(ACCESS)
   expect(stored()).not.toContain('r1')
   expect(localStorage.length).toBe(0)
+})
+
+test('a reply lands on the view it left from, not only in the address bar', async () => {
+  returning('code=c1&state=s1', false, '#/settings')
+  fakeFetch({
+    [WELL_KNOWN]: { body: DISCOVERY },
+    [TOKEN]: { body: { access_token: ACCESS, refresh_token: 'r1', expires_in: 300 } },
+    'GET /admin/workspaces': { body: WORKSPACES },
+    'GET /admin/settings': { body: { sections: [] } },
+  })
+  const { container } = render(Admin, { mount: '', console: '/grid', oidc: CONFIG })
+  await vi.waitFor(() => expect(screen.getByText('Sign out')).toBeInTheDocument())
+  expect(location.hash).toBe('#/settings')
+  expect(container.querySelector('#tabSettings')).toHaveAttribute('aria-selected', 'true')
 })
 
 test('a sign-in without the admin role is told so, and keeps nothing', async () => {

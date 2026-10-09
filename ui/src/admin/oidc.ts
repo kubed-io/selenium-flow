@@ -57,6 +57,18 @@ export const hasReply = (): boolean => {
   return params.has('code') || params.has('error')
 }
 
+/* Only a web URL is ever followed or sent the code: a hostile issuer's
+   `javascript:` endpoint would otherwise run in this page's origin. */
+function web(url: unknown): url is string {
+  if (typeof url !== 'string') return false
+  try {
+    const { protocol } = new URL(url)
+    return protocol === 'https:' || protocol === 'http:'
+  } catch {
+    return false
+  }
+}
+
 /* Every way discovery can fail — down, refused by CORS, a proxy's HTML, the
    wrong issuer — is one message: the issuer could not be reached. */
 export async function discover(config: OidcConfig): Promise<Endpoints> {
@@ -69,7 +81,7 @@ export async function discover(config: OidcConfig): Promise<Endpoints> {
     throw new Error(NOT_REACHED)
   }
   // OIDC Discovery 4.3: the document must name the issuer it was fetched for.
-  if (doc.issuer !== config.issuer || typeof doc.authorization_endpoint !== 'string' || typeof doc.token_endpoint !== 'string') {
+  if (doc.issuer !== config.issuer || !web(doc.authorization_endpoint) || !web(doc.token_endpoint)) {
     throw new Error(NOT_REACHED)
   }
   return { authorization_endpoint: doc.authorization_endpoint, token_endpoint: doc.token_endpoint }
@@ -135,8 +147,10 @@ export async function refresh(config: OidcConfig, tokens: Tokens): Promise<Token
   return next
 }
 
-/* When to renew: 30 s before the access token runs out, never sooner than 5 s. */
-export const renewIn = (tokens: Tokens, now = Date.now()): number => Math.max(5_000, tokens.expiresAt - now - 30_000)
+/* When to renew: 30 s before the access token runs out, never sooner than 5 s,
+   and never past setTimeout's 2^31 - 1 ms, beyond which a browser fires at once. */
+export const renewIn = (tokens: Tokens, now = Date.now()): number =>
+  Math.min(2 ** 31 - 1, Math.max(5_000, tokens.expiresAt - now - 30_000))
 
 /* The access token's username, for a message. Display only: the server verified it. */
 export function usernameOf(access: string): string | undefined {

@@ -71,6 +71,20 @@ test('a discovery document naming another issuer is refused', async () => {
   expect(go).not.toHaveBeenCalled()
 })
 
+test('an endpoint that is not http(s) is never followed nor sent the code', async () => {
+  for (const bad of ['javascript:alert(document.domain)//', 'data:text/html,hi', 'not a url']) {
+    for (const field of ['authorization_endpoint', 'token_endpoint']) {
+      const { calls } = fakeFetch({ [WELL_KNOWN]: { body: { ...DISCOVERY, [field]: bad } } })
+      const go = vi.fn()
+      await expect(begin(CONFIG, false, go)).rejects.toThrow(NOT_REACHED)
+      expect(go).not.toHaveBeenCalled()
+      replyWith('code=c1&state=s1')
+      expect(await complete(CONFIG)).toEqual({ kind: 'error', message: NOT_REACHED })
+      expect(calls.filter((c) => c.method === 'POST')).toHaveLength(0)
+    }
+  }
+})
+
 test('no reply is nothing to do', async () => {
   expect(await complete(CONFIG)).toEqual({ kind: 'none' })
 })
@@ -149,6 +163,8 @@ test('a refused refresh throws', async () => {
 test('renewal is 30 s before expiry, never sooner than 5 s', () => {
   expect(renewIn({ access: 'a', expiresAt: 300_000 }, 0)).toBe(270_000)
   expect(renewIn({ access: 'a', expiresAt: 10_000 }, 0)).toBe(5_000)
+  // Past 2^31 - 1 ms a browser fires setTimeout at once: a renewal loop.
+  expect(renewIn({ access: 'a', expiresAt: 30 * 86_400_000 }, 0)).toBe(2 ** 31 - 1)
 })
 
 test('usernameOf reads preferred_username, for display only', () => {

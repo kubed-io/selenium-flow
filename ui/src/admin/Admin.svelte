@@ -85,6 +85,9 @@
   async function finishOidc() {
     if (!oidc) return
     const reply = await complete(oidc)
+    // complete() put the pending hash back with replaceState, which fires no
+    // hashchange: read the route again, or the view stays on the list.
+    sync()
     if (reply.kind !== 'tokens') {
       said = reply.kind === 'error' ? reply.message : null
       phase = 'login'

@@ -403,6 +403,15 @@ async def test_without_a_client_id_a_jwt_never_opens_the_admin_api(issuer):
     assert refused.value.status == 401
 
 
+async def test_a_door_built_without_a_client_id_fails_closed(issuer):
+    """By hand, past `doors()`: a JWT with no `azp` must not match `None`."""
+    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
+    door = auth.AdminDoor(TOKEN, verifier, client_id=None, roles=("admin",))
+    with pytest.raises(auth.Refused) as refused:
+        await door.admit(_bearer(issuer.mint(claims={"roles": ["admin"]})))
+    assert refused.value.status == 401
+
+
 def test_both_doors_share_one_verifier(issuer):
     built = auth.doors(issuer.settings(TOKEN, admin_roles=("admin",)))
     assert built.admin._jwt is built.mcp.verifiers[1]

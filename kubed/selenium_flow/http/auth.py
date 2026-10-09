@@ -263,7 +263,8 @@ class AdminDoor:
         # Bytes: a str compare_digest raises on non-ASCII, and headers arrive latin-1.
         if hmac.compare_digest(bearer.encode(), self._token.encode()):
             return ADMIN
-        if self._jwt is None or not bearer:
+        # No client to match is no JWT door: a JWT without `azp` must not match None.
+        if self._jwt is None or not self._client_id or not bearer:
             raise Refused(401, UNAUTHORIZED)
         verified = await self._jwt.verify_jwt(bearer)
         if verified is None:
