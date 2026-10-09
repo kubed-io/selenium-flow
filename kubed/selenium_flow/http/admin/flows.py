@@ -71,7 +71,7 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
             raise ValueError(flowapi.OFF)
 
     @mcp.custom_route(
-        f"{prefix}/admin/sessions/{{key}}/flows", methods=["GET"], name="admin_flows"
+        f"{prefix}/admin/workspaces/{{key}}/flows", methods=["GET"], name="admin_flows"
     )
     @guarded
     async def admin_flows(request: Request) -> JSONResponse:
@@ -117,7 +117,7 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
         )
 
     @mcp.custom_route(
-        f"{prefix}/admin/sessions/{{key}}/flows/{{name}}",
+        f"{prefix}/admin/workspaces/{{key}}/flows/{{name}}",
         methods=["GET", "PUT", "DELETE"],
         name="admin_flow",
     )
@@ -168,7 +168,7 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
             return answer.refused(exc, f"flow {name} for {key}", log)
 
     @mcp.custom_route(
-        f"{prefix}/admin/sessions/{{key}}/flows/{{name}}/move",
+        f"{prefix}/admin/workspaces/{{key}}/flows/{{name}}/move",
         methods=["POST"],
         name="admin_move_flow",
     )

@@ -551,7 +551,7 @@ def test_every_tree_moves_with_the_prefix():
     app = server.mcp.http_app(path=server.mcp_path)  # what `run` serves
     paths = {r.path for r in app.routes if hasattr(r, "path")}
     for tree in (
-        "/flow/browser", "/flow/flows", "/flow/files", "/flow/admin/sessions",
+        "/flow/browser", "/flow/flows", "/flow/files", "/flow/admin/workspaces",
         "/flow/mcp", "/flow/openapi.yaml",
     ):
         assert tree in paths, tree

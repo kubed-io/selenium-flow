@@ -115,7 +115,7 @@ SHAPES = (
 # There is deliberately no `clear` or `delete` here. Both are real capabilities
 # and neither has an MCP tool, so the endpoint alone would be exactly the
 # one-sided capability this project forbids. The admin UI reaches both —
-# DELETE /admin/sessions/{key}/files/downloads, .../files/screenshots and
+# DELETE /admin/workspaces/{key}/files/downloads, .../files/screenshots and
 # .../files/{name} — which is an operator surface rather than a caller's, and
 # is where deleting anything belongs.
 FILE_ENDPOINTS = ("list", "screenshots", "downloads", "recordings", "keep")

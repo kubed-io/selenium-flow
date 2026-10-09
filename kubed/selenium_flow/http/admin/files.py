@@ -30,7 +30,7 @@ def mount(
     """
 
     @mcp.custom_route(
-        f"{prefix}/admin/sessions/{{key}}/files", methods=["GET"], name="admin_files"
+        f"{prefix}/admin/workspaces/{{key}}/files", methods=["GET"], name="admin_files"
     )
     @guarded
     async def admin_files(request: Request) -> JSONResponse:
@@ -73,7 +73,7 @@ def mount(
                 # rendering an (empty) tab of its own.
                 listing = {
                     "component": "fileSections",
-                    "session": None,
+                    "workspace": None,
                     "browser": False,
                     "downloads": [],
                     "screenshots": [],
@@ -97,14 +97,14 @@ def mount(
                 {
                     **listing,
                     "key": key,
-                    "session": await header(workspaces_payload, key, attached),
+                    "workspace": await header(workspaces_payload, key, attached),
                 }
             )
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"files for {key}", log)
 
     @mcp.custom_route(
-        f"{prefix}/admin/sessions/{{key}}/files/{{folder}}/{{name}}/keep",
+        f"{prefix}/admin/workspaces/{{key}}/files/{{folder}}/{{name}}/keep",
         methods=["POST"],
         name="admin_keep_file",
     )
@@ -140,7 +140,7 @@ def mount(
         return JSONResponse(kept)
 
     @mcp.custom_route(
-        f"{prefix}/admin/sessions/{{key}}/files/{{name}}",
+        f"{prefix}/admin/workspaces/{{key}}/files/{{name}}",
         methods=["DELETE"],
         name="admin_delete_file",
     )

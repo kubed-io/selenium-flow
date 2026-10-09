@@ -582,9 +582,9 @@ def test_the_admin_listing_survives_a_reaped_browser(client, live):
             side_effect=AssertionError("dialled a browser the Grid had reaped"),
         ),
     ):
-        body = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH).json()
+        body = client.get(f"/admin/workspaces/{KEY}/files", headers=AUTH).json()
     assert [f["name"] for f in body["files"]] == ["kept.pdf"]
-    assert body["session"]["live"] is False
+    assert body["workspace"]["live"] is False
 
 
 def test_a_grid_outage_is_an_error_not_an_empty_download_list(client, live):
@@ -604,7 +604,7 @@ def test_a_grid_outage_is_an_error_not_an_empty_download_list(client, live):
             browser.Grid, "files", side_effect=requests.ConnectionError("grid down")
         ),
     ):
-        response = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH)
+        response = client.get(f"/admin/workspaces/{KEY}/files", headers=AUTH)
     assert response.status_code == 503
 
 
@@ -629,7 +629,7 @@ def test_a_grid_refusal_over_the_admin_surface_does_not_echo_the_grid_url(
             ),
         ),
     ):
-        response = client.get(f"/admin/sessions/{KEY}/files", headers=AUTH)
+        response = client.get(f"/admin/workspaces/{KEY}/files", headers=AUTH)
     assert "secret" not in response.text and "grid.internal" not in response.text
     assert response.status_code == 503
 
@@ -645,7 +645,7 @@ def test_a_workspace_whose_name_is_not_a_directory_keeps_nothing(client, kept_se
     directory of its own."""
     kept_server.workspaces.store.set(BAD_KEY, Workspace(session_id="abc"))
     response = client.delete(
-        f"/admin/sessions/{quote(BAD_KEY, safe='')}/files/report.pdf", headers=AUTH
+        f"/admin/workspaces/{quote(BAD_KEY, safe='')}/files/report.pdf", headers=AUTH
     )
     assert response.status_code == 400
     assert "cannot keep files" in response.json()["error"]
@@ -661,8 +661,8 @@ def test_such_a_workspace_shows_unknown_counts_not_the_shared_librarys(
     kept_server.flows.save(GLOBAL_WORKSPACE, "shared", {"steps": []})
     kept_server.workspaces.store.set(BAD_KEY, Workspace(session_id=""))
     with patch.object(browser.Grid, "sessions", return_value=[]):
-        body = client.get("/admin/sessions", headers=AUTH).json()
-    row = next(r for r in body["sessions"] if r["key"] == BAD_KEY)
+        body = client.get("/admin/workspaces", headers=AUTH).json()
+    row = next(r for r in body["workspaces"] if r["key"] == BAD_KEY)
     assert row["counts"] == {"downloads": None, "screenshots": None, "recordings": None, "files": None}
     assert row["files_count"] is None and row["flows_count"] is None
 

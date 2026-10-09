@@ -72,7 +72,7 @@ def test_sigterm_stops_the_server_promptly_with_an_event_stream_open(tmp_path):
                     ) from None
                 time.sleep(0.2)
 
-        events = json.load(_get(f"{base}/admin/sessions"))["events_url"]
+        events = json.load(_get(f"{base}/admin/workspaces"))["events_url"]
         stream = _get(f"{base}{events}", timeout=10)
         first = stream.readline().decode()
         assert first.startswith("data: "), f"the stream sent {first!r} first"

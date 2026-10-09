@@ -43,7 +43,7 @@ POLL_SECONDS = 2.0
 # Seconds of no change before a keepalive comment goes out.
 HEARTBEAT = 20.0
 # How old the last broadcast may be and still be handed out as "now": to a
-# page that has just connected, and to `GET /admin/sessions`.
+# page that has just connected, and to `GET /admin/workspaces`.
 FRESH_SECONDS = 1.0
 
 
@@ -155,7 +155,7 @@ async def header(workspaces_payload, key: str, session_id: str) -> dict:
     }
     try:
         listing = await run_in_threadpool(workspaces_payload)
-        return next((s for s in listing["sessions"] if s["key"] == key), detail)
+        return next((s for s in listing["workspaces"] if s["key"] == key), detail)
     except Exception as exc:  # noqa: BLE001 - a Grid blip, not a failure
         log.info("session header for %s unavailable: %s", key, exc)
         return detail
@@ -356,7 +356,7 @@ def mount(
         if workspaces_store is None or not hasattr(workspaces_store, "records"):
             # A store that cannot enumerate is not an error: sessions still
             # work, there is simply no history to show.
-            return {"sessions": []}
+            return {"workspaces": []}
         try:
             records = workspaces_store.records()
         except Exception as exc:  # noqa: BLE001 - a Redis blip is not an outage
@@ -367,7 +367,7 @@ def mount(
             report = log.debug if store_failing[0] else log.warning
             report("could not read the session store: %s", exc)
             store_failing[0] = True
-            return {"sessions": []}
+            return {"workspaces": []}
         if store_failing[0]:
             log.info("the session store is readable again")
             store_failing[0] = False
@@ -522,14 +522,14 @@ def mount(
                     **_grid_facts(running.get(sid, {})),
                 }
             )
-        return {"sessions": rows}
+        return {"workspaces": rows}
 
     broadcast = Broadcast(workspaces_payload)
 
     @mcp.custom_route(
-        f"{prefix}/admin/sessions", methods=["GET"], name="admin_sessions")
+        f"{prefix}/admin/workspaces", methods=["GET"], name="admin_workspaces")
     @guarded
-    async def admin_sessions(request: Request) -> JSONResponse:
+    async def admin_workspaces(request: Request) -> JSONResponse:
         # What the open pages were just sent, when that is recent: a page loads
         # this and opens the stream together, and both are the same answer.
         payload = broadcast.fresh() or await run_in_threadpool(workspaces_payload)
@@ -599,16 +599,16 @@ def mount(
         )
 
     @mcp.custom_route(
-        f"{prefix}/admin/sessions/{{key}}",
+        f"{prefix}/admin/workspaces/{{key}}/session",
         methods=["DELETE"],
         name="admin_end_session",
     )
     @guarded
     @broadcast.changes
     async def admin_end_session(request: Request) -> JSONResponse:
-        """End the browser a flow session holds, keeping the session itself.
+        """End the browser session a workspace holds, keeping the workspace itself.
 
-        **This does not delete the session.** It detaches the browser and leaves
+        **This does not delete the workspace.** It detaches the browser and leaves
         the record — its browser choice and the page it was on — so the caller's
         next ``open_session`` carries on where it left off rather than starting
         from the server's defaults. A flow session is only ever removed by

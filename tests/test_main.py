@@ -184,9 +184,9 @@ def test_the_access_log_drops_the_query_string_and_keeps_the_rest(tmp_path, list
 
 
 SESSION_PATHS = [
-    ("/admin/sessions/s3cr3t/history", "/admin/sessions/{key}/history"),
-    ("/kept/s3cr3t/x.pdf", "/kept/{session}/{name}"),
-    ("/screenshots/s3cr3t/shot.png", "/screenshots/{session}/{name}"),
+    ("/admin/workspaces/s3cr3t/history", "/admin/workspaces/{key}/history"),
+    ("/kept/s3cr3t/x.pdf", "/kept/{workspace}/{name}"),
+    ("/screenshots/s3cr3t/shot.png", "/screenshots/{workspace}/{name}"),
     ("/files/s3cr3t/report.pdf", "/files/{session_id}/{name}"),
 ]
 

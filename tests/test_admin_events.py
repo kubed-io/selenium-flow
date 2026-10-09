@@ -194,23 +194,23 @@ async def test_the_listing_is_the_last_broadcast_while_it_is_fresh(
         await _until(lambda: len(sink) == 1, "the first event")
         asked = len(counted)
 
-        listing = await _request(app, "GET", "/admin/sessions")
+        listing = await _request(app, "GET", "/admin/workspaces")
         assert len(counted) == asked, "a fresh broadcast was computed again"
-        assert {"sessions": listing["sessions"]} == json.loads(sink[0])
+        assert {"workspaces": listing["workspaces"]} == json.loads(sink[0])
 
         # Ending a browser changes the list, so the listing after it is new.
         def end_browser(caller):
             server.workspaces.store.set(caller.name, Workspace(session_id=""))
 
         monkeypatch.setattr(server.workspaces, "end_browser", end_browser)
-        await _request(app, "DELETE", "/admin/sessions/one")
-        listing = await _request(app, "GET", "/admin/sessions")
+        await _request(app, "DELETE", "/admin/workspaces/one/session")
+        listing = await _request(app, "GET", "/admin/workspaces")
         assert len(counted) == asked + 1
-        assert listing["sessions"][0]["attached"] is False
+        assert listing["workspaces"][0]["attached"] is False
 
         # And a stale one is never served.
         monkeypatch.setattr(admin, "FRESH_SECONDS", 0.0)
-        await _request(app, "GET", "/admin/sessions")
+        await _request(app, "GET", "/admin/workspaces")
         assert len(counted) == asked + 2
     finally:
         await _close(stop, [task])
@@ -238,7 +238,7 @@ async def test_a_failed_tick_sends_nothing_and_the_stream_carries_on(
     try:
         await _until(lambda: len(sink) == 1, "the event after the blips")
         assert len(failures) == 2
-        assert [r["key"] for r in json.loads(sink[0])["sessions"]] == ["one"]
+        assert [r["key"] for r in json.loads(sink[0])["workspaces"]] == ["one"]
     finally:
         await _close(stop, [task])
 
@@ -305,11 +305,11 @@ async def test_a_forget_with_a_page_open_is_in_the_next_listing(
     task = asyncio.create_task(_listen(app, sink, stop))
     try:
         await _until(lambda: len(sink) == 1, "the first event")
-        before = (await _request(app, "GET", "/admin/sessions"))["sessions"][0]
+        before = (await _request(app, "GET", "/admin/workspaces"))["workspaces"][0]
         assert before["site_data_count"] == 1
 
-        await _request(app, "DELETE", "/admin/sessions/one/site-data/app.example.com")
-        after = (await _request(app, "GET", "/admin/sessions"))["sessions"][0]
+        await _request(app, "DELETE", "/admin/workspaces/one/site-data/app.example.com")
+        after = (await _request(app, "GET", "/admin/workspaces"))["workspaces"][0]
         assert after["site_data_count"] == 0
         assert after["site_data_rev"] != before["site_data_rev"]
     finally:

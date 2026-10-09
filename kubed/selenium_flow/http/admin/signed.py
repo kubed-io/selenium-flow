@@ -354,9 +354,9 @@ def mount(mcp, actions, flow_store, token, prefix) -> None:
     route(
         mcp,
         token,
-        url=f"{prefix}/kept/{{session}}/{{name}}",
+        url=f"{prefix}/kept/{{workspace}}/{{name}}",
         name="kept_file",
-        owner="session",
+        owner="workspace",
         path_of=links.kept_path,
         path=lambda session, leaf: flow_store.file_path(session, leaf),
         closed=lambda _leaf: flow_store is None,
@@ -373,9 +373,9 @@ def mount(mcp, actions, flow_store, token, prefix) -> None:
     route(
         mcp,
         token,
-        url=f"{prefix}/screenshots/{{session}}/{{name}}",
+        url=f"{prefix}/screenshots/{{workspace}}/{{name}}",
         name="screenshot_file",
-        owner="session",
+        owner="workspace",
         path_of=links.screenshot_path,
         path=lambda session, leaf: flow_store.file_path(
             session, leaf, SCREENSHOTS_DIR
@@ -395,9 +395,9 @@ def mount(mcp, actions, flow_store, token, prefix) -> None:
     route(
         mcp,
         token,
-        url=f"{prefix}/recordings/{{session}}/{{name}}",
+        url=f"{prefix}/recordings/{{workspace}}/{{name}}",
         name="recording_file",
-        owner="session",
+        owner="workspace",
         path_of=links.recording_path,
         path=lambda session, leaf: flow_store.file_path(session, leaf, RECORDINGS_DIR),
         closed=lambda _leaf: flow_store is None,

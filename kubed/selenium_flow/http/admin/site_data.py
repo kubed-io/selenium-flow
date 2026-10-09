@@ -33,7 +33,7 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
     """
 
     @mcp.custom_route(
-        f"{prefix}/admin/sessions/{{key}}/history",
+        f"{prefix}/admin/workspaces/{{key}}/history",
         methods=["GET"],
         name="admin_history",
     )
@@ -58,7 +58,7 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
         return JSONResponse({"key": key, **joined, "clears": clears})
 
     @mcp.custom_route(
-        f"{prefix}/admin/sessions/{{key}}/history",
+        f"{prefix}/admin/workspaces/{{key}}/history",
         methods=["DELETE"],
         name="admin_history_clear",
     )
@@ -80,7 +80,7 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
         return JSONResponse({"cleared": cleared or []})
 
     @mcp.custom_route(
-        f"{prefix}/admin/sessions/{{key}}/site-data",
+        f"{prefix}/admin/workspaces/{{key}}/site-data",
         methods=["GET"],
         name="admin_site_data",
     )
@@ -99,7 +99,7 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
         return JSONResponse({"key": key, **listed, "details": details})
 
     @mcp.custom_route(
-        f"{prefix}/admin/sessions/{{key}}/site-data",
+        f"{prefix}/admin/workspaces/{{key}}/site-data",
         methods=["DELETE"],
         name="admin_site_data_clear",
     )
@@ -121,7 +121,7 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
         return JSONResponse({"cleared": cleared or []})
 
     @mcp.custom_route(
-        f"{prefix}/admin/sessions/{{key}}/site-data/{{site}}",
+        f"{prefix}/admin/workspaces/{{key}}/site-data/{{site}}",
         methods=["DELETE"],
         name="admin_site_data_forget",
     )

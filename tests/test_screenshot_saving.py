@@ -404,7 +404,7 @@ async def test_link_ttl_is_how_long_a_link_opens(tmp_path):
     assert day - 5 <= lasts(entry["url"]) < day + links.EXPIRY_STEP
 
     body = TestClient(server.mcp.http_app()).get(
-        "/admin/sessions/stdio/files", headers={"Authorization": "Bearer tok"}
+        "/admin/workspaces/stdio/files", headers={"Authorization": "Bearer tok"}
     ).json()
     assert [f["name"] for f in body["screenshots"]] == ["shot.png"]
     assert day - 5 <= lasts(body["screenshots"][0]["url"]) < day + links.EXPIRY_STEP

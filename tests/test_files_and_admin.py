@@ -182,10 +182,10 @@ def test_describe_marks_images_and_types():
 
 
 def test_the_admin_api_requires_the_token(client):
-    assert client.get("/admin/sessions").status_code == 401
-    assert client.get("/admin/sessions/x/files").status_code == 401
+    assert client.get("/admin/workspaces").status_code == 401
+    assert client.get("/admin/workspaces/x/files").status_code == 401
     bad = {"Authorization": "Bearer nope"}
-    assert client.get("/admin/sessions", headers=bad).status_code == 401
+    assert client.get("/admin/workspaces", headers=bad).status_code == 401
 
 
 # --- ending a session -----------------------------------------------------
@@ -193,15 +193,15 @@ def test_the_admin_api_requires_the_token(client):
 
 def test_ending_a_workspace_requires_the_token(client):
     """It quits somebody's browser, so it is the last route to leave open."""
-    assert client.delete("/admin/sessions/abc").status_code == 401
+    assert client.delete("/admin/workspaces/abc/session").status_code == 401
     bad = {"Authorization": "Bearer nope"}
-    assert client.delete("/admin/sessions/abc", headers=bad).status_code == 401
+    assert client.delete("/admin/workspaces/abc/session", headers=bad).status_code == 401
 
 
 def test_ending_a_workspace_quits_the_browser(client, flow_session):
     with patch.object(browser.Grid, "quit") as quit_:
         response = client.delete(
-            f"/admin/sessions/{KEY}", headers={"Authorization": f"Bearer {TOKEN}"}
+            f"/admin/workspaces/{KEY}/session", headers={"Authorization": f"Bearer {TOKEN}"}
         )
     assert response.status_code == 200
     assert response.json() == {"success": True, "key": KEY, "session_id": "abc"}
@@ -217,7 +217,7 @@ def test_a_grid_that_refuses_to_quit_is_still_a_200(client, flow_session):
     test_workspaces.py; the route's contract is the status code."""
     with patch.object(browser.Grid, "quit", side_effect=RuntimeError("gone")):
         response = client.delete(
-            f"/admin/sessions/{KEY}", headers={"Authorization": f"Bearer {TOKEN}"}
+            f"/admin/workspaces/{KEY}/session", headers={"Authorization": f"Bearer {TOKEN}"}
         )
     assert response.status_code == 200
 
@@ -228,7 +228,7 @@ def test_ending_a_workspace_with_no_browser_is_a_no_op(client, server):
     server.workspaces.store.set("idle", Workspace(session_id=""))
     with patch.object(browser.Grid, "quit") as quit_:
         response = client.delete(
-            "/admin/sessions/idle", headers={"Authorization": f"Bearer {TOKEN}"}
+            "/admin/workspaces/idle/session", headers={"Authorization": f"Bearer {TOKEN}"}
         )
     assert response.status_code == 200
     assert response.json()["session_id"] is None
@@ -236,14 +236,14 @@ def test_ending_a_workspace_with_no_browser_is_a_no_op(client, server):
 
 
 def test_ending_a_workspace_does_not_disturb_the_files_route(client, flow_session):
-    """`/admin/sessions/<key>` and `/admin/sessions/<key>/files` are different
+    """`/admin/workspaces/<key>/session` and `/admin/workspaces/<key>/files` are different
     routes, and a DELETE to one must not be routed to the other."""
     with (
         patch.object(browser.Grid, "clear_files") as clear,
         patch.object(browser.Grid, "quit") as quit_,
     ):
         client.delete(
-            f"/admin/sessions/{KEY}", headers={"Authorization": f"Bearer {TOKEN}"}
+            f"/admin/workspaces/{KEY}/session", headers={"Authorization": f"Bearer {TOKEN}"}
         )
     quit_.assert_called_once()
     clear.assert_not_called()
@@ -356,7 +356,7 @@ def test_the_admin_api_lists_files_with_signed_urls(client, flow_session):
         patch.object(browser.Grid, "files", return_value=ENTRIES),
     ):
         body = client.get(
-            f"/admin/sessions/{KEY}/files",
+            f"/admin/workspaces/{KEY}/files",
             headers={"Authorization": f"Bearer {TOKEN}"},
         ).json()
     # Newest first — the Grid's own listing has no order of its own to inherit,
@@ -383,9 +383,9 @@ def test_the_listing_shows_workspaces_not_grid_sessions(client, server):
         patch.object(browser.Grid, "files", return_value=[]),
     ):
         body = client.get(
-            "/admin/sessions", headers={"Authorization": f"Bearer {TOKEN}"}
+            "/admin/workspaces", headers={"Authorization": f"Bearer {TOKEN}"}
         ).json()
-    keys = [row["key"] for row in body["sessions"]]
+    keys = [row["key"] for row in body["workspaces"]]
     assert keys == ["mine"]
     assert "somebody-else" not in str(body)
 
@@ -398,9 +398,9 @@ def test_a_detached_workspace_is_listed_as_idle_with_its_context(client, server)
     )
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get(
-            "/admin/sessions", headers={"Authorization": f"Bearer {TOKEN}"}
+            "/admin/workspaces", headers={"Authorization": f"Bearer {TOKEN}"}
         ).json()
-    row = body["sessions"][0]
+    row = body["workspaces"][0]
     assert row["attached"] is False
     assert row["live"] is False
     assert row["session_id"] is None
@@ -414,9 +414,9 @@ def test_the_stdio_workspace_is_listed_and_labelled(client, server):
     server.workspaces.store.set("stdio", Workspace(session_id="abc"))
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get(
-            "/admin/sessions", headers={"Authorization": f"Bearer {TOKEN}"}
+            "/admin/workspaces", headers={"Authorization": f"Bearer {TOKEN}"}
         ).json()
-    assert body["sessions"][0]["owner"] == "stdio"
+    assert body["workspaces"][0]["owner"] == "stdio"
 
 
 def test_a_detached_workspace_has_no_files_rather_than_an_error(client, server):
@@ -425,7 +425,7 @@ def test_a_detached_workspace_has_no_files_rather_than_an_error(client, server):
     none of."""
     server.workspaces.store.set("idle", Workspace(session_id=""))
     body = client.get(
-        "/admin/sessions/idle/files",
+        "/admin/workspaces/idle/files",
         headers={"Authorization": f"Bearer {TOKEN}"},
     )
     assert body.status_code == 200
@@ -491,7 +491,7 @@ def test_the_workspaces_call_hands_back_a_signed_stream_url(client):
     """EventSource cannot send a header, so it is given a URL it can just open."""
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get(
-            "/admin/sessions", headers={"Authorization": f"Bearer {TOKEN}"}
+            "/admin/workspaces", headers={"Authorization": f"Bearer {TOKEN}"}
         ).json()
     assert body["events_url"].startswith("/admin/events?exp=")
     assert "sig=" in body["events_url"]
@@ -513,7 +513,7 @@ def test_the_event_stream_signature_is_bound_to_its_own_path(client):
     """
     with patch.object(browser.Grid, "sessions", return_value=[]):
         url = client.get(
-            "/admin/sessions", headers={"Authorization": f"Bearer {TOKEN}"}
+            "/admin/workspaces", headers={"Authorization": f"Bearer {TOKEN}"}
         ).json()["events_url"]
     query = url.split("?", 1)[1]
     assert client.get(f"/files/abc/shot.png?{query}").status_code == 403
@@ -623,7 +623,7 @@ async def test_every_connected_page_is_sent_the_same_events(server, monkeypatch)
         await _until(lambda: all(len(s) == 2 for s in sinks), "the change")
         assert sinks[0] == sinks[1] == sinks[2]
         assert sinks[0][0] != sinks[0][1]
-        assert [r["key"] for r in json.loads(sinks[0][1])["sessions"]] != []
+        assert [r["key"] for r in json.loads(sinks[0][1])["workspaces"]] != []
 
         late = []
         tasks.append(asyncio.create_task(_listen(app, late, stop)))

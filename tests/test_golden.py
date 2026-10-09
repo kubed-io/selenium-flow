@@ -234,9 +234,9 @@ def test_the_admin_workspace_listing_is_what_it_was(tmp_path):
         reopened={"browser": "live-1", "report": {"restored": 1, "skipped": 0}},
     ).visited("https://app.example.com/y", now=NOW - 20)
     store.set("reopened", reopened)
-    body = TestClient(server.mcp.http_app(), headers=AUTH).get("/admin/sessions")
+    body = TestClient(server.mcp.http_app(), headers=AUTH).get("/admin/workspaces")
     assert body.status_code == 200
-    compare("admin-sessions.json", normalised(body.json()))
+    compare("admin-workspaces.json", normalised(body.json()))
 
 
 # ---- every error envelope ----------------------------------------------------

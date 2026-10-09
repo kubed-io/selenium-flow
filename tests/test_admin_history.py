@@ -63,11 +63,11 @@ def client(server):
     return TestClient(server.mcp.http_app(), headers=AUTH)
 
 
-URL = f"/admin/sessions/{KEY}/history"
+URL = f"/admin/workspaces/{KEY}/history"
 
 
 def row(client):
-    rows = client.get("/admin/sessions").json()["sessions"]
+    rows = client.get("/admin/workspaces").json()["workspaces"]
     return next(r for r in rows if r["key"] == KEY)
 
 
@@ -97,7 +97,7 @@ def test_secrets_join_the_hosts_they_allow_and_never_make_a_row(client):
 
 
 def test_a_key_with_no_record_has_no_rows(client):
-    assert client.get("/admin/sessions/nobody/history").json() == {
+    assert client.get("/admin/workspaces/nobody/history").json() == {
         "key": "nobody", "sites": [], "clears": [],
     }
 

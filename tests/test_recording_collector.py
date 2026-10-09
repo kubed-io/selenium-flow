@@ -579,7 +579,7 @@ async def test_a_poke_forgets_the_last_broadcast_and_ticks_now():
     from kubed.selenium_flow.http.admin.workspaces import Broadcast
 
     b = Broadcast(compute=dict)
-    b._latest = (time.monotonic(), {"sessions": []}, "{}")
+    b._latest = (time.monotonic(), {"workspaces": []}, "{}")
     assert b.fresh() is not None and not b._nudge.is_set()
     b.poke()
     assert b.fresh() is None and b._nudge.is_set()

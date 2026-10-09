@@ -1,32 +1,32 @@
 [
   [
     "DELETE",
-    "/admin/sessions/{key}",
-    "admin_end_session"
-  ],
-  [
-    "DELETE",
-    "/admin/sessions/{key}/files/{name}",
+    "/admin/workspaces/{key}/files/{name}",
     "admin_delete_file"
   ],
   [
     "DELETE",
-    "/admin/sessions/{key}/flows/{name}",
+    "/admin/workspaces/{key}/flows/{name}",
     "admin_flow"
   ],
   [
     "DELETE",
-    "/admin/sessions/{key}/history",
+    "/admin/workspaces/{key}/history",
     "admin_history_clear"
   ],
   [
     "DELETE",
-    "/admin/sessions/{key}/site-data",
+    "/admin/workspaces/{key}/session",
+    "admin_end_session"
+  ],
+  [
+    "DELETE",
+    "/admin/workspaces/{key}/site-data",
     "admin_site_data_clear"
   ],
   [
     "DELETE",
-    "/admin/sessions/{key}/site-data/{site}",
+    "/admin/workspaces/{key}/site-data/{site}",
     "admin_site_data_forget"
   ],
   [
@@ -51,38 +51,38 @@
   ],
   [
     "GET",
-    "/admin/sessions",
-    "admin_sessions"
+    "/admin/settings",
+    "admin_settings"
   ],
   [
     "GET",
-    "/admin/sessions/{key}/files",
+    "/admin/workspaces",
+    "admin_workspaces"
+  ],
+  [
+    "GET",
+    "/admin/workspaces/{key}/files",
     "admin_files"
   ],
   [
     "GET",
-    "/admin/sessions/{key}/flows",
+    "/admin/workspaces/{key}/flows",
     "admin_flows"
   ],
   [
     "GET",
-    "/admin/sessions/{key}/flows/{name}",
+    "/admin/workspaces/{key}/flows/{name}",
     "admin_flow"
   ],
   [
     "GET",
-    "/admin/sessions/{key}/history",
+    "/admin/workspaces/{key}/history",
     "admin_history"
   ],
   [
     "GET",
-    "/admin/sessions/{key}/site-data",
+    "/admin/workspaces/{key}/site-data",
     "admin_site_data"
-  ],
-  [
-    "GET",
-    "/admin/settings",
-    "admin_settings"
   ],
   [
     "GET",
@@ -91,27 +91,27 @@
   ],
   [
     "GET",
-    "/kept/{session}/{name}",
+    "/kept/{workspace}/{name}",
     "kept_file"
   ],
   [
     "GET",
-    "/screenshots/{session}/{name}",
+    "/screenshots/{workspace}/{name}",
     "screenshot_file"
   ],
   [
     "POST",
-    "/admin/sessions/{key}/files/{folder}/{name}/keep",
+    "/admin/workspaces/{key}/files/{folder}/{name}/keep",
     "admin_keep_file"
   ],
   [
     "POST",
-    "/admin/sessions/{key}/flows/{name}/move",
+    "/admin/workspaces/{key}/flows/{name}/move",
     "admin_move_flow"
   ],
   [
     "PUT",
-    "/admin/sessions/{key}/flows/{name}",
+    "/admin/workspaces/{key}/flows/{name}",
     "admin_flow"
   ]
 ]

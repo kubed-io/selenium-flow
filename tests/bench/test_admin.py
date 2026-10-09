@@ -118,6 +118,6 @@ def test_the_fixture_is_the_size_it_claims():
 
 
 def test_workspaces_payload(benchmark, workspaces_payload):
-    rows = benchmark(workspaces_payload)["sessions"]
+    rows = benchmark(workspaces_payload)["workspaces"]
     assert len(rows) == SESSIONS
     assert sum(r["live"] for r in rows) == SESSIONS // 2

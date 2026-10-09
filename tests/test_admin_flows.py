@@ -63,7 +63,7 @@ def client(server):
 
 
 def url(name: str = "", suffix: str = "") -> str:
-    base = f"/admin/sessions/{quote(KEY, safe='')}/flows"
+    base = f"/admin/workspaces/{quote(KEY, safe='')}/flows"
     return f"{base}/{quote(name, safe='')}{suffix}" if name else base
 
 
@@ -117,7 +117,7 @@ def test_a_workspace_whose_name_is_not_a_directory_lists_nothing(client, server)
     server.workspaces.store.set("my bot", Workspace(session_id=""))
     server.flows.save(GLOBAL_WORKSPACE, "shared", {"steps": []})
     body = client.get(
-        f"/admin/sessions/{quote('my bot', safe='')}/flows", headers=AUTH
+        f"/admin/workspaces/{quote('my bot', safe='')}/flows", headers=AUTH
     ).json()
     assert body["enabled"] is False and body["flows"] == []
 
@@ -383,7 +383,7 @@ def test_moving_between_two_workspaces_needs_no_new_mechanism(client, server):
     """Push to global from one, claim from the other. The design leans on this,
     so it is worth proving rather than assuming."""
     server.flows.write_text("other", "login", YAML)
-    other = f"/admin/sessions/{quote('other', safe='')}/flows/login/move"
+    other = f"/admin/workspaces/{quote('other', safe='')}/flows/login/move"
     server.workspaces.store.set("other", Workspace(session_id=""))
     client.post(other, json={"to": GLOBAL_WORKSPACE}, headers=AUTH)
     client.post(url("login", "/move"), json={"to": SESSION}, headers=AUTH)
@@ -485,7 +485,7 @@ def test_the_shared_revision_is_read_once_per_payload(client, server, monkeypatc
     monkeypatch.setattr(
         server.flows, "revision", lambda s: (seen.append(s), real(s))[1], raising=False
     )
-    client.get("/admin/sessions", headers=AUTH)
+    client.get("/admin/workspaces", headers=AUTH)
     assert seen.count(GLOBAL_WORKSPACE) == 1, seen
 
 

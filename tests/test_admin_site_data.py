@@ -63,11 +63,11 @@ def client(server):
 
 
 def url(suffix=""):
-    return f"/admin/sessions/{KEY}/site-data{suffix}"
+    return f"/admin/workspaces/{KEY}/site-data{suffix}"
 
 
 def row(client):
-    rows = client.get("/admin/sessions").json()["sessions"]
+    rows = client.get("/admin/workspaces").json()["workspaces"]
     return next(r for r in rows if r["key"] == KEY)
 
 
@@ -91,7 +91,7 @@ def test_details_mask_http_only_values_and_show_both_storages(client):
 
 
 def test_a_key_with_no_record_has_nothing_saved(client):
-    assert client.get("/admin/sessions/nobody/site-data").json() == {
+    assert client.get("/admin/workspaces/nobody/site-data").json() == {
         "key": "nobody", "sites": [], "saved_at": None, "uri": "workspace://site-data",
         "details": {},
     }
