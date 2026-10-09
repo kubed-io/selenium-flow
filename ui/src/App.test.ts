@@ -84,11 +84,46 @@ test.each([
   ['flows', FLOWS.data, 'login'],
   ['flow', FLOW.data, 'navigate'],
   ['secrets', { workspace: 's', count: 1, secrets: [{ name: 'demo', keys: ['password'], restricted: false }] }, 'demo'],
+  ['file', { name: 'a.png', size: 10, url: 'https://flow.example.com/f/a.png', image: true, content_type: 'image/png', uri: 'workspace://files/screenshots/a.png' }, 'a.png'],
 ])('draws the %s view from a show result', async (component, data, text) => {
   render(App)
   expect(screen.getByText('Loading…')).toBeInTheDocument()
   await shown({ component, uri: 'x://y', data })
   await vi.waitFor(() => expect(screen.getByText(text)).toBeInTheDocument())
+})
+
+test('the file view opens its link through the host when the host offers it', async () => {
+  host.caps = { serverTools: {}, openLinks: {} }
+  host.openLink.mockResolvedValue({})
+  render(App)
+  await shown({ component: 'file', uri: 'workspace://files/x.csv', data: { name: 'x.csv', size: 1, url: 'https://flow.example.com/f/x.csv', content_type: 'text/csv' } })
+  await fireEvent.click(await screen.findByRole('link', { name: 'Open' }))
+  expect(host.openLink).toHaveBeenCalledWith({ url: 'https://flow.example.com/f/x.csv' })
+})
+
+test('Back under a folder names the folder', async () => {
+  host.callServerTool.mockResolvedValue({ content: [], structuredContent: {
+    component: 'file', uri: 'workspace://files/screenshots/a.png',
+    data: { name: 'a.png', size: 10, url: 'https://flow.example.com/f/a.png', image: true, content_type: 'image/png', uri: 'workspace://files/screenshots/a.png' },
+  } })
+  const { container } = render(App)
+  await shown({ component: 'folder', uri: 'workspace://files/screenshots', data: {
+    workspace: 's', folder: 'screenshots', uri: 'workspace://files/screenshots', count: 1,
+    files: [{ name: 'a.png', size: 10, url: 'https://flow.example.com/f/a.png', image: true, uri: 'workspace://files/screenshots/a.png' }],
+  } })
+  await vi.waitFor(() => expect(container.querySelector('a.thumb')).not.toBeNull())
+  await fireEvent.click(container.querySelector('a.thumb')!)
+  expect(host.callServerTool).toHaveBeenCalledWith({ name: 'show', arguments: { uri: 'workspace://files/screenshots/a.png' } })
+  expect(await screen.findByRole('button', { name: 'Back' })).toHaveTextContent('← Screenshots')
+})
+
+test('without openLinks, Open is a plain link', async () => {
+  render(App)
+  await shown({ component: 'file', uri: 'workspace://files/x.csv', data: { name: 'x.csv', size: 1, url: 'https://flow.example.com/f/x.csv', content_type: 'text/csv' } })
+  const open = await screen.findByRole('link', { name: 'Open' })
+  expect(open).toHaveAttribute('target', '_blank')
+  await fireEvent.click(open)
+  expect(host.openLink).not.toHaveBeenCalled()
 })
 
 test('fileSections is no longer drawn', async () => {

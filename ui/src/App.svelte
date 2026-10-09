@@ -7,6 +7,7 @@
   import { leaf, plural } from './lib/format'
   import ContextView from './lib/views/ContextView.svelte'
   import FilesView from './lib/views/FilesView.svelte'
+  import FileView from './lib/views/FileView.svelte'
   import FlowsView from './lib/views/FlowsView.svelte'
   import FlowView from './lib/views/FlowView.svelte'
   import FolderView from './lib/views/FolderView.svelte'
@@ -23,6 +24,7 @@
   // By the name a `show` result carries in `component`.
   const VIEWS: Record<string, Component<Props>> = {
     context: ContextView as Component<Props>,
+    file: FileView as Component<Props>,
     files: FilesView as Component<Props>,
     folder: FolderView as Component<Props>,
     flows: FlowsView as Component<Props>,
