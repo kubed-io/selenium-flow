@@ -1,6 +1,7 @@
 """show(uri): one MCP App tool that draws a resource by its URI."""
 
 import json
+import re
 from unittest.mock import patch
 
 import pytest
@@ -48,30 +49,58 @@ def secrets_server(tmp_path, named_caller):
     ("uri", "component"),
     [
         ("workspace://current", "context"),
+        ("workspace://site-data", "sites"),
+        ("workspace://site-data/app.example.com", "site"),
         ("workspace://files", "files"),
         ("workspace://files/screenshots", "folder"),
         ("workspace://files/recordings", "folder"),
         ("workspace://files/downloads", "folder"),
+        ("workspace://files/screenshots/a.png", "file"),
+        ("workspace://files/recordings/run.mp4", "file"),
+        ("workspace://files/downloads/report.csv", "file"),
+        ("workspace://files/report.pdf", "file"),
         ("flow://flows", "flows"),
         ("flow://flows/login", "flow"),
+        ("flow://schema", "document"),
         ("secret://secrets", "secrets"),
+        ("skill://selenium-flow/SKILL.md", "document"),
+        ("skill://selenium-flow/_manifest", "document"),
+        ("skill://selenium-flow/references/FLOWS.md", "document"),
     ],
 )
 def test_every_showable_uri_has_one_view(uri, component):
     assert show.view_for(uri) == component
 
 
+@pytest.mark.parametrize(
+    ("uri", "entry"),
+    [
+        ("workspace://files/screenshots/a.png", True),
+        ("workspace://files/recordings/run.mp4", True),
+        ("workspace://files/downloads/report.csv", True),
+        ("workspace://files/report.pdf", True),
+        ("workspace://files/screenshots", False),
+        ("workspace://site-data/app.example.com", False),
+        ("skill://selenium-flow/SKILL.md", False),
+    ],
+)
+def test_only_a_single_file_is_drawn_from_its_entry(uri, entry):
+    assert show.row_for(uri).entry is entry
+
+
 def test_every_row_matches_its_own_display_form():
     """One table: each row's display form, made concrete, is drawn by that row's
     own component, not an earlier row's."""
-    for form, _, component in show.VIEWS:
-        assert show.view_for(form.replace("{name}", "x")) == component
+    for view in show.VIEWS:
+        concrete = re.sub(r"\{[^}]+\}", "x", view.form)
+        assert show.row_for(concrete) is view
 
 
 @pytest.mark.parametrize(
     "uri",
-    ["skill://selenium-flow/SKILL.md", "flow://schema", "workspace://files/a.png",
-     "flow://flows/", "workspace://current/x", "secret://secrets/demo"],
+    ["flow://flows/", "workspace://current/x", "secret://secrets/demo",
+     "skill://other/SKILL.md", "workspace://files/screenshots/a/b",
+     "workspace://site-data/a/b"],
 )
 def test_anything_else_is_refused_naming_what_can_be_shown(uri):
     with pytest.raises(ValueError) as refused:
@@ -173,7 +202,7 @@ async def test_a_missing_flow_is_refused(flow_server):
 async def test_an_unshowable_uri_is_refused_through_the_client(flow_server):
     async with Client(flow_server.mcp) as c:
         with pytest.raises(ToolError) as refused:
-            await c.call_tool("show", {"uri": "flow://schema"})
+            await c.call_tool("show", {"uri": "secret://secrets/demo"})
     assert "flow://flows/{name}" in str(refused.value)
 
 

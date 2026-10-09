@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+from typing import NamedTuple
 
 from fastmcp.exceptions import NotFoundError
 from fastmcp.server.dependencies import get_context
@@ -22,33 +23,62 @@ from ..names import retired_uri
 
 TOOL = "show"
 
+FILES = "workspace://files"
+FOLDERS = ("screenshots", "recordings", "downloads")
+
+
+class View(NamedTuple):
+    """One URI form: how a URI is matched, what draws it, and whether it is
+    drawn from its folder's listing entry rather than read whole (a single
+    file: never its bytes, programme R17)."""
+
+    form: str
+    pattern: re.Pattern[str]
+    component: str
+    entry: bool = False
+
+
+def _exactly(form: str, component: str) -> View:
+    return View(form, re.compile(re.escape(form)), component)
+
+
 # The only place a URI is tied to a view: what the tool names, what it matches,
-# what draws it. First match wins.
-VIEWS: tuple[tuple[str, re.Pattern[str], str], ...] = (
-    ("workspace://current", re.compile(r"workspace://current"), "context"),
-    ("workspace://files", re.compile(r"workspace://files"), "files"),
-    (
-        "workspace://files/screenshots",
-        re.compile(r"workspace://files/screenshots"),
-        "folder",
+# what draws it. First match wins, so a folder sits before the `{name}` row
+# that would otherwise take it. Every URI the server serves has a row, and
+# tests/test_show_inventory.py holds that.
+VIEWS: tuple[View, ...] = (
+    _exactly("workspace://current", "context"),
+    _exactly("workspace://site-data", "sites"),
+    View(
+        "workspace://site-data/{site}",
+        re.compile(r"workspace://site-data/[^/]+"),
+        "site",
     ),
-    (
-        "workspace://files/recordings",
-        re.compile(r"workspace://files/recordings"),
-        "folder",
+    _exactly(FILES, "files"),
+    *(_exactly(f"{FILES}/{folder}", "folder") for folder in FOLDERS),
+    *(
+        View(
+            f"{FILES}/{folder}/{{name}}",
+            re.compile(rf"{FILES}/{folder}/[^/]+"),
+            "file",
+            entry=True,
+        )
+        for folder in FOLDERS
     ),
-    (
-        "workspace://files/downloads",
-        re.compile(r"workspace://files/downloads"),
-        "folder",
-    ),
-    ("flow://flows", re.compile(r"flow://flows"), "flows"),
-    ("flow://flows/{name}", re.compile(r"flow://flows/[^/]+"), "flow"),
+    View(f"{FILES}/{{name}}", re.compile(rf"{FILES}/[^/]+"), "file", entry=True),
+    _exactly("flow://flows", "flows"),
+    View("flow://flows/{name}", re.compile(r"flow://flows/[^/]+"), "flow"),
+    _exactly("flow://schema", "document"),
     # One secret is a closer look inside the app, not a URI: there is no
     # single-secret resource to read (secrets.py, "one read").
-    ("secret://secrets", re.compile(r"secret://secrets"), "secrets"),
+    _exactly("secret://secrets", "secrets"),
+    View(
+        "skill://selenium-flow/{path}",
+        re.compile(r"skill://selenium-flow/.+"),
+        "document",
+    ),
 )
-SHOWABLE = tuple(form for form, _, _ in VIEWS)
+SHOWABLE = tuple(view.form for view in VIEWS)
 
 # Claude drops a tool result over ~150k characters, and the app then never gets
 # its data: a flow may be 1 MiB of YAML and a listing is unbounded.
@@ -57,12 +87,17 @@ MAX_SHOWN = 100_000
 NOUNS = {"files": "kept file", "folder": "file", "flows": "flow", "secrets": "secret"}
 
 
-def view_for(uri: str) -> str:
+def row_for(uri: str) -> View:
+    """The row that draws ``uri``, or a ValueError naming every form."""
     retired_uri(uri)
-    for _, pattern, component in VIEWS:
-        if pattern.fullmatch(uri):
-            return component
+    for view in VIEWS:
+        if view.pattern.fullmatch(uri):
+            return view
     raise ValueError(f"{uri} has no view; show draws {', '.join(SHOWABLE)}")
+
+
+def view_for(uri: str) -> str:
+    return row_for(uri).component
 
 
 def summary(uri: str, component: str, data) -> str:
