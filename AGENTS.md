@@ -47,7 +47,7 @@ component *of* the Selenium app rather than as a free-standing app.
 ## The loop (short version)
 
 ```
-branch + PR ─► test.yml    ruff + pytest on 3.14 ← the gate (3.10 beside it, advisory)
+branch + PR ─► test.yml    ruff + pytest on 3.14 ← the gate (3.11 beside it, advisory)
              + quality.yml CodeQL, pip-audit, zizmor,
                            hadolint, OpenAPI lint
              + pr.yml      fails if CHANGELOG [Unreleased]
@@ -55,7 +55,7 @@ branch + PR ─► test.yml    ruff + pytest on 3.14 ← the gate (3.10 beside i
              + Copilot reviews against .github/copilot-instructions.md
      │       (the image is NOT built here — see image.yml for why)
      │
-   merge ───► test.yml sweeps 3.10 → 3.14
+   merge ───► test.yml sweeps 3.11 → 3.14
              image.yml pushes kubed/selenium-flow:main + :latest
      │
  publish  ──► Actions → 🧬 Publish Version → pick patch/minor/major

@@ -11,16 +11,7 @@ import ast
 import pathlib
 import re
 import sys
-
-# tomllib is 3.11+. The package supports 3.10, so on that leg the reader is
-# tomli — the same parser tomllib was adopted from, pulled in by the `test`
-# extra under the same marker. Without this the whole module fails to import and
-# every test in it is skipped as a collection error, which is how it went
-# unnoticed until the matrix started sweeping 3.10.
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - 3.10 only
-    import tomli as tomllib
+import tomllib
 
 import pytest
 import yaml
@@ -292,20 +283,15 @@ def test_the_project_is_installed_with_its_extra():
     assert "--no-deps" not in install
 
 
-def test_the_toml_reader_works_on_the_oldest_python_the_image_can_build():
-    """PY_VERSION is an ARG and the project's requires-python is >=3.10, but
-    tomllib is 3.11+. Reading pyproject.toml with a 3.11-only parser quietly
-    made `PY_VERSION=3.10 docker compose build` impossible. The backport
-    tomllib was adopted from covers it, under the same marker pyproject.toml's
-    own [test] extra already uses — and it has to be installed BEFORE the
-    reader runs, which is the part an ordering change would break silently."""
-    source = (REPO / "scripts" / "requirements.py").read_text()
-    assert "import tomli as tomllib" in source
-    builder = dockerfile_stages()["builder"]
-    backport = next(i for i, ln in enumerate(builder) if "tomli" in ln)
-    reader = next(i for i, ln in enumerate(builder) if "requirements.py runtime" in ln)
-    assert backport < reader, "the parser must exist before the script runs"
-    assert "python_version < '3.11'" in builder[backport]
+def test_the_floor_is_3_11_and_needs_no_toml_backport():
+    """tomllib is stdlib from 3.11, the floor (capture spec, ruling 5)."""
+    project = tomllib.loads((REPO / "pyproject.toml").read_text())["project"]
+    assert project["requires-python"] == ">=3.11"
+    assert "Programming Language :: Python :: 3.10" not in project["classifiers"]
+    assert not any("tomli" in dep for dep in project["optional-dependencies"]["test"])
+    assert "tomli" not in (REPO / "Dockerfile").read_text()
+    assert "import tomllib\n" in (REPO / "scripts" / "requirements.py").read_text()
+    assert "tomli" not in (REPO / "scripts" / "requirements.py").read_text()
 
 
 def test_everything_the_dockerfile_copies_by_name_rebuilds_the_image():

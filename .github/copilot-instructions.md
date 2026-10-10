@@ -139,8 +139,8 @@ shape of the pipeline itself:
 
 - **The image is not built on pull requests** — deliberately, it is ~9 minutes.
   Don't ask for it back.
-- **`test.yml` runs 3.10 and 3.14 on a PR and the full 3.10–3.14 matrix on
-  main and on release.** `Test (3.14)` is a required status check; `Test (3.10)`
+- **`test.yml` runs 3.11 and 3.14 on a PR and the full 3.11–3.14 matrix on
+  main and on release.** `Test (3.14)` is a required status check; `Test (3.11)`
   is advisory.
 - **Required checks must never be path-filtered.** A path-filtered required check
   never reports on a PR that misses the filter, and the PR can then never merge.

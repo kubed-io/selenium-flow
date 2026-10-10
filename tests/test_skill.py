@@ -16,6 +16,7 @@ clients without resources, nothing at all when it is switched off.
 import fnmatch
 import pathlib
 import re
+import tomllib
 
 import pytest
 import yaml
@@ -31,15 +32,6 @@ from kubed.selenium_flow.server import SeleniumMCP
 RESOURCE_URI = f"skill://{SKILL_NAME}/{ENTRY}"
 MANIFEST = "_manifest"
 MANIFEST_URI = f"skill://{SKILL_NAME}/{MANIFEST}"
-
-# tomllib is 3.11+; on 3.10 the reader is tomli, which the `test` extra pulls in
-# under that marker. This used to fall back to None and skip the test below —
-# which meant the one check that proves every skill file reaches the wheel was
-# silently absent on the oldest interpreter, the leg most likely to break.
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - 3.10 only
-    import tomli as tomllib
 
 pytestmark = pytest.mark.unit
 
