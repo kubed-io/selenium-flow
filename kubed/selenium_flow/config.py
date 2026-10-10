@@ -222,6 +222,15 @@ class DataSettings(Section):
         return (value or "").strip() or None
 
 
+class CaptureSettings(Section):
+    ttl: int = Field(
+        10_800,
+        ge=60,
+        description="Seconds captured console and network entries are kept after "
+        "the last one arrived.",
+    )
+
+
 class RecordingSettings(Section):
     enabled: bool = Field(
         False, description="The Grid's recordings reach recording.dir."
@@ -422,6 +431,10 @@ class Settings(Section):
     recording: RecordingSettings = Field(
         default_factory=RecordingSettings,
         description="Video of a browser's whole life, from the Grid's recorder.",
+    )
+    capture: CaptureSettings = Field(
+        default_factory=CaptureSettings,
+        description="Console and network capture, for open_session(capture=true).",
     )
     secrets: SecretsSettings = Field(
         default_factory=SecretsSettings, description="Where secrets are read from."

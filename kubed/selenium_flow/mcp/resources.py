@@ -25,6 +25,9 @@ DESCRIPTION = (
     "grid_timeout is how many seconds the Grid lets a session in this "
     "workspace sit idle before it ends it; every call starts that clock "
     "again.\n\n"
+    "capture is whether this workspace opens its browsers with capture on, "
+    "capturing whether it is being captured right now, and captured how much "
+    "arrived since the last navigation.\n\n"
     "Reading this never opens a browser: live is false when no session is open."
 )
 

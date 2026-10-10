@@ -163,6 +163,11 @@ CAPABILITIES: tuple[Capability, ...] = (
                     "type": "boolean",
                     "description": "Whether this browser is being recorded.",
                 },
+                "capture": {
+                    "type": "boolean",
+                    "description": "Whether this browser's console and network "
+                    "are being captured.",
+                },
                 "recording_error": {
                     "type": "string",
                     "description": (

@@ -16,8 +16,10 @@ from pathlib import Path
 from fastmcp import FastMCP
 from starlette.middleware import Middleware
 
+from . import capture as capture_module
 from . import config, routes, secrets
 from .bidi import Channels
+from .capture.store import Capture
 from .config import Settings
 from .core import pointer
 from .core.actions import Actions
@@ -131,9 +133,30 @@ class SeleniumMCP:
         # its events; E2 has none. Built before the collector and the
         # workspaces, which tell it what they open, end and owe.
         self.bus = LocalBus()
+        # Console and network capture (capture spec): the monitor holds a
+        # connection for a browser opened with `capture` and hands its events
+        # to this, which keeps them. Built first: the monitor's sink.
+        self.capture = Capture(ttl=settings.capture.ttl)
         self.monitor = Monitor(
-            self.bus, listing=self.grid.listing, socket_url=self.grid.bidi_url
+            self.bus,
+            listing=self.grid.listing,
+            socket_url=self.grid.bidi_url,
+            events_for={"capture": capture_module.EVENTS},
+            collectors_for={"capture": capture_module.COLLECTOR},
+            sink=self.capture,
         )
+        # How a BiDi channel to a session's browser is opened: site data's save
+        # and restore speak through it, reusing the connection the monitor holds
+        # when there is one.
+        self.actions.channels = Channels(
+            self.grid.bidi_url,
+            held=self.monitor.connection,
+            loop=lambda: self.monitor.loop,
+        )
+        # A save's spare tab never reaches a caller's console or network log.
+        self.actions.hide = self.capture.hidden
+        # The capture resources read it (`show`, `network_body`).
+        self.actions.capture = self.capture
 
         # Recordings (recordings spec): the Grid films, the operator delivers to
         # the inbox, the collector files. Built before the workspaces, which tell
@@ -178,6 +201,8 @@ class SeleniumMCP:
             defaults=workspace_settings.from_settings(settings.session),
             recordings=self.collector,
             monitor=self.monitor,
+            capture=self.capture,
+            channels=self.actions.channels,
         )
 
         # The secrets an agent may bind, or None when none were configured.
@@ -285,11 +310,6 @@ class SeleniumMCP:
         # And where the caller's workspace has been, so one save reads every
         # site's storage. Wired here for the same reason: which workspace is
         # calling is a question about the caller.
-        self.actions.channels = Channels(
-            self.grid.bidi_url,
-            held=self.monitor.connection,
-            loop=lambda: self.monitor.loop,
-        )
         self.actions.visited = lambda: self.workspaces.visited(clients.caller().name)
         self.apps = (
             apps.register(self.mcp, self.actions, auth_token, base)

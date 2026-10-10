@@ -115,6 +115,9 @@ class Actions:
         # browsing context. Wired by the server once capture exists, so a
         # save's spare tab never reaches a caller's console or network log.
         self.hide = None
+        # The kept console and network (`capture.Capture`), wired by the server:
+        # the capture resources read it. None when capture is not set up.
+        self.capture = None
 
     def _kept(self, name: str, data: bytes, folder=FILES_DIR) -> dict:
         """Keep bytes this server made with the caller's workspace.
@@ -162,10 +165,12 @@ class Actions:
         script_timeout=None,
         insecure=None,
         record=None,
+        capture=None,
         video_name=None,
         site_data=None,
         *,
         on_created=None,
+        on_ready=None,
     ) -> dict:
         """Start a browser session with the settings it should run under.
 
@@ -184,10 +189,18 @@ class Actions:
         exists, before anything here that can fail: a browser left running by
         a failure after that is still somebody's to account for (its video,
         for one). One that raises fails the open, so it keeps its own faults.
+
+        ``on_ready`` is called with the Grid's id once everything but the first
+        page is done — the window, the timeouts, the restore — and before
+        ``url`` loads, so a listener it starts hears that page from its first
+        request. One that raises fails the open: the browser is quit, and its
+        failure is the caller's. ``capture`` only says the browser is being
+        captured; what listens is ``on_ready``'s.
         """
         name = normalize_browser(browser)
         insecure = as_bool(insecure, False)
         record = as_bool(record, False)
+        capture = as_bool(capture, False)
         driver = self.grid.open(
             name, insecure=insecure, record=record, video_name=video_name
         )
@@ -237,6 +250,22 @@ class Actions:
                         "uri": site_data_snapshot.LIST_URI,
                     }
 
+        if on_ready is not None:
+            try:
+                on_ready(session_id)
+            except BaseException:
+                # No page was loaded, so nothing is lost: quit it rather than
+                # hold a Grid slot for a browser nobody was told about. The
+                # id stays out of the log; the refusal is what propagates.
+                try:
+                    self.grid.quit(session_id)
+                except Exception as exc:  # noqa: BLE001 - the refusal matters more
+                    log.warning(
+                        "could not quit a browser whose setup failed: %s",
+                        type(exc).__name__,
+                    )
+                raise
+
         current_url, title = "about:blank", ""
         if url:
             driver.get(url)
@@ -268,6 +297,8 @@ class Actions:
             applied["insecure"] = True
         if record:
             applied["record"] = True
+        if capture:
+            applied["capture"] = True
         result = {
             "session_id": session_id,
             "browser": name,

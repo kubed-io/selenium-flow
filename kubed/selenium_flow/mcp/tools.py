@@ -351,6 +351,7 @@ def register(
         script_timeout: int | None = None,
         insecure: bool | None = None,
         record: bool | None = None,
+        capture: bool | None = None,
         fresh: bool = False,
         restore_site_data: bool = True,
     ) -> dict:
@@ -373,6 +374,9 @@ def register(
         ends; it appears under workspace://files/recordings shortly after. A person
         watches it, so only when one will — it costs the Grid. Not inherited: ask
         again for the next browser.
+        capture=true keeps what the page logs and fetches — workspace://console and
+        workspace://network — and a call that caused a page error says so in its
+        result. Off by default and not inherited: ask again for the next browser.
         """
         return workspaces.open_browser(
             clients.caller(),
@@ -386,6 +390,7 @@ def register(
             script_timeout=script_timeout,
             insecure=insecure,
             record=record,
+            capture=capture,
         )
 
     @action("save_site_data")

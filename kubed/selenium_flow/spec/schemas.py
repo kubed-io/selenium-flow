@@ -58,6 +58,29 @@ RESPONSES = {
                     "Whether the browser this workspace holds is being recorded."
                 ),
             },
+            "capture": {
+                "type": "boolean",
+                "description": (
+                    "Whether this workspace opens its browsers with capture on."
+                ),
+            },
+            "capturing": {
+                "type": "boolean",
+                "description": (
+                    "Whether the console and network are being captured right"
+                    " now; false while capture is paused."
+                ),
+            },
+            "captured": {
+                "type": "object",
+                "description": "What was captured since the last navigation.",
+                "properties": {
+                    "console": {"type": "integer"},
+                    "network": {"type": "integer"},
+                    "errors": {"type": "integer"},
+                    "failed_requests": {"type": "integer"},
+                },
+            },
             "in_frame": {"type": ["boolean", "null"]},
             "window": {
                 "type": ["string", "null"],

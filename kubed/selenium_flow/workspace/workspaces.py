@@ -51,13 +51,19 @@ import logging
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
+from typing import Literal
 
 from .. import faults
+from ..capture import NETWORK_URI
+from ..capture import OFF as CAPTURE_STATE_OFF
+from ..capture import views as capture_views
+from ..capture.store import Buffer
 from ..core import guidance
 from ..core.actions import Actions
 from ..core.browser import in_frame
 from ..core.coerce import as_bool
 from ..core.defaults import DEFAULT_BROWSER
+from ..monitor.monitor import ATTACH_FAILED
 from ..names import GLOBAL_WORKSPACE, valid_workspace_name
 from ..principal import Principal
 from ..site_data import snapshot as site_data_module
@@ -72,6 +78,8 @@ RECORDING_OFF = (
     "Recording is not set up on this server (recording.enabled is off). "
     "See the README's Recording section."
 )
+
+CAPTURE_OFF = "Capture is not set up on this server."
 
 # `settle`'s default page: the one the result itself reports.
 FROM_RESULT = object()
@@ -289,6 +297,8 @@ class Workspaces:
         defaults: dict | None = None,
         recordings=None,
         monitor=None,
+        capture=None,
+        channels=None,
     ):
         self.actions = actions
         self.store = store if store is not None else MemoryStore()
@@ -305,6 +315,11 @@ class Workspaces:
         # Who announces each session opened and ended (`monitor.Monitor`), or
         # None, which announces nothing: a unit test's manager.
         self.monitor = monitor
+        # What the held connections' events are kept in (`capture.Capture`), or
+        # None when capture is not set up; and how a BiDi channel to a session's
+        # browser is opened (`bidi.Channels`).
+        self.capture = capture
+        self.channels = channels
 
     @property
     def kind(self) -> str:
@@ -328,6 +343,8 @@ class Workspaces:
             "url": None,
             "live": False,
             "recording": False,
+            "capture": False,
+            "capturing": False,
             "in_frame": None,
             "window": None,
             "grid_timeout": None,
@@ -366,6 +383,15 @@ class Workspaces:
             self.actions.grid.is_alive(record.session_id) if record.attached else False
         )
         status["recording"] = bool(status["live"] and status["settings"].get("record"))
+        status["capture"] = bool(status["settings"].get("capture"))
+        status["capturing"] = bool(
+            status["live"] and self._told("capturing", record.session_id)
+        )
+        if status["capture"]:
+            counts = self.capture.counts(name) if self.capture is not None else None
+            status["captured"] = counts or {
+                "console": 0, "network": 0, "errors": 0, "failed_requests": 0,
+            }
         if status["live"]:
             # Only worth a round trip when there is a live browser to ask, and
             # one reconnect answers both questions.
@@ -377,6 +403,49 @@ class Workspaces:
             except Exception:  # noqa: BLE001 - status must never fail
                 pass
         return status
+
+    def captured(
+        self, name: str, kind: Literal["console", "network", "request"], **query
+    ) -> dict:
+        """What this workspace's browsers logged and fetched, as one view.
+
+        A workspace that does not capture answers with how to turn it on, which
+        is an answer and not an error (spec §7). One that does, and has seen
+        nothing yet, answers with an empty view. ``capturing`` says whether the
+        connection is held right now: false while it is being re-held, so a quiet
+        buffer is not mistaken for a quiet page.
+        """
+        record = self.store.get(name)
+        on = bool(record and (record.settings or {}).get("capture"))
+        if self.capture is None or not on:
+            return dict(CAPTURE_STATE_OFF)
+        if kind == "console":
+            view = self.capture.console(name, **query)
+            if view is None:
+                view = capture_views.console(
+                    Buffer(),
+                    capture_views.check_level(query.get("level")),
+                    capture_views.check_pages(query.get("pages")),
+                )
+        elif kind == "network":
+            view = self.capture.network(name, **query)
+            if view is None:
+                view = capture_views.network(
+                    Buffer(),
+                    capture_views.check_filter(query.get("filter")),
+                    capture_views.check_pages(query.get("pages")),
+                )
+        else:
+            view = self.capture.request(name, **query)
+            if view is None:
+                raise ValueError(
+                    f"no captured request {query.get('id')!r}: "
+                    f"{NETWORK_URI} lists them"
+                )
+        capturing = bool(
+            record.attached and self._told("capturing", record.session_id)
+        )
+        return {**view, "capturing": capturing}
 
     def browser(self, name: str) -> str:
         """The Grid id this workspace is driving, or "" if it holds no live one.
@@ -429,9 +498,13 @@ class Workspaces:
         if self.recordings is None:
             # Nobody would collect the video (recording was turned off since).
             replay.pop("record", None)
+        if not self._can_capture():
+            # Nobody would hear it (capture was turned off since).
+            replay.pop("capture", None)
         opened = self.actions.open_session(
             url=record.url or None,
             **(self._recorded(name, replay) if replay.get("record") else {}),
+            **(self._attaching(name, replay) if replay.get("capture") else {}),
             **({"site_data": saved} if saved else {}),
             **replay,
         )
@@ -450,10 +523,10 @@ class Workspaces:
             report=opened.get("site_data"),
             grid_timeout=timeout,
         )
-        if kept == opened["session_id"] and self.monitor is not None:
-            self.monitor.opened(
-                name, kept, replay.get("browser") or DEFAULT_BROWSER, timeout,
-                reopened=True,
+        if kept == opened["session_id"]:
+            self._told(
+                "opened", name, kept, replay.get("browser") or DEFAULT_BROWSER,
+                timeout, reopened=True,
             )
         # A browser this workspace does not hold keeps its provisional note.
         if replay.get("record") and kept == opened["session_id"]:
@@ -505,10 +578,48 @@ class Workspaces:
             log.info("the Grid's idle timeout is unknown: %s", type(exc).__name__)
             return None
 
+    def _can_capture(self) -> bool:
+        return self.monitor is not None and self.capture is not None
+
+    def _attaching(self, name: str, settings: dict) -> dict:
+        """The argument a captured open adds: ``on_ready``, which holds the
+        browser's BiDi connection before its first page loads.
+
+        Its failure is the open's, as a 503: the open quits the browser, and the
+        monitor is told the session ended so a hold that completed just as the
+        attach gave up is dropped. A monitor that was never started is the same
+        refusal, never a 500."""
+        browser = settings.get("browser") or DEFAULT_BROWSER
+
+        def ready(session_id: str) -> None:
+            try:
+                self.monitor.attach(name, session_id, "capture", browser=browser)
+            except Exception as exc:
+                self._ended(name, session_id, "ended")
+                if isinstance(exc, faults.BidiUnavailable):
+                    raise
+                log.info(
+                    "capture did not attach for %s: %s", name, type(exc).__name__
+                )
+                raise faults.BidiUnavailable(ATTACH_FAILED) from exc
+
+        return {"on_ready": ready}
+
+    def _told(self, what: str, *args, **kwargs):
+        """Tell the monitor ``what``, when there is one. **Never fails the
+        caller**: a monitor that raises is logged by its type (the arguments
+        name a Grid id) and the call carries on."""
+        if self.monitor is None:
+            return None
+        try:
+            return getattr(self.monitor, what)(*args, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - a fact to announce, not to need
+            log.warning("the monitor failed on %s: %s", what, type(exc).__name__)
+            return None
+
     def _ended(self, name: str, session_id: str, cause: str) -> None:
         """Announce that ``session_id`` ended, when there is a monitor."""
-        if self.monitor is not None:
-            self.monitor.ended(name, session_id, cause)
+        self._told("ended", name, session_id, cause)
 
     def act(self, caller: Caller, call, *, reshapes: bool = False) -> dict:
         """Resolve this workspace's browser, act on it, remember where it ended up.
@@ -666,7 +777,9 @@ class Workspaces:
         # and doing it afterwards meant a typo in `browser=` quit a perfectly
         # good browser and then failed. A rejected argument must cost nothing.
         inherited_settings = {
-            k: v for k, v in (previous.get("settings") or {}).items() if k != "record"
+            k: v
+            for k, v in (previous.get("settings") or {}).items()
+            if k not in ("record", "capture")
         }
         resolved = settings_module.resolve(
             wanted,
@@ -676,6 +789,8 @@ class Workspaces:
         )
         if resolved.get("record") and self.recordings is None:
             raise ValueError(RECORDING_OFF)
+        if resolved.get("capture") and not self._can_capture():
+            raise ValueError(CAPTURE_OFF)
         # The caller's page, checked for the same reason. A remembered one is
         # where the browser already was, so it is not the caller's to check.
         if url:
@@ -702,6 +817,7 @@ class Workspaces:
         opened = self.actions.open_session(
             url=url or inherited,
             **(self._recorded(name, resolved) if resolved.get("record") else {}),
+            **(self._attaching(name, resolved) if resolved.get("capture") else {}),
             **({"site_data": saved} if saved else {}),
             **resolved,
         )
@@ -717,10 +833,13 @@ class Workspaces:
             # the one the workspace holds, not the discarded one (Copilot, #50).
             # Its provisional note stays, so its video is deleted, not filed.
             return self._held(name)
-        if self.monitor is not None:
-            self.monitor.opened(
-                name, kept, resolved.get("browser") or DEFAULT_BROWSER, timeout
-            )
+        if self.capture is not None and not resolved.get("capture"):
+            # An explicit open without capture is a fresh start for it
+            # (programme R9): what an earlier browser captured is not this one's.
+            self.capture.discard(name)
+        self._told(
+            "opened", name, kept, resolved.get("browser") or DEFAULT_BROWSER, timeout
+        )
         noted = None
         if resolved.get("record"):
             try:
@@ -745,6 +864,7 @@ class Workspaces:
         # browser is reached, and it is not part of what a caller is told.
         told = {k: v for k, v in opened.items() if k != "session_id"}
         told["recording"] = bool(resolved.get("record"))
+        told["capture"] = bool(resolved.get("capture"))
         if noted:
             told["recording_error"] = noted
         return {"workspace": name, **told}
@@ -759,6 +879,7 @@ class Workspaces:
             "url": record.url if record else "",
             "settings": settings,
             "recording": bool(settings.get("record")),
+            "capture": bool(settings.get("capture")),
             "note": "another open in this workspace bound its browser first: "
             "this is that browser",
         }
