@@ -56,9 +56,9 @@ on:
       # App key to publish under the App's identity instead, or if a ruleset
       # ever starts refusing the Actions one.
       #
-      # There is no app id here to match: it is the GH_APP_ID *variable*, and
-      # variables reach a called workflow in the same repository without being
-      # passed at all.
+      # There is no client id here to match: it is the GH_CLIENT_ID *variable*,
+      # and variables reach a called workflow in the same repository without
+      # being passed at all.
       GH_APP_KEY:
         required: false
 
@@ -86,19 +86,17 @@ jobs:
     #
     # Gated on the variable rather than the key, because the `secrets` context
     # cannot be used in an `if` at all. That works out here: the App is the
-    # optional path, so no GH_APP_ID means skip this and let the built-in token
-    # push.
+    # optional path, so no GH_CLIENT_ID means skip this and let the built-in
+    # token push.
     #
-    # The variable is GH_APP_ID, the same one publish.yml reads. It used to be
-    # GH_CLIENT_ID, which is not set anywhere in this org — so the step was
-    # always skipped and the built-in token did the push by accident rather than
-    # by the deliberate fallback described above.
+    # Same identity as publish.yml — see its `version` job for why this is
+    # client-id rather than the deprecated app-id.
     - name: Create GitHub App Token
       id: app-token
-      if: env.PUSH == 'true' && vars.GH_APP_ID != ''
+      if: env.PUSH == 'true' && vars.GH_CLIENT_ID != ''
       uses: actions/create-github-app-token@v3
       with:
-        app-id: ${{ vars.GH_APP_ID }}
+        client-id: ${{ vars.GH_CLIENT_ID }}
         private-key: ${{ secrets.GH_APP_KEY }}
         # The wiki is a repository's own git repo, so a wiki push is a contents
         # write. Without this the token would carry every permission the App is
