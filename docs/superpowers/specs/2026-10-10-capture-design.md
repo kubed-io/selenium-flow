@@ -366,6 +366,129 @@ skill as §7.
 3. *Unverified*: Firefox delivering a spare-tab intercept event to the held
    connection and to a scoped `listen` alike, with capture ignoring it.
 
+**Live results, 2026-10-10** (plan Task 13), against the cluster Grid: hub and
+nodes `4.48.0 (revision 27f5213)`, KEDA from zero, `sessionTimeout` 300 s;
+Chrome `152.0.7977.82`, Firefox `155.0.1`; this branch at `7d667f4` on Python
+3.13.5, `websockets` 17.2, `selenium` 4.51.0, `fastmcp` 4.1.0. The server ran
+from the worktree with `AUTH_TOKEN=dev`; the in-process probes held a real
+`bidi.Connection` and `Capture` exactly as `Monitor._hold` does. No CDP. The
+scripts are throwaway and not in the repo. **Every session was ended**: the Grid
+listed **0** sessions before (nodes at zero) and **0** after; 26 were opened,
+each ended in a `finally` by the server's `DELETE /browser` or the Grid's own
+`DELETE`, and none needed the fallback.
+
+2. **`session.status` as a flush** — *measured, it is one; `FLUSH_GRACE` stays
+   0.* `script.evaluate` of 1 000 `console.log`s, then at once `flush()`: on
+   **20 of 20** runs per browser (each browser twice) all 1 000 were in
+   `Capture` when it returned. At the evaluate's own reply only 76–1 000
+   (Chrome) and 186–998 (Firefox) had landed, so the round trip is what lets
+   them in; a flush took 2.6 ms (Chrome) and 3.8 ms (Firefox) at the median, 23
+   ms at most. What it cannot do is wait for an event the browser has not sent:
+   **Chrome sends a request's `responseCompleted` only once its body is read**,
+   so a script that awaits `fetch()` of a 404 and not its body ends before the
+   404 exists — not in the hint on **10 of 10** runs, in it on 10 of 10 once
+   the script read the body; Firefox counted both 10 of 10. The flush is right;
+   the call window is what the browser has said by its end.
+3. **The spare tab on the held connection** — *measured, both hear it and
+   capture ignores it, on both browsers.* A site-data save's spare tab run
+   through the capture's own connection: the intercept's
+   `network.beforeRequestSent` (`isBlocked: true`, `…/__selenium-flow-spare__`)
+   reached **both** the capture subscriber and the spare tab's scoped listener
+   (Firefox's scoped listener also heard the tab's own `favicon.ico`);
+   `Capture.counts` and the request total did not move (6 spare-tab events on
+   Chrome, 7 on Firefox, all ignored by context). Over HTTP, `POST
+   /browser/save-site-data` with a second origin in the history left no
+   `__selenium-flow-spare__` row and the counts unchanged; afterwards a
+   navigation to `<origin>/__selenium-flow-spare__` loaded the site's own 404 in
+   0.07 s, so no intercept was left behind.
+4. **Dispatcher latency and queue depth (ruling 16)** — *measured.* One held
+   connection, an HTML page on this server, six floods per browser of 5 000
+   `console.log` and 200 same-origin `fetch`es (≈ 5 400 events), during each 20
+   `session.status` round trips and one site-data save; idle figures from the
+   same connection just before. Per flood, across the six:
+
+   | | Chrome | Firefox |
+   |---|---|---|
+   | Flood, page side | 1.6–1.8 s | 0.8–0.9 s |
+   | Capture lag p50 / p95 / max | 2.1–3.9 / 11–25 / 14–26 ms | 3.8–8.8 / 13–40 / 16–40 ms |
+   | Queue `peak` (limit 1 000) | 472–1 000 | 692–1 000 |
+   | `dropped` | 0 in 5 runs; **740** in 1 (and 474 in 1 of 2 earlier runs) | 0 in 3 runs; **28, 637, 990** in 3 |
+   | `session.status` RTT p50 / max, idle | 0.7–1.7 / 1.3–2.9 ms | 0.7–2.1 / 1.4–42 ms |
+   | `session.status` RTT p50 / max, flood | 1.4–30 / 48–146 ms | 1.7–2.7 / 88–127 ms |
+   | Site-data save, idle → flood | 0.06–0.12 → 1.6–1.8 s | 0.21–0.38 → 0.49–0.68 s |
+
+   Replies were never queued behind capture (ruling 8 holds: the RTT tracks the
+   browser's own load, and the save during a flood waits on the page's busy
+   main thread for its classic `execute_script`), but the capture queue itself
+   overflows: handling an event costs well under 0.1 ms, so the queue fills
+   because the reader routes a whole buffered burst before the subscriber's task
+   gets a turn, not because capture is slow. For E4 this says what to watch:
+   `dropped` and `peak` per subscriber, not latency — a page logging in a tight
+   loop already loses events today, and a dropped `responseCompleted` leaves a
+   request without its end.
+5. **Live pass** — over HTTP and the admin API, per browser, page
+   `https://example.com/`:
+   - **Open**: `POST /browser {"capture": true}` answered `capture: true`; `GET
+     /browser` `capturing: true` (both).
+   - **The hint**: the script call (`console.error`, an uncaught throw, a 404
+     `fetch`, a `fetch` to port 9) returned `page: {errors: 3,
+     failed_requests: 1, see: workspace://console?level=error}` on Chrome (3 of
+     3 runs) and Firefox (2 of 3; the third had `failed_requests: 0`); the
+     quiet `extract` 1 s later had no `page`. The three errors are `boom`, the
+     throw and the unhandled rejection. Chrome's one failed request is port 9
+     (`net::ERR_UNSAFE_PORT`) — its 404 lands after the call (item 2); Firefox
+     sends no network event at all for port 9, so its one is the 404, counted
+     only when it beats the call's end.
+   - **Captured view**: `console?level=error` 3 entries, `network?filter=failed`
+     the failures, newest first, `Authorization` shown `•••` and an ordinary
+     header as sent.
+   - **Body**: `POST /browser/network-body` of the 404: text, 577 characters,
+     `truncated: false`, on both (the row's `size` is the encoded 334–475 bytes).
+   - **Save** and **no intercept left**: as item 3.
+   - **Live tail**: `tail_url&kind=console` streamed the script's three error
+     rows within the 5 s window; no `dropped` (both).
+   - **Capture off**: after `DELETE /browser` and an open without capture, the
+     console answered `{"capture": false, "how": "open_session(capture=true)"}`;
+     an open with capture after it found **0** entries, so the buffer had gone.
+   - **Admin page vs the Penpot boards** (Firefox's data, viewed in a Chrome
+     browser driven over this server's own tools; *Console*, *Network*, the
+     request detail with *Fetch body*, *Live*, *Pause* and capture off). Same
+     layout, toolbar, chips with counts, *This page*, Captured/Live switch,
+     Pause/Resume, the *Live · n* and *Paused · n · k new* footers, the CAPTURE
+     row and the pills. Differences: a console row's source is the full URL and
+     line (`https://example.com/:2`), the boards a file name (`app.js:142`); with
+     capture off the boards grey out *Console* and *Network* behind a tooltip,
+     the page keeps both tabs clickable and says so in the pane; the pills read
+     *live · capture*, the boards *REC · capture · live*; no initiator, *during*,
+     page or request-body rows (plan ruling 9). Not compared: *Network* in Live
+     mode and the cleared boards.
+
+   **Also measured: the deadline close is activity.** A session with only a
+   held connection (subscribed, one collector), closed clean at 240 s — the
+   monitor's deadline close, `session.unsubscribe` and
+   `network.removeDataCollector` — was reaped **306 s after the close** on both
+   browsers (547 s and 546 s after opening), not at ~330 s. So closing at the
+   deadline gives the browser one more idle timeout.
+
+   **Open, for the controller** (found here, not fixed):
+   - **Chrome's `took_ms` is always 0.** Chrome stamps every network event of a
+     request with the request's start (`timestamp` equals
+     `request.timings.timeOrigin`; 200 of 200 requests), so the duration taken
+     from the events' own timestamps (plan ruling 14) is 0 for every Chrome
+     request. Firefox's are right (12–147 ms). Plan ruling 14's fallback — a
+     duration from `timings`, relative ms on Chrome, epoch ms on Firefox —
+     applies.
+   - **Drops under a burst** (item 4): the capture subscriber's queue of 1 000
+     overflows on a page logging thousands of entries at once.
+   - **The fell-behind warning repeats.** It is meant to be logged once per
+     streak, but the streak ends at the next event accepted, so a saturated
+     queue logged it 114 (Chrome) and 288 (Firefox) times in six floods.
+   - **Ending a captured Firefox logs a failed hold.** Firefox closes the held
+     socket when its session is deleted, so the monitor tries to hold again
+     before the end reaches it and logs `no BiDi connection … trying again`
+     (6 of 6 captured Firefox ends; never on Chrome, whose socket stays open).
+     Nothing leaks: the end drops the watch a moment later.
+
 ## Next round
 
 - Ending a watched browser at its deadline ourselves (programme R3).
