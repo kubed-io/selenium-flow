@@ -11,7 +11,8 @@ top-level context, the secrets bound in it, and what Chrome's replay is aligned
 against — is a `Held` session, kept beside the buffer: it outlives an expired
 buffer, so a page that logs again after hours of quiet is captured again, with
 its secrets still masked. A new session in a workspace (``attached`` with
-``again=False``) is a new `Held`; the buffer goes on.
+``again=False``) is a new `Held`, holding the secrets the one it replaces
+held — a value typed before a reap can be echoed after it; the buffer goes on.
 
 Threading: ``attached``, ``ingest``, ``replayed``, ``detached`` and ``tail``
 run on the event loop; the reads run on worker threads. One `threading.Lock`
@@ -193,8 +194,9 @@ class Capture:
     # ---- the Sink ------------------------------------------------------------
 
     def attached(self, workspace, session_id, browser, top, *, again: bool) -> None:
-        """A hold started. A new session (or the first) gets fresh secrets and
-        nothing to align; a hold again keeps all of it, and for Chrome holds
+        """A hold started. A new session (or the first) gets the secrets of the
+        workspace's session it replaces and nothing to align; a hold again
+        keeps all of it, and for Chrome holds
         back what it replays until `replayed` (plan ruling 18). A hold again of
         a session capture no longer knows — discarded, or replaced by a newer
         browser in its workspace — is not heard: it must not take the
@@ -213,11 +215,14 @@ class Capture:
                     else None
                 )
                 return
+            secrets: list[str] = []
             for sid in [
                 s for s, h in self._sessions.items() if h.workspace == workspace
             ]:
-                del self._sessions[sid]
-            self._sessions[session_id] = Held(workspace, session_id, browser, top)
+                secrets += self._sessions.pop(sid).masker.secrets
+            self._sessions[session_id] = Held(
+                workspace, session_id, browser, top, masker=Masker(secrets)
+            )
             while len(self._sessions) > WORKSPACES:
                 self._sessions.popitem(last=False)
             buffer = self._cache.get(workspace)
@@ -288,7 +293,8 @@ class Capture:
                 del self._sessions[sid]
 
     def secret(self, workspace: str, forms: Iterable[str]) -> None:
-        """Mask ``forms`` in everything this session captures from now on."""
+        """Mask ``forms`` in everything this workspace's session captures from
+        now on, and in every session that replaces it."""
         forms = list(forms)
         with self._lock:
             for held in self._sessions.values():

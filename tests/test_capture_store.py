@@ -451,12 +451,18 @@ def test_a_new_session_keeps_the_buffer_and_the_old_index(capture):
     assert texts(capture) == []
 
 
-def test_a_new_session_does_not_inherit_the_secrets(capture):
+def test_a_new_session_in_the_workspace_keeps_its_secrets(capture):
+    """A secret typed before a reap or a reopen can be echoed by the next
+    browser (a restored login shows it): the workspace's secrets carry over,
+    and no other workspace gets them (PR review M7)."""
     attach(capture)
+    attach(capture, workspace="other", session_id="o1")
     capture.secret("ws", ["hunter2"])
     capture.attached("ws", "s2", "chrome", "top-1", again=False)
     feed(capture, log("hunter2"), session_id="s2")
-    assert texts(capture) == ["hunter2"]
+    feed(capture, log("hunter2"), workspace="other", session_id="o1")
+    assert texts(capture) == [MASK]
+    assert [e["text"] for e in capture.console("other")["entries"]] == ["hunter2"]
 
 
 def test_an_expired_buffer_comes_back_empty_with_the_sessions_secrets(capture, clock):

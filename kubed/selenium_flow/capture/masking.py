@@ -54,6 +54,11 @@ class Masker:
         self._secrets: tuple[str, ...] = ()
         self.add(secrets)
 
+    @property
+    def secrets(self) -> tuple[str, ...]:
+        """Every form masked, longest first."""
+        return self._secrets
+
     def add(self, forms: Iterable[str]) -> None:
         """Mask ``forms`` from now on: a secret's raw value and its encodings."""
         known = set(self._secrets) | {f for f in forms if isinstance(f, str) and f}

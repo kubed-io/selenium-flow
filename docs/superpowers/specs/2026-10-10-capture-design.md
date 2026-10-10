@@ -133,7 +133,8 @@ costs if wrong.
     Header names `authorization`, `proxy-authorization`, `cookie`,
     `set-cookie` (any case) become `•••`; `request.cookies[].value` too;
     `goog:postData` is dropped; any value the secrets catalogue bound in this
-    session (`write` with a secret) is replaced wherever it appears in a URL,
+    workspace (`write` with a secret; carried to the session that replaces
+    one, PR review) is replaced wherever it appears in a URL,
     header, console text or argument. URLs keep their query string only on the
     newest navigation, as the history does (AGENTS.md, site data).
 14. Claude: **E2's bus stays value-free.** The tail is capture's own fan-out,
@@ -244,7 +245,7 @@ params)` is the monitor's `on_bidi`.
 - **Navigation marks** from `navigationStarted`/`Committed` of the top-level
   context; the last 5 kept.
 - **Masking** (ruling 13) by one `Masker` the buffer and the tail share; the
-  catalogue values bound in the session come from the secrets binding.
+  catalogue values bound in the workspace come from the secrets binding.
 - **Store**: per workspace, a `cachetools.TTLCache`-backed holder of two
   `collections.deque(maxlen=1000)`, counts, marks and the index; TTL slides on
   every entry. An explicit `open_session` without capture discards the
