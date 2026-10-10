@@ -41,11 +41,14 @@ def bidi_cookie(name, domain, value="v", http_only=False):
     }
 
 
-def channels_for(fake):
-    """A stand-in for `Channels` whose every channel is ``fake``."""
+def channels_for(fake, broken=None):
+    """A stand-in for `Channels` whose every channel is ``fake``. With
+    ``broken``, opening one raises it, as a Grid whose /se/bidi is down does."""
 
     @contextmanager
     def open_channel(session_id):
+        if broken is not None:
+            raise broken
         yield fake
 
     return SimpleNamespace(open_channel=open_channel)

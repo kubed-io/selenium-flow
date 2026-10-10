@@ -149,7 +149,7 @@ def test_the_published_kept_shared_is_the_shape_returned():
     assert shared and set(shared[0]) == set(items["required"])
 
 
-def _save_through_the_server(monkeypatch, channel):
+def _save_through_the_server(monkeypatch, channel, broken=None):
     """A save of a page with one visited site, over HTTP, on ``channel``."""
     from types import SimpleNamespace
 
@@ -163,7 +163,7 @@ def _save_through_the_server(monkeypatch, channel):
     server = SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
     )
-    server.actions.channels = channels_for(channel)
+    server.actions.channels = channels_for(channel, broken=broken)
     server.workspaces.store.set(NAMED, Workspace().visited(f"https://{SITE}/"))
     client = TestClient(server.mcp.http_app())
     response = client.post(
@@ -183,6 +183,17 @@ def test_save_with_bidi_unreachable_is_a_scrubbed_503(monkeypatch):
     assert response.status_code == 503, response.json()
     error = response.json()["error"]
     assert error.startswith("the browser's BiDi channel is unavailable")
+    assert server.workspaces.store.get(NAMED).site_data == {}
+
+
+def test_a_channel_that_will_not_open_is_a_503_and_saves_nothing(monkeypatch):
+    from kubed.selenium_flow.bidi import CHANNEL_DOWN
+    from kubed.selenium_flow.faults import BidiUnavailable
+
+    server, response = _save_through_the_server(
+        monkeypatch, None, broken=BidiUnavailable(CHANNEL_DOWN)
+    )
+    assert response.status_code == 503, response.json()
     assert server.workspaces.store.get(NAMED).site_data == {}
 
 

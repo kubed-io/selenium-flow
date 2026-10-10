@@ -10,6 +10,7 @@ import subprocess
 import pytest
 
 from kubed.selenium_flow.bidi import CHANNEL_DOWN
+from kubed.selenium_flow.faults import BidiUnavailable
 from kubed.selenium_flow.site_data import transfer
 
 from .fakes import MAIN, FakeChannel
@@ -302,3 +303,15 @@ def test_an_open_with_no_url_is_on_about_blank_even_when_the_restore_could_not_s
     result = actions.open_session(site_data=FULL)
     assert went == ["about:blank"]
     assert result["url"] == "about:blank"
+
+
+def test_a_channel_that_will_not_open_is_a_report_never_a_failed_open(actions, monkeypatch, spare):
+    """The Grid's /se/bidi route is down: the browser still opens."""
+    order = []
+    monkeypatch.setattr(actions.grid, "open", lambda name, insecure=False, record=False, video_name=None: OpenedDriver(order))
+    monkeypatch.setattr(actions, "channels", channels_for(None, broken=BidiUnavailable(CHANNEL_DOWN)))
+    result = actions.open_session(url=APP + "/", site_data=FULL)
+    assert result["session_id"] == "new-1"
+    assert result["site_data"] == {
+        "restored": [], "skipped": [{"reason": CHANNEL_DOWN}], "uri": LIST,
+    }
