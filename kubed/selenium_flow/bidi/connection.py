@@ -60,6 +60,13 @@ LAGS_KEPT = 1000
 # Seconds `flush` sleeps between its round trip and its barriers. Zero while
 # `session.status` alone is a flush (capture spec, Verify first 2).
 FLUSH_GRACE = 0.0
+# Frames the reader routes before it gives the loop a turn. A burst the socket
+# already holds is read without suspending, so without this the reader would
+# queue a whole TCP read before any subscriber ran.
+READ_TURN = 64
+# Seconds of events one subscriber handles in a turn before it yields. A turn
+# per event let a burst fill the queue while the reader routed whole reads.
+DRAIN_TURN = 0.005
 
 
 class BidiError(Exception):
@@ -85,11 +92,13 @@ def _connect(url: str):
 
 
 class Subscriber:
-    """The events one listener asked for, queued and handed over one at a time.
+    """The events one listener asked for, queued and handed over in order.
 
     ``deliver`` is the reader's side and never awaits. The subscriber's own task
     pops each event and calls ``handler(method, params)``, awaiting what it
-    returns when that is awaitable. Made on the loop it serves.
+    returns when that is awaitable — a batch at a time, for up to
+    ``DRAIN_TURN`` seconds, then a turn for everyone else. Made on the loop it
+    serves.
     """
 
     def __init__(
@@ -117,7 +126,7 @@ class Subscriber:
         self._depth = 0  # events in the queue, barriers not counted
         self._bytes = 0  # their frames' length; a barrier carries none
         self._wake = asyncio.Event()
-        self._full = False  # in a streak of dropped events
+        self._full = False  # in a streak of dropped events, until drained
         self._failing: str | None = None  # the type of a streak of failures
         self._cancelled = False
         self._task = asyncio.get_running_loop().create_task(
@@ -126,7 +135,11 @@ class Subscriber:
 
     def deliver(self, method: str, params: dict, at: float, size: int = 0) -> None:
         """Queue one event the reader received at ``at`` in a frame ``size``
-        long; drop it when that would pass ``limit`` events or ``max_bytes``."""
+        long; drop it when that would pass ``limit`` events or ``max_bytes``.
+
+        A streak of drops is logged once: it ends only when the queue has
+        drained to empty, since a saturated queue accepts one event for each it
+        hands over and a page could otherwise make every other event a line."""
         if self._cancelled:
             return
         if self._depth >= self.limit or self._bytes + size > self.max_bytes:
@@ -138,7 +151,6 @@ class Subscriber:
                     "dropping until it catches up", self.name, self._depth, self._bytes,
                 )
             return
-        self._full = False
         self._queue.append((method, params, at, size))
         self._depth += 1
         self._bytes += size
@@ -174,33 +186,41 @@ class Subscriber:
             while not self._queue:
                 self._wake.clear()
                 await self._wake.wait()
-            item = self._queue.popleft()
-            if isinstance(item, asyncio.Future):
-                if not item.done():
-                    item.set_result(None)
-                continue
-            method, params, at, size = item
-            self._depth -= 1
-            self._bytes -= size
-            self.lags.append(self._clock() - at)
-            try:
-                result = self.handler(method, params)
-                if inspect.isawaitable(result):
-                    await result
-            except Exception as exc:  # noqa: BLE001 - one event, not the subscriber
-                kind = type(exc).__name__
-                if kind != self._failing:
-                    self._failing = kind
-                    # The type only: params carry page data, and so can a message.
-                    log.warning(
-                        "bidi: subscriber %s's handler failed (%s); failures of "
-                        "that type are not logged again until one succeeds",
-                        self.name, kind,
-                    )
-            else:
-                self._failing = None
-            # A turn for the reader and the other subscribers between events.
+            until = time.monotonic() + DRAIN_TURN
+            while self._queue:
+                item = self._queue.popleft()
+                if isinstance(item, asyncio.Future):
+                    if not item.done():
+                        item.set_result(None)
+                    continue
+                await self._handle(*item)
+                if self._depth == 0:
+                    self._full = False  # caught up: a new streak is a new line
+                if time.monotonic() >= until:
+                    break
+            # A turn for the reader and the other subscribers between batches.
             await asyncio.sleep(0)
+
+    async def _handle(self, method: str, params: dict, at: float, size: int) -> None:
+        self._depth -= 1
+        self._bytes -= size
+        self.lags.append(self._clock() - at)
+        try:
+            result = self.handler(method, params)
+            if inspect.isawaitable(result):
+                await result
+        except Exception as exc:  # noqa: BLE001 - one event, not the subscriber
+            kind = type(exc).__name__
+            if kind != self._failing:
+                self._failing = kind
+                # The type only: params carry page data, and so can a message.
+                log.warning(
+                    "bidi: subscriber %s's handler failed (%s); failures of "
+                    "that type are not logged again until one succeeds",
+                    self.name, kind,
+                )
+        else:
+            self._failing = None
 
 
 class Connection:
@@ -420,9 +440,15 @@ class Connection:
             self.unsolicited += 1
 
     async def _read(self, ws) -> None:
+        frames = 0
         try:
             async for raw in ws:
                 at = self._clock()
+                frames += 1
+                if frames % READ_TURN == 0:
+                    # A buffered burst is read without suspending: let the
+                    # subscribers drain between slices of it (ruling 8).
+                    await asyncio.sleep(0)
                 try:
                     message = json.loads(raw)
                 except ValueError:

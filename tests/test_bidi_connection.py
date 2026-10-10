@@ -5,6 +5,7 @@ import asyncio
 import pytest
 
 from kubed.selenium_flow.bidi import BidiError, Connection
+from kubed.selenium_flow.bidi.connection import Subscriber
 
 pytestmark = pytest.mark.unit
 
@@ -276,3 +277,48 @@ async def test_a_stalled_subscriber_drops_on_bytes_before_the_count(browser, mon
     sub.deliver("log.entryAdded", {}, 0.0, 20_000)  # popped events free their bytes
     assert sub.dropped == dropped
     await conn.close()
+
+
+async def test_a_burst_of_5000_events_reaches_a_fast_handler_without_a_drop(browser):
+    """The reader yields every few frames and the subscriber drains a batch per
+    turn: a burst already buffered in one read must not fill the queue before
+    the subscriber gets a turn (Task 13 measured drops at 5 000)."""
+    conn = Connection(browser.url)
+    await conn.open()
+    got = []
+    sub = conn.listen(["log.entryAdded"], lambda m, p: got.append(p["i"]), name="capture")
+    await browser.events(5000, "log.entryAdded")
+    await conn.flush(timeout=30)
+    assert sub.dropped == 0 and got == list(range(5000))
+    assert sub.peak < sub.limit
+    await conn.close()
+
+
+async def test_the_fell_behind_warning_re_arms_only_once_the_queue_has_drained(caplog):
+    """A saturated queue alternates accepting and dropping; that is one streak,
+    one warning, until the subscriber catches up to empty."""
+    tokens = asyncio.Semaphore(0)
+
+    async def slow(_m, _p):
+        await tokens.acquire()
+
+    sub = Subscriber(["e"], slow, name="slow", limit=3)
+
+    async def turns(n=5):
+        for _ in range(n):
+            await asyncio.sleep(0)
+
+    for _ in range(200):  # two arrive for every one handled: never empty
+        sub.deliver("e", {}, 0.0)
+        sub.deliver("e", {}, 0.0)
+        tokens.release()
+        await turns()
+    assert sub.dropped > 100
+    for _ in range(sub.limit + 1):
+        tokens.release()
+    await sub.barrier()  # drained to empty: the next streak is a new one
+    for _ in range(10):
+        sub.deliver("e", {}, 0.0)
+    warned = [r for r in caplog.records if "fell behind" in r.getMessage()]
+    assert len(warned) == 2
+    sub.cancel()
