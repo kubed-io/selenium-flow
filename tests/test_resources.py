@@ -149,7 +149,7 @@ async def test_an_image_comes_back_as_an_image(reader):
     _serving(reader, png)
     result = await read(reader, "workspace://files/downloads/shot.png")
     assert result.content[0].type == "image"
-    assert result.content[0].mimeType == "image/png"
+    assert result.content[0].mime_type == "image/png"
 
 
 async def test_any_other_binary_is_described_not_dumped(reader):
