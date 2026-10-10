@@ -89,7 +89,6 @@ NO_SELENIUM = tuple(
         "site_data.snapshot",
         "recordings.mp4",
         "monitor.events",
-        "monitor.bidi",
         "monitor.monitor",
         "bidi.connection",
         "bidi.channel",
@@ -358,8 +357,5 @@ def websockets_importers() -> set[str]:
     return found
 
 
-def test_one_module_imports_websockets():
-    # `monitor/bidi.py` is the client `bidi/` replaces; Task 3 of the capture
-    # plan moves the monitor onto `bidi.Connection`, deletes it, and narrows
-    # this to `== {WEBSOCKETS_HOME}`.
-    assert websockets_importers() <= {WEBSOCKETS_HOME, "monitor/bidi.py"}
+def test_only_the_bidi_client_holds_a_socket():
+    assert websockets_importers() == {WEBSOCKETS_HOME}
