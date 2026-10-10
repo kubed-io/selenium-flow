@@ -206,7 +206,9 @@ export interface RequestRow {
   took_ms: number | null; failed: boolean; error: string | null; context: string; nav: number
   navigation: boolean; kept?: boolean
 }
-export interface RequestDetail extends RequestRow { request_headers: Header[]; response_headers: Header[]; uri: string }
+export interface RequestDetail extends RequestRow {
+  request_headers: Header[]; response_headers: Header[]; headers_dropped?: number; uri: string
+}
 export type CaptureOff = { capture: false; how: string }
 export interface ConsoleData {
   capture: true; capturing?: boolean; pages: PageMark[]; entries: ConsoleEntry[]

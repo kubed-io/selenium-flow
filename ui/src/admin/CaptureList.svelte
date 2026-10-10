@@ -16,6 +16,9 @@
     open?: (r: never) => void
   } = $props()
   const m = untrack(() => new CaptureModel(api, root, key, kind))
+  /* A live row that was not kept (a static request, a debug entry) has no
+     detail to open: the server never kept it. */
+  const opens = (r: { kept?: boolean }) => (open && r.kept !== false ? () => open(r as never) : undefined)
   onMount(() => {
     void m.load()
     return () => m.dispose()
@@ -32,8 +35,9 @@
   {#if m.visible.length || m.clearedAt !== null}
     <div class="clist">
       {#each m.visible as r (r.seq)}
+        {@const go = opens(r)}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (mouse-only, like the workspace cards) -->
-        <div class={['crow', open && 'click']} onclick={open && (() => open(r as never))}>
+        <div class={['crow', go && 'click']} onclick={go}>
           {#each cells(r as never) as [t, c], i (i)}<span class={c}>{t}</span>{/each}
         </div>
       {:else}

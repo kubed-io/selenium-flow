@@ -83,3 +83,18 @@ test('a stream that ended is recoverable: Live again opens a fresh link and clea
   FakeEventSource.last.emit({ id: '2.1', url: 'https://a.test/n', kept: true })
   expect(m.rows).toHaveLength(1)
 })
+
+test('Clear hides by sequence, not by the clock: a row the browser stamped later still goes', async () => {
+  api.mockResolvedValue({ ...networkData, requests: [
+    req({ id: '1.1', seq: 1, at: Date.now() / 1000 + 3600 }),   // a browser clock an hour ahead
+    req({ id: '1.2', seq: 2, at: 0 }),
+  ] })
+  const m = new CaptureModel(api, '', 'ws', 'network')
+  await m.load()
+  m.clear()
+  expect(m.visible).toEqual([])
+  m.data = networkData
+  m.live()
+  FakeEventSource.last.emit(req({ id: '1.3', seq: 3, at: 0 }))     // a browser clock behind
+  expect((m.visible as RequestRow[]).map((r) => r.id)).toEqual(['1.3'])
+})

@@ -25,6 +25,17 @@ export function hostPath(url: string): string {
   }
 }
 
+/* A console source as a file name: the last segment of its path, the host for
+   a root path, and never its query or fragment. */
+export function sourceName(url: string): string {
+  try {
+    const u = new URL(url)
+    return u.pathname.split('/').pop() || u.host || url.split(/[?#]/)[0]
+  } catch {
+    return url.split(/[?#]/)[0].split('/').pop() ?? ''
+  }
+}
+
 /* Only the path and query, for a title. */
 export function pathOf(url: string): string {
   try {

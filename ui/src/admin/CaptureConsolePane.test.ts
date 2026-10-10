@@ -59,3 +59,13 @@ test('empty, and capture off', async () => {
   render(CaptureConsolePane, { props: props() })
   expect(await screen.findByText('Capture is off for this workspace. Open the browser with open_session(capture=true).')).toBeInTheDocument()
 })
+
+test('a source is a file name and line, never the query or the whole URL', async () => {
+  api.mockResolvedValue({ ...consoleData, entries: [
+    { ...consoleData.entries[0], seq: 7, source: { url: 'https://example.com/', line: 2 } },
+    { ...consoleData.entries[0], seq: 8, source: { url: 'https://a.test/app.js?v=1', line: 9 } },
+  ] })
+  render(CaptureConsolePane, { props: props() })
+  expect(await screen.findByText('example.com:2')).toBeInTheDocument()
+  expect(screen.getByText('app.js:9')).toBeInTheDocument()
+})

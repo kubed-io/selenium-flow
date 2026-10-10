@@ -25,6 +25,9 @@ export class CaptureModel {
   text = $state('')
   pages = $state(1)
   clearedAt = $state<number | null>(null)
+  /* The highest seq on screen at Clear: rows are hidden by the server's order,
+     never by comparing the browser's clock with this one's. */
+  clearedSeq = $state<number | null>(null)
   rows = $state.raw<Row[]>([])
   /* What Pause froze on screen; rows keep arriving behind it. */
   held = $state.raw<Row[] | null>(null)
@@ -49,10 +52,10 @@ export class CaptureModel {
   readonly visible = $derived.by(() => {
     const keep = KEEP[this.filter] ?? KEEP.all
     const q = this.text.trim().toLowerCase()
-    const cut = this.clearedAt
+    const cut = this.clearedSeq
     const text = (r: Row) => ('text' in r ? r.text : r.url).toLowerCase()
     return (this.paused ? this.held ?? this.rows : this.rows)
-      .filter((r) => keep(r) && (!q || text(r).includes(q)) && (cut === null || r.at > cut))
+      .filter((r) => keep(r) && (!q || text(r).includes(q)) && (cut === null || r.seq > cut))
   })
 
   readonly counts = $derived.by(() => {
@@ -142,6 +145,7 @@ export class CaptureModel {
 
   clear(): void {
     this.clearedAt = Date.now() / 1000
+    this.clearedSeq = this.rows.reduce((top, r) => Math.max(top, r.seq), 0)
   }
 
   dispose(): void {

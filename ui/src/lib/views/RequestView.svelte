@@ -42,6 +42,9 @@
     <h3>General</h3>
     <div class="line"><span class="k">url</span><span class="v">{data.url}</span></div>
     <div class="line"><span class="k">type</span><span class="v">{data.type} · {took} · {kb(data.size)}</span></div>
+    {#if data.failed || data.error}
+      <div class="line"><span class="k">error</span><span class="v">{data.error ?? 'failed'}</span></div>
+    {/if}
   </div>
   {@render headers('Request', data.request_headers)}
   {@render headers('Response', data.response_headers)}

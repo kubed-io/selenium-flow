@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { clock, isError } from '../lib/capture'
+  import { clock, isError, sourceName } from '../lib/capture'
   import type { ConsoleEntry } from '../lib/types'
   import type { Api } from './api'
   import CaptureList from './CaptureList.svelte'
@@ -8,7 +8,7 @@
   const cells = (e: ConsoleEntry): [string, string][] => [
     [e.level, isError(e) ? 'pill warn' : 'pill'],
     [e.text, isError(e) ? 'text mono warn' : 'text mono'],
-    [e.source ? (e.source.url.split('/').pop() || e.source.url) + ':' + e.source.line : '', 'mono muted'],
+    [e.source ? sourceName(e.source.url) + ':' + e.source.line : '', 'mono muted'],
     [clock(e.at), 'muted'],
   ]
 </script>

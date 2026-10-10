@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { hostPath, isError, isFailed, kb, pathOf, statusText, clock } from './capture'
+import { hostPath, isError, isFailed, kb, pathOf, sourceName, statusText, clock } from './capture'
 import type { ConsoleEntry, RequestRow } from './types'
 
 const row = (o: Partial<RequestRow>): RequestRow => ({
@@ -39,4 +39,13 @@ test('host and path, no scheme', () => {
   expect(hostPath('https://a.test/api/o?page=2')).toBe('a.test/api/o?page=2')
   expect(hostPath('not a url')).toBe('not a url')
   expect(pathOf('https://a.test/api/o')).toBe('/api/o')
+})
+
+test('a console source is its file name, never its query, and the host for a root path', () => {
+  expect(sourceName('https://a.test/js/app.js?v=1#x')).toBe('app.js')
+  expect(sourceName('https://example.com/')).toBe('example.com')
+  expect(sourceName('https://example.com')).toBe('example.com')
+  expect(sourceName('webpack:///src/app.ts')).toBe('app.ts')
+  expect(sourceName('not a url/a.js?q=1')).toBe('a.js')
+  expect(sourceName('')).toBe('')
 })

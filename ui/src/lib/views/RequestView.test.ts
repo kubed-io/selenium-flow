@@ -63,3 +63,8 @@ test('no oncall, no Fetch body', () => {
   render(RequestView, { props: { data: detail, uri: 'workspace://network/1.1' } })
   expect(screen.queryByRole('button', { name: 'Fetch body' })).toBeNull()
 })
+
+test("a failed request shows its error", () => {
+  render(RequestView, { props: { data: { ...detail, status: null, failed: true, error: 'net::ERR_CONNECTION_REFUSED' } } })
+  expect(screen.getByText('net::ERR_CONNECTION_REFUSED')).toBeInTheDocument()
+})

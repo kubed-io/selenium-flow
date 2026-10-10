@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/svelte'
 import { beforeEach, expect, test, vi } from 'vitest'
-import { networkData, stubEventSource } from '../test/capture'
+import { FakeEventSource, networkData, req, stubEventSource } from '../test/capture'
 import CaptureNetworkPane from './CaptureNetworkPane.svelte'
 
 const api = vi.fn()
@@ -31,4 +31,16 @@ test('empty', async () => {
   api.mockResolvedValue({ ...networkData, requests: [], count: 0, total: 0 })
   render(CaptureNetworkPane, { props: props() })
   expect(await screen.findByText('No requests since the last navigation')).toBeInTheDocument()
+})
+
+test('a live row that was not kept does not open a request it cannot show', async () => {
+  render(CaptureNetworkPane, { props: props() })
+  await fireEvent.click(await screen.findByRole('button', { name: 'Live' }))
+  const es = FakeEventSource.last
+  es.emit(req({ id: '2.1', seq: 20, url: 'https://a.test/logo.png', type: 'image', kept: false }))
+  es.emit(req({ id: '2.2', seq: 21, url: 'https://a.test/api', kept: true }))
+  await fireEvent.click(await screen.findByText('https://a.test/logo.png'))
+  expect(location.hash).toBe('#/')
+  await fireEvent.click(screen.getByText('https://a.test/api'))
+  expect(location.hash).toBe('#/workspaces/ws/network/2.2')
 })
