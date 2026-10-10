@@ -43,23 +43,31 @@
   }
 </script>
 
-<button onclick={() => go(hashes.network(key))}>← Requests</button>
+<div class="row">
+  <button onclick={() => go(hashes.network(key))}>← Requests</button>
+  {#if d}<strong class="grow">{d.method} {d.url}</strong><span class="pill" class:warn={isFailed(d)}>{statusText(d)}</span>{/if}
+</div>
 {#if d}
-  <p class="row"><strong class="mono grow">{d.method} {d.url}</strong><span class="pill" class:warn={isFailed(d)}>{statusText(d)}</span></p>
-  {#each pairs(d) as [title, rows, note] (title)}
-    <p class="small muted">{title}</p>
-    {#each rows as [k, v], i (i)}<div class="fact"><div class="k">{k}</div><div class="v">{v}</div></div>{/each}
-    {#if note}<p class="small muted">{note}</p>{/if}
-  {/each}
-  <p class="small muted">RESPONSE BODY</p>
-  <p class="row"><button onclick={fetchBody}>Fetch body</button>
-    <span class="small muted">read from the browser on demand · kept while the browser lives · up to 100 kB</span></p>
-  {#if body?.binary}
-    <p class="small muted">{body.mime} · {kb(body.size)} · not shown</p>
-  {:else if body}
-    <pre>{body.text}</pre>
-    <p class="small muted">{body.size} bytes · {body.truncated ? 'truncated at 100 kB' : 'complete'} · fetched {fetched}</p>
-  {/if}
-  <p class="small muted mono">workspace://network/{id}</p>
+  <div class="rcard">
+    {#each pairs(d) as [title, rows, note] (title)}
+      <div class="block">
+        <span class="label">{title}</span>
+        {#each rows as [k, v], i (i)}<div class="kv"><span>{k}</span><span>{v}</span></div>{/each}
+        {#if note}<span class="muted">{note}</span>{/if}
+      </div>
+    {/each}
+    <div class="block">
+      <span class="label">RESPONSE BODY</span>
+      <div class="row"><button onclick={fetchBody}>Fetch body</button>
+        <span class="muted">read from the browser on demand · kept while the browser lives · up to 100 kB</span></div>
+      {#if body?.binary}
+        <span class="muted">{body.mime} · {kb(body.size)} · not shown</span>
+      {:else if body}
+        <pre class:warn={isFailed(d)}>{body.text}</pre>
+        <span class="muted">{body.size} bytes · {body.truncated ? 'truncated at 100 kB' : 'complete'} · fetched {fetched}</span>
+      {/if}
+    </div>
+  </div>
+  <p class="small muted">workspace://network/{id}</p>
 {/if}
 {#if error}<p class="small warn">{error}</p>{/if}

@@ -6,9 +6,10 @@
 
   let { api, key, root }: { api: Api; key: string; root: string } = $props()
   const cells = (e: ConsoleEntry): [string, string][] => [
-    [e.level, isError(e) ? 'pill warn' : 'pill'], [e.text, 'text'],
-    [e.source ? (e.source.url.split('/').pop() || e.source.url) + ':' + e.source.line : '', 'small muted'],
-    [clock(e.at), 'small muted'],
+    [e.level, isError(e) ? 'pill warn' : 'pill'],
+    [e.text, isError(e) ? 'text mono warn' : 'text mono'],
+    [e.source ? (e.source.url.split('/').pop() || e.source.url) + ':' + e.source.line : '', 'mono muted'],
+    [clock(e.at), 'muted'],
   ]
 </script>
 

@@ -27,14 +27,23 @@
   <p class="small warn">{m.error}</p>
 {:else if m.data && 'how' in m.data}
   <p class="small muted">{CAPTURE_OFF}</p>
-{:else if m.data && !m.visible.length}
-  <div class="empty">{#if m.clearedAt !== null}Cleared at {clock(m.clearedAt)}<div class="small">{cleared}</div>{:else}{empty}{/if}</div>
 {:else}
-  {#each m.visible as r (r.seq)}
-    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (mouse-only, like the workspace cards) -->
-    <div class="crow" onclick={open && (() => open(r as never))}>
-      {#each cells(r as never) as [t, c], i (i)}<span class={c}>{t}</span>{/each}
+  {@const none = m.mode === 'captured' && !m.visible.length}
+  {#if m.visible.length || m.clearedAt !== null}
+    <div class="clist">
+      {#each m.visible as r (r.seq)}
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (mouse-only, like the workspace cards) -->
+        <div class={['crow', open && 'click']} onclick={open && (() => open(r as never))}>
+          {#each cells(r as never) as [t, c], i (i)}<span class={c}>{t}</span>{/each}
+        </div>
+      {:else}
+        <div class="empty"><strong>Cleared at {clock(m.clearedAt ?? 0)}</strong><span class="small muted">{cleared}</span></div>
+      {/each}
     </div>
-  {/each}
+  {/if}
+  {#if none}
+    <p class="small muted">{empty}</p>
+  {:else}
+    <p class="small muted">{m.footer}{#if m.dropped}<span class="warn"> · {m.dropped} dropped</span>{/if}</p>
+  {/if}
 {/if}
-<p class="small muted">{m.footer}{#if m.dropped}<span class="warn"> · {m.dropped} dropped</span>{/if}</p>

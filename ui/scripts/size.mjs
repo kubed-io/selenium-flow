@@ -2,7 +2,8 @@ import { gzipSync } from 'node:zlib'
 import { readFileSync } from 'node:fs'
 
 const OUT = new URL('../../kubed/selenium_flow/http/static/', import.meta.url)
-const BUDGET = { admin: 45 * 1024, app: 110 * 1024 }
+// admin raised 45 -> 50 KB: carries E3's Console and Network tabs.
+const BUDGET = { admin: 50 * 1024, app: 110 * 1024 }
 let over = false
 for (const surface of /** @type {const} */ (['admin', 'app'])) {
   const bytes = ['html', 'css', 'js']
