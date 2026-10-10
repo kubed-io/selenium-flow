@@ -253,3 +253,26 @@ async def test_lags_are_recorded_per_event(browser):
     await conn.flush()
     assert len(sub.lags) == 3 and all(lag >= 0 for lag in sub.lags)
     await conn.close()
+
+
+async def test_a_stalled_subscriber_drops_on_bytes_before_the_count(browser, monkeypatch):
+    monkeypatch.setattr("kubed.selenium_flow.bidi.connection.QUEUE_BYTES", 30_000)
+    conn = Connection(browser.url)
+    await conn.open()
+    gate = asyncio.Event()
+
+    async def stuck(_m, _p):
+        await gate.wait()
+
+    sub = conn.listen(["log.entryAdded"], stuck, name="stuck", limit=100)
+    for _ in range(10):
+        await browser.event("log.entryAdded", {"text": "x" * 10_000})
+    await conn.command("browsingContext.getTree")
+    # Each frame is just over 10 kB: two fit the budget, far below the count.
+    assert sub.peak == 2 and sub.dropped >= 7
+    gate.set()
+    await conn.flush()
+    dropped = sub.dropped
+    sub.deliver("log.entryAdded", {}, 0.0, 20_000)  # popped events free their bytes
+    assert sub.dropped == dropped
+    await conn.close()

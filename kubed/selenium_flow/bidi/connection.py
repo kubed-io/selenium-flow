@@ -51,6 +51,10 @@ PING_INTERVAL = 20.0
 MAX_MESSAGE = 16 * 2**20
 # Events one subscriber may have waiting; past it, new ones are dropped.
 QUEUE_LIMIT = 1000
+# The frame bytes one subscriber may have waiting, beside the count: a page
+# decides how large an event is (a `console.log` of a multi-MB string), so a
+# count alone would let one stalled subscriber hold QUEUE_LIMIT * MAX_MESSAGE.
+QUEUE_BYTES = 32 * 2**20
 # How many of a subscriber's most recent lags it keeps.
 LAGS_KEPT = 1000
 # Seconds `flush` sleeps between its round trip and its barriers. Zero while
@@ -107,9 +111,11 @@ class Subscriber:
         self.lags: deque[float] = deque(maxlen=LAGS_KEPT)
         self._clock = clock
         self._on_cancel = on_cancel
-        # (method, params, at) for an event; a future for a barrier.
-        self._queue: deque[tuple[str, dict, float] | asyncio.Future] = deque()
+        self.max_bytes = QUEUE_BYTES
+        # (method, params, at, size) for an event; a future for a barrier.
+        self._queue: deque[tuple[str, dict, float, int] | asyncio.Future] = deque()
         self._depth = 0  # events in the queue, barriers not counted
+        self._bytes = 0  # their frames' length; a barrier carries none
         self._wake = asyncio.Event()
         self._full = False  # in a streak of dropped events
         self._failing: str | None = None  # the type of a streak of failures
@@ -118,22 +124,24 @@ class Subscriber:
             self._drain(), name=f"bidi subscriber {name}"
         )
 
-    def deliver(self, method: str, params: dict, at: float) -> None:
-        """Queue one event the reader received at ``at``; drop it when full."""
+    def deliver(self, method: str, params: dict, at: float, size: int = 0) -> None:
+        """Queue one event the reader received at ``at`` in a frame ``size``
+        long; drop it when that would pass ``limit`` events or ``max_bytes``."""
         if self._cancelled:
             return
-        if self._depth >= self.limit:
+        if self._depth >= self.limit or self._bytes + size > self.max_bytes:
             self.dropped += 1
             if not self._full:
                 self._full = True
                 log.warning(
-                    "bidi: subscriber %s fell %d events behind; dropping until it "
-                    "catches up", self.name, self.limit,
+                    "bidi: subscriber %s fell behind (%d events, %d bytes waiting); "
+                    "dropping until it catches up", self.name, self._depth, self._bytes,
                 )
             return
         self._full = False
-        self._queue.append((method, params, at))
+        self._queue.append((method, params, at, size))
         self._depth += 1
+        self._bytes += size
         self.peak = max(self.peak, self._depth)
         self._wake.set()
 
@@ -157,6 +165,7 @@ class Subscriber:
             if isinstance(item, asyncio.Future) and not item.done():
                 item.set_result(None)
         self._depth = 0
+        self._bytes = 0
         if self._on_cancel is not None:
             self._on_cancel(self)
 
@@ -170,8 +179,9 @@ class Subscriber:
                 if not item.done():
                     item.set_result(None)
                 continue
-            method, params, at = item
+            method, params, at, size = item
             self._depth -= 1
+            self._bytes -= size
             self.lags.append(self._clock() - at)
             try:
                 result = self.handler(method, params)
@@ -400,11 +410,11 @@ class Connection:
         with contextlib.suppress(ValueError):
             self._subscribers.remove(subscriber)
 
-    def _route(self, method: str, params: dict, at: float) -> None:
+    def _route(self, method: str, params: dict, at: float, size: int) -> None:
         wanted = False
         for subscriber in tuple(self._subscribers):
             if method in subscriber.events:
-                subscriber.deliver(method, params, at)
+                subscriber.deliver(method, params, at, size)
                 wanted = True
         if not wanted:
             self.unsolicited += 1
@@ -435,7 +445,10 @@ class Connection:
                         reply.set_result(message.get("result") or {})
                 elif message.get("type") == "event":
                     self._route(
-                        str(message.get("method", "")), message.get("params") or {}, at
+                        str(message.get("method", "")),
+                        message.get("params") or {},
+                        at,
+                        len(raw),
                     )
         except ConnectionClosed:
             pass

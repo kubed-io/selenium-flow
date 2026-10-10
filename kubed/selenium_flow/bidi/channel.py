@@ -57,6 +57,32 @@ def _wait(
         raise
 
 
+def _context_of(params: dict) -> str | None:
+    """The browsing context an event is about: ``context``, or a log entry's
+    ``source.context``."""
+    context = params.get("context")
+    if context is None:
+        source = params.get("source")
+        if isinstance(source, dict):
+            context = source.get("context")
+    return context if isinstance(context, str) else None
+
+
+def _scoped(
+    handler: Callable[[str, dict], None], contexts: Sequence[str]
+) -> Callable[[str, dict], None]:
+    """``handler``, for events in ``contexts`` only. Routing is by method, and
+    Firefox fans an event out to every socket, so an event a scoped listener
+    gets may be another context's; one with no context is nobody's."""
+    scope = frozenset(contexts)
+
+    def in_scope(method: str, params: dict) -> None:
+        if _context_of(params) in scope:
+            handler(method, params)
+
+    return in_scope
+
+
 @contextlib.contextmanager
 def _unavailable() -> Iterator[None]:
     """A closed connection or a reply that never came is a 503; the browser's
@@ -116,8 +142,11 @@ class Channel:
     ) -> Iterator[Subscriber]:
         """Hand ``events`` (in ``contexts`` when given) to ``handler`` on the
         loop for the block, then unsubscribe and stop. ``handler`` runs on the
-        loop and must not block; it answers with `post`."""
+        loop and must not block; it answers with `post`. Scoped, it sees only
+        events whose context is in ``contexts``."""
         events = tuple(events)
+        if contexts is not None:
+            handler = _scoped(handler, contexts)
         with _unavailable():
             subscriber, subscription = _wait(
                 self._listen(events, handler, contexts, name),

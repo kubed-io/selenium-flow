@@ -101,3 +101,22 @@ def test_post_from_the_loop_is_sent(browser_in_thread):
     portal.call(answer_on_the_loop)
     assert browser_params("network.provideResponse") == [{"request": "r-1"}]
     portal.call(conn.close)
+
+
+def test_a_scoped_listener_sees_only_its_contexts(browser_in_thread):
+    url, portal, loop = browser_in_thread
+    got = []
+    channels = Channels(lambda _s: url, loop=lambda: loop)
+    with channels.open_channel("s") as ch, ch.listen(
+        ["network.beforeRequestSent", "log.entryAdded"],
+        lambda m, p: got.append(p),
+        contexts=["tab-1"],
+    ):
+        # Fanned out to this socket though another tab's, or no tab's.
+        portal.call(_event, "network.beforeRequestSent", {"context": "tab-2"})
+        portal.call(_event, "network.beforeRequestSent", {"context": "tab-1"})
+        portal.call(_event, "log.entryAdded", {"source": {"context": "tab-2"}})
+        portal.call(_event, "log.entryAdded", {"source": {"context": "tab-1"}})
+        portal.call(_event, "network.beforeRequestSent", {})
+        ch.flush()
+    assert got == [{"context": "tab-1"}, {"source": {"context": "tab-1"}}]
