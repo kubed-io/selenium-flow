@@ -5,6 +5,7 @@ readme = "README.md"
 dynamic = ["version"]
 requires-python = ">=3.10"
 keywords = ["mcp", "selenium", "browser-automation", "fastmcp", "ai"]
+license = "MIT"
 license-files = ["LICENSE"]
 # One entry per interpreter CI actually sweeps, so the metadata and
 # .github/workflows/test.yml make the same claim. A bare "Python :: 3" tells an
@@ -12,7 +13,6 @@ license-files = ["LICENSE"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
@@ -108,7 +108,7 @@ bench = [
 ]
 
 [build-system]
-requires = ["setuptools>=61.0", "setuptools_scm[toml]>=6.2"]
+requires = ["setuptools>=77", "setuptools_scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [project.urls]

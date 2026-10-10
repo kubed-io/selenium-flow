@@ -27,6 +27,7 @@ from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import TOKEN
+from .fakes import patch_os
 
 pytestmark = pytest.mark.unit
 
@@ -366,7 +367,7 @@ def test_a_storage_fault_keeping_a_recording_is_a_5xx(client, live, monkeypatch)
             raise OSError(errno.EIO, "EIO")
         return real(path, *a, **k)
 
-    monkeypatch.setattr(os, "stat", faulty)
+    patch_os(monkeypatch, "stat", faulty)
     response = client.post(
         f"/admin/workspaces/{KEY}/files/recordings/rec-1.mp4/keep", headers=AUTH
     )

@@ -26,6 +26,8 @@ from kubed.selenium_flow.names import (
     valid_name,
 )
 
+from .fakes import patch_os
+
 pytestmark = pytest.mark.unit
 
 
@@ -741,7 +743,7 @@ def test_a_write_cut_short_leaves_the_last_document_whole(store, tmp_path, monke
     def interrupted(*_):
         raise OSError("disk full")
 
-    monkeypatch.setattr(os, "replace", interrupted)
+    patch_os(monkeypatch, "replace", interrupted)
     with pytest.raises(OSError):
         store.save("bot", "login", {"description": "the new one", "steps": []})
     with pytest.raises(OSError):
@@ -860,10 +862,12 @@ def test_a_symlinked_workspaces_flows_is_skipped(tmp_path):
     assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
 
 
-@pytest.mark.parametrize("fn_name", ["stat", "scandir"])
-def test_a_fault_reading_a_reserved_folder_stops_the_boot(tmp_path, monkeypatch, fn_name):
+@pytest.mark.parametrize(
+    "fn_names", [("stat",), ("scandir", "listdir")], ids=["stat", "listing"]
+)
+def test_a_fault_reading_a_reserved_folder_stops_the_boot(tmp_path, monkeypatch, fn_names):
     _touch(tmp_path / "workspaces" / "flows" / "a.yaml")
-    _stat_eio_on(monkeypatch, fn_name, "flows")
+    _stat_eio_on(monkeypatch, fn_names, "flows")
     with pytest.raises(ConfigError, match="OSError"):
         flowstore.from_settings(DataSettings(dir=str(tmp_path)))
 
@@ -873,24 +877,25 @@ def test_an_inbox_with_a_transport_prefix_boots(tmp_path):
     assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
 
 
-def _stat_eio_on(monkeypatch, fn_name, needle):
+def _stat_eio_on(monkeypatch, fn_names, needle):
+    """Each of ``fn_names`` fails with EIO on a path ending in ``needle``."""
     import errno
-    import os
 
-    real = getattr(os, fn_name)
+    def failing(real):
+        def faulty(path, *a, **k):
+            if str(path).endswith(needle):
+                raise OSError(errno.EIO, "EIO")
+            return real(path, *a, **k)
+        return faulty
 
-    def faulty(path, *a, **k):
-        if str(path).endswith(needle):
-            raise OSError(errno.EIO, "EIO")
-        return real(path, *a, **k)
-
-    monkeypatch.setattr(os, fn_name, faulty)
+    for fn_name in fn_names:
+        patch_os(monkeypatch, fn_name, failing(getattr(os, fn_name)))
 
 
 def test_an_unreadable_data_dir_stops_the_boot_not_an_empty_one(tmp_path, monkeypatch):
     root = tmp_path / "data"
     (root / "claudecode" / "files").mkdir(parents=True)
-    _stat_eio_on(monkeypatch, "stat", "data")
+    _stat_eio_on(monkeypatch, ("stat",), "data")
     with pytest.raises(ConfigError) as exc:
         flowstore.from_settings(DataSettings(dir=str(root)))
     assert "data" in str(exc.value) and "OSError" in str(exc.value)
@@ -899,7 +904,7 @@ def test_an_unreadable_data_dir_stops_the_boot_not_an_empty_one(tmp_path, monkey
 @pytest.mark.parametrize("fn_name", ["stat", "lstat"])
 def test_an_unreadable_top_level_entry_stops_the_boot(tmp_path, monkeypatch, fn_name):
     (tmp_path / "claudecode" / "files").mkdir(parents=True)
-    _stat_eio_on(monkeypatch, fn_name, "claudecode")
+    _stat_eio_on(monkeypatch, (fn_name,), "claudecode")
     with pytest.raises(ConfigError, match="OSError"):
         flowstore.from_settings(DataSettings(dir=str(tmp_path)))
 

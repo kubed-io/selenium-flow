@@ -47,7 +47,7 @@ component *of* the Selenium app rather than as a free-standing app.
 ## The loop (short version)
 
 ```
-branch + PR ─► test.yml    ruff + pytest on 3.14          ← the gate
+branch + PR ─► test.yml    ruff + pytest on 3.14 ← the gate (3.10 beside it, advisory)
              + quality.yml CodeQL, pip-audit, zizmor,
                            hadolint, OpenAPI lint
              + pr.yml      fails if CHANGELOG [Unreleased]

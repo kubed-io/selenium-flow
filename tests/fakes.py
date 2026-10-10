@@ -171,6 +171,26 @@ class FakeActions:
         return self._record("open_session", session_id, **kwargs)
 
 
+def patch_os(monkeypatch, name, replacement):
+    """Replace ``os.<name>`` everywhere `pathlib` reaches it, for a storage fault.
+
+    Patching `os` alone misses pathlib on 3.10, whose `_NormalAccessor` copied
+    ``os.stat``, ``os.listdir``, ``os.replace`` and the rest at import, so
+    `Path.stat`, `lstat`, `iterdir` and `replace` never saw the fault and the
+    test passed on 3.13 and failed on the floor. A listing is two names until
+    3.13: `Path.iterdir` uses ``listdir`` before it and ``scandir`` from it.
+    """
+    import os
+    import pathlib
+
+    # Only a slot that holds this very `os` function: 3.10's accessor `open` is
+    # `io.open`, and replacing it would break `Path.open` instead.
+    accessor = getattr(pathlib, "_NormalAccessor", None)  # 3.10 only
+    if accessor is not None and vars(accessor).get(name) is getattr(os, name):
+        monkeypatch.setattr(accessor, name, staticmethod(replacement))
+    monkeypatch.setattr(os, name, replacement)
+
+
 class FakeClock:
     """Stands in for the `time` module `flows.run` reads: ``monotonic`` advances
     a second every time it is read."""

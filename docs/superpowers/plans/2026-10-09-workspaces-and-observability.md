@@ -31,11 +31,14 @@ Epic agents read it; they do not edit it (programme R15).
 
 - [x] **Labels.** `agent-issue.yml` and `agent-pr.yml` gate on `agent`,
       `spec approved`, `plan approved`; created 2026-10-09.
-- [ ] **Saga pointer.** AGENTS.md says the design record lives in `saga/`;
+- [x] **Saga pointer.** AGENTS.md says the design record lives in `saga/`;
       it lives in `docs/superpowers/` now and the saga is deprecated. Folded
-      into E1's scope; no separate change.
-- [ ] **Copilot.** The code loop wakes on Copilot's review *or* a comment from
-      Dr K; with Copilot's quota gone, a comment after each push is the turn.
+      into E1's scope; no separate change. Done in E1 (PR #67): AGENTS.md points
+      at `docs/superpowers/` and calls the saga deprecated.
+- [x] **Copilot.** The code loop wakes on Copilot's review *or* a comment from
+      Dr K. Copilot is out of credits, so a subagent sits in its seat with the
+      superpowers requesting- and receiving-code-review skills; its review and
+      the responses go on the PR as a comment.
 - [x] **Penpot.** Rename done (every page, component and text; the browser's
       sessionStorage strings kept). *Workspace · Console* (with `capture-off`)
       and *Workspace · Network* drawn with their states and flows. Pills
@@ -100,8 +103,13 @@ results once run; name the Penpot boards it reads.
       `call.finished` and the bus; E2's spec owns those names.
 - [ ] When a spec needs a board that is not drawn, draw it here and tell the
       issue which board to read.
-- [ ] After E1 merges: confirm the other open branches rebase cleanly before
-      their code starts.
+- [x] After E1 merges: confirm the other open branches rebase cleanly before
+      their code starts. Done by merging main, not rebasing (no force-push):
+      E2, E5 and E7 each had their wiki submodule commits replayed onto their
+      predecessor's wiki commit, and the README held under its 25,000-byte
+      budget.
+- [x] Merged E1 (PR #67), E2 (PR #68) and E5 (PR #69) on 2026-10-09, E7
+      (PR #70) on 2026-10-10. E3, E4 and E6 (issues #64–#66) are open.
 
 ## Done when
 

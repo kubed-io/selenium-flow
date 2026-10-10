@@ -13,10 +13,10 @@ pytest
 two documented exceptions live in `[tool.ruff.lint]` in `pyproject.toml`, so
 there is no second list of paths to keep in sync.
 
-Python 3.14 is the baseline — it is what the image runs and the only interpreter
-a pull request is tested on. The package supports 3.10 and up, and CI sweeps the
-whole range on main and on every release, so a 3.11+ feature is a build break on
-the oldest leg rather than a style question. See
+Python 3.14 is the baseline — it is what the image runs. The package supports
+3.10 and up: a pull request is tested on 3.10 and 3.14, and CI sweeps the whole
+range on main and on every release, so a 3.11+ feature is a build break on the
+oldest leg rather than a style question. See
 [`.github/instructions/python.instructions.md`](.github/instructions/python.instructions.md)
 for the ones that actually come up.
 
@@ -151,6 +151,7 @@ A pull request runs these, and all but `Bench` are required to merge:
 |---|---|
 | `PR Tasks` | assigns you, and fails if `CHANGELOG.md` has no new `[Unreleased]` entry — that section becomes the release notes. The `no changelog` label is the escape hatch |
 | `Test (3.14)` | `ruff check .` and the full pytest suite |
+| `Test (3.10)` | the same on the oldest supported Python — **not required**: advisory until the ruleset on `main` requires it |
 | `UI` | `ui.yml` — lint, types (`svelte-check`), tests, build, bundle guards (exactly the six files `page()` inlines, and no built JS/CSS leaks a `<script`/`</style`) and the size report |
 | `Package` | builds the sdist + wheel, `twine check --strict`, then installs the wheel clean and imports it |
 | `CodeQL` / `Dependency Audit` / `Workflow Audit` / `Dockerfile Lint` / `OpenAPI Spec` | `quality.yml` — code scanning, `pip-audit`, `zizmor`, `hadolint`, and a Redocly lint of the generated spec |

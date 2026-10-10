@@ -18,6 +18,8 @@ from kubed.selenium_flow.names import FILES_DIR, RECORDINGS_DIR
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace.workspaces import STDIO_NAME
 
+from .fakes import patch_os
+
 pytestmark = pytest.mark.unit
 
 S = "desktop"
@@ -189,7 +191,7 @@ def _fault_on(monkeypatch, fn_name, needle, exc):
             raise exc
         return real(path, *a, **k)
 
-    monkeypatch.setattr(os, fn_name, faulty)
+    patch_os(monkeypatch, fn_name, faulty)
 
 
 def test_a_storage_fault_reading_the_recording_is_not_a_missing_recording(store, monkeypatch):

@@ -12,6 +12,8 @@ from kubed.selenium_flow.names import RECORDINGS_DIR
 from kubed.selenium_flow.recordings import collector as collector_module
 from kubed.selenium_flow.recordings import mp4
 
+from .fakes import patch_os
+
 pytestmark = pytest.mark.unit
 
 GID = "8f3d6dc2a1b04e6f9c1d2e3f4a5b6c7d"
@@ -737,7 +739,7 @@ def _eio_on(path, monkeypatch):
         return stat
 
     for name in ("stat", "lstat"):
-        monkeypatch.setattr(os, name, failing(getattr(os, name)))
+        patch_os(monkeypatch, name, failing(getattr(os, name)))
 
 
 async def test_one_workspace_that_cannot_be_read_does_not_block_another(tmp_path, monkeypatch, caplog):
@@ -895,7 +897,7 @@ def _stat_fails_on(path, exc, monkeypatch):
         return stat
 
     for name in ("stat", "lstat"):
-        monkeypatch.setattr(os, name, failing(getattr(os, name)))
+        patch_os(monkeypatch, name, failing(getattr(os, name)))
 
 
 async def test_a_file_whose_stat_fails_blocks_drops_but_others_are_filed(parts, monkeypatch, caplog):
