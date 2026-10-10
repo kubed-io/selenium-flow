@@ -180,6 +180,7 @@ def test_a_text_body_over_8_mb_is_refused_before_asking(actions, fed):
 @pytest.mark.parametrize("mime", [
     "text/html; charset=utf-8", "application/json", "application/problem+json",
     "application/xml", "image/svg+xml", "text/javascript", "application/javascript",
+    "application/x-javascript", "application/ecmascript", "application/x-ecmascript",
     "application/x-www-form-urlencoded", "",
 ])
 def test_text_and_unknown_types_are_asked_of_the_browser(actions, fed, mime):

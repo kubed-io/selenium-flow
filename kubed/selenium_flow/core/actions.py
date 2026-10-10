@@ -58,7 +58,15 @@ BODY_FETCH_LIMIT = 8_000_000
 # What a body's MIME type must be for its text to be worth asking for; anything
 # else is answered from the row, never fetched. An unknown type is asked.
 TEXT_TYPES = ("text/",)
-TEXT_SUBTYPES = ("json", "xml", "javascript", "x-www-form-urlencoded")
+TEXT_SUBTYPES = (
+    "json",
+    "xml",
+    "javascript",
+    "x-javascript",
+    "ecmascript",
+    "x-ecmascript",
+    "x-www-form-urlencoded",
+)
 ID_LIMIT = 64
 BODY_GONE = (
     "the browser no longer holds this body: it keeps them while it lives, "
