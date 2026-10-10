@@ -59,7 +59,7 @@ const modal = () => document.querySelector('.modal') as HTMLElement
 test('History is the fourth subtab and counts the hosts listed', async () => {
   const { container } = setup()
   const tabs = [...container.querySelectorAll('#workspaceTabs button')].map((b) => b.firstChild!.textContent!.trim())
-  expect(tabs).toEqual(['Files', 'Flows', 'Site data', 'History'])
+  expect(tabs).toEqual(['Files', 'Flows', 'Site data', 'History', 'Console', 'Network'])
   expect(screen.getByRole('tab', { name: /History/ })).toHaveAttribute('aria-selected', 'true')
   await loaded(container)
   expect(container.querySelector('#historyTotal')).toHaveTextContent('4')

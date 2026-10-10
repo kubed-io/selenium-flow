@@ -34,3 +34,5 @@ export function pathOf(url: string): string {
     return url
   }
 }
+
+export const CAPTURE_OFF = 'Capture is off for this workspace. Open the browser with open_session(capture=true).'

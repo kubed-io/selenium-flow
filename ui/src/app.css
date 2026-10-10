@@ -559,3 +559,9 @@ textarea.yaml {
 .tree .kids { padding-left: 16px; border-left: 1px solid var(--line); margin-left: 4px; }
 .tree.leaf { padding: 2px 0; overflow-wrap: anywhere; }
 .tree .key { color: var(--accent); }
+
+/* The workspace's Console and Network rows (CaptureList). */
+.crow { display: flex; align-items: baseline; gap: var(--gap); padding: 4px 0; border-top: 1px solid var(--line); }
+.crow > .text { flex: 1; min-width: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.toolbar { flex-wrap: wrap; margin-bottom: var(--gap); }
+.toolbar button[aria-pressed=true] { border-color: var(--accent); color: var(--accent); }

@@ -145,3 +145,13 @@ export function duration(seconds: number): string {
   const s = Math.round(seconds)
   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0')
 }
+
+/* The summary's CAPTURE fact; null for a server that predates the field. */
+export function captureFact(s: WorkspaceRow): string | null {
+  if (s.capture === undefined) return null
+  if (!s.capture) return 'off · open_session(capture=true) turns it on'
+  if (s.capturing) return `on · receiving · ${s.captured?.network ?? 0} requests · ${s.captured?.console ?? 0} console entries`
+  if (s.live) return 'on · paused · resumes on the next call'
+  const t = s.capture_ttl ?? 0
+  return `on · kept ${t % 3600 === 0 ? t / 3600 + ' h' : Math.round(t / 60) + ' min'} after the last entry · resumes when the browser reopens`
+}

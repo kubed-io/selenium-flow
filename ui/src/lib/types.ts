@@ -47,6 +47,10 @@ export interface WorkspaceRow {
   history_count?: number | null
   history_rev?: string | null
   opened_by?: { kind: 'admin' | 'oidc'; username?: string | null } | null
+  capture?: boolean
+  capturing?: boolean
+  captured?: Captured | null
+  capture_ttl?: number
 }
 
 export interface WorkspacesPayload { workspaces: WorkspaceRow[]; events_url?: string }
@@ -206,11 +210,11 @@ export interface RequestDetail extends RequestRow { request_headers: Header[]; r
 export type CaptureOff = { capture: false; how: string }
 export interface ConsoleData {
   capture: true; capturing?: boolean; pages: PageMark[]; entries: ConsoleEntry[]
-  count: number; total: number; not_kept: { debug: number }
+  count: number; total: number; not_kept: { debug: number }; tail_url?: string
 }
 export interface NetworkData {
   capture: true; capturing?: boolean; pages: PageMark[]; requests: RequestRow[]
-  count: number; total: number; not_kept: { static: number }
+  count: number; total: number; not_kept: { static: number }; tail_url?: string
 }
 export interface BodyResult {
   id: string; uri: string; mime: string; size: number | null; binary: boolean; text: string | null; truncated: boolean

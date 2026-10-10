@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { browserMark, idle, safeHref } from './format'
+  import { browserMark, captureFact, idle, safeHref } from './format'
   import type { WorkspaceRow } from './types'
 
   let { data }: { data: WorkspaceRow | null } = $props()
@@ -14,6 +14,7 @@
       ['browser', s.browser],
       ['window', s.window],
       ['started', s.started ? new Date(s.started * 1000).toLocaleString() : null],
+      ['capture', captureFact(s)],
     ]],
     ['browser', [
       ['version', s.version],
@@ -33,6 +34,7 @@
     <strong class="grow">{s.name || s.owner || 'Workspace'}</strong>
     {#if s.live}<span class="pill live">live</span>{:else}<span class="pill">idle</span>{/if}
     {#if s.live && s.recording}<span class="pill rec">● REC</span>{/if}
+    {#if s.capture}{#if s.capturing}<span class="pill capture">● capture</span>{:else}<span class="pill capture-paused">capture paused</span>{/if}{/if}
   </div>
   <div class="lastpage">
     <div class="k small muted">last page</div>

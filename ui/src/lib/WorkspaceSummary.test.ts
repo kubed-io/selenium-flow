@@ -44,3 +44,12 @@ test('the idle timeout sits with the session, live and idle, hidden when unknown
   render(WorkspaceSummary, { data: { key: 'k', live: true, grid_timeout: null } })
   expect(screen.queryByText('idle timeout')).toBeNull()
 })
+
+test('the card and summary wear ● capture or capture paused, and say the capture fact', () => {
+  const r = render(WorkspaceSummary, { data: { key: 'k', live: true, capture: true, capturing: true, captured: { console: 1, network: 2, errors: 0, failed_requests: 0 } } })
+  expect(screen.getByText('● capture')).toHaveClass('pill', 'capture')
+  expect(screen.getByText('on · receiving · 2 requests · 1 console entries')).toBeInTheDocument()
+  r.unmount()
+  render(WorkspaceSummary, { data: { key: 'k', live: false, capture: true, capturing: false } })
+  expect(screen.getByText('capture paused')).toHaveClass('pill', 'capture-paused')
+})

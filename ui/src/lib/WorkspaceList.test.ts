@@ -45,3 +45,14 @@ test('the card class attribute is exactly "card", or "card click" when pickable 
   const { container } = render(WorkspaceList, { data: { workspaces: [row] } })
   expect(container.querySelector('.card')!.getAttribute('class')).toBe('card')
 })
+
+test('a card wears the capture pills after live and idle', () => {
+  render(WorkspaceList, { data: { workspaces: [
+    { key: 'a', live: true, capture: true, capturing: true },
+    { key: 'b', live: false, capture: true, capturing: false },
+    { key: 'c', live: false, capture: false },
+  ] } })
+  expect(screen.getByText('● capture')).toHaveClass('pill', 'capture')
+  expect(screen.getByText('capture paused')).toHaveClass('pill', 'capture-paused')
+  expect(screen.getAllByText(/capture/)).toHaveLength(2)
+})
