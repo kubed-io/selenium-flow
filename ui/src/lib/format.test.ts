@@ -76,6 +76,9 @@ test('bytes', () => {
     expect(plural(1, 'step')).toBe('1 step')
     expect(plural(2, 'param')).toBe('2 params')
     expect(plural(1, 'kept file')).toBe('1 kept file')
+    expect(plural(2, 'entry')).toBe('2 entries')
+    expect(plural(1, 'entry')).toBe('1 entry')
+    expect(plural(2, 'key')).toBe('2 keys')
   })
   test('flowParams reads a hand-edited parameters block without trusting it', () => {
     expect(flowParams({ properties: { a: { type: 'string' } }, required: ['a', 3] })).toEqual({ properties: { a: { type: 'string' } }, required: ['a'] })

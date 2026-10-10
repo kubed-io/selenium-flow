@@ -4,6 +4,7 @@
     type McpUiDisplayMode, type McpUiHostContext,
   } from '@modelcontextprotocol/ext-apps'
   import { onMount, tick, type Component } from 'svelte'
+  import { callable } from './lib/callable'
   import { leaf, plural } from './lib/format'
   import ConsoleView from './lib/views/ConsoleView.svelte'
   import ContextView from './lib/views/ContextView.svelte'
@@ -122,13 +123,6 @@
     }
   }
 
-  // A tool a view calls for itself, such as network_body: its structured result.
-  async function call(name: string, args: Record<string, unknown>): Promise<unknown> {
-    const r = (await host!.callServerTool({ name, arguments: args })) as Result
-    if (r.isError) throw new Error(r.content?.find((c) => c.text)?.text || `Could not call ${name}.`)
-    return r.structuredContent
-  }
-
   async function toggle() {
     try {
       mode = (await host!.requestDisplayMode({ mode: expanded ? 'inline' : 'fullscreen' })).mode
@@ -186,7 +180,7 @@
         if (gone) return
         adopt(h.getHostContext())
         onshow = h.getHostCapabilities()?.serverTools ? push : undefined
-        oncall = h.getHostCapabilities()?.serverTools ? call : undefined
+        oncall = h.getHostCapabilities()?.serverTools ? callable((p) => h.callServerTool(p) as Promise<Result>) : undefined
         // The view has already cancelled the anchor, so a host that says no
         // (a blocked domain resolves isError) would otherwise leave a dead click.
         const denied = (url: string) => { error = `The host would not open this link: ${url}` }

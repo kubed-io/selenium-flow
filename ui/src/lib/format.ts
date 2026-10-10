@@ -94,7 +94,8 @@ export function stepSummary(args: unknown, max = 60): string {
   return ''
 }
 
-export const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
+export const plural = (n: number, word: string): string =>
+  `${n} ${n === 1 ? word : /[^aeiou]y$/.test(word) ? word.slice(0, -1) + 'ies' : word + 's'}`
 
 export const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)

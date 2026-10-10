@@ -121,7 +121,9 @@ def summary(uri: str, component: str, data) -> str:
     """One line for the model: what the person is now looking at."""
     count = data.get("count") if isinstance(data, dict) else None
     if component in NOUNS and isinstance(count, int):
-        noun = NOUNS[component] + ("" if count == 1 else "s")
+        noun = NOUNS[component]
+        if count != 1:
+            noun = noun[:-1] + "ies" if noun.endswith("y") else noun + "s"
         return f"Showing {uri} to the person: {count} {noun}."
     return f"Showing {uri} to the person ({component})."
 

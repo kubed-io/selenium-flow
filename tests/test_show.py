@@ -479,3 +479,20 @@ async def test_the_description_names_the_schemes(built_ui, server):
     for scheme in ("workspace://", "flow://", "secret://", "skill://"):
         assert scheme in tool.description
     assert "read the resource instead" in tool.description
+
+
+@pytest.mark.parametrize(
+    ("component", "count", "line"),
+    [
+        ("console", 1, "1 entry"),
+        ("console", 2, "2 entries"),
+        ("network", 2, "2 requests"),
+        ("flows", 2, "2 flows"),
+        ("files", 2, "2 kept files"),
+    ],
+)
+def test_the_summary_pluralises_its_noun(component, count, line):
+    uri = f"workspace://{component}"
+    assert show.summary(uri, component, {"count": count}) == (
+        f"Showing {uri} to the person: {line}."
+    )
