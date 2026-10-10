@@ -31,8 +31,9 @@ from ...names import (
     library_of,
 )
 from ...site_data import snapshot as site_data
+from ...workspace.calls import told
 from ...workspace.workspaces import Caller
-from .. import auth, links
+from .. import answer, links
 
 log = logging.getLogger(__name__)
 
@@ -75,8 +76,11 @@ def capture_facts(workspaces, key: str, record, live: bool) -> dict:
     monitor = getattr(workspaces, "monitor", None)
     return {
         "capture": on,
+        # Never fails the list: a monitor that raises reads as not capturing.
         "capturing": bool(
-            on and live and monitor is not None and monitor.capturing(record.session_id)
+            on
+            and live
+            and told(monitor, "capturing", record.session_id)
         ),
         "captured": (capture.counts(key) or _NOTHING_YET) if on and capture else None,
         "capture_ttl": capture.ttl if capture is not None else None,
@@ -585,19 +589,9 @@ def mount(
         """
         # A signed URL is how a page's EventSource gets in (it cannot send a
         # header); anything else is asked of the same door as the admin API.
-        signed = bool(token) and links.valid(
-            EVENTS_PATH,
-            request.query_params.get("exp"),
-            request.query_params.get("sig"),
-            token,
-        )
-        if not signed:
-            try:
-                await door.admit(request)
-            except auth.Refused as refused:
-                return JSONResponse(
-                    {"error": refused.reason}, status_code=refused.status
-                )
+        refusal = await answer.stream_door(request, EVENTS_PATH, token, door)
+        if refusal is not None:
+            return refusal
 
         page = _Page()
 

@@ -253,3 +253,16 @@ async def test_a_client_that_goes_leaves_no_subscription(admin_app, fed):
         await until(lambda: fed.capture._tails)
     assert fed.capture._tails == {}
     assert not [t for t in asyncio.all_tasks() if "stream" in repr(t.get_coro())]
+
+
+def test_a_raising_monitor_does_not_fail_the_list(admin_client, fed, monkeypatch):
+    def broken(session_id):
+        raise RuntimeError("monitor down")
+
+    fed.workspaces.store.set("ws", Workspace(session_id="s1", settings={"capture": True}))
+    monkeypatch.setattr(fed.workspaces.monitor, "capturing", broken)
+    monkeypatch.setattr(fed.actions.grid, "sessions", lambda: [{"session_id": "s1"}], raising=False)
+    monkeypatch.setattr(fed.actions.grid, "files", lambda sid: [], raising=False)
+    [row] = admin_client.get("/admin/workspaces", headers=AUTH).json()["workspaces"]
+    assert row["live"] is True and row["capturing"] is False
+

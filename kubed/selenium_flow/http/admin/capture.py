@@ -19,7 +19,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from .. import answer, auth, links
+from .. import answer, links
 from .workspaces import HEARTBEAT
 
 log = logging.getLogger(__name__)
@@ -146,19 +146,9 @@ def mount(mcp, actions, workspaces, capture, token, prefix, guarded, door) -> No
         server-side queue overflowed. Each event is one ``json.dumps``, which
         escapes newlines, so a captured value cannot forge a frame."""
         key = request.path_params["key"]
-        signed = bool(token) and links.valid(
-            tail_path(key),
-            request.query_params.get("exp"),
-            request.query_params.get("sig"),
-            token,
-        )
-        if not signed:
-            try:
-                await door.admit(request)
-            except auth.Refused as refused:
-                return JSONResponse(
-                    {"error": refused.reason}, status_code=refused.status
-                )
+        refusal = await answer.stream_door(request, tail_path(key), token, door)
+        if refusal is not None:
+            return refusal
         kind = request.query_params.get("kind")
         if kind not in KINDS:
             return JSONResponse(
