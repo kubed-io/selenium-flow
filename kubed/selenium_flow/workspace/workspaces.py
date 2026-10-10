@@ -70,6 +70,7 @@ from ..site_data import snapshot as site_data_module
 from ..urls import allowed_navigation
 from . import locks
 from . import settings as settings_module
+from .calls import Calls, told
 from .store import MemoryStore, Workspace, WorkspaceStore
 
 log = logging.getLogger(__name__)
@@ -320,6 +321,9 @@ class Workspaces:
         # browser is opened (`bidi.Channels`).
         self.capture = capture
         self.channels = channels
+        # What every call says as it finishes, and what it leaves on its
+        # result (`workspace.calls`).
+        self.calls = Calls(monitor=monitor, capture=capture)
 
     @property
     def kind(self) -> str:
@@ -470,6 +474,11 @@ class Workspaces:
         that happens, and hiding it behind a first use hid the only place a
         session's settings could be chosen.
         """
+        return self.resolved(name)[0]
+
+    def resolved(self, name: str) -> tuple[str, str]:
+        """`resolve`, with the kind of browser it is (``chrome``, ``firefox``),
+        read off the same record: what a call says it ran on."""
         record = self.store.get(name)
         if record is None or not record.attached:
             # Detached reads the same as absent on purpose. A caller is told it
@@ -483,7 +492,9 @@ class Workspaces:
 
         if self.actions.grid.is_alive(record.session_id):
             log.debug("session %s recalled for %s", record.session_id, name)
-            return record.session_id
+            return record.session_id, (
+                (record.settings or {}).get("browser") or DEFAULT_BROWSER
+            )
 
         # The Grid reaped it. Reopen where the caller left off, with the same
         # settings, so a refresh does not silently change the browser's shape.
@@ -543,7 +554,7 @@ class Workspaces:
                 log.warning(
                     "recording for %s cannot be filed: %s", name, faults.message(exc)
                 )
-        return kept
+        return kept, replay.get("browser") or DEFAULT_BROWSER
 
     def _recorded(self, name: str, settings: dict) -> dict:
         """The arguments a recorded open adds: the video's name, and a note
@@ -620,19 +631,21 @@ class Workspaces:
         """Tell the monitor ``what``, when there is one. **Never fails the
         caller**: a monitor that raises is logged by its type (the arguments
         name a Grid id) and the call carries on."""
-        if self.monitor is None:
-            return None
-        try:
-            return getattr(self.monitor, what)(*args, **kwargs)
-        except Exception as exc:  # noqa: BLE001 - a fact to announce, not to need
-            log.warning("the monitor failed on %s: %s", what, type(exc).__name__)
-            return None
+        return told(self.monitor, what, *args, **kwargs)
 
     def _ended(self, name: str, session_id: str, cause: str) -> None:
         """Announce that ``session_id`` ended, when there is a monitor."""
         self._told("ended", name, session_id, cause)
 
-    def act(self, caller: Caller, call, *, reshapes: bool = False) -> dict:
+    def act(
+        self,
+        caller: Caller,
+        call,
+        *,
+        reshapes: bool = False,
+        tool: str = "",
+        surface: str = "mcp",
+    ) -> dict:
         """Resolve this workspace's browser, act on it, remember where it ended up.
 
         The three steps every action shares, on **both** surfaces. It lives here
@@ -647,11 +660,33 @@ class Workspaces:
         The action takes the session's turn on the browser itself, in
         `Recipe.run` (`workspace.locks`). Resolving and settling do not need it:
         every record write is a compare-and-set.
+
+        Every call is said (`workspace.calls`): ``tool`` on ``surface``. With
+        capture on, the call holds the session's turn from its start to its end
+        (the lock is reentrant), so what the page reported in between is this
+        call's alone, and comes back as ``page`` — or, when it raised, as a
+        sentence on its error (plan rulings 7, 8).
         """
         name = caller.name
-        resolved = self.resolve(name)
-        result = call(resolved)
+        resolved, kind = self.resolved(name)
+        turn = (
+            locks.driving(resolved)
+            if self.calls.wanted(name)
+            else contextlib.nullcontext()
+        )
+        with turn:
+            begun = self.calls.begin(name, resolved)
+            try:
+                result = call(resolved)
+            except Exception as exc:
+                self.calls.end(
+                    begun, tool=tool, surface=surface, browser=kind, error=exc
+                )
+                raise
+            page = self.calls.end(begun, tool=tool, surface=surface, browser=kind)
         self.settle(name, result, browser=resolved, reshapes=reshapes)
+        if page is not None and isinstance(result, dict):
+            result["page"] = page
         return result
 
     def settle(

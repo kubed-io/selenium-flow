@@ -12,10 +12,13 @@ import pytest
 from kubed.selenium_flow.monitor import events as events_module
 from kubed.selenium_flow.monitor.events import (
     EVENTS,
+    CallFinished,
     LocalBus,
     SessionEnded,
     SessionOpened,
 )
+from kubed.selenium_flow.monitor.monitor import Monitor
+from kubed.selenium_flow.workspace.calls import Calls
 
 pytestmark = pytest.mark.unit
 
@@ -62,6 +65,23 @@ def test_events_carry_no_values():
 
 def test_the_kinds_are_the_three_the_programme_names():
     assert set(EVENTS) == {"session.opened", "session.ended", "call.finished"}
+
+
+def test_call_finished_is_emitted_once_per_call_with_its_scalars_only():
+    """Declared by E2, emitted now: the hint is its first consumer (capture
+    spec, ruling 14)."""
+    bus, got = LocalBus(), []
+    bus.subscribe("call.finished", got.append, name="t")
+    times = iter([10.0, 10.25])
+    calls = Calls(
+        monitor=Monitor(bus, listing=lambda: (1, {})), clock=lambda: next(times)
+    )
+    calls.end(
+        calls.begin("bot", GID), tool="interact", surface="http", browser="firefox"
+    )
+    assert got == [
+        CallFinished("bot", GID, "firefox", "interact", "http", "ok", 10.0, 0.25)
+    ]
 
 
 def opened(at=1.0):

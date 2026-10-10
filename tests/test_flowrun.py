@@ -1508,3 +1508,64 @@ def test_a_failed_step_says_one_line_not_the_driver_s_stack_trace():
     # One line: Chrome's "(Session info: …)" line goes too (Copilot, #53).
     assert "\n" not in error
     assert "Session info" not in error
+
+
+# ---- what capture hears: the value bound, and every step that acted -------------
+
+
+class Seen(FakeActions):
+    """FakeActions that note each action among the hooks' calls."""
+
+    def __init__(self, order, **kwargs):
+        super().__init__(**kwargs)
+        self.order = order
+
+    def _record(self, tool, session_id, **kwargs):
+        self.order.append(("acted", tool))
+        return super()._record(tool, session_id, **kwargs)
+
+
+def test_a_bound_value_is_handed_over_before_the_step_acts():
+    order = []
+    steps = [
+        {"tool": "navigate", "args": {"url": "x"}},
+        {"tool": "write", "args": {"selector": {"css": "#password"}, "secret": SECRET_STEP}},
+    ]
+    run(
+        Seen(order), flow(steps), "b", catalogue=Vault("a b"),
+        bound=lambda forms: order.append(("bound", frozenset(forms))),
+    )
+    assert order == [
+        ("acted", "navigate"),
+        ("bound", frozenset({"a b", "a%20b", "a+b"})),
+        ("acted", "write"),
+    ]
+
+
+def test_every_step_that_acted_is_done_once_with_its_failure():
+    done = []
+    steps = [
+        {"tool": "navigate", "args": {"url": "x"}, "onError": "continue"},
+        {"tool": "interact", "args": {"action": "click", "selector": {"css": "b"}}},
+        {"tool": "navigate", "args": {"url": "y"}},
+    ]
+    run(
+        FakeActions(fail_on={1, 2}), flow(steps), "b",
+        step_done=lambda tool, error: done.append((tool, type(error).__name__)),
+    )
+    assert done == [("navigate", "RuntimeError"), ("interact", "RuntimeError")]
+    done.clear()
+    run(FakeActions(), flow(SIMPLE), "b", step_done=lambda tool, error: done.append((tool, error)))
+    assert done == [("navigate", None), ("write", None), ("interact", None)]
+
+
+def test_a_step_refused_before_acting_is_never_done():
+    done = []
+    steps = [
+        {"tool": "write", "args": {"selector": {"css": "#password"}, "secret": SECRET_STEP}},
+    ]
+    report = run(
+        FakeActions(), flow(steps), "b",
+        step_done=lambda tool, error: done.append(tool),
+    )
+    assert report["status"] == "failed" and done == []

@@ -275,7 +275,7 @@ def test_one_save_through_the_server_keeps_every_site_the_workspace_went_to(monk
     from .conftest import NAMED, TOKEN
 
     monkeypatch.setattr(Grid, "reconnect", lambda self, sid: page())
-    monkeypatch.setattr(Workspaces, "resolve", lambda self, name: "live-id")
+    monkeypatch.setattr(Workspaces, "resolved", lambda self, name: ("live-id", "chrome"))
     server = SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}))
     server.actions.channels = channels_for(FakeChannel())
     # Stamped now, not at NOW: the save reads the history as the next write

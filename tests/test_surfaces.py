@@ -206,7 +206,7 @@ async def test_resize_writes_the_new_size_back_to_the_workspace(server, monkeypa
 
     resize = (await server.mcp.get_tool("resize")).fn
     calling_as(monkeypatch, NAMED)
-    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "abc")
+    monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("abc", "chrome"))
     monkeypatch.setattr(
         server.actions,
         "resize",

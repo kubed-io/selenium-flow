@@ -263,9 +263,10 @@ def _as_image(result: dict) -> Image | ToolResult:
     # - `file_error`: the capture survived and the file did not, and an MCP
     #   caller given only the image would look for a name never coming;
     # - `site_data`: the first call after a silent reopen says what came
-    #   back (``Workspaces.settle``) — dropped here, it is never said at all.
+    #   back (``Workspaces.settle``) — dropped here, it is never said at all;
+    # - `page`: what the page reported while the call ran (`workspace.calls`).
     told = {
-        k: result[k] for k in ("file", "file_error", "site_data")
+        k: result[k] for k in ("file", "file_error", "site_data", "page")
         if result.get(k) is not None
     }
     if not told:
@@ -305,13 +306,16 @@ def register(
                 raise ValueError(f"{row.name} needs text, or a secret to supply it")
             if arguments["secret"] is not None:
                 return secrets_module.perform_write(
-                    catalogue, actions, workspaces, clients.caller().name, arguments
+                    catalogue, actions, workspaces, clients.caller().name, arguments,
+                    surface="mcp",
                 )
             del arguments["secret"]
         return workspaces.act(
             clients.caller(),
             lambda s: getattr(actions, row.method)(s, **arguments),
             reshapes=row.reshapes,
+            tool=row.name,
+            surface="mcp",
         )
 
     def action(

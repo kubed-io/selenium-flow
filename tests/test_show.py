@@ -364,7 +364,7 @@ async def test_one_file_is_drawn_from_its_listing_entry(
         flow_server.flows.write_file(named_caller, name, PNG)
     listing = uri.rpartition("/")[0]
     monkeypatch.setattr(flow_server.flows, "read_file", never)
-    monkeypatch.setattr(flow_server.workspaces, "resolve", never)
+    monkeypatch.setattr(flow_server.workspaces, "resolved", never)
     async with Client(flow_server.mcp) as c:
         shown = (await c.call_tool("show", {"uri": uri})).structured_content
         listed = json.loads((await c.read_resource(listing))[0].text)
@@ -381,7 +381,7 @@ async def test_one_file_is_drawn_from_its_listing_entry(
 
 async def test_a_download_is_drawn_from_the_grids_listing(flow_server, monkeypatch):
     monkeypatch.setattr(flow_server.workspaces, "browser", lambda name: "abc")
-    monkeypatch.setattr(flow_server.workspaces, "resolve", never)
+    monkeypatch.setattr(flow_server.workspaces, "resolved", never)
     monkeypatch.setattr(
         flow_server.actions.grid,
         "files",

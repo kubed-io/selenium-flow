@@ -317,7 +317,7 @@ def test_print_over_http_keeps_the_file_for_the_workspace_that_asked(
 
     driver = _Driver()
     monkeypatch.setattr(keeping_server.actions, "_at", lambda *a, **k: driver)
-    monkeypatch.setattr(keeping_server.workspaces, "resolve", lambda name: "abc")
+    monkeypatch.setattr(keeping_server.workspaces, "resolved", lambda name: ("abc", "chrome"))
     client = TestClient(
         keeping_server.mcp.http_app(),
         headers={"Authorization": "Bearer tok", "X-Workspace": "desk"},
@@ -422,7 +422,7 @@ async def test_print_is_a_tool_that_keeps_the_file(keeping_server, monkeypatch):
 
     driver = _Driver()
     monkeypatch.setattr(keeping_server.actions, "_at", lambda *a, **k: driver)
-    monkeypatch.setattr(keeping_server.workspaces, "resolve", lambda name: "abc")
+    monkeypatch.setattr(keeping_server.workspaces, "resolved", lambda name: ("abc", "chrome"))
     async with Client(keeping_server.mcp) as client:
         result = await client.call_tool("print", {"format": "html"})
     assert result.structured_content["file"]["name"] == "page.html"

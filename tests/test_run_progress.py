@@ -54,7 +54,7 @@ def slow_server(tmp_path, tmp_path_factory, monkeypatch):
         )
     )
     calling_as(monkeypatch, NAMED)
-    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     server.ran = []
 
     def navigate(session_id, url=None, **_):

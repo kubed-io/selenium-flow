@@ -51,6 +51,7 @@ from ..http import answer as answer_module
 from ..mcp import clients, progress
 from ..mcp.tools import SecretRef
 from ..names import GLOBAL_WORKSPACE, valid_name
+from ..workspace import calls as calls_module
 from . import document as flowdoc
 from . import engine, template
 from . import library as flowlib
@@ -362,6 +363,8 @@ def run_one(
     before_step=None,
     stop=None,
     before_save=None,
+    bound=None,
+    step_done=None,
 ) -> dict:
     """Run one flow against an already-resolved browser."""
     document = read_one(store, workspace, name)
@@ -375,6 +378,8 @@ def run_one(
         before_step=before_step,
         stop=stop,
         before_save=before_save,
+        bound=bound,
+        step_done=step_done,
         catalogue=secrets_catalogue,
         skill_available=skill_available,
         # The CALLER's library, not `document["workspace"]`: a flow read from the
@@ -642,8 +647,32 @@ def run_for(
     is the part that used to be duplicated, and the HTTP surface simply did not
     have it: a run there slid no TTL and recorded no page, so a workflow that
     ran flows for an hour could expire out of the store while it worked.
+
+    Each step is a call like any other (`workspace.calls`): begun once the
+    caller's own ``before_step`` has heard it, said when it is done, inside its
+    turn on the browser. With capture on, the run's report carries ``page``,
+    its steps' hints summed.
     """
-    resolved = workspaces.resolve(workspace)
+    resolved, kind = workspaces.resolved(workspace)
+    calls = workspaces.calls
+    step_hints: list = []
+    begun: list = []  # the step under way's, from `before_step` to `step_done`
+
+    def step_started(entry, total):
+        if before_step is not None:
+            before_step(entry, total)
+        begun[:] = [calls.begin(workspace, resolved)]
+
+    def step_done(tool, error):
+        if begun:
+            step_hints.append(
+                calls.end(
+                    begun.pop(), tool=tool, surface="flow", browser=kind, error=error
+                )
+            )
+
+    def bound(forms):
+        calls.bound(workspace, forms)
 
     def remember(tool, result):
         # The same post-action work a single call gets from `Workspaces.act`:
@@ -678,12 +707,17 @@ def run_for(
         verbose=verbose,
         session_id=resolved,
         after_step=remember,
-        before_step=before_step,
+        before_step=step_started,
         before_save=before_save,
+        bound=bound,
+        step_done=step_done,
         stop=stop,
         secrets_catalogue=secrets_catalogue,
         skill_available=skill_available,
     )
+    page = calls_module.total(step_hints)
+    if page is not None:
+        report["page"] = page
     # A touch at the end, not one per step: the point of running server-side
     # is that the bookkeeping happens once (a save step flushes the pages so
     # far first, above). It carries every page the run reached since, in

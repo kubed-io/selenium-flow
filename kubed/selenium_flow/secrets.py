@@ -731,7 +731,9 @@ def bind(catalogue, reference, url: str | tuple[str, ...], tool: str = "write") 
     return value
 
 
-def perform_write(catalogue, actions, workspaces, name: str, kwargs: dict) -> dict:
+def perform_write(
+    catalogue, actions, workspaces, name: str, kwargs: dict, *, surface: str = "mcp"
+) -> dict:
     """A whole bound write — resolve, type, redact, remember — on either surface.
 
     Deliberately NOT routed through ``Workspaces.act``. That touches the workspace
@@ -747,26 +749,39 @@ def perform_write(catalogue, actions, workspaces, name: str, kwargs: dict) -> di
     browser (`workspace.locks`): another call navigating or switching frames
     between the check and the typing would type the value somewhere the leash
     never saw (Copilot, #52).
+
+    It is a call like any other (`workspace.calls`), said from inside that turn:
+    the value's every spelling is handed to capture *before* the keystrokes, so
+    a page that echoes it is masked from its first event (ruling 13), and with
+    capture on the result carries ``page`` like `Workspaces.act`'s.
     """
     from . import binding
     from .flows import redact
 
-    resolved = workspaces.resolve(name)
+    calls = workspaces.calls
+    resolved, kind = workspaces.resolved(name)
     with locks.driving(resolved):
-        given, guarded = binding.bind_into(
-            kwargs,
-            catalogue,
-            lambda: binding.receiving(actions.page(resolved)),
-            "write",
-            binding.DIRECT,
-        )
-        hidden = binding.forms_of(given, guarded)
-        rest = {k: v for k, v in given.items() if k not in ("text", "url")}
+        begun = calls.begin(name, resolved)
         try:
-            result = actions.write(resolved, given["text"], **rest)
-        except Exception as exc:  # noqa: BLE001 - rewrapped, never swallowed
-            # An action puts its arguments in its error text.
-            raise ValueError(redact.scrub(str(exc), hidden)) from None
+            given, guarded = binding.bind_into(
+                kwargs,
+                catalogue,
+                lambda: binding.receiving(actions.page(resolved)),
+                "write",
+                binding.DIRECT,
+            )
+            hidden = binding.forms_of(given, guarded)
+            calls.bound(name, hidden)
+            rest = {k: v for k, v in given.items() if k not in ("text", "url")}
+            try:
+                result = actions.write(resolved, given["text"], **rest)
+            except Exception as exc:  # noqa: BLE001 - rewrapped, never swallowed
+                # An action puts its arguments in its error text.
+                raise ValueError(redact.scrub(str(exc), hidden)) from None
+        except Exception as exc:
+            calls.end(begun, tool="write", surface=surface, browser=kind, error=exc)
+            raise
+        page = calls.end(begun, tool="write", surface=surface, browser=kind)
     shown = binding.after({**result, "text_from": "secret"}, guarded, hidden)
     # Only remember a page the value never reached; a later reattach would
     # navigate to it. Touched either way. Withholding the page must not also
@@ -777,6 +792,8 @@ def perform_write(catalogue, actions, workspaces, name: str, kwargs: dict) -> di
     # that on `shown`.
     safe = binding.safe_url(result, hidden)
     workspaces.settle(name, shown, url=safe, browser=resolved)
+    if page is not None:
+        shown["page"] = page
     return shown
 
 

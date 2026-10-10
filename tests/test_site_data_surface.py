@@ -104,7 +104,7 @@ def test_the_capture_never_leaves_the_server(monkeypatch):
             site_data.CAPTURED: captured,
         },
     )
-    monkeypatch.setattr(Workspaces, "resolve", lambda self, name, **kw: "live-id")
+    monkeypatch.setattr(Workspaces, "resolved", lambda self, name, **kw: ("live-id", "chrome"))
     # After the patches: a route binds its action when the server is built.
     server = SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
@@ -159,7 +159,7 @@ def _save_through_the_server(monkeypatch, channel, broken=None):
 
     page = SimpleNamespace(current_url=f"https://{SITE}/", title="t")
     monkeypatch.setattr(Grid, "reconnect", lambda self, sid: page)
-    monkeypatch.setattr(Workspaces, "resolve", lambda self, name, **kw: "live-id")
+    monkeypatch.setattr(Workspaces, "resolved", lambda self, name, **kw: ("live-id", "chrome"))
     server = SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
     )
