@@ -26,6 +26,7 @@ from collections.abc import Callable
 from typing import Annotated, Literal
 
 from fastmcp import FastMCP
+from fastmcp.apps import AppConfig
 from fastmcp.server.middleware import Middleware
 from fastmcp.tools import ToolResult
 from fastmcp.utilities.types import Image
@@ -291,8 +292,12 @@ def register(
     def publish(fn, name: str, description: str | None):
         row = capability(name)
         declared.add(row.name)
+        app = AppConfig(visibility=list(row.visibility)) if row.visibility else None
         return mcp.tool(
-            name=row.name, description=description, annotations=row.annotations
+            name=row.name,
+            description=description,
+            annotations=row.annotations,
+            app=app,
         )(fn)
 
     def act(row: Capability, arguments: dict):
@@ -396,6 +401,15 @@ def register(
             record=record,
             capture=capture,
         )
+
+    @action("network_body")
+    def network_body(id: str) -> dict:
+        """Fetch the response body of one request the page made, by its id from
+        workspace://network (an id looks like 3.7). Text comes back up to 100 kB,
+        with truncated=true beyond that; for an image or other binary you get its
+        type and size, not its bytes. The browser keeps bodies only while it lives,
+        so read one soon after the request; it needs open_session(capture=true).
+        """
 
     @action("save_site_data")
     def save_site_data(url: str | None = None) -> dict:

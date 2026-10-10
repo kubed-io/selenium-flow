@@ -75,6 +75,7 @@ EXPECTED = {
     "assert",
     "outline",
     "save_site_data",
+    "network_body",
 }
 
 
@@ -171,6 +172,9 @@ async def test_only_reading_the_page_is_marked_read_only(server):
     writes a file into the workspace's store, and a tool cannot be read-only only
     sometimes.
 
+    `network_body` is in: it reads the browser's kept response and writes
+    nothing.
+
     `outline` is the interesting inclusion. It runs JavaScript, which is the
     thing that makes `execute_script` destructive — but the script is *ours* and
     only reads, where `execute_script` hands the page whatever the caller wrote.
@@ -181,7 +185,7 @@ async def test_only_reading_the_page_is_marked_read_only(server):
         for t in await server.mcp.list_tools()
         if t.annotations.read_only_hint
     } - FLOW_TOOLS
-    assert read_only == {"extract", "outline"}, "only these read the page"
+    assert read_only == {"extract", "outline", "network_body"}, "only these read the page"
 
 
 async def test_a_tool_that_can_act_on_the_page_admits_it(server):
@@ -283,3 +287,9 @@ def test_only_a_key_that_can_submit_waits_for_a_navigation(
 
     actions.press_key("abc", key)
     assert bool(called) is waits
+
+
+async def test_network_body_is_callable_by_the_app_and_listed_to_the_model(server):
+    tool = {t.name: t for t in await server.mcp.list_tools()}["network_body"]
+    assert tool.meta["ui"] == {"visibility": ["model", "app"]}
+    assert tool.annotations.read_only_hint is True and tool.annotations.destructive_hint is False

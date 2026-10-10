@@ -1608,6 +1608,86 @@
         },
         "type": "object"
       },
+      "NetworkBodyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "NetworkBodyResponse": {
+        "properties": {
+          "binary": {
+            "description": "True for a body that is not text: only its size comes back.",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The request id that was asked for.",
+            "type": "string"
+          },
+          "mime": {
+            "description": "The response's content type.",
+            "type": "string"
+          },
+          "page": {
+            "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
+            "properties": {
+              "errors": {
+                "description": "Console errors and uncaught exceptions.",
+                "type": "integer"
+              },
+              "failed_requests": {
+                "description": "Document, fetch and XHR requests that failed or got a 4xx/5xx.",
+                "type": "integer"
+              },
+              "see": {
+                "description": "The resource URI to read for the detail.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "errors",
+              "failed_requests",
+              "see"
+            ],
+            "type": "object"
+          },
+          "size": {
+            "description": "Bytes of the body as the browser handed it back, before any cut; not the request row's transfer size.",
+            "type": "integer"
+          },
+          "text": {
+            "description": "The text, up to 100 000 bytes; null for a binary body.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "truncated": {
+            "description": "True when the text was cut at 100 000 bytes.",
+            "type": "boolean"
+          },
+          "uri": {
+            "description": "workspace://network/{id}, which shows the request itself.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "uri",
+          "mime",
+          "size",
+          "binary",
+          "text",
+          "truncated"
+        ],
+        "type": "object"
+      },
       "OpenSessionRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3683,7 +3763,7 @@
         "x-mcp-tool": "end_browser"
       },
       "get": {
-        "description": "The workspace this client named, and the session (browser) open in it.\n\nReturns the workspace name, which browser it is, the page it is on, the window size as WxH, whether it is inside a frame, and whether a session is currently open (live). Read it before judging anything about layout — the window is not a fixed size and is what decides whether something is off-screen.\n\ngrid_timeout is how many seconds the Grid lets a session in this workspace sit idle before it ends it; every call starts that clock again.\n\ncapture is whether this workspace opens its browsers with capture on, capturing whether it is being captured right now, and captured how much arrived since the last navigation.\n\nReading this never opens a browser: live is false when no session is open.",
+        "description": "The workspace this client named, and the session (browser) open in it.\n\nReturns the workspace name, which browser it is, the page it is on, the window size as WxH, whether it is inside a frame, and whether a session is currently open (live). Read it before judging anything about layout — the window is not a fixed size and is what decides whether something is off-screen.\n\ngrid_timeout is how many seconds the Grid lets a session in this workspace sit idle before it ends it; every call starts that clock again.\n\ncapture says whether this workspace's browsers capture their console and network (open_session(capture=true)); capturing is whether that is happening right now — false while it is paused, until the next call; captured counts what was kept since the last navigation.\n\nReading this never opens a browser: live is false when no session is open.",
         "operationId": "currentWorkspace",
         "parameters": [
           {
@@ -4640,6 +4720,119 @@
           "browser"
         ],
         "x-mcp-tool": "navigate"
+      }
+    },
+    "/browser/network-body": {
+      "post": {
+        "description": "Fetch the response body of one request the page made, by its id from\nworkspace://network (an id looks like 3.7). Text comes back up to 100 kB,\nwith truncated=true beyond that; for an image or other binary you get its\ntype and size, not its bytes. The browser keeps bodies only while it lives,\nso read one soon after the request; it needs open_session(capture=true).",
+        "operationId": "network_body",
+        "parameters": [
+          {
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "in": "header",
+            "name": "X-Workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NetworkBodyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetworkBodyResponse"
+                }
+              }
+            },
+            "description": "The action succeeded."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, or a locator that matched nothing before the wait ran out. Do not retry it unchanged."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or wrong bearer token."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Something failed that this server did not expect."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The Grid could not serve this — unreachable, or no free slot for a new browser. Worth retrying after a wait."
+          }
+        },
+        "summary": "Fetch the response body of one request the page made, by its id from",
+        "tags": [
+          "browser"
+        ],
+        "x-mcp-tool": "network_body"
       }
     },
     "/browser/outline": {

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from fastmcp import FastMCP
 
+from ..capture import CONSOLE_URI, NETWORK_URI
 from ..site_data import snapshot as site_data
 from ..workspace.workspaces import Workspaces
 from . import clients
@@ -25,9 +26,10 @@ DESCRIPTION = (
     "grid_timeout is how many seconds the Grid lets a session in this "
     "workspace sit idle before it ends it; every call starts that clock "
     "again.\n\n"
-    "capture is whether this workspace opens its browsers with capture on, "
-    "capturing whether it is being captured right now, and captured how much "
-    "arrived since the last navigation.\n\n"
+    "capture says whether this workspace's browsers capture their console and "
+    "network (open_session(capture=true)); capturing is whether that is "
+    "happening right now \u2014 false while it is paused, until the next call; "
+    "captured counts what was kept since the last navigation.\n\n"
     "Reading this never opens a browser: live is false when no session is open."
 )
 
@@ -62,6 +64,80 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
     def one_site_resource(site: str) -> dict:
         return one_site(workspaces, clients.caller().name, site)
 
+    @mcp.resource(
+        CONSOLE_URI,
+        name="Console",
+        description=CONSOLE_DESCRIPTION,
+        mime_type="application/json",
+    )
+    def console_resource() -> dict:
+        return workspaces.captured(clients.caller().name, "console")
+
+    @mcp.resource(
+        f"{CONSOLE_URI}{{?level,pages}}",
+        name="Console, narrowed",
+        description=CONSOLE_DESCRIPTION,
+        mime_type="application/json",
+    )
+    def console_query_resource(level: str = "all", pages: str = "1") -> dict:
+        return workspaces.captured(
+            clients.caller().name, "console", level=level, pages=pages
+        )
+
+    @mcp.resource(
+        NETWORK_URI,
+        name="Network",
+        description=NETWORK_DESCRIPTION,
+        mime_type="application/json",
+    )
+    def network_resource() -> dict:
+        return workspaces.captured(clients.caller().name, "network")
+
+    @mcp.resource(
+        f"{NETWORK_URI}{{?filter,pages}}",
+        name="Network, narrowed",
+        description=NETWORK_DESCRIPTION,
+        mime_type="application/json",
+    )
+    def network_query_resource(filter: str = "all", pages: str = "1") -> dict:
+        return workspaces.captured(
+            clients.caller().name, "network", filter=filter, pages=pages
+        )
+
+    @mcp.resource(
+        f"{NETWORK_URI}/{{id}}",
+        name="One Request",
+        description=REQUEST_DESCRIPTION,
+        mime_type="application/json",
+    )
+    def request_resource(id: str) -> dict:
+        return workspaces.captured(clients.caller().name, "request", id=id)
+
+
+CONSOLE_DESCRIPTION = (
+    "What the page logged since the last navigation, newest first: errors, "
+    "warnings, info, and uncaught exceptions with where they were thrown. "
+    "?level=error or ?level=warn narrows it; ?pages=2 (up to 5) reaches back "
+    "over earlier pages. debug entries are counted, not kept. Present only for "
+    "a workspace opened with open_session(capture=true); otherwise it says so. "
+    "Reading this never opens a browser."
+)
+
+NETWORK_DESCRIPTION = (
+    "Requests the page made since the last navigation, newest first, each with "
+    "an id: method, URL, status, type, size and time. ?filter=failed or "
+    "?filter=xhr narrows it; ?pages=2 (up to 5) reaches back. Successful "
+    "stylesheets, images, fonts, scripts and media are counted, not kept. "
+    "workspace://network/{id} shows one with its headers; network_body(id) "
+    "fetches its response body while the browser lives. Credentials are shown "
+    "as \u2022\u2022\u2022."
+)
+
+REQUEST_DESCRIPTION = (
+    "One captured request in full: its headers (authorization, cookies and any "
+    "secret you typed shown as \u2022\u2022\u2022), status, timing and size. "
+    "network_body(id) fetches its response body."
+)
 
 SITE_DESCRIPTION = (
     "What this workspace's last save_site_data holds: one entry per site with "

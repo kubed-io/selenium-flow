@@ -170,6 +170,7 @@ check this table twice before reaching for it.
 | `execute_script` | run JavaScript — only for what nothing above does | `script` |
 | `assert` | JavaScript that must return true, or the call fails | `script`, `message`, `stable_for` |
 | `save_site_data` | keep the cookies and storage of the sites you have been to, so a replacement comes back signed in | `url` |
+| `network_body` | fetch one captured response body while the browser lives | `id` from workspace://network |
 | `show` | draw any resource for the person (hosts that render apps): the workspace, files and one file, site data, flows, the secrets, these pages, the flow schema | `uri` |
 | `keep_file` | keep a file in Files, past the browser | `uri` |
 | `save_flow` | save a sequence of steps under a name | `name`, `parameters`, `steps`, `timeout` |
@@ -191,6 +192,11 @@ And everything to read:
 | `workspace://files/downloads/{name}` | one of those, as bytes, while the browser is open |
 | `workspace://site-data` | the sites you have saved cookies or storage for — never a value |
 | `workspace://site-data/{site}` | one site's saved cookies and storage; httpOnly values are masked |
+| `workspace://console` | what the page logged since the last navigation; needs `open_session(capture=true)` |
+| `workspace://console{?level,pages}` | the same, narrowed: `?level=error`, `?pages=2` |
+| `workspace://network` | the requests the page made, each with an id |
+| `workspace://network{?filter,pages}` | the same, narrowed: `?filter=failed`, `?filter=xhr`, `?pages=2` |
+| `workspace://network/{id}` | one request in full, with its headers |
 | `secret://secrets` | the secrets you may type — never their values |
 | `flow://flows` | the saved flows you can run |
 | `flow://flows/{name}` | one flow's parameters and steps |

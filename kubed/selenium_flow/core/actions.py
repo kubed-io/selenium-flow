@@ -24,8 +24,10 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.print_page_options import PrintOptions
 
+from ..bidi.connection import BidiError
+from ..capture import NETWORK_URI
 from ..errors import GONE, UNAVAILABLE
-from ..faults import BidiUnavailable
+from ..faults import BidiUnavailable, NotFound
 from ..faults import message as failure_text
 from ..names import FILES_DIR, SCREENSHOTS_DIR
 from ..site_data import snapshot as site_data_snapshot
@@ -44,6 +46,21 @@ from .recipe import CLICKABLE, DIALOG_TIMEOUT, PRESENCE, WAIT_TIMEOUT, Recipe
 INFRASTRUCTURE = (*GONE, *UNAVAILABLE)
 
 log = logging.getLogger(__name__)
+
+# `network_body`: text is cut at this many bytes; an id is a short string.
+BODY_CAP = 100_000
+ID_LIMIT = 64
+BODY_GONE = (
+    "the browser no longer holds this body: it keeps them while it lives, "
+    "and drops the oldest past about 200 MB"
+)
+
+
+def _decoded_length(value: str) -> int:
+    try:
+        return len(base64.b64decode(value, validate=False))
+    except ValueError:
+        return 0
 
 INSECURE_SKIP = "an insecure browser gets no saved site data"
 
@@ -1220,6 +1237,54 @@ class Actions:
         return {
             **browser.page_state(driver),
             "frame_origin": browser.frame_origin(driver),
+        }
+
+    def network_body(self, session_id: str, id: str) -> dict:
+        """One captured request's response body, asked of the browser that made
+        it and of no other (spec §7, ruling 11).
+
+        ``id`` is checked before any lookup, and nothing is asked of a browser
+        until the request is known to be this one's. The text is never logged.
+        """
+        if not isinstance(id, str) or not 0 < len(id) <= ID_LIMIT:
+            raise ValueError(f"id is a request id from {NETWORK_URI}, like 3.7")
+        located = (
+            None if self.capture is None else self.capture.request_for(session_id, id)
+        )
+        if located is None:
+            raise ValueError(f"no captured request {id!r}: {NETWORK_URI} lists them")
+        if located.session_id != session_id:
+            raise NotFound(
+                f"the browser that made request {id} has ended, "
+                "and its body went with it"
+            )
+        try:
+            with self.channels.open_channel(session_id) as channel:
+                answer = channel.call(
+                    "network.getData",
+                    {"dataType": "response", "request": located.request},
+                )
+        except BidiError as exc:
+            if exc.error == "no such network data":
+                raise NotFound(BODY_GONE) from None
+            raise
+        data = (answer or {}).get("bytes") or {}
+        value = data.get("value") or ""
+        binary = data.get("type") == "base64"
+        if binary:
+            size, text, truncated = _decoded_length(value), None, False
+        else:
+            raw = value.encode()
+            size, truncated = len(raw), len(raw) > BODY_CAP
+            text = raw[:BODY_CAP].decode("utf-8", "ignore")
+        return {
+            "id": id,
+            "uri": f"{NETWORK_URI}/{id}",
+            "mime": located.mime,
+            "size": size,
+            "binary": binary,
+            "text": text,
+            "truncated": truncated,
         }
 
     def _recipe(self, wait=None, retry_stale=False) -> Recipe:

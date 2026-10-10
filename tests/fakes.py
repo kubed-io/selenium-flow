@@ -327,6 +327,7 @@ class FakeChannel:
             value, set(workers), stuck, fail,
         )
         self.navigated, self.at, self.tabs = [], {}, 0
+        self.bodies = {}  # request id -> network.getData's answer
         self.expression = None
         self.ran = False  # whether the page would have evaluated the expression
 
@@ -397,6 +398,12 @@ class FakeChannel:
 
     def _network_removeIntercept(self, params):
         return {}
+
+    def _network_getData(self, params):
+        try:
+            return self.bodies[params["request"]]
+        except KeyError:
+            raise BidiError("no such network data", "gone") from None
 
     def _script_evaluate(self, params):
         expression = self.expression = params["expression"]

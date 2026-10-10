@@ -588,6 +588,29 @@
     },
     "name": "navigate"
   },
+  "network_body": {
+    "annotations": {
+      "destructive_hint": false,
+      "idempotent_hint": true,
+      "open_world_hint": true,
+      "read_only_hint": true,
+      "title": "Fetch a response body"
+    },
+    "description": "Fetch the response body of one request the page made, by its id from\nworkspace://network (an id looks like 3.7). Text comes back up to 100 kB,\nwith truncated=true beyond that; for an image or other binary you get its\ntype and size, not its bytes. The browser keeps bodies only while it lives,\nso read one soon after the request; it needs open_session(capture=true).",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "network_body"
+  },
   "open_session": {
     "annotations": {
       "destructive_hint": true,

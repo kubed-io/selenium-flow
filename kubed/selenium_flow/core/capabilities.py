@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .annotations import hints
+from .annotations import hints, reads
 
 
 @dataclass(frozen=True)
@@ -53,6 +53,8 @@ class Capability:
     in_path: bool = False
     reshapes: bool = False
     library_arg: str | None = None
+    # MCP Apps audiences for the tool (`model`, `app`); () is the default.
+    visibility: tuple[str, ...] = ()
 
 
 # ---- what each one answers -------------------------------------------------
@@ -149,6 +151,42 @@ def _page(**extra) -> dict:
             "page": PAGE_HINT,
         },
     }
+
+
+BODY_RESPONSE = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string", "description": "The request id that was asked for."},
+        "uri": {
+            "type": "string",
+            "description": "workspace://network/{id}, which shows the request itself.",
+        },
+        "mime": {"type": "string", "description": "The response's content type."},
+        "size": {
+            "type": "integer",
+            "description": (
+                "Bytes of the body as the browser handed it back, before any cut; "
+                "not the request row's transfer size."
+            ),
+        },
+        "binary": {
+            "type": "boolean",
+            "description": (
+                "True for a body that is not text: only its size comes back."
+            ),
+        },
+        "text": {
+            "type": ["string", "null"],
+            "description": "The text, up to 100 000 bytes; null for a binary body.",
+        },
+        "truncated": {
+            "type": "boolean",
+            "description": "True when the text was cut at 100 000 bytes.",
+        },
+        "page": PAGE_HINT,
+    },
+    "required": ["id", "uri", "mime", "size", "binary", "text", "truncated"],
+}
 
 
 # ---- the table ------------------------------------------------------------
@@ -564,6 +602,15 @@ CAPABILITIES: tuple[Capability, ...] = (
                 "description": "workspace://site-data, which lists what is saved.",
             },
         ),
+    ),
+    Capability(
+        name="network_body",
+        method="network_body",
+        route="network-body",
+        http_method="POST",
+        annotations=reads("Fetch a response body"),
+        response=BODY_RESPONSE,
+        visibility=("model", "app"),
     ),
     Capability(
         name="end_browser",
