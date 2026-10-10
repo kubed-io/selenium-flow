@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import json
 
+from ..bidi import BidiError, Channel
 from ..faults import BidiUnavailable
 from ..faults import message as failure_text
 from .snapshot import LIST_URI, SW_REASON, hosts, live_cookies
@@ -54,7 +55,7 @@ READ_STORAGE = (
 )
 
 
-def capture(bidi, driver, origins=()) -> dict:
+def capture(channel: Channel, driver, origins=(), *, hidden=None) -> dict:
     """The whole cookie jar (BiDi sees httpOnly ones), the page's own two
     storages, and the localStorage of every other origin in ``origins`` — the
     history's, newest first — read one at a time in a spare tab.
@@ -62,24 +63,23 @@ def capture(bidi, driver, origins=()) -> dict:
     The browser answered classic WebDriver to get here, so a jar that cannot
     be read is the BiDi channel failing: :class:`BidiUnavailable`, a 503, and
     nothing is saved. An origin that cannot be read is named in ``failed``;
-    the snapshot keeps its storage from the last save.
+    the snapshot keeps its storage from the last save. ``hidden`` is handed to
+    the spare tab (see `spare_tab`).
     """
-    from selenium.common import WebDriverException
-    from selenium.webdriver.common.bidi.storage import CookieFilter
-    from websocket import WebSocketException
-
     try:
-        jar = bidi.storage.get_cookies(CookieFilter()).cookies
-    except (WebDriverException, WebSocketException, OSError) as e:
-        # Only a channel that did not answer is a 503. Anything else - an
-        # unexpected return shape, a bug here - stays a 500, as errors.py
-        # decides for every failure it does not recognise (Copilot, #50).
+        jar = channel.call("storage.getCookies", {})["cookies"]
+    except (BidiUnavailable, BidiError) as e:
+        # Only a channel that did not answer, or a browser that refused, is a
+        # 503. Anything else - an unexpected return shape, a bug here - stays
+        # a 500, as errors.py decides for every failure it does not recognise
+        # (Copilot, #50).
         raise BidiUnavailable(BIDI_DOWN) from e
     cookies = [
         {
-            "name": c.name, "value": c.value.value, "value_type": c.value.type,
-            "domain": c.domain, "path": c.path, "http_only": c.http_only,
-            "secure": c.secure, "same_site": c.same_site, "expiry": c.expiry,
+            "name": c["name"], "value": c["value"]["value"],
+            "value_type": c["value"]["type"], "domain": c["domain"],
+            "path": c["path"], "http_only": c["httpOnly"], "secure": c["secure"],
+            "same_site": c["sameSite"], "expiry": c.get("expiry"),
         }
         for c in jar
     ]
@@ -94,7 +94,7 @@ def capture(bidi, driver, origins=()) -> dict:
     failed: list[dict] = []
     if wanted:
         try:
-            with spare_tab(bidi) as run:
+            with spare_tab(channel, hidden=hidden) as run:
                 for origin in wanted:
                     try:
                         found = run(origin, READ_LOCAL)
@@ -128,16 +128,14 @@ def _key(name, domain, path) -> tuple:
     return (name, domain, path or "/")
 
 
-def _kept(bidi, cookies: list[dict]) -> list[dict] | None:
+def _kept(channel: Channel, cookies: list[dict]) -> list[dict] | None:
     """The cookies the browser actually holds after setting, or None when the
     jar cannot be read back (then the set is trusted)."""
-    from selenium.webdriver.common.bidi.storage import CookieFilter
-
     try:
-        jar = bidi.storage.get_cookies(CookieFilter()).cookies
+        jar = channel.call("storage.getCookies", {})["cookies"]
     except Exception:  # noqa: BLE001 - an unverified restore is still a restore
         return None
-    held = {_key(c.name, c.domain, c.path) for c in jar}
+    held = {_key(c["name"], c["domain"], c["path"]) for c in jar}
     return [
         c for c in cookies
         if _key(c.get("name"), c.get("domain"), c.get("path")) in held
@@ -176,24 +174,35 @@ def _malformed(c) -> dict:
     return entry
 
 
-def _restore_cookies(bidi, stored: list, now: float, skipped: list) -> list[dict]:
+def _bidi_cookie(c: dict) -> dict:
+    """A stored cookie as ``storage.setCookie`` takes it; unset fields are
+    left out, not sent as null."""
+    cookie = {
+        "name": c["name"],
+        "value": {"type": c.get("value_type") or "string", "value": c.get("value")},
+        "domain": c["domain"],
+    }
+    optional = {
+        "path": c.get("path"), "httpOnly": c.get("http_only"),
+        "secure": c.get("secure"), "sameSite": _same_site(c),
+        "expiry": c.get("expiry"),
+    }
+    cookie.update({k: v for k, v in optional.items() if v is not None})
+    return cookie
+
+
+def _restore_cookies(
+    channel: Channel, stored: list, now: float, skipped: list
+) -> list[dict]:
     """Set every live, usable cookie; return the ones the browser kept. Each
     one refused, dropped or unusable is added to ``skipped``."""
-    from selenium.webdriver.common.bidi.storage import BytesValue, PartialCookie
-
     cookies = live_cookies([c for c in stored if _usable(c)], now)
     # One bad entry is skipped, not the whole restore.
     skipped.extend(_malformed(c) for c in stored if not _usable(c))
     sent = []
     for c in cookies:
         try:
-            bidi.storage.set_cookie(PartialCookie(
-                c["name"],
-                BytesValue(c.get("value_type") or "string", c.get("value")),
-                c["domain"], path=c.get("path"), http_only=c.get("http_only"),
-                secure=c.get("secure"), same_site=_same_site(c),
-                expiry=c.get("expiry"),
-            ))
+            channel.call("storage.setCookie", {"cookie": _bidi_cookie(c)})
             sent.append(c)
         except Exception as e:  # noqa: BLE001 - one refusal must not stop the rest
             skipped.append({
@@ -201,7 +210,7 @@ def _restore_cookies(bidi, stored: list, now: float, skipped: list) -> list[dict
                 "reason": failure_text(e),
             })
     # A browser can refuse a cookie without an error; only the jar says.
-    kept = _kept(bidi, sent)
+    kept = _kept(channel, sent)
     if kept is None:
         kept = sent
     skipped.extend(
@@ -212,7 +221,7 @@ def _restore_cookies(bidi, stored: list, now: float, skipped: list) -> list[dict
     return kept
 
 
-def restore(bidi, data: dict, now: float) -> dict:
+def restore(channel: Channel, data: dict, now: float) -> dict:
     """Put a snapshot into a browser before its first page: every live
     cookie, then each origin's localStorage in a spare tab, then the saved
     sessionStorage in the main tab, which is left on about:blank for the
@@ -225,14 +234,14 @@ def restore(bidi, data: dict, now: float) -> dict:
     kept: list[dict] = []
     filled: list[str] = []
     try:
-        kept = _restore_cookies(bidi, data.get("cookies") or [], now, skipped)
+        kept = _restore_cookies(channel, data.get("cookies") or [], now, skipped)
         local = {
             o: e["local"] for o, e in (data.get("origins") or {}).items()
             if isinstance(e, dict) and e.get("local")
         }
         if local:
             try:
-                with spare_tab(bidi) as run:
+                with spare_tab(channel) as run:
                     for origin, items in local.items():
                         try:
                             run(origin, fill("localStorage", items))
@@ -248,8 +257,10 @@ def restore(bidi, data: dict, now: float) -> dict:
         session = data.get("session") or {}
         if session.get("origin") and session.get("items"):
             try:
-                main = bidi.current_window_handle
-                with spare_tab(bidi, context=main) as run:
+                main = channel.call("browsingContext.getTree", {"maxDepth": 0})[
+                    "contexts"
+                ][0]["context"]
+                with spare_tab(channel, context=main) as run:
                     try:
                         run(session["origin"], fill("sessionStorage", session["items"]))
                     finally:
@@ -257,9 +268,10 @@ def restore(bidi, data: dict, now: float) -> dict:
                         # url leaves on screen, filled or not; the tab keeps its
                         # sessionStorage.
                         with contextlib.suppress(Exception):
-                            bidi.browsing_context.navigate(
-                                context=main, url="about:blank", wait="complete"
-                            )
+                            channel.call("browsingContext.navigate", {
+                                "context": main, "url": "about:blank",
+                                "wait": "complete",
+                            })
                 filled.append(session["origin"])
             except Exception as e:  # noqa: BLE001 - the rest stands
                 skipped.append({"site": session["origin"], "reason": _why(e)})

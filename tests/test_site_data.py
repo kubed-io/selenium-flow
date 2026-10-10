@@ -54,14 +54,6 @@ def test_a_record_written_before_site_data_reads_as_empty():
 # ---- BiDi ------------------------------------------------------------------
 
 
-def test_grid_bidi_derives_the_socket_from_the_grid_url():
-    from kubed.selenium_flow.core.browser import Grid
-    with Grid("https://grid.example:4444/").bidi("abc") as driver:
-        assert driver.caps["webSocketUrl"] == (
-            "wss://grid.example:4444/session/abc/se/bidi")
-        assert driver.session_id == "abc"
-
-
 def test_every_browser_is_opened_with_bidi():
     from kubed.selenium_flow.core.browser import Grid
     for name in ("chrome", "firefox"):
@@ -91,13 +83,6 @@ def test_read_storage_on_a_page_with_no_storage_returns_the_empty_shape(tmp_path
     out = subprocess.run(["node", str(path)], capture_output=True, text=True, check=False)
     assert out.returncode == 0, out.stderr
     assert json.loads(out.stdout) == {"origin": "", "local": {}, "session": {}}
-
-
-def test_the_bidi_socket_gives_up_in_seconds_not_thirty():
-    from kubed.selenium_flow.core.browser import BIDI_TIMEOUT, Grid
-    with Grid("http://grid.example:4444").bidi("abc") as driver:
-        assert driver.command_executor.client_config.websocket_timeout == BIDI_TIMEOUT
-    assert BIDI_TIMEOUT <= 5
 
 
 def test_the_wire_loggers_never_log_at_debug(monkeypatch):
@@ -138,29 +123,3 @@ def test_the_wire_loggers_never_log_at_debug(monkeypatch):
         root.setLevel(before[0])
         for name, level in zip(names, before[1], strict=True):
             logging.getLogger(name).setLevel(level)
-
-
-# ---- Grid.bidi --------------------------------------------------------------
-
-
-class FakeSocket:
-    def __init__(self):
-        self.closed = 0
-
-    def close(self):
-        self.closed += 1
-
-
-@pytest.mark.parametrize("fails", [False, True])
-def test_grid_bidi_closes_a_socket_it_opened(fails):
-    from contextlib import nullcontext
-
-    from kubed.selenium_flow.core.browser import Grid
-
-    socket = FakeSocket()
-    raised = pytest.raises(RuntimeError) if fails else nullcontext()
-    with raised, Grid("http://grid.example:4444").bidi("abc") as driver:
-        driver._websocket_connection = socket
-        if fails:
-            raise RuntimeError("mid-call")
-    assert socket.closed == 1

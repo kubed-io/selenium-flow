@@ -11,6 +11,7 @@ cached between calls — the browser state lives on the Grid, not in this proces
 from __future__ import annotations
 
 import base64
+import functools
 import logging
 import shutil
 import tempfile
@@ -24,6 +25,8 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.print_page_options import PrintOptions
 
 from ..errors import GONE, UNAVAILABLE
+from ..faults import BidiUnavailable
+from ..faults import message as failure_text
 from ..names import FILES_DIR, SCREENSHOTS_DIR
 from ..site_data import snapshot as site_data_snapshot
 from ..site_data import transfer as site_data_transfer
@@ -105,6 +108,13 @@ class Actions:
         # the reason `keep` is one: which workspace is calling is not this
         # layer's to see. Absent, a save reads only the page it is on.
         self.visited = None
+        # How a BiDi channel to a session's browser is opened (`bidi.Channels`),
+        # wired by the server: site data's save and restore speak through it.
+        self.channels = None
+        # `(session_id, context) -> block`: inside it, capture ignores that
+        # browsing context. Wired by the server once capture exists, so a
+        # save's spare tab never reaches a caller's console or network log.
+        self.hide = None
 
     def _kept(self, name: str, data: bytes, folder=FILES_DIR) -> dict:
         """Keep bytes this server made with the caller's workspace.
@@ -214,8 +224,18 @@ class Actions:
                     "uri": site_data_snapshot.LIST_URI,
                 }
             else:
-                with self.grid.bidi(session_id) as bidi:
-                    report = site_data_transfer.restore(bidi, site_data, time.time())
+                try:
+                    with self.channels.open_channel(session_id) as channel:
+                        report = site_data_transfer.restore(
+                            channel, site_data, time.time()
+                        )
+                except BidiUnavailable as e:
+                    # Restore is best effort: a channel that will not open is
+                    # a report, never a failed open.
+                    report = {
+                        "restored": [], "skipped": [{"reason": failure_text(e)}],
+                        "uri": site_data_snapshot.LIST_URI,
+                    }
 
         current_url, title = "about:blank", ""
         if url:
@@ -271,8 +291,11 @@ class Actions:
 
         def capture(at):
             origins = self.visited() if self.visited is not None else []
-            with self.grid.bidi(session_id) as bidi:
-                captured = site_data_transfer.capture(bidi, at.driver, origins)
+            hidden = functools.partial(self.hide, session_id) if self.hide else None
+            with self.channels.open_channel(session_id) as channel:
+                captured = site_data_transfer.capture(
+                    channel, at.driver, origins, hidden=hidden
+                )
             return {site_data_snapshot.CAPTURED: captured}
 
         return self._recipe().run(session_id, capture, url=url)

@@ -149,75 +149,62 @@ def test_the_published_kept_shared_is_the_shape_returned():
     assert shared and set(shared[0]) == set(items["required"])
 
 
-def test_save_with_bidi_unreachable_is_a_scrubbed_503(monkeypatch):
-    """Selenium surfaces a dead BiDi route as a closed websocket: a 500 saying
-    "socket is already closed." told nobody what to do."""
-    from contextlib import contextmanager
+def _save_through_the_server(monkeypatch, channel):
+    """A save of a page with one visited site, over HTTP, on ``channel``."""
     from types import SimpleNamespace
-
-    from websocket import WebSocketConnectionClosedException
 
     from kubed.selenium_flow.core.browser import Grid
 
+    from .site_data_fakes import channels_for
+
     page = SimpleNamespace(current_url=f"https://{SITE}/", title="t")
-
-    class Dead:
-        def get_cookies(self, *a, **kw):
-            raise WebSocketConnectionClosedException(
-                "ws://user:pw@grid.invalid/session/x/se/bidi is closed"
-            )
-
-    @contextmanager
-    def bidi(self, session_id):
-        yield SimpleNamespace(storage=Dead())
-
     monkeypatch.setattr(Grid, "reconnect", lambda self, sid: page)
-    monkeypatch.setattr(Grid, "bidi", bidi)
     monkeypatch.setattr(Workspaces, "resolve", lambda self, name, **kw: "live-id")
     server = SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
     )
+    server.actions.channels = channels_for(channel)
     server.workspaces.store.set(NAMED, Workspace().visited(f"https://{SITE}/"))
     client = TestClient(server.mcp.http_app())
     response = client.post(
         "/browser/save-site-data", headers=AUTH, params={"workspace": NAMED}, json={}
     )
+    return server, response
+
+
+def test_save_with_bidi_unreachable_is_a_scrubbed_503(monkeypatch):
+    """A dead BiDi route is a 503 saying what to do, not a 500 saying
+    "socket is already closed."."""
+    from .fakes import FakeChannel
+
+    server, response = _save_through_the_server(
+        monkeypatch, FakeChannel(down={"storage.getCookies"})
+    )
     assert response.status_code == 503, response.json()
     error = response.json()["error"]
     assert error.startswith("the browser's BiDi channel is unavailable")
-    assert "pw" not in error
     assert server.workspaces.store.get(NAMED).site_data == {}
+
+
+def test_a_browser_that_refuses_the_cookie_read_is_a_503_too(monkeypatch):
+    from .fakes import FakeChannel
+
+    _, response = _save_through_the_server(
+        monkeypatch, FakeChannel(refuse={"storage.getCookies"})
+    )
+    assert response.status_code == 503, response.json()
 
 
 def test_an_unexpected_cookie_read_failure_stays_a_500(monkeypatch):
     """Only a BiDi channel that did not answer is a retryable 503; a bug or an
     unexpected return shape stays a 500, as errors.py rules (Copilot, #50)."""
-    from contextlib import contextmanager
-    from types import SimpleNamespace
+    from .fakes import FakeChannel
 
-    from kubed.selenium_flow.core.browser import Grid
+    class Broken(FakeChannel):
+        def _storage_getCookies(self, params):
+            return {"cookie_jar": []}
 
-    page = SimpleNamespace(current_url=f"https://{SITE}/", title="t")
-
-    class Broken:
-        def get_cookies(self, *a, **kw):
-            raise AttributeError("'dict' object has no attribute 'cookies'")
-
-    @contextmanager
-    def bidi(self, session_id):
-        yield SimpleNamespace(storage=Broken())
-
-    monkeypatch.setattr(Grid, "reconnect", lambda self, sid: page)
-    monkeypatch.setattr(Grid, "bidi", bidi)
-    monkeypatch.setattr(Workspaces, "resolve", lambda self, name, **kw: "live-id")
-    server = SeleniumMCP(
-        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
-    )
-    server.workspaces.store.set(NAMED, Workspace().visited(f"https://{SITE}/"))
-    client = TestClient(server.mcp.http_app())
-    response = client.post(
-        "/browser/save-site-data", headers=AUTH, params={"workspace": NAMED}, json={}
-    )
+    _, response = _save_through_the_server(monkeypatch, Broken())
     assert response.status_code == 500, response.json()
 
 

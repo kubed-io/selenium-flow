@@ -13,7 +13,6 @@ losing a browser.
 from __future__ import annotations
 
 import base64
-import contextlib
 import io
 import json
 import socket
@@ -103,11 +102,6 @@ class _GridAdapter(HTTPAdapter):
 # nowhere waits this out, so it trades a small delay on those for a correct
 # answer on the ones that do navigate.
 NAVIGATION_SETTLE = 2.0
-# Seconds a site data BiDi socket may take to connect or answer.
-BIDI_TIMEOUT = 5.0
-# How often Selenium looks for a BiDi reply. Its 100 ms default is a floor
-# under every BiDi command; at 5 ms a spare tab costs 30-140 ms per origin.
-BIDI_INTERVAL = 0.005
 
 
 class ReattachDriver(RemoteWebDriver):
@@ -352,11 +346,6 @@ class Grid:
                             "socket_options": SOCKET_OPTIONS,
                         }
                     },
-                    # Selenium waits 30 s for a BiDi socket that never answers;
-                    # `bidi` would stall that long on a Grid whose BiDi route is
-                    # down. Nothing but `bidi` opens a socket.
-                    websocket_timeout=BIDI_TIMEOUT,
-                    websocket_interval=BIDI_INTERVAL,
                 ),
             )
             self._webdriver = driver.command_executor
@@ -378,27 +367,6 @@ class Grid:
         scheme = "wss" if parts.scheme == "https" else "ws"
         root = urlunsplit((scheme, parts.netloc, parts.path.rstrip("/"), "", ""))
         return f"{root}/session/{session_id}/se/bidi"
-
-    @contextlib.contextmanager
-    def bidi(self, session_id: str):
-        """A reattached driver that speaks BiDi: ``.storage``, ``.network``,
-        ``.browsing_context``, ``.script``.
-
-        The socket address is derived, not discovered (`bidi_url`).
-        """
-        driver = self.reconnect(session_id)
-        # The socket's timeout and polling are on the shared connection's
-        # config, set once by `reconnect`.
-        driver.caps = {"webSocketUrl": self.bidi_url(session_id)}
-        try:
-            yield driver
-        finally:
-            # Selenium opens the socket lazily on first use; closing it is the
-            # only cleanup, the browser is not ours to quit.
-            connection = getattr(driver, "_websocket_connection", None)
-            if connection is not None:
-                with contextlib.suppress(Exception):
-                    connection.close()
 
     def is_alive(self, session_id: str) -> bool:
         """Whether a session still exists on the Grid.

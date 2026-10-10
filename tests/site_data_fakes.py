@@ -34,20 +34,21 @@ def snapshot(cookies=(), origins=None, session=None, saved_at=NOW):
 
 def bidi_cookie(name, domain, value="v", http_only=False):
     """A cookie as BiDi's storage.getCookies returns it."""
-    return SimpleNamespace(
-        name=name, domain=domain, path="/", http_only=http_only, secure=True,
-        same_site="lax", expiry=None, value=SimpleNamespace(type="string", value=value),
-    )
+    return {
+        "name": name, "domain": domain, "path": "/", "httpOnly": http_only,
+        "secure": True, "sameSite": "lax", "size": len(name) + len(value),
+        "value": {"type": "string", "value": value},
+    }
 
 
-def bidi_cm(fake):
-    """A stand-in for `Grid.bidi` that yields ``fake``."""
+def channels_for(fake):
+    """A stand-in for `Channels` whose every channel is ``fake``."""
 
     @contextmanager
-    def cm(session_id):
+    def open_channel(session_id):
         yield fake
 
-    return cm
+    return SimpleNamespace(open_channel=open_channel)
 
 
 class FakeSpare:
@@ -65,13 +66,15 @@ class FakeSpare:
         self.broken, self.order = broken, order
         self.runs: list = []
         self.tabs: list = []
+        self.hidden: list = []  # the `hidden` each tab was opened with
 
     @contextmanager
-    def __call__(self, bidi, context=None):
+    def __call__(self, channel, context=None, *, hidden=None):
         if self.broken:
             raise self.broken
         tab = context or "spare"
         self.tabs.append(tab)
+        self.hidden.append(hidden)
 
         def run(origin, expression):
             self.runs.append((tab, origin))

@@ -87,6 +87,8 @@ NO_SELENIUM = tuple(
         "core.assertion",
         "workspace.store",
         "site_data.snapshot",
+        "site_data.spare",
+        "site_data.transfer",
         "recordings.mp4",
         "monitor.events",
         "monitor.monitor",
@@ -359,3 +361,14 @@ def websockets_importers() -> set[str]:
 
 def test_only_the_bidi_client_holds_a_socket():
     assert websockets_importers() == {WEBSOCKETS_HOME}
+
+
+def test_only_the_spare_tab_adds_an_intercept():
+    """An intercept outlives the connection that added it and hangs every request
+    it matches with nobody to answer (plan ruling 2): one module may add one."""
+    found = {
+        path.relative_to(PACKAGE).as_posix()
+        for path in PACKAGE.rglob("*.py")
+        if "network.addIntercept" in path.read_text()
+    }
+    assert found == {"site_data/spare.py"}

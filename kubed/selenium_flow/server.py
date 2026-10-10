@@ -17,6 +17,7 @@ from fastmcp import FastMCP
 from starlette.middleware import Middleware
 
 from . import config, routes, secrets
+from .bidi import Channels
 from .config import Settings
 from .core import pointer
 from .core.actions import Actions
@@ -284,6 +285,11 @@ class SeleniumMCP:
         # And where the caller's workspace has been, so one save reads every
         # site's storage. Wired here for the same reason: which workspace is
         # calling is a question about the caller.
+        self.actions.channels = Channels(
+            self.grid.bidi_url,
+            held=self.monitor.connection,
+            loop=lambda: self.monitor.loop,
+        )
         self.actions.visited = lambda: self.workspaces.visited(clients.caller().name)
         self.apps = (
             apps.register(self.mcp, self.actions, auth_token, base)
