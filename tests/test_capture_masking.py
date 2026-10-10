@@ -85,3 +85,12 @@ def test_overlapping_secrets_leave_no_remainder():
 ])
 def test_a_password_in_a_url_is_masked(url, keep_query, expected):
     assert Masker().url(url, keep_query=keep_query) == expected
+
+
+@pytest.mark.parametrize("name", ["Location", "referer", "CONTENT-LOCATION"])
+def test_a_password_in_a_url_bearing_header_is_masked(name):
+    raw = [{"name": name, "value": {"type": "string", "value": "https://u:pw@a.test/p?q=1"}},
+           {"name": "X-Other", "value": {"type": "string", "value": "https://u:pw@a.test/"}}]
+    assert Masker().headers(raw) == [
+        {"name": name, "value": f"https://u:{MASK}@a.test/p?q=1"},
+        {"name": "X-Other", "value": "https://u:pw@a.test/"}]

@@ -14,6 +14,10 @@ from urllib.parse import urlsplit, urlunsplit
 
 from . import HEADER_LIMIT, HEADER_VALUE_CAP, MASK, MASKED_HEADERS, TEXT_CAP
 
+# Header values that carry a URL: a password in one is masked, and they lose
+# their query with their row's navigation.
+URL_HEADERS = frozenset({"referer", "location", "content-location"})
+
 
 def strip_query(url: str) -> str:
     """``url`` without its query string or fragment: origin and path.
@@ -79,8 +83,8 @@ class Masker:
 
     def headers(self, raw: list) -> list[dict]:
         """BiDi headers as ``[{"name", "value"}]``: at most ``HEADER_LIMIT``,
-        credentials masked by name, every value masked and cut to
-        ``HEADER_VALUE_CAP``."""
+        credentials masked by name, every value masked (a URL-bearing one's
+        password too) and cut to ``HEADER_VALUE_CAP``."""
         kept = []
         for header in (raw or [])[:HEADER_LIMIT]:
             if not isinstance(header, dict):
@@ -89,7 +93,10 @@ class Masker:
             if name.lower() in MASKED_HEADERS:
                 value = MASK
             else:
-                value = self.text(_header_value(header.get("value")))[:HEADER_VALUE_CAP]
+                value = self.text(_header_value(header.get("value")))
+                if name.lower() in URL_HEADERS:
+                    value = _hide_password(value)
+                value = value[:HEADER_VALUE_CAP]
             kept.append({"name": self.text(name)[:HEADER_VALUE_CAP], "value": value})
         return kept
 

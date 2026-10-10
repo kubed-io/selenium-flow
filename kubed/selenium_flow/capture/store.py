@@ -51,7 +51,7 @@ from . import (
     views,
 )
 from .align import overlap
-from .masking import Masker, strip_query
+from .masking import URL_HEADERS, Masker, strip_query
 from .merge import (
     console_entry,
     counts_in_hint,
@@ -66,10 +66,6 @@ from .merge import (
 CONTEXTS = 64
 
 KINDS = ("console", "network")
-
-# Header values that carry a URL, and so lose their query with their row's
-# navigation.
-URL_HEADERS = frozenset({"referer", "location", "content-location"})
 
 
 class Mark(NamedTuple):
