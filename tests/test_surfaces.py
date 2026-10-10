@@ -293,3 +293,10 @@ async def test_network_body_is_callable_by_the_app_and_listed_to_the_model(serve
     tool = {t.name: t for t in await server.mcp.list_tools()}["network_body"]
     assert tool.meta["ui"] == {"visibility": ["model", "app"]}
     assert tool.annotations.read_only_hint is True and tool.annotations.destructive_hint is False
+
+
+async def test_network_body_publishes_its_ids_limits(server):
+    """Type hints are the schema: an id is 1 to 64 characters."""
+    tool = await server.mcp.get_tool("network_body")
+    assert tool.parameters["properties"]["id"] | {"type": "string"} == {
+        "type": "string", "minLength": 1, "maxLength": 64}

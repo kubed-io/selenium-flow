@@ -36,6 +36,7 @@ from .. import secrets as secrets_module
 from ..core.actions import (
     DIALOG_ACTIONS,
     FRAME_ACTIONS,
+    ID_LIMIT,
     MOUSE_ACTIONS,
     PRINT_FORMATS,
     Actions,
@@ -75,6 +76,7 @@ DialogAction = Annotated[Literal[DIALOG_ACTIONS], BeforeValidator(_lowered)]
 FrameAction = Annotated[Literal[FRAME_ACTIONS], BeforeValidator(_lowered)]
 PrintFormat = Annotated[Literal[PRINT_FORMATS], BeforeValidator(_lowered)]
 Browser = Annotated[Literal[BROWSERS] | None, BeforeValidator(_blank_is_unset)]
+RequestId = Annotated[str, Field(min_length=1, max_length=ID_LIMIT)]
 
 def _as_selector(value):
     """A selector sent as a JSON string, turned back into an object.
@@ -403,7 +405,7 @@ def register(
         )
 
     @action("network_body")
-    def network_body(id: str) -> dict:
+    def network_body(id: RequestId) -> dict:
         """Fetch the response body of one request the page made, by its id from
         workspace://network (an id looks like 3.7). Text comes back up to 100 kB,
         with truncated=true beyond that; for an image or other binary you get its

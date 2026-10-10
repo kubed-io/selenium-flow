@@ -1612,6 +1612,8 @@
         "additionalProperties": false,
         "properties": {
           "id": {
+            "maxLength": 64,
+            "minLength": 1,
             "type": "string"
           }
         },
@@ -1623,7 +1625,7 @@
       "NetworkBodyResponse": {
         "properties": {
           "binary": {
-            "description": "True for a body that is not text: only its size comes back.",
+            "description": "True for a body that is not text: it is not fetched, and only its type and size come back.",
             "type": "boolean"
           },
           "id": {
@@ -1658,8 +1660,11 @@
             "type": "object"
           },
           "size": {
-            "description": "Bytes of the body as the browser handed it back, before any cut; not the request row's transfer size.",
-            "type": "integer"
+            "description": "Bytes of a text body as the browser handed it back, before any cut. A binary body is never fetched, so its size is the request row's; null when that is unknown.",
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "text": {
             "description": "The text, up to 100 000 bytes; null for a binary body.",
@@ -4795,7 +4800,7 @@
                 }
               }
             },
-            "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
+            "description": "No such body. The browser that made this request has ended, or no longer holds its body. A new browser cannot return it, so do not retry; and opening one without capture forgets what was captured."
           },
           "413": {
             "content": {

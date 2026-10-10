@@ -368,6 +368,15 @@ class Capture:
             buffer = None if held is None else self._cache.get(held.workspace)
             return None if buffer is None else buffer.index.get(id)
 
+    def mask(self, session_id: str, text: str, cap: int) -> str | None:
+        """``text`` with the secrets bound in ``session_id``'s browser masked,
+        cut to ``cap`` characters (`Masker.text`); None when capture no longer
+        knows that browser. The masking runs outside the lock: it reads at
+        most ``cap`` plus the longest secret."""
+        with self._lock:
+            held = self._sessions.get(session_id)
+        return None if held is None else held.masker.text(text, cap)
+
     def tail(self, workspace: str, kind: str) -> TailSubscription:
         """Listen to ``kind``'s rows as they land. On the loop only."""
         if kind not in KINDS:

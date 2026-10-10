@@ -6,6 +6,7 @@ import base64
 import pytest
 
 from kubed.selenium_flow import errors
+from kubed.selenium_flow.capture import MASK
 from kubed.selenium_flow.capture.store import Capture
 from kubed.selenium_flow.core.actions import BODY_CAP, Actions
 from kubed.selenium_flow.faults import NotFound
@@ -124,3 +125,64 @@ def test_an_unrecognised_browser_error_never_carries_its_text(actions, fed):
     with pytest.raises(RuntimeError) as raised:
         actions.network_body("s1", "1.1")
     assert "/tmp/x" not in str(raised.value) and raised.value.__cause__ is None
+
+
+# ---- masked like every other capture surface (final review I2) -----------------
+
+
+def test_a_bound_secret_echoed_in_a_body_comes_back_masked(actions, fed):
+    fed.capture.secret("ws", ["hunter2", "hunter%32"])
+    sent = '{"echo":"hunter2","form":"pw=hunter%32"}'
+    fed.channel.bodies["r1"] = body_of(sent)
+    got = actions.network_body("s1", "1.1")
+    assert got["text"] == f'{{"echo":"{MASK}","form":"pw={MASK}"}}'
+    assert got["size"] == len(sent) and got["truncated"] is False
+
+
+def test_a_secret_straddling_the_body_cap_is_masked_before_the_cut(actions, fed):
+    fed.capture.secret("ws", ["hunter2"])
+    fed.channel.bodies["r1"] = body_of("x" * (BODY_CAP - 3) + "hunter2" + "y" * 10)
+    got = actions.network_body("s1", "1.1")
+    assert "hun" not in got["text"] and got["truncated"] is True
+    assert len(got["text"].encode()) <= BODY_CAP
+
+
+# ---- answered from the row when asking would cost the connection (I4) ----------
+
+
+def kept(fed, rid, mime, size, n):
+    """One more kept request on the page, ``1.<n>``."""
+    for method, params in (
+        req(rid, f"https://a.test/{rid}", initiator="fetch"),
+        done(rid, 200, mime=mime, body_size=size),
+    ):
+        fed.capture.ingest("ws", "s1", method, params)
+    return f"1.{n}"
+
+
+@pytest.mark.parametrize("mime", ["image/png", "application/octet-stream", "font/woff2", "video/mp4"])
+def test_a_binary_body_is_answered_from_the_row_without_asking(actions, fed, mime):
+    id = kept(fed, "r2", mime, 8300, 2)
+    assert actions.network_body("s1", id) == {
+        "id": id, "uri": f"workspace://network/{id}", "mime": mime,
+        "size": 8300, "binary": True, "text": None, "truncated": False}
+    assert fed.channel.log == []
+
+
+def test_a_text_body_over_8_mb_is_refused_before_asking(actions, fed):
+    id = kept(fed, "r2", "application/json", 9_000_000, 2)
+    with pytest.raises(ValueError, match="too large to fetch") as raised:
+        actions.network_body("s1", id)
+    assert errors.status_for(raised.value) == 400
+    assert fed.channel.log == []
+
+
+@pytest.mark.parametrize("mime", [
+    "text/html; charset=utf-8", "application/json", "application/problem+json",
+    "application/xml", "image/svg+xml", "text/javascript", "application/javascript",
+    "application/x-www-form-urlencoded", "",
+])
+def test_text_and_unknown_types_are_asked_of_the_browser(actions, fed, mime):
+    id = kept(fed, "r2", mime, 8_000_000, 2)
+    fed.channel.bodies["r2"] = body_of("ok")
+    assert actions.network_body("s1", id)["text"] == "ok"

@@ -163,16 +163,18 @@ BODY_RESPONSE = {
         },
         "mime": {"type": "string", "description": "The response's content type."},
         "size": {
-            "type": "integer",
+            "type": ["integer", "null"],
             "description": (
-                "Bytes of the body as the browser handed it back, before any cut; "
-                "not the request row's transfer size."
+                "Bytes of a text body as the browser handed it back, before any "
+                "cut. A binary body is never fetched, so its size is the request "
+                "row's; null when that is unknown."
             ),
         },
         "binary": {
             "type": "boolean",
             "description": (
-                "True for a body that is not text: only its size comes back."
+                "True for a body that is not text: it is not fetched, and only "
+                "its type and size come back."
             ),
         },
         "text": {

@@ -49,6 +49,14 @@ log = logging.getLogger(__name__)
 
 # `network_body`: text is cut at this many bytes; an id is a short string.
 BODY_CAP = 100_000
+# The largest text body asked of the browser. Chrome answers `network.getData`
+# whole, in one frame, whatever the collector's limit; a frame past the
+# connection's own limit closes the connection capture holds (final review I4).
+BODY_FETCH_LIMIT = 8_000_000
+# What a body's MIME type must be for its text to be worth asking for; anything
+# else is answered from the row, never fetched. An unknown type is asked.
+TEXT_TYPES = ("text/",)
+TEXT_SUBTYPES = ("json", "xml", "javascript", "x-www-form-urlencoded")
 ID_LIMIT = 64
 BODY_GONE = (
     "the browser no longer holds this body: it keeps them while it lives, "
@@ -65,11 +73,25 @@ BODY_ANSWERS = {
 }
 
 
+def _is_text(mime: str) -> bool:
+    """Whether a body of type ``mime`` is text: ``text/*``, a JSON, XML or
+    JavaScript type (``+json`` and ``+xml`` suffixes included), or a form."""
+    kind = mime.split(";", 1)[0].strip().lower()
+    subtype = kind.partition("/")[2]
+    return kind.startswith(TEXT_TYPES) or any(
+        subtype == t or subtype.endswith("+" + t) for t in TEXT_SUBTYPES
+    )
+
+
 def _decoded_length(value: str) -> int:
     try:
         return len(base64.b64decode(value, validate=False))
     except ValueError:
         return 0
+
+def _body_ended(id: str) -> str:
+    return f"the browser that made request {id} has ended, and its body went with it"
+
 
 INSECURE_SKIP = "an insecure browser gets no saved site data"
 
@@ -1253,7 +1275,12 @@ class Actions:
         it and of no other (spec §7, ruling 11).
 
         ``id`` is checked before any lookup, and nothing is asked of a browser
-        until the request is known to be this one's. The text is never logged.
+        until the request is known to be this one's. A binary body is answered
+        from its row, never fetched, and a text body over `BODY_FETCH_LIMIT` is
+        refused unasked: Chrome answers `network.getData` in one frame whatever
+        its size, and a frame too large for the connection closes the one
+        capture holds. The text is masked like every other capture surface,
+        and never logged.
         """
         if not isinstance(id, str) or not 0 < len(id) <= ID_LIMIT:
             raise ValueError(f"id is a request id from {NETWORK_URI}, like 3.7")
@@ -1263,13 +1290,28 @@ class Actions:
         if located is None:
             raise ValueError(f"no captured request {id!r}: {NETWORK_URI} lists them")
         if located.session_id != session_id:
-            raise NotFound(
-                f"the browser that made request {id} has ended, "
-                "and its body went with it"
+            raise NotFound(_body_ended(id))
+        answer = {
+            "id": id,
+            "uri": f"{NETWORK_URI}/{id}",
+            "mime": located.mime,
+            "size": located.size,
+            "binary": True,
+            "text": None,
+            "truncated": False,
+        }
+        if located.mime and not _is_text(located.mime):
+            return answer  # its type and size are all a binary body gives
+        if located.size is not None and located.size > BODY_FETCH_LIMIT:
+            raise ValueError(
+                f"request {id}'s body is {located.size / 1e6:.1f} MB, too large to "
+                f"fetch: the browser holds it, but bodies over "
+                f"{BODY_FETCH_LIMIT // 1_000_000} MB are not read from it. "
+                f"{NETWORK_URI}/{id} has its headers and size"
             )
         try:
             with self.channels.open_channel(session_id) as channel:
-                answer = channel.call(
+                reply = channel.call(
                     "network.getData",
                     {"dataType": "response", "request": located.request},
                 )
@@ -1278,23 +1320,22 @@ class Actions:
             if exc.error in BODY_ANSWERS:
                 raise NotFound(BODY_ANSWERS[exc.error]) from None
             raise RuntimeError("the browser could not return this body") from None
-        data = (answer or {}).get("bytes") or {}
+        data = (reply or {}).get("bytes") or {}
         value = data.get("value") or ""
-        binary = data.get("type") == "base64"
-        if binary:
-            size, text, truncated = _decoded_length(value), None, False
-        else:
-            raw = value.encode()
-            size, truncated = len(raw), len(raw) > BODY_CAP
-            text = raw[:BODY_CAP].decode("utf-8", "ignore")
+        if data.get("type") == "base64":
+            return {**answer, "size": _decoded_length(value)}
+        # Masked like every other capture surface (ruling 13) before the cut,
+        # so a secret straddling it goes too; the size is what the browser sent.
+        size = len(value.encode())
+        masked = self.capture.mask(session_id, value, BODY_CAP)
+        if masked is None:  # capture forgot this browser while it was asked
+            raise NotFound(_body_ended(id))
         return {
-            "id": id,
-            "uri": f"{NETWORK_URI}/{id}",
-            "mime": located.mime,
+            **answer,
             "size": size,
-            "binary": binary,
-            "text": text,
-            "truncated": truncated,
+            "binary": False,
+            "text": masked.encode()[:BODY_CAP].decode("utf-8", "ignore"),
+            "truncated": size > BODY_CAP,
         }
 
     def _recipe(self, wait=None, retry_stale=False) -> Recipe:
