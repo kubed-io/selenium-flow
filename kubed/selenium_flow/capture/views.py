@@ -14,7 +14,9 @@ from . import FILTERS, LEVELS, MAX_PAGES, NETWORK_URI
 if TYPE_CHECKING:
     from .store import Buffer
 
-HEADERS = ("request_headers", "response_headers")
+# What only a request's own detail carries: its headers, and how many of them
+# were too many to keep.
+HEADERS = ("request_headers", "response_headers", "headers_dropped")
 
 PAGES = f"pages is 1 to {MAX_PAGES}: how many of the last navigations to show"
 

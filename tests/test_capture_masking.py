@@ -5,7 +5,14 @@ import tracemalloc
 
 import pytest
 
-from kubed.selenium_flow.capture import HEADER_LIMIT, HEADER_VALUE_CAP, MASK, TEXT_CAP
+from kubed.selenium_flow.capture import (
+    HEADER_BYTES,
+    HEADER_LIMIT,
+    HEADER_NAME_CAP,
+    HEADER_VALUE_CAP,
+    MASK,
+    TEXT_CAP,
+)
 from kubed.selenium_flow.capture.masking import Masker, strip_query
 from kubed.selenium_flow.capture.merge import console_entry
 
@@ -14,9 +21,14 @@ from .capture_events import log
 pytestmark = pytest.mark.unit
 
 
+def kept(raw, masker=None):
+    """The headers a row keeps, without the count of those it dropped."""
+    return (masker or Masker()).headers(raw)[0]
+
+
 @pytest.mark.parametrize("name", ["Authorization", "proxy-authorization", "COOKIE", "Set-Cookie"])
 def test_credential_headers_are_masked_in_any_case(name):
-    assert Masker().headers([{"name": name, "value": {"type": "string", "value": "s3cr3t"}}]) == [
+    assert kept([{"name": name, "value": {"type": "string", "value": "s3cr3t"}}]) == [
         {"name": name, "value": MASK}]
 
 
@@ -24,7 +36,7 @@ def test_a_bound_value_is_masked_everywhere():
     m = Masker(["hunter2", "hunter%32"])
     assert m.text("pw=hunter2 and hunter%32") == f"pw={MASK} and {MASK}"
     assert m.url("https://a.test/login?pw=hunter2", keep_query=True) == f"https://a.test/login?pw={MASK}"
-    assert m.headers([{"name": "x-echo", "value": {"type": "string", "value": "hunter2"}}])[0]["value"] == MASK
+    assert kept([{"name": "x-echo", "value": {"type": "string", "value": "hunter2"}}], m)[0]["value"] == MASK
 
 
 def test_a_secret_straddling_the_text_cap_is_still_masked():
@@ -33,10 +45,56 @@ def test_a_secret_straddling_the_text_cap_is_still_masked():
     assert "S" not in entry["text"] and len(entry["text"]) <= TEXT_CAP
 
 
-def test_headers_are_capped_at_32_of_4_kb():
+def test_headers_are_capped_at_32_and_each_value_at_4_kb():
+    raw = [{"name": f"h{i}", "value": {"type": "string", "value": "v" * 300}} for i in range(40)]
+    shown, dropped = Masker().headers(raw)
+    assert len(shown) == HEADER_LIMIT and dropped == 40 - HEADER_LIMIT
+    [big], _ = Masker().headers([{"name": "h", "value": {"type": "string", "value": "v" * 5000}}])
+    assert len(big["value"]) == HEADER_VALUE_CAP
+
+
+def test_a_names_cap_is_256():
+    [header], _ = Masker().headers([{"name": "x" * 5000, "value": {"type": "string", "value": "v"}}])
+    assert header["name"] == "x" * HEADER_NAME_CAP
+
+
+def test_one_sides_headers_stop_at_16_kb_and_the_rest_are_counted():
+    """A page decides how many large headers it sends, and its server how many
+    it answers with: 32 of 4 kB a side would be 256 kB a row, 1 000 rows a
+    workspace. Past the budget, later headers are dropped and counted."""
     raw = [{"name": f"h{i}", "value": {"type": "string", "value": "v" * 5000}} for i in range(40)]
-    kept = Masker().headers(raw)
-    assert len(kept) == HEADER_LIMIT and all(len(h["value"]) == HEADER_VALUE_CAP for h in kept)
+    shown, dropped = Masker().headers(raw)
+    assert len(shown) == 3 and dropped == 37
+    assert sum(len(h["name"].encode()) + len(h["value"].encode()) for h in shown) <= HEADER_BYTES
+    small = [{"name": "a", "value": {"type": "string", "value": "1"}}]
+    assert Masker().headers(raw[:3] + small)[0][-1] == {"name": "a", "value": "1"}
+    assert Masker().headers(raw[:4] + small) == (shown, 2)   # later ones go, even small
+
+
+def test_the_budget_counts_bytes_not_characters():
+    raw = [{"name": f"h{i}", "value": {"type": "string", "value": "é" * 4000}} for i in range(4)]
+    shown, dropped = Masker().headers(raw)       # 8 000 bytes each
+    assert (len(shown), dropped) == (2, 2)
+
+
+def test_a_secret_straddling_the_header_value_cap_is_still_masked():
+    m = Masker(["S" * 10])
+    [header], _ = m.headers([{"name": "x-echo", "value": {"type": "string",
+                                                         "value": "x" * (HEADER_VALUE_CAP - 5) + "S" * 10}}])
+    assert "S" not in header["value"] and len(header["value"]) <= HEADER_VALUE_CAP
+
+
+def test_a_secret_straddling_a_urls_cap_is_still_masked():
+    m = Masker(["S" * 10])
+    url = "https://a.test/?q=" + "x" * (TEXT_CAP - 23) + "S" * 10
+    shown = m.url(url, keep_query=True)
+    assert "S" not in shown and len(shown) <= TEXT_CAP
+
+
+def test_a_secret_in_a_urls_fragment_is_masked():
+    m = Masker(["hunter2"])
+    assert m.url("https://a.test/p#token=hunter2", keep_query=True) == f"https://a.test/p#token={MASK}"
+    assert m.url("https://a.test/p#token=hunter2", keep_query=False) == "https://a.test/p"
 
 
 def test_strip_query_keeps_origin_and_path():
@@ -61,8 +119,8 @@ def test_url_drops_the_query_unless_kept_and_masks_first():
 
 
 def test_a_binary_header_is_never_decoded():
-    kept = Masker().headers([{"name": "x-bin", "value": {"type": "base64", "value": "AAEC"}}])
-    assert kept == [{"name": "x-bin", "value": "(binary)"}]
+    assert kept([{"name": "x-bin", "value": {"type": "base64", "value": "AAEC"}}]) == [
+        {"name": "x-bin", "value": "(binary)"}]
 
 
 def test_strip_query_survives_a_url_it_cannot_parse():
@@ -94,7 +152,7 @@ def test_a_password_in_a_url_is_masked(url, keep_query, expected):
 def test_a_password_in_a_url_bearing_header_is_masked(name):
     raw = [{"name": name, "value": {"type": "string", "value": "https://u:pw@a.test/p?q=1"}},
            {"name": "X-Other", "value": {"type": "string", "value": "https://u:pw@a.test/"}}]
-    assert Masker().headers(raw) == [
+    assert kept(raw) == [
         {"name": name, "value": f"https://u:{MASK}@a.test/p?q=1"},
         {"name": "X-Other", "value": "https://u:pw@a.test/"}]
 
@@ -105,7 +163,7 @@ HUGE = 3_000_000
 @pytest.mark.parametrize("read", [
     lambda m, v: m.text(v),
     lambda m, v: m.url("https://a.test/?q=" + v, keep_query=True),
-    lambda m, v: m.headers([{"name": "x-" + v, "value": {"type": "string", "value": v}}])[0]["value"],
+    lambda m, v: kept([{"name": "x-" + v, "value": {"type": "string", "value": v}}], m)[0]["value"],
     lambda m, v: console_entry(log(v)[1], m)["text"],
 ], ids=["text", "url", "header", "console"])
 def test_masking_a_huge_value_is_bounded_by_what_a_row_keeps(read):
@@ -151,7 +209,7 @@ def test_a_bound_secret_holding_the_userinfo_is_masked_whole():
     m = Masker(["user:pw"])
     assert m.url("https://user:pw@a.test/", keep_query=True) == f"https://{MASK}@a.test/"
     header = {"name": "Location", "value": {"type": "string", "value": "https://user:pw@a.test/"}}
-    assert m.headers([header])[0]["value"] == f"https://{MASK}@a.test/"
+    assert kept([header], m)[0]["value"] == f"https://{MASK}@a.test/"
 
 
 @pytest.mark.parametrize("value, expected", [
@@ -162,4 +220,4 @@ def test_a_bound_secret_holding_the_userinfo_is_masked_whole():
 ])
 def test_a_password_in_a_relative_or_padded_url_is_masked(value, expected):
     header = {"name": "Location", "value": {"type": "string", "value": value}}
-    assert Masker().headers([header])[0]["value"] == expected
+    assert kept([header])[0]["value"] == expected

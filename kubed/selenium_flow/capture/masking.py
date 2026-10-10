@@ -13,7 +13,15 @@ import re
 from collections.abc import Iterable
 from urllib.parse import urlsplit, urlunsplit
 
-from . import HEADER_LIMIT, HEADER_VALUE_CAP, MASK, MASKED_HEADERS, TEXT_CAP
+from . import (
+    HEADER_BYTES,
+    HEADER_LIMIT,
+    HEADER_NAME_CAP,
+    HEADER_VALUE_CAP,
+    MASK,
+    MASKED_HEADERS,
+    TEXT_CAP,
+)
 
 # Header values that carry a URL: a password in one is masked, and they lose
 # their query with their row's navigation.
@@ -111,14 +119,18 @@ class Masker:
             masked = strip_query(masked)
         return masked[:TEXT_CAP]
 
-    def headers(self, raw: list) -> list[dict]:
-        """BiDi headers as ``[{"name", "value"}]``: at most ``HEADER_LIMIT``,
-        credentials masked by name, every value masked (a URL-bearing one's
-        password too) and cut to ``HEADER_VALUE_CAP``."""
-        kept = []
-        for header in (raw or [])[:HEADER_LIMIT]:
-            if not isinstance(header, dict):
-                continue
+    def headers(self, raw: list) -> tuple[list[dict], int]:
+        """BiDi headers as ``[{"name", "value"}]``, and how many were not kept.
+
+        At most ``HEADER_LIMIT``, and only while their names and values fit
+        ``HEADER_BYTES``: past it, that header and every later one is dropped
+        and counted. Credentials are masked by name, every value is masked (a
+        URL-bearing one's password too) and cut to ``HEADER_VALUE_CAP``, every
+        name to ``HEADER_NAME_CAP``."""
+        given = [h for h in (raw or ()) if isinstance(h, dict)]
+        kept: list[dict] = []
+        spent = 0
+        for header in given[:HEADER_LIMIT]:
             name = str(header.get("name") or "")
             if name.lower() in MASKED_HEADERS:
                 value = MASK
@@ -126,8 +138,12 @@ class Masker:
                 value = _header_value(header.get("value"))
                 password = _password(value) if name.lower() in URL_HEADERS else None
                 value = self.text(value, HEADER_VALUE_CAP, also=password)
-            kept.append({"name": self.text(name, HEADER_VALUE_CAP), "value": value})
-        return kept
+            shown = {"name": self.text(name, HEADER_NAME_CAP), "value": value}
+            spent += len(shown["name"].encode()) + len(value.encode())
+            if spent > HEADER_BYTES:
+                break
+            kept.append(shown)
+        return kept, len(given) - len(kept)
 
 
 def _password(url: str) -> tuple[int, int] | None:

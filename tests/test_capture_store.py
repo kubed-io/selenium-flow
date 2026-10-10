@@ -7,6 +7,7 @@ import pytest
 from kubed.selenium_flow.capture import (
     CONSOLE_LIMIT,
     DEFAULT_TTL,
+    HEADER_BYTES,
     MASK,
     REPLAY_DEPTH,
     REQUEST_LIMIT,
@@ -104,6 +105,19 @@ def test_requests_merge_by_id_and_redirect(capture):
               timings=chrome_timings(2011.0, 39.4)))
     rows = capture.network("ws")["requests"]
     assert [(r["id"], r["status"], r["took_ms"]) for r in rows] == [("1.2", 200, 39), ("1.1", 302, 10)]
+
+
+def test_a_rows_headers_are_bounded_a_side_and_what_was_dropped_is_counted(capture):
+    attach(capture)
+    big = [(f"x-{i}", "v" * 5000) for i in range(40)]
+    feed(capture, nav_started("https://a.test/"), req("r1", "https://a.test/api", headers=big))
+    assert capture.request("ws", "1.1")["headers_dropped"] == 37
+    feed(capture, done("r1", 500, headers=big))
+    detail = capture.request("ws", "1.1")
+    assert detail["headers_dropped"] == 74
+    for side in ("request_headers", "response_headers"):
+        assert sum(len(h["name"].encode()) + len(h["value"].encode()) for h in detail[side]) <= HEADER_BYTES
+    assert "headers_dropped" not in capture.network("ws")["requests"][0]
 
 
 def test_firefox_takes_its_duration_from_its_epoch_timings(capture):

@@ -41,6 +41,11 @@ DEFAULT_TTL = 10_800
 TEXT_CAP = 4096
 HEADER_LIMIT = 32
 HEADER_VALUE_CAP = 4096
+# A header's name, and the bytes of names and values one side of a request may
+# keep: a hostile page and its server choose how many large headers there are,
+# and 32 of 4 kB a side, 1 000 rows a workspace, is half a gigabyte.
+HEADER_NAME_CAP = 256
+HEADER_BYTES = 16_384
 TAIL_QUEUE = 500
 BODY_CAP = 100_000
 

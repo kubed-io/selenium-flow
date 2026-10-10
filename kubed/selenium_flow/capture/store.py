@@ -456,6 +456,7 @@ class Capture:
         buffer.counter += 1
         buffer.seq += 1
         nav = buffer.nav
+        headers, dropped = held.masker.headers(request.get("headers"))
         row = {
             "id": f"{nav}.{buffer.counter}",
             "seq": buffer.seq,
@@ -473,8 +474,9 @@ class Capture:
             "context": context,
             "nav": nav,
             "navigation": navigation and context == held.top,
-            "request_headers": held.masker.headers(request.get("headers")),
+            "request_headers": headers,
             "response_headers": [],
+            "headers_dropped": dropped,
         }
         _bump(buffer.seen, nav)
         timestamp = params.get("timestamp")
@@ -513,7 +515,8 @@ class Capture:
         row["status_text"] = mask(str(response.get("statusText") or ""))
         row["mime"] = mask(str(response.get("mimeType") or ""))
         row["size"] = size if number(size) else None
-        row["response_headers"] = held.masker.headers(response.get("headers"))
+        row["response_headers"], dropped = held.masker.headers(response.get("headers"))
+        row["headers_dropped"] += dropped
         row["took_ms"] = took_ms(params, flight.begin)
         if row["type"] == "other":
             row["type"] = resource_type(flight.kind, row["mime"], flight.navigation)
