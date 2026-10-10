@@ -33,7 +33,7 @@ Epic agents read it; they do not edit it (programme R15).
       `spec approved`, `plan approved`; created 2026-10-09.
 - [x] **Saga pointer.** AGENTS.md says the design record lives in `saga/`;
       it lives in `docs/superpowers/` now and the saga is deprecated. Folded
-      into E1's scope; no separate change. Done in E1 (#67): AGENTS.md points
+      into E1's scope; no separate change. Done in E1 (PR #67): AGENTS.md points
       at `docs/superpowers/` and calls the saga deprecated.
 - [x] **Copilot.** The code loop wakes on Copilot's review *or* a comment from
       Dr K. Copilot is out of credits, so a subagent sits in its seat with the
@@ -108,8 +108,8 @@ results once run; name the Penpot boards it reads.
       E2, E5 and E7 each had their wiki submodule commits replayed onto their
       predecessor's wiki commit, and the README held under its 25,000-byte
       budget.
-- [x] Merged E1 (#67), E2 (#68) and E5 (#69) on 2026-10-09, E7 (#70) on
-      2026-10-10. E3 (#64), E4 (#65) and E6 (#66) are open.
+- [x] Merged E1 (PR #67), E2 (PR #68) and E5 (PR #69) on 2026-10-09, E7
+      (PR #70) on 2026-10-10. E3, E4 and E6 (issues #64–#66) are open.
 
 ## Done when
 

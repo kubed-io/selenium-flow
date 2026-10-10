@@ -151,6 +151,7 @@ A pull request runs these, and all but `Bench` are required to merge:
 |---|---|
 | `PR Tasks` | assigns you, and fails if `CHANGELOG.md` has no new `[Unreleased]` entry — that section becomes the release notes. The `no changelog` label is the escape hatch |
 | `Test (3.14)` | `ruff check .` and the full pytest suite |
+| `Test (3.10)` | the same on the oldest supported Python — **not required**: advisory until the ruleset on `main` requires it |
 | `UI` | `ui.yml` — lint, types (`svelte-check`), tests, build, bundle guards (exactly the six files `page()` inlines, and no built JS/CSS leaks a `<script`/`</style`) and the size report |
 | `Package` | builds the sdist + wheel, `twine check --strict`, then installs the wheel clean and imports it |
 | `CodeQL` / `Dependency Audit` / `Workflow Audit` / `Dockerfile Lint` / `OpenAPI Spec` | `quality.yml` — code scanning, `pip-audit`, `zizmor`, `hadolint`, and a Redocly lint of the generated spec |

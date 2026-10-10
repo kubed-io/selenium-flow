@@ -183,10 +183,12 @@ def patch_os(monkeypatch, name, replacement):
     import os
     import pathlib
 
-    monkeypatch.setattr(os, name, replacement)
+    # Only a slot that holds this very `os` function: 3.10's accessor `open` is
+    # `io.open`, and replacing it would break `Path.open` instead.
     accessor = getattr(pathlib, "_NormalAccessor", None)  # 3.10 only
-    if accessor is not None and hasattr(accessor, name):
+    if accessor is not None and vars(accessor).get(name) is getattr(os, name):
         monkeypatch.setattr(accessor, name, staticmethod(replacement))
+    monkeypatch.setattr(os, name, replacement)
 
 
 class FakeClock:
