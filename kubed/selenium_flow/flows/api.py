@@ -661,7 +661,7 @@ def run_for(
     def step_started(entry, total):
         if before_step is not None:
             before_step(entry, total)
-        begun[:] = [calls.begin(workspace, resolved)]
+        begun[:] = [calls.begin(workspace, resolved, browser=kind)]
 
     def step_done(tool, error):
         if begun:

@@ -301,6 +301,11 @@ class Monitor:
         conn = w.connection if w is not None else None
         return conn if conn is not None and conn.is_open else None
 
+    def owes(self, session_id: str, reason: str) -> bool:
+        """Whether this session's watch owes ``reason`` right now, held or not."""
+        w = self.watches.get(session_id)
+        return w is not None and reason in w.owed
+
     def capturing(self, session_id: str) -> bool:
         """Whether a connection to this session's browser is held right now."""
         w = self.watches.get(session_id)

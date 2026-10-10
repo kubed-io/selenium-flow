@@ -75,6 +75,20 @@ async def test_the_deadline_closes_clean_and_a_touch_reattaches_as_again(running
     assert sink.calls[-2:] == [("attached", "ws1", GID, "", "top-1", True), ("replayed", "ws1", GID)]
 
 
+async def test_past_the_deadline_capture_is_still_owed_and_an_attach_holds_it_again(running_monitor, clock):
+    """What a call's start does after an agent's pause (`Calls.begin`): the
+    watch still owes capture, and attaching holds it again, replay aligned."""
+    monitor, sink = running_monitor
+    await asyncio.to_thread(monitor.attach, "ws1", GID, "capture", browser="chrome", grid_timeout=300)
+    clock.now += 301
+    await monitor.look()
+    assert monitor.owes(GID, "capture") and not monitor.capturing(GID)
+    assert not monitor.owes(GID, "other") and not monitor.owes("nobody", "capture")
+    await asyncio.to_thread(monitor.attach, "ws1", GID, "capture", browser="chrome")
+    assert monitor.capturing(GID) and len(FakeConnection.made) == 2
+    assert sink.calls[-2:] == [("attached", "ws1", GID, "chrome", "top-1", True), ("replayed", "ws1", GID)]
+
+
 async def test_a_reason_added_later_subscribes_what_it_adds(running_monitor):
     monitor, _ = running_monitor
     monitor.events_for["other"] = ("browsingContext.load",)

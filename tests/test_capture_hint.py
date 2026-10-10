@@ -40,12 +40,23 @@ class FakeMonitor:
         self.bus = Bus(self.published)
         self.held = None
         self.loop = None
+        self.owed: set[str] = set()  # sessions that owe capture
+        self.attached: list = []
 
     def touch(self, session_id, at=None):
         self.touched.append(session_id)
 
     def connection(self, session_id):
         return self.held
+
+    def owes(self, session_id, reason):
+        return reason == "capture" and session_id in self.owed
+
+    def capturing(self, session_id):
+        return self.held is not None
+
+    def attach(self, workspace, session_id, reason, **kwargs):
+        self.attached.append((workspace, session_id, reason, kwargs.get("browser")))
 
     def opened(self, *args, **kwargs):
         pass
@@ -160,6 +171,10 @@ def test_a_failed_call_without_a_hint_says_only_its_own_words(captured_ws):
 
 
 def test_each_call_counts_only_its_own_window(captured_ws):
+    """The quick call arrives while the slow one runs, and causes an error of
+    its own. Holding the session's lock, it runs after the slow one ends, and
+    each counts exactly its own; without it, the slow call's window would take
+    in the quick one's error too."""
     workspaces, capture, _ = captured_ws
     entered, release = threading.Event(), threading.Event()
 
@@ -169,18 +184,75 @@ def test_each_call_counts_only_its_own_window(captured_ws):
         capture.ingest("ws", sid, *log("mine", level="error"))
         return {"url": "u"}
 
+    def quick(sid):
+        capture.ingest("ws", sid, *log("theirs", level="error"))
+        return {"url": "u"}
+
     results = {}
     first = threading.Thread(target=lambda: results.setdefault(
         "slow", workspaces.act(Caller("ws", "query"), slow, tool="interact")))
     first.start()
-    entered.wait(2)
+    assert entered.wait(2)
     second = threading.Thread(target=lambda: results.setdefault(
-        "quick", workspaces.act(Caller("ws", "query"), lambda s: {"url": "u"}, tool="extract")))
+        "quick", workspaces.act(Caller("ws", "query"), quick, tool="extract")))
     second.start()
+    second.join(0.3)  # in act before the slow call lets go: waiting, or (unlocked) done
     release.set()
     first.join()
     second.join()
-    assert results["slow"]["page"]["errors"] == 1 and "page" not in results["quick"]
+    assert results["slow"]["page"]["errors"] == 1
+    assert results["quick"]["page"]["errors"] == 1
+
+
+# ---- the first call after a pause (final review I1) ---------------------------
+
+
+def test_the_first_call_after_a_pause_holds_capture_again_before_it_acts(captured_ws):
+    """The deadline closed the connection while the agent thought; the call
+    that comes back is the one most worth capturing."""
+    workspaces, _, monitor = captured_ws
+    sid = workspaces.store.get("ws").session_id
+    monitor.owed.add(sid)
+    order = []
+    monitor.attach = lambda *a, **k: order.append(("attach", *a, k.get("browser")))
+    workspaces.act(Caller("ws", "query"), lambda s: order.append("act") or {"url": "u"},
+                   tool="interact")
+    assert order == [("attach", "ws", sid, "capture", "chrome"), "act"]
+
+
+def test_a_held_or_unowed_capture_is_not_attached_again(captured_ws):
+    workspaces, _, monitor = captured_ws
+    sid = workspaces.store.get("ws").session_id
+    workspaces.act(Caller("ws", "query"), lambda s: {"url": "u"}, tool="extract")
+    monitor.owed.add(sid)
+    monitor.held = object()
+    monitor.loop = None
+    workspaces.act(Caller("ws", "query"), lambda s: {"url": "u"}, tool="extract")
+    assert monitor.attached == []
+
+
+def test_capture_that_cannot_resume_never_fails_the_call(captured_ws, caplog):
+    workspaces, _, monitor = captured_ws
+    sid = workspaces.store.get("ws").session_id
+    monitor.owed.add(sid)
+
+    def refuse(*_a, **_k):
+        raise faults.BidiUnavailable(f"no route to {sid}")
+
+    monitor.attach = refuse
+    assert workspaces.act(Caller("ws", "query"), lambda s: {"url": "u"}, tool="extract") == {"url": "u"}
+    assert "BidiUnavailable" in caplog.text and sid not in caplog.text
+
+
+def test_a_bound_write_and_a_flow_step_resume_capture_too(tmp_path, catalogue):
+    run = FlowRun(tmp_path)
+    sid = run.workspaces.store.get("ws").session_id
+    run.monitor.owed.add(sid)
+    run(steps=[("interact", 0, 0)])
+    run.actions.write = lambda sid, text, **kw: {"url": "u", "value": None}
+    perform_write(catalogue, run.actions, run.workspaces, "ws",
+                  {"secret": {"name": "demo", "key": "password"}, "selector": {"css": "#p"}})
+    assert run.monitor.attached == [("ws", sid, "capture", "chrome")] * 2
 
 
 # ---- every call is said ------------------------------------------------------

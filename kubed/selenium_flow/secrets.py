@@ -761,7 +761,7 @@ def perform_write(
     calls = workspaces.calls
     resolved, kind = workspaces.resolved(name)
     with locks.driving(resolved):
-        begun = calls.begin(name, resolved)
+        begun = calls.begin(name, resolved, browser=kind)
         try:
             given, guarded = binding.bind_into(
                 kwargs,

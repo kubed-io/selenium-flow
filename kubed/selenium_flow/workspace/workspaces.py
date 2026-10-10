@@ -675,7 +675,7 @@ class Workspaces:
             else contextlib.nullcontext()
         )
         with turn:
-            begun = self.calls.begin(name, resolved)
+            begun = self.calls.begin(name, resolved, browser=kind)
             try:
                 result = call(resolved)
             except Exception as exc:

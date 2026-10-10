@@ -6,6 +6,9 @@ bound write (`secrets.perform_write`), a flow step (`flows.api.run_for`) —
 calls `Calls.begin` as the call starts and `Calls.end` once it has its answer,
 and that is the whole of what it does here:
 
+- capture is held again when it is owed and was let go while the agent
+  paused (the deadline closes an idle connection), so the call that comes back
+  is captured too;
 - the monitor is touched, so a held connection's deadline moves on;
 - `call.finished` is published, values-free (ruling 14): who, which tool on
   which surface, how it came out, when and how long;
@@ -126,7 +129,9 @@ class Calls:
         window has to be its own, and the host holds the session's lock."""
         return self._mark(workspace) is not None
 
-    def begin(self, workspace: str, session_id: str) -> Begun:
+    def begin(self, workspace: str, session_id: str, *, browser: str = "") -> Begun:
+        """A call starts: capture is held again if it lapsed, then marked."""
+        self._resume(workspace, session_id, browser)
         return Begun(workspace, session_id, self.clock(), self._mark(workspace))
 
     def end(
@@ -171,6 +176,24 @@ class Calls:
         capture would keep in the clear is worse than not typing it."""
         if self.capture is not None:
             self.capture.secret(workspace, forms)
+
+    def _resume(self, workspace: str, session_id: str, browser: str) -> None:
+        """Hold capture's connection again before the call, when the session
+        owes capture and none is held: the deadline let it go while the agent
+        paused, and the touch at the end would come too late for this call.
+        A hold again aligns Chrome's replay. A failure costs this call its
+        capture, never the call; it is logged by type (it names a Grid id)."""
+        monitor = self.monitor
+        if monitor is None or self.capture is None:
+            return
+        try:
+            lapsed = monitor.owes(session_id, "capture") and not monitor.capturing(
+                session_id
+            )
+            if lapsed:
+                monitor.attach(workspace, session_id, "capture", browser=browser)
+        except Exception as exc:  # noqa: BLE001 - capture is a fact, not a need
+            log.warning("capture did not resume for a call: %s", type(exc).__name__)
 
     def _mark(self, workspace: str) -> Mark | None:
         if self.capture is None:
