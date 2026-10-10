@@ -13,10 +13,10 @@ pytest
 two documented exceptions live in `[tool.ruff.lint]` in `pyproject.toml`, so
 there is no second list of paths to keep in sync.
 
-Python 3.14 is the baseline — it is what the image runs and the only interpreter
-a pull request is tested on. The package supports 3.10 and up, and CI sweeps the
-whole range on main and on every release, so a 3.11+ feature is a build break on
-the oldest leg rather than a style question. See
+Python 3.14 is the baseline — it is what the image runs. The package supports
+3.10 and up: a pull request is tested on 3.10 and 3.14, and CI sweeps the whole
+range on main and on every release, so a 3.11+ feature is a build break on the
+oldest leg rather than a style question. See
 [`.github/instructions/python.instructions.md`](.github/instructions/python.instructions.md)
 for the ones that actually come up.
 
