@@ -15,6 +15,11 @@ import requests
 
 from .urls import without_userinfo
 
+# How the one note a caller reads begins: what the page reported while a call
+# that failed was running (`workspace.calls`, plan ruling 7). Any other note on
+# an exception is a library's or a log's, and never reaches a caller.
+PAGE_NOTE = "This call caused "
+
 
 class AssertionFailed(Exception):
     """An `assert` step's JavaScript came back false.
@@ -74,7 +79,22 @@ def message(exc: BaseException) -> str:
     log besides. The status and reason are the whole of the useful part. Done
     here rather than in each of the three handlers, for the reason this module
     exists: one place decides what a failure says.
+
+    A failed call that made the page report errors carries one more sentence,
+    as a note beginning `PAGE_NOTE` (`workspace.calls`); it follows the line
+    after a space. No other note is ever said.
     """
+    text = _said(exc)
+    page = [
+        note
+        for note in getattr(exc, "__notes__", None) or ()
+        if isinstance(note, str) and note.startswith(PAGE_NOTE)
+    ]
+    return " ".join([text, *page])
+
+
+def _said(exc: BaseException) -> str:
+    """`message` before the page's note."""
     if isinstance(exc, requests.HTTPError):
         text = str(exc).split(" for url:", 1)[0].strip()
         return without_userinfo(text) or "the grid refused the request"

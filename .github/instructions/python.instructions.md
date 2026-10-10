@@ -8,21 +8,20 @@ Applies to every `.py` file here. Cross-cutting review priorities are in
 [copilot-instructions.md](../copilot-instructions.md); this file is the
 language-specific rules. These are hard conventions — flag violations.
 
-## The supported range is 3.10 → 3.14
+## The supported range is 3.11 → 3.14
 
-`pyproject.toml` declares `requires-python = ">=3.10"`, and `test.yml` sweeps the
-whole range on main. So a 3.11+ syntax or stdlib feature is a **build break on
+`pyproject.toml` declares `requires-python = ">=3.11"`, and `test.yml` sweeps the
+whole range on main. So a 3.12+ syntax or stdlib feature is a **build break on
 the oldest supported interpreter**, not a style question.
 
-The ones that actually come up:
+The ones that are fine, because 3.11 is the floor:
 
-- `match` statements are 3.10, fine. `except*` groups are 3.11 — not fine.
-- `typing.Self` and `asyncio.TaskGroup` are 3.11 — not fine.
-- `tomllib` is 3.11 — not fine.
-- `X | Y` in an annotation is fine on 3.10 **because every module starts with
+- `match` statements, `except*` groups, `typing.Self`, `asyncio.TaskGroup`,
+  `tomllib` and `BaseException.add_note` are all available.
+- `X | Y` in an annotation is fine **because every module starts with
   `from __future__ import annotations`**. Used at runtime — `isinstance(x, A | B)`,
-  a `TypeAlias` value, a pydantic field evaluated eagerly — it is 3.10+ only in
-  annotations and needs care elsewhere.
+  a `TypeAlias` value, a pydantic field evaluated eagerly — it needs care outside
+  annotations.
 
 If a newer feature is genuinely worth it, the change is to raise
 `requires-python` and drop matrix legs, in its own PR, deliberately. Not silently.

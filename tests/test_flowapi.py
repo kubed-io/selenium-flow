@@ -488,7 +488,7 @@ def ran(flow_server, monkeypatch):
 
     for tool in ("navigate", "write", "interact"):
         monkeypatch.setattr(flow_server.actions, tool, record(tool))
-    monkeypatch.setattr(flow_server.workspaces, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(flow_server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     return flow_server, calls
 
 
@@ -574,7 +574,7 @@ def test_verbose_false_over_http_does_not_turn_verbose_on(client, flow_server,
         "navigate",
         lambda session_id, **kw: {"url": "u", "title": "t", "big": "x" * 100},
     )
-    monkeypatch.setattr(flow_server.workspaces, "resolve", lambda name: "b")
+    monkeypatch.setattr(flow_server.workspaces, "resolved", lambda name: ("b", "chrome"))
     client.put("/flows/f", json={"steps": GOOD}, headers=named("workflow"))
     response = client.post(
         "/flows/f/runs", json={"verbose": "false"}, headers=named("workflow")
@@ -592,7 +592,7 @@ async def test_a_resize_step_is_written_back_to_the_workspace(flow_server, monke
         lambda session_id, **kw: {"width": kw["width"], "height": kw["height"],
                                   "url": "u", "title": "t"},
     )
-    monkeypatch.setattr(flow_server.workspaces, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(flow_server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     flow_server.workspaces.remember(NAMED, "browser-1", "", {"browser": "firefox"})
     await call(
         flow_server,
@@ -711,7 +711,7 @@ async def test_a_run_reads_a_kept_file_from_the_callers_own_library(
     monkeypatch.setattr(
         "kubed.selenium_flow.core.browser.wait_for_element", lambda *a, **k: _Element()
     )
-    monkeypatch.setattr(flow_server.workspaces, "resolve", lambda *a, **k: "browser-1")
+    monkeypatch.setattr(flow_server.workspaces, "resolved", lambda *a, **k: ("browser-1", "chrome"))
 
     # Seeded in the SHARED library, deliberately. If the flow were saved into
     # this caller's own, `document["workspace"]` and the caller's library would

@@ -26,6 +26,7 @@ from collections.abc import Callable
 from typing import Annotated, Literal
 
 from fastmcp import FastMCP
+from fastmcp.apps import AppConfig
 from fastmcp.server.middleware import Middleware
 from fastmcp.tools import ToolResult
 from fastmcp.utilities.types import Image
@@ -35,6 +36,7 @@ from .. import secrets as secrets_module
 from ..core.actions import (
     DIALOG_ACTIONS,
     FRAME_ACTIONS,
+    ID_LIMIT,
     MOUSE_ACTIONS,
     PRINT_FORMATS,
     Actions,
@@ -74,6 +76,7 @@ DialogAction = Annotated[Literal[DIALOG_ACTIONS], BeforeValidator(_lowered)]
 FrameAction = Annotated[Literal[FRAME_ACTIONS], BeforeValidator(_lowered)]
 PrintFormat = Annotated[Literal[PRINT_FORMATS], BeforeValidator(_lowered)]
 Browser = Annotated[Literal[BROWSERS] | None, BeforeValidator(_blank_is_unset)]
+RequestId = Annotated[str, Field(min_length=1, max_length=ID_LIMIT)]
 
 def _as_selector(value):
     """A selector sent as a JSON string, turned back into an object.
@@ -263,9 +266,10 @@ def _as_image(result: dict) -> Image | ToolResult:
     # - `file_error`: the capture survived and the file did not, and an MCP
     #   caller given only the image would look for a name never coming;
     # - `site_data`: the first call after a silent reopen says what came
-    #   back (``Workspaces.settle``) — dropped here, it is never said at all.
+    #   back (``Workspaces.settle``) — dropped here, it is never said at all;
+    # - `page`: what the page reported while the call ran (`workspace.calls`).
     told = {
-        k: result[k] for k in ("file", "file_error", "site_data")
+        k: result[k] for k in ("file", "file_error", "site_data", "page")
         if result.get(k) is not None
     }
     if not told:
@@ -290,8 +294,12 @@ def register(
     def publish(fn, name: str, description: str | None):
         row = capability(name)
         declared.add(row.name)
+        app = AppConfig(visibility=list(row.visibility)) if row.visibility else None
         return mcp.tool(
-            name=row.name, description=description, annotations=row.annotations
+            name=row.name,
+            description=description,
+            annotations=row.annotations,
+            app=app,
         )(fn)
 
     def act(row: Capability, arguments: dict):
@@ -305,13 +313,16 @@ def register(
                 raise ValueError(f"{row.name} needs text, or a secret to supply it")
             if arguments["secret"] is not None:
                 return secrets_module.perform_write(
-                    catalogue, actions, workspaces, clients.caller().name, arguments
+                    catalogue, actions, workspaces, clients.caller().name, arguments,
+                    surface="mcp",
                 )
             del arguments["secret"]
         return workspaces.act(
             clients.caller(),
             lambda s: getattr(actions, row.method)(s, **arguments),
             reshapes=row.reshapes,
+            tool=row.name,
+            surface="mcp",
         )
 
     def action(
@@ -351,6 +362,7 @@ def register(
         script_timeout: int | None = None,
         insecure: bool | None = None,
         record: bool | None = None,
+        capture: bool | None = None,
         fresh: bool = False,
         restore_site_data: bool = True,
     ) -> dict:
@@ -373,6 +385,11 @@ def register(
         ends; it appears under workspace://files/recordings shortly after. A person
         watches it, so only when one will — it costs the Grid. Not inherited: ask
         again for the next browser.
+        capture=true keeps what the page logs and fetches — workspace://console and
+        workspace://network — and a call that caused a page error says so in its
+        result. Off by default and not inherited: ask again for the next browser.
+        An open without capture=true also forgets what was captured, so read those
+        first when you are debugging.
         """
         return workspaces.open_browser(
             clients.caller(),
@@ -386,7 +403,17 @@ def register(
             script_timeout=script_timeout,
             insecure=insecure,
             record=record,
+            capture=capture,
         )
+
+    @action("network_body")
+    def network_body(id: RequestId) -> dict:
+        """Fetch the response body of one request the page made, by its id from
+        workspace://network (an id looks like 3.7). Text comes back up to 100 kB,
+        with truncated=true beyond that; for an image or other binary you get its
+        type and size, not its bytes. The browser keeps bodies only while it lives,
+        so read one soon after the request; it needs open_session(capture=true).
+        """
 
     @action("save_site_data")
     def save_site_data(url: str | None = None) -> dict:

@@ -91,14 +91,8 @@ def test_a_malformed_arguments_block_is_refused_rather_than_fatal(tmp_path):
 def test_every_prompt_file_is_covered_by_package_data(tmp_path):
     """The tests load prompts from the checkout, so a wrong mapping would ship
     an image with no prompts while everything here passed (Copilot, #30)."""
+    import tomllib
     from pathlib import Path
-
-    # tomllib is 3.11+, and this project supports 3.10 — the same fallback
-    # tests/test_packaging.py uses, pulled in by the `test` extra (Copilot, #30).
-    try:
-        import tomllib
-    except ModuleNotFoundError:  # pragma: no cover - 3.10 only
-        import tomli as tomllib
 
     with Path("pyproject.toml").open("rb") as handle:
         config = tomllib.load(handle)

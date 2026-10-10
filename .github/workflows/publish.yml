@@ -4,7 +4,7 @@ name: 🧬 Publish Version
 # a clean input, ordered so nothing outward-facing happens until every artifact
 # it refers to already exists:
 #
-#   test    → the full 3.10 → 3.14 matrix. A release is the one moment the
+#   test    → the full 3.11 → 3.14 matrix. A release is the one moment the
 #             compatibility sweep has to be green, so it gates everything below.
 #   ui      → ui.yml, gating beside test: the image and the wheel inline its build.
 #   version → roll CHANGELOG [Unreleased], commit + tag on main. The ONLY job
@@ -61,7 +61,7 @@ jobs:
   # ---------------------------------------------------------------------------
   # The gate. Called rather than assumed: main being green yesterday is not the
   # same claim as this ref being green now, and the matrix here is the full
-  # supported range because a release is what makes the >=3.10 promise real.
+  # supported range because a release is what makes the >=3.11 promise real.
   # ---------------------------------------------------------------------------
   test:
     name: Test

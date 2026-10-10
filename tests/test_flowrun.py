@@ -971,6 +971,36 @@ def test_a_key_is_scrubbed_like_a_value_and_a_collision_keeps_the_later():
     assert collided == {"result": {"<hidden>": "later"}}
 
 
+def test_a_value_echoed_json_or_html_escaped_is_scrubbed_whole():
+    """The forms capture masks are the forms a run scrubs: an escaped echo in a
+    step's result is hidden whole, and a plain form inside an escaped one
+    never leaves the escape's remainder behind (PR review I2)."""
+    hidden = redact.hidden_forms(['"q<é', "", None])
+    assert "" not in hidden and None not in hidden
+    # JSON's \" holds the plain "q<é inside it, after its backslash.
+    for echo in ('\\"q<\\u00e9', '\\"q<é', "&quot;q&lt;é", '"q&lt;é'):
+        assert redact.scrub(f"saw {echo}!", hidden) == "saw <hidden>!"
+
+
+def test_the_other_servers_escapes_of_a_value_are_scrubbed_whole():
+    """PR review, round 2: Go's encoding/json escapes < > & as \\u003c..., PHP
+    8.1 writes ' as &#039;, HTML5 as &apos;, Go's html/template " as &#34; and
+    + as &#43;, and a JSON encoder may write its hex in capitals."""
+    secret = "<>&'\"é+"
+    hidden = redact.hidden_forms([secret])
+    echoes = (
+        "\\u003c\\u003e\\u0026'\\\"é+",  # Go encoding/json
+        "&lt;&gt;&amp;&#039;&quot;é+",  # PHP 8.1+ htmlspecialchars
+        "&lt;&gt;&amp;&apos;&quot;é+",  # ENT_HTML5 / XML
+        "&lt;&gt;&amp;&#39;&#34;é&#43;",  # Go html/template
+        "<>&'\\\"\\u00E9+",  # JSON, ASCII only, capital hex
+    )
+    for echo in echoes:
+        assert echo in hidden, echo
+        assert redact.scrub(f"saw {echo}!", hidden) == "saw <hidden>!", echo
+    assert len(hidden) <= 16  # a fixed few forms per value, whatever it holds
+
+
 def test_the_responses_own_fields_are_never_scrubbed():
     """A secret that spells `url` must not rename the field a caller reads."""
     assert redact.scrub_values({"url": "https://x.test/", "title": "t"}, {"url"}) == {
@@ -1508,3 +1538,64 @@ def test_a_failed_step_says_one_line_not_the_driver_s_stack_trace():
     # One line: Chrome's "(Session info: …)" line goes too (Copilot, #53).
     assert "\n" not in error
     assert "Session info" not in error
+
+
+# ---- what capture hears: the value bound, and every step that acted -------------
+
+
+class Seen(FakeActions):
+    """FakeActions that note each action among the hooks' calls."""
+
+    def __init__(self, order, **kwargs):
+        super().__init__(**kwargs)
+        self.order = order
+
+    def _record(self, tool, session_id, **kwargs):
+        self.order.append(("acted", tool))
+        return super()._record(tool, session_id, **kwargs)
+
+
+def test_a_bound_value_is_handed_over_before_the_step_acts():
+    order = []
+    steps = [
+        {"tool": "navigate", "args": {"url": "x"}},
+        {"tool": "write", "args": {"selector": {"css": "#password"}, "secret": SECRET_STEP}},
+    ]
+    run(
+        Seen(order), flow(steps), "b", catalogue=Vault("a b"),
+        bound=lambda forms: order.append(("bound", frozenset(forms))),
+    )
+    assert order == [
+        ("acted", "navigate"),
+        ("bound", frozenset({"a b", "a%20b", "a+b"})),
+        ("acted", "write"),
+    ]
+
+
+def test_every_step_that_acted_is_done_once_with_its_failure():
+    done = []
+    steps = [
+        {"tool": "navigate", "args": {"url": "x"}, "onError": "continue"},
+        {"tool": "interact", "args": {"action": "click", "selector": {"css": "b"}}},
+        {"tool": "navigate", "args": {"url": "y"}},
+    ]
+    run(
+        FakeActions(fail_on={1, 2}), flow(steps), "b",
+        step_done=lambda tool, error: done.append((tool, type(error).__name__)),
+    )
+    assert done == [("navigate", "RuntimeError"), ("interact", "RuntimeError")]
+    done.clear()
+    run(FakeActions(), flow(SIMPLE), "b", step_done=lambda tool, error: done.append((tool, error)))
+    assert done == [("navigate", None), ("write", None), ("interact", None)]
+
+
+def test_a_step_refused_before_acting_is_never_done():
+    done = []
+    steps = [
+        {"tool": "write", "args": {"selector": {"css": "#password"}, "secret": SECRET_STEP}},
+    ]
+    report = run(
+        FakeActions(), flow(steps), "b",
+        step_done=lambda tool, error: done.append(tool),
+    )
+    assert report["status"] == "failed" and done == []

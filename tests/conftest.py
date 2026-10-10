@@ -23,6 +23,10 @@ from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace.store import MemoryStore
 from kubed.selenium_flow.workspace.workspaces import Workspaces
 
+from .bidi_fakes import (
+    FakeBrowser,
+    browser_in_thread,  # noqa: F401 - a fixture, offered here
+)
 from .fakes import FakeGrid, ScriptedDriver
 
 TOKEN = "test-token-abc123"
@@ -64,6 +68,13 @@ def open_server():
 
 
 # ---- doubles ---------------------------------------------------------------
+
+
+@pytest.fixture
+async def browser():
+    """A browser's BiDi end on this test's loop (`tests/bidi_fakes.py`)."""
+    async with FakeBrowser() as fake:
+        yield fake
 
 
 class RecordingActions:

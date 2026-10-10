@@ -588,6 +588,31 @@
     },
     "name": "navigate"
   },
+  "network_body": {
+    "annotations": {
+      "destructive_hint": false,
+      "idempotent_hint": true,
+      "open_world_hint": true,
+      "read_only_hint": true,
+      "title": "Fetch a response body"
+    },
+    "description": "Fetch the response body of one request the page made, by its id from\nworkspace://network (an id looks like 3.7). Text comes back up to 100 kB,\nwith truncated=true beyond that; for an image or other binary you get its\ntype and size, not its bytes. The browser keeps bodies only while it lives,\nso read one soon after the request; it needs open_session(capture=true).",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "network_body"
+  },
   "open_session": {
     "annotations": {
       "destructive_hint": true,
@@ -596,7 +621,7 @@
       "read_only_hint": false,
       "title": "Open browser session"
     },
-    "description": "Start a session in this workspace, or come back to the one it had. Call it\nbefore anything else: nothing opens a browser for you.\n\nWith no arguments it returns to the same browser, window and page, which is\nthe right call after a browser was reaped or ended. Calling it while you\nhold a browser ends that one first, which is how you switch:\nopen_session(browser=\"firefox\"). Files that browser had and you did not keep\ngo with it.\n\nSet width and height when layout matters; the headless default is narrow.\nfresh=true starts on about:blank. Saved site data comes back by default;\nrestore_site_data=false opens without it and deletes it, which is how you\nstart as a new user. page_load_timeout bounds a navigation that\nhangs. insecure=true accepts a self-signed certificate; use it only for a site\nyou know has one. An insecure browser gets no saved site data.\nrecord=true films this browser's whole life as a video, from now until it\nends; it appears under workspace://files/recordings shortly after. A person\nwatches it, so only when one will — it costs the Grid. Not inherited: ask\nagain for the next browser.",
+    "description": "Start a session in this workspace, or come back to the one it had. Call it\nbefore anything else: nothing opens a browser for you.\n\nWith no arguments it returns to the same browser, window and page, which is\nthe right call after a browser was reaped or ended. Calling it while you\nhold a browser ends that one first, which is how you switch:\nopen_session(browser=\"firefox\"). Files that browser had and you did not keep\ngo with it.\n\nSet width and height when layout matters; the headless default is narrow.\nfresh=true starts on about:blank. Saved site data comes back by default;\nrestore_site_data=false opens without it and deletes it, which is how you\nstart as a new user. page_load_timeout bounds a navigation that\nhangs. insecure=true accepts a self-signed certificate; use it only for a site\nyou know has one. An insecure browser gets no saved site data.\nrecord=true films this browser's whole life as a video, from now until it\nends; it appears under workspace://files/recordings shortly after. A person\nwatches it, so only when one will — it costs the Grid. Not inherited: ask\nagain for the next browser.\ncapture=true keeps what the page logs and fetches — workspace://console and\nworkspace://network — and a call that caused a page error says so in its\nresult. Off by default and not inherited: ask again for the next browser.\nAn open without capture=true also forgets what was captured, so read those\nfirst when you are debugging.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -608,6 +633,17 @@
                 "firefox"
               ],
               "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "capture": {
+          "anyOf": [
+            {
+              "type": "boolean"
             },
             {
               "type": "null"

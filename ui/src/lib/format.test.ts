@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { ago, idle, browserMark, bytes, clock, countsText, duration, flowParams, glyphFor, leaf, metaLine, plural, readable, safeHref, until, workspaceLabel, stepSummary } from './format'
+import { captureFact, ago, idle, browserMark, bytes, clock, countsText, duration, flowParams, glyphFor, leaf, metaLine, plural, readable, safeHref, until, workspaceLabel, stepSummary } from './format'
 
 describe('format', () => {
   test('idle timeout: seconds, then where it came from; nothing when unknown (spec ruling 11)', () => {
@@ -76,6 +76,9 @@ test('bytes', () => {
     expect(plural(1, 'step')).toBe('1 step')
     expect(plural(2, 'param')).toBe('2 params')
     expect(plural(1, 'kept file')).toBe('1 kept file')
+    expect(plural(2, 'entry')).toBe('2 entries')
+    expect(plural(1, 'entry')).toBe('1 entry')
+    expect(plural(2, 'key')).toBe('2 keys')
   })
   test('flowParams reads a hand-edited parameters block without trusting it', () => {
     expect(flowParams({ properties: { a: { type: 'string' } }, required: ['a', 3] })).toEqual({ properties: { a: { type: 'string' } }, required: ['a'] })
@@ -125,4 +128,17 @@ test('metaLine ends with who opened the browser', () => {
   expect(metaLine({ key: 'k', browser: 'chrome', opened_by: { kind: 'oidc', username: 'drk' } })).toBe('chrome · by drk')
   expect(metaLine({ key: 'k', browser: 'chrome', opened_by: { kind: 'admin', username: null } })).toBe('chrome · by token')
   expect(metaLine({ key: 'k', browser: 'chrome', opened_by: null })).toBe('chrome')
+})
+
+test('captureFact says each state as drawn', () => {
+  expect(captureFact({ key: 'k', capture: false })).toBe('off · open_session(capture=true) turns it on')
+  expect(captureFact({ key: 'k', capture: true, capturing: true, live: true,
+    captured: { console: 5, network: 24, errors: 2, failed_requests: 1 } }))
+    .toBe('on · receiving · 24 requests · 5 console entries')
+  expect(captureFact({ key: 'k', capture: true, capturing: false, live: true })).toBe('on · paused · resumes on the next call')
+  expect(captureFact({ key: 'k', capture: true, capturing: false, live: false, capture_ttl: 10800 }))
+    .toBe('on · kept 3 h after the last entry · resumes when the browser reopens')
+  expect(captureFact({ key: 'k', capture: true, capturing: false, live: false, capture_ttl: 1800 }))
+    .toBe('on · kept 30 min after the last entry · resumes when the browser reopens')
+  expect(captureFact({ key: 'k' })).toBeNull()
 })

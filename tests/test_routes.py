@@ -43,7 +43,7 @@ WORKSPACE = "desktop"
 
 @pytest.fixture
 def client(server, monkeypatch):
-    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     return TestClient(server.mcp.http_app(), headers={"X-Workspace": WORKSPACE})
 
 
@@ -55,7 +55,7 @@ def open_client(open_server, monkeypatch):
     resolved out of the way: the Grid address is unroutable, and reaching it is
     the sentinel for "the input was accepted".
     """
-    monkeypatch.setattr(open_server.workspaces, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(open_server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     return TestClient(open_server.mcp.http_app(), headers={"X-Workspace": WORKSPACE})
 
 
@@ -146,7 +146,7 @@ def test_a_browser_action_runs_off_the_event_loop(server, monkeypatch):
     MCP, the admin event stream and `/health` — until it finished."""
     seen = []
 
-    def act(name, work, reshapes=False):
+    def act(name, work, reshapes=False, **said):
         seen.append(_on_the_loop())
         return {"success": True}
 
@@ -733,14 +733,14 @@ def test_the_browser_resource_says_the_name_came_from_the_request(open_client):
 def test_x_workspace_names_the_workspace_over_http(open_server, monkeypatch):
     """A Claude.ai custom connector can send X-Workspace, and only approved
     headers, which is why it is the one header that names a workspace."""
-    monkeypatch.setattr(open_server.workspaces, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(open_server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     bare = TestClient(open_server.mcp.http_app())
     body = bare.get("/browser", headers={"X-Workspace": "claude-web"}).json()
     assert body["workspace"] == "claude-web"
 
 
 def test_x_workspace_and_a_query_name_is_a_400(open_server, monkeypatch):
-    monkeypatch.setattr(open_server.workspaces, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(open_server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     bare = TestClient(open_server.mcp.http_app())
     response = bare.get("/browser?workspace=b", headers={"X-Workspace": "a"})
     assert response.status_code == 400

@@ -13,12 +13,12 @@ from kubed.selenium_flow.site_data import snapshot as sd
 from kubed.selenium_flow.site_data import transfer
 from kubed.selenium_flow.workspace.store import Workspace
 
-from .fakes import FakeBidi
+from .fakes import FakeChannel
 from .site_data_fakes import (
     NOW,
     FakeSpare,
-    bidi_cm,
     bidi_cookie,
+    channels_for,
     cookie,
     snapshot,
 )
@@ -187,8 +187,8 @@ def spare(monkeypatch):
 
 
 def test_capture_reads_the_jar_the_page_and_every_other_origin_in_one_tab(spare):
-    bidi = FakeBidi()
-    bidi.storage.cookies = [bidi_cookie("sid", "app.example.com", http_only=True),
+    bidi = FakeChannel()
+    bidi.cookies = [bidi_cookie("sid", "app.example.com", http_only=True),
                             bidi_cookie("kc", "sso.example.com")]
     got = transfer.capture(bidi, PageDriver(PAGE), [APP, SSO, OLD])
     assert got["cookies"][0] == {
@@ -203,20 +203,20 @@ def test_capture_reads_the_jar_the_page_and_every_other_origin_in_one_tab(spare)
 
 
 def test_only_web_origins_are_visited(spare):
-    transfer.capture(FakeBidi(), PageDriver(PAGE), ["chrome://settings", SSO, "file:///tmp"])
+    transfer.capture(FakeChannel(), PageDriver(PAGE), ["chrome://settings", SSO, "file:///tmp"])
     assert spare.runs == [("spare", SSO)]
 
 
 def test_a_service_worker_origin_is_reported_and_never_read(spare):
     spare.workers = {SSO}
-    got = transfer.capture(FakeBidi(), PageDriver(PAGE), [APP, SSO, OLD])
+    got = transfer.capture(FakeChannel(), PageDriver(PAGE), [APP, SSO, OLD])
     assert got["others"] == {OLD: {}}
     assert got["failed"] == [{"site": SSO, "reason": "a service worker answered: save while on this site"}]
 
 
 def test_a_tab_that_cannot_open_fails_every_origin_it_did_not_read(spare):
     spare.broken = RuntimeError("socket is already closed")
-    got = transfer.capture(FakeBidi(), PageDriver(PAGE), [APP, SSO, OLD])
+    got = transfer.capture(FakeChannel(), PageDriver(PAGE), [APP, SSO, OLD])
     assert got["others"] == {}
     assert got["failed"] == [
         {"site": SSO, "reason": "socket is already closed"},
@@ -225,13 +225,13 @@ def test_a_tab_that_cannot_open_fails_every_origin_it_did_not_read(spare):
 
 
 def test_no_other_origin_means_no_tab(spare):
-    got = transfer.capture(FakeBidi(), PageDriver(PAGE), [APP])
+    got = transfer.capture(FakeChannel(), PageDriver(PAGE), [APP])
     assert spare.tabs == [] and got["others"] == {}
 
 
 def test_a_save_on_a_page_with_no_storage_keeps_the_cookies(spare):
-    bidi = FakeBidi()
-    bidi.storage.cookies = [bidi_cookie("sid", "app.example.com")]
+    bidi = FakeChannel()
+    bidi.cookies = [bidi_cookie("sid", "app.example.com")]
     got = transfer.capture(bidi, PageDriver({"origin": "", "local": {}, "session": {}}))
     data, saved = sd.snapshot({}, got, [], NOW)
     assert saved == {"cookies": 1, "sites": [], "skipped": []}
@@ -247,7 +247,7 @@ def page():
 
 def test_save_site_data_reads_the_origins_the_workspace_has_been_to(actions, monkeypatch, spare):
     monkeypatch.setattr(actions.grid, "reconnect", lambda sid: page())
-    monkeypatch.setattr(actions.grid, "bidi", bidi_cm(FakeBidi()))
+    monkeypatch.setattr(actions, "channels", channels_for(FakeChannel()))
     actions.visited = lambda: [APP, SSO]
     got = actions.save_site_data("sid")
     assert got["url"] == APP + "/" and got["title"] == "App"
@@ -256,7 +256,7 @@ def test_save_site_data_reads_the_origins_the_workspace_has_been_to(actions, mon
 
 def test_save_site_data_without_a_history_reads_only_the_page(actions, monkeypatch, spare):
     monkeypatch.setattr(actions.grid, "reconnect", lambda sid: page())
-    monkeypatch.setattr(actions.grid, "bidi", bidi_cm(FakeBidi()))
+    monkeypatch.setattr(actions, "channels", channels_for(FakeChannel()))
     assert actions.visited is None
     assert actions.save_site_data("sid")[sd.CAPTURED]["others"] == {}
     assert spare.tabs == []
@@ -275,9 +275,9 @@ def test_one_save_through_the_server_keeps_every_site_the_workspace_went_to(monk
     from .conftest import NAMED, TOKEN
 
     monkeypatch.setattr(Grid, "reconnect", lambda self, sid: page())
-    monkeypatch.setattr(Grid, "bidi", lambda self, sid: bidi_cm(FakeBidi())(sid))
-    monkeypatch.setattr(Workspaces, "resolve", lambda self, name: "live-id")
+    monkeypatch.setattr(Workspaces, "resolved", lambda self, name: ("live-id", "chrome"))
     server = SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}))
+    server.actions.channels = channels_for(FakeChannel())
     # Stamped now, not at NOW: the save reads the history as the next write
     # would keep it, and a fixed stamp ages out of the store's TTL.
     now = time.time()
@@ -331,10 +331,10 @@ def test_a_save_mid_flow_reads_the_sites_the_run_reached_before_it(
     tab = Tab()
     monkeypatch.setattr(Grid, "reconnect", lambda self, sid: tab)
     monkeypatch.setattr(Grid, "is_alive", lambda self, sid: True)
-    monkeypatch.setattr(Grid, "bidi", lambda self, sid: bidi_cm(FakeBidi())(sid))
     server = SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"}, data={"dir": str(tmp_path)},
     ))
+    server.actions.channels = channels_for(FakeChannel())
     server.flows.save(NAMED, "trip", {"steps": [
         {"tool": "navigate", "args": {"url": a + "/"}},
         {"tool": "navigate", "args": {"url": b + "/"}},

@@ -47,6 +47,10 @@ export interface WorkspaceRow {
   history_count?: number | null
   history_rev?: string | null
   opened_by?: { kind: 'admin' | 'oidc'; username?: string | null } | null
+  capture?: boolean
+  capturing?: boolean
+  captured?: Captured | null
+  capture_ttl?: number
 }
 
 export interface WorkspacesPayload { workspaces: WorkspaceRow[]; events_url?: string }
@@ -184,6 +188,38 @@ export interface ContextData {
   settings?: Record<string, unknown>
   guidance?: unknown
   site_data?: { sites: number; uri?: string }
+  capture?: boolean
+  capturing?: boolean
+  captured?: Captured
+}
+
+export interface Captured { console: number; network: number; errors: number; failed_requests: number }
+export interface Header { name: string; value: string }
+export interface PageMark { nav: number; url: string; at: number }
+export interface ConsoleEntry {
+  seq: number; at: number; level: string; type: string; text: string
+  source: { url: string; line: number } | null; context: string; nav: number; kept?: boolean
+}
+export interface RequestRow {
+  id: string; seq: number; at: number; method: string; url: string
+  status: number | null; status_text?: string; type: string; mime?: string; size: number | null
+  took_ms: number | null; failed: boolean; error: string | null; context: string; nav: number
+  navigation: boolean; kept?: boolean
+}
+export interface RequestDetail extends RequestRow {
+  request_headers: Header[]; response_headers: Header[]; headers_dropped?: number; uri: string
+}
+export type CaptureOff = { capture: false; how: string }
+export interface ConsoleData {
+  capture: true; capturing?: boolean; pages: PageMark[]; entries: ConsoleEntry[]
+  count: number; total: number; not_kept: { debug: number }; tail_url?: string
+}
+export interface NetworkData {
+  capture: true; capturing?: boolean; pages: PageMark[]; requests: RequestRow[]
+  count: number; total: number; not_kept: { static: number }; tail_url?: string
+}
+export interface BodyResult {
+  id: string; uri: string; mime: string; size: number | null; binary: boolean; text: string | null; truncated: boolean
 }
 
 export interface FolderRef { name: string; uri: string; count: number; browser?: boolean }

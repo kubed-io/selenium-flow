@@ -14,7 +14,7 @@ while a builder is followed.
 
 from __future__ import annotations
 
-from ..core.capabilities import CAPABILITIES, SITE_DATA_HINT
+from ..core.capabilities import CAPABILITIES, PAGE_HINT, SITE_DATA_HINT
 
 # What each capability answers is a column of its row in `core.capabilities`,
 # so a row cannot be written without one. This is that column by name, plus
@@ -57,6 +57,29 @@ RESPONSES = {
                 "description": (
                     "Whether the browser this workspace holds is being recorded."
                 ),
+            },
+            "capture": {
+                "type": "boolean",
+                "description": (
+                    "Whether this workspace opens its browsers with capture on."
+                ),
+            },
+            "capturing": {
+                "type": "boolean",
+                "description": (
+                    "Whether the console and network are being captured right"
+                    " now; false while capture is paused."
+                ),
+            },
+            "captured": {
+                "type": "object",
+                "description": "What was captured since the last navigation.",
+                "properties": {
+                    "console": {"type": "integer"},
+                    "network": {"type": "integer"},
+                    "errors": {"type": "integer"},
+                    "failed_requests": {"type": "integer"},
+                },
             },
             "in_frame": {"type": ["boolean", "null"]},
             "window": {
@@ -376,6 +399,8 @@ FLOW_SCHEMAS = {
             },
             # Present only when the run's browser was reopened after a reap.
             "site_data": SITE_DATA_HINT,
+            # Present only with capture on: the steps' hints, summed.
+            "page": PAGE_HINT,
         },
     },
     "FlowDeleted": {

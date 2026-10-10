@@ -1,15 +1,15 @@
 /* The hash, not the history API: every other path under this mount is a real
    endpoint, and a history route would need a catch-all that answers a mistyped
    API call with HTML. A hash never reaches the server. */
-export type Tab = 'files' | 'flows' | 'site-data' | 'history'
+export type Tab = 'files' | 'flows' | 'site-data' | 'history' | 'console' | 'network'
 export type Route =
   | { view: 'list' }
   | { view: 'console' }
   | { view: 'secrets' }
   | { view: 'settings' }
-  | { view: 'workspace'; key: string; tab: Tab; flow: string | undefined; site: string | undefined }
+  | { view: 'workspace'; key: string; tab: Tab; flow: string | undefined; site: string | undefined; request: string | undefined }
 
-const TABS: readonly string[] = ['flows', 'site-data', 'history']
+const TABS: readonly string[] = ['flows', 'site-data', 'history', 'console', 'network']
 
 export function parse(hash: string): Route {
   const [view, key, tab, rest] = hash.replace(/^#\/?/, '').split('/')
@@ -28,6 +28,7 @@ export function parse(hash: string): Route {
         // The fourth segment is a flow on Flows and a host on Site data.
         flow: picked === 'flows' ? named : undefined,
         site: picked === 'site-data' ? named : undefined,
+        request: picked === 'network' ? named : undefined,
       }
     } catch {
       return { view: 'list' }
@@ -47,6 +48,9 @@ export const hashes = {
   siteData: (key: string) => '#/workspaces/' + enc(key) + '/site-data',
   site: (key: string, host: string) => '#/workspaces/' + enc(key) + '/site-data/' + enc(host),
   history: (key: string) => '#/workspaces/' + enc(key) + '/history',
+  pageConsole: (key: string) => '#/workspaces/' + enc(key) + '/console',
+  network: (key: string) => '#/workspaces/' + enc(key) + '/network',
+  request: (key: string, id: string) => '#/workspaces/' + enc(key) + '/network/' + enc(id),
   flow: (key: string, name: string) => '#/workspaces/' + enc(key) + '/flows/' + enc(name),
 }
 

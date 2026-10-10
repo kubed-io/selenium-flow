@@ -30,7 +30,7 @@ from .. import errors, faults
 from ..faults import TooLarge
 from ..principal import ADMIN
 from ..workspace.workspaces import Caller, values_of
-from . import auth
+from . import auth, links
 
 JSON_CAP = 2**20
 UPLOAD_CAP = 64 * 2**20
@@ -134,6 +134,28 @@ def refused(exc: Exception, what: str, log: logging.Logger) -> JSONResponse:
     if isinstance(exc, OSError) and exc.filename:
         text = f"{exc.strerror or type(exc).__name__} ({type(exc).__name__})"
     return JSONResponse({"error": text}, status_code=status)
+
+
+async def stream_door(
+    request: Request, path: str, token: str | None, door: auth.AdminDoor
+) -> JSONResponse | None:
+    """Admit an event stream: a signed link for ``path``, else the admin door.
+
+    ``EventSource`` cannot send a header, so a stream is opened by a link the
+    admin API minted for an admitted caller. ``None`` admits; a response refuses.
+    """
+    if token and links.valid(
+        path,
+        request.query_params.get("exp"),
+        request.query_params.get("sig"),
+        token,
+    ):
+        return None
+    try:
+        await door.admit(request)
+    except auth.Refused as refused:
+        return JSONResponse({"error": refused.reason}, status_code=refused.status)
+    return None
 
 
 def guarded(door: auth.AdminDoor) -> Callable:

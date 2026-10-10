@@ -9,13 +9,15 @@ import subprocess
 
 import pytest
 
+from kubed.selenium_flow.bidi import CHANNEL_DOWN
+from kubed.selenium_flow.faults import BidiUnavailable
 from kubed.selenium_flow.site_data import transfer
 
-from .fakes import MAIN, FakeBidi, FakeStorage
+from .fakes import MAIN, FakeChannel
 from .site_data_fakes import (
     NOW,
     FakeSpare,
-    bidi_cm,
+    channels_for,
     cookie,
     snapshot,
 )
@@ -36,7 +38,7 @@ def spare(monkeypatch):
 def test_cookies_then_each_origins_storage_then_session_storage(spare):
     order = []
     spare.order = order
-    bidi = FakeBidi(order=order)
+    bidi = FakeChannel(order=order)
     data = snapshot(
         cookies=[cookie("sid", "app.example.com"), cookie("kc", "sso.example.com"),
                  cookie("old", "app.example.com", expiry=int(NOW) - 1)],
@@ -44,17 +46,17 @@ def test_cookies_then_each_origins_storage_then_session_storage(spare):
         session={"origin": APP, "items": {"token": "t"}},
     )
     report = transfer.restore(bidi, data, NOW)
-    assert [c.name for c in bidi.storage.set] == ["sid", "kc"], "the expired one stays out"
+    assert [c["name"] for c in bidi.set] == ["sid", "kc"], "the expired one stays out"
     assert spare.local == {APP: {"theme": "dark"}, "https://sso.example.com": {"kc": "1"}}
     assert spare.session == {APP: {"token": "t"}}
     assert order == ["cookie", "cookie", "spare", "spare", MAIN]
     assert spare.tabs == ["spare", MAIN], "one spare tab for every origin, then the main tab"
-    assert bidi.browsing_context.navigated == [(MAIN, "about:blank")], "never left on the stand-in"
+    assert bidi.navigated == [(MAIN, "about:blank")], "never left on the stand-in"
     assert report == {"restored": ["app.example.com", "sso.example.com"], "skipped": [], "uri": LIST}
 
 
 def test_a_cookie_only_snapshot_opens_no_tab(spare):
-    report = transfer.restore(FakeBidi(), snapshot(cookies=[cookie("sid", "app.example.com")]), NOW)
+    report = transfer.restore(FakeChannel(), snapshot(cookies=[cookie("sid", "app.example.com")]), NOW)
     assert spare.tabs == []
     assert report == {"restored": ["app.example.com"], "skipped": [], "uri": LIST}
 
@@ -62,7 +64,7 @@ def test_a_cookie_only_snapshot_opens_no_tab(spare):
 def test_an_origin_that_fails_is_skipped_and_the_rest_go_on(spare):
     spare.refuse = {"https://bad.example.com"}
     data = snapshot(origins={"https://bad.example.com": {"a": "1"}, "https://ok.example.com": {"b": "2"}})
-    report = transfer.restore(FakeBidi(), data, NOW)
+    report = transfer.restore(FakeChannel(), data, NOW)
     assert spare.local == {"https://ok.example.com": {"b": "2"}}
     assert report["restored"] == ["ok.example.com"]
     assert report["skipped"] == [{"site": "https://bad.example.com", "reason": "the navigation failed"}]
@@ -71,12 +73,12 @@ def test_an_origin_that_fails_is_skipped_and_the_rest_go_on(spare):
 def test_session_storage_that_fails_is_skipped_not_fatal(spare):
     spare.refuse = {APP}
     data = snapshot(session={"origin": APP, "items": {"t": "1"}})
-    bidi = FakeBidi()
+    bidi = FakeChannel()
     assert transfer.restore(bidi, data, NOW) == {
         "restored": [], "uri": LIST,
         "skipped": [{"site": APP, "reason": "the navigation failed"}],
     }
-    assert bidi.browsing_context.navigated == [(MAIN, "about:blank")], "never left on the stand-in"
+    assert bidi.navigated == [(MAIN, "about:blank")], "never left on the stand-in"
 
 
 def test_a_tab_that_cannot_open_skips_its_origins_and_the_cookies_stand(spare):
@@ -86,7 +88,7 @@ def test_a_tab_that_cannot_open_skips_its_origins_and_the_cookies_stand(spare):
         origins={APP: {"k": "v"}},
         session={"origin": "https://sso.example.com", "items": {"t": "1"}},
     )
-    report = transfer.restore(FakeBidi(), data, NOW)
+    report = transfer.restore(FakeChannel(), data, NOW)
     assert report["restored"] == ["app.example.com"], "the cookie came back"
     assert report["skipped"] == [
         {"site": APP, "reason": "socket is already closed"},
@@ -95,24 +97,20 @@ def test_a_tab_that_cannot_open_skips_its_origins_and_the_cookies_stand(spare):
 
 
 def test_a_malformed_snapshot_is_a_skip_not_a_raise(spare):
-    report = transfer.restore(FakeBidi(), {"cookies": 5}, NOW)
+    report = transfer.restore(FakeChannel(), {"cookies": 5}, NOW)
     assert report["restored"] == [] and [set(s) for s in report["skipped"]] == [{"reason"}]
 
 
 def test_a_dead_channel_is_reported_never_raised(spare):
     spare.broken = RuntimeError("socket is already closed")
 
-    class Dead:
-        current_window_handle = MAIN
-
-        @property
-        def storage(self):
-            raise RuntimeError("socket is already closed")
-
+    dead = FakeChannel(down={"storage.getCookies", "storage.setCookie"})
     data = snapshot(cookies=[cookie("sid", "a.example.com")], origins={"https://a.example.com": {"k": "v"}})
-    report = transfer.restore(Dead(), data, NOW)
+    report = transfer.restore(dead, data, NOW)
     assert report["restored"] == []
-    assert {s["reason"] for s in report["skipped"]} == {"socket is already closed"}
+    assert {s["reason"] for s in report["skipped"]} == {
+        "socket is already closed", CHANNEL_DOWN,
+    }
 
 
 def test_a_none_same_site_without_secure_is_restored_as_lax(spare):
@@ -121,16 +119,16 @@ def test_a_none_same_site_without_secure_is_restored_as_lax(spare):
     loose = {**cookie("sid", "app.example.com", secure=False), "same_site": "none"}
     tight = {**cookie("tok", "app.example.com", secure=True), "same_site": "none"}
     fox = {**cookie("fx", "app.example.com", secure=False), "same_site": "default"}
-    bidi = FakeBidi()
+    bidi = FakeChannel()
     report = transfer.restore(bidi, snapshot(cookies=[loose, tight, fox]), NOW)
-    assert {c.name: c.same_site for c in bidi.storage.set} == {"sid": "lax", "tok": "none", "fx": "default"}
+    assert {c["name"]: c["sameSite"] for c in bidi.set} == {"sid": "lax", "tok": "none", "fx": "default"}
     assert report["skipped"] == [] and report["restored"] == ["app.example.com"]
 
 
 def test_a_cookie_refused_or_not_kept_is_skipped(spare):
     data = snapshot(cookies=[cookie("gone", "only.example.com"), cookie("ok", "app.example.com"),
                              cookie("bad", "refused.example.com")])
-    report = transfer.restore(FakeBidi(drop={"gone"}, refuse={"bad"}), data, NOW)
+    report = transfer.restore(FakeChannel(drop={"gone"}, refuse_cookie={"bad"}), data, NOW)
     assert report["skipped"] == [
         {"cookie": "bad", "domain": "refused.example.com", "reason": "unable to set cookie"},
         {"cookie": "gone", "domain": "only.example.com", "reason": "the browser did not keep it"},
@@ -139,12 +137,7 @@ def test_a_cookie_refused_or_not_kept_is_skipped(spare):
 
 
 def test_an_unreadable_jar_trusts_the_set(spare):
-    class Blind(FakeStorage):
-        def get_cookies(self, filter=None, partition=None):
-            raise RuntimeError("no read")
-
-    bidi = FakeBidi()
-    bidi.storage = Blind()
+    bidi = FakeChannel(refuse={"storage.getCookies"})
     report = transfer.restore(bidi, snapshot(cookies=[cookie("ok", "app.example.com")]), NOW)
     assert report["restored"] == ["app.example.com"] and report["skipped"] == []
 
@@ -154,9 +147,9 @@ def test_one_malformed_cookie_is_skipped_not_the_whole_restore(spare):
     nameless = {k: v for k, v in cookie("x", "app.example.com").items() if k != "name"}
     domainless = {**cookie("nodomain", "app.example.com"), "domain": None}
     stringy = cookie("odd", "app.example.com", expiry="tomorrow")
-    bidi = FakeBidi()
+    bidi = FakeChannel()
     report = transfer.restore(bidi, snapshot(cookies=[nameless, domainless, stringy, good]), NOW)
-    assert [c.name for c in bidi.storage.set] == ["ok"]
+    assert [c["name"] for c in bidi.set] == ["ok"]
     # Only string fields ride along: the published shape declares them strings.
     assert report["skipped"] == [
         {"reason": "a stored cookie with no name or domain", "domain": "app.example.com"},
@@ -169,12 +162,12 @@ def test_one_malformed_cookie_is_skipped_not_the_whole_restore(spare):
 def test_a_failure_never_leaks_the_grid_credential(spare):
     leak = "http://user:pass@grid:4444"
     spare.broken = RuntimeError(f"connect to {leak}/session failed")
-    bidi = FakeBidi()
+    bidi = FakeChannel()
 
-    def refuse(cookie=None, partition=None):
+    def refuse(params):
         raise RuntimeError(f"refused by {leak}")
 
-    bidi.storage.set_cookie = refuse
+    bidi._storage_setCookie = refuse
     data = snapshot(cookies=[cookie("sid", "a.example.com")], origins={"https://a.example.com": {"k": "v"}})
     report = transfer.restore(bidi, data, NOW)
     assert len(report["skipped"]) == 2
@@ -190,7 +183,7 @@ def test_every_skipped_item_restore_emits_is_declared(spare):
         cookies=[cookie("gone", "a.example.com"), cookie("bad", "b.example.com"), {"name": "x"}],
         origins={"https://bad.example.com": {"k": "v"}},
     )
-    report = transfer.restore(FakeBidi(drop={"gone"}, refuse={"bad"}), data, NOW)
+    report = transfer.restore(FakeChannel(drop={"gone"}, refuse_cookie={"bad"}), data, NOW)
     assert len(report["skipped"]) == 4
     for item in report["skipped"]:
         assert set(item) <= set(declared["properties"]), item
@@ -243,7 +236,7 @@ def opened(actions, monkeypatch, spare, data, **kw):
     order = []
     spare.order = order
     monkeypatch.setattr(actions.grid, "open", lambda name, insecure=False, record=False, video_name=None: OpenedDriver(order))
-    monkeypatch.setattr(actions.grid, "bidi", bidi_cm(FakeBidi(order=order)))
+    monkeypatch.setattr(actions, "channels", channels_for(FakeChannel(order=order)))
     return actions.open_session(url=APP + "/", site_data=data, **kw), order
 
 
@@ -306,7 +299,19 @@ def test_an_open_with_no_url_is_on_about_blank_even_when_the_restore_could_not_s
     order = []
     spare.order = order
     monkeypatch.setattr(actions.grid, "open", lambda name, insecure=False, record=False, video_name=None: LeftOnTheStandIn(order))
-    monkeypatch.setattr(actions.grid, "bidi", bidi_cm(FakeBidi(order=order)))
+    monkeypatch.setattr(actions, "channels", channels_for(FakeChannel(order=order)))
     result = actions.open_session(site_data=FULL)
     assert went == ["about:blank"]
     assert result["url"] == "about:blank"
+
+
+def test_a_channel_that_will_not_open_is_a_report_never_a_failed_open(actions, monkeypatch, spare):
+    """The Grid's /se/bidi route is down: the browser still opens."""
+    order = []
+    monkeypatch.setattr(actions.grid, "open", lambda name, insecure=False, record=False, video_name=None: OpenedDriver(order))
+    monkeypatch.setattr(actions, "channels", channels_for(None, broken=BidiUnavailable(CHANNEL_DOWN)))
+    result = actions.open_session(url=APP + "/", site_data=FULL)
+    assert result["session_id"] == "new-1"
+    assert result["site_data"] == {
+        "restored": [], "skipped": [{"reason": CHANNEL_DOWN}], "uri": LIST,
+    }

@@ -1,6 +1,7 @@
-"""The monitor: watches by the Grid's listing, holds sockets to a deadline."""
+"""The monitor: watches by the Grid's listing, holds connections to a deadline."""
 
 import asyncio
+import inspect
 import logging
 from typing import ClassVar
 
@@ -39,30 +40,86 @@ class Listing:
         return self.nodes, dict(self.running)
 
 
-class FakeSocket:
-    """Stands in for `BidiSocket`: records what the monitor asked of it."""
+class FakeSubscriber:
+    """What `FakeConnection.listen` returns: a handler for some events."""
+
+    def __init__(self, events, handler):
+        self.events, self.handler = frozenset(events), handler
+        self.cancelled = False
+
+    def cancel(self):
+        self.cancelled = True
+
+
+class FakeConnection:
+    """Stands in for `bidi.Connection`: records what the monitor asked of it.
+
+    ``refuse`` makes every open raise ConnectionError, ``hang_on_subscribe``
+    makes every subscribe wait until ``gate`` is set (forever without one);
+    all are reset per test (`reset`)."""
 
     made: ClassVar[list] = []
+    refuse: ClassVar[bool] = False
+    hang_on_subscribe: ClassVar[bool] = False
+    gate: ClassVar[asyncio.Event | None] = None
 
-    def __init__(self, url, *, on_event=None, on_close=None):
-        self.url, self.on_event, self.on_close = url, on_event, on_close
+    def __init__(self, url, *, on_close=None):
+        self.url, self.on_close = url, on_close
         self.is_open = False
         self.dropped = False
         self.subscribed = []
+        self.collectors = []
+        self.listeners = []
+        self.commands = []
+        self.flushed = 0
         self.closed = 0
-        self.fail_open = False
-        FakeSocket.made.append(self)
+        self.closed_clean = False
+        self._subscriptions = set()
+        self._collectors = set()
+        FakeConnection.made.append(self)
+
+    @classmethod
+    def reset(cls):
+        cls.made, cls.refuse, cls.hang_on_subscribe = [], False, False
+        cls.gate = None
 
     async def open(self):
-        if self.fail_open:
-            raise OSError("refused")
+        if FakeConnection.refuse:
+            raise ConnectionError("refused")
         self.is_open = True
 
-    async def subscribe(self, events):
+    async def command(self, method, params=None, *, timeout=5.0):
+        self.commands.append((method, params))
+        if method == "browsingContext.getTree":
+            return {"contexts": [{"context": "top-1"}]}
+        return {}
+
+    def listen(self, events, handler, *, name, limit=1000):
+        subscriber = FakeSubscriber(events, handler)
+        self.listeners.append(subscriber)
+        return subscriber
+
+    async def subscribe(self, events, contexts=None):
+        if FakeConnection.hang_on_subscribe:
+            await (FakeConnection.gate or asyncio.Event()).wait()
         self.subscribed.append(list(events))
-        return "sub-1"
+        subscription = f"sub-{len(self.subscribed)}"
+        self._subscriptions.add(subscription)
+        return subscription
+
+    async def add_collector(self, params):
+        self.collectors.append(params)
+        self._collectors.add("col-1")
+        return "col-1"
+
+    async def flush(self):
+        self.flushed += 1
 
     async def close(self):
+        if self.is_open and (self._subscriptions or self._collectors):
+            self._subscriptions.clear()  # what `Connection.close` unsubscribes
+            self._collectors.clear()  # and the collectors it removes
+            self.closed_clean = True
         self.is_open = False
         self.closed += 1
 
@@ -70,10 +127,36 @@ class FakeSocket:
         self.is_open, self.dropped = False, True
         self.on_close()
 
+    async def emit(self, method, params):
+        for subscriber in self.listeners:
+            if method in subscriber.events and not subscriber.cancelled:
+                result = subscriber.handler(method, params)
+                if inspect.isawaitable(result):
+                    await result
+
+
+class FakeSink:
+    """Stands in for `Capture`: records every call the monitor makes."""
+
+    def __init__(self):
+        self.calls = []
+
+    def attached(self, workspace, session_id, browser, top, *, again):
+        self.calls.append(("attached", workspace, session_id, browser, top, again))
+
+    def ingest(self, workspace, session_id, method, params):
+        self.calls.append(("ingest", workspace, session_id, method, params))
+
+    def replayed(self, workspace, session_id):
+        self.calls.append(("replayed", workspace, session_id))
+
+    def detached(self, workspace, session_id):
+        self.calls.append(("detached", workspace, session_id))
+
 
 @pytest.fixture
 def parts():
-    FakeSocket.made = []
+    FakeConnection.reset()
     bus, heard = LocalBus(), []
     bus.subscribe(("session.opened", "session.ended"), heard.append, name="t")
     listing, clock = Listing({GID: 300}), Clock()
@@ -82,7 +165,8 @@ def parts():
         listing=listing,
         socket_url=lambda gid: f"ws://grid/session/{gid}/se/bidi",
         events_for={"capture": ("log.entryAdded",)},
-        connect=FakeSocket,
+        connect=FakeConnection,
+        sink=FakeSink(),
         clock=clock,
         tick=0.05,
     )
@@ -277,89 +361,110 @@ async def test_a_watch_before_start_is_taken_up_by_start(parts):
     assert not monitor.running
 
 
-async def test_recording_alone_holds_no_socket(parts):
+async def test_recording_alone_holds_no_connection(parts):
     monitor, _listing, _clock, _heard = parts
     monitor.watch(GID, "bot", "recording")
     await monitor.look()
-    assert FakeSocket.made == [] and not monitor.socket_held(GID)
+    assert FakeConnection.made == [] and not monitor.capturing(GID)
 
 
-async def test_a_reason_with_events_holds_a_socket_until_the_deadline(parts):
+async def test_a_reason_with_events_holds_a_connection_until_the_deadline(parts):
     monitor, _listing, clock, _heard = parts
     monitor.watch(GID, "bot", "capture", grid_timeout=300)
     await monitor.look()
-    [sock] = FakeSocket.made
-    assert sock.url == f"ws://grid/session/{GID}/se/bidi"
-    assert sock.subscribed == [["log.entryAdded"]] and monitor.socket_held(GID)
+    [conn] = FakeConnection.made
+    assert conn.url == f"ws://grid/session/{GID}/se/bidi"
+    assert conn.subscribed == [["log.entryAdded"]] and monitor.capturing(GID)
+    assert monitor.connection(GID) is conn
     clock.now += 299
     await monitor.look()
-    assert monitor.socket_held(GID)
+    assert monitor.capturing(GID)
     clock.now += 2  # past touched + timeout
     await monitor.look()
-    assert not monitor.socket_held(GID) and sock.closed == 1
+    assert not monitor.capturing(GID) and conn.closed == 1
+    assert monitor.connection(GID) is None
+    assert ("detached", "bot", GID) in monitor.sink.calls
     assert GID in monitor.watches  # still watched by the listing
 
 
-async def test_a_touch_brings_the_socket_back(parts):
+async def test_a_touch_brings_the_connection_back(parts):
     monitor, _listing, clock, _heard = parts
     monitor.watch(GID, "bot", "capture")
     await monitor.look()
     clock.now += DEFAULT_TIMEOUT + 1
     await monitor.look()
-    assert not monitor.socket_held(GID)
+    assert not monitor.capturing(GID)
     monitor.touch(GID)
     await monitor.look()
-    assert monitor.socket_held(GID) and len(FakeSocket.made) == 2
+    assert monitor.capturing(GID) and len(FakeConnection.made) == 2
 
 
-async def test_a_dropped_socket_counts_as_a_miss(parts):
+async def test_a_dropped_connection_counts_as_a_miss(parts):
     monitor, listing, _clock, heard = parts
     monitor.watch(GID, "bot", "capture")
     await monitor.look()
-    FakeSocket.made[0].drop()
-    await monitor.look()  # still listed: the socket is opened again
-    assert heard == [] and monitor.socket_held(GID) and len(FakeSocket.made) == 2
-    FakeSocket.made[1].drop()
+    FakeConnection.made[0].drop()
+    await monitor.look()  # still listed: the connection is opened again
+    assert heard == [] and monitor.capturing(GID) and len(FakeConnection.made) == 2
+    assert [c[0] for c in monitor.sink.calls] == [
+        "attached", "detached", "attached", "replayed"
+    ]
+    assert monitor.sink.calls[2][-1] is True  # again: the same session's capture
+    FakeConnection.made[1].drop()
     listing.running.clear()
     await monitor.look()  # one miss after a drop is enough
     assert [e.cause for e in heard] == ["gone"]
 
 
-async def test_a_socket_that_cannot_open_is_tried_again_and_logged_once(parts, caplog):
-    monitor, _listing, _clock, _heard = parts
-    original = FakeSocket.open
-
-    async def refused(self):
-        raise OSError("refused")
-
-    FakeSocket.open = refused
-    try:
-        monitor.watch(GID, "bot", "capture")
-        with caplog.at_level(logging.INFO):
-            await monitor.look()
-            await monitor.look()
-    finally:
-        FakeSocket.open = original
-    assert len(FakeSocket.made) == 2 and not monitor.socket_held(GID)
-    assert caplog.text.count("no BiDi socket for bot") == 1
+async def test_a_connection_that_cannot_open_is_tried_again_and_logged_once(
+    parts, caplog
+):
+    monitor, _listing, clock, _heard = parts
+    FakeConnection.refuse = True
+    monitor.watch(GID, "bot", "capture")
+    with caplog.at_level(logging.INFO):
+        await monitor.look()
+        clock.now += 1  # the first retry's back-off
+        await monitor.look()
+    assert len(FakeConnection.made) == 2 and not monitor.capturing(GID)
+    assert caplog.text.count("no BiDi connection for bot") == 1
     assert GID not in caplog.text
+    FakeConnection.refuse = False
+    clock.now += 2
     await monitor.look()
-    assert monitor.socket_held(GID)
+    assert monitor.capturing(GID)
+    assert monitor.watches[GID].failures == 0 and GID not in monitor._failed_logged
 
 
-async def test_ending_closes_the_socket(parts):
+async def test_a_watch_ended_during_a_hold_is_not_a_failure(parts, caplog):
+    monitor, _listing, _clock, _heard = parts
+    FakeConnection.hang_on_subscribe, FakeConnection.gate = True, asyncio.Event()
+    monitor.watch(GID, "bot", "capture")
+    with caplog.at_level(logging.INFO):
+        look = asyncio.create_task(monitor.look())
+        await asyncio.sleep(0.01)  # the hold waits in subscribe
+        monitor.ended("bot", GID, "ended")
+        FakeConnection.gate.set()
+        await look
+    [conn] = FakeConnection.made
+    assert conn.closed and ("detached", "bot", GID) in monitor.sink.calls
+    assert GID not in monitor._failed_logged and "trying again" not in caplog.text
+
+
+async def test_ending_closes_the_connection(parts):
     monitor, _listing, _clock, _heard = parts
     await monitor.start()
     monitor.watch(GID, "bot", "capture")
     await monitor.look()
-    [sock] = FakeSocket.made
+    [conn] = FakeConnection.made
     monitor.ended("bot", GID, "ended")
     await asyncio.sleep(0)
-    assert sock.closed == 1
+    assert conn.closed == 1 and conn.closed_clean
+    assert monitor.sink.calls[-1] == ("detached", "bot", GID)
     await monitor.stop()
 
 
-async def test_stop_closes_every_socket(parts):
+async def test_stop_closes_every_connection(parts):
     monitor, listing, _clock, _heard = parts
     listing.running[OTHER] = 300
     await monitor.start()
@@ -367,7 +472,7 @@ async def test_stop_closes_every_socket(parts):
     monitor.watch(OTHER, "b", "capture")
     await monitor.look()
     await monitor.stop()
-    assert [s.closed for s in FakeSocket.made] == [1, 1]
+    assert [c.closed for c in FakeConnection.made] == [1, 1]
     assert not monitor.running
 
 
@@ -378,7 +483,7 @@ async def test_stop_survives_a_watch_ending_while_it_closes(parts):
     monitor.watch(GID, "a", "capture")
     monitor.watch(OTHER, "b", "capture")
     await monitor.look()
-    first = FakeSocket.made[0]
+    first = FakeConnection.made[0]
     close = first.close
 
     async def close_and_end_the_other():

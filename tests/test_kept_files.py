@@ -891,7 +891,7 @@ def _stage_upload(server, monkeypatch):
         def execute_script(self, *_a, **_k):
             return None
 
-    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     monkeypatch.setattr(server.actions, "_at", lambda *a, **k: _Driver())
     monkeypatch.setattr(browser, "accept_local_files", lambda _d: None)
     monkeypatch.setattr(

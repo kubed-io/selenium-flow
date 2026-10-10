@@ -53,3 +53,12 @@ test('History is a tab, and a Site data host rides in the hash', () => {
   expect(hashes.history('a b')).toBe('#/workspaces/a%20b/history')
   expect(parse(hashes.site('a b', 'h.example.com'))).toEqual({ view: 'workspace', key: 'a b', tab: 'site-data', flow: undefined, site: 'h.example.com' })
 })
+
+test('the router reads the two capture tabs and a request', () => {
+  expect(parse('#/workspaces/ws/network/1.1')).toMatchObject({ view: 'workspace', tab: 'network', request: '1.1' })
+  expect(parse('#/workspaces/ws/console')).toMatchObject({ tab: 'console' })
+  expect(parse('#/console')).toEqual({ view: 'console' })
+  expect(hashes.pageConsole('a b')).toBe('#/workspaces/a%20b/console')
+  expect(hashes.network('k')).toBe('#/workspaces/k/network')
+  expect(hashes.request('k', '1.1')).toBe('#/workspaces/k/network/1.1')
+})

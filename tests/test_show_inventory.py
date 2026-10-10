@@ -44,6 +44,11 @@ FORMS = {
     "flow://flows/{name}",
     "flow://schema",
     "secret://secrets",
+    "workspace://console",
+    "workspace://console{?level,pages}",
+    "workspace://network",
+    "workspace://network{?filter,pages}",
+    "workspace://network/{id}",
     SKILL + "*",
 }
 
@@ -85,8 +90,8 @@ async def served(server) -> list[str]:
 
 
 def concrete(uri: str) -> str:
-    """A template made into one URI it would answer."""
-    return re.sub(r"\{[^}]+\}", "sample", uri)
+    """A template made into one URI it would answer: a query block is optional."""
+    return re.sub(r"\{[^}]+\}", "sample", re.sub(r"\{\?[^}]+\}", "", uri))
 
 
 async def test_every_uri_the_server_serves_has_a_view(everything):

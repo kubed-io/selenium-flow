@@ -1,11 +1,11 @@
 """The session monitor: which sessions are open, ended and owed, said on a bus.
 
-See `monitor.py` for the watch, `events.py` for the bus, `bidi.py` for the held
-socket, and the session monitor spec (docs/superpowers/specs/
-2026-10-09-session-monitor-design.md) for why each is the way it is.
+See `monitor.py` for the watch and the held connection, `events.py` for the
+bus, `bidi/` for the connection itself, and the session monitor spec
+(docs/superpowers/specs/2026-10-09-session-monitor-design.md) for why each is
+the way it is.
 """
 
-from .bidi import BidiError, BidiSocket
 from .events import (
     EVENTS,
     Bus,
@@ -16,12 +16,10 @@ from .events import (
     SessionOpened,
     Subscription,
 )
-from .monitor import Monitor, Watch
+from .monitor import Monitor, Sink, Watch
 
 __all__ = [
     "EVENTS",
-    "BidiError",
-    "BidiSocket",
     "Bus",
     "CallFinished",
     "Event",
@@ -29,6 +27,7 @@ __all__ = [
     "Monitor",
     "SessionEnded",
     "SessionOpened",
+    "Sink",
     "Subscription",
     "Watch",
 ]

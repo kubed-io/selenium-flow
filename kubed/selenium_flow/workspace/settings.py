@@ -91,6 +91,9 @@ SETTINGS = {
     # so a reap replays it, but `open_browser` never inherits it (recordings
     # spec, ruling 3): video is costly, and ending the browser ends it.
     "record": (None, None, _as_flag),
+    # Explicit only, like record: stored so a reap replays it, never inherited
+    # by an explicit open (capture spec, ruling 3): ask again for the next one.
+    "capture": (None, None, _as_flag),
 }
 
 # The config's session section, as the operator's floor. `store` and `ttl` are

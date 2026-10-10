@@ -74,6 +74,28 @@ def test_every_showable_uri_has_one_view(uri, component):
 
 
 @pytest.mark.parametrize(
+    ("uri", "component"),
+    [
+        ("workspace://console", "console"),
+        ("workspace://console?level=error&pages=2", "console"),
+        ("workspace://network", "network"),
+        ("workspace://network?filter=failed", "network"),
+        ("workspace://network/3.7", "request"),
+    ],
+)
+def test_the_capture_uris_have_views(uri, component):
+    assert show.view_for(uri) == component
+
+
+async def test_capture_off_still_draws(flow_server):
+    async with Client(flow_server.mcp) as c:
+        result = await c.call_tool("show", {"uri": "workspace://console"})
+    assert result.structured_content["data"] == {
+        "capture": False, "how": "open_session(capture=true)"
+    }
+
+
+@pytest.mark.parametrize(
     ("uri", "entry"),
     [
         ("workspace://files/screenshots/a.png", True),
@@ -364,7 +386,7 @@ async def test_one_file_is_drawn_from_its_listing_entry(
         flow_server.flows.write_file(named_caller, name, PNG)
     listing = uri.rpartition("/")[0]
     monkeypatch.setattr(flow_server.flows, "read_file", never)
-    monkeypatch.setattr(flow_server.workspaces, "resolve", never)
+    monkeypatch.setattr(flow_server.workspaces, "resolved", never)
     async with Client(flow_server.mcp) as c:
         shown = (await c.call_tool("show", {"uri": uri})).structured_content
         listed = json.loads((await c.read_resource(listing))[0].text)
@@ -381,7 +403,7 @@ async def test_one_file_is_drawn_from_its_listing_entry(
 
 async def test_a_download_is_drawn_from_the_grids_listing(flow_server, monkeypatch):
     monkeypatch.setattr(flow_server.workspaces, "browser", lambda name: "abc")
-    monkeypatch.setattr(flow_server.workspaces, "resolve", never)
+    monkeypatch.setattr(flow_server.workspaces, "resolved", never)
     monkeypatch.setattr(
         flow_server.actions.grid,
         "files",
@@ -457,3 +479,20 @@ async def test_the_description_names_the_schemes(built_ui, server):
     for scheme in ("workspace://", "flow://", "secret://", "skill://"):
         assert scheme in tool.description
     assert "read the resource instead" in tool.description
+
+
+@pytest.mark.parametrize(
+    ("component", "count", "line"),
+    [
+        ("console", 1, "1 entry"),
+        ("console", 2, "2 entries"),
+        ("network", 2, "2 requests"),
+        ("flows", 2, "2 flows"),
+        ("files", 2, "2 kept files"),
+    ],
+)
+def test_the_summary_pluralises_its_noun(component, count, line):
+    uri = f"workspace://{component}"
+    assert show.summary(uri, component, {"count": count}) == (
+        f"Showing {uri} to the person: {line}."
+    )

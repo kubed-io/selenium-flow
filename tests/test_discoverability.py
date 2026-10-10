@@ -204,7 +204,7 @@ async def test_a_choice_is_accepted_in_any_case_over_mcp(
     from .conftest import NAMED, calling_as
 
     calling_as(monkeypatch, NAMED)
-    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "abc")
+    monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("abc", "chrome"))
     monkeypatch.setattr(
         server.actions, tool, lambda s, action, **_: {"action": action, "url": "about:blank"}
     )

@@ -22,6 +22,7 @@ from kubed.selenium_flow.secrets import (
     FilesystemSource,
     origin,
 )
+from kubed.selenium_flow.workspace.calls import Calls
 
 pytestmark = pytest.mark.unit
 
@@ -745,7 +746,7 @@ def bound_http(tmp_path, monkeypatch):
     ))
     # A named workspace holding a browser: this surface addresses one by naming
     # itself now, so there is no id to put in the body (§F2.13).
-    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "b1")
+    monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("b1", "chrome"))
     client = TestClient(server.mcp.http_app(), headers={"X-Workspace": "desktop"})
     return client, typed
 
@@ -877,7 +878,7 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
         secrets={"dirs": str(tmp_path)},
     ))
     calling_as(monkeypatch, NAMED)
-    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     monkeypatch.setattr(
         server.actions, "page",
         lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
@@ -931,7 +932,7 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
         secrets={"dirs": str(tmp_path)},
     ))
     calling_as(monkeypatch, NAMED)
-    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     monkeypatch.setattr(
         server.actions, "page",
         lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
@@ -975,7 +976,7 @@ def _direct(tmp_path, monkeypatch, write):
         secrets={"dirs": str(tmp_path)},
     ))
     calling_as(monkeypatch, NAMED)
-    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     monkeypatch.setattr(
         server.actions, "page",
         lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
@@ -1051,7 +1052,7 @@ async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
         secrets={"dirs": str(tmp_path)},
     ))
     calling_as(monkeypatch, NAMED)
-    monkeypatch.setattr(server.workspaces, "resolve", lambda name: "browser-1")
+    monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     monkeypatch.setattr(
         server.actions, "page",
         lambda sid: {"url": "https://nc.example.com/login", "title": "Log in"},
@@ -1272,7 +1273,10 @@ def framed(tmp_path):
         }
         return actions
 
-    held = SimpleNamespace(resolve=lambda name: "b1", settle=lambda *a, **k: None)
+    held = SimpleNamespace(
+        resolved=lambda name: ("b1", "chrome"), settle=lambda *a, **k: None,
+        calls=Calls(),
+    )
 
     def write(frame_origin=None, top=ALLOWED, forged=False):
         return secrets.perform_write(
@@ -1399,7 +1403,10 @@ def test_a_direct_bound_write_never_types_into_a_frame_element(targeting, tag):
 
     catalogue, driver, actions = targeting
     driver.element.tag = tag
-    held = SimpleNamespace(resolve=lambda name: "b1", settle=lambda *a, **k: None)
+    held = SimpleNamespace(
+        resolved=lambda name: ("b1", "chrome"), settle=lambda *a, **k: None,
+        calls=Calls(),
+    )
     with pytest.raises(ValueError) as refused:
         secrets.perform_write(
             catalogue, actions, held, "desktop",
@@ -1432,7 +1439,10 @@ def test_a_flow_step_never_types_a_secret_into_a_frame_element(targeting):
 def test_a_bound_write_into_a_field_still_types(targeting, tag):
     catalogue, driver, actions = targeting
     driver.element.tag = tag
-    held = SimpleNamespace(resolve=lambda name: "b1", settle=lambda *a, **k: None)
+    held = SimpleNamespace(
+        resolved=lambda name: ("b1", "chrome"), settle=lambda *a, **k: None,
+        calls=Calls(),
+    )
     shown = secrets.perform_write(
         catalogue, actions, held, "desktop",
         {"selector": {"css": "#p"}, "secret": {"name": "nextcloud", "key": "password"}},

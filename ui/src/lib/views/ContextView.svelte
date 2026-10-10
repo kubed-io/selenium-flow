@@ -12,6 +12,9 @@
     <span class="bmark" title={data.browser || 'browser'}>{browserMark(data.browser)}</span>
     <strong class="grow">{data.workspace}</strong>
     {#if data.live}<span class="pill live">live</span>{:else}<span class="pill">idle</span>{/if}
+    {#if data.settings?.record && data.live}<span class="pill rec">● REC</span>{/if}
+    {#if data.capture && data.capturing}<span class="pill capture">● capture</span>{/if}
+    {#if data.capture && !data.capturing}<span class="pill capture-paused">capture paused</span>{/if}
   </div>
   <div class="lastpage">
     {#if href}
@@ -24,14 +27,28 @@
     {#if data.window}<span class="pill">{data.window}</span>{/if}
     {#if who}<span class="pill name">{who}</span>{/if}
   </div>
-  {#if data.site_data}
+  {#if data.site_data || data.capture}
     <div class="chips">
+      {#if data.capture}
+        {#each [
+          { name: 'Console', uri: 'workspace://console', text: `${data.captured?.errors ?? 0} errors` },
+          { name: 'Network', uri: 'workspace://network', text: `${data.captured?.failed_requests ?? 0} failed` },
+        ] as c (c.uri)}
+          {#if onshow}
+            <button type="button" class="chip" onclick={() => onshow(c.uri)}><span>{c.name}</span><span class="pill">{c.text}</span></button>
+          {:else}
+            <span class="chip" title="Open isn't available in this client"><span>{c.name}</span><span class="pill">{c.text}</span></span>
+          {/if}
+        {/each}
+      {/if}
+      {#if data.site_data}
       {#if onshow && data.site_data.uri}
         <button type="button" class="chip" onclick={() => onshow(data.site_data!.uri!)}>
           <span>Site data</span><span class="pill">{data.site_data.sites}</span>
         </button>
       {:else}
         <span class="chip" title="Open isn't available in this client"><span>Site data</span><span class="pill">{data.site_data.sites}</span></span>
+      {/if}
       {/if}
     </div>
   {/if}

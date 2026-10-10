@@ -120,6 +120,9 @@ input[type=password], input[type=text] {
 }
 
 .tabs button[aria-selected=true] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+/* A tab with nothing behind it (Console and Network with capture off): drawn
+   as a disabled button is, since an unselected tab is already --muted. */
+.tabs button[aria-disabled=true] { color: var(--muted); cursor: default; opacity: 0.5; }
 
 /* The workspace's own Files/Flows tabs sit under the header rather than flush
    against the top bar's tabs, so the two levels read as nested rather than as
@@ -149,6 +152,9 @@ input[type=password], input[type=text] {
 
 .pill.live { color: var(--ok); border-color: currentColor; }
 .pill.rec { background: var(--warn); border-color: var(--warn); color: var(--panel); }
+.pill.capture { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.pill.capture-paused { color: var(--muted); }
+.pill.ok { color: var(--ok); border-color: currentColor; }
 .pill.warn { color: var(--warn); border-color: currentColor; }
 
 /* Polish only (spec, difference 3): a soft pulse on the live badge's dot.
@@ -557,3 +563,36 @@ textarea.yaml {
 .tree .kids { padding-left: 16px; border-left: 1px solid var(--line); margin-left: 4px; }
 .tree.leaf { padding: 2px 0; overflow-wrap: anywhere; }
 .tree .key { color: var(--accent); }
+
+/* The workspace's Console and Network (Penpot: Workspace · Console / Network). */
+.toolbar { flex-wrap: wrap; gap: 8px; margin-bottom: var(--gap); }
+.toolbar .chip { padding: 2px 8px; border-radius: 999px; background: none; font-family: inherit; color: var(--muted); border: 1px solid var(--line); }
+.toolbar .chip[aria-pressed=true] { color: var(--accent); border-color: var(--accent); }
+.toolbar input[type=text] { min-width: 0; width: 240px; padding: 2px 8px; border-radius: 6px; font-size: 12px; }
+.toolbar select { font: inherit; font-size: 12px; color: var(--muted); background: none; border: 0; }
+.toolbar .switch { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.toolbar .switch button { border: 0; border-radius: 6px; padding: 6px 12px; background: none; color: var(--muted); }
+.toolbar .switch button[aria-pressed=true] { background: color-mix(in srgb, var(--ink) 5%, transparent); color: var(--ink); font-weight: 500; }
+.clist { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 8px; }
+.clist .empty { text-align: left; padding: 16px; }
+.clist .empty strong { display: block; color: var(--ink); font-size: 14px; margin-bottom: 4px; }
+.crow { display: flex; align-items: baseline; gap: var(--gap); padding: 8px 16px; font-size: 12px; }
+.crow + .crow { border-top: 1px solid var(--line); }
+.crow > * { flex: none; }
+.crow > .text { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--ink); }
+.crow > .warn { color: var(--warn); }
+.crow > .pill.warn { border-color: currentColor; }
+.crow > .mono { font-size: 12px; }
+.crow > .b { font-weight: 600; color: var(--ink); }
+.crow > .muted { color: var(--muted); }
+.crow.click { cursor: pointer; }
+.crow.click:hover { background: color-mix(in srgb, var(--ink) 3%, transparent); }
+/* A request (Penpot: network-detail): blocks in a card, key column 150px. */
+.rcard { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: var(--gap); margin: var(--gap) 0 8px; }
+.rcard .block { background: var(--bg); border-radius: 8px; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+.rcard .block > .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.rcard .kv { display: flex; gap: var(--gap); }
+.rcard .kv > :first-child { width: 150px; flex: none; color: var(--muted); }
+.rcard .kv > :last-child { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.rcard pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow: auto; font-size: 12px; }
+.rcard pre.warn { color: var(--warn); }

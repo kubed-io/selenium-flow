@@ -96,6 +96,15 @@ class Hooks(Protocol):
     — exactly the step URLs its report shows — just before a ``save_site_data``
     step acts. A save reads every site in the workspace's history, and the history
     is otherwise written once, after the run.
+
+    ``bound(forms)`` with every spelling of the secret values a step binds, as
+    soon as they are known and before the step acts: capture masks them from
+    the first keystroke (capture spec, ruling 13). Only for a step that binds.
+
+    ``step_done(tool, error)`` after every step `before_step` began, still
+    inside its turn on the browser — ``error`` is what it raised, or None. A
+    step refused before it began (a bad binding, cancelled while it waited) is
+    never done.
     """
 
     def before_step(self, entry: dict, total: int) -> None: ...
@@ -104,14 +113,28 @@ class Hooks(Protocol):
 
     def before_save(self, pages: list[str]) -> None: ...
 
+    def bound(self, forms: set[str]) -> None: ...
+
+    def step_done(self, tool: str, error: BaseException | None) -> None: ...
+
 
 class Callbacks:
-    """`Hooks` from up to three plain functions, any of which may be absent."""
+    """`Hooks` from plain functions, any of which may be absent."""
 
-    def __init__(self, before_step=None, after_step=None, before_save=None):
+    def __init__(
+        self,
+        before_step=None,
+        after_step=None,
+        before_save=None,
+        *,
+        bound=None,
+        step_done=None,
+    ):
         self._before_step = before_step
         self._after_step = after_step
         self._before_save = before_save
+        self._bound = bound
+        self._step_done = step_done
 
     def before_step(self, entry: dict, total: int) -> None:
         if self._before_step is not None:
@@ -124,6 +147,14 @@ class Callbacks:
     def before_save(self, pages: list[str]) -> None:
         if self._before_save is not None:
             self._before_save(pages)
+
+    def bound(self, forms: set[str]) -> None:
+        if self._bound is not None:
+            self._bound(forms)
+
+    def step_done(self, tool: str, error: BaseException | None) -> None:
+        if self._step_done is not None:
+            self._step_done(tool, error)
 
 
 _UNSET = object()
@@ -611,17 +642,31 @@ def _drive(
         kwargs[holder] = call.library
 
     outcome.summary = summarise(tool, kwargs, guarded)
-    run.seen |= binding.forms_of(kwargs, guarded)
+    forms = binding.forms_of(kwargs, guarded)
+    run.seen |= forms
+    # `step_done` once for a step that was begun, and never for one that was
+    # not: a save whose pages could not be written first was still begun, and
+    # a call never ended would keep its capture held past every deadline.
+    acting = done = False
     try:
+        if forms:
+            call.hooks.bound(forms)
         call.hooks.before_step(outcome.entry(), run.total)
+        acting = True
         if tool == SAVE_SITE_DATA:
             call.hooks.before_save(list(run.pages))
         raw = method(call.session_id, **kwargs)
         # Before the result is copied for the report: the hook strips the
         # private capture from `raw`.
         call.hooks.after_step(tool, raw)
+        done = True
+        call.hooks.step_done(tool, None)
         run.acted(outcome, raw, guarded, call.verbose or step.get("return"))
     except Exception as exc:  # noqa: BLE001 - a failing step is an outcome
+        # First, so a sentence about what the page reported (`workspace.calls`)
+        # is on the error the step's line says.
+        if acting and not done:
+            call.hooks.step_done(tool, exc)
         outcome.ok = False
         # An action puts its arguments in its error text, so the message is
         # scrubbed before it reaches either the report or the log. One line,

@@ -118,6 +118,7 @@ Load only what the task needs.
 | Getting content out of a page, choosing a selector | `skill://selenium-flow/references/READING_PAGES.md` |
 | Clicking, hovering, typing, uploading, dialogs, scrolling, waiting | `skill://selenium-flow/references/INTERACTION.md` |
 | A timeout, an empty screenshot, a click that did nothing | `skill://selenium-flow/references/TROUBLESHOOTING.md` |
+| A call's result says the page reported an error, or you need to see what the page logged or fetched | `skill://selenium-flow/references/TROUBLESHOOTING.md` |
 | Setting the server up, connecting a client, which env var to change | `skill://selenium-flow/references/CONFIGURATION.md` |
 | Doing a sequence you or another agent will repeat — save it once, run it in one call | `skill://selenium-flow/references/FLOWS.md` |
 | Typing a password, token or anything else you must not see | `skill://selenium-flow/references/SECRETS.md` |
@@ -152,7 +153,7 @@ check this table twice before reaching for it.
 
 | Tool | Does | Key arguments |
 |---|---|---|
-| `open_session` | start a browser, or come back to the one you had | `browser`: `chrome` \| `firefox`, `width`, `height`, `url`, `fresh`, `restore_site_data` |
+| `open_session` | start a browser, or come back to the one you had | `browser`: `chrome` \| `firefox`, `width`, `height`, `url`, `fresh`, `restore_site_data`, `capture` |
 | `end_browser` | free the Grid slot; your workspace survives | — |
 | `navigate` | go to a URL | `url` |
 | `interact` | a mouse gesture on an element | `selector`, `action`: `click` \| `double_click` \| `right_click` \| `hover` \| `scroll_to`, `glide` |
@@ -170,6 +171,7 @@ check this table twice before reaching for it.
 | `execute_script` | run JavaScript — only for what nothing above does | `script` |
 | `assert` | JavaScript that must return true, or the call fails | `script`, `message`, `stable_for` |
 | `save_site_data` | keep the cookies and storage of the sites you have been to, so a replacement comes back signed in | `url` |
+| `network_body` | fetch one captured response body while the browser lives | `id` from workspace://network |
 | `show` | draw any resource for the person (hosts that render apps): the workspace, files and one file, site data, flows, the secrets, these pages, the flow schema | `uri` |
 | `keep_file` | keep a file in Files, past the browser | `uri` |
 | `save_flow` | save a sequence of steps under a name | `name`, `parameters`, `steps`, `timeout` |
@@ -191,6 +193,11 @@ And everything to read:
 | `workspace://files/downloads/{name}` | one of those, as bytes, while the browser is open |
 | `workspace://site-data` | the sites you have saved cookies or storage for — never a value |
 | `workspace://site-data/{site}` | one site's saved cookies and storage; httpOnly values are masked |
+| `workspace://console` | what the page logged since the last navigation; needs `open_session(capture=true)` |
+| `workspace://console{?level,pages}` | the same, narrowed: `?level=error`, `?pages=2` |
+| `workspace://network` | the requests the page made, each with an id |
+| `workspace://network{?filter,pages}` | the same, narrowed: `?filter=failed`, `?filter=xhr`, `?pages=2` |
+| `workspace://network/{id}` | one request in full, with its headers |
 | `secret://secrets` | the secrets you may type — never their values |
 | `flow://flows` | the saved flows you can run |
 | `flow://flows/{name}` | one flow's parameters and steps |

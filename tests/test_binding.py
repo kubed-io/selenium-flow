@@ -12,6 +12,7 @@ from kubed.selenium_flow import binding, errors, secrets
 from kubed.selenium_flow.flows.document import InvalidFlow, validate
 from kubed.selenium_flow.flows.engine import resolve_step
 from kubed.selenium_flow.flows.template import FlowError
+from kubed.selenium_flow.workspace.calls import Calls
 
 from .test_flowdoc import step_schema_map  # noqa: F401 - a fixture
 
@@ -54,8 +55,10 @@ def at_run(args, schemas):
 
 def direct(args, schemas):
     class FakeWorkspaces:
-        def resolve(self, name):
-            return "browser-1"
+        calls = Calls()
+
+        def resolved(self, name):
+            return "browser-1", "chrome"
 
     with pytest.raises(secrets.Refused) as caught:
         secrets.perform_write(Nobody(), Nobody(), FakeWorkspaces(), "s", args)

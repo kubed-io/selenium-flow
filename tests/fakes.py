@@ -8,11 +8,13 @@ bench times; a module split now has one file to repoint.
 
 import json
 import threading
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from types import SimpleNamespace
 
 from selenium.common.exceptions import UnexpectedAlertPresentException
 
+from kubed.selenium_flow.bidi import CHANNEL_DOWN, BidiError
+from kubed.selenium_flow.faults import BidiUnavailable
 from kubed.selenium_flow.urls import origin_of
 
 MAIN = "main-1"
@@ -174,20 +176,10 @@ class FakeActions:
 def patch_os(monkeypatch, name, replacement):
     """Replace ``os.<name>`` everywhere `pathlib` reaches it, for a storage fault.
 
-    Patching `os` alone misses pathlib on 3.10, whose `_NormalAccessor` copied
-    ``os.stat``, ``os.listdir``, ``os.replace`` and the rest at import, so
-    `Path.stat`, `lstat`, `iterdir` and `replace` never saw the fault and the
-    test passed on 3.13 and failed on the floor. A listing is two names until
-    3.13: `Path.iterdir` uses ``listdir`` before it and ``scandir`` from it.
+    A listing is two names until 3.13: `Path.iterdir` uses ``listdir`` before it
+    and ``scandir`` from it.
     """
     import os
-    import pathlib
-
-    # Only a slot that holds this very `os` function: 3.10's accessor `open` is
-    # `io.open`, and replacing it would break `Path.open` instead.
-    accessor = getattr(pathlib, "_NormalAccessor", None)  # 3.10 only
-    if accessor is not None and vars(accessor).get(name) is getattr(os, name):
-        monkeypatch.setattr(accessor, name, staticmethod(replacement))
     monkeypatch.setattr(os, name, replacement)
 
 
@@ -301,100 +293,127 @@ class FakePipeline:
         return [True] * len(queued)
 
 
-class FakeStorage:
-    """BiDi's ``storage`` module: a jar. ``cookies`` are there from the start;
-    what is set reads back, except a ``drop``ped name — accepted without an
-    error and never kept, as Chrome does to SameSite=None without Secure."""
+class FakeChannel:
+    """What `Channels.open_channel` yields: a `bidi.Channel` answering the site
+    data commands from its state, every one logged as ``(method, params)``.
 
-    def __init__(self, cookies=(), refuse=(), drop=(), order=None):
+    ``cookies`` are in the jar from the start (BiDi's shape); what is set reads
+    back, except a ``drop``ped name — accepted without an error and never kept,
+    as Chrome does to SameSite=None without Secure — and a ``refuse_cookie``
+    name, which answers BidiError. ``refuse`` and ``down`` are methods that
+    answer BidiError and raise BidiUnavailable. ``value``, ``workers``,
+    ``stuck`` and ``fail`` shape the page script; ``order`` collects "cookie"
+    for each cookie set. ``at`` maps a tab to the origin it stands on.
+    """
+
+    def __init__(
+        self,
+        order=None,
+        cookies=(),
+        refuse=(),
+        down=(),
+        refuse_cookie=(),
+        drop=(),
+        value=None,
+        workers=(),
+        stuck=False,
+        fail=None,
+    ):
+        self.log, self.posts, self.handlers = [], [], {}
         self.cookies, self.set = list(cookies), []
-        self.refuse, self.drop, self.order = set(refuse), set(drop), order
-
-    def get_cookies(self, filter=None, partition=None):
-        held = [
-            SimpleNamespace(name=c.name, domain=c.domain, path=c.path)
-            for c in self.set
-            if c.name not in self.drop and not (c.same_site == "none" and not c.secure)
-        ]
-        return SimpleNamespace(cookies=self.cookies + held)
-
-    def set_cookie(self, cookie=None, partition=None):
-        if cookie.name in self.refuse:
-            raise RuntimeError("unable to set cookie")
-        self.set.append(cookie)
-        if self.order is not None:
-            self.order.append("cookie")
-
-
-class FakeTabs:
-    """BiDi's ``browsing_context`` module. Every call lands in ``log`` (the
-    wire order a spare-tab test asserts); a navigation is also kept in
-    ``navigated`` as (context, url), and ``at`` maps a tab to the origin it
-    stands on."""
-
-    def __init__(self, log=None):
-        self.log = [] if log is None else log
-        self.navigated = []
-        self.at = {}
-
-    def create(self, type=None, background=None, **_):
-        self.log.append(("create", type, background))
-        return "spare-1"
-
-    def navigate(self, context=None, url=None, wait=None):
-        self.log.append(("navigate", context, url, wait))
-        self.navigated.append((context, url))
-        self.at[context] = origin_of(url)
-
-    def close(self, context=None):
-        self.log.append(("close", context))
-
-
-class FakeNetwork:
-    """BiDi's ``network`` module: intercepts and event handlers, logged."""
-
-    def __init__(self, log):
-        self.log, self.handlers, self.responses = log, {}, []
-
-    def add_intercept(self, phases=None, contexts=None, url_patterns=None):
-        self.log.append(("intercept", phases, contexts, url_patterns))
-        return {"intercept": "i-1"}
-
-    def remove_intercept(self, intercept=None):
-        self.log.append(("unintercept", intercept))
-
-    def add_event_handler(self, event, callback, contexts=None):
-        self.log.append(("handler", event, contexts))
-        self.handlers[7] = callback
-        return 7
-
-    def remove_event_handler(self, event, callback_id):
-        self.log.append(("unhandler", event, callback_id))
-
-    def provide_response(self, **kw):
-        self.responses.append(kw)
-
-
-class FakeScript:
-    """BiDi's ``script`` module. Answers as the page would: ours, with the
-    marker, or a service worker's. ``stuck`` leaves the tab on the page it was
-    on before."""
-
-    def __init__(self, log, tabs, value=None, workers=(), stuck=False, fail=None):
-        self.log, self.tabs = log, tabs
+        self.refuse, self.down = set(refuse), set(down)
+        self.refuse_cookie, self.drop, self.order = set(refuse_cookie), set(drop), order
         self.value, self.workers, self.stuck, self.fail = (
             value, set(workers), stuck, fail,
         )
+        self.navigated, self.at, self.tabs = [], {}, 0
+        self.bodies = {}  # request id -> network.getData's answer
         self.expression = None
         self.ran = False  # whether the page would have evaluated the expression
 
-    def evaluate(self, expression=None, target=None, await_promise=None):
-        self.log.append(("evaluate", target, await_promise))
-        self.expression = expression
+    def params(self, method):
+        """The params of the last call to ``method``."""
+        return [p for m, p in self.log if m == method][-1]
+
+    def call(self, method, params=None, *, timeout=None):
+        params = params or {}
+        self.log.append((method, params))
+        if method in self.down:
+            raise BidiUnavailable(CHANNEL_DOWN)
+        if method in self.refuse:
+            raise BidiError("unknown error", "refused")
+        return getattr(self, "_" + method.replace(".", "_"))(params)
+
+    def post(self, method, params=None):
+        self.posts.append((method, params))
+
+    @contextmanager
+    def listen(self, events, handler, *, contexts=None, name="channel"):
+        events = list(events)
+        self.log.append(("session.subscribe", {"events": events, "contexts": contexts}))
+        for event in events:
+            self.handlers[event] = handler
+        try:
+            yield None
+        finally:
+            self.log.append(
+                ("session.unsubscribe", {"events": events, "contexts": contexts})
+            )
+
+    def _storage_getCookies(self, params):
+        held = [
+            {"name": c["name"], "domain": c["domain"], "path": c.get("path", "/")}
+            for c in self.set
+            if c["name"] not in self.drop
+            and not (c.get("sameSite") == "none" and not c.get("secure"))
+        ]
+        return {"cookies": self.cookies + held}
+
+    def _storage_setCookie(self, params):
+        cookie = params["cookie"]
+        if cookie["name"] in self.refuse_cookie:
+            raise BidiError("unable to set cookie")
+        self.set.append(cookie)
+        if self.order is not None:
+            self.order.append("cookie")
+        return {}
+
+    def _browsingContext_getTree(self, params):
+        return {"contexts": [{"context": MAIN, "children": []}]}
+
+    def _browsingContext_create(self, params):
+        self.tabs += 1
+        return {"context": f"spare-{self.tabs}"}
+
+    def _browsingContext_navigate(self, params):
+        self.navigated.append((params["context"], params["url"]))
+        self.at[params["context"]] = origin_of(params["url"])
+        return {}
+
+    def _browsingContext_close(self, params):
+        return {}
+
+    def _network_addIntercept(self, params):
+        return {"intercept": "i-1"}
+
+    def _network_removeIntercept(self, params):
+        return {}
+
+    def _network_getData(self, params):
+        try:
+            body = self.bodies[params["request"]]
+        except KeyError:
+            raise BidiError("no such network data", "gone") from None
+        if isinstance(body, str):  # a BiDi error code the browser answers with
+            raise BidiError(body, "text from the browser, with a path /tmp/x")
+        return body
+
+    def _script_evaluate(self, params):
+        expression = self.expression = params["expression"]
         if self.fail:
             return {"type": "exception", "exceptionDetails": {"text": self.fail}}
         origin = (
-            "https://before.test" if self.stuck else self.tabs.at[target["context"]]
+            "https://before.test" if self.stuck else self.at[params["target"]["context"]]
         )
         page = {"spare": origin not in self.workers, "origin": origin}
         # No JS runs here (tests/test_js_behaviour.py runs the real script):
@@ -409,40 +428,6 @@ class FakeScript:
             "type": "success",
             "result": {"type": "string", "value": json.dumps(page)},
         }
-
-
-class FakeBidi:
-    """What `Grid.bidi` yields: the jar, the main tab's id, tabs, network and
-    script. ``cookies``, ``refuse``, ``drop`` and ``order`` configure the jar;
-    ``value``, ``workers``, ``stuck`` and ``fail`` the page script."""
-
-    current_window_handle = MAIN
-
-    def __init__(
-        self,
-        order=None,
-        cookies=(),
-        refuse=(),
-        drop=(),
-        value=None,
-        workers=(),
-        stuck=False,
-        fail=None,
-    ):
-        self.log = []
-        self.storage = FakeStorage(
-            cookies=cookies, refuse=refuse, drop=drop, order=order
-        )
-        self.browsing_context = FakeTabs(self.log)
-        self.network = FakeNetwork(self.log)
-        self.script = FakeScript(
-            self.log,
-            self.browsing_context,
-            value=value,
-            workers=workers,
-            stuck=stuck,
-            fail=fail,
-        )
 
 
 class ScriptedElement:

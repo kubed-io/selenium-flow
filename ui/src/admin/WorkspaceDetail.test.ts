@@ -653,3 +653,21 @@ test('Keep on a recording tile posts to the recordings folder (R4)', async () =>
   await fireEvent.click(container.querySelector('#recordings button.keep')!)
   await vi.waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.path === '/admin/workspaces/k/files/recordings/one.mp4/keep')).toBe(true))
 })
+
+test('with capture off the tabs are muted and say how to turn it on', async () => {
+  const off = { ...row, capture: false }
+  const { container } = setup({ 'GET /admin/workspaces/k/files': { body: { ...FILES, workspace: off } } }, { tab: 'console' })
+  await vi.waitFor(() => expect(container.querySelector('#detailHeader')).toHaveTextContent('mine'))
+  const tab = screen.getByRole('tab', { name: /Console/ })
+  expect(tab).toHaveAttribute('aria-disabled', 'true')
+  expect(tab).toHaveAttribute('title', 'Capture is off for this workspace. Open the browser with open_session(capture=true).')
+  expect(screen.getAllByText('Capture is off for this workspace. Open the browser with open_session(capture=true).').length).toBeGreaterThan(0)
+})
+
+test('with capture on the tabs count what was captured', async () => {
+  const on = { ...row, capture: true, capturing: true, captured: { console: 5, network: 24, errors: 0, failed_requests: 0 } }
+  const { container } = setup({ 'GET /admin/workspaces/k/files': { body: { ...FILES, workspace: on } } })
+  await vi.waitFor(() => expect(container.querySelector('#consoleTotal')).toHaveTextContent('5'))
+  expect(container.querySelector('#networkTotal')).toHaveTextContent('24')
+  expect(screen.getByRole('tab', { name: /Network/ })).not.toHaveAttribute('aria-disabled', 'true')
+})

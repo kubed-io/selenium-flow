@@ -8,6 +8,10 @@ from __future__ import annotations
 
 import contextlib
 import json
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager as ContextManager
+
+from ..bidi import Channel
 
 # What a spare tab is answered with. The marker tells it from a site's own
 # page, which a service worker serves before any intercept sees the request.
@@ -25,7 +29,12 @@ class ServiceWorkerAnswered(RuntimeError):
 
 
 @contextlib.contextmanager
-def spare_tab(bidi, context: str | None = None):
+def spare_tab(
+    channel: Channel,
+    context: str | None = None,
+    *,
+    hidden: Callable[[str], ContextManager[None]] | None = None,
+) -> Iterator[Callable[[str, str], object]]:
     """A tab whose every request is answered with :data:`SPARE_PAGE`, so it
     can stand on any origin without that site loading — Playwright's way to
     reach another origin's storage.
@@ -35,52 +44,63 @@ def spare_tab(bidi, context: str | None = None):
     a service worker's (:class:`ServiceWorkerAnswered`) and is never touched.
 
     With ``context``, that existing tab is intercepted instead and left open:
-    the main tab, for its sessionStorage. Selenium subscribes once per event,
-    with the first handler's contexts, so the handler is removed on the way
-    out and the next tab subscribes afresh.
+    the main tab, for its sessionStorage. With ``hidden`` and no ``context``,
+    the tab's whole life is spent inside ``hidden(tab)``, so a capture running
+    on the same connection never sees it.
     """
-    tab = context or bidi.browsing_context.create(type="tab", background=True)
-    intercept = handler = None
-    try:
-        intercept = bidi.network.add_intercept(
-            phases=["beforeRequestSent"],
-            contexts=[tab],
-            url_patterns=[{"type": "pattern", "pathname": SPARE_PATH}],
-        )["intercept"]
+    with contextlib.ExitStack() as life:
+        if context is None:
+            tab = channel.call(
+                "browsingContext.create", {"type": "tab", "background": True}
+            )["context"]
+            if hidden is not None:
+                life.enter_context(hidden(tab))
+            life.callback(_close, channel, tab)
+        else:
+            tab = context
+        intercept: list[str] = []
 
-        def answer(event):
-            # On Selenium's own thread, one per event: a refused response is
-            # not an error here, it leaves the request blocked and the
-            # navigate times out (BIDI_TIMEOUT).
-            if not isinstance(event, dict) or not event.get("isBlocked"):
-                return
-            with contextlib.suppress(Exception):
-                bidi.network.provide_response(
-                    request=event["request"]["request"],
-                    status_code=200,
-                    headers=[{
+        def remove() -> None:
+            # Once: the way out of the block and the way out of a failed
+            # subscribe both come here.
+            while intercept:
+                with contextlib.suppress(Exception):
+                    channel.call(
+                        "network.removeIntercept", {"intercept": intercept.pop()}
+                    )
+
+        life.callback(remove)
+
+        def answer(_method: str, params: dict) -> None:
+            # On the loop, once per event: a refused response is not an error
+            # here, it leaves the request blocked and the navigate times out.
+            if params.get("isBlocked"):
+                channel.post("network.provideResponse", {
+                    "request": params["request"]["request"],
+                    "statusCode": 200,
+                    "headers": [{
                         "name": "content-type",
                         "value": {"type": "string", "value": "text/html"},
                     }],
-                    body={"type": "string", "value": SPARE_PAGE},
-                )
+                    "body": {"type": "string", "value": SPARE_PAGE},
+                })
 
-        # `before_request`, not `before_request_sent`: the other name hands
-        # the callback an event without the request's fields.
-        handler = bidi.network.add_event_handler(
-            "before_request", answer, contexts=[tab]
-        )
+        intercept.append(channel.call("network.addIntercept", {
+            "phases": ["beforeRequestSent"],
+            "contexts": [tab],
+            "urlPatterns": [{"type": "pattern", "pathname": SPARE_PATH}],
+        })["intercept"])
 
         def run(origin: str, expression: str):
-            bidi.browsing_context.navigate(
-                context=tab, url=origin + SPARE_PATH, wait="complete"
-            )
-            reply = bidi.script.evaluate(
-                expression=_on_spare(expression, origin),
-                target={"context": tab},
-                await_promise=True,
-            )
-            if reply.get("type") != "success":
+            channel.call("browsingContext.navigate", {
+                "context": tab, "url": origin + SPARE_PATH, "wait": "complete",
+            })
+            reply = channel.call("script.evaluate", {
+                "expression": _on_spare(expression, origin),
+                "target": {"context": tab},
+                "awaitPromise": True,
+            })
+            if reply.get("type") == "exception":
                 details = reply.get("exceptionDetails") or {}
                 raise RuntimeError(details.get("text") or "the script failed")
             got = json.loads(reply["result"]["value"])
@@ -92,19 +112,20 @@ def spare_tab(bidi, context: str | None = None):
                 raise RuntimeError(f"the spare tab is on {got['origin']}, not {origin}")
             return got["value"]
 
-        yield run
-    finally:
-        # The intercept before its handler: the other way round, a request
+        # The intercept before its listener: the other way round, a request
         # caught in between has nobody to answer it and stays blocked.
-        if intercept is not None:
-            with contextlib.suppress(Exception):
-                bidi.network.remove_intercept(intercept=intercept)
-        if handler is not None:
-            with contextlib.suppress(Exception):
-                bidi.network.remove_event_handler("before_request", handler)
-        if context is None:
-            with contextlib.suppress(Exception):
-                bidi.browsing_context.close(context=tab)
+        with channel.listen(
+            ["network.beforeRequestSent"], answer, contexts=[tab], name="spare"
+        ):
+            try:
+                yield run
+            finally:
+                remove()
+
+
+def _close(channel: Channel, tab: str) -> None:
+    with contextlib.suppress(Exception):
+        channel.call("browsingContext.close", {"context": tab})
 
 
 def _on_spare(expression: str, origin: str) -> str:

@@ -71,6 +71,14 @@ VIEWS: tuple[View, ...] = (
     _exactly("flow://flows", "flows"),
     View("flow://flows/{name}", re.compile(r"flow://flows/[^/]+"), "flow"),
     _exactly("flow://schema", "document"),
+    # The request row sits before the listing's, which takes a query string.
+    View("workspace://console", re.compile(r"workspace://console(\?.*)?"), "console"),
+    View(
+        "workspace://network/{id}",
+        re.compile(r"workspace://network/[^/?]+"),
+        "request",
+    ),
+    View("workspace://network", re.compile(r"workspace://network(\?.*)?"), "network"),
     # One secret is a closer look inside the app, not a URI: there is no
     # single-secret resource to read (secrets.py, "one read").
     _exactly("secret://secrets", "secrets"),
@@ -86,7 +94,14 @@ SHOWABLE = tuple(view.form for view in VIEWS)
 # its data: a flow may be 1 MiB of YAML and a listing is unbounded.
 MAX_SHOWN = 100_000
 # What a listing's `count` counts, for the model's line.
-NOUNS = {"files": "kept file", "folder": "file", "flows": "flow", "secrets": "secret"}
+NOUNS = {
+    "files": "kept file",
+    "folder": "file",
+    "flows": "flow",
+    "secrets": "secret",
+    "console": "entry",
+    "network": "request",
+}
 
 
 def row_for(uri: str) -> View:
@@ -106,7 +121,9 @@ def summary(uri: str, component: str, data) -> str:
     """One line for the model: what the person is now looking at."""
     count = data.get("count") if isinstance(data, dict) else None
     if component in NOUNS and isinstance(count, int):
-        noun = NOUNS[component] + ("" if count == 1 else "s")
+        noun = NOUNS[component]
+        if count != 1:
+            noun = noun[:-1] + "ies" if noun.endswith("y") else noun + "s"
         return f"Showing {uri} to the person: {count} {noun}."
     return f"Showing {uri} to the person ({component})."
 

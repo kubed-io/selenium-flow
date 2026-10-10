@@ -137,6 +137,11 @@ NOT_STEPS = {
         "already knows its selectors; call outline while writing or repairing "
         "one"
     ),
+    "network_body": (
+        "A request id belongs to one page load, which a saved flow cannot know "
+        "when it is written; read workspace://network and fetch a body while "
+        "working one out"
+    ),
 }
 
 # The runner supplies this. A step naming it would be addressing someone else's

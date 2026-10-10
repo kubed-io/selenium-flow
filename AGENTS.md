@@ -47,7 +47,7 @@ component *of* the Selenium app rather than as a free-standing app.
 ## The loop (short version)
 
 ```
-branch + PR ─► test.yml    ruff + pytest on 3.14 ← the gate (3.10 beside it, advisory)
+branch + PR ─► test.yml    ruff + pytest on 3.14 ← the gate (3.11 beside it, advisory)
              + quality.yml CodeQL, pip-audit, zizmor,
                            hadolint, OpenAPI lint
              + pr.yml      fails if CHANGELOG [Unreleased]
@@ -55,7 +55,7 @@ branch + PR ─► test.yml    ruff + pytest on 3.14 ← the gate (3.10 beside i
              + Copilot reviews against .github/copilot-instructions.md
      │       (the image is NOT built here — see image.yml for why)
      │
-   merge ───► test.yml sweeps 3.10 → 3.14
+   merge ───► test.yml sweeps 3.11 → 3.14
              image.yml pushes kubed/selenium-flow:main + :latest
      │
  publish  ──► Actions → 🧬 Publish Version → pick patch/minor/major
@@ -114,8 +114,8 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   `destructiveHint` is the one worth arguing about, and the rule is: **true wherever the
   tool hands the page an instruction the page is free to interpret** — `interact`,
   `press_key`, `dialog`, `execute_script`. A click is not destructive in itself and can
-  place an order, and this server cannot tell which. Of the browser actions `extract` is
-  the only read-only one; `screenshot` is not, because it writes a file, and a
+  place an order, and this server cannot tell which. Of the browser actions `extract`,
+  `outline` and `network_body` are the read-only ones; `screenshot` is not, because it writes a file, and a
   tool cannot be read-only only sometimes. `list_resources` and `read_resource` are reads
   too, and are the ones easiest to forget — they only appear for a client that cannot read
   resources, so a listing taken in the default mode proves nothing about them.
@@ -187,14 +187,19 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   already caught real failures.
 - **Plain W3C WebDriver only.** No CDP. It is Chrome-only, which forfeits running against
   any other browser the Grid offers, and the CDP DevTools API is deprecated for removal in
-  Selenium 5. WebDriver BiDi is W3C and allowed in exactly two shapes. **Per call**, for
-  site data, reattached through `Grid.bidi(session_id)`, which closes its socket
-  on exit. **Held**, by the session monitor (`monitor/bidi.py`), only while a
-  session is owed something that needs its events, and never with an intercept:
-  a request matching an intercept hangs with nobody to answer. `websockets` is
-  imported there and nowhere else. A held socket is a channel, never a liveness
-  signal: measured, it survives its session's end and its hub still answers a
-  ping, so the monitor closes it when the watch ends.
+  Selenium 5. WebDriver BiDi is W3C and allowed, and **every conversation with a browser goes
+  through one client, `bidi/`**: one `Connection` per browser, a dispatcher that only parses
+  and routes, a bounded queue (1 000) and a task per subscriber, a timeout per command (spec
+  2026-10-10, rulings 1 and 8). While the monitor holds a connection for a session (capture
+  on), every user of that session shares it; otherwise `Channels.open_channel` opens one for
+  the block and closes it. A connection closes clean — it removes the intercepts added on it,
+  then unsubscribes by id and removes its data collectors — so Firefox's fan-out never floods another
+  socket, no body outlives its reader and no intercept outlives a save the close cut off. `websockets` is imported in `bidi/connection.py` and nowhere else. An
+  intercept is added only by the spare tab (`site_data/spare.py`), scoped to its tab and one
+  path, and removed before its listener: a request matching an orphaned intercept hangs with
+  nobody to answer. Selenium's own BiDi client is not used. A held socket is a channel, never
+  a liveness signal: measured, it survives its session's end and its hub still answers a ping,
+  so the monitor closes it when the watch ends.
   CDP `Page.captureScreenshot` with `captureBeyondViewport` does produce a
   better full-page image, and `Emulation.setDeviceMetricsOverride` adds JPEG and a 2x
   retina render — both tested working against this Grid. If that capability is wanted, add
@@ -426,7 +431,8 @@ that only reads does: `end_browser` sets the cancel the holder watches
 exists to stop it wait — a direct call with `cancel.Ended` ("the browser was
 ended while this call was waiting", a 404 like any dead browser), a flow with
 its own cancellation. Keyed by the browser's Grid id, reentrant, fair, weak,
-and process-local — one replica (see "Scaling").
+and process-local — one replica (see "Scaling"). With capture on, `Workspaces.act` holds the
+lock for the whole call so a call's window is its own, and a refused call then waits its turn.
 
 A waiting call holds one of the 40 worker threads that FastMCP's sync tools and
 Starlette's routes share (anyio's default limiter), and it does not notice its
@@ -445,6 +451,7 @@ the trap.
 | MCP transport session | this process's memory | no |
 | The workspace record: name -> context and Grid id | the workspace store (memory, or Redis) | only with Redis |
 | The workspace's files: flows, kept files, screenshots, recordings | `DATA_DIR/workspaces/<name>/` | yes, on a volume |
+| Captured console and network | this process's memory, behind `capture.ttl` | no |
 
 **The browser is the one that matters, and this server does not hold it.**
 It lives on the Grid, and the record naming it lives in the store, so a pod can
@@ -547,6 +554,32 @@ or the leak `caller_key` existed to prevent comes straight back.
   twice. What a write found comes back through `store.change`: `fn` returns the record and
   a note, and only the last run's note is returned — never a dict `fn` fills on the side.
 
+### Capture: a kept buffer for agents, a live tail for the admin
+
+- Capture is an open choice like `record`: `open_session(capture=true)`, replayed after a reap,
+  never inherited. It subscribes before the first page, after a restore.
+- The buffer is per workspace, in memory: 1 000 console entries and 1 000 requests, the last 5
+  navigations, gone `capture.ttl` after its last entry, discarded by an explicit open without
+  capture. Successful static requests and `debug` entries are counted, not kept.
+- Masking happens once, at capture, for buffer and tail alike: the `authorization`,
+  `proxy-authorization`, `cookie` and `set-cookie` headers in any case, cookies,
+  `goog:postData`, every bound secret, a URL's userinfo password (in URLs and the `referer` /
+  `location` / `content-location` headers), every free-text row field and a fetched body's text;
+  query strings only on the newest navigation.
+- The tail is capture's own fan-out to a page that asks, never kept: 500 per listener, and the
+  page keeps 2 000.
+- Each subscriber's queue is bounded by count (1 000) **and** bytes (`QUEUE_BYTES`, 32 MiB). A
+  scoped `Channel.listen(contexts=...)` filters locally, because Firefox fans events out to
+  every socket.
+- The bus stays value-free. `call.finished` is emitted at every recipe host, and the `page`
+  hint is its first consumer: it counts only what this call caused, bounded by the session's
+  lock and one `session.status` flush, and a failed call carries it as a sentence on its error.
+- The spare tab is invisible to capture. Chrome's replay is aligned by sequence, never by set.
+- Bodies stay in the browser; `network_body` fetches one on demand, on a connection of its own:
+  a decoded body can pass the socket's 16 MiB limit, and that closes only its own socket (a 400),
+  never the one capture holds. With capture on, the app's
+  `oncall` may call only `network_body`.
+
 ### Refresh, not cleanup
 
 A stored mapping can name a browser the Grid has already reaped. `resolve` checks
@@ -565,7 +598,10 @@ still not.
 its browser alive forever (measured: 2.2× the timeout and counting), so a
 watched session carries a deadline: its last call plus its node's
 `sessionTimeout`, read from `/status`. At the deadline the monitor
-unsubscribes, closes the socket and lets the Grid's timer run. This server
+unsubscribes, closes the socket and lets the Grid's timer run — never while a
+call on the session is in flight (`Monitor.calling` / `called`, from
+`workspace/calls.py`): the call borrows that connection, and the deadline
+counts from its end. This server
 ends no session on a timer of its own.
 
 ### The session monitor and the bus
@@ -900,6 +936,8 @@ The per-session lock (`workspace/locks.py`) is process memory too, with Redis or
 without: a second replica would let two calls drive one browser at once.
 
 The session monitor's watches and the bus are process memory too: a second replica would watch nothing the first opened.
+
+The capture buffers and the held connections are process memory too.
 
 ## Gotchas
 

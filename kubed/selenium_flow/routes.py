@@ -370,13 +370,16 @@ def _add(mcp, actions, workspaces, token, prefix, row: Capability, catalogue) ->
                 # Its own path, because a bound write must not let the shared
                 # wrapper store the page it landed on. See secrets.perform_write.
                 return secrets_module.perform_write(
-                    catalogue, actions, workspaces, caller.name, kwargs
+                    catalogue, actions, workspaces, caller.name, kwargs,
+                    surface="http",
                 )
             kwargs.pop("secret", None)
             return workspaces.act(
                 caller,
                 lambda s: method(s, **kwargs),
                 reshapes=row.reshapes,
+                tool=row.name,
+                surface="http",
             )
 
         return await _answer(request, token, path, call)

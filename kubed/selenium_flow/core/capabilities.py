@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .annotations import hints
+from .annotations import hints, reads
 
 
 @dataclass(frozen=True)
@@ -53,6 +53,8 @@ class Capability:
     in_path: bool = False
     reshapes: bool = False
     library_arg: str | None = None
+    # MCP Apps audiences for the tool (`model`, `app`); () is the default.
+    visibility: tuple[str, ...] = ()
 
 
 # ---- what each one answers -------------------------------------------------
@@ -110,11 +112,83 @@ SITE_DATA_HINT = {
 }
 
 
+# Present only with capture on, and only when the call made the page report a
+# failure (`workspace.calls`): left out of `required` like `site_data`.
+PAGE_HINT = {
+    "type": "object",
+    "description": (
+        "Present only when this browser was opened with capture=true and the "
+        "page reported a failure while the call ran: what it caused, and where "
+        "to read it."
+    ),
+    "properties": {
+        "errors": {
+            "type": "integer",
+            "description": "Console errors and uncaught exceptions.",
+        },
+        "failed_requests": {
+            "type": "integer",
+            "description": (
+                "Document, fetch and XHR requests that failed or got a 4xx/5xx."
+            ),
+        },
+        "see": {
+            "type": "string",
+            "description": "The resource URI to read for the detail.",
+        },
+    },
+    "required": ["errors", "failed_requests", "see"],
+}
+
+
 def _page(**extra) -> dict:
     return {
         "type": "object",
-        "properties": {**extra, **PAGE_STATE, "site_data": SITE_DATA_HINT},
+        "properties": {
+            **extra,
+            **PAGE_STATE,
+            "site_data": SITE_DATA_HINT,
+            "page": PAGE_HINT,
+        },
     }
+
+
+BODY_RESPONSE = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string", "description": "The request id that was asked for."},
+        "uri": {
+            "type": "string",
+            "description": "workspace://network/{id}, which shows the request itself.",
+        },
+        "mime": {"type": "string", "description": "The response's content type."},
+        "size": {
+            "type": ["integer", "null"],
+            "description": (
+                "Bytes of a text body as the browser handed it back, before any "
+                "cut. A binary body is never fetched, so its size is the request "
+                "row's; null when that is unknown."
+            ),
+        },
+        "binary": {
+            "type": "boolean",
+            "description": (
+                "True for a body that is not text: it is not fetched, and only "
+                "its type and size come back."
+            ),
+        },
+        "text": {
+            "type": ["string", "null"],
+            "description": "The text, up to 100 000 bytes; null for a binary body.",
+        },
+        "truncated": {
+            "type": "boolean",
+            "description": "True when the text was cut at 100 000 bytes.",
+        },
+        "page": PAGE_HINT,
+    },
+    "required": ["id", "uri", "mime", "size", "binary", "text", "truncated"],
+}
 
 
 # ---- the table ------------------------------------------------------------
@@ -162,6 +236,11 @@ CAPABILITIES: tuple[Capability, ...] = (
                 "recording": {
                     "type": "boolean",
                     "description": "Whether this browser is being recorded.",
+                },
+                "capture": {
+                    "type": "boolean",
+                    "description": "Whether this browser's console and network "
+                    "are being captured.",
                 },
                 "recording_error": {
                     "type": "string",
@@ -525,6 +604,15 @@ CAPABILITIES: tuple[Capability, ...] = (
                 "description": "workspace://site-data, which lists what is saved.",
             },
         ),
+    ),
+    Capability(
+        name="network_body",
+        method="network_body",
+        route="network-body",
+        http_method="POST",
+        annotations=reads("Fetch a response body"),
+        response=BODY_RESPONSE,
+        visibility=("model", "app"),
     ),
     Capability(
         name="end_browser",

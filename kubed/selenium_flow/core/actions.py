@@ -11,6 +11,7 @@ cached between calls — the browser state lives on the Grid, not in this proces
 from __future__ import annotations
 
 import base64
+import functools
 import logging
 import shutil
 import tempfile
@@ -23,7 +24,11 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.print_page_options import PrintOptions
 
+from ..bidi.connection import BidiError, MessageTooBig
+from ..capture import NETWORK_URI
 from ..errors import GONE, UNAVAILABLE
+from ..faults import BidiUnavailable, NotFound
+from ..faults import message as failure_text
 from ..names import FILES_DIR, SCREENSHOTS_DIR
 from ..site_data import snapshot as site_data_snapshot
 from ..site_data import transfer as site_data_transfer
@@ -41,6 +46,62 @@ from .recipe import CLICKABLE, DIALOG_TIMEOUT, PRESENCE, WAIT_TIMEOUT, Recipe
 INFRASTRUCTURE = (*GONE, *UNAVAILABLE)
 
 log = logging.getLogger(__name__)
+
+# `network_body`: text is cut at this many bytes; an id is a short string.
+BODY_CAP = 100_000
+# The largest text body asked of the browser, by the size its row says. Chrome
+# answers `network.getData` whole, in one frame, whatever the collector's
+# limit, and decoded: a compressed body can pass the connection's own limit
+# under it, so a body is fetched on a connection of its own (PR review I3),
+# and this is only the cheap refusal before asking.
+BODY_FETCH_LIMIT = 8_000_000
+# What a body's MIME type must be for its text to be worth asking for; anything
+# else is answered from the row, never fetched. An unknown type is asked.
+TEXT_TYPES = ("text/",)
+TEXT_SUBTYPES = (
+    "json",
+    "xml",
+    "javascript",
+    "x-javascript",
+    "ecmascript",
+    "x-ecmascript",
+    "x-www-form-urlencoded",
+)
+ID_LIMIT = 64
+BODY_GONE = (
+    "the browser no longer holds this body: it keeps them while it lives, "
+    "and drops the oldest past about 200 MB"
+)
+BODY_ANSWERS = {
+    "no such network data": BODY_GONE,
+    "unavailable network data": (
+        "the browser did not keep this body: it keeps bodies up to 10 MB"
+    ),
+    "no such network collector": (
+        "this body is no longer collectable: the browser stopped keeping bodies"
+    ),
+}
+
+
+def _is_text(mime: str) -> bool:
+    """Whether a body of type ``mime`` is text: ``text/*``, a JSON, XML or
+    JavaScript type (``+json`` and ``+xml`` suffixes included), or a form."""
+    kind = mime.split(";", 1)[0].strip().lower()
+    subtype = kind.partition("/")[2]
+    return kind.startswith(TEXT_TYPES) or any(
+        subtype == t or subtype.endswith("+" + t) for t in TEXT_SUBTYPES
+    )
+
+
+def _decoded_length(value: str) -> int:
+    try:
+        return len(base64.b64decode(value, validate=False))
+    except ValueError:
+        return 0
+
+def _body_ended(id: str) -> str:
+    return f"the browser that made request {id} has ended, and its body went with it"
+
 
 INSECURE_SKIP = "an insecure browser gets no saved site data"
 
@@ -105,6 +166,16 @@ class Actions:
         # the reason `keep` is one: which workspace is calling is not this
         # layer's to see. Absent, a save reads only the page it is on.
         self.visited = None
+        # How a BiDi channel to a session's browser is opened (`bidi.Channels`),
+        # wired by the server: site data's save and restore speak through it.
+        self.channels = None
+        # `(session_id, context) -> block`: inside it, capture ignores that
+        # browsing context. Wired by the server once capture exists, so a
+        # save's spare tab never reaches a caller's console or network log.
+        self.hide = None
+        # The kept console and network (`capture.Capture`), wired by the server:
+        # the capture resources read it. None when capture is not set up.
+        self.capture = None
 
     def _kept(self, name: str, data: bytes, folder=FILES_DIR) -> dict:
         """Keep bytes this server made with the caller's workspace.
@@ -152,10 +223,12 @@ class Actions:
         script_timeout=None,
         insecure=None,
         record=None,
+        capture=None,
         video_name=None,
         site_data=None,
         *,
         on_created=None,
+        on_ready=None,
     ) -> dict:
         """Start a browser session with the settings it should run under.
 
@@ -174,10 +247,18 @@ class Actions:
         exists, before anything here that can fail: a browser left running by
         a failure after that is still somebody's to account for (its video,
         for one). One that raises fails the open, so it keeps its own faults.
+
+        ``on_ready`` is called with the Grid's id once everything but the first
+        page is done — the window, the timeouts, the restore — and before
+        ``url`` loads, so a listener it starts hears that page from its first
+        request. One that raises fails the open: the browser is quit, and its
+        failure is the caller's. ``capture`` only says the browser is being
+        captured; what listens is ``on_ready``'s.
         """
         name = normalize_browser(browser)
         insecure = as_bool(insecure, False)
         record = as_bool(record, False)
+        capture = as_bool(capture, False)
         driver = self.grid.open(
             name, insecure=insecure, record=record, video_name=video_name
         )
@@ -214,18 +295,46 @@ class Actions:
                     "uri": site_data_snapshot.LIST_URI,
                 }
             else:
-                with self.grid.bidi(session_id) as bidi:
-                    report = site_data_transfer.restore(bidi, site_data, time.time())
+                try:
+                    with self.channels.open_channel(session_id) as channel:
+                        report = site_data_transfer.restore(
+                            channel, site_data, time.time()
+                        )
+                except BidiUnavailable as e:
+                    # Restore is best effort: a channel that will not open is
+                    # a report, never a failed open.
+                    report = {
+                        "restored": [], "skipped": [{"reason": failure_text(e)}],
+                        "uri": site_data_snapshot.LIST_URI,
+                    }
+
+        if not url and report is not None and driver.current_url != "about:blank":
+            # The restore sends the tab back from its stand-in page over BiDi,
+            # and swallows a failure; the classic driver makes the reported
+            # about:blank true (Copilot, #51). Before `on_ready`, so capture
+            # never hears a restore's stand-in as a navigation.
+            driver.get("about:blank")
+
+        if on_ready is not None:
+            try:
+                on_ready(session_id)
+            except BaseException:
+                # No page was loaded, so nothing is lost: quit it rather than
+                # hold a Grid slot for a browser nobody was told about. The
+                # id stays out of the log; the refusal is what propagates.
+                try:
+                    self.grid.quit(session_id)
+                except Exception as exc:  # noqa: BLE001 - the refusal matters more
+                    log.warning(
+                        "could not quit a browser whose setup failed: %s",
+                        type(exc).__name__,
+                    )
+                raise
 
         current_url, title = "about:blank", ""
         if url:
             driver.get(url)
             current_url, title = driver.current_url, driver.title
-        elif report is not None and driver.current_url != "about:blank":
-            # The restore sends the tab back from its stand-in page over BiDi,
-            # and swallows a failure; the classic driver makes the reported
-            # about:blank true (Copilot, #51).
-            driver.get("about:blank")
 
         size = driver.get_window_size()
         # Reported back so a caller can see what the cascade actually resolved
@@ -248,6 +357,8 @@ class Actions:
             applied["insecure"] = True
         if record:
             applied["record"] = True
+        if capture:
+            applied["capture"] = True
         result = {
             "session_id": session_id,
             "browser": name,
@@ -271,8 +382,11 @@ class Actions:
 
         def capture(at):
             origins = self.visited() if self.visited is not None else []
-            with self.grid.bidi(session_id) as bidi:
-                captured = site_data_transfer.capture(bidi, at.driver, origins)
+            hidden = functools.partial(self.hide, session_id) if self.hide else None
+            with self.channels.open_channel(session_id) as channel:
+                captured = site_data_transfer.capture(
+                    channel, at.driver, origins, hidden=hidden
+                )
             return {site_data_snapshot.CAPTURED: captured}
 
         return self._recipe().run(session_id, capture, url=url)
@@ -1164,6 +1278,84 @@ class Actions:
         return {
             **browser.page_state(driver),
             "frame_origin": browser.frame_origin(driver),
+        }
+
+    def network_body(self, session_id: str, id: str) -> dict:
+        """One captured request's response body, asked of the browser that made
+        it and of no other (spec §7, ruling 11).
+
+        ``id`` is checked before any lookup, and nothing is asked of a browser
+        until the request is known to be this one's. A binary body is answered
+        from its row, never fetched, and a text body over `BODY_FETCH_LIMIT` is
+        refused unasked. Chrome answers `network.getData` in one frame whatever
+        its size, so the body is asked on a connection of its own: a frame too
+        large for it closes only that one, never the one capture holds, and is
+        a 400. The text is masked like every other capture surface, and never
+        logged.
+        """
+        if not isinstance(id, str) or not 0 < len(id) <= ID_LIMIT:
+            raise ValueError(f"id is a request id from {NETWORK_URI}, like 3.7")
+        located = (
+            None if self.capture is None else self.capture.request_for(session_id, id)
+        )
+        if located is None:
+            raise ValueError(f"no captured request {id!r}: {NETWORK_URI} lists them")
+        if located.session_id != session_id:
+            raise NotFound(_body_ended(id))
+        answer = {
+            "id": id,
+            "uri": f"{NETWORK_URI}/{id}",
+            "mime": located.mime,
+            "size": located.size,
+            "binary": True,
+            "text": None,
+            "truncated": False,
+        }
+        if located.mime and not _is_text(located.mime):
+            return answer  # its type and size are all a binary body gives
+        if located.size is not None and located.size > BODY_FETCH_LIMIT:
+            raise ValueError(
+                f"request {id}'s body is {located.size / 1e6:.1f} MB, too large to "
+                f"fetch: the browser holds it, but bodies over "
+                f"{BODY_FETCH_LIMIT // 1_000_000} MB are not read from it. "
+                f"{NETWORK_URI}/{id} has its headers and size"
+            )
+        try:
+            # Never the held connection: a reply past its limit would close it.
+            with self.channels.open_channel(session_id, private=True) as channel:
+                reply = channel.call(
+                    "network.getData",
+                    {"dataType": "response", "request": located.request},
+                )
+        except MessageTooBig:
+            # On Firefox the frame may have been an event, fanned out to every
+            # socket, rather than this reply: no more is said than is known.
+            raise ValueError(
+                f"request {id}'s body could not be read: the browser sent a "
+                f"message too large to read while fetching this body. "
+                f"{NETWORK_URI}/{id} has its headers and size"
+            ) from None
+        except BidiError as exc:
+            # The browser's own words are never passed on: they can carry paths.
+            if exc.error in BODY_ANSWERS:
+                raise NotFound(BODY_ANSWERS[exc.error]) from None
+            raise RuntimeError("the browser could not return this body") from None
+        data = (reply or {}).get("bytes") or {}
+        value = data.get("value") or ""
+        if data.get("type") == "base64":
+            return {**answer, "size": _decoded_length(value)}
+        # Masked like every other capture surface (ruling 13) before the cut,
+        # so a secret straddling it goes too; the size is what the browser sent.
+        size = len(value.encode())
+        masked = self.capture.mask(session_id, value, BODY_CAP)
+        if masked is None:  # capture forgot this browser while it was asked
+            raise NotFound(_body_ended(id))
+        return {
+            **answer,
+            "size": size,
+            "binary": False,
+            "text": masked.encode()[:BODY_CAP].decode("utf-8", "ignore"),
+            "truncated": size > BODY_CAP,
         }
 
     def _recipe(self, wait=None, retry_stale=False) -> Recipe:

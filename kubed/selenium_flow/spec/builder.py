@@ -202,10 +202,7 @@ async def build_spec(
                     ),
                     "401": _error("Missing or wrong bearer token."),
                     "413": _error(TOO_LARGE),
-                    "404": _error(
-                        "No such browser session. It ended, the Grid reaped it, "
-                        "or the id was never real. Open a new one and retry."
-                    ),
+                    "404": _error(NOT_FOUND.get(action, GONE_BROWSER)),
                     "500": _error("Something failed that this server did not expect."),
                     "503": _error(
                         "The Grid could not serve this — unreachable, or no free "
@@ -569,6 +566,21 @@ TOO_LARGE = (
     "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of "
     "flow YAML. Send less; retrying it unchanged will fail again."
 )
+
+
+# What a 404 means, and what to do about it. A body is not a browser: the one
+# that made the request held it, and a new browser cannot bring it back.
+GONE_BROWSER = (
+    "No such browser session. It ended, the Grid reaped it, "
+    "or the id was never real. Open a new one and retry."
+)
+NOT_FOUND = {
+    "network_body": (
+        "No such body. The browser that made this request has ended, or no "
+        "longer holds its body. A new browser cannot return it, so do not "
+        "retry; and opening one without capture forgets what was captured."
+    ),
+}
 
 
 def _error(description: str) -> dict:

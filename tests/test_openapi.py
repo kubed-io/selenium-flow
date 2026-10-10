@@ -363,3 +363,12 @@ async def test_the_session_status_declares_its_site_data_summary(spec):
     assert declared["properties"]["sites"]["type"] == "integer"
     assert declared["properties"]["uri"]["type"] == "string"
     assert "only" in declared["description"]
+
+
+async def test_a_body_that_is_gone_is_not_told_to_open_a_browser(spec):
+    """For a body, a new browser cannot bring it back, and an open without
+    capture forgets what was captured: its 404 says so, not "retry"."""
+    shared = spec["paths"]["/browser/extract"]["post"]["responses"]["404"]["description"]
+    body = spec["paths"]["/browser/network-body"]["post"]["responses"]["404"]["description"]
+    assert body != shared and "retry" in shared.lower()
+    assert "body" in body and "Open a new one" not in body
