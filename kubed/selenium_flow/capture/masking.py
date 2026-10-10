@@ -19,9 +19,11 @@ from . import HEADER_LIMIT, HEADER_VALUE_CAP, MASK, MASKED_HEADERS, TEXT_CAP
 # their query with their row's navigation.
 URL_HEADERS = frozenset({"referer", "location", "content-location"})
 
-# A URL's scheme, then its authority: everything up to the path, query or
-# fragment (RFC 3986 §3.2).
-_AUTHORITY = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://([^/?#]*)")
+# A URL's authority: after leading whitespace, an optional scheme and two
+# slashes (protocol-relative ``//host`` included, and the backslashes a browser
+# reads as slashes), everything up to the path, query or fragment (RFC 3986
+# §3.2, WHATWG URL).
+_AUTHORITY = re.compile(r"\s*(?:[A-Za-z][A-Za-z0-9+.-]*:)?[/\\]{2}([^/\\?#]*)")
 
 
 def strip_query(url: str) -> str:
@@ -50,7 +52,9 @@ class Masker:
         # Longest first, so a secret containing another is masked whole.
         self._secrets = tuple(sorted(known, key=len, reverse=True))
 
-    def text(self, value: str, cap: int = TEXT_CAP) -> str:
+    def text(
+        self, value: str, cap: int = TEXT_CAP, *, also: tuple[int, int] | None = None
+    ) -> str:
         """``value`` with every occurrence of every secret masked, cut to
         ``cap``.
 
@@ -66,6 +70,9 @@ class Masker:
         text inside the cap, the last characters read — where a secret may
         begin and run on past what was read — are masked too when the value
         was longer.
+
+        ``also`` is one more span of ``value`` to mask, merged with the
+        secrets' (a URL's password, so a secret holding it is masked whole).
         """
         longest = len(self._secrets[0]) if self._secrets else 0
         read = value[: cap + longest]
@@ -77,6 +84,8 @@ class Masker:
                 at = read.find(secret, at + 1)
         if len(read) < len(value) and longest > 1:
             spans.append((len(read) - (longest - 1), len(read)))
+        if also is not None and also[0] < len(read):
+            spans.append((also[0], min(also[1], len(read))))
         if not spans:
             return read[:cap]
         spans.sort()
@@ -94,9 +103,10 @@ class Masker:
         """A URL masked — bound secrets, and any password in its userinfo —
         without its query unless ``keep_query``, and cut to ``TEXT_CAP`` (a
         ``data:`` URL can be megabytes)."""
-        # The password first, on the whole URL: a cut can fall inside a long
-        # userinfo, and what is left of it then reads as a host and a port.
-        masked = self.text(_hide_password(value))
+        # The password is found on the whole URL (a cut can fall inside a long
+        # userinfo, leaving what reads as a host and a port) and masked with
+        # the secrets, so a secret holding the userinfo is still masked whole.
+        masked = self.text(value, also=_password(value))
         if not keep_query:
             masked = strip_query(masked)
         return masked[:TEXT_CAP]
@@ -114,29 +124,26 @@ class Masker:
                 value = MASK
             else:
                 value = _header_value(header.get("value"))
-                if name.lower() in URL_HEADERS:
-                    value = _hide_password(value)
-                value = self.text(value, HEADER_VALUE_CAP)
+                password = _password(value) if name.lower() in URL_HEADERS else None
+                value = self.text(value, HEADER_VALUE_CAP, also=password)
             kept.append({"name": self.text(name, HEADER_VALUE_CAP), "value": value})
         return kept
 
 
-def _hide_password(url: str) -> str:
-    """``https://user:pw@host/`` as ``https://user:•••@host/``: a credential in
-    a URL is an ``Authorization`` header by another name.
+def _password(url: str) -> tuple[int, int] | None:
+    """Where the password in ``url``'s userinfo is, if it has one:
+    ``https://user:pw@host/`` is shown as ``https://user:•••@host/``, since a
+    credential in a URL is an ``Authorization`` header by another name.
 
-    Only the authority is read, so a URL of megabytes costs one copy at most,
-    and only when it does carry a password.
+    Only the authority is read, so a URL of megabytes costs no copy.
     """
     authority = _AUTHORITY.match(url)
     if authority is None:
-        return url
-    userinfo, at, _ = authority.group(1).rpartition("@")
-    if not at or ":" not in userinfo:
-        return url
-    user = userinfo.split(":", 1)[0]
-    start = authority.start(1)
-    return f"{url[:start]}{user}:{MASK}{url[start + len(userinfo) :]}"
+        return None
+    start, end = authority.span(1)
+    at = url.rfind("@", start, end)
+    colon = url.find(":", start, at) if at != -1 else -1
+    return None if colon == -1 else (colon + 1, at)
 
 
 def _header_value(value) -> str:

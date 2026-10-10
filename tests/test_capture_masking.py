@@ -140,5 +140,26 @@ def test_text_is_cut_to_its_cap():
 
 
 def test_a_password_longer_than_the_cap_is_still_masked():
+    """The cut falls inside the userinfo, where what is left would otherwise
+    read as a host and a port; the host is past what a row keeps."""
     shown = Masker().url("https://u:" + "p" * (2 * TEXT_CAP) + "@a.test/", keep_query=True)
-    assert shown == f"https://u:{MASK}@a.test/"
+    assert shown == f"https://u:{MASK}"
+
+
+def test_a_bound_secret_holding_the_userinfo_is_masked_whole():
+    """Hiding the password first would leave "user:" for the secret to miss."""
+    m = Masker(["user:pw"])
+    assert m.url("https://user:pw@a.test/", keep_query=True) == f"https://{MASK}@a.test/"
+    header = {"name": "Location", "value": {"type": "string", "value": "https://user:pw@a.test/"}}
+    assert m.headers([header])[0]["value"] == f"https://{MASK}@a.test/"
+
+
+@pytest.mark.parametrize("value, expected", [
+    ("//user:pw@a.test/p", f"//user:{MASK}@a.test/p"),
+    (" https://user:pw@a.test/p", f" https://user:{MASK}@a.test/p"),
+    ("\thttp://user:pw@a.test", f"\thttp://user:{MASK}@a.test"),
+    ("https:\\\\user:pw@a.test/", f"https:\\\\user:{MASK}@a.test/"),
+])
+def test_a_password_in_a_relative_or_padded_url_is_masked(value, expected):
+    header = {"name": "Location", "value": {"type": "string", "value": value}}
+    assert Masker().headers([header])[0]["value"] == expected
