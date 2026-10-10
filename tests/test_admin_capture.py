@@ -124,6 +124,19 @@ def test_a_body_with_no_live_browser_is_404_and_opens_nothing(admin_client, fed)
     assert r.status_code == 404 and "no session is open" in r.json()["error"]
 
 
+def test_the_no_session_and_bad_kind_statuses_are_errors_pys(admin_client, fed, monkeypatch):
+    """AGENTS: one place decides what a failure means, so neither route
+    writes its own status."""
+    from kubed.selenium_flow import errors
+    from kubed.selenium_flow.faults import NotFound
+
+    asked, real = [], errors.status_for
+    monkeypatch.setattr(errors, "status_for", lambda exc: asked.append(exc) or real(exc))
+    assert admin_client.post("/admin/workspaces/ws/network/1.1/body", headers=AUTH).status_code == 404
+    assert admin_client.get("/admin/workspaces/ws/tail?kind=all", headers=AUTH).status_code == 400
+    assert [type(exc) for exc in asked] == [NotFound, ValueError]
+
+
 def test_a_body_is_asked_of_the_live_browser(admin_client, fed, monkeypatch):
     asked = []
     monkeypatch.setattr(fed.workspaces, "browser", lambda key: "s1")

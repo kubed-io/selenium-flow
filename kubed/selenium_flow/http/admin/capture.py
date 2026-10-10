@@ -19,6 +19,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from ...faults import NotFound
 from .. import answer, links
 from .workspaces import HEARTBEAT
 
@@ -130,7 +131,7 @@ def mount(mcp, actions, workspaces, capture, token, prefix, guarded, door) -> No
                 workspaces.browser, request.path_params["key"]
             )
             if not session_id:
-                return JSONResponse({"error": NO_SESSION}, status_code=404)
+                raise NotFound(NO_SESSION)
             body = await run_in_threadpool(
                 actions.network_body, session_id, request.path_params["id"]
             )
@@ -150,11 +151,10 @@ def mount(mcp, actions, workspaces, capture, token, prefix, guarded, door) -> No
         if refusal is not None:
             return refusal
         kind = request.query_params.get("kind")
-        if kind not in KINDS:
-            return JSONResponse(
-                {"error": "kind is console or network"}, status_code=400
-            )
-        subscription = capture.tail(key, kind)
+        try:
+            subscription = capture.tail(key, kind)  # a ValueError for a bad kind
+        except Exception as exc:  # noqa: BLE001 - errors.py says what it means
+            return answer.refused(exc, "capture tail", log)
         stopping = anyio.Event()  # the stream's shutdown event: set() / is_set()
 
         async def stream():
