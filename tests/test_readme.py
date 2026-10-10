@@ -29,3 +29,14 @@ def test_the_readme_fits_docker_hubs_description_limit():
         "Move contributor material to CONTRIBUTING.md and design rationale to "
         "AGENTS.md — the README advertises, those two explain."
     )
+
+
+def test_the_action_table_lists_every_capability_and_counts_them():
+    """The table is hand-written; it said seventeen and left out two (PR review)."""
+    from kubed.selenium_flow.core.capabilities import CAPABILITIES
+
+    text = README.read_text()
+    rows = {line.split("`")[1] for line in text.splitlines() if line.startswith("| [`")}
+    assert rows == {c.name for c in CAPABILITIES}
+    words = {17: "Seventeen", 18: "Eighteen", 19: "Nineteen", 20: "Twenty", 21: "Twenty-one"}
+    assert f"{words[len(CAPABILITIES)]} actions," in text
