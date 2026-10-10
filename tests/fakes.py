@@ -401,9 +401,12 @@ class FakeChannel:
 
     def _network_getData(self, params):
         try:
-            return self.bodies[params["request"]]
+            body = self.bodies[params["request"]]
         except KeyError:
             raise BidiError("no such network data", "gone") from None
+        if isinstance(body, str):  # a BiDi error code the browser answers with
+            raise BidiError(body, "text from the browser, with a path /tmp/x")
+        return body
 
     def _script_evaluate(self, params):
         expression = self.expression = params["expression"]

@@ -54,6 +54,15 @@ BODY_GONE = (
     "the browser no longer holds this body: it keeps them while it lives, "
     "and drops the oldest past about 200 MB"
 )
+BODY_ANSWERS = {
+    "no such network data": BODY_GONE,
+    "unavailable network data": (
+        "the browser did not keep this body: it keeps bodies up to 10 MB"
+    ),
+    "no such network collector": (
+        "this body is no longer collectable: the browser stopped keeping bodies"
+    ),
+}
 
 
 def _decoded_length(value: str) -> int:
@@ -1265,9 +1274,10 @@ class Actions:
                     {"dataType": "response", "request": located.request},
                 )
         except BidiError as exc:
-            if exc.error == "no such network data":
-                raise NotFound(BODY_GONE) from None
-            raise
+            # The browser's own words are never passed on: they can carry paths.
+            if exc.error in BODY_ANSWERS:
+                raise NotFound(BODY_ANSWERS[exc.error]) from None
+            raise RuntimeError("the browser could not return this body") from None
         data = (answer or {}).get("bytes") or {}
         value = data.get("value") or ""
         binary = data.get("type") == "base64"

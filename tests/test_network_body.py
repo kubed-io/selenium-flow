@@ -102,3 +102,25 @@ def test_a_body_from_an_ended_browser_is_404(actions, fed):
 def test_a_body_the_browser_dropped_is_404(actions, fed):
     with pytest.raises(NotFound, match="no longer holds"):
         actions.network_body("s1", "1.1")                                # FakeChannel: no such network data
+
+
+@pytest.mark.parametrize(
+    ("code", "says"),
+    [
+        ("unavailable network data", "did not keep this body"),
+        ("no such network collector", "no longer collectable"),
+    ],
+)
+def test_the_other_known_browser_answers_are_404_in_our_words(actions, fed, code, says):
+    fed.channel.bodies["r1"] = code
+    with pytest.raises(NotFound, match=says) as raised:
+        actions.network_body("s1", "1.1")
+    assert errors.status_for(raised.value) == 404
+    assert "/tmp/x" not in str(raised.value)
+
+
+def test_an_unrecognised_browser_error_never_carries_its_text(actions, fed):
+    fed.channel.bodies["r1"] = "unknown error"
+    with pytest.raises(RuntimeError) as raised:
+        actions.network_body("s1", "1.1")
+    assert "/tmp/x" not in str(raised.value) and raised.value.__cause__ is None
