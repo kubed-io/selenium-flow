@@ -4,6 +4,10 @@
     {
       "attached": true,
       "browser": "chrome",
+      "capture": false,
+      "capture_ttl": 10800,
+      "captured": null,
+      "capturing": false,
       "counts": {
         "downloads": 0,
         "files": 0,
@@ -35,6 +39,10 @@
     {
       "attached": true,
       "browser": "chrome",
+      "capture": false,
+      "capture_ttl": 10800,
+      "captured": null,
+      "capturing": false,
       "counts": {
         "downloads": 0,
         "files": 0,
@@ -66,6 +74,10 @@
     {
       "attached": false,
       "browser": "chrome",
+      "capture": false,
+      "capture_ttl": 10800,
+      "captured": null,
+      "capturing": false,
       "counts": {
         "downloads": null,
         "files": 0,
@@ -97,6 +109,10 @@
     {
       "attached": false,
       "browser": "chrome",
+      "capture": false,
+      "capture_ttl": 10800,
+      "captured": null,
+      "capturing": false,
       "counts": {
         "downloads": null,
         "files": 0,

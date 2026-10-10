@@ -21,7 +21,8 @@ The files themselves are the Grid's, not ours — see ``Grid.files``.
 
 One module per tab: ``page`` (the shell), ``workspaces`` (the list and its live
 stream), ``site_data`` (history and saved site data), ``files``, ``flows``, and
-``signed`` (the links that carry their own authority).
+``capture`` (console, network and the live tail), and ``signed`` (the links
+that carry their own authority).
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from .. import answer, auth, links
+from . import capture as capture_tab
 from . import files, flows, page, signed, site_data
 from . import workspaces as workspace_list
 
@@ -54,6 +56,7 @@ def register(
     frame_ancestors: list[str] | None = None,
     door: auth.AdminDoor | None = None,
     oidc_page: str = "",
+    capture=None,
 ) -> workspace_list.Broadcast:
     """Mount the admin pages, their JSON API, and the signed file routes.
 
@@ -115,5 +118,9 @@ def register(
         broadcast.compute, guarded, broadcast.changes,
     )
     flows.mount(mcp, flow_store, schemas, prefix, guarded, broadcast.changes)
+    if capture is not None:
+        capture_tab.mount(
+            mcp, actions, workspaces, capture, token, prefix, guarded, door
+        )
     signed.mount(mcp, actions, flow_store, token, prefix)
     return broadcast

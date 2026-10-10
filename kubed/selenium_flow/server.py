@@ -371,6 +371,7 @@ class SeleniumMCP:
             frame_ancestors=settings.security.frame_ancestors,
             door=self.doors.admin,
             oidc_page=admin_page.sign_in(settings.oidc),
+            capture=self.capture,
         )
         # A filed recording shows on every open admin page now, not a tick on.
         if self.collector is not None:

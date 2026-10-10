@@ -61,6 +61,11 @@
   ],
   [
     "GET",
+    "/admin/workspaces/{key}/console",
+    "admin_console"
+  ],
+  [
+    "GET",
     "/admin/workspaces/{key}/files",
     "admin_files"
   ],
@@ -81,8 +86,23 @@
   ],
   [
     "GET",
+    "/admin/workspaces/{key}/network",
+    "admin_network"
+  ],
+  [
+    "GET",
+    "/admin/workspaces/{key}/network/{id}",
+    "admin_request"
+  ],
+  [
+    "GET",
     "/admin/workspaces/{key}/site-data",
     "admin_site_data"
+  ],
+  [
+    "GET",
+    "/admin/workspaces/{key}/tail",
+    "admin_capture_tail"
   ],
   [
     "GET",
@@ -108,6 +128,11 @@
     "POST",
     "/admin/workspaces/{key}/flows/{name}/move",
     "admin_move_flow"
+  ],
+  [
+    "POST",
+    "/admin/workspaces/{key}/network/{id}/body",
+    "admin_request_body"
   ],
   [
     "PUT",

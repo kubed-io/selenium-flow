@@ -182,6 +182,11 @@ class Capture:
         self._hidden: dict[str, set[str]] = {}
         self._tails: dict[str, list[TailSubscription]] = {}
 
+    @property
+    def ttl(self) -> int:
+        """Seconds entries are kept after the last one arrived."""
+        return int(self._cache.ttl)
+
     # ---- the Sink ------------------------------------------------------------
 
     def attached(self, workspace, session_id, browser, top, *, again: bool) -> None:

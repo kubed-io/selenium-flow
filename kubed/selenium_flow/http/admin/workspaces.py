@@ -67,6 +67,25 @@ def _recency(item) -> float:
     return getattr(item[1], "opened_at", 0.0) or 0.0
 
 
+def capture_facts(workspaces, key: str, record, live: bool) -> dict:
+    """The row's capture fields: whether it is on, whether the connection is
+    held now, what was kept (None when off), and how long it is kept."""
+    capture = getattr(workspaces, "capture", None)
+    on = bool((record.settings or {}).get("capture"))
+    monitor = getattr(workspaces, "monitor", None)
+    return {
+        "capture": on,
+        "capturing": bool(
+            on and live and monitor is not None and monitor.capturing(record.session_id)
+        ),
+        "captured": (capture.counts(key) or _NOTHING_YET) if on and capture else None,
+        "capture_ttl": capture.ttl if capture is not None else None,
+    }
+
+
+_NOTHING_YET = {"console": 0, "network": 0, "errors": 0, "failed_requests": 0}
+
+
 def _grid_facts(session: dict) -> dict:
     """The few things only the Grid knows about an attached browser."""
     if not session:
@@ -481,6 +500,7 @@ def mount(
                     "attached": bool(sid),
                     "live": live,
                     "recording": bool(live and (record.settings or {}).get("record")),
+                    **capture_facts(workspaces, key, record, live),
                     "url": record.url or None,
                     "browser": (record.settings or {}).get("browser")
                     or DEFAULT_BROWSER,
