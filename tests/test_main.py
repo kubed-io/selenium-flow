@@ -16,6 +16,8 @@ from kubed.selenium_flow import main as main_module
 from kubed.selenium_flow.http import access_log
 from kubed.selenium_flow.main import WIRE_LOGGERS
 
+from .fakes import patch_os
+
 pytestmark = pytest.mark.unit
 
 
@@ -237,7 +239,7 @@ def test_an_unreadable_data_dir_exits_naming_it_not_a_traceback(tmp_path, listen
             raise OSError(errno.EIO, "EIO")
         return real(path, *a, **k)
 
-    monkeypatch.setattr(os, "stat", faulty)
+    patch_os(monkeypatch, "stat", faulty)
     monkeypatch.setenv("DATA_DIR", str(data))
     with pytest.raises(SystemExit) as exc:
         main_module.main(config(tmp_path))
