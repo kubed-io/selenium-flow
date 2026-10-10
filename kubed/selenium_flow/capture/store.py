@@ -46,7 +46,6 @@ from . import (
     REQUEST_LIMIT,
     STATIC_TYPES,
     TAIL_QUEUE,
-    TEXT_CAP,
     WORKSPACES,
     views,
 )
@@ -453,7 +452,7 @@ class Capture:
             "id": f"{nav}.{buffer.counter}",
             "seq": buffer.seq,
             "at": _seconds(params.get("timestamp")),
-            "method": held.masker.text(str(request.get("method") or ""))[:TEXT_CAP],
+            "method": held.masker.text(str(request.get("method") or "")),
             "url": held.masker.url(str(request.get("url") or ""), keep_query=True),
             "status": None,
             "status_text": "",
@@ -503,8 +502,8 @@ class Capture:
         row["status"] = (
             status if isinstance(status, int) and not isinstance(status, bool) else None
         )
-        row["status_text"] = mask(str(response.get("statusText") or ""))[:TEXT_CAP]
-        row["mime"] = mask(str(response.get("mimeType") or ""))[:TEXT_CAP]
+        row["status_text"] = mask(str(response.get("statusText") or ""))
+        row["mime"] = mask(str(response.get("mimeType") or ""))
         row["size"] = size if _number(size) else None
         row["response_headers"] = held.masker.headers(response.get("headers"))
         row["took_ms"] = _took(params.get("timestamp"), flight.begin)
@@ -521,7 +520,7 @@ class Capture:
             return False
         row = flight.row
         row["failed"] = True
-        row["error"] = held.masker.text(str(params.get("errorText") or ""))[:TEXT_CAP]
+        row["error"] = held.masker.text(str(params.get("errorText") or ""))
         row["took_ms"] = _took(params.get("timestamp"), flight.begin)
         self._settle(buffer, held, flight)
         return True

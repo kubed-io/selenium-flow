@@ -1,5 +1,8 @@
 """Masking happens once, at capture, for the buffer and the tail (ruling 13)."""
 
+import time
+import tracemalloc
+
 import pytest
 
 from kubed.selenium_flow.capture import HEADER_LIMIT, HEADER_VALUE_CAP, MASK, TEXT_CAP
@@ -94,3 +97,48 @@ def test_a_password_in_a_url_bearing_header_is_masked(name):
     assert Masker().headers(raw) == [
         {"name": name, "value": f"https://u:{MASK}@a.test/p?q=1"},
         {"name": "X-Other", "value": "https://u:pw@a.test/"}]
+
+
+HUGE = 3_000_000
+
+
+@pytest.mark.parametrize("read", [
+    lambda m, v: m.text(v),
+    lambda m, v: m.url("https://a.test/?q=" + v, keep_query=True),
+    lambda m, v: m.headers([{"name": "x-" + v, "value": {"type": "string", "value": v}}])[0]["value"],
+    lambda m, v: console_entry(log(v)[1], m)["text"],
+], ids=["text", "url", "header", "console"])
+def test_masking_a_huge_value_is_bounded_by_what_a_row_keeps(read):
+    """A one-character secret and a page that repeats it for megabytes: the
+    work and the memory are bounded by the cap, not by the page."""
+    for value in ("a" * HUGE, "ab" * (HUGE // 2)):
+        masker = Masker(["a"])
+        started = time.perf_counter()
+        tracemalloc.start()
+        try:
+            shown = read(masker, value)
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        assert time.perf_counter() - started < 1.0
+        assert peak < 2 * len(value) + 1_000_000      # a copy or two, never a tuple per "a"
+        assert len(shown) <= TEXT_CAP and "a" not in shown.removeprefix("https://")
+
+
+def test_a_secret_cut_off_where_masking_stops_is_still_masked():
+    """Masks shorter than their secrets pull later text inside the cap: a
+    secret that starts before masking stops and ends after it is masked too."""
+    secret = "0123456789"
+    value = secret * 409 + "x" * 10 + secret + "y" * 10_000
+    shown = Masker([secret]).text(value)
+    assert "012" not in shown and shown.startswith(f"{MASK}xxx")   # 409 touching: one mask
+
+
+def test_text_is_cut_to_its_cap():
+    assert Masker(["s"]).text("x" * 50, cap=10) == "x" * 10
+    assert Masker().text("x" * (TEXT_CAP + 5)) == "x" * TEXT_CAP
+
+
+def test_a_password_longer_than_the_cap_is_still_masked():
+    shown = Masker().url("https://u:" + "p" * (2 * TEXT_CAP) + "@a.test/", keep_query=True)
+    assert shown == f"https://u:{MASK}@a.test/"

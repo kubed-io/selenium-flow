@@ -69,7 +69,7 @@ def console_entry(params: dict, masker: Masker) -> dict:
     return {
         "level": str(params.get("level") or "info")[:TEXT_CAP],
         "type": str(params.get("type") or "console")[:TEXT_CAP],
-        "text": masker.text(str(params.get("text") or ""))[:TEXT_CAP],
+        "text": masker.text(str(params.get("text") or "")),
         "source": source,
         "context": (params.get("source") or {}).get("context"),
         "at": _seconds(params.get("timestamp")),
