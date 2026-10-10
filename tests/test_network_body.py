@@ -237,3 +237,37 @@ async def test_a_secret_echoed_escaped_in_the_console_and_its_tail_is_masked(fed
     assert [row["text"] for row in rows] == [f"saw {MASK}"] * len(tricky_bound)
     kept = [entry["text"] for entry in fed.capture.console("ws")["entries"]]
     assert kept == [f"saw {MASK}"] * len(tricky_bound)
+
+
+# ---- fetched on a connection of its own (PR review I3) -------------------------
+
+
+def test_a_body_is_fetched_on_a_private_connection(actions, fed):
+    """A compressed body decodes past what its row says, and one frame past
+    the connection's limit closes it: never the one capture holds."""
+    fed.channel.bodies["r1"] = body_of("ok")
+    actions.network_body("s1", "1.1")
+    assert actions.channels.opened == [True]
+
+
+def test_a_body_too_large_for_its_frame_is_400_and_capture_keeps_its_connection(
+    browser_in_thread, fed, monkeypatch
+):
+    from kubed.selenium_flow.bidi import Channels
+    from kubed.selenium_flow.bidi import connection as connection_module
+
+    from . import bidi_fakes
+
+    url, portal, loop = browser_in_thread
+    held = portal.call(bidi_fakes._opened, url)
+    monkeypatch.setattr(connection_module, "MAX_MESSAGE", 4096)  # what the next socket takes
+    bidi_fakes._running.bodies["r1"] = body_of("x" * 10_000)
+    actions = Actions(FakeGrid())
+    actions.capture = fed.capture
+    actions.channels = Channels(lambda _s: url, held=lambda _s: held, loop=lambda: loop)
+    with pytest.raises(ValueError, match="too large to fetch") as raised:
+        actions.network_body("s1", "1.1")
+    assert errors.status_for(raised.value) == 400
+    assert "workspace://network/1.1" in str(raised.value)
+    assert held.is_open
+    portal.call(held.close)

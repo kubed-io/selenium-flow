@@ -336,3 +336,19 @@ async def test_close_removes_the_intercepts_it_added_and_not_the_removed_ones(br
     removed = [p["intercept"] for m, p in zip(browser.received, browser.received_params, strict=True)
                if m == "network.removeIntercept"]
     assert removed == [gone, kept]
+
+
+@pytest.mark.parametrize("ours", [True, False], ids=["we-close-1009", "peer-closes-1009"])
+async def test_a_frame_past_the_limit_fails_waiting_commands_as_message_too_big(browser, monkeypatch, ours):
+    from kubed.selenium_flow.bidi import MessageTooBig
+    from kubed.selenium_flow.bidi import connection as connection_module
+
+    if ours:
+        monkeypatch.setattr(connection_module, "MAX_MESSAGE", 256)
+        browser.bodies["r1"] = {"bytes": {"type": "string", "value": "x" * 1000}}
+    conn = Connection(browser.url)
+    await conn.open()
+    with pytest.raises(MessageTooBig):
+        await conn.command("network.getData" if ours else "too.big", {"request": "r1"})
+    assert conn.dropped
+    await conn.close()

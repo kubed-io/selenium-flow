@@ -24,7 +24,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.print_page_options import PrintOptions
 
-from ..bidi.connection import BidiError
+from ..bidi.connection import BidiError, MessageTooBig
 from ..capture import NETWORK_URI
 from ..errors import GONE, UNAVAILABLE
 from ..faults import BidiUnavailable, NotFound
@@ -49,9 +49,11 @@ log = logging.getLogger(__name__)
 
 # `network_body`: text is cut at this many bytes; an id is a short string.
 BODY_CAP = 100_000
-# The largest text body asked of the browser. Chrome answers `network.getData`
-# whole, in one frame, whatever the collector's limit; a frame past the
-# connection's own limit closes the connection capture holds (final review I4).
+# The largest text body asked of the browser, by the size its row says. Chrome
+# answers `network.getData` whole, in one frame, whatever the collector's
+# limit, and decoded: a compressed body can pass the connection's own limit
+# under it, so a body is fetched on a connection of its own (PR review I3),
+# and this is only the cheap refusal before asking.
 BODY_FETCH_LIMIT = 8_000_000
 # What a body's MIME type must be for its text to be worth asking for; anything
 # else is answered from the row, never fetched. An unknown type is asked.
@@ -1277,10 +1279,11 @@ class Actions:
         ``id`` is checked before any lookup, and nothing is asked of a browser
         until the request is known to be this one's. A binary body is answered
         from its row, never fetched, and a text body over `BODY_FETCH_LIMIT` is
-        refused unasked: Chrome answers `network.getData` in one frame whatever
-        its size, and a frame too large for the connection closes the one
-        capture holds. The text is masked like every other capture surface,
-        and never logged.
+        refused unasked. Chrome answers `network.getData` in one frame whatever
+        its size, so the body is asked on a connection of its own: a frame too
+        large for it closes only that one, never the one capture holds, and is
+        a 400. The text is masked like every other capture surface, and never
+        logged.
         """
         if not isinstance(id, str) or not 0 < len(id) <= ID_LIMIT:
             raise ValueError(f"id is a request id from {NETWORK_URI}, like 3.7")
@@ -1310,11 +1313,18 @@ class Actions:
                 f"{NETWORK_URI}/{id} has its headers and size"
             )
         try:
-            with self.channels.open_channel(session_id) as channel:
+            # Never the held connection: a reply past its limit would close it.
+            with self.channels.open_channel(session_id, private=True) as channel:
                 reply = channel.call(
                     "network.getData",
                     {"dataType": "response", "request": located.request},
                 )
+        except MessageTooBig:
+            raise ValueError(
+                f"request {id}'s body is too large to fetch: it decodes past what "
+                f"one BiDi message carries. {NETWORK_URI}/{id} has its headers "
+                f"and size"
+            ) from None
         except BidiError as exc:
             # The browser's own words are never passed on: they can carry paths.
             if exc.error in BODY_ANSWERS:

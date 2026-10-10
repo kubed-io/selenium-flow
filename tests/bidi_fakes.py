@@ -71,6 +71,9 @@ class FakeBrowser:
                 continue
             elif method == "browsingContext.getTree":
                 reply = {"contexts": []}
+            elif method == "too.big":
+                await ws.close(1009, "message too big")  # what a peer past its limit sends
+                return
             elif method == "silence":
                 continue  # what a socket whose browser ended does (measured)
             elif method == "slow":

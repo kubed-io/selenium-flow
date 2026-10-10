@@ -11,6 +11,7 @@ from .connection import (
     FLUSH_GRACE,
     LAGS_KEPT,
     MAX_MESSAGE,
+    MESSAGE_TOO_BIG,
     OPEN_TIMEOUT,
     PING_INTERVAL,
     QUEUE_BYTES,
@@ -19,6 +20,7 @@ from .connection import (
     BidiError,
     Connection,
     Handler,
+    MessageTooBig,
     Subscriber,
 )
 
@@ -27,6 +29,7 @@ __all__ = [
     "FLUSH_GRACE",
     "LAGS_KEPT",
     "MAX_MESSAGE",
+    "MESSAGE_TOO_BIG",
     "OPEN_TIMEOUT",
     "PING_INTERVAL",
     "QUEUE_BYTES",
@@ -37,5 +40,6 @@ __all__ = [
     "Channels",
     "Connection",
     "Handler",
+    "MessageTooBig",
     "Subscriber",
 ]

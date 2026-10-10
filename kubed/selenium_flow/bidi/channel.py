@@ -18,7 +18,14 @@ from typing import Any
 from anyio.from_thread import start_blocking_portal
 
 from ..faults import BidiUnavailable
-from .connection import OPEN_TIMEOUT, REPLY_TIMEOUT, BidiError, Connection, Subscriber
+from .connection import (
+    OPEN_TIMEOUT,
+    REPLY_TIMEOUT,
+    BidiError,
+    Connection,
+    MessageTooBig,
+    Subscriber,
+)
 
 log = logging.getLogger(__name__)
 
@@ -86,10 +93,11 @@ def _scoped(
 @contextlib.contextmanager
 def _unavailable() -> Iterator[None]:
     """A closed connection or a reply that never came is a 503; the browser's
-    own error reply passes through."""
+    own error reply passes through, and so does a reply too large for the
+    socket, which its caller knows how to put."""
     try:
         yield
-    except BidiError:
+    except (BidiError, MessageTooBig):
         raise
     except (ConnectionError, TimeoutError) as exc:
         raise BidiUnavailable(CHANNEL_DOWN) from exc
@@ -217,15 +225,19 @@ class Channels:
         self.connect = connect
 
     @contextlib.contextmanager
-    def open_channel(self, session_id: str) -> Iterator[Channel]:
+    def open_channel(
+        self, session_id: str, *, private: bool = False
+    ) -> Iterator[Channel]:
         """A channel to ``session_id``'s browser for the block: the held
         connection, lent and left open, or one opened for the block and closed
-        after. BidiUnavailable when none can be opened."""
+        after — always the latter when ``private``, for a command whose reply
+        may be too large for a socket and so close it. BidiUnavailable when
+        none can be opened."""
         loop = self.loop()
         if loop is not None and not loop.is_running():
             loop = None
         if loop is not None:
-            connection = self.held(session_id)
+            connection = None if private else self.held(session_id)
             if connection is not None and connection.is_open:
                 yield Channel(connection, loop)
                 return

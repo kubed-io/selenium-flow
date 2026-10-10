@@ -71,6 +71,16 @@ READ_TURN = 64
 DRAIN_TURN = 0.005
 
 
+# The close code of a frame past the receiver's limit: websockets sends it
+# when a reply is larger than `MAX_MESSAGE`, and the socket is gone.
+MESSAGE_TOO_BIG = 1009
+
+
+class MessageTooBig(ConnectionError):
+    """A frame was larger than the connection takes, and it closed: every
+    command waiting on it gets this rather than a plain ConnectionError."""
+
+
 class BidiError(Exception):
     """The browser answered a command with an error."""
 
@@ -457,6 +467,7 @@ class Connection:
 
     async def _read(self, ws) -> None:
         frames = 0
+        too_big = False
         try:
             async for raw in ws:
                 at = self._clock()
@@ -492,13 +503,19 @@ class Connection:
                         at,
                         len(raw),
                     )
-        except ConnectionClosed:
-            pass
+        except ConnectionClosed as exc:
+            codes = {frame.code for frame in (exc.sent, exc.rcvd) if frame is not None}
+            if MESSAGE_TOO_BIG in codes:
+                too_big = True
         finally:
             self._closed = True
             for reply in self._pending.values():
                 if not reply.done():
-                    reply.set_exception(ConnectionError("the BiDi socket closed"))
+                    reply.set_exception(
+                        MessageTooBig("a frame was too large for the BiDi socket")
+                        if too_big
+                        else ConnectionError("the BiDi socket closed")
+                    )
             if not self._closing and self.on_close is not None:
                 with contextlib.suppress(Exception):
                     self.on_close()

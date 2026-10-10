@@ -575,7 +575,9 @@ or the leak `caller_key` existed to prevent comes straight back.
   hint is its first consumer: it counts only what this call caused, bounded by the session's
   lock and one `session.status` flush, and a failed call carries it as a sentence on its error.
 - The spare tab is invisible to capture. Chrome's replay is aligned by sequence, never by set.
-- Bodies stay in the browser; `network_body` fetches one on demand. With capture on, the app's
+- Bodies stay in the browser; `network_body` fetches one on demand, on a connection of its own:
+  a decoded body can pass the socket's 16 MiB limit, and that closes only its own socket (a 400),
+  never the one capture holds. With capture on, the app's
   `oncall` may call only `network_body`.
 
 ### Refresh, not cleanup

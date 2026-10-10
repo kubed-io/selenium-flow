@@ -45,13 +45,16 @@ def channels_for(fake, broken=None):
     """A stand-in for `Channels` whose every channel is ``fake``. With
     ``broken``, opening one raises it, as a Grid whose /se/bidi is down does."""
 
+    opened = []  # whether each channel asked for was private
+
     @contextmanager
-    def open_channel(session_id):
+    def open_channel(session_id, *, private=False):
+        opened.append(private)
         if broken is not None:
             raise broken
         yield fake
 
-    return SimpleNamespace(open_channel=open_channel)
+    return SimpleNamespace(open_channel=open_channel, opened=opened)
 
 
 class FakeSpare:
