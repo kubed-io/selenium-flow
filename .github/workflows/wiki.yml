@@ -7,7 +7,7 @@ name: 📖 Wiki
 #
 #   pull_request        generate only, never pushes — the "does it still build?" gate
 #   push: main          generate and push to the wiki
-#   workflow_dispatch   manual republish, e.g. after editing wiki/notes
+#   workflow_dispatch   manual republish, e.g. after editing docs/notes
 #   workflow_call       called by publish.yml; the caller decides whether to push
 #
 # Staleness is NOT this workflow's job. tests/test_wiki.py fails when the
@@ -16,9 +16,9 @@ name: 📖 Wiki
 # test suite, where a contributor is already looking.
 #
 # The wiki is its own git repository at <repo>.wiki.git, and a submodule here at
-# wiki/ — hence the submodule checkout and the push from inside that directory
+# docs/ — hence the submodule checkout and the push from inside that directory
 # rather than a commit to this repo. The hand-written notes live in there too,
-# under wiki/notes/, so a note edit shows up as a change to the `wiki` pointer.
+# under docs/notes/, so a note edit shows up as a change to the `docs` pointer.
 
 on:
   pull_request:
@@ -141,7 +141,7 @@ jobs:
     # This has to run before any regeneration commit moves HEAD.
     - name: Diff
       id: diff
-      working-directory: wiki
+      working-directory: docs
       run: |
         remote=$(git ls-remote origin refs/heads/master | cut -f1)
         if [ -n "$remote" ] && [ "$(git rev-parse HEAD)" != "$remote" ]; then
@@ -151,7 +151,7 @@ jobs:
             echo "unpublished=true" >> "$GITHUB_OUTPUT"
             echo "The pinned wiki commit is ahead of the wiki's master; publishing it." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning::The wiki's master has moved past or beside the pinned commit (edited in the browser?). Not publishing the pin; bump wiki/ to include master's changes."
+            echo "::warning::The wiki's master has moved past or beside the pinned commit (edited in the browser?). Not publishing the pin; bump docs/ to include master's changes."
             echo "The wiki's master is not behind the pinned commit; nothing published from the pin." >> "$GITHUB_STEP_SUMMARY"
           fi
         fi
@@ -176,7 +176,7 @@ jobs:
 
     - name: Push
       if: env.PUSH == 'true' && (steps.diff.outputs.changed == 'true' || steps.diff.outputs.unpublished == 'true')
-      working-directory: wiki
+      working-directory: docs
       env:
         SHA: ${{ github.sha }}
         CHANGED: ${{ steps.diff.outputs.changed }}
@@ -209,5 +209,5 @@ jobs:
         git push origin "HEAD:${GITHUB_REF_NAME}" || {
           echo "::warning::Wiki published, but the submodule pointer could not be \
           recorded — main is probably protected against the Actions identity. \
-          Pass GH_APP_KEY, or bump wiki/ by hand."
+          Pass GH_APP_KEY, or bump docs/ by hand."
         }

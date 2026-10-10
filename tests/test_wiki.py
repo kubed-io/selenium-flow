@@ -14,7 +14,7 @@ import pytest
 pytestmark = pytest.mark.unit
 
 REPO = pathlib.Path(__file__).parent.parent
-WIKI = REPO / "wiki"
+WIKI = REPO / "docs"
 GENERATOR = REPO / "scripts" / "generate_wiki.py"
 
 needs_wiki = pytest.mark.skipif(
@@ -73,10 +73,10 @@ def test_every_internal_link_resolves():
 def test_no_page_is_shadowed_by_a_file_in_a_subdirectory():
     """A wiki page is addressed by basename, whatever directory it sits in.
 
-    `wiki/notes/screenshot.md` and `wiki/screenshot.md` therefore both answered
+    `docs/notes/screenshot.md` and `docs/screenshot.md` therefore both answered
     to /wiki/screenshot, and GitHub served the fragment — so the page appeared
     to have lost everything but its prose while the raw file was perfect. The
-    notes live in wiki/notes/ and are suffixed `.notes.md` for exactly that
+    notes live in docs/notes/ and are suffixed `.notes.md` for exactly that
     reason; this keeps a bare `<tool>.md` from coming back.
     """
     top = {p.stem for p in WIKI.glob("*.md")}

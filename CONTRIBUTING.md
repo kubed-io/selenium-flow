@@ -20,7 +20,7 @@ oldest leg rather than a style question. See
 [`.github/instructions/python.instructions.md`](.github/instructions/python.instructions.md)
 for the ones that actually come up.
 
-The submodule is the GitHub wiki, checked out at `wiki/`. An existing clone
+The submodule is the GitHub wiki, checked out at `docs/`. An existing clone
 picks it up with `git submodule update --init`. Nothing in the build or the
 tests needs it, so a clone without it works fine — you just have no wiki.
 
@@ -62,8 +62,8 @@ unless `GRID_URL` and `ADMIN_ORIGIN` are set — see
 | `kubed/selenium_flow/spec/` | the OpenAPI document — `schemas.py` is the data, `builder.py` assembles it from the live tools |
 | `skills/selenium-flow/` | the embedded Agent Skill, mapped into the package at build time |
 | `ui/` | the admin UI and the MCP App, in Svelte — `npm --prefix ui run build` writes them beside `http/admin/`, gitignored; without a build the server shows a placeholder |
-| `wiki/` | the GitHub wiki, as a submodule — depth the README has no room for |
-| `wiki/notes/` | hand-written prose folded into the generated wiki pages |
+| `docs/` | the GitHub wiki, as a submodule — depth the README has no room for, and the design record (`superpowers/`, `saga/`) |
+| `docs/notes/` | hand-written prose folded into the generated wiki pages |
 | `tests/fakes.py` | the shared test doubles: `FakeGrid`, `ScriptedDriver`, the fake clock, Redis, BiDi and friends |
 | `tests/golden/` | the published shapes — tools, OpenAPI, errors, admin routes, run reports — pinned as JSON |
 | `tests/js/` | the harness that runs the page scripts under jsdom |
@@ -78,7 +78,7 @@ endpoint fails the build.
 in-process,
 so the fourteen pages share one shape and cannot describe a server that never
 shipped. `.github/workflows/wiki.yml` regenerates and pushes on every change to
-`kubed/`, `wiki/notes/` or the generator. A pull request generates but
+`kubed/`, `docs/notes/` or the generator. A pull request generates but
 never pushes, and `workflow_call` leaves the decision to the caller — the same
 shape as `image.yml`.
 
@@ -86,10 +86,10 @@ Staleness is caught by `tests/test_wiki.py`, not by that workflow: `test.yml`
 checks out the submodule so those tests run, and a pull request that forgot to
 regenerate fails the suite where a contributor is already looking.
 
-Prose a schema cannot carry goes in `wiki/notes/<tool>.notes.md` and is folded into
+Prose a schema cannot carry goes in `docs/notes/<tool>.notes.md` and is folded into
 that tool's page. It lives in this repo rather than the wiki on purpose: a wiki
-page is addressed by basename regardless of directory, so `wiki/notes/foo.md`
-and `wiki/foo.md` both answer to `/wiki/foo`, and GitHub serves the fragment.
+page is addressed by basename regardless of directory, so `docs/notes/foo.md`
+and `docs/foo.md` both answer to `/wiki/foo`, and GitHub serves the fragment.
 `tests/test_wiki.py` fails on any such shadowing.
 
 ## The OpenAPI spec is generated

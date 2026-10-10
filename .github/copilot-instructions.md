@@ -113,7 +113,7 @@ to ignore you.
   in `spec/`. A PR that commits the generated file, or edits it directly, is
   wrong.
 - **The wiki is generated** by `scripts/generate_wiki.py` from the spec, into the
-  `wiki/` submodule. Hand-written prose belongs in `wiki/notes/<tool>.notes.md`.
+  `docs/` submodule. Hand-written prose belongs in `docs/notes/<tool>.notes.md`.
 - **The README is also the Docker Hub description** and is truncated at 25,000
   bytes. `tests/test_readme.py` guards it. Don't propose large README additions;
   contributor material goes to `CONTRIBUTING.md`, rationale to `AGENTS.md`.
