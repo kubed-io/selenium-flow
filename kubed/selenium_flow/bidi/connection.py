@@ -409,8 +409,9 @@ class Connection:
             await asyncio.gather(*(s.barrier() for s in tuple(self._subscribers)))
 
     async def close(self) -> None:
-        """Unsubscribe, remove the intercepts and collectors, stop every
-        subscriber, close.
+        """Remove the intercepts, unsubscribe, remove the collectors, stop
+        every subscriber, close. An intercept goes before its listener: a
+        request it blocked meanwhile would wait on an event nobody hears.
 
         Never raises, and always releases the socket and its reader, even when
         cancelled part-way (the cancellation is then re-raised)."""
@@ -418,14 +419,14 @@ class Connection:
         reader, self._reader = self._reader, None
         try:
             if self.is_open:
-                for subscription in list(self.subscriptions):
-                    with contextlib.suppress(Exception):
-                        await self.unsubscribe(subscription)
                 for intercept in list(self.intercepts):
                     with contextlib.suppress(Exception):
                         await self.command(
                             "network.removeIntercept", {"intercept": intercept}
                         )
+                for subscription in list(self.subscriptions):
+                    with contextlib.suppress(Exception):
+                        await self.unsubscribe(subscription)
                 for collector in list(self.collectors):
                     with contextlib.suppress(Exception):
                         await self.remove_collector(collector)

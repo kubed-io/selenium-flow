@@ -316,6 +316,18 @@ async def test_close_removes_the_intercepts_it_added_and_not_the_removed_ones(br
     assert removed == [gone, kept]
 
 
+async def test_close_removes_an_intercept_before_unsubscribing_its_listener(browser):
+    """A request the intercept blocks between the two would wait on an event
+    nobody hears any more: the intercept goes first (AGENTS)."""
+    conn = Connection(browser.url)
+    await conn.open()
+    await conn.subscribe(["network.beforeRequestSent"])
+    await conn.command("network.addIntercept", {"phases": ["beforeRequestSent"]})
+    await conn.close()
+    order = [m for m in browser.received if m in ("network.removeIntercept", "session.unsubscribe")]
+    assert order == ["network.removeIntercept", "session.unsubscribe"]
+
+
 @pytest.mark.parametrize("ours", [True, False], ids=["we-close-1009", "peer-closes-1009"])
 async def test_a_frame_past_the_limit_fails_waiting_commands_as_message_too_big(browser, monkeypatch, ours):
     from kubed.selenium_flow.bidi import MessageTooBig

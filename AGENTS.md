@@ -192,8 +192,8 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   and routes, a bounded queue (1 000) and a task per subscriber, a timeout per command (spec
   2026-10-10, rulings 1 and 8). While the monitor holds a connection for a session (capture
   on), every user of that session shares it; otherwise `Channels.open_channel` opens one for
-  the block and closes it. A connection closes clean — it unsubscribes by id and removes the
-  intercepts and data collectors added on it — so Firefox's fan-out never floods another
+  the block and closes it. A connection closes clean — it removes the intercepts added on it,
+  then unsubscribes by id and removes its data collectors — so Firefox's fan-out never floods another
   socket, no body outlives its reader and no intercept outlives a save the close cut off. `websockets` is imported in `bidi/connection.py` and nowhere else. An
   intercept is added only by the spare tab (`site_data/spare.py`), scoped to its tab and one
   path, and removed before its listener: a request matching an orphaned intercept hangs with

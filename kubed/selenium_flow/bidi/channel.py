@@ -246,8 +246,8 @@ class Channels:
             return
         # No loop to borrow (a unit test, a CLI): a private one for the block.
         with start_blocking_portal() as portal:
-            private = portal.call(asyncio.get_running_loop)
-            with self._opened(session_id, private) as channel:
+            own_loop = portal.call(asyncio.get_running_loop)
+            with self._opened(session_id, own_loop) as channel:
                 yield channel
 
     @contextlib.contextmanager
