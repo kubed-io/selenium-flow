@@ -42,14 +42,37 @@ class Masker:
         self._secrets = tuple(sorted(known, key=len, reverse=True))
 
     def text(self, value: str) -> str:
+        """``value`` with every occurrence of every secret masked.
+
+        Occurrences are found in the original text and overlapping or touching
+        ones become one mask: replacing one secret after another (or matching
+        a regex alternation) lets the first take characters the second needs,
+        and leaves the rest of the second behind.
+        """
+        spans = []
         for secret in self._secrets:
-            value = value.replace(secret, MASK)
-        return value
+            at = value.find(secret)
+            while at != -1:
+                spans.append((at, at + len(secret)))
+                at = value.find(secret, at + 1)
+        if not spans:
+            return value
+        spans.sort()
+        out, kept_to, start, end = [], 0, *spans[0]
+        for s, e in spans[1:]:
+            if s <= end:
+                end = max(end, e)
+                continue
+            out += [value[kept_to:start], MASK]
+            kept_to, start, end = end, s, e
+        out += [value[kept_to:start], MASK, value[end:]]
+        return "".join(out)
 
     def url(self, value: str, *, keep_query: bool) -> str:
-        """A URL masked, without its query unless ``keep_query``, and cut to
-        ``TEXT_CAP`` (a ``data:`` URL can be megabytes)."""
-        masked = self.text(value)
+        """A URL masked — bound secrets, and any password in its userinfo —
+        without its query unless ``keep_query``, and cut to ``TEXT_CAP`` (a
+        ``data:`` URL can be megabytes)."""
+        masked = _hide_password(self.text(value))
         if not keep_query:
             masked = strip_query(masked)
         return masked[:TEXT_CAP]
@@ -69,6 +92,20 @@ class Masker:
                 value = self.text(_header_value(header.get("value")))[:HEADER_VALUE_CAP]
             kept.append({"name": self.text(name)[:HEADER_VALUE_CAP], "value": value})
         return kept
+
+
+def _hide_password(url: str) -> str:
+    """``https://user:pw@host/`` as ``https://user:•••@host/``: a credential in
+    a URL is an ``Authorization`` header by another name."""
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return url
+    userinfo, at, host = parts.netloc.rpartition("@")
+    if not at or ":" not in userinfo:
+        return url
+    user = userinfo.split(":", 1)[0]
+    return urlunsplit(parts._replace(netloc=f"{user}:{MASK}@{host}"))
 
 
 def _header_value(value) -> str:

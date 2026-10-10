@@ -65,3 +65,23 @@ def test_a_binary_header_is_never_decoded():
 def test_strip_query_survives_a_url_it_cannot_parse():
     assert strip_query("http://[::1/p?code=abc") == "http://[::1/p"
     assert strip_query("not a url?x=1") == "not a url"
+
+
+
+def test_overlapping_secrets_leave_no_remainder():
+    """Masked one after the other (or by a regex alternation), "abcd" would
+    take the "cd" that "cdef" needs and leave its "ef" behind."""
+    assert Masker(["abcd", "cdef"]).text("x abcdef y") == f"x {MASK} y"
+    assert Masker(["aa"]).text("aaa") == MASK
+    assert Masker(["ab", "cd"]).text("abcd ab") == f"{MASK} {MASK}"
+
+
+@pytest.mark.parametrize("url, keep_query, expected", [
+    ("https://user:pw@a.test/p?q=1", True, f"https://user:{MASK}@a.test/p?q=1"),
+    ("https://user:pw@a.test/p?q=1", False, f"https://user:{MASK}@a.test/p"),
+    ("https://user@a.test/", True, "https://user@a.test/"),
+    ("https://:pw@a.test:8443/", True, f"https://:{MASK}@a.test:8443/"),
+    ("https://a.test/at@sign?x=a:b@c", True, "https://a.test/at@sign?x=a:b@c"),
+])
+def test_a_password_in_a_url_is_masked(url, keep_query, expected):
+    assert Masker().url(url, keep_query=keep_query) == expected

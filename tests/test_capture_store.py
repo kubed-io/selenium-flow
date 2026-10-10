@@ -320,6 +320,23 @@ def test_credentials_cookies_and_post_data_never_reach_a_row(capture):
     assert "COOKIE-VALUE" not in flat and "POST-DATA" not in flat and "s3cr3t" not in flat
 
 
+def test_a_secret_is_masked_in_every_text_field_of_a_row(capture):
+    """A reason phrase is free text from the server, a method the page's own."""
+    attach(capture)
+    capture.secret("ws", ["hunter2"])
+    tail = capture.tail("ws", "network")
+    _, completed = done("r1", 400, mime="text/hunter2")
+    completed["response"]["statusText"] = "bad password hunter2"
+    feed(capture, nav_started("https://a.test/"),
+         req("r1", "https://a.test/api", method="hunter2"), ("network.responseCompleted", completed),
+         req("r2", "https://a.test/b"), fail("r2", error="net::hunter2"))
+    rows = [capture.request("ws", "1.1"), capture.request("ws", "1.2"),
+            *capture.network("ws")["requests"], tail._queue.get_nowait(), tail._queue.get_nowait()]
+    assert "hunter2" not in repr(rows)
+    assert rows[0]["status_text"] == f"bad password {MASK}" and rows[0]["method"] == MASK
+    tail.close()
+
+
 def test_older_rows_lose_their_query_in_url_bearing_headers_too(capture):
     attach(capture)
     feed(capture, nav_started("https://a.test/"),

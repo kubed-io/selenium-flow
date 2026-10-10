@@ -457,7 +457,7 @@ class Capture:
             "id": f"{nav}.{buffer.counter}",
             "seq": buffer.seq,
             "at": _seconds(params.get("timestamp")),
-            "method": str(request.get("method") or "")[:TEXT_CAP],
+            "method": held.masker.text(str(request.get("method") or ""))[:TEXT_CAP],
             "url": held.masker.url(str(request.get("url") or ""), keep_query=True),
             "status": None,
             "status_text": "",
@@ -499,6 +499,7 @@ class Capture:
             return False
         row = flight.row
         response = params.get("response") or {}
+        mask = held.masker.text  # every text a server or page chose (ruling 13)
         status = response.get("status")
         size = response.get("bodySize")
         if not _number(size):  # never content.size
@@ -506,8 +507,8 @@ class Capture:
         row["status"] = (
             status if isinstance(status, int) and not isinstance(status, bool) else None
         )
-        row["status_text"] = str(response.get("statusText") or "")[:TEXT_CAP]
-        row["mime"] = str(response.get("mimeType") or "")[:TEXT_CAP]
+        row["status_text"] = mask(str(response.get("statusText") or ""))[:TEXT_CAP]
+        row["mime"] = mask(str(response.get("mimeType") or ""))[:TEXT_CAP]
         row["size"] = size if _number(size) else None
         row["response_headers"] = held.masker.headers(response.get("headers"))
         row["took_ms"] = _took(params.get("timestamp"), flight.begin)
@@ -524,7 +525,7 @@ class Capture:
             return False
         row = flight.row
         row["failed"] = True
-        row["error"] = str(params.get("errorText") or "")[:TEXT_CAP]
+        row["error"] = held.masker.text(str(params.get("errorText") or ""))[:TEXT_CAP]
         row["took_ms"] = _took(params.get("timestamp"), flight.begin)
         self._settle(buffer, held, flight)
         return True
