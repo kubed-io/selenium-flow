@@ -368,9 +368,10 @@ skill as §7.
 
 **Live results, 2026-10-10** (plan Task 13), against the cluster Grid: hub and
 nodes `4.48.0 (revision 27f5213)`, KEDA from zero, `sessionTimeout` 300 s;
-Chrome `152.0.7977.82`, Firefox `155.0.1`; this branch at `7d667f4` on Python
-3.13.5, `websockets` 17.2, `selenium` 4.51.0, `fastmcp` 4.1.0. The server ran
-from the worktree with `AUTH_TOKEN=dev`; the in-process probes held a real
+Chrome `152.0.7977.82`, Firefox `155.0.1`; this branch as built by its plan
+tasks, before the final review's fixes, on Python 3.13.5, `websockets` 17.2,
+`selenium` 4.51.0, `fastmcp` 4.1.0. The server ran from the worktree with a
+throwaway token; the in-process probes held a real
 `bidi.Connection` and `Capture` exactly as `Monitor._hold` does. No CDP. The
 scripts are throwaway and not in the repo. **Every session was ended**: the Grid
 listed **0** sessions before (nodes at zero) and **0** after; 26 were opened,
@@ -405,7 +406,7 @@ each ended in a `finally` by the server's `DELETE /browser` or the Grid's own
    connection, an HTML page on this server, six floods per browser of 5 000
    `console.log` and 200 same-origin `fetch`es (≈ 5 400 events), during each 20
    `session.status` round trips and one site-data save; idle figures from the
-   same connection just before. Per flood, across the six:
+   same connection just before. Per flood, across the six, *before the fix*:
 
    | | Chrome | Firefox |
    |---|---|---|
@@ -417,15 +418,45 @@ each ended in a `finally` by the server's `DELETE /browser` or the Grid's own
    | `session.status` RTT p50 / max, flood | 1.4–30 / 48–146 ms | 1.7–2.7 / 88–127 ms |
    | Site-data save, idle → flood | 0.06–0.12 → 1.6–1.8 s | 0.21–0.38 → 0.49–0.68 s |
 
-   Replies were never queued behind capture (ruling 8 holds: the RTT tracks the
-   browser's own load, and the save during a flood waits on the page's busy
-   main thread for its classic `execute_script`), but the capture queue itself
-   overflows: handling an event costs well under 0.1 ms, so the queue fills
-   because the reader routes a whole buffered burst before the subscriber's task
-   gets a turn, not because capture is slow. For E4 this says what to watch:
-   `dropped` and `peak` per subscriber, not latency — a page logging in a tight
-   loop already loses events today, and a dropped `responseCompleted` leaves a
-   request without its end.
+   Replies were never queued behind capture: the RTT tracks the browser's own
+   load, and the save during a flood most likely waits on the page's busy main
+   thread for its classic `execute_script` (not isolated here). But the capture
+   queue itself overflowed. Handling an event costs well under 0.1 ms, so the
+   live pass's hypothesis was that the queue fills because the reader routes a
+   whole buffered burst before the subscriber's task gets a turn, not because
+   capture is slow. The final review confirmed it on a loopback probe
+   (`websockets` reads a buffered burst without suspending, while the
+   subscriber handled one event per turn): of 5 000 frames, 3 998 were dropped
+   as built and 0 with both fixes below, at 5 000 and 20 000. A dropped
+   `responseCompleted` leaves a request without its end.
+
+   **After the fix, 2026-10-10** (the reader yields every 64 frames, each
+   subscriber drains a batch of up to 5 ms per turn, and the fell-behind
+   warning re-arms only once its queue has drained to empty): the same six
+   floods per browser, same Grid, browsers and page, with each flood's 200
+   fetches' `took_ms` added (D1's fix). Both sessions were quit in a `finally`;
+   the Grid listed 0 sessions before and after.
+
+   | | Chrome | Firefox |
+   |---|---|---|
+   | Flood, page side | 1.5–2.1 s | 0.8–1.3 s |
+   | Capture lag p50 / p95 / max | 0.1–0.3 / 0.5–1.6 / 1.2–4.9 ms | 0.2–0.4 / 0.5–1.7 / 1.0–11 ms |
+   | Queue `peak` (limit 1 000) | 55–64 | 64 |
+   | `dropped` | **0 in 6 of 6** | **0 in 6 of 6** |
+   | "fell behind" warnings | 0 | 0 |
+   | `session.status` RTT p50 / max, idle | 0.9–2.2 / 1.9–3.4 ms | 1.6–3.4 / 1.9–44 ms |
+   | `session.status` RTT p50 / max, flood | 1.1–53 / 81–513 ms | 1.5–17 / 83–323 ms |
+   | Site-data save, idle → flood | 0.06–0.10 → 1.5–2.1 s | 0.21–0.38 → 0.52–1.04 s |
+   | The fetches' `took_ms` p50 / max | 111–209 / 199–389 ms, none 0 or unknown | 35–188 / 65–209 ms |
+
+   Every event of every flood was handled. The lag is now short because the
+   reader no longer reads ahead of the subscriber: the wait has moved into the
+   socket, and a reply sent behind thousands of events waits until they are
+   handled, so the RTT's maximum during a flood rose (Chrome 513 ms against 146
+   before; Firefox 323 against 127), well inside the 5 s reply timeout. For E4
+   this says what to watch: `dropped` and `peak` per subscriber, and the RTT
+   under load. Firefox's `took_ms` is now network time, as DevTools shows it,
+   rather than the event stamps' 128–147 ms, which included delivering the body.
 5. **Live pass** — over HTTP and the admin API, per browser, page
    `https://example.com/`:
    - **Open**: `POST /browser {"capture": true}` answered `capture: true`; `GET
@@ -467,27 +498,46 @@ each ended in a `finally` by the server's `DELETE /browser` or the Grid's own
    held connection (subscribed, one collector), closed clean at 240 s — the
    monitor's deadline close, `session.unsubscribe` and
    `network.removeDataCollector` — was reaped **306 s after the close** on both
-   browsers (547 s and 546 s after opening), not at ~330 s. So closing at the
-   deadline gives the browser one more idle timeout.
+   browsers (Chrome 545.8 s, Firefox 547.5 s after opening), not at ~330 s. So
+   closing at the deadline gives the browser one more idle timeout.
 
-   **Open, for the controller** (found here, not fixed):
+   **Open, for the controller** (found here; the first three, and the admin's
+   console source and muted tabs, were fixed in the final review's wave):
    - **Chrome's `took_ms` is always 0.** Chrome stamps every network event of a
      request with the request's start (`timestamp` equals
      `request.timings.timeOrigin`; 200 of 200 requests), so the duration taken
      from the events' own timestamps (plan ruling 14) is 0 for every Chrome
      request. Firefox's are right (12–147 ms). Plan ruling 14's fallback — a
      duration from `timings`, relative ms on Chrome, epoch ms on Firefox —
-     applies.
+     applies. *Fixed:* `timeOrigin + responseEnd` less `timeOrigin +
+     requestTime` on both browsers, the event stamps only without a
+     `responseEnd`, and unknown rather than a false 0.
    - **Drops under a burst** (item 4): the capture subscriber's queue of 1 000
-     overflows on a page logging thousands of entries at once.
+     overflows on a page logging thousands of entries at once. *Fixed*; see
+     item 4's second table.
    - **The fell-behind warning repeats.** It is meant to be logged once per
      streak, but the streak ends at the next event accepted, so a saturated
      queue logged it 114 (Chrome) and 288 (Firefox) times in six floods.
+     *Fixed:* a streak ends only once the queue has drained to empty.
    - **Ending a captured Firefox logs a failed hold.** Firefox closes the held
      socket when its session is deleted, so the monitor tries to hold again
      before the end reaches it and logs `no BiDi connection … trying again`
      (6 of 6 captured Firefox ends; never on Chrome, whose socket stays open).
      Nothing leaks: the end drops the watch a moment later.
+
+   **Also changed in the final review's wave** (the controller's rulings, for
+   Dr K; §4 and §7 above describe the design before them):
+   - The first call after the deadline closed the connection holds it again
+     before it runs, so the call that comes back from a pause is captured.
+   - Each side of a request keeps headers only while their names and values
+     fit 16 kB, names cut to 256 characters; later headers are dropped and
+     counted in the request's `headers_dropped`. 32 of 4 kB a side, 1 000 rows
+     a workspace, was a bound a hostile page could make half a gigabyte.
+   - `network_body` masks the session's bound secrets in the text before its
+     cut; answers a binary body from its row's type and size without asking
+     the browser; and refuses (400) a text body its row says is over 8 MB,
+     because Chrome answers `network.getData` in one frame and one past the
+     connection's 16 MiB limit closes the connection capture holds.
 
 ## Next round
 
