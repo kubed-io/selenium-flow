@@ -87,8 +87,9 @@ def test_a_quit_that_fails_does_not_hide_the_refusal(stub_grid):
 
 
 def test_a_restores_stand_in_reset_happens_before_on_ready(stub_grid, monkeypatch):
-    """Plan ruling 3: a restore's stand-in is never captured, so the reset to
-    about:blank is done before the connection is held."""
+    """Plan ruling 3: the restore runs, then its stand-in is reset to
+    about:blank, and only then is the connection held — so neither is ever
+    captured."""
     import contextlib
 
     from kubed.selenium_flow.core import actions as actions_module
@@ -101,7 +102,8 @@ def test_a_restores_stand_in_reset_happens_before_on_ready(stub_grid, monkeypatc
     monkeypatch.setattr(
         actions_module.site_data_transfer,
         "restore",
-        lambda channel, data, now: {"restored": ["a"], "skipped": []},
+        lambda channel, data, now: stub_grid.order.append("restore")
+        or {"restored": ["a"], "skipped": []},
     )
     # The restore left the tab on a stand-in page.
     monkeypatch.setattr(StubDriver, "current_url", "https://stand-in.test/")
@@ -110,7 +112,7 @@ def test_a_restores_stand_in_reset_happens_before_on_ready(stub_grid, monkeypatc
         capture=True,
         on_ready=lambda sid: stub_grid.order.append("attach"),
     )
-    assert stub_grid.order == ["get about:blank", "attach"]
+    assert stub_grid.order == ["restore", "get about:blank", "attach"]
 
 
 def test_capture_shows_in_the_applied_settings(stub_grid):
