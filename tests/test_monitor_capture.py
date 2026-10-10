@@ -194,6 +194,45 @@ async def test_the_deadline_never_closes_under_a_call_and_counts_from_its_end(ru
     assert not monitor.capturing(GID) and FakeConnection.made[0].closed_clean
 
 
+async def test_a_look_before_the_end_reaches_the_loop_does_not_close_a_long_call(
+    running_monitor, clock, monkeypatch
+):
+    """PR review, round 2: a call longer than the timeout ends from a worker
+    thread, and a look can run before what `called` posts reaches the loop.
+    The count must not drop before the touch lands, or that look closes the
+    connection under the call's flush."""
+    monitor, _ = running_monitor
+    calls = calls_for(monitor, clock)
+    await asyncio.to_thread(monitor.attach, "ws1", GID, "capture", grid_timeout=300)
+    begun = await asyncio.to_thread(calls.begin, "ws1", GID)
+    clock.now += 900
+    held = []
+    # Posted, and the loop has not got to them yet.
+    monkeypatch.setattr(monitor, "_post", lambda fn: held.append(fn) or True)
+    await asyncio.to_thread(calls.end, begun, tool="assert", surface="mcp", browser="")
+    await monitor.look()
+    assert monitor.capturing(GID) and not FakeConnection.made[0].closed
+    monkeypatch.undo()
+    for fn in held:
+        fn()
+    clock.now += 299
+    await monitor.look()
+    assert monitor.capturing(GID)
+    clock.now += 2
+    await monitor.look()
+    assert not monitor.capturing(GID)
+
+
+def test_a_call_that_ends_after_the_loop_closed_is_not_counted_for_ever(clock):
+    monitor = monitor_for(FakeSink(), clock)
+    loop = asyncio.new_event_loop()
+    loop.close()
+    monitor._loop = loop  # stopping: the loop is gone before `stop` cleared it
+    monitor.calling(GID)
+    monitor.called(GID)
+    assert monitor._in_flight == {}
+
+
 async def test_two_calls_in_flight_hold_until_the_last_ends(running_monitor, clock):
     monitor, _ = running_monitor
     calls = calls_for(monitor, clock)

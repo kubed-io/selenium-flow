@@ -297,14 +297,7 @@ class Monitor:
     def touch(self, session_id: str, at: float | None = None) -> None:
         """A call reached this session: its deadline moves on."""
         at = self.clock() if at is None else at
-
-        def apply() -> None:
-            w = self.watches.get(session_id)
-            if w is not None and at > w.touched:
-                w.touched = at
-                self._wake()
-
-        self._post(apply)
+        self._post(lambda: self._touched(session_id, at))
 
     def calling(self, session_id: str) -> None:
         """A call on this session starts: a touch, and its connection is kept
@@ -315,14 +308,20 @@ class Monitor:
 
     def called(self, session_id: str) -> None:
         """A call on this session ended: a touch, from which the deadline
-        counts once no other call is in flight."""
-        with self._in_flight_lock:
-            left = self._in_flight.get(session_id, 0) - 1
-            if left > 0:
-                self._in_flight[session_id] = left
-            else:
-                self._in_flight.pop(session_id, None)
-        self.touch(session_id)
+        counts once no other call is in flight.
+
+        The count drops on the loop, after the touch, in one step: dropped
+        here first, a look that ran before the touch reached the loop would
+        find a call longer than the timeout neither counted nor touched, and
+        close the connection under its flush (PR review, round 2)."""
+        at = self.clock()
+
+        def apply() -> None:
+            self._touched(session_id, at)
+            self._uncount(session_id)
+
+        if not self._post(apply):
+            self._uncount(session_id)  # no loop to take it: the count still drops
 
     def connection(self, session_id: str) -> Connection | None:
         """The connection held to this session's browser, if one is open."""
@@ -664,20 +663,38 @@ class Monitor:
             return  # not started: nothing was ever opened
         self._close_later(conn)
 
-    def _post(self, fn) -> None:
+    def _post(self, fn) -> bool:
+        """Apply ``fn`` on the loop; False when it is closed and ``fn`` is lost."""
         loop = self._loop
         if loop is None:
             fn()  # not started: applied here; `start` takes it from there
-            return
+            return True
         try:
             running = asyncio.get_running_loop()
         except RuntimeError:
             running = None
         if running is loop:
             fn()
-            return
-        with contextlib.suppress(RuntimeError):
+            return True
+        try:
             loop.call_soon_threadsafe(fn)
+        except RuntimeError:
+            return False
+        return True
+
+    def _touched(self, session_id: str, at: float) -> None:
+        w = self.watches.get(session_id)
+        if w is not None and at > w.touched:
+            w.touched = at
+            self._wake()
+
+    def _uncount(self, session_id: str) -> None:
+        with self._in_flight_lock:
+            left = self._in_flight.get(session_id, 0) - 1
+            if left > 0:
+                self._in_flight[session_id] = left
+            else:
+                self._in_flight.pop(session_id, None)
 
     def _wake(self) -> None:
         if self._nudge is not None:
