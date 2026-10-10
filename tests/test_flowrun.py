@@ -982,6 +982,25 @@ def test_a_value_echoed_json_or_html_escaped_is_scrubbed_whole():
         assert redact.scrub(f"saw {echo}!", hidden) == "saw <hidden>!"
 
 
+def test_the_other_servers_escapes_of_a_value_are_scrubbed_whole():
+    """PR review, round 2: Go's encoding/json escapes < > & as \\u003c..., PHP
+    8.1 writes ' as &#039;, HTML5 as &apos;, Go's html/template " as &#34; and
+    + as &#43;, and a JSON encoder may write its hex in capitals."""
+    secret = "<>&'\"é+"
+    hidden = redact.hidden_forms([secret])
+    echoes = (
+        "\\u003c\\u003e\\u0026'\\\"é+",  # Go encoding/json
+        "&lt;&gt;&amp;&#039;&quot;é+",  # PHP 8.1+ htmlspecialchars
+        "&lt;&gt;&amp;&apos;&quot;é+",  # ENT_HTML5 / XML
+        "&lt;&gt;&amp;&#39;&#34;é&#43;",  # Go html/template
+        "<>&'\\\"\\u00E9+",  # JSON, ASCII only, capital hex
+    )
+    for echo in echoes:
+        assert echo in hidden, echo
+        assert redact.scrub(f"saw {echo}!", hidden) == "saw <hidden>!", echo
+    assert len(hidden) <= 16  # a fixed few forms per value, whatever it holds
+
+
 def test_the_responses_own_fields_are_never_scrubbed():
     """A secret that spells `url` must not rename the field a caller reads."""
     assert redact.scrub_values({"url": "https://x.test/", "title": "t"}, {"url"}) == {

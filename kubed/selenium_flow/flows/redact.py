@@ -14,9 +14,33 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from urllib.parse import quote, quote_plus
 
 HIDDEN = "<hidden>"
+
+# Go's encoding/json escapes these as \u00XX (lowercase), to be safe in HTML.
+GO_JSON = str.maketrans(
+    {
+        "<": "\\u003c",
+        ">": "\\u003e",
+        "&": "\\u0026",
+        "\u2028": "\\u2028",
+        "\u2029": "\\u2029",
+    }
+)
+HEX_ESCAPE = re.compile(r"\\u[0-9a-f]{4}")
+# How an HTML body may spell `"`, `'` and `+` once `&`, `<` and `>` are
+# escaped: Python's html.escape, none, the decimal apostrophe, PHP 8.1's
+# htmlspecialchars, HTML5 / XML, and Go's html/template.
+HTML_QUOTES = (
+    ("&quot;", "&#x27;", "+"),
+    ('"', "'", "+"),
+    ("&quot;", "&#39;", "+"),
+    ("&quot;", "&#039;", "+"),
+    ("&quot;", "&apos;", "+"),
+    ("&#34;", "&#39;", "&#43;"),
+)
 
 # A result field carries an argument's value back out. Most do it by having the
 # same name — `navigate(url=...)` answers with the page state, whose `url` is
@@ -89,8 +113,12 @@ def hidden_forms(values) -> set:
     A page echoes it too, and capture keeps what the page said: a JSON body
     escapes `"` and `\\`, maybe `/`, and maybe every non-ASCII letter; an HTML
     one escapes `&`, `<`, `>` and maybe the quotes, the apostrophe as `&#x27;`
-    or `&#39;`. Each of those spellings is a form, or a body or a console line
-    would hand the value to whoever reads it.
+    or `&#39;`. Other servers spell them their own ways: Go's encoding/json
+    writes `<` `>` `&` as `\\u003c` and so on, a JSON encoder may write its hex
+    in capitals, PHP the apostrophe as `&#039;`, HTML5 as `&apos;`, and Go's
+    html/template `"` as `&#34;` and `+` as `&#43;`. Each of those spellings is
+    a form, or a body or a console line would hand the value to whoever reads
+    it — a fixed few per value, so the sweep's cost does not grow with it.
     """
     forms = set()
     for value in values:
@@ -109,9 +137,13 @@ def hidden_forms(values) -> set:
             escaped = json.dumps(text, ensure_ascii=ascii_only)[1:-1]
             forms.add(escaped)
             forms.add(escaped.replace("/", "\\/"))
-        forms.add(html.escape(text))
-        forms.add(html.escape(text, quote=False))
-        forms.add(html.escape(text).replace("&#x27;", "&#39;"))
+            if ascii_only:  # the same escapes, their hex in capitals
+                forms.add(HEX_ESCAPE.sub(lambda m: "\\u" + m[0][2:].upper(), escaped))
+            else:  # Go's encoding/json: UTF-8, but < > & as \u00XX
+                forms.add(escaped.translate(GO_JSON))
+        bare = html.escape(text, quote=False)
+        for quot, apos, plus in HTML_QUOTES:
+            forms.add(bare.replace('"', quot).replace("'", apos).replace("+", plus))
     return forms
 
 
