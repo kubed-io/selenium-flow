@@ -561,7 +561,20 @@ def test_the_hidden_set_is_gone_once_the_block_ends(capture):
 def test_the_sessions_remembered_are_bounded(capture):
     for i in range(WORKSPACES + 3):
         attach(capture, workspace=f"w{i}", session_id=f"s{i}")
+        capture.detached(f"w{i}", f"s{i}")
     assert len(capture._sessions) == WORKSPACES and "s0" not in capture._sessions
+
+
+def test_a_session_still_held_is_never_evicted(capture):
+    """Evicting a held session's `Held` would stop its capture silently: its
+    events are only heard for a session capture knows (PR review M9)."""
+    attach(capture)
+    for i in range(WORKSPACES + 3):
+        attach(capture, workspace=f"w{i}", session_id=f"s{i}x")
+        capture.detached(f"w{i}", f"s{i}x")
+    feed(capture, log("still heard"))
+    assert texts(capture) == ["still heard"]
+    assert len(capture._sessions) == WORKSPACES
 
 
 # ---- mark, caused ----------------------------------------------------------------

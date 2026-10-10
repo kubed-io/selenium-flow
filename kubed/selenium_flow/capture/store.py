@@ -22,7 +22,9 @@ Bounded memory is the rule throughout, because a page decides how much it
 logs, fetches and frames: two buffers of 1 000, requests in flight capped at
 1 000, the index dropped with its row, the contexts remembered for a replay
 capped at `CONTEXTS`, what a replay holds capped at what was remembered, every
-string capped, and the sessions remembered capped at `WORKSPACES`.
+string capped, and the sessions remembered capped at `WORKSPACES` — past it
+the oldest not held go, never one still held (whose events would then go
+unheard): those are bounded by the monitor's holds.
 """
 
 from __future__ import annotations
@@ -100,6 +102,7 @@ class Held:
     recent: OrderedDict[str, deque] = field(default_factory=OrderedDict)
     # While Chrome's replay is awaited: context -> [(digest, entry)] held back.
     holding: dict[str, list] | None = None
+    live: bool = True  # a connection is held to it: never evicted
 
 
 @dataclass(eq=False)
@@ -207,6 +210,7 @@ class Capture:
                 if held is None or held.workspace != workspace:
                     return
                 self._sessions.move_to_end(session_id)
+                held.live = True
                 if held.top is None:
                     held.top = top
                 held.holding = (
@@ -223,8 +227,7 @@ class Capture:
             self._sessions[session_id] = Held(
                 workspace, session_id, browser, top, masker=Masker(secrets)
             )
-            while len(self._sessions) > WORKSPACES:
-                self._sessions.popitem(last=False)
+            self._evict()
             buffer = self._cache.get(workspace)
             if buffer is None:
                 buffer = Buffer()
@@ -280,6 +283,8 @@ class Capture:
             held = self._sessions.get(session_id)
             if held is not None and held.workspace == workspace:
                 held.holding = None
+                held.live = False
+                self._evict()
 
     # ---- the workspace -------------------------------------------------------
 
@@ -401,6 +406,14 @@ class Capture:
                     del self._tails[subscription.workspace]
 
     # ---- landing, under the lock ---------------------------------------------
+
+    def _evict(self) -> None:
+        """The oldest sessions past `WORKSPACES` that no connection holds."""
+        over = len(self._sessions) - WORKSPACES
+        if over > 0:
+            idle = [s for s, h in self._sessions.items() if not h.live][:over]
+            for sid in idle:
+                del self._sessions[sid]
 
     def _tail(self, workspace: str, kind: str, row: dict, kept: bool) -> None:
         subs = self._tails.get(workspace)
