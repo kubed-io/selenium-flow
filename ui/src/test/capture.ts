@@ -6,6 +6,7 @@ export class FakeEventSource {
   static last: FakeEventSource
   url: string
   closed = false
+  readyState = 1
   onmessage: ((e: { data: string }) => void) | null = null
   onerror: (() => void) | null = null
   constructor(url: string) { this.url = url; FakeEventSource.last = this }

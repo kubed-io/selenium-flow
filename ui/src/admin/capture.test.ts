@@ -63,3 +63,23 @@ test('the chips count the captured rows, and the box filters them', async () => 
   expect(m.visible).toHaveLength(0)
   expect(req({}).id).toBe('1.1')
 })
+
+test('a stream that ended is recoverable: Live again opens a fresh link and clears the error', async () => {
+  api.mockResolvedValue({ ...networkData, tail_url: '/t?sig=fresh' })
+  const m = new CaptureModel(api, '', 'ws', 'network')
+  m.data = { ...networkData, tail_url: '/t?sig=old' }
+  m.live()
+  const first = FakeEventSource.last
+  first.readyState = 2
+  first.onerror?.()
+  expect(m.error).toBe('The live stream ended.')
+  await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(1))
+  await vi.waitFor(() => expect((m.data as { tail_url?: string }).tail_url).toBe('/t?sig=fresh'))
+  expect(m.rows).toHaveLength(0)
+  m.live()
+  expect(m.error).toBeNull()
+  expect(FakeEventSource.last).not.toBe(first)
+  expect(FakeEventSource.last.url).toBe('/t?sig=fresh&kind=network')
+  FakeEventSource.last.emit({ id: '2.1', url: 'https://a.test/n', kept: true })
+  expect(m.rows).toHaveLength(1)
+})

@@ -81,9 +81,11 @@ export class CaptureModel {
     try {
       const d = await this.#api<ConsoleData | NetworkData | CaptureOff>(workspacePath(this.#key, `/${this.kind}?pages=${this.pages}`))
       this.data = d
-      this.error = null
-      const list = 'entries' in d ? d.entries : 'requests' in d ? d.requests : []
-      this.rows = [...list].sort((a, b) => b.seq - a.seq)
+      // Live rows are not the load's to replace; it only refreshes the link.
+      if (this.mode === 'captured') {
+        const list = 'entries' in d ? d.entries : 'requests' in d ? d.requests : []
+        this.rows = [...list].sort((a, b) => b.seq - a.seq)
+      }
     } catch (err) {
       this.error = (err as Error).message
     }
@@ -93,6 +95,7 @@ export class CaptureModel {
     const link = this.data && 'tail_url' in this.data ? this.data.tail_url : undefined
     if (!link) { this.error = 'Live is not available for this workspace.'; return }
     this.dispose()
+    this.error = null
     this.mode = 'live'
     this.rows = []
     this.held = null
@@ -107,7 +110,12 @@ export class CaptureModel {
       else this.seen++
       this.rows = [row, ...this.rows].slice(0, TAIL_ROWS)
     }
-    es.onerror = () => { if (es.readyState === 2) this.error = 'The live stream ended.' }
+    es.onerror = () => {
+      if (es.readyState !== 2) return
+      this.error = 'The live stream ended.'
+      // The signed link may have expired: fetch a fresh one for the next Live.
+      void this.load()
+    }
     this.#stream = es
   }
 
@@ -116,6 +124,7 @@ export class CaptureModel {
     this.mode = 'captured'
     this.paused = false
     this.held = null
+    this.error = null
     await this.load()
   }
 
