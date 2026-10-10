@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 from kubed.selenium_flow.bidi import BidiError, Connection
-from kubed.selenium_flow.bidi.connection import Subscriber
+from kubed.selenium_flow.bidi.connection import READ_TURN, Subscriber
 
 pytestmark = pytest.mark.unit
 
@@ -163,11 +163,12 @@ async def test_a_blocked_subscriber_does_not_delay_a_reply(browser):
         await gate.wait()
 
     sub = conn.listen(["log.entryAdded"], stuck, name="stuck", limit=10)
-    await browser.events(50, "log.entryAdded")
+    burst = 3 * READ_TURN + 8  # past READ_TURN, so the reader yields mid-burst
+    await browser.events(burst, "log.entryAdded")
     started = asyncio.get_running_loop().time()
     assert await conn.command("browsingContext.getTree") == {"contexts": []}
     assert asyncio.get_running_loop().time() - started < 0.5
-    assert sub.dropped >= 39 and sub.peak == 10
+    assert sub.dropped >= burst - 11 and sub.peak == 10
     gate.set()
     await conn.close()
 
