@@ -501,10 +501,11 @@ class Workspaces:
         if not self._can_capture():
             # Nobody would hear it (capture was turned off since).
             replay.pop("capture", None)
-        opened = self.actions.open_session(
+        opened = self._opened(
+            name,
+            replay,
             url=record.url or None,
             **(self._recorded(name, replay) if replay.get("record") else {}),
-            **(self._attaching(name, replay) if replay.get("capture") else {}),
             **({"site_data": saved} if saved else {}),
             **replay,
         )
@@ -581,15 +582,19 @@ class Workspaces:
     def _can_capture(self) -> bool:
         return self.monitor is not None and self.capture is not None
 
-    def _attaching(self, name: str, settings: dict) -> dict:
-        """The argument a captured open adds: ``on_ready``, which holds the
-        browser's BiDi connection before its first page loads.
+    def _opened(self, name: str, settings: dict, **kwargs) -> dict:
+        """``actions.open_session``, attaching capture first when ``settings``
+        ask for it.
 
         Its failure is the open's, as a 503: the open quits the browser, and the
         monitor is told the session ended so a hold that completed just as the
-        attach gave up is dropped. A monitor that was never started is the same
-        refusal, never a 500."""
+        attach gave up is dropped. So is a failure *after* the attach (the first
+        page timing out): no watch is left on a browser nobody was handed. A
+        monitor that was never started is the same refusal, never a 500."""
+        if not settings.get("capture"):
+            return self.actions.open_session(**kwargs)
         browser = settings.get("browser") or DEFAULT_BROWSER
+        attached: list[str] = []
 
         def ready(session_id: str) -> None:
             try:
@@ -602,8 +607,14 @@ class Workspaces:
                     "capture did not attach for %s: %s", name, type(exc).__name__
                 )
                 raise faults.BidiUnavailable(ATTACH_FAILED) from exc
+            attached.append(session_id)
 
-        return {"on_ready": ready}
+        try:
+            return self.actions.open_session(on_ready=ready, **kwargs)
+        except Exception:
+            for session_id in attached:
+                self._ended(name, session_id, "ended")
+            raise
 
     def _told(self, what: str, *args, **kwargs):
         """Tell the monitor ``what``, when there is one. **Never fails the
@@ -814,10 +825,11 @@ class Workspaces:
             # erase a sign-in the caller never got a new browser for.
             forgotten = (site_data_module.summary(saved) or {"sites": 0})["sites"]
             saved = {}
-        opened = self.actions.open_session(
+        opened = self._opened(
+            name,
+            resolved,
             url=url or inherited,
             **(self._recorded(name, resolved) if resolved.get("record") else {}),
-            **(self._attaching(name, resolved) if resolved.get("capture") else {}),
             **({"site_data": saved} if saved else {}),
             **resolved,
         )

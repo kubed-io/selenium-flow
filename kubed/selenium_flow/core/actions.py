@@ -250,6 +250,13 @@ class Actions:
                         "uri": site_data_snapshot.LIST_URI,
                     }
 
+        if not url and report is not None and driver.current_url != "about:blank":
+            # The restore sends the tab back from its stand-in page over BiDi,
+            # and swallows a failure; the classic driver makes the reported
+            # about:blank true (Copilot, #51). Before `on_ready`, so capture
+            # never hears a restore's stand-in as a navigation.
+            driver.get("about:blank")
+
         if on_ready is not None:
             try:
                 on_ready(session_id)
@@ -270,11 +277,6 @@ class Actions:
         if url:
             driver.get(url)
             current_url, title = driver.current_url, driver.title
-        elif report is not None and driver.current_url != "about:blank":
-            # The restore sends the tab back from its stand-in page over BiDi,
-            # and swallows a failure; the classic driver makes the reported
-            # about:blank true (Copilot, #51).
-            driver.get("about:blank")
 
         size = driver.get_window_size()
         # Reported back so a caller can see what the cascade actually resolved

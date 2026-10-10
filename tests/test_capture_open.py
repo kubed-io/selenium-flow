@@ -86,6 +86,33 @@ def test_a_quit_that_fails_does_not_hide_the_refusal(stub_grid):
         Actions(stub_grid).open_session(on_ready=refuse)
 
 
+def test_a_restores_stand_in_reset_happens_before_on_ready(stub_grid, monkeypatch):
+    """Plan ruling 3: a restore's stand-in is never captured, so the reset to
+    about:blank is done before the connection is held."""
+    import contextlib
+
+    from kubed.selenium_flow.core import actions as actions_module
+
+    actions = Actions(stub_grid)
+    actions.channels = SimpleNamespace(
+        open_channel=lambda sid: contextlib.nullcontext(object())
+    )
+    monkeypatch.setattr(actions_module.site_data_snapshot, "restorable", lambda d: True)
+    monkeypatch.setattr(
+        actions_module.site_data_transfer,
+        "restore",
+        lambda channel, data, now: {"restored": ["a"], "skipped": []},
+    )
+    # The restore left the tab on a stand-in page.
+    monkeypatch.setattr(StubDriver, "current_url", "https://stand-in.test/")
+    actions.open_session(
+        site_data={"x": 1},
+        capture=True,
+        on_ready=lambda sid: stub_grid.order.append("attach"),
+    )
+    assert stub_grid.order == ["get about:blank", "attach"]
+
+
 def test_capture_shows_in_the_applied_settings(stub_grid):
     assert Actions(stub_grid).open_session(capture=True)["settings"]["capture"] is True
     assert "capture" not in Actions(StubGrid()).open_session()["settings"]
@@ -120,6 +147,7 @@ class FakeActions:
         self.grid = Grid()
         self.n = 0
         self.opened = []
+        self.fail_after_ready = None  # the first page failing, say
 
     def open_session(self, *, on_created=None, on_ready=None, **kwargs):
         self.n += 1
@@ -132,6 +160,8 @@ class FakeActions:
         except Exception:
             self.grid.alive.discard(sid)  # the real one quits the browser
             raise
+        if self.fail_after_ready is not None:
+            raise self.fail_after_ready
         return {
             "session_id": sid,
             "browser": kwargs.get("browser") or "chrome",
@@ -206,6 +236,27 @@ def test_a_failed_attach_tells_the_monitor_the_session_ended(ws):
         ws.workspaces.open_browser(caller(), capture=True)
     assert [c[1] for c in ws.monitor.ended_calls] == ["grid0001"]
     assert ws.monitor.opened_calls == []
+
+
+def test_a_failure_after_the_attach_ends_the_watch(ws):
+    """The first page timing out must not leave the monitor holding a
+    connection to a browser no workspace was handed."""
+    ws.actions.fail_after_ready = TimeoutError("page load")
+    with pytest.raises(TimeoutError):
+        ws.workspaces.open_browser(caller(), url="https://typo.test/", capture=True)
+    assert [c[1] for c in ws.monitor.ended_calls] == ["grid0001"]
+    record = ws.workspaces.store.get("bot")
+    assert record is None or not record.attached
+
+
+def test_a_failure_after_a_reopens_attach_ends_the_watch(ws):
+    ws.workspaces.open_browser(caller(), capture=True)
+    ws.actions.grid.alive.clear()
+    ws.monitor.ended_calls.clear()
+    ws.actions.fail_after_ready = TimeoutError("page load")
+    with pytest.raises(TimeoutError):
+        ws.workspaces.resolve("bot")
+    assert [c[1] for c in ws.monitor.ended_calls] == ["grid0001", "grid0002"]
 
 
 def test_a_monitor_that_is_not_running_is_a_503_not_a_500(ws):
