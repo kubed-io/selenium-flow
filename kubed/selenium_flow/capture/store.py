@@ -32,6 +32,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import logging
 import threading
 import time
 from collections import OrderedDict, deque
@@ -64,6 +65,8 @@ from .merge import (
     seconds,
     took_ms,
 )
+
+log = logging.getLogger(__name__)
 
 # The browsing contexts a session remembers the last entries of, for aligning
 # Chrome's replay: a page can make a frame per entry, and each remembered
@@ -186,6 +189,9 @@ class Capture:
         self._lock = threading.Lock()
         self._cache: TTLCache = TTLCache(maxsize=WORKSPACES, ttl=ttl, timer=clock)
         self._sessions: OrderedDict[str, Held] = OrderedDict()
+        # workspace -> the idle session evicted from `_sessions`, parked so a
+        # hold again is heard and its secrets are kept; bounded like them.
+        self._parked: OrderedDict[str, Held] = OrderedDict()
         self._hidden: dict[str, set[str]] = {}
         self._tails: dict[str, list[TailSubscription]] = {}
 
@@ -203,11 +209,15 @@ class Capture:
         back what it replays until `replayed` (plan ruling 18). A hold again of
         a session capture no longer knows — discarded, or replaced by a newer
         browser in its workspace — is not heard: it must not take the
-        workspace back from the browser that replaced it."""
+        workspace back from the browser that replaced it. One evicted while
+        it was paused is: it is held again whole, secrets and all."""
         with self._lock:
             held = self._sessions.get(session_id)
             if again:
+                if held is None:
+                    held = self._unpark(workspace, session_id)
                 if held is None or held.workspace != workspace:
+                    log.info("capture: a hold again in %s is not heard", workspace)
                     return
                 self._sessions.move_to_end(session_id)
                 held.live = True
@@ -224,6 +234,9 @@ class Capture:
                 s for s, h in self._sessions.items() if h.workspace == workspace
             ]:
                 secrets += self._sessions.pop(sid).masker.secrets
+            parked = self._parked.pop(workspace, None)
+            if parked is not None:
+                secrets += parked.masker.secrets
             self._sessions[session_id] = Held(
                 workspace, session_id, browser, top, masker=Masker(secrets)
             )
@@ -292,6 +305,7 @@ class Capture:
         """Forget the workspace's capture and its session (programme R9)."""
         with self._lock:
             self._cache.pop(workspace, None)
+            self._parked.pop(workspace, None)
             for sid in [
                 s for s, h in self._sessions.items() if h.workspace == workspace
             ]:
@@ -305,6 +319,9 @@ class Capture:
             for held in self._sessions.values():
                 if held.workspace == workspace:
                     held.masker.add(forms)
+            parked = self._parked.get(workspace)
+            if parked is not None:
+                parked.masker.add(forms)
 
     @contextlib.contextmanager
     def hidden(self, session_id: str, context: str) -> Iterator[None]:
@@ -408,12 +425,32 @@ class Capture:
     # ---- landing, under the lock ---------------------------------------------
 
     def _evict(self) -> None:
-        """The oldest sessions past `WORKSPACES` that no connection holds."""
+        """The oldest sessions past `WORKSPACES` that no connection holds,
+        parked: their events are not heard until a hold again unparks them.
+        Past `WORKSPACES` parked, the oldest is forgotten."""
         over = len(self._sessions) - WORKSPACES
         if over > 0:
             idle = [s for s, h in self._sessions.items() if not h.live][:over]
             for sid in idle:
-                del self._sessions[sid]
+                held = self._sessions.pop(sid)
+                self._parked.pop(held.workspace, None)
+                self._parked[held.workspace] = held
+            while len(self._parked) > WORKSPACES:
+                self._parked.popitem(last=False)
+
+    def _unpark(self, workspace: str, session_id: str) -> Held | None:
+        """``session_id``'s parked `Held`, back among the sessions; None when
+        it was not this workspace's parked one, or the workspace has another."""
+        parked = self._parked.get(workspace)
+        if parked is None or parked.session_id != session_id:
+            return None
+        if any(h.workspace == workspace for h in self._sessions.values()):
+            return None
+        del self._parked[workspace]
+        self._sessions[session_id] = parked
+        parked.live = True  # held again: another idle one is parked instead
+        self._evict()
+        return parked
 
     def _tail(self, workspace: str, kind: str, row: dict, kept: bool) -> None:
         subs = self._tails.get(workspace)

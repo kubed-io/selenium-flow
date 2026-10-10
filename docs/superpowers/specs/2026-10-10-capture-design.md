@@ -266,7 +266,8 @@ params)` is the monitor's `on_bidi`.
 - **Masking** (ruling 13) by one `Masker` the buffer and the tail share; the
   catalogue values bound in the workspace come from the secrets binding, in
   every spelling a URL, a JSON or an HTML echo gives them, and carry to the
-  session that replaces one. A session still held is never evicted.
+  session that replaces one. A session still held is never evicted; an idle
+  one evicted is parked, secrets and all, and a hold again takes it back.
 - **Store**: per workspace, a `cachetools.TTLCache`-backed holder of two
   `collections.deque(maxlen=1000)`, counts, marks and the index; TTL slides on
   every entry. An explicit `open_session` without capture discards the

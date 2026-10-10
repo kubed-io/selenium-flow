@@ -577,6 +577,58 @@ def test_a_session_still_held_is_never_evicted(capture):
     assert len(capture._sessions) == WORKSPACES
 
 
+def evict_idle(capture):
+    """Pause ``ws``'s session and push it out with WORKSPACES idle others."""
+    capture.detached("ws", "s1")
+    for i in range(WORKSPACES + 1):
+        attach(capture, workspace=f"w{i}", session_id=f"s{i}x")
+        capture.detached(f"w{i}", f"s{i}x")
+    assert "s1" not in capture._sessions
+
+
+def test_a_session_evicted_while_paused_is_heard_again_with_its_secrets(capture):
+    """PR review, round 2: a hold again after the agent's pause must not stop
+    capture silently because the session's `Held` was evicted meanwhile, and
+    what it was told to mask is still masked."""
+    attach(capture)
+    capture.secret("ws", ["hunter2"])
+    evict_idle(capture)
+    capture.attached("ws", "s1", "firefox", "top-1", again=True)
+    feed(capture, log("pw hunter2"))
+    assert texts(capture) == [f"pw {MASK}"]
+
+
+def test_a_secret_bound_while_evicted_is_masked_once_heard_again(capture):
+    attach(capture)
+    evict_idle(capture)
+    capture.secret("ws", ["hunter2"])
+    capture.attached("ws", "s1", "firefox", "top-1", again=True)
+    feed(capture, log("pw hunter2"))
+    assert texts(capture) == [f"pw {MASK}"]
+
+
+def test_an_evicted_sessions_secrets_carry_to_the_session_that_replaces_it(capture):
+    attach(capture)
+    capture.secret("ws", ["hunter2"])
+    evict_idle(capture)
+    capture.attached("ws", "s2", "chrome", "top-1", again=False)
+    feed(capture, log("pw hunter2"), session_id="s2")
+    assert texts(capture) == [f"pw {MASK}"]
+    # and the browser it replaced is not heard again
+    capture.attached("ws", "s1", "chrome", "top-1", again=True)
+    feed(capture, log("old"))
+    assert texts(capture) == [f"pw {MASK}"]
+
+
+def test_a_discarded_workspace_is_not_heard_again_after_eviction(capture):
+    attach(capture)
+    evict_idle(capture)
+    capture.discard("ws")
+    capture.attached("ws", "s1", "chrome", "top-1", again=True)
+    feed(capture, log("after"))
+    assert capture.console("ws") is None
+
+
 # ---- mark, caused ----------------------------------------------------------------
 
 
