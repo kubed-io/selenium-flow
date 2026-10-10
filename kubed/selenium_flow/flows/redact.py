@@ -12,6 +12,8 @@ for values already known, on the way to a report and a log.
 
 from __future__ import annotations
 
+import html
+import json
 from urllib.parse import quote, quote_plus
 
 HIDDEN = "<hidden>"
@@ -83,6 +85,12 @@ def hidden_forms(values) -> set:
     browser percent-encodes it on the way — so `a/b` comes back as `a%2Fb` and a
     literal replacement misses it entirely. Both quoting styles are covered
     because a form submission uses `+` for spaces and a path does not.
+
+    A page echoes it too, and capture keeps what the page said: a JSON body
+    escapes `"` and `\\`, maybe `/`, and maybe every non-ASCII letter; an HTML
+    one escapes `&`, `<`, `>` and maybe the quotes, the apostrophe as `&#x27;`
+    or `&#39;`. Each of those spellings is a form, or a body or a console line
+    would hand the value to whoever reads it.
     """
     forms = set()
     for value in values:
@@ -97,6 +105,13 @@ def hidden_forms(values) -> set:
         forms.add(text)
         forms.add(quote(text, safe=""))
         forms.add(quote_plus(text))
+        for ascii_only in (True, False):
+            escaped = json.dumps(text, ensure_ascii=ascii_only)[1:-1]
+            forms.add(escaped)
+            forms.add(escaped.replace("/", "\\/"))
+        forms.add(html.escape(text))
+        forms.add(html.escape(text, quote=False))
+        forms.add(html.escape(text).replace("&#x27;", "&#39;"))
     return forms
 
 
@@ -111,9 +126,12 @@ def scrub(text: str, values) -> str:
     round: a mangled error beats a leaked credential, and a two-character secret
     is a problem with the secret.
     """
-    for value in values:
-        if isinstance(value, str) and value:
-            text = text.replace(value, HIDDEN)
+    # Longest first: a short form inside a longer one would otherwise leave
+    # the longer one's remainder behind.
+    for value in sorted(
+        (v for v in values if isinstance(v, str) and v), key=len, reverse=True
+    ):
+        text = text.replace(value, HIDDEN)
     return text
 
 

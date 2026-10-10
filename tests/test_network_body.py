@@ -186,3 +186,54 @@ def test_text_and_unknown_types_are_asked_of_the_browser(actions, fed, mime):
     id = kept(fed, "r2", mime, 8_000_000, 2)
     fed.channel.bodies["r2"] = body_of("ok")
     assert actions.network_body("s1", id)["text"] == "ok"
+
+
+# ---- escaped echoes (PR review I2) ---------------------------------------------
+
+# Quote, ampersand, slash, angle bracket, apostrophe and a non-ASCII letter:
+# every escape a JSON or HTML echo of it can take.
+TRICKY = "p\"w&/<'é"
+
+
+def escaped_echoes(value):
+    import html
+    import json
+
+    plain = json.dumps(value)[1:-1]
+    unicode = json.dumps(value, ensure_ascii=False)[1:-1]
+    return [
+        plain,                                   # \" and é
+        unicode,                                 # \" and é
+        plain.replace("/", "\\/"),               # PHP's json_encode escapes the slash
+        unicode.replace("/", "\\/"),
+        html.escape(value),                      # &quot; &amp; &lt; &#x27;
+        html.escape(value, quote=False),
+        html.escape(value).replace("&#x27;", "&#39;"),
+    ]
+
+
+@pytest.fixture
+def tricky_bound(fed):
+    from kubed.selenium_flow import binding
+
+    fed.capture.secret("ws", binding.forms_of({"text": TRICKY}, {"text"}))
+    return escaped_echoes(TRICKY)
+
+
+def test_a_secret_echoed_json_or_html_escaped_in_a_body_is_masked(actions, fed, tricky_bound):
+    fed.channel.bodies["r1"] = body_of("|".join(tricky_bound))
+    got = actions.network_body("s1", "1.1")
+    assert got["text"] == "|".join([MASK] * len(tricky_bound))
+
+
+async def test_a_secret_echoed_escaped_in_the_console_and_its_tail_is_masked(fed, tricky_bound):
+    from .capture_events import log
+
+    tail = fed.capture.tail("ws", "console")
+    for echo in tricky_bound:
+        fed.capture.ingest("ws", "s1", *log(f"saw {echo}"))
+    rows = [await tail.next() for _ in tricky_bound]
+    tail.close()
+    assert [row["text"] for row in rows] == [f"saw {MASK}"] * len(tricky_bound)
+    kept = [entry["text"] for entry in fed.capture.console("ws")["entries"]]
+    assert kept == [f"saw {MASK}"] * len(tricky_bound)

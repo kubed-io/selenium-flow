@@ -971,6 +971,17 @@ def test_a_key_is_scrubbed_like_a_value_and_a_collision_keeps_the_later():
     assert collided == {"result": {"<hidden>": "later"}}
 
 
+def test_a_value_echoed_json_or_html_escaped_is_scrubbed_whole():
+    """The forms capture masks are the forms a run scrubs: an escaped echo in a
+    step's result is hidden whole, and a plain form inside an escaped one
+    never leaves the escape's remainder behind (PR review I2)."""
+    hidden = redact.hidden_forms(['"q<é', "", None])
+    assert "" not in hidden and None not in hidden
+    # JSON's \" holds the plain "q<é inside it, after its backslash.
+    for echo in ('\\"q<\\u00e9', '\\"q<é', "&quot;q&lt;é", '"q&lt;é'):
+        assert redact.scrub(f"saw {echo}!", hidden) == "saw <hidden>!"
+
+
 def test_the_responses_own_fields_are_never_scrubbed():
     """A secret that spells `url` must not rename the field a caller reads."""
     assert redact.scrub_values({"url": "https://x.test/", "title": "t"}, {"url"}) == {
